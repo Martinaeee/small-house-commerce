@@ -1,0 +1,295 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import type {
+  AdminProductQuery,
+  CreateProductInput,
+  StorefrontProductQuery,
+  UpdateProductInput,
+} from './dto/product.dto.js';
+
+const ADMIN_PRODUCT_INCLUDE = {
+  images: { orderBy: { sortOrder: 'asc' as const } },
+  variants: { include: { sku: true }, orderBy: { position: 'asc' as const } },
+} satisfies Prisma.ProductInclude;
+
+/**
+ * Storefront select is a whitelist on purpose: cost and supplier fields live
+ * on Sku and must never reach the storefront, so no `include` is used here.
+ */
+const STOREFRONT_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  room: true,
+  internalRole: true,
+  solutions: true,
+  width: true,
+  height: true,
+  depth: true,
+  foldedWidth: true,
+  foldedHeight: true,
+  foldedDepth: true,
+  images: {
+    select: { id: true, url: true, altText: true, sortOrder: true },
+    orderBy: { sortOrder: 'asc' as const },
+  },
+  variants: {
+    select: { id: true, name: true, position: true, sku: { select: { skuCode: true } } },
+    orderBy: { position: 'asc' as const },
+  },
+} satisfies Prisma.ProductSelect;
+
+@Injectable()
+export class ProductsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // --- admin ---------------------------------------------------------------
+
+  async list(query: AdminProductQuery) {
+    const where = this.adminWhere(query);
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where,
+        include: ADMIN_PRODUCT_INCLUDE,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return { items, total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async get(id: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: ADMIN_PRODUCT_INCLUDE,
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return product;
+  }
+
+  async create(input: CreateProductInput) {
+    await this.ensureCategory(input.categoryId);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const product = await tx.product.create({
+          data: {
+            name: input.name,
+            slug: input.slug,
+            description: input.description ?? null,
+            categoryId: input.categoryId,
+            status: input.status,
+            room: input.room ?? null,
+            internalRole: input.internalRole ?? null,
+            solutions: input.solutions,
+            width: input.width ?? null,
+            height: input.height ?? null,
+            depth: input.depth ?? null,
+            foldedWidth: input.foldedWidth ?? null,
+            foldedHeight: input.foldedHeight ?? null,
+            foldedDepth: input.foldedDepth ?? null,
+            images: { create: input.images },
+          },
+        });
+
+        // Variants are created one at a time so each gets an id before its
+        // SKU row is inserted (Sku.productId is a separate required FK that
+        // Prisma cannot fill through the nested create path).
+        for (const variant of input.variants) {
+          const created = await tx.productVariant.create({
+            data: { productId: product.id, name: variant.name, position: variant.position },
+          });
+
+          if (variant.sku) {
+            await tx.sku.create({
+              data: { ...variant.sku, productId: product.id, variantId: created.id },
+            });
+          }
+        }
+
+        return tx.product.findUniqueOrThrow({
+          where: { id: product.id },
+          include: ADMIN_PRODUCT_INCLUDE,
+        });
+      });
+    } catch (error) {
+      this.rethrowKnown(error);
+    }
+  }
+
+  async update(id: string, input: UpdateProductInput) {
+    const existing = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (input.categoryId) {
+      await this.ensureCategory(input.categoryId);
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const data: Prisma.ProductUpdateInput = {};
+
+        if (input.name !== undefined) data.name = input.name;
+        if (input.slug !== undefined) data.slug = input.slug;
+        if (input.description !== undefined) data.description = input.description;
+        if (input.categoryId !== undefined) data.category = { connect: { id: input.categoryId } };
+        if (input.status !== undefined) data.status = input.status;
+        if (input.room !== undefined) data.room = input.room;
+        if (input.internalRole !== undefined) data.internalRole = input.internalRole;
+        if (input.solutions !== undefined) data.solutions = input.solutions;
+        if (input.width !== undefined) data.width = input.width;
+        if (input.height !== undefined) data.height = input.height;
+        if (input.depth !== undefined) data.depth = input.depth;
+        if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
+        if (input.foldedHeight !== undefined) data.foldedHeight = input.foldedHeight;
+        if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
+
+        // Images and variants are whole-list replacements on update.
+        if (input.images !== undefined) {
+          data.images = { deleteMany: {}, create: input.images };
+        }
+
+        if (input.variants !== undefined) {
+          // Cascade removes the old SKUs with their variants.
+          await tx.productVariant.deleteMany({ where: { productId: id } });
+
+          for (const variant of input.variants) {
+            const created = await tx.productVariant.create({
+              data: { productId: id, name: variant.name, position: variant.position },
+            });
+
+            if (variant.sku) {
+              await tx.sku.create({
+                data: { ...variant.sku, productId: id, variantId: created.id },
+              });
+            }
+          }
+        }
+
+        return tx.product.update({
+          where: { id },
+          data,
+          include: ADMIN_PRODUCT_INCLUDE,
+        });
+      });
+    } catch (error) {
+      this.rethrowKnown(error);
+    }
+  }
+
+  async remove(id: string) {
+    const existing = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Product not found');
+    }
+
+    // Cascade deletes variants, SKUs and images (schema onDelete: Cascade).
+    await this.prisma.product.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // --- storefront ----------------------------------------------------------
+
+  async storefrontList(query: StorefrontProductQuery) {
+    const where: Prisma.ProductWhereInput = { status: 'ACTIVE' };
+
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { slug: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    if (query.categoryId) where.categoryId = query.categoryId;
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where,
+        select: STOREFRONT_SELECT,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return { items, total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async storefrontGetBySlug(slug: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { slug, status: 'ACTIVE' },
+      select: STOREFRONT_SELECT,
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return product;
+  }
+
+  // --- helpers -------------------------------------------------------------
+
+  private adminWhere(query: AdminProductQuery): Prisma.ProductWhereInput {
+    const where: Prisma.ProductWhereInput = {};
+
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { slug: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    if (query.status) where.status = query.status;
+    if (query.categoryId) where.categoryId = query.categoryId;
+
+    return where;
+  }
+
+  private async ensureCategory(categoryId: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    });
+
+    if (!category) {
+      throw new BadRequestException('Category does not exist');
+    }
+  }
+
+  private rethrowKnown(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('A record with the same unique value already exists');
+      }
+      if (error.code === 'P2003') {
+        throw new BadRequestException('Referenced record does not exist');
+      }
+    }
+    throw error;
+  }
+}

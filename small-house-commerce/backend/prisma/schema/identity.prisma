@@ -29,7 +29,9 @@ enum RoleCode {
   FINANCE
 }
 
-/// The permission codes enumerated in DATABASE.md §6.
+/// The permission codes enumerated in DATABASE.md §6, extended with
+/// PRODUCT_MANAGE (catalog administration) which ADMIN_SPEC.md §4 grants to
+/// ADMIN and SUPER_ADMIN.
 enum PermissionCode {
   ORDER_VIEW_ALL
   ORDER_VIEW_OWN
@@ -43,6 +45,7 @@ enum PermissionCode {
   SHIPMENT_CREATE
   REPORT_PROFIT_VIEW
   SYSTEM_SETTINGS_EDIT
+  PRODUCT_MANAGE
 }
 
 /// DATABASE.md §5 `users`.
