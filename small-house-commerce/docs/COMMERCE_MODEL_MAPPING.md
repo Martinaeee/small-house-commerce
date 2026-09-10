@@ -77,7 +77,7 @@ Three §99 rules are load-bearing here and are the reason several entries below 
 | ------ | ----- | ------------ |
 | Commerce Engine setup | — | **Already satisfied** — `backend/` (NestJS 12 + Prisma 7 + PostgreSQL 18) |
 | Users / Roles / Permissions | TABLE | `User`, `Role`, `Permission`, `UserRole` |
-| Categories | TABLE | `Category` |
+| Categories | TABLE | `Category` — self-referencing tree via `parentId` (decided; §96 lists the entity but no section defines its fields) |
 | Products | TABLE | `Product` |
 | Variants / SKUs | TABLE | `ProductVariant` |
 | Product Images | TABLE | `ProductImage` |
@@ -88,7 +88,7 @@ Three §99 rules are load-bearing here and are the reason several entries below 
 | Order Address Snapshot | SNAPSHOT | Columns on `Order` (not a table) |
 | Order Status History | TABLE | `OrderStatusHistory` |
 | COD Checkout | — | API behaviour, not a table |
-| Payments | TABLE | `Payment` |
+| Payments | TABLE | `Payment` — decided as its own table rather than a status field on `Order` |
 | Inventory | TABLE | `Inventory` |
 | Inventory Reservations | TABLE | `InventoryReservation` |
 | Cancellation Release | — | Inventory movement behaviour, see `InventoryMovement` |
@@ -184,13 +184,25 @@ Three §99 rules are load-bearing here and are the reason several entries below 
 These are unresolved in the source documentation and must be settled before the
 affected models are written.
 
-| # | Question | Affects | Blocking? |
-| - | -------- | ------- | --------- |
-| 1 | `docs/DATABASE.md` §19 still says "Use Commerce Engine native Product models if possible", and §102's architecture diagram still shows a "Commerce Engine" layer. Both contradict `SYSTEM_ARCHITECTURE.md` §1. Should they be reworded to "Transaction Core"? | Documentation consistency | No |
-| 2 | §102 Collections defines `type` with values NAVIGATION / MARKETING / SCENARIO / SYSTEM. The superseded duplicate defined `collection_type` with PRODUCT_CATEGORY / SCENE / DYNAMIC and carried two extra fields (`short_description`, `thumbnail_image`). The superseded version was removed in the same commit that added this file; confirm those two fields are genuinely not wanted. | `Collection` model | Phase 1 only if Collections ships in V1 |
-| 3 | §18 marks `leads` as deferrable if V1 does not capture pre-order form leads. Confirm whether V1 captures them. | `Lead` model | No — deferrable |
-| 4 | `Payment` is listed in §96 only indirectly (`payment_status` exists on Order). Confirm whether Payments is a table in V1 or a status field only. | `Payment` model | Yes, for Phase 1 |
-| 5 | `Category` appears in §96 as "Categories" but has no dedicated numbered section, unlike Products and Collections. Confirm the intended category model and its relationship to Collections. | `Category` model | Yes, for Phase 1 |
+| # | Question | Affects | Status |
+| - | -------- | ------- | ------ |
+| 1 | `docs/DATABASE.md` §19 still says "Use Commerce Engine native Product models if possible", and §102's architecture diagram still shows a "Commerce Engine" layer. Both contradict `SYSTEM_ARCHITECTURE.md` §1. Should they be reworded to "Transaction Core"? | Documentation consistency | Open — not blocking |
+| 2 | §102 Collections defines `type` with values NAVIGATION / MARKETING / SCENARIO / SYSTEM. The superseded duplicate defined `collection_type` with PRODUCT_CATEGORY / SCENE / DYNAMIC and carried two extra fields (`short_description`, `thumbnail_image`). The superseded version was removed in the same commit that added this file; confirm those two fields are genuinely not wanted. | `Collection` model | Open — not blocking |
+| 3 | §18 marks `leads` as deferrable if V1 does not capture pre-order form leads. Confirm whether V1 captures them. | `Lead` model | Open — not blocking |
+| 4 | `Payment` is listed in §96 only indirectly (`payment_status` exists on Order). Confirm whether Payments is a table in V1 or a status field only. | `Payment` model | **RESOLVED — own table** |
+| 5 | `Category` appears in §96 as "Categories" but has no dedicated numbered section, unlike Products and Collections. Confirm the intended category model and its relationship to Collections. | `Category` model | **RESOLVED — self-referencing tree** |
+
+### Decisions taken
+
+- **Payment (Q4)** — `Payment` is its own table in V1, not merely a status field on
+  `Order`. `Order.paymentStatus` remains as the denormalised current state.
+- **Category (Q5)** — `Category` is a self-referencing tree via `parentId`
+  (e.g. `Chair` → `Foldable Chair`), which extends §102's flat `1:N` description by
+  one level. Note that §26 "Product Classification" is a **separate** concern: it
+  defines the `Room` / `Solution` / `Internal Product Role` attribute dimensions and
+  is not the Category entity.
+
+None of the open questions now block Phase 1.
 
 ---
 
