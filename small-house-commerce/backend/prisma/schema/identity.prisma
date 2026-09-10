@@ -1,0 +1,138 @@
+// Identity: admin users, RBAC roles and permissions, refresh tokens.
+//
+// Sources:
+//   docs/DATABASE.md §4 User / Admin System, §5 users, §6 roles / permissions
+//   docs/ADMIN_SPEC.md §3 Admin Roles, §4 Role Permission Matrix
+//   docs/TECH_STACK.md §11 Authentication (JWT + Refresh Token)
+//   docs/SYSTEM_ARCHITECTURE.md §59 Admin Authentication
+//     (admin auth is separate from storefront customer identity; guest
+//      checkout, so there is deliberately no Customer relation here)
+//
+// DATABASE.md §5 suggests passwords be delegated to a framework auth system.
+// That assumed a third-party Commerce Engine; this project builds its own
+// transaction core, so the hash is stored here as `password_hash`.
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// The six roles in DATABASE.md §4 and ADMIN_SPEC.md §3. TECH_STACK.md §12
+/// lists only five (no SUPER_ADMIN, no FINANCE, plus CUSTOMER_SERVICE) and is
+/// treated as stale.
+enum RoleCode {
+  SUPER_ADMIN
+  ADMIN
+  OPTIMIZER
+  CONFIRMOR
+  WAREHOUSE
+  FINANCE
+}
+
+/// The permission codes enumerated in DATABASE.md §6.
+enum PermissionCode {
+  ORDER_VIEW_ALL
+  ORDER_VIEW_OWN
+  ORDER_CONFIRM
+  ORDER_CANCEL
+  ORDER_CHANGE_AID
+  CUSTOMER_RISK_VIEW
+  CUSTOMER_RISK_EDIT
+  INVENTORY_VIEW
+  INVENTORY_ADJUST
+  SHIPMENT_CREATE
+  REPORT_PROFIT_VIEW
+  SYSTEM_SETTINGS_EDIT
+}
+
+/// DATABASE.md §5 `users`.
+model User {
+  id           String     @id @default(uuid(7)) @db.Uuid
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+/// DATABASE.md §6: User N:M Role.
+model Role {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  code        RoleCode @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+/// DATABASE.md §6: Role N:M Permission.
+model Permission {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  code        PermissionCode @unique
+  description String?
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+/// Join table for User N:M Role (DATABASE.md §6).
+model UserRole {
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+/// Join table for Role N:M Permission (DATABASE.md §6).
+model RolePermission {
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// Refresh tokens backing TECH_STACK.md §11 "JWT + Refresh Token" and
+/// SYSTEM_ARCHITECTURE.md §59 "Admin requires authenticated sessions".
+///
+/// Only the hash is stored, so a database leak does not yield usable tokens.
+/// Rotation revokes the previous row rather than deleting it, which keeps the
+/// reuse-detection trail.
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}

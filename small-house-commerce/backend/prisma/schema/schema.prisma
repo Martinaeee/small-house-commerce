@@ -1,0 +1,18 @@
+// Prisma schema for the Small House Ecommerce Platform.
+//
+// Prisma 7 reads every .prisma file in this directory as one schema, so models
+// are split by domain instead of living in a single file. The connection URL is
+// not here: Prisma 7 moved it to prisma7.config.ts, which reads DATABASE_URL.
+//
+// The client is generated into src/ on purpose. tsconfig.build.json pins rootDir
+// to ./src, so anything generated outside it fails to compile.
+// Import models as `../generated/prisma/client.js`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
