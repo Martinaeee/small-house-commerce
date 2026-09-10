@@ -4,6 +4,8 @@ node_modules/
 # environment
 .env
 .env.*
+# ...but keep the committed template
+!.env.example
 
 # build
 .next/

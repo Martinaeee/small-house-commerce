@@ -1,0 +1,43 @@
+import { z } from 'zod';
+
+/**
+ * Every environment variable the application reads.
+ *
+ * Validated once at boot so a missing or malformed value stops the process
+ * immediately, instead of surfacing later as an `undefined` during a request.
+ */
+export const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+
+  PORT: z.coerce.number().int().positive().max(65535).default(3000),
+
+  DATABASE_URL: z
+    .string()
+    .min(1, 'DATABASE_URL is required')
+    .refine(
+      (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
+      'DATABASE_URL must be a postgresql:// connection string',
+    ),
+});
+
+export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Parses and validates the environment.
+ *
+ * Reports every problem at once rather than only the first, so a fresh clone
+ * with several unset variables is fixed in one pass.
+ */
+export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
+  const result = envSchema.safeParse(source);
+
+  if (!result.success) {
+    const details = result.error.issues
+      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('\n');
+
+    throw new Error(`Invalid environment configuration:\n${details}`);
+  }
+
+  return result.data;
+}

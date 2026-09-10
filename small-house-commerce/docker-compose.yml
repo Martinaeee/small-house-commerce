@@ -1,0 +1,40 @@
+# Local development infrastructure for the Small House Ecommerce Platform.
+#
+# PostgreSQL runs locally so development does not depend on outbound access to
+# a managed database provider.
+#
+#   docker compose up -d      start
+#   docker compose down       stop (data survives in the named volume)
+#   docker compose logs -f    follow logs
+#
+# Connection string expected by the backend (see backend/.env.example):
+#   postgresql://postgres:postgres@localhost:5432/small_house?schema=public
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: small-house-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-small_house}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    # postgres:18 stores its cluster at /var/lib/postgresql/18/docker and
+    # declares /var/lib/postgresql as its volume, so that is the path to mount.
+    # The pre-18 path (/var/lib/postgresql/data) would leave the actual data in
+    # an anonymous volume that `docker compose down` can discard.
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-small_house}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:

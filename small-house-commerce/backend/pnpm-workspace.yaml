@@ -1,0 +1,12 @@
+# pnpm settings. pnpm 11+ reads these from pnpm-workspace.yaml, not from
+# package.json, and blocks every dependency postinstall script by default.
+# `allowBuilds` is the v11+ replacement for the removed `onlyBuiltDependencies`.
+#
+# All three entries belong to the Prisma toolchain and genuinely need their
+# install scripts: @prisma/engines fetches the query engine binary, esbuild
+# installs its platform binary, and the prisma CLI has its own postinstall.
+# Everything else stays denied by default.
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
