@@ -1,0 +1,8 @@
+# pnpm settings. pnpm 11+ reads these from pnpm-workspace.yaml, not from
+# package.json, and blocks every dependency postinstall script by default.
+# `allowBuilds` is the v11+ replacement for the removed `onlyBuiltDependencies`.
+#
+# unrs-resolver is pulled in by eslint-config-next and must build a native
+# binding, so it is explicitly reviewed and allowed. Everything else stays denied.
+allowBuilds:
+  unrs-resolver: true
