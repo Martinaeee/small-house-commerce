@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# environment
+.env
+.env.*
+
+# build
+.next/
+dist/
+build/
+
+# logs
+*.log
+
+# database
+*.sqlite
+*.db
+
+# typescript incremental build cache
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/settings.json
+
+# local experiment workspace (superseded prototype, kept on disk only)
+试验1/

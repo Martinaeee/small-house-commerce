@@ -1,14 +1,34 @@
-Philippines Small House Ecommerce
-Product Detail Page Specification
+# Philippines Small House Ecommerce
 
-Version: V1.0
+# Product Detail Page Specification
 
-1. Page Purpose
-Core Purpose
 
-Product Detail Page is the primary landing page for Facebook traffic.
+Version:
 
-Customer journey:
+V1.1
+
+
+Project:
+
+Philippines Small House COD Ecommerce Platform
+
+
+
+---
+
+# 1. Page Purpose
+
+
+## Core Purpose
+
+
+Product Detail Page (PDP) is the primary conversion page for Facebook traffic.
+
+
+
+Customer Journey:
+
+
 
 Facebook Advertisement
 
@@ -29,132 +49,341 @@ COD Order
 Fulfillment
 
 
-PDP is not only product information page.
 
-It is a:
+PDP is not only a product information page.
 
-Product sales page
-Trust building page
-Lifestyle inspiration page
-Conversion page
 
-Main objective:
+It is:
 
-Convert cold traffic into COD orders.
 
-2. Design Principle
-2.1 Mobile First
+- Product Sales Page
+- Trust Building Page
+- Lifestyle Inspiration Page
+- Conversion Page
+
+
+
+Main Objective:
+
+
+Convert cold traffic users into COD orders.
+
+
+
+---
+
+# 2. Customer Decision Framework
+
+
+Every PDP must answer five customer questions.
+
+
+
+## Question 1:
+
+What is this product?
+
+
+Solution:
+
+
+Hero Product Section
+
+
+
+---
+
+## Question 2:
+
+Why do I need it?
+
+
+Solution:
+
+
+Problem
+
+↓
+
+Lifestyle Solution
+
+↓
+
+Product Benefits
+
+
+
+---
+
+## Question 3:
+
+Will it fit my home?
+
+
+Solution:
+
+
+- Dimensions
+- Size Guide
+- Room Scenario
+- Space Visualization
+
+
+
+---
+
+## Question 4:
+
+Can I trust this purchase?
+
+
+Solution:
+
+
+- COD Information
+- Reviews
+- Delivery Information
+- Customer Support
+
+
+
+---
+
+## Question 5:
+
+How can I order?
+
+
+Solution:
+
+
+- Clear CTA
+- Sticky Purchase Button
+- Simple Checkout
+
+
+
+---
+
+# 3. Design Principle
+
+
+## 3.1 Mobile First
+
 
 Primary users:
 
+
 Philippines mobile shoppers.
+
+
 
 Priority:
 
-Mobile Conversion
 
->
+
+Mobile Conversion
 
 Desktop Experience
 
 
+
 Requirements:
 
-Fast loading
-Large CTA
-Easy scrolling
-Minimal checkout friction
-3. Overall Page Structure
 
-Full page:
+- Fast loading
+- Large CTA
+- Easy scrolling
+- Minimal checkout friction
+- Clear product value
 
-1. Hero Product Section
 
-↓
 
-2. Offer Module
+---
 
-↓
+# 4. PDP User Journey
 
-3. COD Trust Module
 
-↓
+Main flow:
 
-4. Product Problem
+
+
+Traffic Entry
 
 ↓
 
-5. Lifestyle Solution
+Hero Understanding
 
 ↓
 
-6. Key Features
+Product Value Recognition
 
 ↓
 
-7. Product Details
+Trust Building
 
 ↓
 
-8. Size Guide
+Purchase Decision
 
 ↓
 
-9. How It Fits Your Space
+Checkout
 
 ↓
 
-10. Reviews
+COD Order
+
+
+
+---
+
+# 5. Overall Page Structure
+
+
+Full PDP:
+
+
+Hero Product Section
 
 ↓
 
-11. FAQ
+Offer Module
 
 ↓
 
-12. Related Products
+COD Trust Module
 
 ↓
 
-13. Final CTA
+Lifestyle Problem
 
-4. Hero Product Section
-Goal
+↓
 
-Within first 5 seconds:
+Lifestyle Solution
 
-Customer understands:
+↓
 
-Product
-Value
+Key Benefits
+
+↓
+
+Product Details
+
+↓
+
+Variant Selection
+
+↓
+
+Size Guide
+
+↓
+
+Space Visualization
+
+↓
+
+Reviews
+
+↓
+
+FAQ
+
+↓
+
+Related Products
+
+↓
+
+Final CTA
+
+
+---
+
+# 6. Hero Product Section
+
+
+## Goal
+
+
+Within first 5 seconds customer understands:
+
+
+- What is this?
+- Why is it useful?
+- How much?
+- How to buy?
+
+
+
+---
+
+# 6.1 Desktop Layout
+
+
+
+| | |
+| Product Gallery | Product Information |
+| | |
+
+
+
+---
+
+# 6.2 Mobile Layout Priority
+
+
+Mobile order:
+
+
+
+Lifestyle Image
+
+↓
+
+Product Name
+
+↓
+
 Price
-Purchase action
-Desktop Layout
 
-------------------------------------------------
+↓
 
-|                  |                           |
-| Product Gallery  | Product Information      |
-|                  |                           |
-|                  |                           |
+Offer
 
-------------------------------------------------
+↓
+
+CTA
+
+↓
+
+COD Trust
+
+↓
+
+Details
 
 
-Left Area
-Product Gallery
+
+The first screen must focus on conversion.
+
+
+
+---
+
+# 6.3 Product Gallery
+
 
 Components:
 
-Main Image
 
-Must show:
+## Main Image
 
-Product appearance
-Real environment
-Usage scenario
 
 Priority:
+
+
 
 Lifestyle Image
 
@@ -166,99 +395,140 @@ Product Image
 
 Detail Image
 
-Thumbnail Gallery
+
+
+
+Main image should show:
+
+
+- Product appearance
+- Real home environment
+- Usage scenario
+
+
+
+---
+
+## Thumbnail Gallery
+
 
 Support:
 
-Multiple images
-Video
-Customer photos
+
+- Multiple images
+- Product video
+- Customer photos
+
+
 
 Categories:
+
+
 
 Lifestyle
 
 Product Detail
 
-Dimensions
+Dimension
+
+Function
 
 Installation
 
 Reviews
 
-Right Area
-Product Information
+
+
+
+---
+
+# 6.4 Product Information Area
+
 
 Structure:
 
 
-Collection Name
 
+Collection Name
 
 Product Name
 
-
-★★★★★
-Reviews
-
+Rating
 
 Price
 
-
-Discount
-
+Offer
 
 Variant
 
-
-Bundle Option
-
-
 COD Information
-
 
 CTA
 
 
-5. Product Title Rules
 
-Avoid supplier names.
+---
 
-Bad:
+# 7. Product Title Rules
+
+
+Product title must avoid supplier naming.
+
+
+
+Wrong:
+
+
 
 Modern Metal Folding Chair Model X123
 
 
-Good:
+
+Correct:
+
+
 
 Space Saving Folding Chair
+
 For Small Homes
+
+
 
 
 Formula:
 
-Function
 
-+
+
+Function
 
 Lifestyle Scenario
 
 
+
 Examples:
+
+
 
 Foldable Chair For Small Balcony
 
-
 Compact Storage Cabinet For Condo Living
-
 
 Multi Purpose Side Table For Small Rooms
 
-6. Price Module
+
+
+
+---
+
+# 8. Price Module
+
 
 Required:
 
+
 Display:
+
+
 
 Original Price
 
@@ -271,137 +541,289 @@ Discount Price
 Saving Amount
 
 
+
+
 Example:
+
+
 
 ₱1,999
 
-
 ₱999
-
 
 Save ₱1,000
 
 
-Optional:
 
-Monthly Cost:
+
+---
+
+## Price Psychology
+
+
+Support:
+
+
+## Bundle Saving
+
 
 Example:
 
-Only ₱83/month
 
 
-Purpose:
-
-Reduce price resistance.
-
-7. Offer Module ⭐
-
-Position:
-
-Above CTA
-
-Purpose:
-
-Increase conversion and AOV.
-
-Examples:
-
-Single Product
-SPECIAL OFFER
-
-
-Buy Today Save 30%
-
-Bundle
-MAKE YOUR SPACE COMPLETE
-
-
-Chair + Table Set
-
+Chair + Desk Set
 
 Save More
 
-Quantity Discount
+
+
+
+## Quantity Discount
+
+
+Example:
+
+
+
 Buy 2
 
 Get Better Price
 
-8. COD Trust Module
+
+
+
+## Unit Price
+
+
+Example:
+
+
+
+Only ₱499 each
+
+
+
+
+---
+
+# 9. Offer Module
+
 
 Position:
 
-Near CTA.
+
+Above CTA
+
+
 
 Purpose:
 
+
+Increase conversion and AOV.
+
+
+
+Offer must be CMS controlled.
+
+
+
+Offer Types:
+
+
+
+DISCOUNT
+
+BUNDLE
+
+QUANTITY
+
+FLASH_SALE
+
+
+
+
+Fields:
+
+
+
+Offer Title
+
+Description
+
+Discount
+
+Bundle Products
+
+Expiry Time
+
+Product Binding
+
+
+
+
+Examples:
+
+
+
+SPECIAL OFFER
+
+Buy Today Save 30%
+
+
+
+
+Bundle:
+
+
+
+MAKE YOUR SPACE COMPLETE
+
+Chair + Table Set
+
+Save More
+
+
+
+
+---
+
+# 10. COD Trust Module
+
+
+Position:
+
+
+Near CTA.
+
+
+
+Purpose:
+
+
 Reduce Philippines COD hesitation.
 
-Content:
+
+
+Display:
+
+
 
 ✓ Cash On Delivery Available
 
-✓ Delivery Across Philippines
-
-✓ Easy Ordering
+✓ Nationwide Delivery
 
 ✓ Customer Support Available
 
 
+
+
 Avoid:
 
-Too many guarantees.
 
-Keep clean.
+- Excessive guarantee badges
+- Too many trust icons
 
-9. CTA Design
+
+
+---
+
+# 11. CTA Design
+
 
 Primary CTA:
+
+
 
 ORDER NOW
 
 
+
+
 Secondary:
+
+
 
 ADD TO CART
 
 
-For COD model:
 
-Order Now priority.
 
-10. Mobile Sticky CTA
+COD priority:
+
+
+
+ORDER NOW
+
+
+
+
+CTA requirements:
+
+
+- Always visible
+- Mobile friendly
+- Clear action
+
+
+
+---
+
+# 12. Mobile Sticky CTA
+
 
 Required.
 
-Reference:
 
-Mobile furniture PDP often keeps product name, price and purchase action visible during browsing.
+
+During scrolling:
+
 
 Fixed bottom:
 
---------------------------------
+
 
 Product Name
 
 ₱999
 
-
 [ORDER NOW]
 
---------------------------------
 
-11. Lifestyle Problem Section
+
 
 Purpose:
 
-Connect with customer emotions.
+
+Reduce purchase friction.
+
+
+
+---
+
+# 13. Lifestyle Problem Section
+
+
+Purpose:
+
+
+Create emotional connection.
+
+
 
 Format:
 
+
 Problem
 
-Example:
+↓
+
+Solution
+
+
+
+Examples:
+
+
 
 Small room?
 
@@ -410,15 +832,32 @@ Limited space?
 Too much clutter?
 
 
-Image:
 
-Philippines condo / bedroom / apartment.
 
-12. Lifestyle Solution Section
+Images:
 
-Show:
+
+Philippines:
+
+
+- Condo
+- Bedroom
+- Apartment
+- Small living space
+
+
+
+---
+
+# 14. Lifestyle Solution Section
+
+
+Show transformation:
+
 
 Before:
+
+
 
 Empty corner
 
@@ -427,7 +866,11 @@ Messy room
 Limited storage
 
 
+
+
 After:
+
+
 
 Organized
 
@@ -436,36 +879,74 @@ Beautiful
 Functional
 
 
-Message:
+
+
+Core message:
+
+
 
 Designed for modern small-space living.
 
-13. Key Features Section
 
-Do not write technical specifications first.
+
+
+---
+
+# 15. Key Benefits Section
+
+
+Do not start with specifications.
+
+
 
 Use benefit language.
 
+
+
 Example:
 
-Space Saving Design
+
+
+## Space Saving Design
+
+
 Fold it away when you need more space.
 
-Easy To Use
+
+
+## Easy To Use
+
+
 Move it anywhere in your home.
 
-Modern Style
+
+
+## Modern Style
+
+
 Fits different home interiors.
 
-14. Product Detail Section
+
+
+---
+
+# 16. Product Detail Section
+
 
 Purpose:
 
+
 Answer buying questions.
+
+
 
 Include:
 
-Dimensions
+
+## Dimensions
+
+
+
 Height
 
 Width
@@ -474,9 +955,15 @@ Depth
 
 Weight
 
-Material
+
+
+
+## Material
+
 
 Example:
+
+
 
 Steel Frame
 
@@ -484,11 +971,17 @@ Wood Surface
 
 Durable Finish
 
-Package
+
+
+
+## Package
+
 
 Example:
 
-Package includes:
+
+
+Package Includes:
 
 1 x Chair
 
@@ -496,34 +989,217 @@ Assembly Tools
 
 Manual
 
-15. Size Guide
 
-Very important for furniture.
+
+
+---
+
+# 17. Variant Selector
+
+
+Required for products with multiple SKUs.
+
+
+
+Supported:
+
+
+
+Color
+
+Size
+
+Material
+
+Bundle
+
+
+
+
+Example:
+
+
+Color:
+
+
+
+Black
+
+White
+
+Wood
+
+
+
+
+Bundle:
+
+
+
+Chair Only
+
+Chair + Desk
+
+
+
+
+Rules:
+
+
+Selected variant must update:
+
+
+- SKU
+- Price
+- Stock Status
+- Image
+
+
+
+---
+
+# 18. Stock Display
+
+
+PDP must display inventory status.
+
+
+
+## Available
+
+
+Show:
+
+
+
+ORDER NOW
+
+
+
+
+---
+
+## Low Stock
+
+
+Show:
+
+
+
+Only X left
+
+
+
+
+---
+
+## Out Of Stock
+
+
+Disable:
+
+
+
+ORDER NOW
+
+
+
+Show:
+
+
+
+Notify Me
+
+or
+
+Recommended Products
+
+
+
+
+---
+
+# 19. Size Guide
+
+
+Important furniture decision factor.
+
+
 
 Question:
 
-"Will it fit my home?"
-
-Design:
-
-Will it fit your space?
 
 
-Room Example
+Will it fit my home?
+
+
+
+
+Display:
+
 
 
 Product Size
 
-
 Recommended Space
 
-16. Scenario Gallery
+Room Example
 
-Similar to Castlery's lifestyle approach.
 
-Furniture should not only show product but show how it lives in the home.
 
-Sections:
+
+---
+
+# 20. Dimension Visualization
+
+
+Do not only display numbers.
+
+
+
+Support:
+
+
+
+Product
+
+Human Scale
+
+Room Scale
+
+
+
+
+Example:
+
+
+Chair:
+
+
+
+Fits beside:
+
+Small Desk
+
+Balcony Corner
+
+Bedroom Corner
+
+
+
+
+---
+
+# 21. Scenario Gallery
+
+
+Furniture should show how it lives.
+
+
+
+Scenes:
+
+
 
 Small Bedroom
 
@@ -535,120 +1211,219 @@ Balcony
 
 Condo
 
-17. Reviews Module
+
+
+
+Goal:
+
+
+Customer imagines the product inside their home.
+
+
+
+---
+
+# 22. Reviews Module
+
 
 Required.
 
+
+
 Structure:
+
+
 
 ★★★★★
 
+Customer Photo
 
-Customer Photos
-
-
-Customer Comment
-
+Comment
 
 Name
 
 Location
 
 
+
+
 Example:
 
-"Perfect for my condo room."
 
+
+Perfect for my condo room.
 
 Maria
 
 Manila
 
-18. FAQ Module
+
+
+
+---
+
+# 23. FAQ Module
+
 
 Required.
 
+
+
 Questions:
 
-Delivery
+
+## Delivery
+
+
 How long does delivery take?
 
-Payment
+
+
+## Payment
+
+
 Do you accept COD?
 
-Product
+
+
+## Product
+
+
 Is assembly required?
 
-Size
+
+
+## Size
+
+
 Will it fit my room?
 
-19. Related Products
+
+
+---
+
+# 24. Related Products
+
 
 Purpose:
 
+
 Increase order value.
 
-Logic:
 
-Based on:
 
-Scene recommendation.
+Recommendation logic:
+
+
+Priority:
+
+
+
+Same Scene
+
+↓
+
+Same Room
+
+↓
+
+Bundle Product
+
+↓
+
+Complementary Product
+
+
+
 
 Example:
 
-Product:
 
-Foldable Chair
+Foldable Chair:
+
 
 Recommend:
 
+
+
 Small Desk
 
-Storage Cabinet
+Desk Lamp
 
-Lamp
+Storage Cart
 
 
-Not:
 
-Random products.
 
-20. Final CTA Section
+Do not recommend random products.
+
+
+
+---
+
+# 25. Final CTA Section
+
 
 Before purchase:
 
-Show:
+
+Display:
+
+
 
 Ready to upgrade your space?
 
-
 ORDER NOW
-
 
 Cash On Delivery Available
 
-21. Customer Support
 
-Floating Chat:
+
+
+---
+
+# 26. Customer Support
+
+
+Floating chat available.
+
+
 
 Trigger:
 
-User stays >60 seconds
+
+User stays:
+
+>60 seconds
+
+
 
 Message:
 
-Need help choosing the right product?
 
+
+Need help choosing the right product?
 
 Chat with us
 
-22. Analytics Requirements
+
+
+
+---
+
+# 27. Analytics Requirements
+
 
 PDP must support:
 
-Facebook Pixel / CAPI:
+
+Meta Pixel / Conversion API
+
+
 
 Events:
+
+
 
 ViewContent
 
@@ -665,17 +1440,67 @@ InitiateCheckout
 Purchase
 
 
-Track:
 
-Product ID
-SKU
-Price
-Currency
-Campaign ID
-Landing Page
-23. CMS Editable Content
+
+Parameters:
+
+
+## ViewContent
+
+
+
+product_id
+
+value
+
+currency
+
+
+
+
+## AddToCart
+
+
+
+product_id
+
+sku
+
+value
+
+currency
+
+
+
+
+## Purchase
+
+
+
+order_id
+
+product_id
+
+value
+
+currency
+
+aid
+
+campaign_id
+
+ad_id
+
+
+
+
+---
+
+# 28. CMS Editable Content
+
 
 The following must be backend controlled:
+
 
 Product Name
 
@@ -687,26 +1512,104 @@ Promotion
 
 Offer
 
+Variants
+
 Reviews
 
 FAQ
 
 Related Products
 
+Lifestyle Content
+
 Banner
 
-Lifestyle Content
 
 
 No code modification required.
 
-24. PDP Development Priority
 
-MVP priority:
 
-P0
+---
 
-Must Have
+# 29. SEO Integration
+
+
+SEO follows:
+
+
+SEO_SPEC.md
+
+
+
+PDP must expose:
+
+
+- SEO title
+- Meta description
+- URL slug
+- Product schema
+- Review schema
+- Image alt text
+
+
+
+---
+
+# 30. PDP Component Structure
+
+
+Frontend components:
+
+
+
+PDPPage
+
+├── ProductGallery
+
+├── ProductInfo
+
+├── PriceBlock
+
+├── OfferBlock
+
+├── VariantSelector
+
+├── StockDisplay
+
+├── CODTrust
+
+├── LifestyleProblem
+
+├── LifestyleSolution
+
+├── BenefitSection
+
+├── ProductDetail
+
+├── DimensionSection
+
+├── ScenarioGallery
+
+├── ReviewSection
+
+├── FAQSection
+
+├── RelatedProducts
+
+├── StickyCTA
+
+
+
+
+---
+
+# 31. PDP Development Priority
+
+
+## P0 Must Have
+
+
 
 Hero Section
 
@@ -718,13 +1621,23 @@ Offer
 
 COD
 
-CTA
-
 Gallery
+
+Variant
+
+Stock
+
+CTA
 
 Checkout Entry
 
-P1
+
+
+
+## P1
+
+
+
 Lifestyle Story
 
 Reviews
@@ -735,16 +1648,30 @@ Size Guide
 
 Related Products
 
-P2
-Personalization
+
+
+
+## P2
+
+
 
 AI Recommendation
 
+Personalization
+
 Advanced Marketing
 
-Final PDP Goal
+
+
+
+---
+
+# Final PDP Goal
+
 
 Every visitor should understand:
+
+
 
 What is this?
 
@@ -763,6 +1690,7 @@ Can I trust this store?
 ↓
 
 How can I order now?
+
 
 
 END

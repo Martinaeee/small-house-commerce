@@ -383,22 +383,21 @@ Response:
 "price":999,
 
 
-"collections":[
+collections:[
 
 {
-
-"type":"SCENE",
-
-"name":"Home Office"
-
+"type":"NAVIGATION",
+"name":"Chairs & Stools"
 },
 
 {
+"type":"LIFESTYLE",
+"name":"Small Balcony"
+},
 
-"type":"PRODUCT_TYPE",
-
-"name":"Chair"
-
+{
+"type":"SYSTEM",
+"name":"Best Sellers"
 }
 
 ]
