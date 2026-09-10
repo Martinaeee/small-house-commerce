@@ -10,7 +10,7 @@ import {
 import { Permissions } from '../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../auth/permissions.guard.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import {
   createUserSchema,
   updateUserSchema,

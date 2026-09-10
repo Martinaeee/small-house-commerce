@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { PermissionCode } from '../generated/prisma/client.js';
+import type { PermissionCode } from '../../generated/prisma/client.js';
 
 export const PERMISSIONS_KEY = 'permissions';
 

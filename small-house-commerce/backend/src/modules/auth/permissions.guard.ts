@@ -5,8 +5,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { PermissionCode } from '../generated/prisma/client.js';
-import { PrismaService } from '../prisma/prisma.service.js';
+import type { PermissionCode } from '../../generated/prisma/client.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import type { RequestUser } from './jwt-auth.guard.js';
 import { PERMISSIONS_KEY } from './permissions.decorator.js';
 

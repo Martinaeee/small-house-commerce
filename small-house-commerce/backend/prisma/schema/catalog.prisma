@@ -1,0 +1,191 @@
+// Catalog: categories, products, variants, SKUs, product media and suppliers.
+//
+// Sources:
+//   docs/DATABASE.md §19-26 (Product System), §27 (Supplier System)
+//   docs/SYSTEM_ARCHITECTURE.md catalog module (owns Product/Variant/SKU/
+//     Category/Collection/ProductMedia; does NOT own inventory/orders/etc.)
+//   Decisions: Category is a self-referencing tree (parentId); Supplier is
+//     built now because SKU carries supplier fields (§22); Product status is
+//     DRAFT/ACTIVE/DISABLED. §25 forbids packing structured attributes into
+//     one JSON blob, so dimensions are structured columns.
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+}
+
+enum SkuStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum SupplierStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum CategoryStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// §26 "Room" merchandising dimension.
+enum Room {
+  BEDROOM
+  STORAGE
+  DINING_LIVING
+  HOME_OFFICE
+}
+
+/// §26 "Solution" merchandising dimension. A product can have several.
+enum Solution {
+  FOLDABLE
+  NARROW_SPACE
+  MOBILE
+  MULTIFUNCTIONAL
+  HIDDEN_STORAGE
+  RENTAL_FRIENDLY
+}
+
+/// §26 "Internal Product Role" merchandising dimension.
+enum InternalProductRole {
+  HERO
+  CORE
+  ENTRY
+  PREMIUM
+  PRE_ORDER
+}
+
+/// §27 suppliers. SKU rows reference this. Sensitive fields stay admin-only.
+model Supplier {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  name           String
+  contact        String?
+  sourcePlatform String?       @map("source_platform")
+  supplierUrl    String?       @map("supplier_url")
+  currency       String?
+  status         SupplierStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  skus Sku[]
+
+  @@map("suppliers")
+}
+
+/// Category tree. parentId nullable; a product belongs to one category.
+model Category {
+  id        String         @id @default(uuid(7)) @db.Uuid
+  parentId  String?        @map("parent_id") @db.Uuid
+  name      String
+  slug      String         @unique
+  sortOrder Int            @default(0) @map("sort_order")
+  status    CategoryStatus @default(ACTIVE)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+/// §20 required data plus §23 furniture dimensions and §26 dimensions.
+model Product {
+  id             String              @id @default(uuid(7)) @db.Uuid
+  name           String
+  slug           String              @unique
+  description    String?
+  categoryId     String              @map("category_id") @db.Uuid
+  status         ProductStatus       @default(DRAFT)
+  room           Room?
+  internalRole   InternalProductRole? @map("internal_role")
+  solutions      Solution[]
+  // §23 furniture dimensions; folded_* nullable for non-foldable items.
+  width          Float?              @db.DoublePrecision
+  height         Float?              @db.DoublePrecision
+  depth          Float?              @db.DoublePrecision
+  foldedWidth    Float?              @map("folded_width") @db.DoublePrecision
+  foldedHeight   Float?              @map("folded_height") @db.DoublePrecision
+  foldedDepth    Float?              @map("folded_depth") @db.DoublePrecision
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images   ProductImage[]
+  variants ProductVariant[]
+  skus     Sku[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@map("products")
+}
+
+/// §20 "Media".
+model ProductImage {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  url       String
+  altText   String?  @map("alt_text")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+/// §21: a sellable variation (e.g. Black / White / Wood). One variant is one
+/// SKU, but the SKU stays a separate model because it carries cost and
+/// package data the variant does not.
+model ProductVariant {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  name      String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku     Sku?
+
+  @@unique([productId, name])
+  @@index([productId])
+  @@map("product_variants")
+}
+
+/// §22 SKU fields plus §24 package dimensions.
+model Sku {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  productId       String    @map("product_id") @db.Uuid
+  variantId       String    @unique @map("variant_id") @db.Uuid
+  skuCode         String    @unique @map("sku_code")
+  status          SkuStatus @default(ACTIVE)
+  // §22 supplier data
+  supplierId      String?   @map("supplier_id") @db.Uuid
+  supplierSku     String?   @map("supplier_sku")
+  supplierCost    Decimal?  @map("supplier_cost") @db.Decimal(10, 2)
+  costCurrency    String?   @map("cost_currency")
+  landedCost      Decimal?  @map("landed_cost") @db.Decimal(10, 2)
+  // §24 package dimensions - separate from product dimensions (§23)
+  productWeight   Float?    @map("product_weight") @db.DoublePrecision
+  packageWidth    Float?    @map("package_width") @db.DoublePrecision
+  packageHeight   Float?    @map("package_height") @db.DoublePrecision
+  packageDepth    Float?    @map("package_depth") @db.DoublePrecision
+  packageWeight   Float?    @map("package_weight") @db.DoublePrecision
+  volumetricWeight Float?   @map("volumetric_weight") @db.DoublePrecision
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product  Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  supplier Supplier?     @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([productId])
+  @@index([supplierId])
+  @@map("skus")
+}

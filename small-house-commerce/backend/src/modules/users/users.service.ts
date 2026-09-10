@@ -5,8 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import argon2 from 'argon2';
-import type { RoleCode } from '../generated/prisma/client.js';
-import { PrismaService } from '../prisma/prisma.service.js';
+import type { RoleCode } from '../../generated/prisma/client.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import type { CreateUserInput, UpdateUserInput } from './dto/user.dto.js';
 
 const USER_SELECT = {

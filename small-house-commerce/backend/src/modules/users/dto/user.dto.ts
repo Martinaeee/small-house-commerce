@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RoleCode, UserStatus } from '../../generated/prisma/client.js';
+import { RoleCode, UserStatus } from '../../../generated/prisma/client.js';
 
 export const createUserSchema = z.object({
   name: z.string().min(1).max(120),
