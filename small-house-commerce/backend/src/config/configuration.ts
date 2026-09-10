@@ -21,6 +21,11 @@ export function configuration() {
     database: {
       url: env.DATABASE_URL,
     },
+    jwt: {
+      secret: env.JWT_SECRET,
+      accessTtl: env.JWT_ACCESS_TTL,
+      refreshTtl: env.JWT_REFRESH_TTL,
+    },
   };
 }
 

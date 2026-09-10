@@ -18,6 +18,14 @@ export const envSchema = z.object({
       (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
       'DATABASE_URL must be a postgresql:// connection string',
     ),
+
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET must be at least 32 characters'),
+
+  // Durations in the vercel/ms format used by @nestjs/jwt, e.g. "1h", "7d".
+  JWT_ACCESS_TTL: z.string().min(1).default('1h'),
+  JWT_REFRESH_TTL: z.string().min(1).default('7d'),
 });
 
 export type Env = z.infer<typeof envSchema>;

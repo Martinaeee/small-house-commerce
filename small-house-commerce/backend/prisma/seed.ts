@@ -11,7 +11,9 @@
 //
 // Idempotent: safe to run repeatedly. `upsert` on the natural keys.
 
+import { randomBytes } from 'node:crypto';
 import 'dotenv/config';
+import argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   PrismaClient,
@@ -184,6 +186,46 @@ async function main(): Promise<void> {
   console.log(
     `Seeded ${ROLES.length} roles, ${PERMISSIONS.length} permissions, ${grantCount} grants.`,
   );
+
+  await ensureInitialAdmin();
+}
+
+/**
+ * Creates one bootstrap admin so the API has a login to test with.
+ * Email comes from ADMIN_EMAIL (default dev@smallhouse.test). The password
+ * comes from ADMIN_PASSWORD; when unset a random one is generated, printed
+ * once, and never stored anywhere except the argon2 hash.
+ */
+async function ensureInitialAdmin(): Promise<void> {
+  const email = process.env.ADMIN_EMAIL ?? 'dev@smallhouse.test';
+
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (existing) {
+    console.log(`Initial admin ${email} already exists, skipping.`);
+    return;
+  }
+
+  const password = process.env.ADMIN_PASSWORD ?? randomBytes(12).toString('base64url');
+  const passwordHash = await argon2.hash(password);
+
+  const superAdmin = await prisma.role.findUniqueOrThrow({
+    where: { code: RoleCode.SUPER_ADMIN },
+  });
+
+  await prisma.user.create({
+    data: {
+      name: 'Dev Admin',
+      email,
+      passwordHash,
+      roles: { create: [{ roleId: superAdmin.id }] },
+    },
+  });
+
+  if (!process.env.ADMIN_PASSWORD) {
+    console.log(`Created initial admin ${email} with generated password: ${password}`);
+  } else {
+    console.log(`Created initial admin ${email} with ADMIN_PASSWORD from environment.`);
+  }
 }
 
 main()
