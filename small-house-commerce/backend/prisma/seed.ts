@@ -84,6 +84,7 @@ const PERMISSIONS: { code: PermissionCodeType; description: string }[] = [
   { code: PermissionCode.REPORT_PROFIT_VIEW, description: 'View company profit and profit reports.' },
   { code: PermissionCode.SYSTEM_SETTINGS_EDIT, description: 'Edit system and security configuration.' },
   { code: PermissionCode.PRODUCT_MANAGE, description: 'Manage products, variants, SKUs, categories and suppliers.' },
+  { code: PermissionCode.CUSTOMER_MANAGE, description: 'Manage customer profiles and addresses.' },
 ];
 
 // --- grants (ADMIN_SPEC.md §4) ----------------------------------------------
@@ -112,6 +113,7 @@ const GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.SHIPMENT_CREATE,
     PermissionCode.REPORT_PROFIT_VIEW,
     PermissionCode.PRODUCT_MANAGE,
+    PermissionCode.CUSTOMER_MANAGE,
     // deliberately not SYSTEM_SETTINGS_EDIT
   ],
 

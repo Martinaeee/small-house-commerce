@@ -1,0 +1,54 @@
+// Customers and customer addresses.
+//
+// Sources:
+//   docs/DATABASE.md §9 Customer System (normalized phone is the identity key),
+//     §10 customers, §11 customer_addresses, §12 Phone Normalization
+//   Decision: normalized_phone is stored as E.164 (+63 + 10 digits); the
+//     user-entered display value stays on the address row. Customer Risk
+//     Events are Phase 2 (COD Operations) and deliberately not modelled here.
+
+enum RiskLevel {
+  NORMAL
+  WATCHLIST
+  HIGH_RISK
+  BLOCKED
+}
+
+/// §10 customers. The canonical identity is normalizedPhone (unique).
+model Customer {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  name             String?
+  normalizedPhone  String    @unique @map("normalized_phone")
+  email            String?
+  currentRiskLevel RiskLevel @default(NORMAL) @map("current_risk_level")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  addresses CustomerAddress[]
+
+  @@map("customers")
+}
+
+/// §11 customer_addresses. A customer may have several addresses; historical
+/// orders keep their own address snapshot, so this table is never the source
+/// of truth for a past order.
+model CustomerAddress {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  customerId    String   @map("customer_id") @db.Uuid
+  fullName      String   @map("full_name")
+  /// The user-entered display value (e.g. "0917 123 4567"). The canonical
+  /// number lives on Customer.normalizedPhone (§12).
+  phone         String
+  province      String
+  city          String
+  barangay      String?
+  postalCode    String?  @map("postal_code")
+  streetAddress String   @map("street_address")
+  landmark      String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}

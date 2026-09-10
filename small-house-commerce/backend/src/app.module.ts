@@ -4,6 +4,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
+import { CustomersModule } from './modules/customers/customers.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -22,6 +23,7 @@ import { UsersModule } from './modules/users/users.module.js';
     AuthModule,
     UsersModule,
     CatalogModule,
+    CustomersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
