@@ -43,6 +43,10 @@ export interface CartSummary {
     unitPrice: number | null;
     compareAtPrice: number | null;
     lineTotal: number;
+    // Stock state for the item's SKU (decided rules: carts may hold
+    // out-of-stock SKUs, flagged here; checkout refuses when any is short).
+    availableInventory: number;
+    unavailable: boolean;
   }[];
   subtotal: number;
   discount: number;
@@ -164,6 +168,25 @@ export class CartService {
       include: CART_WITH_ITEMS,
     });
 
+    // available = on_hand - reserved, computed per SKU (§29).
+    const availableBySku = new Map<string, number>();
+    const skuIds = [...new Set(cart.items.map((item) => item.sku.id))];
+
+    if (skuIds.length > 0) {
+      const grouped = await this.prisma.inventory.groupBy({
+        by: ['skuId'],
+        where: { skuId: { in: skuIds } },
+        _sum: { onHand: true, reserved: true },
+      });
+
+      for (const row of grouped) {
+        availableBySku.set(
+          row.skuId,
+          (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0),
+        );
+      }
+    }
+
     let subtotal = 0;
     let discount = 0;
 
@@ -171,6 +194,7 @@ export class CartService {
       const unitPrice = item.sku.price === null ? 0 : Number(item.sku.price);
       const compareAt = item.sku.compareAtPrice === null ? 0 : Number(item.sku.compareAtPrice);
       const lineTotal = unitPrice * item.quantity;
+      const availableInventory = availableBySku.get(item.sku.id) ?? 0;
 
       subtotal += lineTotal;
       if (compareAt > unitPrice) {
@@ -188,6 +212,8 @@ export class CartService {
         unitPrice: item.sku.price === null ? null : Number(item.sku.price),
         compareAtPrice: item.sku.compareAtPrice === null ? null : Number(item.sku.compareAtPrice),
         lineTotal,
+        availableInventory,
+        unavailable: availableInventory < item.quantity,
       };
     });
 

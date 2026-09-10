@@ -1,0 +1,306 @@
+// Orders, order items, payments, attribution and audit history, plus the
+// inventory core (warehouses, on-hand/reserved, reservations, movements).
+//
+// Sources:
+//   docs/DATABASE.md §28-33 (warehouse, inventory, reservation, movements),
+//     §37-45 (orders, items, address snapshot, history), §42 (payment
+//     status), §49-53 (attribution, AID snapshot), DB-003 (snapshots)
+//   docs/API_SPEC.md §18 (COD checkout), §22 (confirm/cancel)
+//
+// Inventory rules (decided with product owner):
+//   - PDP shows out-of-stock state but Add to Cart stays enabled
+//   - Cart may hold unavailable SKUs, flagged per item; checkout refuses
+//     when any item is short
+//   - Checkout re-validates every SKU and rejects the whole order on any
+//     shortfall (no partial checkout)
+//   - Order creation reserves stock (§30); cancel/deny releases it (§31)
+
+enum OrderStatus {
+  NEW
+  PENDING
+  QUESTION
+  CONFIRMED
+  ABNORMAL
+  SHIPPING
+  SIGNED
+  CANCELLED
+  DENIED
+  AFTER_SALES
+}
+
+enum ConfirmationStatus {
+  UNCONFIRMED
+  NEEDS_REVIEW
+  CONFIRMED
+  REJECTED
+}
+
+enum PaymentStatus {
+  COD_PENDING
+  COLLECTED
+  SETTLEMENT_PENDING
+  SETTLED
+  ONLINE_PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  COD
+  AIRWALLEX
+}
+
+enum SourceType {
+  FB_POST
+  META_AD
+  ORGANIC
+  DIRECT
+  EMAIL
+  OTHER
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum MovementType {
+  PURCHASE_RECEIPT
+  ORDER_RESERVED
+  RESERVATION_RELEASED
+  SHIPMENT
+  RETURN_RESTOCK
+  DAMAGED
+  MANUAL_ADJUSTMENT
+}
+
+enum WarehouseStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// §28 warehouses. V1 runs one Philippines warehouse but the schema allows
+/// several (indexes and unique pairs are warehouse-aware).
+model Warehouse {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  name      String
+  country   String          @default("PH")
+  province  String?
+  city      String?
+  status    WarehouseStatus @default(ACTIVE)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  inventory          Inventory[]
+  inventoryMovements InventoryMovement[]
+  reservations       InventoryReservation[]
+
+  @@map("warehouses")
+}
+
+/// §29 inventory. available = on_hand - reserved is computed, never stored.
+model Inventory {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  skuId       String   @map("sku_id") @db.Uuid
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  onHand      Int      @default(0) @map("on_hand")
+  reserved    Int      @default(0)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sku       Sku       @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([skuId, warehouseId])
+  @@map("inventory")
+}
+
+/// §30 reservations: order creation reserves without touching on-hand.
+model InventoryReservation {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  orderId     String            @map("order_id") @db.Uuid
+  skuId       String            @map("sku_id") @db.Uuid
+  warehouseId String            @map("warehouse_id") @db.Uuid
+  quantity    Int
+  status      ReservationStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sku       Sku       @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([skuId])
+  @@map("inventory_reservations")
+}
+
+/// §33 every meaningful stock mutation is auditable.
+model InventoryMovement {
+  id            String       @id @default(uuid(7)) @db.Uuid
+  skuId         String       @map("sku_id") @db.Uuid
+  warehouseId   String       @map("warehouse_id") @db.Uuid
+  movementType  MovementType @map("movement_type")
+  quantity      Int
+  referenceType String?      @map("reference_type")
+  referenceId   String?      @map("reference_id")
+  operatorId    String?      @map("operator_id") @db.Uuid
+  reason        String?
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sku       Sku       @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([skuId])
+  @@index([referenceId])
+  @@map("inventory_movements")
+}
+
+/// §38 orders. Status is split into three domains (§39): order, confirmation
+/// and payment each get their own column instead of one overloaded field.
+model Order {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  orderNumber   String   @unique @map("order_number")
+  customerId    String   @map("customer_id") @db.Uuid
+  orderStatus   OrderStatus @default(NEW) @map("order_status")
+  confirmationStatus ConfirmationStatus @default(UNCONFIRMED) @map("confirmation_status")
+  paymentStatus PaymentStatus @default(COD_PENDING) @map("payment_status")
+  currency      String   @default("PHP")
+  subtotal      Decimal  @db.Decimal(10, 2)
+  discountTotal Decimal  @map("discount_total") @db.Decimal(10, 2)
+  shippingTotal Decimal  @map("shipping_total") @db.Decimal(10, 2)
+  grandTotal    Decimal  @map("grand_total") @db.Decimal(10, 2)
+  // AID snapshot (§53): copied at order creation, never recomputed.
+  optimizerId         String? @map("optimizer_id") @db.Uuid
+  optimizerAidSnapshot String? @map("optimizer_aid_snapshot")
+  optimizerNameSnapshot String? @map("optimizer_name_snapshot")
+  customerClassification String? @map("customer_classification")
+  confirmedBy   String?  @map("confirmed_by") @db.Uuid
+  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(3)
+  confirmationNote String? @map("confirmation_note")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items           OrderItem[]
+  shippingAddress OrderShippingAddress?
+  statusHistory   OrderStatusHistory[]
+  attribution     OrderAttribution?
+  payments        Payment[]
+  reservations    InventoryReservation[]
+
+  @@index([customerId])
+  @@index([orderStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+/// §43 order items with historical snapshots (DB-003): catalog changes never
+/// alter past orders.
+model OrderItem {
+  id                  String  @id @default(uuid(7)) @db.Uuid
+  orderId             String  @map("order_id") @db.Uuid
+  productId           String? @map("product_id") @db.Uuid
+  variantId           String? @map("variant_id") @db.Uuid
+  skuId               String  @map("sku_id") @db.Uuid
+  productNameSnapshot String  @map("product_name_snapshot")
+  skuCodeSnapshot     String  @map("sku_code_snapshot")
+  variantSnapshot     String  @map("variant_snapshot")
+  quantity            Int
+  unitPrice           Decimal @map("unit_price") @db.Decimal(10, 2)
+  unitDiscount        Decimal @map("unit_discount") @db.Decimal(10, 2)
+  unitCostSnapshot    Decimal? @map("unit_cost_snapshot") @db.Decimal(10, 2)
+  lineTotal           Decimal @map("line_total") @db.Decimal(10, 2)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku   Sku   @relation(fields: [skuId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/// §44 address snapshot, independent from the customer's current addresses.
+model OrderShippingAddress {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  orderId       String  @unique @map("order_id") @db.Uuid
+  fullName      String  @map("full_name")
+  phone         String
+  province      String
+  city          String
+  barangay      String?
+  postalCode    String? @map("postal_code")
+  streetAddress String  @map("street_address")
+  landmark      String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_shipping_address")
+}
+
+/// §45 every important state change is recorded.
+model OrderStatusHistory {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  orderId     String  @map("order_id") @db.Uuid
+  statusDomain String @map("status_domain")
+  oldStatus   String? @map("old_status")
+  newStatus   String  @map("new_status")
+  source      String
+  operatorId  String? @map("operator_id") @db.Uuid
+  comment     String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+/// §51 attribution snapshot. Traffic attribution survives browsing (§52) and
+/// the AID is frozen at order creation (§53). Facebook/landing fields stay
+/// plain columns until those modules land (Phase 4), then FKs can be added.
+model OrderAttribution {
+  id                     String     @id @default(uuid(7)) @db.Uuid
+  orderId                String     @unique @map("order_id") @db.Uuid
+  sourceType             SourceType @map("source_type")
+  optimizerId            String?    @map("optimizer_id") @db.Uuid
+  aidSnapshot            String?    @map("aid_snapshot")
+  facebookPageId         String?    @map("facebook_page_id")
+  facebookPostId         String?    @map("facebook_post_id")
+  facebookPostTrackingCode String?  @map("facebook_post_tracking_code")
+  campaignId             String?    @map("campaign_id")
+  adsetId                String?    @map("adset_id")
+  adId                   String?    @map("ad_id")
+  landingPageId          String?    @map("landing_page_id")
+  utmSource              String?    @map("utm_source")
+  utmMedium              String?    @map("utm_medium")
+  utmCampaign            String?    @map("utm_campaign")
+  utmContent             String?    @map("utm_content")
+  utmTerm                String?    @map("utm_term")
+  fbclid                 String?
+  attributedAt           DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_attributions")
+}
+
+/// Payments are their own table (decided in COMMERCE_MODEL_MAPPING.md Q4);
+/// Order.paymentStatus stays as the denormalised current state.
+model Payment {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  orderId   String        @map("order_id") @db.Uuid
+  method    PaymentMethod
+  status    PaymentStatus @default(COD_PENDING)
+  amount    Decimal       @db.Decimal(10, 2)
+  reference String?
+  paidAt    DateTime?     @map("paid_at") @db.Timestamptz(3)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("payments")
+}

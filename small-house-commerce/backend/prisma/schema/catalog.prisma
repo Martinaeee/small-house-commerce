@@ -189,6 +189,10 @@ model Sku {
   variant  ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
   supplier Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   cartItems CartItem[]
+  inventory          Inventory[]
+  reservations       InventoryReservation[]
+  inventoryMovements InventoryMovement[]
+  orderItems         OrderItem[]
 
   @@index([productId])
   @@index([supplierId])

@@ -6,6 +6,8 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { CartModule } from './modules/cart/cart.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
+import { InventoryModule } from './modules/inventory/inventory.module.js';
+import { OrdersModule } from './modules/orders/orders.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -26,6 +28,8 @@ import { UsersModule } from './modules/users/users.module.js';
     CatalogModule,
     CustomersModule,
     CartModule,
+    InventoryModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

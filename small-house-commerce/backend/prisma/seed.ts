@@ -192,6 +192,7 @@ async function main(): Promise<void> {
   );
 
   await ensureInitialAdmin();
+  await ensureDefaultWarehouse();
 }
 
 /**
@@ -230,6 +231,22 @@ async function ensureInitialAdmin(): Promise<void> {
   } else {
     console.log(`Created initial admin ${email} with ADMIN_PASSWORD from environment.`);
   }
+}
+
+/**
+ * V1 runs a single Philippines warehouse (DATABASE.md §28 allows more later).
+ */
+async function ensureDefaultWarehouse(): Promise<void> {
+  const existing = await prisma.warehouse.findFirst({ where: { country: 'PH' } });
+  if (existing) {
+    console.log('Default warehouse already exists, skipping.');
+    return;
+  }
+
+  await prisma.warehouse.create({
+    data: { name: 'Manila Central', country: 'PH', province: 'Metro Manila', city: 'Quezon City' },
+  });
+  console.log('Created default warehouse: Manila Central.');
 }
 
 main()
