@@ -1,0 +1,40 @@
+// Cart and cart items.
+//
+// Sources:
+//   docs/SYSTEM_ARCHITECTURE.md §14 Cart Module (guest cart, cart items,
+//     quantity, current product references, expiration, totals before
+//     checkout; "Cart is NOT a finalized commercial transaction. Order price
+//     and inventory must be validated again during checkout.")
+//
+// The cart stores only references (skuId + quantity); prices are read live
+// from Sku.price for the summary. Price and stock are re-validated when the
+// order is created, and the order then takes its own snapshots (DB-003).
+// Expiry is lazy: a cart past expiresAt is replaced on next access (30 days,
+// decided). No background cleanup in V1.
+
+model Cart {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  expiresAt DateTime   @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  items CartItem[]
+
+  @@index([expiresAt])
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  cartId    String   @map("cart_id") @db.Uuid
+  skuId     String   @map("sku_id") @db.Uuid
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  sku  Sku  @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, skuId])
+  @@index([skuId])
+  @@map("cart_items")
+}

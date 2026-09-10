@@ -15,6 +15,9 @@ const skuSchema = z.object({
   supplierCost: z.number().nonnegative().optional(),
   costCurrency: z.string().max(8).optional(),
   landedCost: z.number().nonnegative().optional(),
+  // Retail pricing in PHP; compareAtPrice is the strikethrough original price.
+  price: z.number().nonnegative().optional(),
+  compareAtPrice: z.number().nonnegative().optional(),
   productWeight: z.number().nonnegative().optional(),
   packageWidth: z.number().nonnegative().optional(),
   packageHeight: z.number().nonnegative().optional(),
