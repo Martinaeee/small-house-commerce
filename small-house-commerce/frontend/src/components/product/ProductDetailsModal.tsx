@@ -56,6 +56,9 @@ export function ProductDetailsModal({
 
   const handleTouchStart = (e: TouchEvent<HTMLDivElement>) => {
     if (e.touches.length !== 1) return;
+    // A re-grab inside the snap-back window must not let its cleanup strip
+    // the transform mid-drag.
+    window.clearTimeout(snapTimerRef.current);
     dragStartYRef.current = e.touches[0].clientY;
     const panel = sheetRef.current;
     if (panel) panel.style.transition = "none";

@@ -81,7 +81,9 @@ export default async function ProductDetailPage({
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <Suspense fallback={null}>
-        <PdpClient product={product} categoryName={categoryName} />
+        {/* key remounts the island per product so in-app PDP→PDP navigation
+            cannot carry the previous product selected variant into state/URL. */}
+        <PdpClient key={product.id} product={product} categoryName={categoryName} />
       </Suspense>
 
       <section className="mt-12 flex flex-col gap-8">
