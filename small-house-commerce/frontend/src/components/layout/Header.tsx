@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { NavItem } from "@/lib/nav";
+import { AccountEntry } from "@/components/auth/AccountEntry";
 import { MainNav } from "./MainNav";
 
 /**
@@ -27,22 +28,25 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
         {/* Hamburger (mobile) + desktop mega-menu nav */}
         <MainNav items={navItems} />
 
-        {/* Cart */}
-        <Link
-          href="/cart"
-          className="ml-auto flex items-center gap-2 rounded-lg p-2 text-ink hover:text-cta"
-          aria-label="Shopping cart"
-        >
-          <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" aria-hidden>
-            <path
-              d="M4 7h16l-1.5 11a2 2 0 0 1-2 1.8H7.5a2 2 0 0 1-2-1.8L4 7Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <path d="M8.5 9V6a3.5 3.5 0 0 1 7 0v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </Link>
+        {/* Account + cart */}
+        <div className="ml-auto flex items-center gap-1">
+          <AccountEntry />
+          <Link
+            href="/cart"
+            className="flex items-center gap-2 rounded-lg p-2 text-ink hover:text-cta"
+            aria-label="Shopping cart"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" aria-hidden>
+              <path
+                d="M4 7h16l-1.5 11a2 2 0 0 1-2 1.8H7.5a2 2 0 0 1-2-1.8L4 7Z"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+              <path d="M8.5 9V6a3.5 3.5 0 0 1 7 0v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </Link>
+        </div>
       </div>
     </header>
   );
