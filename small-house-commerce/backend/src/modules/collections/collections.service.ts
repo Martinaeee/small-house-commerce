@@ -71,8 +71,12 @@ export class CollectionsService {
   /**
    * Products in a collection, in membership order, with per-SKU
    * availableInventory so cards can render stock state without extra calls.
+   * Optional filters (COLLECTION_SPEC §12): room / solution / price band.
    */
-  async storefrontProducts(slug: string, query: { page?: number; pageSize?: number }) {
+  async storefrontProducts(
+    slug: string,
+    query: { page?: number; pageSize?: number; room?: string; solution?: string; minPrice?: number; maxPrice?: number },
+  ) {
     const collection = await this.prisma.collection.findFirst({
       where: { slug, status: 'ACTIVE' },
       select: { id: true },
@@ -84,9 +88,25 @@ export class CollectionsService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 24, 48);
 
+    const productWhere: Prisma.ProductWhereInput = { status: 'ACTIVE' };
+    if (query.room) productWhere.room = query.room as never;
+    if (query.solution) productWhere.solutions = { has: query.solution as never };
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      productWhere.variants = {
+        some: {
+          sku: { price: { gte: query.minPrice, lte: query.maxPrice } },
+        },
+      };
+    }
+
+    const membershipWhere: Prisma.CollectionProductWhereInput = {
+      collectionId: collection.id,
+      product: productWhere,
+    };
+
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.collectionProduct.findMany({
-        where: { collectionId: collection.id },
+        where: membershipWhere,
         select: {
           product: {
             select: {
@@ -111,7 +131,7 @@ export class CollectionsService {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.collectionProduct.count({ where: { collectionId: collection.id } }),
+      this.prisma.collectionProduct.count({ where: membershipWhere }),
     ]);
 
     // available = on_hand - reserved per SKU (DATABASE.md §29).

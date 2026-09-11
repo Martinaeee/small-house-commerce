@@ -64,7 +64,25 @@ const productBaseSchema = z.object({
 });
 
 export const createProductSchema = productBaseSchema;
-export const updateProductSchema = productBaseSchema.partial();
+
+/**
+ * Update is a partial, but fields with a create-side default (status DRAFT,
+ * solutions [], variants/images []) must NOT keep their defaults here:
+ * partial() preserves them, so a PATCH omitting those fields would silently
+ * reset them — status flips products back to DRAFT (hiding them from the
+ * storefront), solutions clears the merchandising attributes, and
+ * variants/images get wiped (their SKUs are FK-restricted by
+ * inventory/orders -> P2003). Optional + undefined means "leave untouched".
+ */
+export const updateProductSchema = productBaseSchema
+  .omit({ variants: true, images: true, status: true, solutions: true })
+  .partial()
+  .extend({
+    variants: z.array(variantSchema).optional(),
+    images: z.array(imageSchema).optional(),
+    status: z.nativeEnum(ProductStatus).optional(),
+    solutions: z.array(z.nativeEnum(Solution)).optional(),
+  });
 
 export const adminProductQuerySchema = z.object({
   search: z.string().max(255).optional(),
@@ -78,6 +96,10 @@ export const adminProductQuerySchema = z.object({
 export const storefrontProductQuerySchema = z.object({
   search: z.string().max(255).optional(),
   categoryId: z.string().uuid().optional(),
+  room: z.nativeEnum(Room).optional(),
+  solution: z.nativeEnum(Solution).optional(),
+  minPrice: z.coerce.number().nonnegative().optional(),
+  maxPrice: z.coerce.number().nonnegative().optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(48).default(24),
 });

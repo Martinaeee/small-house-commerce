@@ -27,6 +27,7 @@ const STOREFRONT_SELECT = {
   name: true,
   slug: true,
   description: true,
+  categoryId: true,
   room: true,
   internalRole: true,
   solutions: true,
@@ -45,7 +46,19 @@ const STOREFRONT_SELECT = {
       id: true,
       name: true,
       position: true,
-      sku: { select: { id: true, skuCode: true, price: true, compareAtPrice: true } },
+      sku: {
+        select: {
+          id: true,
+          skuCode: true,
+          price: true,
+          compareAtPrice: true,
+          productWeight: true,
+          packageWidth: true,
+          packageHeight: true,
+          packageDepth: true,
+          packageWeight: true,
+        },
+      },
     },
     orderBy: { position: 'asc' as const },
   },
@@ -230,6 +243,21 @@ export class ProductsService {
       ];
     }
     if (query.categoryId) where.categoryId = query.categoryId;
+    if (query.room) where.room = query.room;
+    if (query.solution) where.solutions = { has: query.solution };
+    // §12 price filter: any sellable SKU in range (COLLECTION_SPEC).
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      where.variants = {
+        some: {
+          sku: {
+            price: {
+              gte: query.minPrice,
+              lte: query.maxPrice,
+            },
+          },
+        },
+      };
+    }
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
@@ -269,9 +297,13 @@ export class ProductsService {
    * Enriches storefront SKUs with availableInventory (on_hand - reserved).
    * available is always computed, never stored (docs/DATABASE.md §29).
    */
-  private async withAvailableInventory<T extends { variants: { sku: { id: string } | null }[] }>(
-    products: T[],
-  ): Promise<T[]> {
+  private async withAvailableInventory<
+    T extends {
+      variants: {
+        sku: { id: string; price: unknown; compareAtPrice: unknown } | null;
+      }[];
+    },
+  >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
         products.flatMap((p) => p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id)),

@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { ProductPurchase } from "@/components/product/ProductPurchase";
+import { ProductCard } from "@/components/product/ProductCard";
+import { SizeGuide } from "@/components/product/SizeGuide";
 import { TrustBar } from "@/components/ui/TrustBar";
-import { serverApiUrl, type Product } from "@/lib/api";
+import { serverApiUrl, type Paged, type Product } from "@/lib/api";
 
 export const revalidate = 120;
 
@@ -41,6 +43,24 @@ export default async function ProductDetailPage({
   const product = await fetchProduct(slug);
   if (!product) notFound();
 
+  // Related products: same category, exclude self (PDP_SPEC §19 related).
+  let related: Product[] = [];
+  try {
+    const res = await fetch(
+      serverApiUrl(
+        `/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=5`,
+      ),
+      { next: { revalidate } },
+    );
+    if (res.ok) {
+      related = ((await res.json()) as Paged<Product>).items.filter(
+        (item) => item.id !== product.id,
+      );
+    }
+  } catch {
+    related = [];
+  }
+
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -48,7 +68,7 @@ export default async function ProductDetailPage({
         <ProductPurchase product={product} />
       </div>
 
-      {/* Description + trust */}
+      {/* Description + size guide + trust */}
       <section className="mt-12 flex flex-col gap-8">
         {product.description && (
           <div className="rounded-lg border border-border bg-card p-6">
@@ -58,8 +78,21 @@ export default async function ProductDetailPage({
             </p>
           </div>
         )}
+        <SizeGuide product={product} />
         <TrustBar />
       </section>
+
+      {/* Related products (§19) */}
+      {related.length > 0 && (
+        <section className="mt-12">
+          <h2 className="mb-6 text-2xl font-semibold text-ink">You May Also Like</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            {related.map((item) => (
+              <ProductCard key={item.id} product={item} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

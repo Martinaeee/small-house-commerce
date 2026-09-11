@@ -26,6 +26,11 @@ export interface Sku {
   price: number | null;
   compareAtPrice: number | null;
   availableInventory: number;
+  productWeight?: number | null;
+  packageWidth?: number | null;
+  packageHeight?: number | null;
+  packageDepth?: number | null;
+  packageWeight?: number | null;
 }
 
 export interface ProductVariant {
@@ -42,11 +47,30 @@ export interface ProductImage {
   sortOrder: number;
 }
 
+export type Room = "BEDROOM" | "STORAGE" | "DINING_LIVING" | "HOME_OFFICE";
+export type Solution =
+  | "FOLDABLE"
+  | "NARROW_SPACE"
+  | "MOBILE"
+  | "MULTIFUNCTIONAL"
+  | "HIDDEN_STORAGE"
+  | "RENTAL_FRIENDLY";
+
 export interface Product {
   id: string;
   name: string;
   slug: string;
   description: string | null;
+  categoryId: string;
+  room: Room | null;
+  internalRole: string | null;
+  solutions: Solution[];
+  width: number | null;
+  height: number | null;
+  depth: number | null;
+  foldedWidth: number | null;
+  foldedHeight: number | null;
+  foldedDepth: number | null;
   images: ProductImage[];
   variants: ProductVariant[];
 }
@@ -125,10 +149,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getCategories: () => request<Category[]>("/api/v1/storefront/categories"),
-  getProducts: (params?: { categoryId?: string; search?: string; page?: number; pageSize?: number }) => {
+  getProducts: (params?: {
+    categoryId?: string;
+    search?: string;
+    room?: Room;
+    solution?: Solution;
+    minPrice?: number;
+    maxPrice?: number;
+    page?: number;
+    pageSize?: number;
+  }) => {
     const q = new URLSearchParams();
     if (params?.categoryId) q.set("categoryId", params.categoryId);
     if (params?.search) q.set("search", params.search);
+    if (params?.room) q.set("room", params.room);
+    if (params?.solution) q.set("solution", params.solution);
+    if (params?.minPrice !== undefined) q.set("minPrice", String(params.minPrice));
+    if (params?.maxPrice !== undefined) q.set("maxPrice", String(params.maxPrice));
     if (params?.page) q.set("page", String(params.page));
     if (params?.pageSize) q.set("pageSize", String(params.pageSize));
     return request<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
@@ -193,7 +230,9 @@ export const api = {
 export const cartStorage = {
   get: (): string | undefined => {
     if (typeof window === "undefined") return undefined;
-    return window.localStorage.getItem("cartId") ?? undefined;
+    const value = window.localStorage.getItem("cartId");
+    // An empty string means "no cart" (cleared after placing an order).
+    return value && value !== "" ? value : undefined;
   },
   set: (cartId: string) => {
     if (typeof window !== "undefined") {

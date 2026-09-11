@@ -27,11 +27,15 @@ export class StorefrontCollectionsController {
   @Get(':slug/products')
   products(
     @Param('slug') slug: string,
-    @Query() query: { page?: string; pageSize?: string },
+    @Query() query: { page?: string; pageSize?: string; room?: string; solution?: string; minPrice?: string; maxPrice?: string },
   ) {
     return this.collections.storefrontProducts(slug, {
       page: query.page ? Number(query.page) : 1,
       pageSize: query.pageSize ? Number(query.pageSize) : 24,
+      room: query.room,
+      solution: query.solution,
+      minPrice: query.minPrice !== undefined ? Number(query.minPrice) : undefined,
+      maxPrice: query.maxPrice !== undefined ? Number(query.maxPrice) : undefined,
     });
   }
 }
