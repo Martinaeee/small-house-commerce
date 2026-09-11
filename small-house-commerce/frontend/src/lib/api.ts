@@ -36,6 +36,7 @@ export interface ProductVariant {
 }
 
 export interface ProductImage {
+  id: string;
   url: string;
   altText: string | null;
   sortOrder: number;
@@ -100,7 +101,7 @@ export interface Paged<T> {
 
 // --- browser client (relative paths, proxied) --------------------------------
 
-async function get<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -121,24 +122,64 @@ async function get<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  get,
-  getCategories: () => get<Category[]>("/api/v1/storefront/categories"),
+  getCategories: () => request<Category[]>("/api/v1/storefront/categories"),
   getProducts: (params?: { categoryId?: string; search?: string; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();
     if (params?.categoryId) q.set("categoryId", params.categoryId);
     if (params?.search) q.set("search", params.search);
     if (params?.page) q.set("page", String(params.page));
     if (params?.pageSize) q.set("pageSize", String(params.pageSize));
-    return get<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
+    return request<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
   },
-  getProductBySlug: (slug: string) => get<Product>(`/api/v1/storefront/products/${slug}`),
+  getProductBySlug: (slug: string) => request<Product>(`/api/v1/storefront/products/${slug}`),
   getCollections: (type?: string) =>
-    get<{ items: Collection[]; total: number }>(
+    request<{ items: Collection[]; total: number }>(
       `/api/v1/storefront/collections${type ? `?type=${type}` : ""}`,
     ),
   getCollectionBySlug: (slug: string) =>
-    get<Collection & { sections: CollectionSection[] }>(`/api/v1/storefront/collections/${slug}`),
+    request<Collection & { sections: CollectionSection[] }>(`/api/v1/storefront/collections/${slug}`),
   getCollectionProducts: (slug: string, page = 1) =>
-    get<Paged<Product>>(`/api/v1/storefront/collections/${slug}/products?page=${page}`),
-  getCart: (cartId: string) => get<CartSummary>(`/api/v1/storefront/cart/${cartId}/summary`),
+    request<Paged<Product>>(`/api/v1/storefront/collections/${slug}/products?page=${page}`),
+  getCart: (cartId: string) => request<CartSummary>(`/api/v1/storefront/cart/${cartId}/summary`),
+  /**
+   * Adds a SKU to the cart. Omit cartId for a fresh cart (the response
+   * carries the cartId to persist in localStorage). The backend allows
+   * out-of-stock SKUs in carts; checkout is where stock is enforced.
+   */
+  addToCart: (input: { cartId?: string; skuId: string; quantity: number }) =>
+    request<CartSummary & { created: boolean }>("/api/v1/storefront/cart/items", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createOrder: (input: {
+    customer: {
+      name: string;
+      phone: string;
+      province: string;
+      city: string;
+      barangay?: string | null;
+      postalCode?: string | null;
+      streetAddress: string;
+      landmark?: string | null;
+    };
+    items: { skuId: string; quantity: number }[];
+    attribution?: { sourceType?: string; aid?: string | null };
+  }) =>
+    request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
+      "/api/v1/storefront/orders",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+};
+
+/** Cart id lives in localStorage on the client. */
+export const cartStorage = {
+  get: (): string | undefined => {
+    if (typeof window === "undefined") return undefined;
+    return window.localStorage.getItem("cartId") ?? undefined;
+  },
+  set: (cartId: string) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cartId", cartId);
+    }
+  },
 };

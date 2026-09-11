@@ -41,7 +41,12 @@ const STOREFRONT_SELECT = {
     orderBy: { sortOrder: 'asc' as const },
   },
   variants: {
-    select: { id: true, name: true, position: true, sku: { select: { id: true, skuCode: true } } },
+    select: {
+      id: true,
+      name: true,
+      position: true,
+      sku: { select: { id: true, skuCode: true, price: true, compareAtPrice: true } },
+    },
     orderBy: { position: 'asc' as const },
   },
 } satisfies Prisma.ProductSelect;
@@ -285,13 +290,20 @@ export class ProductsService {
       }
     }
 
-    // Returns the same shape, with availableInventory added to each sku.
+    // Returns the same shape, with availableInventory added to each sku and
+    // Decimal prices converted to JSON numbers.
     return products.map((product) => ({
       ...product,
       variants: product.variants.map((variant) => ({
         ...variant,
         sku: variant.sku
-          ? { ...variant.sku, availableInventory: availableBySku.get(variant.sku.id) ?? 0 }
+          ? {
+              ...variant.sku,
+              price: variant.sku.price === null ? null : Number(variant.sku.price),
+              compareAtPrice:
+                variant.sku.compareAtPrice === null ? null : Number(variant.sku.compareAtPrice),
+              availableInventory: availableBySku.get(variant.sku.id) ?? 0,
+            }
           : null,
       })),
     })) as T[];
