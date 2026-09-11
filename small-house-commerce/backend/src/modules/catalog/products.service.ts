@@ -14,6 +14,7 @@ import type {
 } from './dto/product.dto.js';
 import { ReviewsService } from './reviews.service.js';
 import { expandCategoryIds } from './category-tree.js';
+import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
@@ -65,6 +66,10 @@ const STOREFRONT_SELECT = {
     orderBy: { position: 'asc' as const },
   },
 } satisfies Prisma.ProductSelect;
+
+type StorefrontProductRecord = Prisma.ProductGetPayload<{
+  select: typeof STOREFRONT_SELECT;
+}>;
 
 @Injectable()
 export class ProductsService {
@@ -241,11 +246,9 @@ export class ProductsService {
   async storefrontList(query: StorefrontProductQuery) {
     const where: Prisma.ProductWhereInput = { status: 'ACTIVE' };
 
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { slug: { contains: query.search, mode: 'insensitive' } },
-      ];
+    const tokens = query.search ? tokenizeSearch(query.search) : [];
+    if (query.search && tokens.length > 0) {
+      return this.storefrontFuzzyList(query, tokens);
     }
     // Storefront category pages show the whole subtree: a root page lists
     // products attached to any descendant leaf.
@@ -283,15 +286,112 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
+    return {
+      items: await this.presentStorefront(items),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  /**
+   * Runs storefront product rows through the shared enrichment:
+   * availableInventory on every SKU, plus review summary.
+   */
+  private async presentStorefront(items: StorefrontProductRecord[]) {
     const enriched = await this.withAvailableInventory(items);
     const summary = await this.reviews.summaryForProducts(enriched.map((p) => p.id));
-    const withReviews = enriched.map((p) => {
+    return enriched.map((p) => {
       const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
       return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
     });
+  }
+
+  /** Non-search SQL filters shared by the fuzzy id/count queries. */
+  private storefrontFilterFragments(
+    query: StorefrontProductQuery,
+    categoryIds: string[],
+  ): Prisma.Sql[] {
+    const filters: Prisma.Sql[] = [Prisma.sql`products.status = 'ACTIVE'`];
+
+    if (query.categoryId) {
+      // UUIDs come from our own category table; bind them as a uuid array.
+      filters.push(Prisma.sql`products.category_id = ANY(${categoryIds}::uuid[])`);
+    }
+    if (query.room) {
+      filters.push(Prisma.sql`products.room = ${query.room}::"Room"`);
+    }
+    if (query.solution) {
+      filters.push(Prisma.sql`${query.solution}::"Solution" = ANY(products.solutions)`);
+    }
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      const price =
+        query.minPrice !== undefined && query.maxPrice !== undefined
+          ? Prisma.sql`s.price BETWEEN ${query.minPrice} AND ${query.maxPrice}`
+          : query.minPrice !== undefined
+            ? Prisma.sql`s.price >= ${query.minPrice}`
+            : Prisma.sql`s.price <= ${query.maxPrice!}`;
+      filters.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM product_variants pv
+        JOIN skus s ON s.variant_id = pv.id
+        WHERE pv.product_id = products.id AND ${price}
+      )`);
+    }
+
+    return filters;
+  }
+
+  private async storefrontFuzzyList(query: StorefrontProductQuery, tokens: string[]) {
+    // Subtree expansion is reused for categoryId (same helper as the Prisma path).
+    let categoryIds: string[] = [];
+    if (query.categoryId) {
+      const activeCategories = await this.prisma.category.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, parentId: true },
+      });
+      categoryIds = expandCategoryIds(activeCategories, query.categoryId);
+    }
+
+    const trgm = buildTrgmSearch(tokens);
+    const whereSql = Prisma.sql`${Prisma.join(
+      [...this.storefrontFilterFragments(query, categoryIds), trgm.match],
+      ' AND ',
+    )}`;
+    const offset = (query.page - 1) * query.pageSize;
+
+    const [rows, countRows] = await Promise.all([
+      this.prisma.$queryRaw<{ id: string; rank: number }[]>`
+        SELECT products.id, ${trgm.rank} AS rank
+        FROM products
+        WHERE ${whereSql}
+        ORDER BY rank DESC, products.created_at DESC
+        LIMIT ${query.pageSize} OFFSET ${offset}
+      `,
+      this.prisma.$queryRaw<{ total: bigint }[]>`
+        SELECT COUNT(*)::bigint AS total
+        FROM products
+        WHERE ${whereSql}
+      `,
+    ]);
+
+    const total = Number(countRows[0]?.total ?? 0);
+    if (rows.length === 0) {
+      return { items: [], total, page: query.page, pageSize: query.pageSize };
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: rows.map((row) => row.id) } },
+      select: STOREFRONT_SELECT,
+    });
+    // findMany does not preserve the raw rank order; re-apply it.
+    const byId = new Map(products.map((product) => [product.id, product]));
+    const ordered = rows
+      .map((row) => byId.get(row.id))
+      .filter((product): product is StorefrontProductRecord => product !== undefined);
 
     return {
-      items: withReviews,
+      items: await this.presentStorefront(ordered),
       total,
       page: query.page,
       pageSize: query.pageSize,
