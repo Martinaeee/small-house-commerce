@@ -19,10 +19,11 @@ export function ProductLightbox({ images, index, onClose, onNavigate }: Props) {
   const go = useCallback(
     (next: number) => {
       const clamped = (next + images.length) % images.length;
+      if (clamped === index) return;
       setAnimating(true);
       onNavigate(clamped);
     },
-    [images.length, onNavigate],
+    [images.length, onNavigate, index],
   );
 
   useEffect(() => {

@@ -36,7 +36,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
     <div className="flex flex-col gap-4">
       <button
         type="button"
-        onClick={() => onOpenLightbox(active)}
+        onClick={() => onOpenLightbox(Math.min(active, images.length - 1))}
         aria-label="Open image gallery"
         className="overflow-hidden rounded-lg border border-border bg-card"
       >
