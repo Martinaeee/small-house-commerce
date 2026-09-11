@@ -16,8 +16,6 @@ const REVALIDATE = 120;
  * (hero fields, featured selection) are marked TODO for the admin slice.
  */
 
-const ANNOUNCEMENT = "Free Metro Manila delivery on orders ₱3,000+ · Cash on Delivery nationwide";
-
 // HOMEPAGE_SPEC §16 solutions -> collection link.
 const SOLUTIONS: { name: string; blurb: string; href: string }[] = [
   { name: "Small Bedroom", blurb: "Compact beds, wardrobes and storage", href: "/collections/bedroom-essentials" },
@@ -56,11 +54,6 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* Announcement bar (§5.1) */}
-      <div className="bg-cta px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
-        {ANNOUNCEMENT}
-      </div>
-
       {/* Hero (§11): brand -> problem -> solution -> CTA */}
       <section className="bg-gradient-to-b from-primary-light/50 to-background">
         <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 sm:py-24">

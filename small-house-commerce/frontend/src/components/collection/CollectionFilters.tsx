@@ -29,7 +29,8 @@ const PRICE_BANDS = [
 ] as const;
 
 interface CollectionFiltersProps {
-  slug: string;
+  /** Listing path the filter links point at, e.g. /collections/x or /categories/y. */
+  basePath: string;
   active: { room?: string; solution?: string; minPrice?: string; maxPrice?: string };
 }
 
@@ -57,7 +58,7 @@ function FilterLink({
   );
 }
 
-export function CollectionFilters({ slug, active }: CollectionFiltersProps) {
+export function CollectionFilters({ basePath, active }: CollectionFiltersProps) {
   // Builds a query string keeping every other dimension as-is.
   const qs = (overrides: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -69,7 +70,7 @@ export function CollectionFilters({ slug, active }: CollectionFiltersProps) {
     return q ? `?${q}` : "";
   };
 
-  const base = `/collections/${slug}`;
+  const base = basePath;
 
   const activePrice = active.minPrice !== undefined ? `${active.minPrice}-${active.maxPrice ?? ""}` : undefined;
 

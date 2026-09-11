@@ -3,50 +3,51 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { ProductCard } from "@/components/product/ProductCard";
-import { ButtonLink } from "@/components/ui/Button";
-import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
+import { findCategory } from "@/lib/nav";
+import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
 
 export const revalidate = 120;
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}): Promise<Metadata> {
-  const collection = await fetchCollection((await params).slug);
-  return {
-    title: collection?.seoTitle ?? collection?.name,
-    description: collection?.seoDescription ?? collection?.description ?? undefined,
-  };
+interface ResolvedCategory {
+  node: Category;
+  parent: Category | null;
+  roots: Category[];
 }
 
-async function fetchCollection(slug: string) {
+async function resolveCategory(slug: string): Promise<ResolvedCategory | null> {
   try {
-    const res = await fetch(serverApiUrl(`/api/v1/storefront/collections/${slug}`), {
-      next: { revalidate },
+    const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
+      next: { revalidate: 300 },
     });
     if (!res.ok) return null;
-    return (await res.json()) as Collection & { sections: unknown[] };
+    const roots = (await res.json()) as Category[];
+    const node = findCategory(roots, slug);
+    if (!node) return null;
+    const parent = roots.find((root) => root.children.some((leaf) => leaf.id === node.id)) ?? null;
+    return { node, parent, roots };
   } catch {
     return null;
   }
 }
 
 async function fetchProducts(
-  slug: string,
+  categoryId: string,
   page: number,
   filters: { room?: string; solution?: string; minPrice?: number; maxPrice?: number },
 ): Promise<Paged<Product> | null> {
   try {
-    const q = new URLSearchParams({ page: String(page), pageSize: "24" });
+    const q = new URLSearchParams({
+      categoryId,
+      page: String(page),
+      pageSize: "24",
+    });
     if (filters.room) q.set("room", filters.room);
     if (filters.solution) q.set("solution", filters.solution);
     if (filters.minPrice !== undefined) q.set("minPrice", String(filters.minPrice));
     if (filters.maxPrice !== undefined) q.set("maxPrice", String(filters.maxPrice));
-    const res = await fetch(
-      serverApiUrl(`/api/v1/storefront/collections/${slug}/products?${q.toString()}`),
-      { next: { revalidate } },
-    );
+    const res = await fetch(serverApiUrl(`/api/v1/storefront/products?${q.toString()}`), {
+      next: { revalidate },
+    });
     if (!res.ok) return null;
     return (await res.json()) as Paged<Product>;
   } catch {
@@ -54,16 +55,43 @@ async function fetchProducts(
   }
 }
 
-export default async function CollectionPage({
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const resolved = await resolveCategory((await params).slug);
+  if (!resolved) return {};
+  const { node } = resolved;
+  const isRoot = node.children.length > 0;
+  return {
+    title: isRoot ? `Shop ${node.name}` : node.name,
+    description: isRoot
+      ? `Browse ${node.name} made for small homes in the Philippines. Cash on delivery, nationwide shipping.`
+      : undefined,
+  };
+}
+
+export default async function CategoryPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ page?: string; room?: string; solution?: string; minPrice?: string; maxPrice?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    room?: string;
+    solution?: string;
+    minPrice?: string;
+    maxPrice?: string;
+  }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
+
+  const resolved = await resolveCategory(slug);
+  if (!resolved) notFound();
+  const { node, parent } = resolved;
 
   const filters = {
     room: sp.room,
@@ -71,33 +99,55 @@ export default async function CollectionPage({
     minPrice: sp.minPrice !== undefined ? Number(sp.minPrice) : undefined,
     maxPrice: sp.maxPrice !== undefined ? Number(sp.maxPrice) : undefined,
   };
-  const collection = await fetchCollection(slug);
-  if (!collection) notFound();
 
-  const products = await fetchProducts(slug, page, filters);
+  // Backend expands the subtree: a root page lists products on every leaf.
+  const products = await fetchProducts(node.id, page, filters);
   const items = products?.items ?? [];
   const totalPages = products ? Math.max(1, Math.ceil(products.total / products.pageSize)) : 1;
-
   const activeFilterCount =
     (filters.room ? 1 : 0) + (filters.solution ? 1 : 0) + (filters.minPrice !== undefined ? 1 : 0);
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
-      {/* §7 Collection Hero: image -> title -> description -> CTA */}
-      <section className="flex flex-col items-center gap-4 rounded-lg border border-border bg-card px-4 py-10 text-center sm:px-8">
-        <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{collection.name}</h1>
-        {collection.description && (
-          <p className="max-w-2xl text-base text-ink-secondary">{collection.description}</p>
+      {/* Breadcrumb */}
+      <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
+        <Link href="/" className="hover:text-cta">
+          Home
+        </Link>
+        {parent && (
+          <>
+            {" › "}
+            <Link href={`/categories/${parent.slug}`} className="hover:text-cta">
+              {parent.name}
+            </Link>
+          </>
         )}
-        <ButtonLink href="#products" variant="primary" size="lg">
-          Shop this collection
-        </ButtonLink>
+        {" › "}
+        <span className="text-ink-secondary">{node.name}</span>
+      </nav>
+
+      {/* Header */}
+      <section className="mt-4 flex flex-col gap-3">
+        <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{node.name}</h1>
+        {node.children.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {node.children.map((leaf) => (
+              <Link
+                key={leaf.id}
+                href={`/categories/${leaf.slug}`}
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+              >
+                {leaf.name}
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* §12 Filters */}
+      {/* Filters */}
       <div className="mt-6 rounded-lg border border-border bg-card p-4">
         <CollectionFilters
-          basePath={`/collections/${slug}`}
+          basePath={`/categories/${slug}`}
           active={{
             room: sp.room,
             solution: sp.solution,
@@ -107,10 +157,10 @@ export default async function CollectionPage({
         />
       </div>
 
-      {/* §10 Product Grid: 2 cols mobile, 3-4 desktop */}
-      <section id="products" className="mt-8 scroll-mt-20">
+      {/* Products */}
+      <section className="mt-8">
         <h2 className="mb-6 text-2xl font-semibold text-ink">
-          {collection.name} Products
+          {node.name}
           {products && (
             <span className="ml-2 text-base font-normal text-ink-muted">
               ({products.total}
@@ -121,10 +171,14 @@ export default async function CollectionPage({
 
         {items.length === 0 ? (
           <div className="rounded-lg border border-border bg-card p-8 text-center">
-            <p className="text-ink-secondary">No products match these filters.</p>
+            <p className="text-ink-secondary">
+              {activeFilterCount > 0
+                ? "No products match these filters."
+                : "No products in this category yet."}
+            </p>
             {activeFilterCount > 0 && (
               <Link
-                href={`/collections/${slug}`}
+                href={`/categories/${slug}`}
                 className="mt-3 inline-block text-sm text-cta hover:underline"
               >
                 Clear all filters
@@ -139,11 +193,10 @@ export default async function CollectionPage({
               ))}
             </div>
 
-            {/* Pagination */}
-            <nav aria-label="Collection pages" className="mt-8 flex items-center justify-center gap-4">
+            <nav aria-label="Category pages" className="mt-8 flex items-center justify-center gap-4">
               {page > 1 && (
                 <Link
-                  href={`/collections/${slug}?page=${page - 1}`}
+                  href={`/categories/${slug}?page=${page - 1}`}
                   className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-ink hover:border-primary"
                 >
                   Previous
@@ -154,7 +207,7 @@ export default async function CollectionPage({
               </span>
               {page < totalPages && (
                 <Link
-                  href={`/collections/${slug}?page=${page + 1}`}
+                  href={`/categories/${slug}?page=${page + 1}`}
                   className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-ink hover:border-primary"
                 >
                   Load more
