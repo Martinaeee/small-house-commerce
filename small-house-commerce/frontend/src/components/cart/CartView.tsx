@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, cartStorage, type CartSummary } from "@/lib/api";
@@ -29,27 +29,25 @@ export function CartView() {
 
   const cartId = typeof window !== "undefined" ? cartStorage.get() : undefined;
 
-  const refresh = useCallback(async () => {
-    if (!cartId) {
-      setCart(null);
-      setLoading(false);
-      return;
-    }
-    try {
-      const summary = await api.getCart(cartId);
-      setCart(summary);
-      if (summary.items.length === 0) cartStorage.set(""); // stale cart id
-      setError(null);
-    } catch {
-      setError("Could not load your cart. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [cartId]);
-
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    const promise = cartId ? api.getCart(cartId) : Promise.resolve(null);
+    promise
+      .then((summary) => {
+        if (summary) {
+          setCart(summary);
+          if (summary.items.length === 0) cartStorage.set(""); // stale cart id
+        } else {
+          setCart(null);
+        }
+        setError(null);
+      })
+      .catch(() => {
+        setError("Could not load your cart. Please try again.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [cartId]);
 
   const anyUnavailable = cart?.items.some((item) => item.unavailable) ?? false;
 

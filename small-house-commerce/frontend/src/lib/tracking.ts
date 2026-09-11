@@ -54,8 +54,8 @@ export function initMetaPixel(): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
   w._fbq = w._fbq || [];
-  w.fbq = function fbq() {
-    w._fbq.push(arguments);
+  w.fbq = (...args: unknown[]) => {
+    w._fbq.push(args);
   };
   const script = document.createElement("script");
   script.async = true;

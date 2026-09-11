@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, cartStorage, type CartSummary } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
@@ -46,14 +47,11 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
 
   useEffect(() => {
     if (skuId) return; // Buy Now path: items come from the URL
-    const cartId = cartStorage.get();
-    if (!cartId) {
-      setCartLoading(false);
-      return;
-    }
-    api
-      .getCart(cartId)
-      .then((summary) => setCart(summary))
+    const id = cartStorage.get();
+    (id ? api.getCart(id) : Promise.resolve(null))
+      .then((summary) => {
+        if (summary) setCart(summary);
+      })
       .catch(() => setError("Could not load your cart. Please try again."))
       .finally(() => setCartLoading(false));
   }, [skuId]);
@@ -131,9 +129,9 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
     return (
       <div className="py-16 text-center">
         <p className="mb-4 text-ink-secondary">Your cart is empty.</p>
-        <a href="/collections" className="text-sm text-cta hover:underline">
+        <Link href="/collections" className="text-sm text-cta hover:underline">
           Start shopping
-        </a>
+        </Link>
       </div>
     );
   }
