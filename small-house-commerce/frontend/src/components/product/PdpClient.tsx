@@ -69,6 +69,20 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
     router.replace(`/products/${product.slug}?${params.toString()}`, { scroll: false });
   }, [selectedVariantId, product.slug, router]);
 
+  // Reserve space for the fixed mobile CTA so the footer stays reachable.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      document.body.style.paddingBottom = mq.matches ? "108px" : "";
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      document.body.style.paddingBottom = "";
+    };
+  }, []);
+
   // TRACKING_SPEC ViewContent — once per product view.
   useEffect(() => {
     track("ViewContent", {
@@ -118,7 +132,7 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
     product.reviewCount > 0 && product.ratingAverage !== null ? (
       <a href="#reviews" className="inline-flex items-center gap-2 text-sm text-ink-secondary">
         <RatingStars value={product.ratingAverage} className="text-sm" />
-        {product.reviewCount} reviews
+        {product.reviewCount} {product.reviewCount === 1 ? "review" : "reviews"}
       </a>
     ) : (
       <span className="text-sm text-ink-muted">No reviews yet</span>

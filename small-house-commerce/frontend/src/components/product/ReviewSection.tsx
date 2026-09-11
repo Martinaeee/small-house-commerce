@@ -19,7 +19,7 @@ export function ReviewSection({ product }: { product: Product }) {
           <div className="mb-6 flex items-center gap-3">
             <RatingStars value={average} className="text-lg" />
             <span className="text-sm font-semibold text-ink">{average.toFixed(1)}</span>
-            <span className="text-sm text-ink-secondary">· {count} reviews</span>
+            <span className="text-sm text-ink-secondary">· {count} {count === 1 ? "review" : "reviews"}</span>
           </div>
 
           <ul className="flex flex-col gap-6">
