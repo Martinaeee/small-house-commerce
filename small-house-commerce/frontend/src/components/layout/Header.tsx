@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { NavItem } from "@/lib/nav";
 import { AccountEntry } from "@/components/auth/AccountEntry";
 import { MainNav } from "./MainNav";
+import { SiteSearch } from "./SiteSearch";
 
 /**
  * DESIGN_SYSTEM §11 Navigation + HOMEPAGE_SPEC §6 Header.
@@ -28,8 +29,10 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
         {/* Hamburger (mobile) + desktop mega-menu nav */}
         <MainNav items={navItems} />
 
+        <SiteSearch />
+
         {/* Account + cart */}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <AccountEntry />
           <Link
             href="/cart"

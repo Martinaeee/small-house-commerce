@@ -32,6 +32,8 @@ interface CollectionFiltersProps {
   /** Listing path the filter links point at, e.g. /collections/x or /categories/y. */
   basePath: string;
   active: { room?: string; solution?: string; minPrice?: string; maxPrice?: string };
+  /** Extra query params every filter link preserves (e.g. { q } on /search). */
+  preserve?: Record<string, string | undefined>;
 }
 
 function FilterLink({
@@ -58,13 +60,16 @@ function FilterLink({
   );
 }
 
-export function CollectionFilters({ basePath, active }: CollectionFiltersProps) {
+export function CollectionFilters({ basePath, active, preserve }: CollectionFiltersProps) {
   // Builds a query string keeping every other dimension as-is.
   const qs = (overrides: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
     const merged = { ...active, ...overrides };
     for (const [key, value] of Object.entries(merged)) {
       if (value) params.set(key, value);
+    }
+    for (const [key, value] of Object.entries(preserve ?? {})) {
+      if (value && !params.has(key)) params.set(key, value);
     }
     const q = params.toString();
     return q ? `?${q}` : "";
