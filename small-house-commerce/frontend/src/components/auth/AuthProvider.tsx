@@ -11,9 +11,10 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clearSession,
   customerApi,
+  onAuthEvent,
   refreshAccessToken,
-  tokenStorage,
   type CustomerAccount,
 } from "@/lib/auth";
 
@@ -39,6 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     alive.current = true;
+    // Observe background session ends (explicit logout elsewhere, or a refresh
+    // failure that clears the session) so the UI never keeps claiming an
+    // authenticated account after its tokens are gone.
+    const unsubscribe = onAuthEvent((event) => {
+      if (!alive.current || event !== "session-end") return;
+      setAccount(null);
+      setStatus("guest");
+    });
     void (async () => {
       // refreshAccessToken() resolves to null without a network call when no
       // refresh token is stored, so the no-token case shares the guest branch.
@@ -58,13 +67,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus("authed");
       } catch {
         if (!alive.current) return;
-        tokenStorage.clear();
+        // Wipes memory token + storage, bumps the epoch, emits session-end.
+        clearSession();
         setAccount(null);
         setStatus("guest");
       }
     })();
     return () => {
       alive.current = false;
+      unsubscribe();
     };
   }, []);
 
