@@ -14,8 +14,9 @@ export function summarizeRatings(rows: { rating: number }[]): RatingSummary {
   const reviewCount = rows.length;
   if (reviewCount === 0) return { reviewCount: 0, ratingAverage: null };
   const total = rows.reduce((sum, row) => sum + row.rating, 0);
-  // Math.round is half-up: 4.25 -> 4.3. One decimal matches the PDP display.
-  const ratingAverage = Math.round((total / reviewCount) * 10) / 10;
+  // Math.round is half-up: 4.25 -> 4.3. Number.EPSILON offsets binary-double
+  // drift that would floor an exact x.x5 boundary (e.g. 4.35 -> 4.3).
+  const ratingAverage = Math.round((total / reviewCount) * 10 + Number.EPSILON) / 10;
   return { reviewCount, ratingAverage };
 }
 

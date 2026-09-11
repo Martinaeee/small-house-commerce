@@ -1,7 +1,7 @@
 // src/components/product/ProductDetailsModal.tsx
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type TouchEvent } from "react";
 import type { Product } from "@/lib/api";
 import { DimensionRows } from "./SizeGuide";
 
@@ -46,6 +46,58 @@ export function ProductDetailsModal({
     };
   }, [onClose]);
 
+  // Mobile swipe-down-to-close (spec §5). The gesture lives on the grab bar
+  // only, so the scrollable accordion content keeps normal touch scrolling.
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const dragStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    dragStartYRef.current = e.touches[0].clientY;
+    const panel = sheetRef.current;
+    if (panel) panel.style.transition = "none";
+  };
+
+  const handleTouchCancel = () => {
+    dragStartYRef.current = null;
+    const panel = sheetRef.current;
+    if (panel) panel.style.transform = "";
+  };
+
+  const handleTouchMove = (e: TouchEvent<HTMLDivElement>) => {
+    if (dragStartYRef.current === null) return;
+    if (e.touches.length !== 1) {
+      handleTouchCancel();
+      return;
+    }
+    const dy = Math.max(0, e.touches[0].clientY - dragStartYRef.current);
+    const panel = sheetRef.current;
+    if (panel) panel.style.transform = `translateY(${dy}px)`;
+  };
+
+  const snapBack = () => {
+    const panel = sheetRef.current;
+    if (!panel) return;
+    panel.style.transition = "transform 200ms ease";
+    panel.style.transform = "translateY(0px)";
+    window.setTimeout(() => {
+      panel.style.transition = "";
+      panel.style.transform = "";
+    }, 200);
+  };
+
+  const handleTouchEnd = (e: TouchEvent<HTMLDivElement>) => {
+    if (dragStartYRef.current === null) return;
+    const startY = dragStartYRef.current;
+    dragStartYRef.current = null;
+    const dy = Math.max(0, e.changedTouches[0].clientY - startY);
+    if (dy >= 80) {
+      onClose();
+    } else {
+      snapBack();
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
@@ -55,9 +107,21 @@ export function ProductDetailsModal({
       onClick={onClose}
     >
       <div
+        ref={sheetRef}
         className="flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-2xl bg-background sm:max-w-lg sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile swipe-down affordance (spec §5); gesture is bound to the bar. */}
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div
+            aria-hidden="true"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            className="h-1 w-10 shrink-0 cursor-grab touch-none rounded-full bg-border active:cursor-grabbing"
+          />
+        </div>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold text-ink">Product details</h2>
           <button

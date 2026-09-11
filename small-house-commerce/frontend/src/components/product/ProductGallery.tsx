@@ -4,8 +4,6 @@
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 
-const DIRECT_THUMBS = 4;
-
 interface Props {
   images: ProductImage[];
   active: number;
@@ -14,15 +12,17 @@ interface Props {
 }
 
 /**
- * PDP_SPEC §6.3 + refinement: main image opens the lightbox; up to four
- * thumbnails swap the main image; beyond four photos the fifth strip tile is
- * a "+N" entry into the lightbox (opens at index 4). A single placeholder
- * product is not interactive.
+ * PDP_SPEC §6.3 + refinement: main image opens the lightbox. With 1–5 photos
+ * all thumbnails are shown directly (up to five); with 6+ photos the strip
+ * shows four direct thumbnails followed by a "+N" tile (N = total − 4) that
+ * opens the lightbox at index 4. A single placeholder product is not
+ * interactive.
  */
 export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Props) {
   const hasRealImages = images.length > 0 && images.some((image) => image.url);
   const current = images[Math.min(active, images.length - 1)];
-  const extra = images.length - DIRECT_THUMBS;
+  const directCount = images.length > 5 ? 4 : Math.min(5, images.length);
+  const extra = images.length > 5 ? images.length - 4 : 0;
 
   if (!hasRealImages) {
     return (
@@ -50,7 +50,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
 
       {images.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {images.slice(0, DIRECT_THUMBS).map((image, index) => (
+          {images.slice(0, directCount).map((image, index) => (
             <button
               key={image.id}
               type="button"
@@ -68,7 +68,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
           {extra > 0 && (
             <button
               type="button"
-              onClick={() => onOpenLightbox(DIRECT_THUMBS)}
+              onClick={() => onOpenLightbox(directCount)}
               aria-label={`View all ${images.length} photos`}
               className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md border-2 border-border bg-primary-light/40 text-sm font-semibold text-cta hover:border-primary"
             >

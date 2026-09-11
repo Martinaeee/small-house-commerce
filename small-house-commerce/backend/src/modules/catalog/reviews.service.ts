@@ -90,7 +90,7 @@ export class ReviewsService {
     return {
       reviews: rows.map(serializeReview),
       reviewCount: agg._count._all,
-      ratingAverage: avg === null ? null : Math.round(avg * 10) / 10,
+      ratingAverage: avg === null ? null : Math.round(avg * 10 + Number.EPSILON) / 10,
     };
   }
 
@@ -111,7 +111,7 @@ export class ReviewsService {
       const avg = row._avg.rating;
       result.set(row.productId, {
         reviewCount: row._count._all,
-        ratingAverage: avg === null ? null : Math.round(avg * 10) / 10,
+        ratingAverage: avg === null ? null : Math.round(avg * 10 + Number.EPSILON) / 10,
       });
     }
     return result;
