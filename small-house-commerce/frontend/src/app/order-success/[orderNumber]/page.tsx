@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
+import { PurchaseTracking } from "@/components/tracking/PurchaseTracking";
 
 export const metadata: Metadata = { title: "Order Received" };
 
@@ -17,6 +18,7 @@ export default async function OrderSuccessPage({
 
   return (
     <div className="mx-auto flex max-w-[600px] flex-col items-center gap-4 px-4 py-16 text-center">
+      <PurchaseTracking orderNumber={orderNumber} />
       <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-light/50 text-3xl text-cta">
         ✓
       </span>

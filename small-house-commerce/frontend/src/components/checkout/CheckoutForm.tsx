@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, cartStorage, type CartSummary } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
+import { readAttribution, track } from "@/lib/tracking";
 
 /**
  * COD checkout (CHECKOUT_SPEC §5, §8-§9, §13, §15).
@@ -66,6 +67,17 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
 
   const total = skuId ? null : cart ? cart.total : null;
 
+  // TRACKING_SPEC §12 InitiateCheckout.
+  useEffect(() => {
+    if (items.length === 0) return;
+    track("InitiateCheckout", {
+      contents: items.map((item) => ({ id: item.skuId, quantity: item.quantity })),
+      value: total ?? undefined,
+      currency: "PHP",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skuId, items.length]);
+
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
 
@@ -80,6 +92,7 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
 
     setSubmitting(true);
     try {
+      // AID/UTM from the URL flow into the order attribution snapshot (§5).
       const order = await api.createOrder({
         customer: {
           name: form.name.trim(),
@@ -92,7 +105,10 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
           landmark: form.landmark.trim() || null,
         },
         items,
+        attribution: readAttribution(),
       });
+      // Stash the total so the success page can fire the Purchase event.
+      if (total !== null) sessionStorage.setItem("lastOrderTotal", String(total));
       // Fresh cart for the next order.
       cartStorage.set("");
       router.push(`/order-success/${order.orderNumber}`);

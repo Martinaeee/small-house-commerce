@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Product } from "@/lib/api";
 import { api, cartStorage } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import { track } from "@/lib/tracking";
 
 /**
  * PDP_SPEC §6.4/§8/§10/§11/§18 + §12 (mobile sticky CTA).
@@ -43,6 +44,18 @@ export function ProductPurchase({ product }: { product: Product }) {
   const price = sku?.price ?? null;
   const compareAt = sku?.compareAtPrice ?? null;
 
+  // TRACKING_SPEC §12 ViewContent: fired once per PDP view.
+  useEffect(() => {
+    track("ViewContent", {
+      content_ids: [product.id],
+      content_name: product.name,
+      content_type: "product",
+      value: price ?? undefined,
+      currency: "PHP",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id]);
+
   async function handleAddToCart() {
     if (!sku) return;
     setBusy(true);
@@ -55,6 +68,15 @@ export function ProductPurchase({ product }: { product: Product }) {
       });
       cartStorage.set(summary.cartId);
       setNotice({ kind: "ok", text: "Added to cart" });
+      // TRACKING_SPEC §12 AddToCart.
+      track("AddToCart", {
+        content_ids: [sku.id],
+        content_name: product.name,
+        content_type: "product",
+        contents: [{ id: sku.id, quantity }],
+        value: price ? price * quantity : undefined,
+        currency: "PHP",
+      });
     } catch (error) {
       setNotice({
         kind: "error",
