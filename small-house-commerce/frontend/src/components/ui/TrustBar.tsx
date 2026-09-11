@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
 /**
- * DESIGN_SYSTEM §16 Trust Component — COD purchase confidence signals.
- * Shown on PDP, cart and checkout.
+ * HOMEPAGE_SPEC §12 USP Trust Bar + DESIGN_SYSTEM §16.
+ * Defaults: Cash On Delivery / Made For Small Spaces / Secure Checkout /
+ * Philippines Delivery. (CMS-editable in a later slice.)
  */
 
 const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
@@ -13,8 +14,29 @@ const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
         <path d="m8.5 12 2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
-    label: "Cash on Delivery",
+    label: "Cash On Delivery",
     sub: "Pay only when your order arrives",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
+        <path d="M3 4h11v11H8l-5 4V4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M14 8h4l3 3v4h-7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    ),
+    label: "Made For Small Spaces",
+    sub: "Furniture designed for condos & rentals",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
+        <rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="12" cy="15" r="1.4" fill="currentColor" />
+      </svg>
+    ),
+    label: "Secure Checkout",
+    sub: "Your details stay private",
   },
   {
     icon: (
@@ -24,25 +46,15 @@ const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
         <path d="M6.5 14.5h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     ),
-    label: "Nationwide Delivery",
+    label: "Philippines Delivery",
     sub: "Metro Manila 3-5 days, provinces 5-7",
-  },
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
-        <path d="M4 8h11v8H8l-4 3V8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-        <path d="M15 11h3l2 2v3h-5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      </svg>
-    ),
-    label: "Real-time Order Updates",
-    sub: "Track your order by phone",
   },
 ];
 
 export function TrustBar() {
   return (
     <section aria-label="Why shop with us">
-      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {ITEMS.map((item) => (
           <li
             key={item.label}
