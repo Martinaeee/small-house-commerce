@@ -59,6 +59,8 @@ export interface Collection {
   description: string | null;
   heroImage: string | null;
   sortOrder: number;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
 }
 
 export interface CollectionSection {
