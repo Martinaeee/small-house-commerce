@@ -12,6 +12,7 @@ import type {
   StorefrontProductQuery,
   UpdateProductInput,
 } from './dto/product.dto.js';
+import { ReviewsService } from './reviews.service.js';
 
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
@@ -66,7 +67,10 @@ const STOREFRONT_SELECT = {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reviews: ReviewsService,
+  ) {}
 
   // --- admin ---------------------------------------------------------------
 
@@ -270,8 +274,15 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
+    const enriched = await this.withAvailableInventory(items);
+    const summary = await this.reviews.summaryForProducts(enriched.map((p) => p.id));
+    const withReviews = enriched.map((p) => {
+      const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
+      return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
+    });
+
     return {
-      items: await this.withAvailableInventory(items),
+      items: withReviews,
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -290,7 +301,9 @@ export class ProductsService {
 
     // PDP needs availableInventory to render the stock state and to gate
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
-    return (await this.withAvailableInventory([product]))[0];
+    const base = (await this.withAvailableInventory([product]))[0];
+    const reviewData = await this.reviews.storefrontForProduct(base.id);
+    return { ...base, ...reviewData };
   }
 
   /**
