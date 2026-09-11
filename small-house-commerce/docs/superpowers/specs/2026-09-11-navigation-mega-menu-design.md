@@ -37,7 +37,7 @@ Top-level order (per HOMEPAGE_SPEC §6):
 | Solutions | flat link | `/collections/small-space-solutions` |
 | Best Sellers | flat link | `/collections/best-sellers` |
 
-Two-level tree (4 roots, 16 leaves):
+Two-level tree (4 roots, 17 leaves):
 
 - **Storage & Organization** (`storage-organization`): Shelving & Racks (`shelving-racks`), Cabinets & Drawers (`cabinets-drawers`), Wardrobes (`wardrobes`), Shoe Racks (`shoe-racks`), Kitchen & Bathroom Storage (`kitchen-bathroom-storage`)
 - **Tables & Desks** (`tables-desks`): Dining Tables (`dining-tables`), Desks (`desks`), Coffee & Side Tables (`coffee-side-tables`), Folding Tables (`folding-tables`)
@@ -74,7 +74,7 @@ Unit tests (vitest): root id returns products attached to a leaf; leaf id return
 
 New idempotent script `backend/prisma/seed-categories.ts` (run via `tsx`, same runner as `seed.ts`):
 
-- Upsert the 4 roots + 16 leaves by slug (parentId, sortOrder from array order, status ACTIVE, imageUrl null).
+- Upsert the 4 roots + 17 leaves by slug (parentId, sortOrder from array order, status ACTIVE, imageUrl null).
 - Delete the stray `chairs` slug only if it has no products.
 - Remap the 12 demo products: match by slug/name keywords to leaves; print the applied mapping.
 - Never delete products; wrap category upserts + product updates in a transaction.
