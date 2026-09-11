@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { ReviewsService } from '../catalog/reviews.service.js';
 import type {
   CollectionQuery,
   CreateCollectionInput,
@@ -9,7 +10,10 @@ import type {
 
 @Injectable()
 export class CollectionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reviews: ReviewsService,
+  ) {}
 
   // --- storefront -----------------------------------------------------------
 
@@ -164,7 +168,14 @@ export class CollectionsService {
       })),
     }));
 
-    return { items, total, page, pageSize };
+    // Review summary on cards (PDP_REFINEMENT §6); batched, no reviews[] list.
+    const summary = await this.reviews.summaryForProducts(items.map((p) => p.id));
+    const itemsWithReviews = items.map((p) => {
+      const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
+      return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
+    });
+
+    return { items: itemsWithReviews, total, page, pageSize };
   }
 
   // --- admin ----------------------------------------------------------------

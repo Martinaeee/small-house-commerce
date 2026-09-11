@@ -28,5 +28,6 @@ import { SuppliersService } from './suppliers.service.js';
     StorefrontProductsController,
   ],
   providers: [CategoriesService, ProductsService, ReviewsService, SuppliersService],
+  exports: [ReviewsService],
 })
 export class CatalogModule {}
