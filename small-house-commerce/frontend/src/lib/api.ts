@@ -143,6 +143,15 @@ export const api = {
   getCollectionProducts: (slug: string, page = 1) =>
     request<Paged<Product>>(`/api/v1/storefront/collections/${slug}/products?page=${page}`),
   getCart: (cartId: string) => request<CartSummary>(`/api/v1/storefront/cart/${cartId}/summary`),
+  updateCartItem: (cartId: string, itemId: string, quantity: number) =>
+    request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
+      method: "PUT",
+      body: JSON.stringify({ quantity }),
+    }),
+  removeCartItem: (cartId: string, itemId: string) =>
+    request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
+      method: "DELETE",
+    }),
   /**
    * Adds a SKU to the cart. Omit cartId for a fresh cart (the response
    * carries the cartId to persist in localStorage). The backend allows
@@ -169,7 +178,14 @@ export const api = {
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
-      { method: "POST", body: JSON.stringify(input) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          attribution: input.attribution ?? { sourceType: "ORGANIC" },
+          customer: input.customer,
+          items: input.items,
+        }),
+      },
     ),
 };
 
