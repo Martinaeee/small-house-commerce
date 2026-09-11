@@ -1,57 +1,80 @@
+// src/components/product/ProductGallery.tsx
 "use client";
 
-import { useState } from "react";
-import type { Product, ProductImage } from "@/lib/api";
+import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 
-/**
- * PDP_SPEC §6.3 Thumbnail Gallery. Main image is 1:1 (DESIGN_SYSTEM §13),
- * thumbnails switch the main view. Until real photography lands, images come
- * from the backend array (empty -> placeholder).
- */
-export function ProductGallery({ product }: { product: Product }) {
-  const images: ProductImage[] = product.images.length > 0
-    ? product.images
-    : [{ id: "placeholder", url: "", altText: product.name, sortOrder: 0 }];
+const DIRECT_THUMBS = 4;
 
-  const [active, setActive] = useState(0);
+interface Props {
+  images: ProductImage[];
+  active: number;
+  onSelect: (index: number) => void;
+  onOpenLightbox: (index: number) => void;
+}
+
+/**
+ * PDP_SPEC §6.3 + refinement: main image opens the lightbox; up to four
+ * thumbnails swap the main image; beyond four photos the fifth strip tile is
+ * a "+N" entry into the lightbox (opens at index 4). A single placeholder
+ * product is not interactive.
+ */
+export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Props) {
+  const hasRealImages = images.length > 0 && images.some((image) => image.url);
   const current = images[Math.min(active, images.length - 1)];
+  const extra = images.length - DIRECT_THUMBS;
+
+  if (!hasRealImages) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <PlaceholderImage label="" className="aspect-square w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
-        {current.url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={current.url}
-            alt={current.altText ?? product.name}
-            className="aspect-square w-full object-cover"
-          />
-        ) : (
-          <PlaceholderImage label={product.name} className="aspect-square w-full" />
-        )}
-      </div>
+      <button
+        type="button"
+        onClick={() => onOpenLightbox(active)}
+        aria-label="Open image gallery"
+        className="overflow-hidden rounded-lg border border-border bg-card"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={current.url}
+          alt={current.altText ?? "Product image"}
+          className="aspect-square w-full object-cover"
+        />
+      </button>
 
       {images.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {images.map((image, index) => (
+          {images.slice(0, DIRECT_THUMBS).map((image, index) => (
             <button
               key={image.id}
               type="button"
-              onClick={() => setActive(index)}
+              onClick={() => onSelect(index)}
               aria-label={`View image ${index + 1}`}
               className={`h-20 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors ${
                 index === active ? "border-cta" : "border-border hover:border-primary"
               }`}
             >
-              {image.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={image.url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <PlaceholderImage label="" className="h-full w-full" />
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.url} alt="" className="h-full w-full object-cover" />
             </button>
           ))}
+
+          {extra > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenLightbox(DIRECT_THUMBS)}
+              aria-label={`View all ${images.length} photos`}
+              className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md border-2 border-border bg-primary-light/40 text-sm font-semibold text-cta hover:border-primary"
+            >
+              +{extra}
+            </button>
+          )}
         </div>
       )}
     </div>
