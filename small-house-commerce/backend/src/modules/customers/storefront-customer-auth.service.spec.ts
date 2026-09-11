@@ -1,8 +1,16 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import argon2 from 'argon2';
+import { Prisma } from '../../generated/prisma/client.js';
 import { StorefrontCustomerAuthService } from './storefront-customer-auth.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
+
+function p2002(target: string) {
+  return new Prisma.PrismaClientKnownRequestError(
+    `Unique constraint failed on ${target}`,
+    { code: 'P2002', clientVersion: '7.10.0' },
+  );
+}
 
 const SECRET = 'test-secret-test-secret-test-secret-0123456789';
 const config = {
@@ -63,6 +71,40 @@ describe('StorefrontCustomerAuthService', () => {
     });
     await expect(
       service.register({ name: 'Juan', email: 'juan@example.com', password: 'longpassword' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('register maps a concurrent duplicate-email P2002 on create to 409', async () => {
+    const service = makeService({
+      customerAccount: {
+        // Pre-check misses; a racing transaction wins the unique email.
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue(p2002('CustomerAccount_email_key')),
+      },
+    });
+    await expect(
+      service.register({ name: 'Juan', email: 'juan@example.com', password: 'longpassword' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('updateMe maps a concurrent phone-link P2002 on account update to 409', async () => {
+    const service = makeService({
+      customer: {
+        upsert: vi.fn().mockResolvedValue({ id: 'cust-9', normalizedPhone: '+639170000002' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      customerAccount: {
+        // Call 1: requireAccount; call 2: owner lookup (misses the racer).
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce({ ...accountRow })
+          .mockResolvedValueOnce(null),
+        // The racing account already owns customerId cust-9.
+        update: vi.fn().mockRejectedValue(p2002('CustomerAccount_customerId_key')),
+      },
+    });
+    await expect(
+      service.updateMe('acct-1', { phone: '09170000002' }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 

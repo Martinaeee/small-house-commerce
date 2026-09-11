@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import argon2 from 'argon2';
+import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import type { MsDuration } from '../auth/auth.module.js';
@@ -46,7 +47,7 @@ export interface CustomerProfile {
   phone: string | null;
 }
 
-interface TokenPair {
+export interface TokenPair {
   accessToken: string;
   refreshToken: string;
   expiresAt: Date;
@@ -104,13 +105,23 @@ export class StorefrontCustomerAuthService {
       throw new ConflictException('An account with this email already exists');
     }
 
-    const account = await this.prisma.customerAccount.create({
-      data: {
-        email,
-        name: input.name,
-        passwordHash: await argon2.hash(input.password),
-      },
-    });
+    let account;
+    try {
+      account = await this.prisma.customerAccount.create({
+        data: {
+          email,
+          name: input.name,
+          passwordHash: await argon2.hash(input.password),
+        },
+      });
+    } catch (error) {
+      // A concurrent registration can win the unique email between the
+      // pre-check and the insert (P2002); answer with the same 409.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw error;
+    }
     const tokens = await this.issueTokens(account.id, account.email);
 
     return {
@@ -183,37 +194,46 @@ export class StorefrontCustomerAuthService {
       }
       // Linking runs in a transaction so the account/Customer stay consistent.
       // A conflicting owner throws, rolling back the upsert/backfill too.
-      await this.prisma.$transaction(async (tx) => {
-        const customer = await tx.customer.upsert({
-          where: { normalizedPhone },
-          // A brand-new phone-keyed Customer inherits the account identity.
-          create: { normalizedPhone, name: account.name, email: account.email },
-          update: {},
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const customer = await tx.customer.upsert({
+            where: { normalizedPhone },
+            // A brand-new phone-keyed Customer inherits the account identity.
+            create: { normalizedPhone, name: account.name, email: account.email },
+            update: {},
+          });
+          // Backfill the COD customer snapshot only where checkout left gaps.
+          await tx.customer.updateMany({
+            where: { id: customer.id, name: null },
+            data: { name: account.name },
+          });
+          await tx.customer.updateMany({
+            where: { id: customer.id, email: null },
+            data: { email: account.email },
+          });
+          const owner = await tx.customerAccount.findUnique({
+            where: { customerId: customer.id },
+            select: { id: true },
+          });
+          if (owner && owner.id !== accountId) {
+            throw new ConflictException('This phone number is linked to another account');
+          }
+          await tx.customerAccount.update({
+            where: { id: accountId },
+            data: {
+              customerId: customer.id,
+              ...(input.name !== undefined ? { name: input.name } : {}),
+            },
+          });
         });
-        // Backfill the COD customer snapshot only where checkout left gaps.
-        await tx.customer.updateMany({
-          where: { id: customer.id, name: null },
-          data: { name: account.name },
-        });
-        await tx.customer.updateMany({
-          where: { id: customer.id, email: null },
-          data: { email: account.email },
-        });
-        const owner = await tx.customerAccount.findUnique({
-          where: { customerId: customer.id },
-          select: { id: true },
-        });
-        if (owner && owner.id !== accountId) {
+      } catch (error) {
+        // A concurrent link can win the unique customerId/phone between the
+        // owner check and the update (P2002); answer with the same 409.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           throw new ConflictException('This phone number is linked to another account');
         }
-        await tx.customerAccount.update({
-          where: { id: accountId },
-          data: {
-            customerId: customer.id,
-            ...(input.name !== undefined ? { name: input.name } : {}),
-          },
-        });
-      });
+        throw error;
+      }
     } else if (input.name !== undefined) {
       await this.prisma.customerAccount.update({
         where: { id: accountId },
