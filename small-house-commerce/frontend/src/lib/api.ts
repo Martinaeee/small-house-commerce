@@ -56,12 +56,27 @@ export type Solution =
   | "HIDDEN_STORAGE"
   | "RENTAL_FRIENDLY";
 
+export interface Review {
+  id: string;
+  authorName: string;
+  location: string | null;
+  rating: number;
+  title: string | null;
+  comment: string;
+  photos: string[];
+  createdAt: string;
+}
+
 export interface Product {
   id: string;
   name: string;
   slug: string;
   description: string | null;
   categoryId: string;
+  ratingAverage: number | null;
+  reviewCount: number;
+  /** Present only on the single-product detail response. */
+  reviews?: Review[];
   room: Room | null;
   internalRole: string | null;
   solutions: Solution[];
