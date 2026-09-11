@@ -26,6 +26,7 @@ model Customer {
 
   addresses CustomerAddress[]
   orders     Order[]
+  account    CustomerAccount?
 
   @@map("customers")
 }
@@ -52,4 +53,39 @@ model CustomerAddress {
 
   @@index([customerId])
   @@map("customer_addresses")
+}
+
+/// Storefront customer login identity (email + password). Separate from the
+/// admin User and from the phone-keyed Customer row: customerId links COD
+/// order history once the shopper saves their phone number.
+model CustomerAccount {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  customerId   String?   @unique @map("customer_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer      Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refreshTokens CustomerRefreshToken[]
+
+  @@map("customer_accounts")
+}
+
+/// Opaque refresh tokens (only the sha256 hash is stored), mirroring admin
+/// RefreshToken: rotation revokes the presented row, enabling reuse detection.
+model CustomerRefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  accountId String    @map("account_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account CustomerAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([expiresAt])
+  @@map("customer_refresh_tokens")
 }
