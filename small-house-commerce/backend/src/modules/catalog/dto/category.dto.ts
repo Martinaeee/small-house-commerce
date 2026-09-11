@@ -13,6 +13,7 @@ export const createCategorySchema = z.object({
   slug: slugSchema,
   parentId: z.string().uuid().nullable().optional(),
   sortOrder: z.number().int().default(0),
+  imageUrl: z.string().url().max(2048).nullable().optional(),
   status: z.nativeEnum(CategoryStatus).default('ACTIVE'),
 });
 

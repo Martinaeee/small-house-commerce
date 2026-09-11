@@ -13,6 +13,7 @@ import type {
   UpdateProductInput,
 } from './dto/product.dto.js';
 import { ReviewsService } from './reviews.service.js';
+import { expandCategoryIds } from './category-tree.js';
 
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
@@ -246,7 +247,15 @@ export class ProductsService {
         { slug: { contains: query.search, mode: 'insensitive' } },
       ];
     }
-    if (query.categoryId) where.categoryId = query.categoryId;
+    // Storefront category pages show the whole subtree: a root page lists
+    // products attached to any descendant leaf.
+    if (query.categoryId) {
+      const activeCategories = await this.prisma.category.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, parentId: true },
+      });
+      where.categoryId = { in: expandCategoryIds(activeCategories, query.categoryId) };
+    }
     if (query.room) where.room = query.room;
     if (query.solution) where.solutions = { has: query.solution };
     // §12 price filter: any sellable SKU in range (COLLECTION_SPEC).
