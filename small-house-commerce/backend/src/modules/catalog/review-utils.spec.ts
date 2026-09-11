@@ -2,6 +2,16 @@
 import { describe, expect, it } from 'vitest';
 import { serializeReview, summarizeRatings } from './review-utils.js';
 
+// Prisma rows carry internal fields the storefront shape must drop; model the
+// full row so the fixture type-checks while serializeReview sees a superset.
+type FullReviewRow = Parameters<typeof serializeReview>[0] & {
+  isVisible: boolean;
+  source: string;
+  verifiedOrderItemId: string;
+  productId: string;
+  updatedAt: Date;
+};
+
 describe('summarizeRatings', () => {
   it('returns zero count and null average for no reviews', () => {
     expect(summarizeRatings([])).toEqual({ reviewCount: 0, ratingAverage: null });
@@ -25,7 +35,7 @@ describe('summarizeRatings', () => {
 
 describe('serializeReview', () => {
   it('maps a Prisma review to the storefront shape and drops internal fields', () => {
-    const out = serializeReview({
+    const row: FullReviewRow = {
       id: 'r1',
       authorName: 'Maria',
       location: 'Manila',
@@ -39,7 +49,8 @@ describe('serializeReview', () => {
       productId: 'p1',
       createdAt: new Date('2026-09-01T10:00:00.000Z'),
       updatedAt: new Date('2026-09-01T10:00:00.000Z'),
-    });
+    };
+    const out = serializeReview(row);
     expect(out).toEqual({
       id: 'r1',
       authorName: 'Maria',
