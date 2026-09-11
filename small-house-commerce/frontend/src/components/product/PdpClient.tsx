@@ -60,7 +60,7 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
   const hasDimensions =
     product.width !== null || product.height !== null || product.depth !== null;
 
-  // Keep ?variant= in sync (shareable, back-button restorable).
+  // Keep ?variant= in sync so the URL is shareable and survives reload.
   useEffect(() => {
     if (!selectedVariantId) return;
     const params = new URLSearchParams(window.location.search);
@@ -156,7 +156,7 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
             <button
               type="button"
               onClick={() => addToCart(1)}
-              disabled={outOfStock}
+              disabled={outOfStock || busy}
               aria-label="Add to cart"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border text-cta hover:border-primary disabled:text-ink-muted md:hidden"
             >
@@ -187,6 +187,7 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
                     type="button"
                     onClick={() => setSelectedVariantId(variant.id)}
                     disabled={variant.sku === null}
+                    aria-pressed={variant.id === selectedVariantId}
                     className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:text-ink-muted ${
                       variant.id === selectedVariantId
                         ? "border-cta bg-primary-light/40 text-cta"

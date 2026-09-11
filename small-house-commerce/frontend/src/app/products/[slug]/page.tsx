@@ -69,9 +69,13 @@ export default async function ProductDetailPage({
 
   let related: Product[] = [];
   if (relatedRes?.ok) {
-    related = ((await relatedRes.json()) as Paged<Product>).items.filter(
-      (item) => item.id !== product.id,
-    );
+    try {
+      related = ((await relatedRes.json()) as Paged<Product>).items.filter(
+        (item) => item.id !== product.id,
+      );
+    } catch {
+      related = [];
+    }
   }
 
   return (
