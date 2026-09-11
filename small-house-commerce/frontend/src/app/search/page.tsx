@@ -44,20 +44,32 @@ export default async function SearchPage({
     if (sp.minPrice) params.set("minPrice", sp.minPrice);
     if (sp.maxPrice) params.set("maxPrice", sp.maxPrice);
 
-    const [productsRes, categoriesRes] = await Promise.all([
-      fetch(serverApiUrl(`/api/v1/storefront/products?${params.toString()}`), {
-        next: { revalidate: 120 },
-      }),
-      fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 300 } }),
-    ]);
-    if (productsRes.ok) products = (await productsRes.json()) as Paged<Product>;
-    if (categoriesRes.ok) roots = (await categoriesRes.json()) as Category[];
+    try {
+      const [productsRes, categoriesRes] = await Promise.all([
+        fetch(serverApiUrl(`/api/v1/storefront/products?${params.toString()}`), {
+          next: { revalidate: 120 },
+        }),
+        fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 300 } }),
+      ]);
+      // Non-OK HTTP is handled inline (falls through to the empty state below);
+      // the try/catch covers network-level rejection (backend down).
+      if (productsRes.ok) products = (await productsRes.json()) as Paged<Product>;
+      if (categoriesRes.ok) roots = (await categoriesRes.json()) as Category[];
+    } catch {
+      // Same failure shape as the collection page: degrade to the real empty
+      // state instead of the default error page.
+      products = null;
+      roots = [];
+    }
   }
 
   const items = products?.items ?? [];
   const totalPages = products ? Math.max(1, Math.ceil(products.total / products.pageSize)) : 1;
   const activeFilterCount =
-    (sp.room ? 1 : 0) + (sp.solution ? 1 : 0) + (sp.minPrice !== undefined ? 1 : 0);
+    (sp.room ? 1 : 0) +
+    (sp.solution ? 1 : 0) +
+    (sp.minPrice !== undefined ? 1 : 0) +
+    (sp.maxPrice !== undefined ? 1 : 0);
 
   // Pagination keeps the query and every active filter.
   const pageHref = (target: number) => {

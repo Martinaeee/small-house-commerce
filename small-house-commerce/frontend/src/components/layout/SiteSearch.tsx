@@ -53,7 +53,11 @@ export function SiteSearch() {
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
+  // The eligible term whose response last populated `results`. Deriving loading
+  // from `trimmed !== settledTerm` shows the loading row on the very keystroke
+  // that crosses the 2-char threshold (no pre-debounce "No matches" flash) and
+  // needs no setState inside the effect body (react-hooks/set-state-in-effect).
+  const [settledTerm, setSettledTerm] = useState("");
   const [open, setOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileBarTop, setMobileBarTop] = useState(0);
@@ -65,27 +69,28 @@ export function SiteSearch() {
 
   const trimmed = query.trim();
   const canSearch = trimmed.length >= 2;
+  // True for the whole in-flight window — including the 250 ms debounce — from
+  // the keystroke that changes the eligible term until its response settles.
+  const loading = canSearch && trimmed !== settledTerm;
 
   // Debounced suggestion fetch with stale-response protection. State is set
-  // only from the timer/callbacks — never synchronously in the effect body
+  // only from the timer callbacks — never synchronously in the effect body
   // (react-hooks/set-state-in-effect; same convention as AuthProvider).
   useEffect(() => {
     if (!canSearch) return;
     const mySeq = ++seq.current;
     const timer = window.setTimeout(() => {
-      // "Searching…" starts when the request actually fires (after debounce).
-      setLoading(true);
       api
         .getProducts({ search: trimmed, pageSize: SUGGESTION_LIMIT })
         .then((page) => {
           if (mySeq !== seq.current) return;
           setResults(page.items);
-          setLoading(false);
+          setSettledTerm(trimmed);
         })
         .catch(() => {
           if (mySeq !== seq.current) return;
           setResults([]);
-          setLoading(false);
+          setSettledTerm(trimmed);
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
@@ -165,9 +170,13 @@ export function SiteSearch() {
             setQuery(e.target.value);
             setActiveRow(-1);
             // Reset immediately when the term drops below the search threshold.
+            // Bumping seq invalidates any in-flight response so it cannot
+            // repopulate results after the reset; settledTerm clears the
+            // derived loading state.
             if (e.target.value.trim().length < 2) {
+              seq.current += 1;
               setResults([]);
-              setLoading(false);
+              setSettledTerm("");
             }
           }}
           onFocus={(e) => {
