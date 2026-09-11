@@ -1114,8 +1114,25 @@ or
 
 Recommended Products
 
+---
 
+## ORDER NOW Inventory Check
 
+Required on every ORDER NOW (Buy Now) click, regardless of the displayed
+stock state:
+
+1. Read the selected SKU's `availableInventory` from the PDP response
+   (the backend returns it per SKU on the storefront product detail).
+2. If `availableInventory <= 0`:
+   - Do not enter checkout.
+   - Show a stock-out prompt (toast / inline "This item is out of stock").
+3. Otherwise proceed to checkout with the selected SKU.
+
+This check covers the gap between the rendered stock state and the live
+stock (e.g. the last unit sells while the page is open). It is a UX gate
+only: the backend checkout endpoint enforces stock validation as the
+authoritative safety net, so the frontend check must never be treated as
+a security boundary.
 
 ---
 

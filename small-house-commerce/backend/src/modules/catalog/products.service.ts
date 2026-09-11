@@ -41,7 +41,7 @@ const STOREFRONT_SELECT = {
     orderBy: { sortOrder: 'asc' as const },
   },
   variants: {
-    select: { id: true, name: true, position: true, sku: { select: { skuCode: true } } },
+    select: { id: true, name: true, position: true, sku: { select: { id: true, skuCode: true } } },
     orderBy: { position: 'asc' as const },
   },
 } satisfies Prisma.ProductSelect;
@@ -237,7 +237,12 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
-    return { items, total, page: query.page, pageSize: query.pageSize };
+    return {
+      items: await this.withAvailableInventory(items),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async storefrontGetBySlug(slug: string) {
@@ -250,7 +255,46 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    return product;
+    // PDP needs availableInventory to render the stock state and to gate
+    // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
+    return (await this.withAvailableInventory([product]))[0];
+  }
+
+  /**
+   * Enriches storefront SKUs with availableInventory (on_hand - reserved).
+   * available is always computed, never stored (docs/DATABASE.md §29).
+   */
+  private async withAvailableInventory<T extends { variants: { sku: { id: string } | null }[] }>(
+    products: T[],
+  ): Promise<T[]> {
+    const skuIds = [
+      ...new Set(
+        products.flatMap((p) => p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id)),
+      ),
+    ];
+
+    const availableBySku = new Map<string, number>();
+    if (skuIds.length > 0) {
+      const grouped = await this.prisma.inventory.groupBy({
+        by: ['skuId'],
+        where: { skuId: { in: skuIds } },
+        _sum: { onHand: true, reserved: true },
+      });
+      for (const row of grouped) {
+        availableBySku.set(row.skuId, (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0));
+      }
+    }
+
+    // Returns the same shape, with availableInventory added to each sku.
+    return products.map((product) => ({
+      ...product,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        sku: variant.sku
+          ? { ...variant.sku, availableInventory: availableBySku.get(variant.sku.id) ?? 0 }
+          : null,
+      })),
+    })) as T[];
   }
 
   // --- helpers -------------------------------------------------------------
