@@ -7,7 +7,6 @@ import type {
 } from './dto/review.dto.js';
 import {
   serializeReview,
-  summarizeRatings,
   type RatingSummary,
   type StorefrontReviewShape,
 } from './review-utils.js';
@@ -72,12 +71,27 @@ export class ReviewsService {
   async storefrontForProduct(
     productId: string,
   ): Promise<{ reviews: StorefrontReviewShape[] } & RatingSummary> {
-    const rows = await this.prisma.productReview.findMany({
-      where: { productId, isVisible: true },
-      orderBy: { createdAt: 'desc' },
-      take: STOREFRONT_REVIEW_TAKE,
-    });
-    return { reviews: rows.map(serializeReview), ...summarizeRatings(rows) };
+    // The reviews[] page is capped at 10, but count/average MUST span all
+    // visible reviews (spec: the cap applies to the list, not the summary),
+    // so run the page query and the aggregate in parallel.
+    const [rows, agg] = await Promise.all([
+      this.prisma.productReview.findMany({
+        where: { productId, isVisible: true },
+        orderBy: { createdAt: 'desc' },
+        take: STOREFRONT_REVIEW_TAKE,
+      }),
+      this.prisma.productReview.aggregate({
+        where: { productId, isVisible: true },
+        _count: { _all: true },
+        _avg: { rating: true },
+      }),
+    ]);
+    const avg = agg._avg.rating;
+    return {
+      reviews: rows.map(serializeReview),
+      reviewCount: agg._count._all,
+      ratingAverage: avg === null ? null : Math.round(avg * 10) / 10,
+    };
   }
 
   /** Visible-only averages for a batch of products (list pages/cards). */
