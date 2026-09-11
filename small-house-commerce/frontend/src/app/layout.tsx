@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
+import { Providers } from "@/components/auth/Providers";
 import { buildNav } from "@/lib/nav";
 import { serverApiUrl, type Category, type Collection } from "@/lib/api";
 
@@ -43,11 +44,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className="h-full antialiased">
       <body className="flex min-h-full flex-col">
-        <MetaPixelInit />
-        <AnnouncementBar />
-        <Header navItems={navItems} />
-        <main className="flex-1">{children}</main>
-        <Footer collections={footerCollections} />
+        <Providers>
+          <MetaPixelInit />
+          <AnnouncementBar />
+          <Header navItems={navItems} />
+          <main className="flex-1">{children}</main>
+          <Footer collections={footerCollections} />
+        </Providers>
       </body>
     </html>
   );
