@@ -1,26 +1,51 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Design tokens from docs/frontend/DESIGN_SYSTEM.md §5 (colors), §6
+ * (typography), §7 (layout), §9 (spacing), §10 (buttons).
+ * Every style MUST use these tokens — no page defines its own colors
+ * (DESIGN_SYSTEM §4).
+ */
+@theme {
+  /* §5.1 primary brand (warm beige) */
+  --color-primary: #c9a77b;
+  --color-primary-dark: #b8946a;
+  --color-primary-light: #e8dccb;
+
+  /* §5.2 background, §5.3 card */
+  --color-background: #faf8f5;
+  --color-card: #ffffff;
+
+  /* §5.4 text */
+  --color-ink: #222222;
+  --color-ink-secondary: #666666;
+  --color-ink-muted: #999999;
+
+  /* §5.5 CTA (deep brown) */
+  --color-cta: #6b4f3a;
+  --color-cta-hover: #5a4130;
+
+  /* §5.6 promotion (sale only) */
+  --color-sale: #d9534f;
+
+  /* borders derived from the beige palette */
+  --color-border: #e8e2d9;
+
+  /* §6 typography: system stack for loading speed (§27 Rule 3, §26) */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  /* §7 container width */
+  --container-content: 1200px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* §6 body text */
+    font-size: 16px;
+    line-height: 1.6;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }

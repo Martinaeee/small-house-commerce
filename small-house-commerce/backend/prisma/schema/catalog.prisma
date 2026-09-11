@@ -118,6 +118,7 @@ model Product {
   images   ProductImage[]
   variants ProductVariant[]
   skus     Sku[]
+  collections CollectionProduct[]
 
   @@index([categoryId])
   @@index([status])

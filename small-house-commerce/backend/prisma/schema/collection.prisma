@@ -1,0 +1,83 @@
+// Collections: merchandising/marketing groupings (docs/DATABASE.md §102).
+//
+// Collection is NOT the same as Category (DATABASE.md §102 Purpose):
+// Category is product classification; Collection is the customer shopping
+// journey / marketing grouping. A product belongs to many collections.
+//
+// type drives behaviour:
+//   NAVIGATION  -> header navigation (frontend maps nav directly to these)
+//   MARKETING   -> temporary campaigns
+//   SCENARIO    -> lifestyle groupings
+//   SYSTEM      -> automatic collections (Best Sellers etc.)
+//
+// The superseded duplicate of this spec was removed when §102 was
+// renumbered; the field list here is the §102 (Block B) version.
+
+enum CollectionType {
+  NAVIGATION
+  MARKETING
+  SCENARIO
+  SYSTEM
+}
+
+enum CollectionStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Collection {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  name          String
+  slug          String           @unique
+  type          CollectionType   @default(NAVIGATION)
+  description   String?
+  heroImage     String?          @map("hero_image")
+  status        CollectionStatus @default(ACTIVE)
+  sortOrder     Int              @default(0) @map("sort_order")
+  seoTitle      String?          @map("seo_title")
+  seoDescription String?         @map("seo_description")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products CollectionProduct[]
+  sections CollectionSection[]
+
+  @@index([type, status])
+  @@map("collections")
+}
+
+/// N:M Collection <-> Product. A product can belong to many collections and a
+/// collection can hold many products (§102 Collection Relationship Summary).
+model CollectionProduct {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  collectionId String   @map("collection_id") @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  sortOrder    Int      @default(0) @map("sort_order")
+  isFeatured   Boolean  @default(false) @map("is_featured")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, productId])
+  @@index([productId])
+  @@map("collection_products")
+}
+
+/// CMS-controlled collection page content (§102 collection_sections). Stored
+/// as JSON so section types can grow without schema changes.
+model CollectionSection {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  collectionId String   @map("collection_id") @db.Uuid
+  sectionType  String   @map("section_type")
+  contentJson  Json?    @map("content_json")
+  sortOrder    Int      @default(0) @map("sort_order")
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId, enabled])
+  @@map("collection_sections")
+}

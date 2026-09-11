@@ -193,6 +193,7 @@ async function main(): Promise<void> {
 
   await ensureInitialAdmin();
   await ensureDefaultWarehouse();
+  await ensureCoreCollections();
 }
 
 /**
@@ -247,6 +248,31 @@ async function ensureDefaultWarehouse(): Promise<void> {
     data: { name: 'Manila Central', country: 'PH', province: 'Metro Manila', city: 'Quezon City' },
   });
   console.log('Created default warehouse: Manila Central.');
+}
+
+/**
+ * V1 Core Collections (docs/DATABASE.md §102 V1 Core Collections). These back
+ * the header navigation and homepage — the frontend MUST NOT hard-code them.
+ */
+async function ensureCoreCollections(): Promise<void> {
+  const core = [
+    { name: 'New Arrivals', slug: 'new-arrivals', type: 'NAVIGATION', sortOrder: 1 },
+    { name: 'Storage & Organization', slug: 'storage-organization', type: 'NAVIGATION', sortOrder: 2 },
+    { name: 'Tables & Desks', slug: 'tables-desks', type: 'NAVIGATION', sortOrder: 3 },
+    { name: 'Chairs & Stools', slug: 'chairs-stools', type: 'NAVIGATION', sortOrder: 4 },
+    { name: 'Bedroom Essentials', slug: 'bedroom-essentials', type: 'NAVIGATION', sortOrder: 5 },
+    { name: 'Small-Space Solutions', slug: 'small-space-solutions', type: 'SCENARIO', sortOrder: 6 },
+    { name: 'Best Sellers', slug: 'best-sellers', type: 'SYSTEM', sortOrder: 7 },
+  ] as const;
+
+  for (const c of core) {
+    await prisma.collection.upsert({
+      where: { slug: c.slug },
+      update: { name: c.name, type: c.type as never, sortOrder: c.sortOrder },
+      create: { ...c, type: c.type as never },
+    });
+  }
+  console.log(`Ensured ${core.length} core collections.`);
 }
 
 main()

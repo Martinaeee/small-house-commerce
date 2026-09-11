@@ -1,69 +1,81 @@
-import Image from "next/image";
+import Link from "next/link";
+import { CollectionCard } from "@/components/collection/CollectionCard";
+import { ProductCard } from "@/components/product/ProductCard";
+import { ButtonLink } from "@/components/ui/Button";
+import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
 
-export default function Home() {
+// ISR: product/collection data changes through the admin, not per request.
+const REVALIDATE = 120;
+
+async function getHomepageData() {
+  try {
+    const [collectionsRes, productsRes] = await Promise.all([
+      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: REVALIDATE } }),
+      fetch(serverApiUrl("/api/v1/storefront/products?pageSize=8"), { next: { revalidate: REVALIDATE } }),
+    ]);
+
+    const collections = collectionsRes.ok
+      ? ((await collectionsRes.json()) as { items: Collection[] }).items
+      : [];
+    const products = productsRes.ok
+      ? ((await productsRes.json()) as Paged<Product>).items
+      : [];
+
+    return { collections, products };
+  } catch {
+    return { collections: [] as Collection[], products: [] as Product[] };
+  }
+}
+
+export default async function HomePage() {
+  const { collections, products } = await getHomepageData();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <>
+      {/* Hero (FRONTEND_SPEC §6.1) */}
+      <section className="bg-gradient-to-b from-primary-light/50 to-background">
+        <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 sm:py-24">
+          <h1 className="max-w-2xl text-4xl font-semibold text-ink sm:text-5xl">
+            Smart furniture for your small home
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-xl text-base text-ink-secondary">
+            Foldable, space-saving, rental-friendly furniture delivered
+            nationwide. Pay only when it arrives.
           </p>
+          <ButtonLink href={collections[0] ? `/collections/${collections[0].slug}` : "/collections"} size="lg">
+            Shop Now
+          </ButtonLink>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </section>
+
+      {/* Collections (FRONTEND_SPEC §6.1, DESIGN_SYSTEM §14) */}
+      {collections.length > 0 && (
+        <section className="mx-auto max-w-[1200px] px-4 py-12 sm:px-6">
+          <div className="mb-6 flex items-baseline justify-between">
+            <h2 className="text-3xl font-semibold text-ink">Shop by Space</h2>
+            <Link href="/collections" className="text-sm text-cta hover:underline">
+              View all
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-5">
+            {collections.slice(0, 5).map((collection) => (
+              <CollectionCard key={collection.id} collection={collection} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Featured products (FRONTEND_SPEC §6.3) */}
+      {products.length > 0 && (
+        <section className="mx-auto max-w-[1200px] px-4 py-12 sm:px-6">
+          <h2 className="mb-6 text-3xl font-semibold text-ink">New Arrivals</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
+    </>
   );
 }

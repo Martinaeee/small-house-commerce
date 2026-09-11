@@ -5,6 +5,7 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CartModule } from './modules/cart/cart.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
+import { CollectionsModule } from './modules/collections/collections.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
@@ -30,6 +31,7 @@ import { UsersModule } from './modules/users/users.module.js';
     CartModule,
     InventoryModule,
     OrdersModule,
+    CollectionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
