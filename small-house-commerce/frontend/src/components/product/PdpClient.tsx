@@ -1,7 +1,7 @@
 // src/components/product/PdpClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Product } from "@/lib/api";
@@ -37,14 +37,27 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
     [variants],
   );
 
-  const initialVariant =
-    variants.find((v) => v.id === searchParams.get("variant")) ?? firstSellable;
-  const initialVariantId = initialVariant?.id ?? null;
-  const initialIdRef = useRef(initialVariantId);
+  const urlVariant = searchParams.get("variant");
 
+  // Initial selection comes from a valid ?variant= deep link, else the first
+  // sellable variant.
+  const initialVariantId =
+    variants.find((v) => v.id === urlVariant)?.id ?? firstSellable?.id ?? null;
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
     initialVariantId,
   );
+  const [prevUrlVariant, setPrevUrlVariant] = useState<string | null>(urlVariant);
+
+  // Browser Back/Forward changes useSearchParams. Reconcile during render via
+  // React's "adjust state when a prop changes" pattern: the restarted render
+  // is discarded without firing effects, so the state->URL effect below never
+  // sees the transient mismatch and cannot re-push a history entry.
+  if (urlVariant !== prevUrlVariant) {
+    setPrevUrlVariant(urlVariant);
+    const matched = urlVariant ? variants.find((v) => v.id === urlVariant) : undefined;
+    const target = matched?.id ?? firstSellable?.id ?? null;
+    if (target && target !== selectedVariantId) setSelectedVariantId(target);
+  }
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -64,51 +77,20 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
     product.foldedWidth !== null || product.foldedHeight !== null ||
     product.foldedDepth !== null;
 
-  // Refs guard the two-direction URL sync so neither side loops. Browser
-  // Back/Forward is a popstate: reconcile state inside the subscription
-  // (set-state-in-effect lint rule allows listeners), and swallow the one
-  // state->URL push it would otherwise trigger in the same commit — sibling
-  // effects still see the pre-reconciliation state snapshot.
-  const urlVariant = searchParams.get("variant");
-  const suppressPushRef = useRef(false);
-  const variantsRef = useRef({ variants, firstSellable });
-  const selectedVariantRef = useRef(selectedVariantId);
-
-  // Mirrors for the popstate listener; updated outside of render.
+  // Keep ?variant= in sync (push so browser Back restores the previous selection).
   useEffect(() => {
-    variantsRef.current = { variants, firstSellable };
-    selectedVariantRef.current = selectedVariantId;
-  });
-
-  useEffect(() => {
-    const syncFromUrl = () => {
-      const next = new URLSearchParams(window.location.search).get("variant");
-      const { variants: list, firstSellable: first } = variantsRef.current;
-      const matched = next ? list.find((v) => v.id === next) : undefined;
-      const target = matched?.id ?? first?.id ?? null;
-      if (target && selectedVariantRef.current !== target) {
-        suppressPushRef.current = true;
-        setSelectedVariantId(target);
-      }
-    };
-    window.addEventListener("popstate", syncFromUrl);
-    return () => window.removeEventListener("popstate", syncFromUrl);
-  }, []);
-
-  // Keep ?variant= in sync (push so browser back restores the previous selection).
-  useEffect(() => {
-    if (suppressPushRef.current) {
-      suppressPushRef.current = false;
-      return;
-    }
     if (!selectedVariantId) return;
-    // A clean URL in sync with the mount-time selection must not gain an entry.
-    if (urlVariant === null && selectedVariantId === initialIdRef.current) return;
     if (urlVariant === selectedVariantId) return;
+    // A clean URL in sync with the mount-time selection must not gain an entry.
+    if (urlVariant === null && selectedVariantId === initialVariantId) return;
     const params = new URLSearchParams(window.location.search);
     params.set("variant", selectedVariantId);
-    router.push(`/products/${product.slug}?${params.toString()}`, { scroll: false });
-  }, [selectedVariantId, product.slug, router, urlVariant]);
+    const url = `/products/${product.slug}?${params.toString()}`;
+    // Garbage ?variant= is normalized without growing history.
+    const urlIsInvalid = urlVariant !== null && !variants.some((v) => v.id === urlVariant);
+    if (urlIsInvalid) router.replace(url, { scroll: false });
+    else router.push(url, { scroll: false });
+  }, [selectedVariantId, urlVariant, initialVariantId, variants, product.slug, router]);
 
   // Reserve space for the fixed mobile CTA so the footer stays reachable.
   useEffect(() => {

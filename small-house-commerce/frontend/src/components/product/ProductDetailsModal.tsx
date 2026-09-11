@@ -50,6 +50,9 @@ export function ProductDetailsModal({
   // only, so the scrollable accordion content keeps normal touch scrolling.
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const dragStartYRef = useRef<number | null>(null);
+  const snapTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(snapTimerRef.current), []);
 
   const handleTouchStart = (e: TouchEvent<HTMLDivElement>) => {
     if (e.touches.length !== 1) return;
@@ -80,7 +83,8 @@ export function ProductDetailsModal({
     if (!panel) return;
     panel.style.transition = "transform 200ms ease";
     panel.style.transform = "translateY(0px)";
-    window.setTimeout(() => {
+    window.clearTimeout(snapTimerRef.current);
+    snapTimerRef.current = window.setTimeout(() => {
       panel.style.transition = "";
       panel.style.transform = "";
     }, 200);
