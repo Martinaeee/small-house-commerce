@@ -232,7 +232,7 @@ export function SiteSearch() {
           setMobileOpen(true);
         }}
         aria-label="Search"
-        className="ml-auto flex items-center rounded-lg p-1.5 text-ink hover:text-cta lg:hidden"
+        className="ml-auto flex items-center rounded-lg p-1.5 text-ink hover:text-cta max-[374px]:p-1 lg:hidden"
       >
         <SearchIcon className="h-6 w-6" />
       </button>

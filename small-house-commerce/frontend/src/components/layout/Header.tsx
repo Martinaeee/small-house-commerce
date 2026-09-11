@@ -18,7 +18,7 @@ const LOGO = "Small House PH";
 export function Header({ navItems }: { navItems: NavItem[] }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 sm:gap-x-6 sm:px-6">
+      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6">
         {/* Logo: first in flow on desktop; absolutely centered on mobile
             (the in-flow hamburger/cart then occupy left/right). */}
         <Link
@@ -39,7 +39,7 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
           <AccountEntry />
           <Link
             href="/cart"
-            className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta lg:p-2"
+            className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta max-[374px]:p-1 lg:p-2"
             aria-label="Shopping cart"
           >
             <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" aria-hidden>
