@@ -57,6 +57,13 @@ enum InternalProductRole {
   PRE_ORDER
 }
 
+/// Product review source. ADMIN = merchant-entered for cold start;
+/// CUSTOMER = post-order (submission/moderation ships in V1.5).
+enum ReviewSource {
+  ADMIN
+  CUSTOMER
+}
+
 /// §27 suppliers. SKU rows reference this. Sensitive fields stay admin-only.
 model Supplier {
   id             String        @id @default(uuid(7)) @db.Uuid
@@ -116,6 +123,7 @@ model Product {
 
   category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images   ProductImage[]
+  reviews  ProductReview[]
   variants ProductVariant[]
   skus     Sku[]
   collections CollectionProduct[]
@@ -198,4 +206,30 @@ model Sku {
   @@index([productId])
   @@index([supplierId])
   @@map("skus")
+}
+
+/// PDP_SPEC §22 reviews. Admin can seed reviews for cold start; customer
+/// reviews arrive post-order in V1.5. Storefront reads isVisible rows only.
+/// photos are image URLs (admin enters URLs in V1; upload comes later).
+/// verifiedOrderItemId is a plain nullable column for now — no FK until the
+/// customer-review flow exists.
+model ProductReview {
+  id                  String       @id @default(uuid(7)) @db.Uuid
+  productId           String       @map("product_id") @db.Uuid
+  source              ReviewSource @default(ADMIN)
+  authorName          String       @map("author_name")
+  location            String?
+  rating              Int
+  title               String?
+  comment             String
+  photos              String[]     @default([])
+  isVisible           Boolean      @default(true) @map("is_visible")
+  verifiedOrderItemId String?      @map("verified_order_item_id") @db.Uuid
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, isVisible])
+  @@map("product_reviews")
 }
