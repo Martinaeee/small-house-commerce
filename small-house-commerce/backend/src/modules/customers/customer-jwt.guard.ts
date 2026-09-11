@@ -8,19 +8,20 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 
-export interface RequestUser {
-  userId: string;
+export interface RequestCustomer {
+  accountId: string;
   email: string;
 }
 
-type AuthenticatedRequest = Request & { user?: RequestUser };
+type AuthenticatedRequest = Request & { customer?: RequestCustomer };
 
 /**
- * Verifies the Bearer access token and attaches the subject to the request.
- * Applied per-controller via @UseGuards; /auth/login is deliberately outside it.
+ * Storefront guard: accepts ONLY access tokens carrying kind: "customer".
+ * Admin tokens (no kind claim) are rejected, keeping the two identities
+ * from ever being interchangeable.
  */
 @Injectable()
-export class JwtAuthGuard implements CanActivate {
+export class CustomerJwtGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
@@ -34,19 +35,21 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing bearer token');
     }
 
-    const token = header.slice('Bearer '.length);
-
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string; email: string; kind?: string }>(
-        token,
-        { secret: this.config.getOrThrow<string>('jwt.secret') },
-      );
-      if (payload.kind === 'customer') {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string;
+        email: string;
+        kind?: string;
+      }>(header.slice('Bearer '.length), {
+        secret: this.config.getOrThrow<string>('jwt.secret'),
+      });
+      if (payload.kind !== 'customer') {
         throw new UnauthorizedException('Invalid or expired token');
       }
-      request.user = { userId: payload.sub, email: payload.email };
+      request.customer = { accountId: payload.sub, email: payload.email };
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
