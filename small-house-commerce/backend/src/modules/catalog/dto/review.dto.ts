@@ -15,11 +15,16 @@ export const createAdminReviewSchema = z.object({
 });
 export type CreateAdminReviewInput = z.infer<typeof createAdminReviewSchema>;
 
-// PATCH: every field optional; no defaults here so an omitted field means
-// "leave unchanged" (same partial-update convention as updateProductSchema).
+// PATCH: every field optional; no defaults may survive here so an omitted
+// field means "leave unchanged". Zod 4's .partial() PRESERVES inner
+// defaults, so omit the defaulted fields first and re-add them plain —
+// the same convention as updateProductSchema in product.dto.ts.
 export const updateAdminReviewSchema = createAdminReviewSchema
+  .omit({ photos: true, isVisible: true })
   .partial()
   .extend({
+    photos: z.array(photoSchema).max(6).optional(),
+    isVisible: z.boolean().optional(),
     // Allow explicitly clearing the optional text fields.
     location: z.string().trim().max(120).nullable().optional(),
     title: z.string().trim().max(200).nullable().optional(),
