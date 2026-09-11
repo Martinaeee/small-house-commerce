@@ -185,10 +185,11 @@ export function MainNav({ items }: { items: NavItem[] }) {
         </svg>
       </button>
 
-      {/* Desktop navigation triggers */}
+      {/* Desktop navigation triggers — full-width second row of the header
+          (order-6 + basis-full wrap it under the logo/search/icons line). */}
       <nav
         aria-label="Main navigation"
-        className="hidden flex-1 items-center gap-5 lg:flex"
+        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex"
       >
         {items.map((item) =>
           item.kind === "link" ? (

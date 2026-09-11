@@ -65,6 +65,7 @@ export function SiteSearch() {
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
 
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
+  const mobileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const seq = useRef(0);
 
   const trimmed = query.trim();
@@ -122,6 +123,24 @@ export function SiteSearch() {
     setMobileOpen(false);
   }, []);
 
+  // Explicit mobile close (✕ click / Esc in the input). Returns focus to the
+  // magnifier trigger so it never stays inside a node that just unmounted
+  // (Chrome: "Blocked aria-hidden… descendant retained focus"). Only when
+  // focus is actually within the search UI, and never on desktop — the trigger
+  // is display:none there (offsetParent === null). Scroll/navigation close via
+  // closeAll and deliberately do not move focus.
+  const closeMobile = useCallback(() => {
+    const activeEl = document.activeElement;
+    const focusInSearch =
+      activeEl instanceof Element && activeEl.closest("[data-mobile-search]") !== null;
+    setOpen(false);
+    setMobileOpen(false);
+    const trigger = mobileTriggerRef.current;
+    if (focusInSearch && trigger && trigger.offsetParent !== null) {
+      trigger.focus();
+    }
+  }, []);
+
   const goToResults = useCallback(
     (value: string) => {
       const q = value.trim();
@@ -151,8 +170,11 @@ export function SiteSearch() {
       event.preventDefault();
       setActiveRow((cur) => (cur <= -1 ? results.length - 1 : cur - 1));
     } else if (event.key === "Escape") {
-      setOpen(false);
       setActiveRow(-1);
+      // In the mobile bar Esc closes the bar and hands focus back to the
+      // magnifier; on desktop it only dismisses the suggestion dropdown.
+      if (mobileOpen) closeMobile();
+      else setOpen(false);
     }
   }
 
@@ -202,6 +224,7 @@ export function SiteSearch() {
           (search/account/cart) to the right edge; on desktop this button is
           hidden and the pill below carries its own ml-auto. */}
       <button
+        ref={mobileTriggerRef}
         type="button"
         onClick={() => {
           const header = document.querySelector("header");
@@ -209,19 +232,24 @@ export function SiteSearch() {
           setMobileOpen(true);
         }}
         aria-label="Search"
-        className="ml-auto flex items-center rounded-lg p-2 text-ink hover:text-cta lg:hidden"
+        className="ml-auto flex items-center rounded-lg p-1.5 text-ink hover:text-cta lg:hidden"
       >
         <SearchIcon className="h-6 w-6" />
       </button>
 
-      {/* Desktop: pill (ml-auto pushes it to the right of the nav) */}
-      <div className="ml-auto hidden w-full max-w-[420px] lg:block">{renderField(null)}</div>
+      {/* Desktop: wide centered pill on row 1. flex-1 grows it between logo and
+          the account/cart cluster; max-w + mx-auto center the capped width.
+          py-2.5 holds row 1 at the original 64px header height. */}
+      <div className="mx-auto hidden w-full max-w-[560px] flex-1 py-2.5 lg:block">
+        {renderField(null)}
+      </div>
 
       {/* Mobile full-width bar under the sticky header */}
       {mounted &&
         mobileOpen &&
         createPortal(
           <div
+            data-mobile-search
             className="fixed inset-x-0 z-50 border-b border-border bg-background p-3 shadow-lg lg:hidden"
             style={{ top: mobileBarTop }}
           >
@@ -229,7 +257,7 @@ export function SiteSearch() {
               <div className="flex-1">{renderField(mobileInputRef)}</div>
               <button
                 type="button"
-                onClick={closeAll}
+                onClick={closeMobile}
                 aria-label="Close search"
                 className="rounded-lg p-2 text-ink hover:text-cta"
               >

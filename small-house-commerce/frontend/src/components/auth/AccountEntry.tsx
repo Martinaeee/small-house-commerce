@@ -27,7 +27,7 @@ export function AccountEntry() {
     return (
       <Link
         href="/account"
-        className="flex items-center gap-2 rounded-lg p-2 text-ink hover:text-cta"
+        className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta lg:p-2"
         aria-label="Your account"
       >
         {icon}
@@ -39,7 +39,7 @@ export function AccountEntry() {
   return (
     <Link
       href="/login"
-      className="flex items-center gap-2 rounded-lg p-2 text-ink hover:text-cta"
+      className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta lg:p-2"
       aria-label="Log in"
     >
       {icon}
