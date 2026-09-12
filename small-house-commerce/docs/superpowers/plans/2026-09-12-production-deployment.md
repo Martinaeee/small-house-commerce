@@ -454,7 +454,9 @@ The two patterns matter: `/api/v1/*` matches subpaths but not the bare health pa
 # --- Database ---------------------------------------------------------------
 POSTGRES_USER=smallhouse
 POSTGRES_DB=small_house
-# Generate: openssl rand -base64 24
+# Generate URL-safe hex: openssl rand -hex 24
+# (base64 '/' or '+' is invalid unencoded in the DATABASE_URL userinfo —
+# Prisma P1013 boot crash; ~38% of `rand -base64 24` outputs contain '/'.)
 POSTGRES_PASSWORD=
 
 # --- API auth ---------------------------------------------------------------
@@ -499,11 +501,11 @@ cp deploy/env.deploy.example .env.deploy
 Generate secrets:
 
 ```bash
-openssl rand -base64 24            # POSTGRES_PASSWORD
+openssl rand -hex 24             # POSTGRES_PASSWORD — hex ONLY: a base64 '/' breaks the DATABASE_URL userinfo (Prisma P1013)
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"  # JWT_SECRET
 ```
 
-Note: compose v2 auto-loads `./.env`; the file is named `.env.deploy`, so export it or run compose with `--env-file .env.deploy`. Every command below uses that flag.
+Note: compose v2 auto-loads `./.env`; the file is named `.env.deploy`, so export it or run compose with `--env-file .env.deploy`. The `build`/`up`/upgrade commands below need that flag; `logs`/`exec`/`ps` act on already-running containers and work without it.
 
 ## 3. Build and start
 
@@ -536,7 +538,7 @@ docker compose -f docker-compose.prod.yml exec backend \
   pnpm exec tsx prisma/seed-categories.ts
 ```
 
-Both seeds are idempotent. The random-password fallback prints to the backend logs if `ADMIN_PASSWORD` is omitted.
+Both seeds are idempotent. The random-password fallback prints to the backend logs if `ADMIN_PASSWORD` is omitted. On a brand-new stack the frontend may boot before the category seed runs; category detail pages can then return 404 for up to 5 minutes (fetch cache `revalidate: 300`) and self-heal — run both seeds promptly after first boot. The §10 smoke eliminates the race entirely by starting the frontend only after seeding.
 
 ## 5. Verify
 
@@ -557,13 +559,15 @@ docker compose -f docker-compose.prod.yml restart backend
 Logical backup (cron recommended, e.g. nightly 03:17):
 
 ```bash
-17 3 * * * cd /path/to/small-house-commerce && docker compose -f docker-compose.prod.yml exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | zstd > /srv/backups/small-house-$(date +\%F).sql.zst
+17 3 * * * cd /path/to/small-house-commerce && docker compose -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | zstd > /srv/backups/small-house-$(date +\%F).sql.zst
 ```
+
+The `sh -c '...'` single quotes are essential: `$POSTGRES_USER`/`$POSTGRES_DB` must expand **inside** the db container, where compose sets them. Cron's host shell has neither variable, so an unquoted/outer expansion runs `pg_dump -U "" ""` and silently writes a 0-byte archive.
 
 Restore into a fresh database:
 
 ```bash
-zstd -d -c backup.sql.zst | docker compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+zstd -d -c backup.sql.zst | docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 Keep at least 14 daily files; verify a restore monthly.
@@ -580,7 +584,7 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d
 
 ## 9. Rollback
 
-Migrations in this project are forward-only and non-destructive. Code rollback is `git checkout <prev> && build && up -d`, but a revision whose schema changed requires restoring the database backup taken before the upgrade — take a backup immediately before every production upgrade.
+Migrations in this project are forward-only and non-destructive. Code rollback is `git checkout <prev> && build && up -d`, but a revision whose schema changed requires restoring the database backup taken before the upgrade — take a backup immediately before every production upgrade. The `postgres:18-alpine` data directory lives at `/var/lib/postgresql/18/docker` inside the `prod_pgdata` volume (image-major versioned): upgrading the db image to a new major version (e.g. 18 → 19) does not upgrade data in place — plan a dump/restore or `pg_upgrade`.
 
 ## 10. Local smoke (no domain, no TLS)
 
@@ -603,20 +607,31 @@ NEXT_PUBLIC_META_PIXEL_ID=
 EOF
 # --project-directory keeps the ./backend ./frontend build contexts and the
 # ./deploy/Caddyfile volume resolving against the real project dir, not /tmp.
-docker compose -p sh-smoke \
-  --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
-  -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build
+# Start ONLY db + backend: the frontend must not exist before the category
+# seed, otherwise its first categories fetch primes the fetch data-cache
+# (revalidate 300s) with an empty list and category pages 404 for ~5 minutes.
+PD=/ABSOLUTE/PATH/TO/small-house-commerce
+docker compose -p sh-smoke --project-directory "$PD" \
+  -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build db backend
+# Wait for the API (the entrypoint applies migrations before serving):
+for i in $(seq 1 60); do
+  docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml exec -T backend \
+    node -e "fetch('http://localhost:3000/api/v1').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+    && break
+  sleep 2
+done
 ```
 
 (Run from anywhere; substitute the absolute path to the `small-house-commerce` directory.)
 
-`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Seed the category tree (proves the frontend's runtime `API_TARGET` Server Component path, not just browser routing), warm a category DETAIL page once to trigger ISR regeneration, poll until its SSR HTML contains the seeded category name (the homepage nav does not render root category names server-side), then verify pages, API paths, and log hygiene:
+`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Seed the category tree, and only THEN start the frontend + Caddy (proves the frontend's runtime `API_TARGET` Server Component path, not just browser routing). Warm a category DETAIL page and poll until its SSR HTML contains the seeded category name (the homepage nav does not render root category names server-side) — with the ordered startup the poll normally succeeds immediately; it remains a safety net, not a 5-minute wait. Then verify pages, API paths, and log hygiene:
 
 ```bash
-docker compose -p sh-smoke --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
-  -f /tmp/sh-smoke.compose.yml exec -T backend pnpm exec tsx prisma/seed-categories.ts
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml \
+  exec -T backend pnpm exec tsx prisma/seed-categories.ts
+docker compose -p sh-smoke --project-directory "$PD" \
+  -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build frontend caddy
 curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials -o /dev/null   # warm
-# Background regeneration can take minutes, not seconds — poll, don't sleep.
 for i in $(seq 1 60); do
   curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials" && break
   sleep 5
@@ -628,10 +643,10 @@ docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
   | grep -cE "ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|EACCES"   # must be 0
 ```
 
-Then tear down INCLUDING the smoke volumes:
+Then tear down INCLUDING the smoke volumes (pass the env file so no blank-variable warnings print):
 
 ```bash
-docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
@@ -645,6 +660,7 @@ Only the `sh-smoke` project's volumes are removed; dev databases and any real `s
 - **Pixel not firing:** pixel ID is build-time; confirm the build arg via `docker compose config` and rebuild the frontend image.
 - **Browser storefront API calls fail with 500/ECONNRESET:** the Caddyfile must route `/api/v1 /api/v1/*` to `backend:3000` directly. The Next standalone server bakes its rewrite target at image build time, so proxying *browser* API traffic through the frontend cannot work.
 - **Pages render but with fetch-failed/ISR errors in the frontend log (stale or empty catalog data):** that is the runtime `API_TARGET` ENV, used directly by Server Components (not the rewrite). Confirm the frontend service has `API_TARGET=http://backend:3000` and that the backend is healthy on the compose network.
+- **Category detail pages 404 right after first boot:** the frontend's fetch data-cache (`revalidate: 300`) can prime on the pre-seed empty categories list; run the §4 seeds — pages self-heal within 5 minutes. The §10 smoke avoids the race by starting frontend/Caddy only after seeding.
 - Behind Caddy the app trusts exactly one proxy hop (`trust proxy = 1` in `main.ts`); do not add a second proxy without adjusting it.
 ````
 
@@ -659,18 +675,20 @@ Expected: warnings about empty required values are acceptable for the template, 
 
 - [ ] **Step 6: Full local smoke with throwaway project**
 
-Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose copy under `/tmp` with Caddy remapped to `127.0.0.1:8080:80`, temp env file with `DOMAIN=:80`, project name `sh-smoke`, `up -d --build`, `--project-directory` pointing at the real project dir). Then verify:
+Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose copy under `/tmp` with Caddy remapped to `127.0.0.1:8080:80`, temp env file with `DOMAIN=:80`, project name `sh-smoke`, `--project-directory` pointing at the real project dir). Start **db + backend only**, wait for the API, seed, and only then start frontend + Caddy — that order is load-bearing: a frontend booted before seeding primes its fetch data-cache (`revalidate: 300`) with the empty categories list and 404s category pages for ~5 minutes (Task 4 review MAJOR-3 ruling). Then verify:
 
 ```bash
 PD=/ABSOLUTE/PATH/TO/small-house-commerce
 # Seed the category tree so real SSR content proves the runtime API_TARGET
 # path works — empty pages served from build-time fallback would mask a
 # silently-wrong fetch target (Task 3 re-review INFO).
-docker compose -p sh-smoke --project-directory "$PD" -f /tmp/sh-smoke.compose.yml \
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml \
   exec -T backend pnpm exec tsx prisma/seed-categories.ts
+docker compose -p sh-smoke --project-directory "$PD" \
+  -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build frontend caddy
 # The category DETAIL page renders the fetched category name in SSR HTML
 # (the homepage nav does not render root names server-side). Warm it, then
-# poll: background ISR regeneration can take minutes (observed ~4m), not seconds.
+# poll as a safety net; with the ordered startup it succeeds on iteration 1.
 curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials -o /dev/null
 SSR_OK=""
 for i in $(seq 1 60); do
@@ -687,11 +705,11 @@ sleep 5
 # no EACCES prerender-cache errors either.
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
   | grep -cE "ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|EACCES"
-docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
-Expected: `SSR shows seeded category OK` (revalidated homepage HTML contains the seeded root-category name rendered by `MainNav`); homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** with the seeded tree (`/api/v1/*` wildcard matcher); the frontend-log error grep prints **0**; teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
+Expected: `SSR shows seeded category OK` — the category DETAIL page `/categories/bedroom-essentials` SSR HTML contains the seeded category name (the homepage never renders root names server-side; the marker moved here in the `e025fe4` ruling); homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** with the seeded tree (`/api/v1/*` wildcard matcher); the frontend-log error grep prints **0**; teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
 
 - [ ] **Step 7: Commit**
 
