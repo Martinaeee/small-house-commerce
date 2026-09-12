@@ -1411,18 +1411,20 @@ Restart the API on :3000, then:
 
 ```bash
 # 11 rapid bad logins: the 11th must be 429 with Retry-After.
+# Use a schema-valid email: Zod's z.email() rejects 'x@y.z' with 400 (the guard
+# still throttles, but the first ten responses would be 400, not 401).
 for i in $(seq 1 11); do
   curl -s -o /dev/null -w '%{http_code} ' -X POST http://localhost:3000/api/v1/auth/login \
-    -H 'Content-Type: application/json' -d '{"email":"x@y.z","password":"longpassword"}'
+    -H 'Content-Type: application/json' -d '{"email":"x@example.com","password":"longpassword"}'
 done; echo
 curl -s -i -X POST http://localhost:3000/api/v1/auth/login \
-  -H 'Content-Type: application/json' -d '{"email":"x@y.z","password":"longpassword"}' | grep -iE 'HTTP/|retry-after'
+  -H 'Content-Type: application/json' -d '{"email":"x@example.com","password":"longpassword"}' | grep -iE 'HTTP/|retry-after'
 # A different route family is unaffected:
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/api/v1/storefront/customers/refresh \
   -H 'Content-Type: application/json' -d '{"refreshToken":"not-a-real-token"}'
 ```
 
-Expected: ten `200/401` responses then `429`; the `-i` response carries `retry-after: <seconds>`; the customer refresh route answers independently (401, not 429).
+Expected: ten `401` responses then `429`; the `-i` response carries `retry-after: <seconds>` (600 for the 10-minute window); the customer refresh route answers independently (401, not 429).
 
 - [ ] **Step 5: Commit**
 
