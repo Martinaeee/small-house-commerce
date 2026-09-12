@@ -315,13 +315,16 @@ describe('StorefrontCustomerAuthService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('login rejects an unknown email with 401', async () => {
+  it('login burns an argon2 verify on unknown email and returns 401', async () => {
+    const verifySpy = vi.spyOn(argon2, 'verify');
     const service = makeService({
       customerAccount: { findUnique: vi.fn().mockResolvedValue(null) },
     });
     await expect(
       service.login({ email: 'nobody@example.com', password: 'longpassword' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(verifySpy).toHaveBeenCalledOnce();
+    expect(verifySpy.mock.calls[0]![1]).toBe('longpassword');
   });
 
   it('login rejects a wrong password with 401 even when the email exists', async () => {

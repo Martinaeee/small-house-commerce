@@ -29,6 +29,18 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * One-time random constant hashed once per process. Unknown-account logins
+ * verify against it so the argon2 work (and therefore latency) matches the
+ * known-account path (final-review M6: email-enumeration timing oracle).
+ */
+const DUMMY_PASSWORD = randomBytes(32).toString('hex');
+let dummyHashPromise: Promise<string> | null = null;
+
+function dummyHash(): Promise<string> {
+  return (dummyHashPromise ??= argon2.hash(DUMMY_PASSWORD));
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -40,7 +52,11 @@ export class AuthService {
   async login(input: LoginInput) {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
 
-    if (!user || user.status !== 'ACTIVE') {
+    if (!user) {
+      await argon2.verify(await dummyHash(), input.password);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Invalid credentials');
     }
 

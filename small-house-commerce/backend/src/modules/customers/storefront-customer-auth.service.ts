@@ -24,6 +24,14 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** Cached dummy hash burned on unknown-account logins to flatten timing (M6). */
+const DUMMY_PASSWORD = randomBytes(32).toString('hex');
+let dummyHashPromise: Promise<string> | null = null;
+
+function dummyHash(): Promise<string> {
+  return (dummyHashPromise ??= argon2.hash(DUMMY_PASSWORD));
+}
+
 function durationToMillis(value: string): number {
   const match = /^(\d+)(ms|s|m|h|d)$/.exec(value);
   if (!match) throw new Error(`Invalid duration: "${value}"`);
@@ -136,6 +144,7 @@ export class StorefrontCustomerAuthService {
       include: { customer: { select: { normalizedPhone: true } } },
     });
     if (!account) {
+      await argon2.verify(await dummyHash(), input.password);
       throw new UnauthorizedException('Invalid credentials');
     }
     const valid = await argon2.verify(account.passwordHash, input.password);

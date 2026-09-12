@@ -2,6 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
+import argon2 from 'argon2';
 import { AuthService } from './auth.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -457,5 +458,63 @@ describe('AuthService.refresh — rotation families', () => {
       where: { id: 'rt-1', revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+  });
+});
+
+describe('AuthService.login — timing equalizer', () => {
+  it('runs an argon2 verify on unknown email and still returns 401', async () => {
+    const verifySpy = vi.spyOn(argon2, 'verify');
+    const service = makeService({
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+
+    await expect(
+      service.login({ email: 'ghost@example.com', password: 'longpassword' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(verifySpy).toHaveBeenCalledOnce();
+    expect(verifySpy.mock.calls[0]![1]).toBe('longpassword');
+  });
+
+  it('logs in an active user with the correct password and starts a family', async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({
+      user: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({
+            id: 'u-1',
+            email: 'admin@example.com',
+            name: 'Admin',
+            status: 'ACTIVE',
+            passwordHash: await argon2.hash('longpassword'),
+          }),
+      },
+      refreshToken: { create },
+    });
+
+    const result = await service.login({ email: 'admin@example.com', password: 'longpassword' });
+    expect(result.user.email).toBe('admin@example.com');
+    expect(result.refreshToken).toBeTruthy();
+    expect(create.mock.calls[0]![0].data.familyId).toEqual(expect.any(String));
+  });
+
+  it('rejects a wrong password with 401', async () => {
+    const service = makeService({
+      user: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({
+            id: 'u-1',
+            email: 'admin@example.com',
+            name: 'Admin',
+            status: 'ACTIVE',
+            passwordHash: await argon2.hash('longpassword'),
+          }),
+      },
+    });
+
+    await expect(
+      service.login({ email: 'admin@example.com', password: 'otherpassword1' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
