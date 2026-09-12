@@ -18,14 +18,16 @@ COPY . .
 RUN pnpm run build
 
 # ---- runner: only the standalone trace ------------------------------------
-# NOTE: no API_TARGET ENV here. Next 16 bakes rewrites() destinations into
-# routes-manifest.json at build time; a runtime ENV cannot change them. In
-# production Caddy routes /api/v1/* directly to the backend (see Task 4),
-# so the baked dev rewrite is never exercised.
+# API_TARGET here is read at REQUEST time by serverApiUrl() in Server
+# Components (SSR/ISR fetches). It does NOT affect rewrites(): that
+# destination is baked into routes-manifest.json at build time and stays
+# dev-only — in production Caddy routes browser /api/v1/* calls straight
+# to the backend, while server-side fetches call this URL directly.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+ENV API_TARGET=http://backend:3000
 # --chown so the node user can update the prerender cache at runtime
 # (root-owned artifacts make every cold route log EACCES).
 COPY --chown=node:node --from=build /app/public ./public
