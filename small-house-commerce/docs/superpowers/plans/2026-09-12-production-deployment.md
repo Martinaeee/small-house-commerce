@@ -430,7 +430,10 @@ volumes:
 	# API traffic goes straight to the backend. Next 16 bakes rewrites()
 	# destinations at build time, so the frontend's dev-only /api/v1
 	# rewrite cannot be retargeted at runtime and must not sit on this path.
-	handle /api/v1 /api/v1/* {
+	# handle accepts a single matcher, so name a path matcher with both
+	# patterns (caddy 2.11 rejects multiple bare path args to handle).
+	@api path /api/v1 /api/v1/*
+	handle @api {
 		reverse_proxy backend:3000
 	}
 	handle {
@@ -439,7 +442,7 @@ volumes:
 }
 ```
 
-The two patterns matter: `/api/v1/*` matches subpaths but not the bare health path `/api/v1`, so both are listed. `handle` blocks are mutually exclusive and the API block must stay first.
+The two patterns matter: `/api/v1/*` matches subpaths but not the bare health path `/api/v1`, so both are listed on the named matcher. `handle` blocks are mutually exclusive and the API block must stay first. Validate syntax with `docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile` (adapter tolerates the env placeholders) or `caddy adapt`.
 
 - [ ] **Step 3: Create `deploy/env.deploy.example`**
 
@@ -586,7 +589,9 @@ Builds the same stack on the local Docker engine with plain HTTP on localhost:80
 ```bash
 cp docker-compose.prod.yml /tmp/sh-smoke.compose.yml
 # `-i.bak` works on both macOS BSD sed and GNU sed.
-sed -i.bak 's/"80:80"/"127.0.0.1:8080:80"/; s/"443:443"//' /tmp/sh-smoke.compose.yml
+# Remap the one published port to localhost and DELETE the 443 line —
+# blanking it ("s/...//") leaves a null ports entry that compose rejects.
+sed -i.bak 's/"80:80"/"127.0.0.1:8080:80"/; /"443:443"/d' /tmp/sh-smoke.compose.yml
 cat > /tmp/sh-smoke.env <<'EOF'
 POSTGRES_USER=sh
 POSTGRES_PASSWORD=sh
@@ -610,7 +615,12 @@ docker compose -p sh-smoke \
 ```bash
 docker compose -p sh-smoke --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
   -f /tmp/sh-smoke.compose.yml exec -T backend pnpm exec tsx prisma/seed-categories.ts
-curl -fsS http://127.0.0.1:8080/ -o /dev/null && sleep 6
+curl -fsS http://127.0.0.1:8080/ -o /dev/null   # warm: kicks background ISR regeneration
+# Background regeneration can take minutes, not seconds — poll, don't sleep.
+for i in $(seq 1 60); do
+  curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && break
+  sleep 5
+done
 curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials"   # SSR shows seeded data
 curl -fsS http://127.0.0.1:8080/api/v1                              # Hello World!
 curl -fsS http://127.0.0.1:8080/api/v1/storefront/categories -o /dev/null
@@ -659,8 +669,13 @@ PD=/ABSOLUTE/PATH/TO/small-house-commerce
 docker compose -p sh-smoke --project-directory "$PD" -f /tmp/sh-smoke.compose.yml \
   exec -T backend pnpm exec tsx prisma/seed-categories.ts
 curl -fsS http://127.0.0.1:8080/ -o /dev/null   # warm: triggers background ISR regeneration
-sleep 6
-curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && echo "SSR shows seeded category OK"
+# Background regeneration can take minutes (observed ~4m), not seconds — poll.
+SSR_OK=""
+for i in $(seq 1 60); do
+  curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && { SSR_OK=1; break; }
+  sleep 5
+done
+[ "$SSR_OK" = 1 ] && echo "SSR shows seeded category OK" || { echo "SSR content never updated"; exit 1; }
 curl -fsS http://127.0.0.1:8080/api/v1 && echo "API health via caddy OK"
 curl -fsS "http://127.0.0.1:8080/api/v1/storefront/categories" -o /dev/null && echo "API wildcard route via caddy OK"
 # More pages exercising Server Component fetches via the runtime API_TARGET.
