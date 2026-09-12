@@ -4,7 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import argon2 from 'argon2';
@@ -122,7 +122,7 @@ export class StorefrontCustomerAuthService {
       }
       throw error;
     }
-    const tokens = await this.issueTokens(account.id, account.email);
+    const tokens = await this.issueTokens(this.prisma, account.id, account.email, randomUUID());
 
     return {
       ...tokens,
@@ -142,32 +142,73 @@ export class StorefrontCustomerAuthService {
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const tokens = await this.issueTokens(account.id, account.email);
+    const tokens = await this.issueTokens(this.prisma, account.id, account.email, randomUUID());
     return { ...tokens, account: this.toProfile(account) };
   }
 
   async refresh(input: StorefrontRefreshInput): Promise<TokenPair> {
     const tokenHash = hashToken(input.refreshToken);
-    const stored = await this.prisma.customerRefreshToken.findUnique({
-      where: { tokenHash },
-    });
-    if (!stored || stored.revokedAt !== null || stored.expiresAt <= new Date()) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    const now = new Date();
 
-    // Rotation with reuse rejection mirrors the admin AuthService.
-    await this.prisma.customerRefreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() },
+    // The callback must not throw on the reuse path (Prisma would roll the
+    // family deletion back); return an outcome and 401 after commit instead.
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.customerRefreshToken.findUnique({
+        where: { tokenHash },
+      });
+      if (!stored) {
+        return { status: 'invalid' as const };
+      }
+
+      if (stored.expiresAt <= now) {
+        return { status: 'invalid' as const };
+      }
+
+      if (stored.revokedAt !== null) {
+        await this.revokeFamily(tx, stored.accountId, stored.familyId, stored.id);
+        return { status: 'invalid' as const };
+      }
+
+      await tx.customerRefreshToken.update({
+        where: { id: stored.id },
+        data: { revokedAt: now },
+      });
+
+      const account = await tx.customerAccount.findUnique({
+        where: { id: stored.accountId },
+        select: { id: true, email: true },
+      });
+      if (!account) {
+        return { status: 'invalid' as const };
+      }
+
+      const tokens = await this.issueTokens(
+        tx,
+        account.id,
+        account.email,
+        stored.familyId ?? randomUUID(),
+      );
+      return { status: 'ok' as const, tokens };
     });
-    const account = await this.prisma.customerAccount.findUnique({
-      where: { id: stored.accountId },
-      select: { id: true, email: true },
-    });
-    if (!account) {
+
+    if (outcome.status !== 'ok') {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    return this.issueTokens(account.id, account.email);
+    return outcome.tokens;
+  }
+
+  /** Deletes every customer token in a rotation family (null = out-of-band singleton row). */
+  private async revokeFamily(
+    tx: Prisma.TransactionClient,
+    accountId: string,
+    familyId: string | null,
+    selfId: string,
+  ): Promise<void> {
+    if (familyId !== null) {
+      await tx.customerRefreshToken.deleteMany({ where: { accountId, familyId } });
+    } else {
+      await tx.customerRefreshToken.deleteMany({ where: { accountId, id: selfId } });
+    }
   }
 
   async logout(refreshToken: string): Promise<{ ok: true }> {
@@ -310,7 +351,12 @@ export class StorefrontCustomerAuthService {
     };
   }
 
-  private async issueTokens(accountId: string, email: string): Promise<TokenPair> {
+  private async issueTokens(
+    client: Prisma.TransactionClient | PrismaService,
+    accountId: string,
+    email: string,
+    familyId: string,
+  ): Promise<TokenPair> {
     const accessTtl = this.config.getOrThrow<MsDuration>('jwt.accessTtl');
     const refreshTtl = this.config.getOrThrow<string>('jwt.refreshTtl');
 
@@ -321,8 +367,8 @@ export class StorefrontCustomerAuthService {
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + durationToMillis(refreshTtl));
 
-    await this.prisma.customerRefreshToken.create({
-      data: { accountId, tokenHash: hashToken(refreshToken), expiresAt },
+    await client.customerRefreshToken.create({
+      data: { accountId, familyId, tokenHash: hashToken(refreshToken), expiresAt },
     });
 
     return { accessToken, refreshToken, expiresAt };

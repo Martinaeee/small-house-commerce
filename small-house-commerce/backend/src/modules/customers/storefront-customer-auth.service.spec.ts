@@ -1,5 +1,6 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { createHash } from 'node:crypto';
 import argon2 from 'argon2';
 import { Prisma } from '../../generated/prisma/client.js';
 import { StorefrontCustomerAuthService } from './storefront-customer-auth.service.js';
@@ -266,5 +267,108 @@ describe('StorefrontCustomerAuthService', () => {
     });
     const page = await service.listOrders('acct-1', { page: 1, pageSize: 10 });
     expect(page).toEqual({ items: [], total: 0, page: 1, pageSize: 10 });
+  });
+
+  const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+  function makeCustomerRefreshTokenDb(
+    initial: Array<Record<string, unknown>>,
+  ) {
+    const rows: Array<Record<string, unknown>> = [...initial];
+    return {
+      rows,
+      customerRefreshToken: {
+        findUnique: vi
+          .fn()
+          .mockImplementation(async ({ where }: { where: { tokenHash: string } }) =>
+            rows.find((row) => row.tokenHash === where.tokenHash) ?? null,
+          ),
+        update: vi
+          .fn()
+          .mockImplementation(
+            async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+              const row = rows.find((candidate) => candidate.id === where.id);
+              if (row) Object.assign(row, data);
+              return row;
+            },
+          ),
+        deleteMany: vi
+          .fn()
+          .mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+            const before = rows.length;
+            for (let i = rows.length - 1; i >= 0; i--) {
+              const row = rows[i]!;
+              const matches =
+                where.familyId !== undefined
+                  ? row.accountId === where.accountId && row.familyId === where.familyId
+                  : row.accountId === where.accountId && row.id === where.id;
+              if (matches) rows.splice(i, 1);
+            }
+            return { count: before - rows.length };
+          }),
+        create: vi
+          .fn()
+          .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+            const row = { id: `rt-new-${rows.length + 1}`, revokedAt: null, ...data };
+            rows.push(row);
+            return row;
+          }),
+      },
+    };
+  }
+
+  it('refresh rotates a valid customer token inside the same family', async () => {
+    const db = makeCustomerRefreshTokenDb([
+      {
+        id: 'rt-1',
+        accountId: 'acct-1',
+        familyId: 'fam-1',
+        tokenHash: hashToken('old-customer-token'),
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      },
+    ]);
+    const service = makeService({
+      customerRefreshToken: db.customerRefreshToken,
+      customerAccount: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+      },
+    });
+
+    const result = await service.refresh({ refreshToken: 'old-customer-token' });
+
+    expect(result.accessToken).toBeTruthy();
+    expect(db.rows).toHaveLength(2);
+    expect(db.rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(db.rows[1]!.familyId).toBe('fam-1');
+  });
+
+  it('replaying a rotated customer token revokes the whole family and returns 401', async () => {
+    const db = makeCustomerRefreshTokenDb([
+      {
+        id: 'rt-1',
+        accountId: 'acct-1',
+        familyId: 'fam-1',
+        tokenHash: hashToken('old-customer-token'),
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      },
+    ]);
+    const service = makeService({
+      customerRefreshToken: db.customerRefreshToken,
+      customerAccount: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+      },
+    });
+
+    await service.refresh({ refreshToken: 'old-customer-token' });
+    await expect(service.refresh({ refreshToken: 'old-customer-token' })).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+
+    expect(db.rows).toHaveLength(0);
+    expect(db.customerRefreshToken.deleteMany).toHaveBeenCalledWith({
+      where: { accountId: 'acct-1', familyId: 'fam-1' },
+    });
   });
 });
