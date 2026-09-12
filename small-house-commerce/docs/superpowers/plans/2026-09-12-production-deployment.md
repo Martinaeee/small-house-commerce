@@ -4,7 +4,7 @@
 
 **Goal:** Ship everything needed to run the Small House stack on a single VPS behind automatic HTTPS — production Docker images for backend and frontend, a compose stack with PostgreSQL + Caddy, and a deployment runbook — without touching any external account.
 
-**Architecture:** Multi-stage Docker builds on `node:22-bookworm-slim` with frozen pnpm 12.3.4 installs. Backend image runs `prisma migrate deploy` on boot then `node dist/main`; frontend image runs the Next.js 16 standalone server. Caddy 2 terminates TLS (Let's Encrypt) and reverse-proxies the frontend; the Next rewrite proxies `/api/v1/*` to the backend over the internal Docker network. No port except 80/443 is published.
+**Architecture:** Multi-stage Docker builds on `node:22-bookworm-slim` with frozen pnpm 12.3.4 installs. Backend image runs `prisma migrate deploy` on boot then `node dist/main`; frontend image runs the Next.js 16 standalone server. Caddy 2 terminates TLS (Let's Encrypt) and reverse-proxies: page/asset traffic goes to the frontend, while `/api/v1` and `/api/v1/*` are routed **directly to the backend** over the internal Docker network. The Next rewrite in `next.config.ts` is dev-only: Next 16 evaluates `rewrites()` at build time and bakes the destination into `routes-manifest.json`, so a runtime `API_TARGET` ENV is inert — production API traffic must never depend on that rewrite (Task 3 review BLOCKER-1 ruling). No port except 80/443 is published.
 
 **Tech Stack:** Docker / Docker Compose v2, Node 22, pnpm 12.3.4 (corepack), Prisma 7.10 (`prisma7.config.ts`, plain `pnpm exec prisma ...` — never `--schema`), Next 16 standalone output, Caddy 2, PostgreSQL 18.
 
@@ -248,7 +248,7 @@ git commit -m "chore(deploy): backend production image with migrate-on-boot"
 
 **Interfaces:**
 - Consumes: `.next/standalone`, `.next/static`, `public/` from Task 1's build config.
-- Produces: image `small-house-frontend` (local tag) on port 3000; `API_TARGET` is a runtime ENV (rewrite destination evaluated at server start), `NEXT_PUBLIC_META_PIXEL_ID` is a build ARG.
+- Produces: image `small-house-frontend` (local tag) on port 3000; `NEXT_PUBLIC_META_PIXEL_ID` is a build ARG. **There is no runtime `API_TARGET` ENV**: Next 16 bakes `rewrites()` destinations into `.next/routes-manifest.json` at build time (review BLOCKER-1), so the Next rewrite is dev-only and is never hit in production — Caddy routes `/api/v1/*` straight to the backend (Task 4). Artifacts must be owned by the runtime user (`--chown=node:node`), otherwise every prerendered route logs an `EACCES: Failed to update prerender cache` stack on first hit (review MAJOR-1).
 
 - [ ] **Step 1: Create `frontend/Dockerfile`**
 
@@ -273,15 +273,19 @@ COPY . .
 RUN pnpm run build
 
 # ---- runner: only the standalone trace ------------------------------------
+# NOTE: no API_TARGET ENV here. Next 16 bakes rewrites() destinations into
+# routes-manifest.json at build time; a runtime ENV cannot change them. In
+# production Caddy routes /api/v1/* directly to the backend (see Task 4),
+# so the baked dev rewrite is never exercised.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-# Default for the compose network; compose overrides/keeps this explicitly.
-ENV API_TARGET=http://backend:3000
-COPY --from=build /app/public ./public
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
+# --chown so the node user can update the prerender cache at runtime
+# (root-owned artifacts make every cold route log EACCES).
+COPY --chown=node:node --from=build /app/public ./public
+COPY --chown=node:node --from=build /app/.next/standalone ./
+COPY --chown=node:node --from=build /app/.next/static ./.next/static
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
@@ -297,17 +301,22 @@ From repository root:
 docker build --build-arg NEXT_PUBLIC_META_PIXEL_ID=000000000000000 -t small-house-frontend:dev ./frontend
 ```
 
-Expected: all 13 routes compile; image build ends successfully.
+Expected: all 15 app-router entries compile (13/13 static generations; the extra two are `/robots.txt` and `/sitemap.xml`); image build ends successfully.
 
 - [ ] **Step 3: Smoke serve**
 
 ```bash
 docker run -d --rm --name sh-smoke-frontend -p 55301:3000 small-house-frontend:dev
 for i in $(seq 1 30); do curl -fsS http://127.0.0.1:55301/ -o /dev/null && echo "frontend serves OK" && break || sleep 1; done
+# Hit several prerendered routes (first hit writes the prerender cache).
+for p in / /login /collections /cart /register /account; do curl -fsS "http://127.0.0.1:55301$p" -o /dev/null; done
+sleep 2
+# MAJOR-1 regression gate: zero prerender-cache permission errors.
+docker logs sh-smoke-frontend 2>&1 | grep -c "EACCES" || true
 docker stop sh-smoke-frontend
 ```
 
-Expected: homepage HTML returns 200; no Facebook script is present with the dummy pixel ID mismatch behavior beyond what `tracking.ts` already defines (dummy ID merely exercises the build arg path).
+Expected: homepage HTML returns 200; the `grep -c EACCES` line prints **0** (no `Failed to update prerender cache` stack traces); no Facebook script is present with the dummy pixel ID mismatch behavior beyond what `tracking.ts` already defines (dummy ID merely exercises the build arg path). API-path verification (`/api/v1/*`) is NOT part of this smoke — it runs through Caddy in Task 4, since production API traffic bypasses this image entirely.
 
 - [ ] **Step 4: Commit**
 
@@ -378,13 +387,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      API_TARGET: http://backend:3000
+    # No API_TARGET: Next bakes rewrites at build time; Caddy routes
+    # /api/v1/* straight to the backend and never sends API traffic here.
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       - frontend
+      - backend
     ports:
       - "80:80"
       - "443:443"
@@ -411,9 +422,19 @@ volumes:
 
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy frontend:3000
+	# API traffic goes straight to the backend. Next 16 bakes rewrites()
+	# destinations at build time, so the frontend's dev-only /api/v1
+	# rewrite cannot be retargeted at runtime and must not sit on this path.
+	handle /api/v1 /api/v1/* {
+		reverse_proxy backend:3000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
 }
 ```
+
+The two patterns matter: `/api/v1/*` matches subpaths but not the bare health path `/api/v1`, so both are listed. `handle` blocks are mutually exclusive and the API block must stay first.
 
 - [ ] **Step 3: Create `deploy/env.deploy.example`**
 
@@ -449,7 +470,7 @@ NEXT_PUBLIC_META_PIXEL_ID=
 ````markdown
 # Production Deployment Runbook
 
-Single-VPS deployment for the Small House stack: Caddy 2 (TLS) → Next.js standalone → NestJS API → PostgreSQL 18, all on one Docker host. Artifacts: `docker-compose.prod.yml`, `deploy/Caddyfile`, `backend/Dockerfile`, `frontend/Dockerfile`.
+Single-VPS deployment for the Small House stack: Caddy 2 (TLS) routes pages to the Next.js 16 standalone server and sends `/api/v1/*` directly to the NestJS API → PostgreSQL 18, all on one Docker host. Artifacts: `docker-compose.prod.yml`, `deploy/Caddyfile`, `backend/Dockerfile`, `frontend/Dockerfile`. The frontend's Next rewrite exists for local development only — rewrite destinations are baked at image build time, so production never routes API calls through it.
 
 ## 1. Prerequisites
 
@@ -512,7 +533,7 @@ Both seeds are idempotent. The random-password fallback prints to the backend lo
 ## 5. Verify
 
 - `https://YOUR_DOMAIN/` — homepage renders, padlock shows (TLS auto-issued).
-- `https://YOUR_DOMAIN/api/v1` — `Hello World!` through Caddy → Next rewrite → backend.
+- `https://YOUR_DOMAIN/api/v1` — `Hello World!` through Caddy → backend (direct route, no Next hop).
 - Place a COD test order end to end (search → add to cart → checkout → order-success), then mark it cancelled in the admin API once the admin panel ships.
 - `docker compose -f docker-compose.prod.yml ps` — every service healthy.
 
@@ -587,6 +608,7 @@ Only the `sh-smoke` project's volumes are removed; dev databases and any real `s
 - **Migration failure:** backend stops in the entrypoint; fix the migration forward (never reset in production); the DB is untouched up to the failed statement.
 - **Caddy stuck on TLS:** confirm DNS A record and open ports 80/443; `docker compose logs caddy`.
 - **Pixel not firing:** pixel ID is build-time; confirm the build arg via `docker compose config` and rebuild the frontend image.
+- **Storefront API calls fail with 500/ECONNRESET:** the Caddyfile must route `/api/v1 /api/v1/*` to `backend:3000` directly. The Next standalone server bakes its rewrite target at image build time and ignores `API_TARGET` at runtime, so trying to proxy API traffic through the frontend cannot work.
 - Behind Caddy the app trusts exactly one proxy hop (`trust proxy = 1` in `main.ts`); do not add a second proxy without adjusting it.
 ````
 
@@ -605,12 +627,13 @@ Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose
 
 ```bash
 curl -fsS http://127.0.0.1:8080/ -o /dev/null && echo "homepage via caddy OK"
-curl -fsS http://127.0.0.1:8080/api/v1 && echo "API via caddy OK"
+curl -fsS http://127.0.0.1:8080/api/v1 && echo "API health via caddy OK"
+curl -fsS http://127.0.0.1:8080/api/v1/products -o /dev/null && echo "API wildcard route via caddy OK"
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
-Expected: homepage 200 through Caddy; API returns `Hello World!` (Caddy → Next rewrite → backend → migrated DB); teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
+Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/products` returns the catalog JSON (`/api/v1/*` wildcard matcher; Caddy → backend → migrated DB); teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
 
 - [ ] **Step 7: Commit**
 
