@@ -16,6 +16,7 @@ export function configuration() {
     app: {
       nodeEnv: env.NODE_ENV,
       port: env.PORT,
+      host: env.HOST,
       isProduction: env.NODE_ENV === 'production',
     },
     database: {

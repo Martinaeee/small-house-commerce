@@ -11,6 +11,10 @@ export const envSchema = z.object({
 
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
 
+  // Bind address. Containers must stay on 0.0.0.0 (default); local dev
+  // sets 127.0.0.1 so the API is not reachable from the LAN.
+  HOST: z.string().min(1).default('0.0.0.0'),
+
   DATABASE_URL: z
     .string()
     .min(1, 'DATABASE_URL is required')

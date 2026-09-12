@@ -20,7 +20,10 @@ async function bootstrap() {
 
   // Validated at boot, so this is guaranteed to be present and numeric.
   const config = app.get(ConfigService);
-  await app.listen(config.getOrThrow<number>('app.port'));
+  await app.listen(
+    config.getOrThrow<number>('app.port'),
+    config.getOrThrow<string>('app.host'),
+  );
 }
 
 await bootstrap();
