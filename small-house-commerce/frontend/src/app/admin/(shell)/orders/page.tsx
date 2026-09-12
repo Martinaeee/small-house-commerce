@@ -380,18 +380,19 @@ function OrdersPageContent() {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[1080px] text-sm">
+              <caption className="sr-only">Orders</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th className="px-4 py-3">Order Number</th>
-                  <th className="px-4 py-3">Created</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Phone</th>
-                  <th className="px-4 py-3">Items</th>
-                  <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Order Status</th>
-                  <th className="px-4 py-3">Confirmation</th>
-                  <th className="px-4 py-3">Payment</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th scope="col" className="px-4 py-3">Order Number</th>
+                  <th scope="col" className="px-4 py-3">Created</th>
+                  <th scope="col" className="px-4 py-3">Customer</th>
+                  <th scope="col" className="px-4 py-3">Phone</th>
+                  <th scope="col" className="px-4 py-3">Items</th>
+                  <th scope="col" className="px-4 py-3">Total</th>
+                  <th scope="col" className="px-4 py-3">Order Status</th>
+                  <th scope="col" className="px-4 py-3">Confirmation</th>
+                  <th scope="col" className="px-4 py-3">Payment</th>
+                  <th scope="col" className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>

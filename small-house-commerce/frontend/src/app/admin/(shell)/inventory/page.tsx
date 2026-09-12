@@ -434,16 +434,17 @@ function InventoryPageContent() {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[1000px] text-sm">
+              <caption className="sr-only">SKU inventory</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th className="px-4 py-3">SKU Code</th>
-                  <th className="px-4 py-3">Product</th>
-                  <th className="px-4 py-3">Variant</th>
-                  <th className="px-4 py-3">Price</th>
-                  <th className="px-4 py-3">SKU Status</th>
-                  <th className="px-4 py-3">Product Status</th>
-                  <th className="px-4 py-3">Stock</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th scope="col" className="px-4 py-3">SKU Code</th>
+                  <th scope="col" className="px-4 py-3">Product</th>
+                  <th scope="col" className="px-4 py-3">Variant</th>
+                  <th scope="col" className="px-4 py-3">Price</th>
+                  <th scope="col" className="px-4 py-3">SKU Status</th>
+                  <th scope="col" className="px-4 py-3">Product Status</th>
+                  <th scope="col" className="px-4 py-3">Stock</th>
+                  <th scope="col" className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
