@@ -4,7 +4,7 @@
 
 **Goal:** Ship the V1 admin panel — the last V1.0 launch gap (DEVELOPMENT_PLAN Phase 4) — so the business can process orders manually: admin login, order list + detail with Confirm/Cancel, inventory stock adjust, and product/category management, all permission-aware and grounded on the existing backend admin API.
 
-**Architecture:** The admin panel lives inside the existing Next.js app as its own route group at `frontend/src/app/admin/**` with **no storefront chrome** (a `(storefront)` route group takes over the current header/footer layout; root layout becomes minimal — URLs unchanged). A separate client `lib/admin-auth.ts` mirrors `lib/auth.ts` (single-flight refresh, session epoch, safeNext) but uses dedicated localStorage keys `sh_admin_access` / `sh_admin_refresh`. The backend (NestJS 12 + Prisma 7) is the RBAC authority and **needs no changes**; any endpoint gap is documented in the spec §14 and explicitly NOT designed here.
+**Architecture:** The admin panel lives inside the existing Next.js app as its own route group at `frontend/src/app/admin/**` with **no storefront chrome** (a `(storefront)` route group takes over the current header/footer layout; root layout becomes minimal — URLs unchanged). A separate client `lib/admin-auth.ts` mirrors `lib/auth.ts` exactly (single-flight refresh, session epoch, access token in module memory) with its own refresh-only localStorage key `sh_admin_refresh`, plus an admin-safe redirect helper `safeAdminNext`. The backend (NestJS 12 + Prisma 7) is the RBAC authority and **needs no changes**; any endpoint gap is documented in the spec §14 and explicitly NOT designed here.
 
 **Tech Stack:** Next.js 16 App Router, React 19, Tailwind v4 (design tokens in `frontend/src/app/globals.css`); no new npm dependencies; no test framework added (frontend has none). Backend untouched.
 
@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - **No new npm dependencies** (frontend or backend). No backend edits, no migrations. If the UI needs an endpoint/serializer field that does not exist, it is NOT designed here — it is listed under spec §14 "Backend gaps" for the human to authorize separately.
-- Admin tokens use their own localStorage keys (`sh_admin_access`, `sh_admin_refresh`); the storefront client (`sh_refresh`, cart keys) is never touched. Admin fetches go to relative `/api/v1/auth/*` and `/api/v1/admin/*` (proxied by `next.config.ts`).
+- Admin auth mirrors `lib/auth.ts` exactly: the refresh token persists in localStorage under the single admin key `sh_admin_refresh`; the short-lived access token lives only in module memory and is **never** written to localStorage (there is no `sh_admin_access` key). The storefront client (`sh_refresh`, cart keys) is never touched. Admin fetches go to relative `/api/v1/auth/*` and `/api/v1/admin/*` (proxied by `next.config.ts`).
 - Exact backend enums, never invented values: `OrderStatus` (NEW/PENDING/QUESTION/CONFIRMED/ABNORMAL/SHIPPING/SIGNED/CANCELLED/DENIED/AFTER_SALES), `ConfirmationStatus` (UNCONFIRMED/NEEDS_REVIEW/CONFIRMED/REJECTED), `PaymentStatus`, `ProductStatus` (DRAFT/ACTIVE/DISABLED), `SkuStatus`, `CategoryStatus`, `SourceType`, `MovementType`, `PermissionCode`.
-- No fake data anywhere; real empty states. Storefront COD copy stays "Cash on Delivery"; status labels match the storefront account page's `STATUS_LABELS` wording where applicable.
+- No fake data anywhere; real empty states. Storefront COD copy stays "Cash on Delivery". Statuses render as the raw backend enums via the spec §12 badge map — the storefront account page's `STATUS_LABELS` wording is NOT reused in the admin UI.
 - Repo root for commands is `small-house-commerce/`; all frontend commands run in `frontend/`. Frontend gates per task: `pnpm lint && pnpm exec tsc --noEmit && pnpm build`.
 - **Never stage** `docs/frontend/HOMEPAGE_SPEC.md`, `docs/superpowers/plans/2026-09-11-pdp-refinement.md`, or `docs/research/`. Always `git add <explicit paths>` (quote `(storefront)` paths).
 - Commits are per task with explicit paths; do not push without asking.
-- Chrome verification runs against the running app (backend `:3000` from `backend/dist/main`, frontend `next start -p 3001`) with seeded admin accounts from `backend/prisma/seed.ts` (SUPER_ADMIN/ADMIN at `dev@smallhouse.test`; create a CONFIRMOR, WAREHOUSE and OPTIMIZER user via `POST /api/v1/users` as SUPER_ADMIN, or ask the human for credentials).
+- Chrome verification runs against the running app (backend `:3000` from `backend/dist/main`, frontend `next start -p 3001`). The seed creates exactly **one** admin account — SUPER_ADMIN at `dev@smallhouse.test` (`backend/prisma/seed.ts` `ensureInitialAdmin`). Create the ADMIN, CONFIRMOR, WAREHOUSE and OPTIMIZER users yourself via `POST /api/v1/users` as SUPER_ADMIN, or ask the human for credentials.
 
 ---
 
@@ -31,7 +31,7 @@
 - Move `frontend/src/app/{page,cart,account,categories,checkout,collections,login,order-success,products,register,search}` into `frontend/src/app/(storefront)/` (`git mv`; URLs unchanged). `robots.ts`, `sitemap.ts`, `globals.css` stay at root.
 
 **Frontend — admin (Tasks 2–11)**
-- Create `frontend/src/lib/admin-auth.ts` — admin token storage, single-flight refresh, epoch guard, `adminAuthedFetch`, `adminApi.login/logout/me`, `hasPermission`, `safeNext` re-export.
+- Create `frontend/src/lib/admin-auth.ts` — admin auth client mirroring `lib/auth.ts`: refresh-only localStorage key `sh_admin_refresh`, access token in module memory, single-flight refresh, epoch guard, exported `adminAuthedFetch`, `adminAuthApi.login/logout/me`, `hasPermission`, and `safeAdminNext` (safe redirect with the admin fallback `/admin/orders` — the shared `safeNext` fallback is the storefront `/account`).
 - Create `frontend/src/lib/admin-api.ts` — admin response types (`AdminOrder`, `AdminOrderDetail`, `AdminProduct`, `AdminCategoryNode`, `Paged<T>`, enums) + typed client methods over `adminAuthedFetch`.
 - Create `frontend/src/components/admin/AdminAuthProvider.tsx` — client provider (status/loading/authed/guest, `admin`, `hasPermission`, `login`, `logout`).
 - Create `frontend/src/components/admin/AdminShell.tsx` — client shell: sidebar + topbar + route guard + "no modules" empty state.
@@ -151,8 +151,10 @@ export interface AdminUser {
 export type AdminAuthStatus = "loading" | "authed" | "guest";
 export type AdminAuthEvent = "admin-session-start" | "admin-session-end";
 
+// Mirror of lib/auth.ts: ONLY the refresh token persists, under the single
+// admin key "sh_admin_refresh". The access token is a module-level variable
+// and is NEVER read from or written to localStorage (no sh_admin_access key).
 export const adminTokenStorage: {
-  getAccess(): string | null; setAccess(t: string): void; clearAccess(): void;
   getRefresh(): string | null; setRefresh(t: string): void; clearRefresh(): void;
 };
 
@@ -161,12 +163,19 @@ export function clearAdminSession(): void;
 export function refreshAdminAccess(): Promise<string | null>;   // single-flight, epoch-guarded
 export function hasPermission(admin: AdminUser | null, code: string): boolean;
 
-export const adminApi: {
+export function safeAdminNext(next: string | null | undefined, fallback = "/admin/orders"): string;
+// Same validation as lib/auth.ts safeNext, but the default fallback is the
+// admin orders route — the shared safeNext falls back to the storefront
+// "/account", which an admin login must never land on.
+
+export async function adminAuthedFetch<T>(path: string, init?: RequestInit): Promise<T>;
+// Mirrors authedFetch: 401 -> single-flight refresh -> retry once; throws Error(backend message).
+
+export const adminAuthApi: {
   login(email: string, password: string): Promise<AdminUser>;   // POST /auth/login + GET /auth/me
   logout(): Promise<void>;                                      // local clear sync, then POST /auth/logout best-effort
-  me(): Promise<AdminUser>;                                     // GET /auth/me via authedFetch
+  me(): Promise<AdminUser>;                                     // GET /auth/me via adminAuthedFetch
 };
-export { safeNext } from "./auth";
 ```
 
 `admin-api.ts` (types + client, all over a shared `adminAuthedFetch` imported from `./admin-auth`):
@@ -188,8 +197,17 @@ export interface Paged<T> { items: T[]; total: number; page: number; pageSize: n
 export function formatAmount(value: string | number | null, currency = "₱"): string;
 // null/"" -> "—"; otherwise Number(value) via formatPrice from PriceBox.
 
-export interface AdminOrderListRow { id: string; orderNumber: string; orderStatus: OrderStatus; confirmationStatus: ConfirmationStatus;
-  paymentStatus: PaymentStatus; currency: string; subtotal: string; discountTotal: string; shippingTotal: string; grandTotal: string; createdAt: string;
+// Order shape: confirm/cancel return the BARE updated Order row (no includes),
+// and the order-level attribution columns live on the Order row itself, NOT on
+// the OrderAttribution relation. AdminOrderRow carries every Order scalar.
+export interface AdminOrderRow { id: string; orderNumber: string; customerId: string;
+  orderStatus: OrderStatus; confirmationStatus: ConfirmationStatus; paymentStatus: PaymentStatus;
+  currency: string; subtotal: string; discountTotal: string; shippingTotal: string; grandTotal: string;
+  optimizerId: string | null; optimizerAidSnapshot: string | null; optimizerNameSnapshot: string | null;
+  customerClassification: string | null; confirmedBy: string | null; confirmedAt: string | null;
+  confirmationNote: string | null; createdAt: string; updatedAt: string; }
+
+export interface AdminOrderListRow extends AdminOrderRow {
   customer: AdminOrderCustomer; items: { id: string; skuCodeSnapshot: string; productNameSnapshot: string; quantity: number; lineTotal: string }[]; }
 
 export interface AdminOrderCustomer { id: string; name: string | null; normalizedPhone: string; email: string | null; currentRiskLevel: string; }
@@ -199,12 +217,14 @@ export interface AdminOrderItem { id: string; productNameSnapshot: string; skuCo
 export interface AdminStatusHistory { id: string; statusDomain: string; oldStatus: string | null; newStatus: string; source: string; operatorId: string | null; comment: string | null; createdAt: string; }
 export interface AdminOrderDetail extends AdminOrderListRow { items: AdminOrderItem[];
   shippingAddress: { fullName: string; phone: string; province: string; city: string; barangay: string | null; postalCode: string | null; streetAddress: string; landmark: string | null } | null;
-  attribution: { sourceType: SourceType; aidSnapshot: string | null; optimizerId: string | null; optimizerNameSnapshot: string | null;
-    customerClassification: string | null; facebookPageId: string | null; facebookPostId: string | null; facebookPostTrackingCode: string | null; campaignId: string | null; adsetId: string | null; adId: string | null;
+  attribution: { sourceType: SourceType; aidSnapshot: string | null; optimizerId: string | null;
+    facebookPageId: string | null; facebookPostId: string | null; facebookPostTrackingCode: string | null; campaignId: string | null; adsetId: string | null; adId: string | null;
     landingPageId: string | null; utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; utmContent: string | null; utmTerm: string | null; fbclid: string | null; attributedAt: string } | null;
   payments: { id: string; method: string; status: PaymentStatus; amount: string; reference: string | null; paidAt: string | null }[];
   statusHistory: AdminStatusHistory[];
-  reservations: { id: string; skuId: string; quantity: number; status: string; createdAt: string }[]; }
+  reservations: { id: string; skuId: string; warehouseId: string; quantity: number; status: string; createdAt: string }[]; }
+// Note: optimizerNameSnapshot / customerClassification / optimizerAidSnapshot are
+// ORDER-level columns (AdminOrderRow) — they are NOT on OrderAttribution.
 
 export interface AdminSku { id: string; skuCode: string; status: "ACTIVE"|"DISABLED"; price: string | null; compareAtPrice: string | null;
   supplierSku: string | null; supplierCost: string | null; costCurrency: string | null; landedCost: string | null;
@@ -221,8 +241,8 @@ export interface AdminCategoryNode { id: string; parentId: string | null; name: 
 export const adminApi: {
   listOrders(p: { status?: OrderStatus; search?: string; dateFrom?: string; dateTo?: string; page?: number; pageSize?: number }): Promise<Paged<AdminOrderListRow>>;
   getOrder(id: string): Promise<AdminOrderDetail>;
-  confirmOrder(id: string): Promise<AdminOrderDetail>;   // returns updated order row
-  cancelOrder(id: string): Promise<AdminOrderDetail>;
+  confirmOrder(id: string): Promise<AdminOrderRow>;   // bare updated Order row (no customer/items includes)
+  cancelOrder(id: string): Promise<AdminOrderRow>;
   listProducts(p: { search?: string; status?: ProductStatus; categoryId?: string; page?: number; pageSize?: number }): Promise<Paged<AdminProduct>>;
   getProduct(id: string): Promise<AdminProduct>;
   createProduct(input: CreateProductInput): Promise<AdminProduct>;
@@ -232,7 +252,7 @@ export const adminApi: {
   createCategory(input: CreateCategoryInput): Promise<AdminCategoryNode>;
   updateCategory(id: string, input: Partial<CreateCategoryInput>): Promise<AdminCategoryNode>;
   deleteCategory(id: string): Promise<{ ok: boolean }>;
-  adjustStock(input: { skuId: string; quantity: number; reason?: string }): Promise<{ onHand: number; reserved: number; available: number }>;
+  adjustStock(input: { skuId: string; quantity: number; reason?: string | null }): Promise<{ onHand: number; reserved: number; available: number }>;
 };
 export interface CreateProductInput { name: string; slug: string; description: string | null; categoryId: string; status: ProductStatus;
   room: string | null; internalRole: string | null; solutions: string[];
@@ -247,11 +267,13 @@ The *request* DTOs above send numbers (zod `z.number()`); only the *response* ty
 
 - [ ] **Step 1: Write `lib/admin-auth.ts`**
 
-Port `lib/auth.ts` exactly, with these changes: two storage keys under `ADMIN_ACCESS_KEY = "sh_admin_access"` and `ADMIN_REFRESH_KEY = "sh_admin_refresh"`; refresh hits `POST /api/v1/auth/refresh` (NOT the customer refresh route); `login` posts `POST /api/v1/auth/login`, stores both tokens, then returns `me()`; `logout` clears synchronously (epoch bump + wipe both keys + emit) then best-effort `POST /api/v1/auth/logout` with the refresh token; keep `refreshAdminAccess` single-flight + `endAdminSessionIfCurrent` epoch guard + `clearAdminSession` exactly as the storefront version. `adminAuthedFetch` is module-private and mirrors `authedFetch` (401 → refresh once → retry; errors thrown with `readError` message).
+Port `lib/auth.ts` exactly, with these changes: one storage key `ADMIN_REFRESH_KEY = "sh_admin_refresh"` (the access token is a module-level `let`, never persisted — no `sh_admin_access` key exists, exactly like `lib/auth.ts`'s `accessToken`); refresh hits `POST /api/v1/auth/refresh` (NOT the customer refresh route); `login` posts `POST /api/v1/auth/login`, stores only the refresh token, keeps the access token in module memory, then returns `me()`; `logout` clears synchronously (epoch bump + wipe the refresh key + emit) then best-effort `POST /api/v1/auth/logout` with the refresh token; keep `refreshAdminAccess` single-flight + `endAdminSessionIfCurrent` epoch guard + `clearAdminSession` exactly as the storefront version. `adminAuthedFetch` is **exported** (admin-api.ts imports it) and mirrors `authedFetch` (401 → refresh once → retry; errors thrown with `readError` message). `safeAdminNext` reuses `safeNext`'s validation but defaults to `/admin/orders`.
 
 - [ ] **Step 2: Write `lib/admin-api.ts`**
 
 Export the types above and the client methods. `listProducts`/`listOrders` build query strings with `URLSearchParams` (page/pageSize defaulted server-side). Every method calls `adminAuthedFetch<T>(path, init)`.
+
+**Convention for every client page (m6):** any page that reads `useSearchParams` must render its UI inside a `<Suspense>` boundary (or the component that calls the hook must be a child of one) exactly like the storefront login page wraps `LoginForm` (`frontend/src/app/login/page.tsx:79-84`) — otherwise `next build` fails on the statically-prerendered client page. Apply this from Task 5 onward.
 
 - [ ] **Step 3: Gate**
 
@@ -260,12 +282,17 @@ cd frontend && pnpm lint && pnpm exec tsc --noEmit && pnpm build
 ```
 Expected: clean (no consumers yet beyond exports; unused-export lint is fine for a lib module).
 
-- [ ] **Step 4: Chrome verification (smoke via console)**
+- [ ] **Step 4: Chrome verification (backend contract smoke via console)**
 
-Obtain tokens with `curl -s -X POST localhost:3000/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"dev@smallhouse.test","password":"<ADMIN_PASSWORD>"}'`, then in the browser console at `localhost:3001`:
-1. `localStorage.setItem('sh_admin_access', '<SUPER_ADMIN access token>'); localStorage.setItem('sh_admin_refresh', '<refresh token>')`.
-2. `fetch('/api/v1/auth/me', { headers: { Authorization: 'Bearer ' + localStorage.getItem('sh_admin_access') } })` returns the seeded SUPER_ADMIN `permissions` array containing all 14 codes.
-3. Replace `sh_admin_access` with a **customer** token: `/api/v1/auth/me` returns 401 (backend rejects `kind:'customer'`).
+These raw-`fetch` checks exercise the *backend* contract, not the client storage (the client keeps the access token in module memory, so it cannot be seeded from the console — that is by design, M5):
+```bash
+TOKENS=$(curl -s -X POST localhost:3000/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"dev@smallhouse.test","password":"<ADMIN_PASSWORD>"}')
+echo "$TOKENS"   # {accessToken, refreshToken, expiresAt, user}
+```
+1. In the browser console at `localhost:3001`: `fetch('/api/v1/auth/me', { headers: { Authorization: 'Bearer <accessToken>' } })` returns the seeded SUPER_ADMIN `permissions` array containing all 14 codes.
+2. `fetch('/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: '<refreshToken>' }) })` returns a rotated pair (new accessToken + new refreshToken); replaying the same refresh token afterwards returns 401 (rotation revokes).
+3. Repeat #1 with a **customer** token in the Bearer header → 401 (backend rejects `kind:'customer'`).
+4. There is no `sh_admin_access` key anywhere in the codebase or docs — confirm `localStorage` after login contains only `sh_admin_refresh` (once Task 3's login flow exists).
 
 - [ ] **Step 5: Commit**
 
@@ -303,7 +330,7 @@ The `AdminShell` owns the route guard: `guest → router.replace('/admin/login?n
 
 - [ ] **Step 1: `AdminAuthProvider.tsx`**
 
-Port `AuthProvider.tsx` 1:1: `useEffect` bootstrap (`refreshAdminAccess()` → `adminApi.me()` → authed; failure → `clearAdminSession()` → guest), `onAdminAuthEvent('admin-session-end')` listener, `alive` ref guard, `useMemo` context value. `login` = `adminApi.login` then set state; `logout` = `adminApi.logout` then set guest. `hasPermission = (code) => hasPermission(admin, code)`.
+Port `AuthProvider.tsx` 1:1: `useEffect` bootstrap (`refreshAdminAccess()` → `adminAuthApi.me()` → authed; failure → `clearAdminSession()` → guest), `onAdminAuthEvent('admin-session-end')` listener, `alive` ref guard, `useMemo` context value. `login` = `adminAuthApi.login` then set state; `logout` = `adminAuthApi.logout` then set guest. `hasPermission = (code) => hasPermission(admin, code)`.
 
 - [ ] **Step 2: `src/app/admin/layout.tsx`**
 
@@ -339,14 +366,14 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
 
 - [ ] **Step 5: `src/app/admin/login/page.tsx` (client)**
 
-Reuse the storefront login page structure (`inputCls`, pending/error state) with: email + password; `login(email, password)` from `useAdminAuth`; on success `router.push(safeNext(searchParams.get('next')) || '/admin/orders')`; 401 → "Invalid email or password."; centered card, heading "Small House Admin", no storefront chrome. Add a "← Back to store" link to `/`.
+Reuse the storefront login page structure (`inputCls`, pending/error state) with: email + password; `login(email, password)` from `useAdminAuth`; on success `router.push(safeAdminNext(searchParams.get('next')))` — `safeAdminNext` defaults to `/admin/orders`, so the plain `/admin/login` entry case lands on the orders page (the shared `safeNext` would land on the storefront `/account`, which is wrong for admin — M1); 401 → "Invalid email or password."; centered card, heading "Small House Admin", no storefront chrome. Add a "← Back to store" link to `/`. Also add a **mount effect** (m12): if the account is already `authed` when `/admin/login` mounts, `router.replace(safeAdminNext(searchParams.get('next')))`.
 
 - [ ] **Step 6: Gate**
 
 ```bash
 cd frontend && pnpm lint && pnpm exec tsc --noEmit && pnpm build
 ```
-Expected: build includes `/admin/login`, `/admin/orders`, `/admin/inventory`, `/admin/products`, `/admin/categories`.
+Expected: build includes `/admin/login` and the `(shell)` layout. The orders/inventory/products/categories pages arrive in Tasks 5/7/8/11 — do NOT expect them in this gate (m4).
 
 - [ ] **Step 7: Chrome verification**
 
@@ -355,7 +382,8 @@ Expected: build includes `/admin/login`, `/admin/orders`, `/admin/inventory`, `/
 3. Log in as SUPER_ADMIN → lands on `/admin/orders`, sidebar shows Orders / Inventory / Products / Categories, top bar shows name + role + Log out.
 4. Log in as **OPTIMIZER** → lands on the "No modules available for your account" empty state (spec §4.2) with working Log out.
 5. `/admin/orders` reload while logged out → redirected to `/admin/login?next=%2Fadmin%2Forders`.
-6. `?next=https://evil.com` → `safeNext` falls back to `/admin/orders` (no open redirect).
+6. `?next=https://evil.com` → `safeAdminNext` falls back to `/admin/orders` (no open redirect).
+7. Visit `/admin/login` while already authed → redirected away to `/admin/orders` (m12 mount effect).
 
 - [ ] **Step 8: Commit**
 
@@ -401,7 +429,7 @@ export function PageHeader({ title, count, actions }: { title: string; count?: n
 
 - [ ] **Step 1: `Badge.tsx` + `statusTone`**
 
-`statusTone` implements spec §12: green = `CONFIRMED, SIGNED, PAID, COLLECTED, SETTLED, CONSUMED, RELEASED`; amber = `NEW, PENDING, QUESTION, ABNORMAL, SHIPPING, NEEDS_REVIEW, COD_PENDING, ONLINE_PENDING, DRAFT, ACTIVE`; red = `CANCELLED, DENIED, REJECTED, FAILED, REFUNDED, PARTIALLY_REFUNDED, DISABLED`; default neutral. `Badge` renders `inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold` with `bg-emerald-100 text-emerald-800` / `bg-amber-100 text-amber-800` / `bg-red-100 text-red-800` / `bg-border/40 text-ink-secondary`, always with the raw enum text (color is enhancement, never the only signal).
+`statusTone` implements spec §12 (which **extends** ADMIN_SPEC §22's green/yellow/red — §22 names only SIGNED/CONFIRMED/PAID/PENDING/RECHECK/DENIED/CANCELLED/FAILED, and RECHECK is not a real enum; the map below covers every admin enum): green = `CONFIRMED, SIGNED, PAID, COLLECTED, SETTLED, CONSUMED, RELEASED`; amber = `NEW, PENDING, QUESTION, ABNORMAL, SHIPPING, NEEDS_REVIEW, COD_PENDING, ONLINE_PENDING, DRAFT, ACTIVE`; red = `CANCELLED, DENIED, REJECTED, FAILED, REFUNDED, PARTIALLY_REFUNDED, DISABLED`; default neutral. `Badge` renders `inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold` with `bg-emerald-100 text-emerald-800` / `bg-amber-100 text-amber-800` / `bg-red-100 text-red-800` / `bg-border/40 text-ink-secondary`, always with the raw enum text (color is enhancement, never the only signal).
 
 - [ ] **Step 2: `Dialog.tsx`**
 
@@ -447,7 +475,7 @@ git commit -m "feat(admin): UI primitives — Badge, Dialog, Field, EmptyState, 
 
 - [ ] **Step 1: State + URL filters**
 
-`useSearchParams` is the source of truth: `search`, `status`, `dateFrom`, `dateTo`, `page`. A `useEffect` refetches `adminApi.listOrders({...})` on param change (debounce search by 300ms; keep params in sync via `router.replace` with `URLSearchParams`). Loading → `TableSkeleton`; error → inline alert + Retry.
+`useSearchParams` is the source of truth: `search`, `status`, `dateFrom`, `dateTo`, `page`. A `useEffect` refetches `adminApi.listOrders({...})` on param change (debounce search by 300ms; keep params in sync via `router.replace` with `URLSearchParams`). Loading → `TableSkeleton`; error → inline alert + Retry. **Wrap the component that calls `useSearchParams` in a `<Suspense>` boundary** (Task 2 convention, m6) or the build gate fails.
 
 - [ ] **Step 2: Table**
 
@@ -455,7 +483,7 @@ Columns per spec §8.3: Order Number (link `Link href={/admin/orders/${id}}`), C
 
 - [ ] **Step 3: Confirm / Cancel**
 
-Confirm button rendered only when `hasPermission('ORDER_CONFIRM')` AND row eligible (`orderStatus ∉ {CANCELLED, DENIED, SHIPPING, SIGNED}` and `confirmationStatus !== 'CONFIRMED'`); Cancel when `hasPermission('ORDER_CANCEL')` AND not terminal (`∉ {CANCELLED, DENIED, SIGNED, AFTER_SALES}`) and `!== 'SHIPPING'`. Each opens a `Dialog`; Confirm wording: *"Confirm order {orderNumber}? This marks it confirmed for fulfillment."*; Cancel: *"Cancel order {orderNumber}? Reserved stock is released."* On submit: disable buttons, call `confirmOrder(id)` / `cancelOrder(id)`; on success update that row's status cells from the returned order and close; on 400/409 keep the dialog open showing the backend message; on success with a terminal state re-run the current query (server truth).
+Confirm button rendered only when `hasPermission('ORDER_CONFIRM')` AND row eligible (`orderStatus ∉ {CANCELLED, DENIED, SHIPPING, SIGNED}` and `confirmationStatus !== 'CONFIRMED'`); Cancel when `hasPermission('ORDER_CANCEL')` AND not terminal (`∉ {CANCELLED, DENIED, SIGNED, AFTER_SALES}`) and `!== 'SHIPPING'`. Each opens a `Dialog`; Confirm wording: *"Confirm order {orderNumber}? This marks it confirmed for fulfillment."*; Cancel: *"Cancel order {orderNumber}? Reserved stock is released."* On submit: disable buttons, call `confirmOrder(id)` / `cancelOrder(id)`; on success **patch only the status cells** on the row from the returned `AdminOrderRow` (it is a bare Order row — `customer`/`items` are absent, so never replace the whole row object, m1) and close; on 400/409 keep the dialog open showing the backend message; on success with a terminal state re-run the current query (server truth).
 
 - [ ] **Step 4: Empty + error states**
 
@@ -498,7 +526,7 @@ git commit -m "feat(admin): orders list with filters, pagination, inline confirm
 
 - [ ] **Step 2: Cards**
 
-Per spec §8.4, render: **Order** (createdAt, currency, subtotal, discountTotal, shippingTotal, grandTotal — all via `formatAmount`); **Customer & address** (customer.name + customer.normalizedPhone + shippingAddress fields, em-dash for nulls); **Items** table (productNameSnapshot, variantSnapshot, skuCodeSnapshot, qty, unitPrice, unitDiscount, lineTotal — via `formatAmount`; `unitCostSnapshot` column only when `hasPermission('REPORT_PROFIT_VIEW')`, also via `formatAmount`); **Attribution** (read-only, `sourceType` label + every field, null → em-dash); **Payments** (method, status, amount via `formatAmount`, reference, paidAt); **Timeline** (`statusHistory` asc: `{statusDomain}` Badge-neutral + `{oldStatus ?? '—'} → {newStatus}` + `source` + `operatorId` muted + `comment` + createdAt); **Reservations** (skuId, quantity, status, createdAt).
+Per spec §8.4, render: **Order** (createdAt, currency, subtotal, discountTotal, shippingTotal, grandTotal — all via `formatAmount`); **Customer & address** (customer.name + customer.normalizedPhone + shippingAddress fields, em-dash for nulls); **Items** table (productNameSnapshot, variantSnapshot, skuCodeSnapshot, qty, unitPrice, unitDiscount, lineTotal — via `formatAmount`; `unitCostSnapshot` column only when `hasPermission('REPORT_PROFIT_VIEW')`, also via `formatAmount`); **Attribution** (read-only, null → em-dash): the **order-level** columns `optimizerAidSnapshot` (AID), `optimizerNameSnapshot`, `customerClassification`, `optimizerId` come from the Order row (AdminOrderRow); the **relation** columns `sourceType`, `aidSnapshot`, `facebookPageId/PostId/PostTrackingCode`, `campaignId`, `adsetId`, `adId`, `landingPageId`, `utm*`, `fbclid`, `attributedAt` come from `order.attribution` (M3 — never read `optimizerNameSnapshot`/`customerClassification` off the attribution object); **Payments** (method, status, amount via `formatAmount`, reference, paidAt); **Timeline** (`statusHistory` asc: `{statusDomain}` Badge-neutral + `{oldStatus ?? '—'} → {newStatus}` + `source` + `operatorId` muted + `comment` + createdAt); **Reservations** (skuId, warehouseId, quantity, status, createdAt — m2).
 
 - [ ] **Step 3: Confirm / Cancel actions**
 
@@ -559,7 +587,7 @@ cd frontend && pnpm lint && pnpm exec tsc --noEmit && pnpm build
 
 1. List shows each SKU row (searchable by product name; a SKU code search narrows client-side on the loaded page).
 2. Adjust +10 on a SKU → success notice shows the new `onHand/reserved/available`; Stock cell shows the value.
-3. Adjust −9999999 on a 0-stock SKU → backend 400 "Adjustment would make on-hand negative" shown in the dialog; dialog stays open.
+3. Negative-adjust message depends on whether the inventory row exists (m7): create the row with a small positive adjust (+1) first, then adjust −9999999 → backend 400 "Adjustment would make on-hand negative"; on a SKU with **no** inventory row, a negative adjust instead returns 400 "Cannot open a negative inventory record" — accept both messages in the dialog.
 4. Adjust 0 → service 400 "Adjustment quantity must not be zero" surfaces.
 5. As WAREHOUSE: Adjust button hidden. As ADMIN: present.
 
@@ -585,7 +613,7 @@ Search, Status select (`DRAFT/ACTIVE/DISABLED/All`), Category select (flatten `l
 
 - [ ] **Step 2: Delete**
 
-`hasPermission('PRODUCT_MANAGE')` gate; Dialog wording: *"Delete {name}? Its variants, SKUs and images are removed. This fails if any order references its SKUs."* → `adminApi.deleteProduct(id)`; optimistic row removal; on 400 (Restrict FK → "Referenced record does not exist") show the backend message inline and refetch.
+`hasPermission('PRODUCT_MANAGE')` gate; Dialog wording: *"Delete {name}? Its variants, SKUs and images are removed. This fails if any order item or reservation references its SKUs."* → `adminApi.deleteProduct(id)`; optimistic row removal. **Error handling (M2):** the backend `remove()` has no try/catch (`products.service.ts:229-247`), so a restricted FK from order items or inventory reservations (including RELEASED — released rows are retained) surfaces as an unhandled Prisma P2003 → **HTTP 500** with a generic message, NOT the clean 400 `"Referenced record does not exist"` (that string is only produced by create/update's `rethrowKnown`). Cart items do NOT block — `CartItem→Sku` is `onDelete: Cascade` (`cart.prisma:35`). UI: on any non-2xx show the generic message, refetch, and keep the row; never assert a specific 400 body. A clean 400 would be a backend change → spec §14 gap #6.
 
 - [ ] **Step 3: New product button**
 
@@ -601,7 +629,7 @@ cd frontend && pnpm lint && pnpm exec tsc --noEmit && pnpm build
 
 1. List renders seeded products with thumbnails; search/status/category filters drive the URL and table.
 2. Delete an un-referenced product → row disappears (verify it's gone from the storefront too).
-3. Delete a product whose SKU is on a seeded order → backend 400 surfaces, product stays.
+3. Delete a product whose SKU is on a seeded order → backend **500** (generic Prisma message) surfaces as an error alert, row stays (M2); the UI does not claim a 400.
 4. As CONFIRMOR: Products nav absent (permission-filtered) — direct `/admin/products` URL → 401/403 surfaced as an error alert (backend authority).
 
 - [ ] **Step 6: Commit**
@@ -682,6 +710,8 @@ Fetch `adminApi.getProduct(id)` + `adminApi.listCategories()`; 404 → EmptyStat
 
 `serializeFormValue` for edit must honour `updateProductSchema`: **only changed top-level scalars are sent**; `images` and `variants` are sent **only when the user touched them**, and always as the **complete list** (whole-list replacement); `status` and `solutions` sent only when changed (never empty defaults — would wipe). The cleanest implementation: track a `dirty` set of top-level groups via the form's onChange; on submit build the PATCH from `{...changedScalars, ...(dirtyVariants ? { variants: fullList } : {}), ...(dirtyImages ? { images: fullList } : {})}`. Guard the UI with a note near Save: *"Variants and images are saved as a full replacement."*
 
+**Hard limitation to document in the UI and in spec §14 gap #5 (M4):** the backend's variant update is `productVariant.deleteMany` + recreate (`products.service.ts:200-210`), so every SKU gets a **new id** on any variants-bearing PATCH. Because order items and reservations (including RELEASED) hold `Restrict` FKs on `skus.id`, the delete throws P2003 → `rethrowKnown` → **400 "Referenced record does not exist"**. Consequence: variant/SKU edits (including price changes via the variants list) succeed only for products whose SKUs have never been ordered/reserved. Scalar product fields (name, slug, description, status, room, solutions, dimensions) and image edits on unreferenced products are unaffected. The form should surface this 400 honestly when it happens (backend message, form stays).
+
 - [ ] **Step 3: Gate**
 
 ```bash
@@ -692,9 +722,9 @@ cd frontend && pnpm lint && pnpm exec tsc --noEmit && pnpm build
 
 1. Open an existing product → all fields pre-filled; change name + slug → save → detail reflects it.
 2. **Danger case:** edit only the description (do NOT touch variants) → save → variants/SKUs remain untouched (regression guard: the variant still exists with the same SKU).
-3. Add a second variant + SKU → save → both variants present; storefront PDP shows the new SKU.
-4. Change status ACTIVE → DISABLED → product disappears from storefront; admin shows DISABLED badge.
-5. Change price on a SKU → storefront PDP shows the new price.
+3. Variant/SKU edits (add a second variant, or change a SKU price) → run these on the **product created in Task 9** (never ordered), where whole-list replacement works. On the seeded/ordered product, a variants-bearing PATCH returns the backend 400 "Referenced record does not exist" (M4) — the form shows it and keeps its state.
+4. Change status ACTIVE → DISABLED → product disappears from storefront; admin shows DISABLED badge (scalar edit, unaffected by M4).
+5. Change price on a SKU **of the Task-9-created product** → storefront PDP shows the new price.
 
 - [ ] **Step 5: Commit**
 
@@ -759,9 +789,11 @@ Expected: clean; build includes all `/admin/*` routes plus the unchanged storefr
 
 - [ ] **Step 2: Role matrix Chrome run (desktop ≥1280px + 768px)**
 
+Before running, create the four extra role accounts via `POST /api/v1/users` as SUPER_ADMIN (the seed creates only SUPER_ADMIN — `ensureInitialAdmin`, m5): ADMIN, CONFIRMOR, WAREHOUSE, OPTIMIZER, each with the matching `roleCodes`.
+
 1. **SUPER_ADMIN** — full nav + actions; can log out.
 2. **ADMIN** — full nav; confirm/cancel/adjust/edit all work; user-management is NOT in the UI (nav absent).
-3. **CONFIRMOR** — Orders only; confirm/cancel work; no Products/Inventory nav; direct `/admin/products` URL surfaces a 403-style error (backend authority).
+3. **CONFIRMOR** — Orders only; confirm/cancel work; no Products/Inventory nav; direct `/admin/products` URL surfaces a 401/403 error (backend authority).
 4. **WAREHOUSE** — Orders (read) + Inventory (read); no Adjust/Confirm/Cancel.
 5. **FINANCE** — Orders (read) only; order detail hides the cost-snapshot column.
 6. **OPTIMIZER** — "No modules available" empty state.

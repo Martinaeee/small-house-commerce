@@ -19,7 +19,7 @@ The admin panel lives **inside the existing Next.js app** at `frontend/src/app/a
 1. An operator can **log in** with a backend `User` account and get a session whose nav and actions are driven by that account's RBAC permissions.
 2. An operator can **process orders manually**: search/filter the order list, open an order detail with full context (customer, items, totals, shipping address, attribution, timeline), and Confirm or Cancel with correct backend semantics.
 3. An operator can **adjust stock** with a reason, and see a searchable SKU/product stock list.
-4. An operator can **manage products**: list/search, create, edit (including SKUs and pricing), toggle status, assign categories, manage image URLs — exactly what the backend product DTOs accept.
+4. An operator can **manage products**: list/search, create, edit, toggle status, assign categories, manage image URLs — exactly what the backend product DTOs accept. **SKU/price/variant editing works only for products whose SKUs have never been ordered or reserved** (see §14 gap #5); scalar fields and status always work.
 5. Minimal **category CRUD** (create/edit/delete) so the product form has a real category source.
 6. RBAC is enforced by the **backend**; the UI only *mirrors* permission visibility from `/auth/me`.
 
@@ -104,7 +104,7 @@ All admin routes run behind `JwtAuthGuard` + `PermissionsGuard`. **Critical secu
 
 - Login DTO: `email` (email, ≤255), `password` (8–128).
 - TTLs from env: access 1h, refresh 7d.
-- A disabled user (`status !== ACTIVE`) gets 401 on login and on every guarded call (PermissionsGuard re-checks status).
+- A disabled user (`status !== ACTIVE`) gets 401 on **login** and on **refresh** (`auth.service.ts` re-checks status on both), and **403** on permission-guarded calls while a still-valid access token lives (PermissionsGuard throws `ForbiddenException`). `GET /auth/me` itself is NOT status-checked (it runs only `JwtAuthGuard`), so `/me` keeps returning 200 for a disabled user until the access token expires — the UI bootstrap therefore clears the session when the next refresh is rejected (m3).
 
 ## 5.2 Orders (`backend/src/modules/orders/admin/orders.controller.ts`, service `orders.service.ts`)
 
@@ -126,7 +126,7 @@ All admin routes run behind `JwtAuthGuard` + `PermissionsGuard`. **Critical secu
 
 ## 5.3 Inventory (`backend/src/modules/inventory/admin/inventory.controller.ts`, service `inventory.service.ts`)
 
-- `POST /admin/inventory/adjust` (requires `INVENTORY_ADJUST`) — body `{skuId: uuid, quantity: int (-1_000_000..1_000_000), reason?: string ≤255}`.
+- `POST /admin/inventory/adjust` (requires `INVENTORY_ADJUST`) — body `{skuId: uuid, quantity: int (-1_000_000..1_000_000), reason?: string | null ≤255}` (the DTO is `.nullable().optional()`; the controller coalesces null → undefined, so the client may omit reason or send an empty string).
   - Service rules: quantity **0 rejected**; negative must not push on-hand below 0; first adjustment for a SKU *creates* the inventory record (positive only; reason defaults to "initial stock"); returns `{onHand, reserved, available}` where `available = onHand − reserved`.
 - **There are NO inventory GET endpoints.** No stock list, no movement history. `GET /admin/products` returns SKUs but **no stock counts** (the admin include is `variants: { include: { sku: true } }`; `availableInventory` is only added on the *storefront* path). See §14 gap #1.
 
@@ -137,8 +137,8 @@ All admin routes run behind `JwtAuthGuard` + `PermissionsGuard`. **Critical secu
   - Each item: `Product` + `images[]` (id, url, altText, sortOrder asc) + `variants[]` (id, name, position, sku: full `Sku` row including skuCode, status, supplierSku, supplierCost, costCurrency, landedCost, price, compareAtPrice, productWeight, packageWidth/Height/Depth, packageWeight, volumetricWeight).
 - `GET /admin/products/:id` — same shape, 404 if missing.
 - `POST /admin/products` — `createProductSchema` (see §9). 400 if category missing; 409 on slug conflict (P2002); 400 on FK violation (P2003). Returns created product (full admin include).
-- `PATCH /admin/products/:id` — `updateProductSchema`: partial of base minus defaults; **`images` and `variants` are whole-list replacements** when present (variants are deleteMany + recreate). Returns updated product.
-- `DELETE /admin/products/:id` — cascade deletes variants/SKUs/images; **fails with 400 if any order item / reservation / cart item references a SKU of the product** (Restrict FKs). Returns `{ok:true}`.
+- `PATCH /admin/products/:id` — `updateProductSchema`: partial of base minus defaults; **`images` and `variants` are whole-list replacements** when present (variants are deleteMany + recreate). Returns updated product. **Limitation (spec §14 gap #5):** because the variant update recreates SKUs with new ids, any variants-bearing PATCH on a product whose SKUs are referenced by an order item or reservation (including RELEASED) fails with 400 `"Referenced record does not exist"`.
+- `DELETE /admin/products/:id` — cascade deletes variants/SKUs/images; **blocked by order items or inventory reservations** (Restrict FKs on `skus.id` — reservations are retained even after release, so they keep blocking). **Cart items do NOT block** (`CartItem→Sku` is `onDelete: Cascade`). `remove()` has no try/catch (`products.service.ts:229-247`), so the restricted FK surfaces as an unhandled Prisma P2003 → **HTTP 500** with a generic message, NOT the clean 400 `"Referenced record does not exist"` (that string is produced only by create/update's `rethrowKnown`). Returns `{ok:true}` when it succeeds. A clean 400 would be a backend change → §14 gap #6.
 
 **Product status** (`ProductStatus`): `DRAFT`, `ACTIVE`, `DISABLED`. *(The ruling's "ACTIVE/INACTIVE" maps to the real `ACTIVE` / `DISABLED` values; `DRAFT` is the create default and a valid saved state.)*
 **SKU status** (`SkuStatus`): `ACTIVE`, `DISABLED`.
@@ -161,23 +161,21 @@ All admin routes run behind `JwtAuthGuard` + `PermissionsGuard`. **Critical secu
 
 # 6. Auth & session mechanics
 
-Mirrors the hard-won patterns of `frontend/src/lib/auth.ts` (single-flight refresh, session epoch, safeNext), but **separate storage keys** and a **separate client module** (`lib/admin-auth.ts`), because admin identity is a different backend table (`User`, not `CustomerAccount`).
+Mirrors the hard-won patterns of `frontend/src/lib/auth.ts` **exactly** (single-flight refresh, session epoch, access token in module memory), but in a **separate client module** (`lib/admin-auth.ts`) with its own refresh-only storage key, because admin identity is a different backend table (`User`, not `CustomerAccount`).
 
-**Storage:** both tokens persist in localStorage under dedicated keys:
-- `sh_admin_access` — access token (TTL 1h)
-- `sh_admin_refresh` — refresh token (TTL 7d, rotated on every refresh)
+**Storage:** mirror `lib/auth.ts` — only the **refresh token persists**, under the single admin key `sh_admin_refresh` (TTL 7d, rotated on every refresh). The **access token (TTL 1h) lives only in module memory** and is never written to localStorage; there is **no `sh_admin_access` key** (M5).
 
-Storefront keys (`sh_refresh`, cartId) are never touched by the admin client. A customer token in `sh_admin_access` is rejected by the backend guard (`kind:'customer'`).
+Storefront keys (`sh_refresh`, cartId) are never touched by the admin client. A storefront customer token attached by a caller is rejected by the backend guard (`kind:'customer'`).
 
 **Session lifecycle:**
-1. `AdminAuthProvider` mounts → reads `sh_admin_refresh`; if present, runs single-flight `refreshAdminAccess()` → `adminApi.me()` → `{status:'authed', admin}`. If no token or refresh/me fails → `clearAdminSession()` → `{status:'guest'}`.
+1. `AdminAuthProvider` mounts → reads `sh_admin_refresh`; if present, runs single-flight `refreshAdminAccess()` → `adminAuthApi.me()` → `{status:'authed', admin}`. If no token or refresh/me fails → `clearAdminSession()` → `{status:'guest'}`.
 2. Access token lives in module memory after bootstrap (mirrors `auth.ts`); the refresh token is persisted so a reload can bootstrap again.
-3. Every admin fetch uses `adminAuthedFetch`: attach `Authorization: Bearer <access>`; on **401** → single-flight refresh (rotates tokens, writes both keys under an epoch guard) → retry once; on refresh failure → `clearAdminSession()` (bumps epoch, wipes keys, emits `admin-session-end`).
-4. **Logout** — synchronous local clear first (epoch bump, wipe keys, emit), then best-effort `POST /auth/logout` with the refresh token. Never blocked by the network.
+3. Every admin fetch uses `adminAuthedFetch`: attach `Authorization: Bearer <access>`; on **401** → single-flight refresh (rotates the refresh token, writes the new refresh token under an epoch guard) → retry once; on refresh failure → `clearAdminSession()` (bumps epoch, wipes the key, emits `admin-session-end`).
+4. **Logout** — synchronous local clear first (epoch bump, wipe the refresh key, emit), then best-effort `POST /auth/logout` with the refresh token. Never blocked by the network.
 
-**Route guard:** `AdminShell` (client) redirects `guest → /admin/login?next=<path>` (using the existing `safeNext` whitelist from `lib/auth.ts`); `loading →` skeleton; `authed →` shell.
+**Route guard:** `AdminShell` (client) redirects `guest → /admin/login?next=<path>` (using `safeAdminNext`, the admin variant of the `safeNext` whitelist — M1); `loading →` skeleton; `authed →` shell.
 
-**Login redirect:** after `login()`, push `safeNext(searchParams.get('next')) || '/admin/orders'` (first nav item the account can see, or the "no modules" page).
+**Login redirect:** after `login()`, push `safeAdminNext(searchParams.get('next'))` — it validates like `safeNext` but defaults to `/admin/orders` (the shared `safeNext` defaults to the storefront `/account`, which an admin login must never land on).
 
 # 7. RBAC enforcement model
 
@@ -188,23 +186,23 @@ Storefront keys (`sh_refresh`, cartId) are never touched by the admin client. A 
 
 # 8. Screens
 
-Shared layout grammar (from DESIGN_SYSTEM tokens, see §12): page padding `px-4 md:px-8`, max-width `--container-content` (1200px), cards `rounded-xl border border-border bg-card`, headings `text-xl font-semibold text-ink`, body `text-sm text-ink-secondary`.
+Shared layout grammar (from DESIGN_SYSTEM tokens, see §12): page padding `px-4 md:px-8`, max-width `max-w-[1200px]` (the `--container-content: 1200px` token is defined in `globals.css:39` but Tailwind v4 does not mint a `max-w-container-content` utility from it — the codebase writes the arbitrary-value form, e.g. `frontend/src/app/page.tsx:59`, m10), cards `rounded-xl border border-border bg-card`, headings `text-xl font-semibold text-ink`, body `text-sm text-ink-secondary`.
 
 ## 8.1 `/admin/login`
 
 Standalone page **not wrapped in the admin shell** (it needs no sidebar, and the shell would bounce it). Centered card (`mx-auto max-w-[420px]`), "Small House Admin" wordmark, email + password fields, submit, inline error.
 
 - Fields: Email (`type=email`, `autoComplete=email`), Password (`type=password`, `autoComplete=current-password`).
-- Action `login(email, password)` → `POST /auth/login` → store pair → `GET /auth/me` → push `safeNext(next) || '/admin/orders'`.
+- Action `login(email, password)` → `POST /auth/login` → persist the refresh token (access stays in module memory) → `GET /auth/me` → push `safeAdminNext(next)` (M1: the shared `safeNext` defaults to the storefront `/account`; `safeAdminNext` defaults to `/admin/orders`).
 - **Errors:** 401 → "Invalid email or password." (backend returns `UnauthorizedException 'Invalid credentials'`; map to a friendly message). Network/5xx → message + form stays.
-- Already-authed accounts hitting `/admin/login` are redirected to `/admin/orders` (or next) on mount.
+- Already-authed accounts hitting `/admin/login` are redirected on mount to `safeAdminNext(next)` (m12).
 
 ## 8.2 Admin shell (`app/admin/layout.tsx` + `AdminShell`)
 
 - **Desktop (≥768px):** fixed left sidebar (w-56) with nav; top bar with current page title, signed-in user name + role(s), Logout button. Content area scrolls.
 - **Mobile (<768px):** top bar with hamburger → slide-over drawer (backdrop, Esc, focus return to trigger) reusing the mega-menu drawer interaction pattern.
 - Sidebar nav = §4.2 filtered list; active route highlighted (`bg-primary-light/40 text-cta`).
-- Top-right: `{admin.name}` + role code chip + **Log out** (`adminApi.logout()` → redirect `/admin/login`).
+- Top-right: `{admin.name}` + role code chip + **Log out** (`adminAuthApi.logout()` → redirect `/admin/login`).
 - **Guard states:** `loading` → full-height skeleton; `guest` → redirect login; `authed` but **zero visible nav items** (e.g. OPTIMIZER) → centered empty state "No modules available for your account. Contact a Super Admin." with logout.
 
 ## 8.3 `/admin/orders` — order list
@@ -242,7 +240,7 @@ Order Number (link → detail) · Created · Customer (`customer.name`) · Phone
 
 **Items card** — table: productNameSnapshot, variantSnapshot, skuCodeSnapshot, quantity, unitPrice (`formatAmount`), unitDiscount, lineTotal (`formatAmount`). Cost snapshot (`unitCostSnapshot`) shown to roles with profit visibility only (`REPORT_PROFIT_VIEW`); otherwise omitted. Grand totals row.
 
-**Attribution card (read-only)** — sourceType (SourceType label), optimizerAidSnapshot (AID), optimizerId, optimizerNameSnapshot, customerClassification, facebookPageId/PostId/PostTrackingCode, campaignId, adsetId, adId, landingPageId, utmSource/Medium/Campaign/Content/Term, fbclid, attributedAt. Empty fields render as em-dash, never omitted columns.
+**Attribution card (read-only)** — two sources (M3): the **Order row** supplies `optimizerAidSnapshot` (AID), `optimizerNameSnapshot`, `customerClassification`, `optimizerId`; the **`order.attribution` relation** supplies `sourceType` (SourceType label), `aidSnapshot`, `facebookPageId/PostId/PostTrackingCode`, `campaignId`, `adsetId`, `adId`, `landingPageId`, `utmSource/Medium/Campaign/Content/Term`, `fbclid`, `attributedAt`. (`OrderAttribution` has no `optimizerNameSnapshot`/`customerClassification` columns — reading them off the attribution object would render em-dash forever.) Empty fields render as em-dash, never omitted columns.
 
 **Timeline card** — `statusHistory` asc: each row `{statusDomain} {old → new} · {source} · {operatorId} · {comment?} · {createdAt}`. Domain-badged (ORDER_STATUS / CONFIRMATION_STATUS). Newest last; the initial `NEW · SYSTEM` row present.
 
@@ -270,7 +268,7 @@ Order Number (link → detail) · Created · Customer (`customer.name`) · Phone
 
 **Table columns:** Product (name + first image thumbnail/PlaceholderImage) · Slug · Category (name) · Status (Badge) · Price (first SKU's price, else "—") · Variants/SKUs count · Updated · Actions.
 
-**Actions:** **Edit** → `/admin/products/[id]/edit`. **Delete** (PRODUCT_MANAGE) → dialog wording: *"Delete {name}? Its variants, SKUs and images are removed. This fails if any order references its SKUs."* → `DELETE /admin/products/:id`. Optimistic: row removed; on 400 ("Referenced record does not exist" / Restrict FK message) show backend message inline and refetch. **New product** → `/admin/products/new`.
+**Actions:** **Edit** → `/admin/products/[id]/edit`. **Delete** (PRODUCT_MANAGE) → dialog wording: *"Delete {name}? Its variants, SKUs and images are removed. This fails if any order item or reservation references its SKUs."* → `DELETE /admin/products/:id`. Optimistic: row removed. Error handling (M2): a blocked delete (order items or reservations — including RELEASED — on any SKU) surfaces as **HTTP 500** with a generic Prisma message, NOT the clean 400; cart items do not block (Cascade). On any non-2xx show the generic message, refetch, keep the row. **New product** → `/admin/products/new`.
 
 ## 8.7 `/admin/products/new` — create product
 
@@ -284,6 +282,8 @@ Full form over `createProductSchema` (§9). Sectioned cards: **Basics** (name, s
 Same form, loaded from `GET /admin/products/:id` (edit-only: no stock fields — stock lives in Inventory). **Save** → `PATCH /admin/products/:id`.
 
 **Critical update semantics** (from the service): `images` and `variants` are **whole-list replacements** when present in the PATCH. The form must therefore submit the complete current lists (all rows, including untouched ones) whenever the user edited them — never a partial array. `status`/`solutions` are only sent when changed (they have no default in the update schema; omission leaves them untouched — do NOT send empty defaults that would wipe them).
+
+**Hard limitation (spec §14 gap #5):** the variant update is `productVariant.deleteMany` + recreate (`products.service.ts:200-210`), so every SKU gets a **new id** on any variants-bearing PATCH. Because order items and reservations (including RELEASED) hold Restrict FKs on `skus.id`, the delete throws P2003 → **400 "Referenced record does not exist"**. Variant/SKU edits (including price changes via the variants list) therefore work only for products whose SKUs have never been ordered/reserved. Scalar product fields (name, slug, description, status, room, solutions, dimensions) and image edits on unreferenced products are unaffected. The form surfaces this 400 honestly (backend message, form stays open).
 
 ## 8.9 `/admin/categories` — category tree CRUD
 
@@ -343,7 +343,7 @@ Client validation mirrors the backend zod rules for **fast feedback**; the backe
 - Touch targets ≥44px; admin is desktop-first but every control works at 768px.
 - `prefers-reduced-motion`: dialogs/drawers render instantly.
 
-**Status badge colors** (ADMIN_SPEC §22 mapping to Tailwind's palette — an admin-scope extension of the storefront beige palette, applied only inside `/admin/**`):
+**Status badge colors** (this map **extends** ADMIN_SPEC §22's green/yellow/red — §22 names only SIGNED/CONFIRMED/PAID, PENDING/RECHECK, DENIED/CANCELLED/FAILED, and RECHECK is not a real enum; the full map below covers every admin enum, using Tailwind's default palette as an admin-scope extension of the storefront beige palette, applied only inside `/admin/**`):
 - Green (`bg-emerald-100 text-emerald-800`): `CONFIRMED`, `SIGNED`, `PAID`, `COLLECTED`, `SETTLED`, `CONFIRMED` (confirmation), `ACTIVE` (product/sku/category), `CONSUMED`, `RELEASED`.
 - Amber (`bg-amber-100 text-amber-800`): `NEW`, `PENDING`, `QUESTION`, `ABNORMAL`, `SHIPPING`, `NEEDS_REVIEW`, `COD_PENDING`, `ONLINE_PENDING`, `DRAFT`, `ACTIVE` (reservation).
 - Red (`bg-red-100 text-red-800`): `CANCELLED`, `DENIED`, `REJECTED`, `FAILED`, `REFUNDED`, `PARTIALLY_REFUNDED`, `DISABLED`.
@@ -351,10 +351,10 @@ Client validation mirrors the backend zod rules for **fast feedback**; the backe
 
 # 13. Security
 
-1. **Separate token keys.** Admin uses `sh_admin_access` / `sh_admin_refresh`; the storefront client's `sh_refresh` and cart keys are never read/written by admin code.
+1. **Separate token key.** Admin persists only the refresh token under `sh_admin_refresh`; the access token lives in module memory (mirroring `lib/auth.ts` — there is no `sh_admin_access` key, M5). The storefront client's `sh_refresh` and cart keys are never read/written by admin code.
 2. **No customer-token acceptance.** The backend admin guard rejects `kind:'customer'` JWTs; the frontend admin client never attaches storefront tokens and never falls back to them.
 3. **Permission-guarded routes.** Every `/admin/**` page sits behind the client route guard, and every data call carries the Bearer token; the backend guard is the enforcement boundary (UI hiding is UX, not security).
-4. **localStorage exposure is accepted and bounded.** Tokens persist for session bootstrap; access TTL 1h, refresh TTL 7d and rotated on every refresh; logout wipes both keys synchronously and revokes server-side (best effort). No token is ever placed in a URL; `safeNext` whitelist prevents open-redirect on the login redirect.
+4. **localStorage exposure is bounded.** Only the rotating refresh token persists (TTL 7d, rotated on every refresh; the short-lived access token never touches storage). Logout wipes the key synchronously and revokes server-side (best effort). No token is ever placed in a URL; the `safeAdminNext` whitelist prevents open-redirect on the login redirect.
 5. **No secrets in the client.** Supplier costs and profit fields render only under `REPORT_PROFIT_VIEW`; cost snapshots on order items are conditionally rendered with the same guard.
 6. **403 handling is honest:** a permission the UI thought it had but the server denied is surfaced verbatim and the page resyncs — never swallowed.
 
@@ -366,6 +366,8 @@ The design was deliberately constrained to the existing API. These are the place
 2. **Order filter by confirmation status.** `orderQuerySchema` (`orders/dto/order.dto.ts`) accepts `status` (OrderStatus), `search`, `dateFrom`, `dateTo` — no `confirmationStatus`. ADMIN_SPEC §7.2 lists it. The list UI ships without the Confirmation-status filter until the query schema grows a `confirmationStatus` param (the detail page still shows the column from the response).
 3. **OPTIMIZER own-orders.** `ORDER_VIEW_OWN` exists as a permission but no endpoint filters by `optimizerId`/attribution. An OPTIMIZER logging into V1 admin sees the "No modules" state. Either acceptable for V1 (documented) or needs an own-orders branch on `GET /admin/orders`.
 4. **Product stock in admin product responses.** `GET /admin/products` items carry SKUs with no `availableInventory`/onHand (only the storefront serializer enriches stock). Purely additive display gap — stock editing already routes through the Inventory adjust endpoint.
+5. **In-place variant/SKU update semantics.** The PATCH variant path deletes and recreates variants/SKUs (`products.service.ts:200-210`), assigning **new SKU ids**. Once a SKU is referenced by an order item or reservation (including RELEASED — Restrict FKs), any variants-bearing PATCH fails with 400 `"Referenced record does not exist"`. V1 consequence: SKU/price/variant editing works only for never-ordered products; scalar product fields and status toggles are unaffected. A fix requires in-place variant/SKU updates or an update-SKU endpoint — **not authorized for V1**.
+6. **Product DELETE error status.** `remove()` has no try/catch, so a delete blocked by order items/reservations returns **HTTP 500** with a generic Prisma message instead of a clean 400. A fix (exception filter or try/catch mapping P2003 → 400) is a backend change — not authorized for V1; the UI treats any non-2xx as a blocked delete and refetches.
 
 # 15. V1.1 (note only — no tasks planned here)
 
@@ -381,8 +383,9 @@ The design was deliberately constrained to the existing API. These are the place
 - **O4. Product status vocabulary:** the ruling said "ACTIVE/INACTIVE"; the schema/DTO use `DRAFT` / `ACTIVE` / `DISABLED`. V1 encodes the real enum (DRAFT is the create default). Confirm `DRAFT` is an acceptable visible state in the UI.
 - **O5. Route-group restructure:** giving `/admin` chrome-free layout requires moving the storefront routes into a `(storefront)` route group (URLs unchanged, root layout becomes minimal). Confirm this refactor is acceptable alongside the admin build.
 - **O6. User management UI:** the `users` API is ready (SUPER_ADMIN only). Ship a minimal users list/create UI in V1, or defer to V1.1/V1.5? (V1 scope as ruled does not include it.)
-- **O7. Admin status colors:** the spec introduces Tailwind emerald/amber/red badges under `/admin/**` (ADMIN_SPEC §22's green/yellow/red), extending the storefront beige palette. Confirm.
+- **O7. Admin status colors:** the spec introduces Tailwind emerald/amber/red badges under `/admin/**` (extending ADMIN_SPEC §22's green/yellow/red), extending the storefront beige palette. Confirm.
+- **O8. SKU/price editing limit (gap #5):** variant/SKU edits (including price changes via the variants list) return 400 for any product whose SKUs have ever been ordered or reserved. V1 ships the limitation honestly; authorizing an in-place variant/SKU update endpoint (or update-SKU endpoint) is a backend change for a later wave.
 
 # 17. Verification approach (per task in the plan)
 
-Frontend-only gates (no backend work): `pnpm lint` + `pnpm exec tsc --noEmit` + `pnpm build`, run in `frontend/`, then a written Chrome/manual checklist per task at `http://localhost:3001` (desktop ≥1280px + 768px; login as seeded roles: SUPER_ADMIN / ADMIN / CONFIRMOR / WAREHOUSE / OPTIMIZER via `backend/prisma/seed.ts` accounts). No test framework is added (frontend has none and the ruling forbids new deps).
+Frontend-only gates (no backend work): `pnpm lint` + `pnpm exec tsc --noEmit` + `pnpm build`, run in `frontend/`, then a written Chrome/manual checklist per task at `http://localhost:3001` (desktop ≥1280px + 768px). The seed creates exactly **one** account (SUPER_ADMIN at `dev@smallhouse.test` — `backend/prisma/seed.ts` `ensureInitialAdmin`, m5); create ADMIN, CONFIRMOR, WAREHOUSE and OPTIMIZER users via `POST /api/v1/users` as SUPER_ADMIN for the role matrix. No test framework is added (frontend has none and the ruling forbids new deps).
