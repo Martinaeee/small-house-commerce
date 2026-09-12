@@ -28,14 +28,17 @@ RUN pnpm run build
 # ---- runner: full node_modules kept (CLI needed for migrate + tsx seed) --
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=build /app/prisma7.config.ts ./
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/generated ./src/generated
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
+# --chown on every COPY sets ownership as the files land; a trailing
+# `RUN chown -R node:node /app` would copy-up the whole tree (~547 MB layer:
+# node_modules + dist + generated). --chmod needs BuildKit (enabled by the
+# `# syntax=docker/dockerfile:1` directive at the top of this file).
+COPY --chown=node:node --from=build /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --chown=node:node --from=build /app/prisma7.config.ts ./
+COPY --chown=node:node --from=build /app/prisma ./prisma
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/src/generated ./src/generated
+COPY --chown=node:node --chmod=755 docker-entrypoint.sh ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=6 \
