@@ -14,7 +14,8 @@ export function Pagination({
 }): ReactNode {
   if (total === 0) return null;
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages =
+    pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
 
   return (
     <nav

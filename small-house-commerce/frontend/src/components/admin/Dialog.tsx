@@ -36,6 +36,10 @@ export function Dialog({
 }: DialogProps): ReactNode | null {
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -68,7 +72,7 @@ export function Dialog({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -100,7 +104,9 @@ export function Dialog({
       triggerRef.current?.focus?.();
       triggerRef.current = null;
     };
-  }, [open, onClose]);
+    // onClose is read through onCloseRef so a new callback identity does not
+    // tear down/re-run this effect (focus capture, scroll lock, listener).
+  }, [open]);
 
   if (!open) return null;
 
@@ -110,7 +116,7 @@ export function Dialog({
       <div
         className="fixed inset-0 z-50 bg-black/50"
         aria-hidden="true"
-        onClick={onClose}
+        onClick={() => onCloseRef.current()}
       />
       <div
         ref={panelRef}
@@ -122,7 +128,7 @@ export function Dialog({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => onCloseRef.current()}
           aria-label="Close"
           className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg text-ink-muted hover:bg-primary-light/40 hover:text-ink"
         >
