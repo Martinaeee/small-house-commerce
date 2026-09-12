@@ -79,6 +79,8 @@ model CustomerRefreshToken {
   id        String    @id @default(uuid(7)) @db.Uuid
   accountId String    @map("account_id") @db.Uuid
   tokenHash String    @unique @map("token_hash")
+  /// Rotation family; see RefreshToken.familyId in identity.prisma.
+  familyId  String?   @map("family_id") @db.Uuid
   expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -86,6 +88,7 @@ model CustomerRefreshToken {
   account CustomerAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
+  @@index([accountId, familyId])
   @@index([expiresAt])
   @@map("customer_refresh_tokens")
 }
