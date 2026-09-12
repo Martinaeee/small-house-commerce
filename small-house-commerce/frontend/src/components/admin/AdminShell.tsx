@@ -262,7 +262,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
             inert={!drawerOpen}
           >
             <div
-              onClick={() => setDrawerOpen(false)}
+              onClick={() => {
+                setDrawerOpen(false);
+                hamburgerRef.current?.focus();
+              }}
               className={`absolute inset-0 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none ${
                 drawerOpen ? "opacity-100" : "opacity-0"
               }`}
