@@ -1,0 +1,19 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+	# API traffic goes straight to the backend. Next 16 bakes rewrites()
+	# destinations at build time, so the frontend's dev-only /api/v1
+	# rewrite cannot be retargeted at runtime and must not sit on this path.
+	# handle accepts a single matcher, so name a path matcher with both
+	# patterns (caddy 2.11 rejects multiple bare path args to handle).
+	@api path /api/v1 /api/v1/*
+	handle @api {
+		reverse_proxy backend:3000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
