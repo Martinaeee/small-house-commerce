@@ -514,51 +514,65 @@ export function ProductForm({
     clearValidation();
   };
 
+  // Every value mutation clears the client validation state (same clearing
+  // path as patch()); the parent server error is left untouched here — it
+  // stays visible until the next submit attempt (see render below).
   // --- images ---------------------------------------------------------------
-  const setImage = (i: number, p: Partial<ImageFormValue>): void =>
+  const setImage = (i: number, p: Partial<ImageFormValue>): void => {
     setValue((prev) => ({
       ...prev,
       images: prev.images.map((img, j) => (j === i ? { ...img, ...p } : img)),
     }));
-  const addImage = (): void =>
+    clearValidation();
+  };
+  const addImage = (): void => {
     setValue((prev) => ({
       ...prev,
       images: [...prev.images, { url: "", altText: "", sortOrder: "" }],
     }));
-  const removeImage = (i: number): void =>
+    clearValidation();
+  };
+  const removeImage = (i: number): void => {
     setValue((prev) => ({
       ...prev,
       images: prev.images.filter((_, j) => j !== i),
     }));
+    clearValidation();
+  };
 
   // --- variants -------------------------------------------------------------
-  const setVariant = (i: number, p: Partial<VariantFormValue>): void =>
+  const setVariant = (i: number, p: Partial<VariantFormValue>): void => {
     setValue((prev) => ({
       ...prev,
       variants: prev.variants.map((vr, j) =>
         j === i ? { ...vr, ...p } : vr,
       ),
     }));
-  const setSku = (i: number, p: Partial<SkuFormValue>): void =>
+    clearValidation();
+  };
+  const setSku = (i: number, p: Partial<SkuFormValue>): void => {
     setValue((prev) => ({
       ...prev,
       variants: prev.variants.map((vr, j) =>
         j === i && vr.sku ? { ...vr, sku: { ...vr.sku, ...p } } : vr,
       ),
     }));
-  const addVariant = (): void =>
+    clearValidation();
+  };
+  const addVariant = (): void => {
     setValue((prev) => ({
       ...prev,
-      variants: [
-        ...prev.variants,
-        { name: "", position: "", sku: null },
-      ],
+      variants: [...prev.variants, { name: "", position: "", sku: null }],
     }));
-  const removeVariant = (i: number): void =>
+    clearValidation();
+  };
+  const removeVariant = (i: number): void => {
     setValue((prev) => ({
       ...prev,
       variants: prev.variants.filter((_, j) => j !== i),
     }));
+    clearValidation();
+  };
 
   const toggleSolution = (solution: string, checked: boolean): void =>
     patch({
@@ -590,7 +604,11 @@ export function ProductForm({
           {formError}
         </div>
       ) : null}
-      {error ? (
+      {/* Parent (server) error from the last submit attempt. A newer failed
+          CLIENT-side submit supersedes it: hide it while local validation
+          state exists (formError or any field error) so two alerts never
+          show together. Mere edits do not dismiss it — only a submit does. */}
+      {error && !formError && Object.keys(fieldErrors).length === 0 ? (
         <div
           role="alert"
           className="mt-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
@@ -616,6 +634,7 @@ export function ProductForm({
             <TextInput
               id="pf-slug"
               value={value.slug}
+              maxLength={120}
               placeholder="folding-chair"
               onChange={(e) => patch({ slug: e.target.value })}
               autoComplete="off"
@@ -774,6 +793,11 @@ export function ProductForm({
                 >
                   <TextInput
                     id={`pf-images-${i}-url`}
+                    // Row 0 has the visible Field label; later rows must
+                    // still expose an accessible name (spec §12) — Field's
+                    // label prop is string-only, so use aria-label (wins the
+                    // accessible-name computation over the empty wrapper).
+                    aria-label={i === 0 ? undefined : `Image ${i + 1} URL`}
                     value={img.url}
                     placeholder="https://…"
                     onChange={(e) => setImage(i, { url: e.target.value })}
@@ -787,6 +811,9 @@ export function ProductForm({
                 >
                   <TextInput
                     id={`pf-images-${i}-alt`}
+                    aria-label={
+                      i === 0 ? undefined : `Image ${i + 1} alt text`
+                    }
                     value={img.altText}
                     onChange={(e) => setImage(i, { altText: e.target.value })}
                     autoComplete="off"
@@ -799,6 +826,9 @@ export function ProductForm({
                 >
                   <TextInput
                     id={`pf-images-${i}-sort`}
+                    aria-label={
+                      i === 0 ? undefined : `Image ${i + 1} sort order`
+                    }
                     inputMode="numeric"
                     value={img.sortOrder}
                     onChange={(e) =>
