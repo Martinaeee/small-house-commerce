@@ -11,6 +11,9 @@ import { customerApi, type AccountOrder } from "@/lib/auth";
 const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
 
+// Backend storefront default page size for the orders endpoint.
+const ORDERS_PAGE_SIZE = 10;
+
 const STATUS_LABELS: Record<string, string> = {
   NEW: "Order received",
   PENDING: "Pending",
@@ -27,6 +30,9 @@ const STATUS_LABELS: Record<string, string> = {
 function OrdersPanel() {
   const [orders, setOrders] = useState<AccountOrder[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +48,21 @@ function OrdersPanel() {
       alive = false;
     };
   }, []);
+
+  // Plain click handler (not an effect): append the next page on demand.
+  async function loadMore() {
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const next = await customerApi.listOrders(page + 1);
+      setOrders((prev) => [...(prev ?? []), ...next.items]);
+      setPage(page + 1);
+    } catch (err) {
+      setMoreError(err instanceof Error ? err.message : "Could not load more orders");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   if (error) {
     return <p className="text-sm text-red-600" role="alert">{error}</p>;
@@ -60,33 +81,51 @@ function OrdersPanel() {
     );
   }
 
+  // Only a full final page can have a successor; a short page hides the
+  // pager permanently (orders.length === fetched pages * page size).
+  const hasMore = orders.length === page * ORDERS_PAGE_SIZE;
+
   return (
-    <ul className="flex flex-col gap-3">
-      {orders.map((order) => (
-        <li key={order.orderNumber}>
-          <Link
-            href={`/order-success/${order.orderNumber}`}
-            className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4 hover:border-primary"
-          >
-            <div>
-              <p className="font-semibold text-ink">{order.orderNumber}</p>
-              <p className="text-xs text-ink-muted">
-                {new Date(order.createdAt).toLocaleDateString("en-PH", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-                {" · "}
-                {order.items.reduce((sum, item) => sum + item.quantity, 0)} item(s)
-                {" · "}
-                {STATUS_LABELS[order.orderStatus] ?? order.orderStatus}
-              </p>
-            </div>
-            <span className="font-semibold text-ink">{formatPrice(order.grandTotal)}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="flex flex-col gap-3">
+        {orders.map((order) => (
+          <li key={order.orderNumber}>
+            <Link
+              href={`/order-success/${order.orderNumber}`}
+              className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4 hover:border-primary"
+            >
+              <div>
+                <p className="font-semibold text-ink">{order.orderNumber}</p>
+                <p className="text-xs text-ink-muted">
+                  {new Date(order.createdAt).toLocaleDateString("en-PH", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                  {" · "}
+                  {order.items.reduce((sum, item) => sum + item.quantity, 0)} item(s)
+                  {" · "}
+                  {STATUS_LABELS[order.orderStatus] ?? order.orderStatus}
+                </p>
+              </div>
+              <span className="font-semibold text-ink">{formatPrice(order.grandTotal)}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {hasMore && (
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <Button size="md" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </Button>
+          {moreError && (
+            <p className="text-sm text-red-600" role="alert">
+              {moreError}
+            </p>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -167,7 +206,12 @@ export default function AccountPage() {
         <form className="mt-4 flex flex-col gap-4" onSubmit={onSaveProfile}>
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">
             Full name
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              className={inputCls}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
           </label>
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">
             Email

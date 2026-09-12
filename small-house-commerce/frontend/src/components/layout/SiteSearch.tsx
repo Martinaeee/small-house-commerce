@@ -220,9 +220,10 @@ export function SiteSearch() {
 
   return (
     <>
-      {/* Mobile: icon button. ml-auto pushes the mobile icon group
-          (search/account/cart) to the right edge; on desktop this button is
-          hidden and the pill below carries its own ml-auto. */}
+      {/* Mobile: icon button; its ml-auto pushes the mobile icon group
+          (search/account/cart) to the right edge. On desktop this button is
+          hidden — the pill below sits in row 1 of the two-row header,
+          centered via mx-auto flex-1 max-w-[560px], with no ml-auto. */}
       <button
         ref={mobileTriggerRef}
         type="button"

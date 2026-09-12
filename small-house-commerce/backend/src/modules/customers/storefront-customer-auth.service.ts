@@ -196,16 +196,19 @@ export class StorefrontCustomerAuthService {
       // A conflicting owner throws, rolling back the upsert/backfill too.
       try {
         await this.prisma.$transaction(async (tx) => {
+          // A combined name+phone PATCH must seed/backfill the phone-keyed
+          // Customer snapshot with the NEW name, not the pre-update value.
+          const effectiveName = input.name ?? account.name;
           const customer = await tx.customer.upsert({
             where: { normalizedPhone },
             // A brand-new phone-keyed Customer inherits the account identity.
-            create: { normalizedPhone, name: account.name, email: account.email },
+            create: { normalizedPhone, name: effectiveName, email: account.email },
             update: {},
           });
           // Backfill the COD customer snapshot only where checkout left gaps.
           await tx.customer.updateMany({
             where: { id: customer.id, name: null },
-            data: { name: account.name },
+            data: { name: effectiveName },
           });
           await tx.customer.updateMany({
             where: { id: customer.id, email: null },

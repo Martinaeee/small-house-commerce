@@ -33,8 +33,9 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
 
         <SiteSearch />
 
-        {/* Account + cart: tight on mobile (three 36px tap targets), natural
-            gap with the greeting on desktop. */}
+        {/* Account + cart: tight on mobile (three 36px tap targets at ≥375px,
+            32px below 375px via max-[374px]:p-1), natural gap with the
+            greeting on desktop. */}
         <div className="flex shrink-0 items-center gap-0 lg:gap-1">
           <AccountEntry />
           <Link

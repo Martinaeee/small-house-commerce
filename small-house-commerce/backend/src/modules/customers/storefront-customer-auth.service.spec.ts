@@ -183,6 +183,47 @@ describe('StorefrontCustomerAuthService', () => {
     });
   });
 
+  it('PATCH /me with name+phone seeds and backfills Customer using the NEW name', async () => {
+    const upsert = vi.fn().mockResolvedValue({ id: 'cust-11', normalizedPhone: '+639170000003' });
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const service = makeService({
+      customer: { upsert, updateMany },
+      customerAccount: {
+        // Call 1: requireAccount at updateMe entry (pre-update name "Juan").
+        // Call 2: owner lookup inside the transaction (null = phone free).
+        // Call 3: requireAccount when me() reloads the profile.
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce({ ...accountRow })
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            ...accountRow,
+            name: 'Juanita',
+            customerId: 'cust-11',
+            customer: { normalizedPhone: '+639170000003' },
+          }),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const profile = await service.updateMe('acct-1', {
+      name: 'Juanita',
+      phone: '0917 000 0003',
+    });
+
+    expect(profile.name).toBe('Juanita');
+    // A brand-new phone-keyed Customer is seeded with the incoming name.
+    expect(upsert.mock.calls[0][0].create).toMatchObject({
+      normalizedPhone: '+639170000003',
+      name: 'Juanita',
+    });
+    // The name:null backfill (first updateMany) also gets the incoming name.
+    expect(updateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: 'cust-11', name: null },
+      data: { name: 'Juanita' },
+    });
+  });
+
   it('serializes orders without cost/supplier/internal fields and converts decimals', async () => {
     const service = makeService({
       customerAccount: {

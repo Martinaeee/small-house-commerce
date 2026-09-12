@@ -365,7 +365,7 @@ export class ProductsService {
         SELECT products.id, ${trgm.rank} AS rank
         FROM products
         WHERE ${whereSql}
-        ORDER BY rank DESC, products.created_at DESC
+        ORDER BY rank DESC, products.created_at DESC, products.id DESC
         LIMIT ${query.pageSize} OFFSET ${offset}
       `,
       this.prisma.$queryRaw<{ total: bigint }[]>`

@@ -23,7 +23,7 @@ export function AccountEntry() {
   );
 
   if (status === "authed" && account) {
-    const firstName = account.name.split(" ")[0] ?? account.name;
+    const firstName = account.name.split(" ")[0];
     return (
       <Link
         href="/account"
