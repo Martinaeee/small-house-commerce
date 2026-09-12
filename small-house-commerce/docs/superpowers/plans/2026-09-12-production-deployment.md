@@ -442,7 +442,7 @@ volumes:
 }
 ```
 
-The two patterns matter: `/api/v1/*` matches subpaths but not the bare health path `/api/v1`, so both are listed on the named matcher. `handle` blocks are mutually exclusive and the API block must stay first. Validate syntax with `docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile` (adapter tolerates the env placeholders) or `caddy adapt`.
+The two patterns matter: `/api/v1/*` matches subpaths but not the bare health path `/api/v1`, so both are listed on the named matcher. `handle` blocks are mutually exclusive and the API block must stay first. Validate syntax by supplying the placeholder env vars (the bare `email {$ACME_EMAIL}` directive fails validation when the placeholder expands to empty): `docker run --rm -e DOMAIN=:80 -e ACME_EMAIL=ops@example.test -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile` → "Valid configuration".
 
 - [ ] **Step 3: Create `deploy/env.deploy.example`**
 
@@ -610,18 +610,18 @@ docker compose -p sh-smoke \
 
 (Run from anywhere; substitute the absolute path to the `small-house-commerce` directory.)
 
-`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Seed the category tree (proves the frontend's runtime `API_TARGET` Server Component path, not just browser routing), warm the homepage once to trigger ISR regeneration, wait a few seconds, then verify pages, API paths, and log hygiene:
+`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Seed the category tree (proves the frontend's runtime `API_TARGET` Server Component path, not just browser routing), warm a category DETAIL page once to trigger ISR regeneration, poll until its SSR HTML contains the seeded category name (the homepage nav does not render root category names server-side), then verify pages, API paths, and log hygiene:
 
 ```bash
 docker compose -p sh-smoke --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
   -f /tmp/sh-smoke.compose.yml exec -T backend pnpm exec tsx prisma/seed-categories.ts
-curl -fsS http://127.0.0.1:8080/ -o /dev/null   # warm: kicks background ISR regeneration
+curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials -o /dev/null   # warm
 # Background regeneration can take minutes, not seconds — poll, don't sleep.
 for i in $(seq 1 60); do
-  curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && break
+  curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials" && break
   sleep 5
 done
-curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials"   # SSR shows seeded data
+curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials"   # SSR shows seeded data
 curl -fsS http://127.0.0.1:8080/api/v1                              # Hello World!
 curl -fsS http://127.0.0.1:8080/api/v1/storefront/categories -o /dev/null
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
@@ -668,11 +668,13 @@ PD=/ABSOLUTE/PATH/TO/small-house-commerce
 # silently-wrong fetch target (Task 3 re-review INFO).
 docker compose -p sh-smoke --project-directory "$PD" -f /tmp/sh-smoke.compose.yml \
   exec -T backend pnpm exec tsx prisma/seed-categories.ts
-curl -fsS http://127.0.0.1:8080/ -o /dev/null   # warm: triggers background ISR regeneration
-# Background regeneration can take minutes (observed ~4m), not seconds — poll.
+# The category DETAIL page renders the fetched category name in SSR HTML
+# (the homepage nav does not render root names server-side). Warm it, then
+# poll: background ISR regeneration can take minutes (observed ~4m), not seconds.
+curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials -o /dev/null
 SSR_OK=""
 for i in $(seq 1 60); do
-  curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && { SSR_OK=1; break; }
+  curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials" && { SSR_OK=1; break; }
   sleep 5
 done
 [ "$SSR_OK" = 1 ] && echo "SSR shows seeded category OK" || { echo "SSR content never updated"; exit 1; }
