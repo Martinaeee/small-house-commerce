@@ -169,10 +169,19 @@ export class StorefrontCustomerAuthService {
         return { status: 'invalid' as const };
       }
 
-      await tx.customerRefreshToken.update({
-        where: { id: stored.id },
+      // Atomic claim. READ COMMITTED lets two concurrent refreshes read the
+      // same unrevoked row; the conditional update is re-evaluated against
+      // the latest committed row version under the row lock, so exactly one
+      // transaction counts 1. A count of 0 means a concurrent request won —
+      // take the reuse path and wipe the family.
+      const claimed = await tx.customerRefreshToken.updateMany({
+        where: { id: stored.id, revokedAt: null },
         data: { revokedAt: now },
       });
+      if (claimed.count !== 1) {
+        await this.revokeFamily(tx, stored.accountId, stored.familyId, stored.id);
+        return { status: 'invalid' as const };
+      }
 
       const account = await tx.customerAccount.findUnique({
         where: { id: stored.accountId },

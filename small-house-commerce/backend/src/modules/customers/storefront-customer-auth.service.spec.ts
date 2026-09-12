@@ -1,5 +1,6 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import argon2 from 'argon2';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -18,19 +19,224 @@ const config = {
   getOrThrow: (key: string) => (key === 'jwt.accessTtl' ? '1h' : '7d'),
 } as never;
 
-function makeService(prismaOverrides: Record<string, unknown>) {
+type CustomerTokenRow = Record<string, unknown> & {
+  id: string;
+  accountId: string;
+  familyId: string | null;
+  tokenHash: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+};
+
+type CustomerStagedOp =
+  | { type: 'revoke'; id: string; revokedAt: Date }
+  | { type: 'create'; data: Record<string, unknown> }
+  | { type: 'delete'; where: Record<string, unknown> };
+
+interface CustomerTxn {
+  stages: CustomerStagedOp[];
+  locks: Array<{ id: string; release: () => void }>;
+  rolledBack: boolean;
+}
+
+interface CustomerDbHooks {
+  onFind?: (readCount: number) => void;
+  beforeClaim?: () => Promise<void> | void;
+}
+
+/**
+ * In-memory customerRefreshToken delegate modelling the Postgres semantics
+ * the rotation relies on: staged writes applied only on callback resolve
+ * (throw = rollback), and per-row claim locks held until transaction end so
+ * a concurrent conditional claim re-evaluates against the latest committed
+ * row version (READ COMMITTED) and matches zero rows for the loser.
+ */
+function makeCustomerRefreshTokenDb(
+  initial: CustomerTokenRow[],
+  hooks: CustomerDbHooks = {},
+) {
+  const rows: CustomerTokenRow[] = [...initial];
+  const transactions: CustomerTxn[] = [];
+  const txnStore = new AsyncLocalStorage<CustomerTxn>();
+  const rowLocks = new Map<string, Promise<void>>();
+  let reads = 0;
+
+  const matches = (row: CustomerTokenRow, where: Record<string, unknown>) =>
+    Object.entries(where).every(([key, value]) => row[key] === value);
+
+  const deleteRows = (where: Record<string, unknown>): number => {
+    const before = rows.length;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (matches(rows[i]!, where)) rows.splice(i, 1);
+    }
+    return before - rows.length;
+  };
+
+  const commit = (txn: CustomerTxn) => {
+    for (const op of txn.stages) {
+      if (op.type === 'revoke') {
+        const row = rows.find((candidate) => candidate.id === op.id);
+        if (row) row.revokedAt = op.revokedAt;
+      } else if (op.type === 'create') {
+        rows.push({ id: `rt-new-${rows.length + 1}`, revokedAt: null, ...op.data });
+      } else {
+        deleteRows(op.where);
+      }
+    }
+  };
+
+  async function claim(
+    id: string,
+    revokedAt: Date,
+    txn: CustomerTxn | undefined,
+  ): Promise<number> {
+    await hooks.beforeClaim?.();
+    for (;;) {
+      const held = rowLocks.get(id);
+      if (held) {
+        await held;
+        continue;
+      }
+      let resolveLock!: () => void;
+      const lock = new Promise<void>((resolve) => {
+        resolveLock = resolve;
+      });
+      rowLocks.set(id, lock);
+      const release = () => {
+        rowLocks.delete(id);
+        resolveLock();
+      };
+      const row = rows.find((candidate) => candidate.id === id);
+      const won = row !== undefined && row.revokedAt === null;
+      if (won && txn) txn.stages.push({ type: 'revoke', id, revokedAt });
+      if (txn) txn.locks.push({ id, release });
+      else release();
+      return won ? 1 : 0;
+    }
+  }
+
+  const customerRefreshToken = {
+    findUnique: vi
+      .fn()
+      .mockImplementation(async ({ where }: { where: { tokenHash: string } }) => {
+        hooks.onFind?.(++reads);
+        const row = rows.find((candidate) => candidate.tokenHash === where.tokenHash);
+        return row ? { ...row } : null;
+      }),
+    update: vi
+      .fn()
+      .mockImplementation(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const row = rows.find((candidate) => candidate.id === where.id);
+          if (row) Object.assign(row, data);
+          return row;
+        },
+      ),
+    updateMany: vi
+      .fn()
+      .mockImplementation(
+        async ({
+          where,
+          data,
+        }: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          const txn = txnStore.getStore();
+          if (
+            where.id !== undefined &&
+            where.revokedAt === null &&
+            data.revokedAt instanceof Date
+          ) {
+            const count = await claim(where.id as string, data.revokedAt as Date, txn);
+            return { count };
+          }
+          let count = 0;
+          for (const row of rows) {
+            if (matches(row, where)) {
+              Object.assign(row, data);
+              count++;
+            }
+          }
+          return { count };
+        },
+      ),
+    deleteMany: vi
+      .fn()
+      .mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+        const txn = txnStore.getStore();
+        if (txn) {
+          txn.stages.push({ type: 'delete', where });
+          return { count: 0 };
+        }
+        return { count: deleteRows(where) };
+      }),
+    create: vi
+      .fn()
+      .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+        const txn = txnStore.getStore();
+        if (txn) {
+          txn.stages.push({ type: 'create', data });
+          return { id: `rt-staged-${txn.stages.length}` };
+        }
+        const row = { id: `rt-new-${rows.length + 1}`, revokedAt: null, ...data };
+        rows.push(row);
+        return row;
+      }),
+  };
+
+  let client: unknown = null;
+
+  const $transaction = vi.fn(async (arg: unknown) => {
+    if (Array.isArray(arg)) return Promise.all(arg);
+    const txn: CustomerTxn = { stages: [], locks: [], rolledBack: false };
+    transactions.push(txn);
+    try {
+      const result = await txnStore.run(txn, () => (arg as (tx: unknown) => unknown)(client));
+      commit(txn);
+      return result;
+    } catch (error) {
+      txn.rolledBack = true;
+      throw error;
+    } finally {
+      for (const lock of txn.locks) lock.release();
+    }
+  });
+
+  return {
+    rows,
+    transactions,
+    customerRefreshToken,
+    $transaction,
+    setClient(value: unknown) {
+      client = value;
+    },
+  };
+}
+
+function makeService(
+  prismaOverrides: Record<string, unknown>,
+  db?: ReturnType<typeof makeCustomerRefreshTokenDb>,
+) {
   const prisma = {
     customerAccount: {},
-    customerRefreshToken: {},
     customer: {},
     order: {},
-    // The service uses both transaction forms: interactive callback
-    // (phone linking) and the awaited-array form (orders list).
-    $transaction: vi.fn(async (arg: unknown) =>
-      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(prisma),
-    ),
     ...prismaOverrides,
+    // With a staging DB the refresh tests run through the commit/rollback
+    // runner; everything else keeps the inline callback/array runner. The
+    // service uses both transaction forms: interactive callback (phone
+    // linking, refresh) and the awaited-array form (orders list).
+    customerRefreshToken: db
+      ? db.customerRefreshToken
+      : (prismaOverrides.customerRefreshToken ?? {}),
+    $transaction: db
+      ? db.$transaction
+      : vi.fn(async (arg: unknown) =>
+          Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(prisma),
+        ),
   } as unknown as PrismaService;
+  db?.setClient(prisma);
   // JwtService needs an explicit secret in tests (no JwtModule config here).
   return new StorefrontCustomerAuthService(prisma, new JwtService({ secret: SECRET }), config);
 }
@@ -271,52 +477,6 @@ describe('StorefrontCustomerAuthService', () => {
 
   const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-  function makeCustomerRefreshTokenDb(
-    initial: Array<Record<string, unknown>>,
-  ) {
-    const rows: Array<Record<string, unknown>> = [...initial];
-    return {
-      rows,
-      customerRefreshToken: {
-        findUnique: vi
-          .fn()
-          .mockImplementation(async ({ where }: { where: { tokenHash: string } }) =>
-            rows.find((row) => row.tokenHash === where.tokenHash) ?? null,
-          ),
-        update: vi
-          .fn()
-          .mockImplementation(
-            async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-              const row = rows.find((candidate) => candidate.id === where.id);
-              if (row) Object.assign(row, data);
-              return row;
-            },
-          ),
-        deleteMany: vi
-          .fn()
-          .mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
-            const before = rows.length;
-            for (let i = rows.length - 1; i >= 0; i--) {
-              const row = rows[i]!;
-              const matches =
-                where.familyId !== undefined
-                  ? row.accountId === where.accountId && row.familyId === where.familyId
-                  : row.accountId === where.accountId && row.id === where.id;
-              if (matches) rows.splice(i, 1);
-            }
-            return { count: before - rows.length };
-          }),
-        create: vi
-          .fn()
-          .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-            const row = { id: `rt-new-${rows.length + 1}`, revokedAt: null, ...data };
-            rows.push(row);
-            return row;
-          }),
-      },
-    };
-  }
-
   it('refresh rotates a valid customer token inside the same family', async () => {
     const db = makeCustomerRefreshTokenDb([
       {
@@ -328,12 +488,15 @@ describe('StorefrontCustomerAuthService', () => {
         revokedAt: null,
       },
     ]);
-    const service = makeService({
-      customerRefreshToken: db.customerRefreshToken,
-      customerAccount: {
-        findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+    const service = makeService(
+      {
+        customerRefreshToken: db.customerRefreshToken,
+        customerAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+        },
       },
-    });
+      db,
+    );
 
     const result = await service.refresh({ refreshToken: 'old-customer-token' });
 
@@ -354,12 +517,15 @@ describe('StorefrontCustomerAuthService', () => {
         revokedAt: null,
       },
     ]);
-    const service = makeService({
-      customerRefreshToken: db.customerRefreshToken,
-      customerAccount: {
-        findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+    const service = makeService(
+      {
+        customerRefreshToken: db.customerRefreshToken,
+        customerAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+        },
       },
-    });
+      db,
+    );
 
     await service.refresh({ refreshToken: 'old-customer-token' });
     await expect(service.refresh({ refreshToken: 'old-customer-token' })).rejects.toBeInstanceOf(
@@ -369,6 +535,173 @@ describe('StorefrontCustomerAuthService', () => {
     expect(db.rows).toHaveLength(0);
     expect(db.customerRefreshToken.deleteMany).toHaveBeenCalledWith({
       where: { accountId: 'acct-1', familyId: 'fam-1' },
+    });
+    // The deletion COMMITTED; a 401 thrown inside the callback would roll it
+    // back and this transaction would be recorded as rolledBack.
+    expect(db.transactions[1]!.rolledBack).toBe(false);
+  });
+
+  it('the transaction fake discards staged customer-token writes when the callback throws', async () => {
+    const db = makeCustomerRefreshTokenDb([
+      {
+        id: 'rt-x',
+        accountId: 'acct-1',
+        familyId: 'fam-x',
+        tokenHash: hashToken('x-token'),
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      },
+    ]);
+    makeService({ customerRefreshToken: db.customerRefreshToken }, db);
+
+    await expect(
+      db.$transaction(
+        async (tx: {
+          customerRefreshToken: { deleteMany: (args: unknown) => Promise<unknown> };
+        }) => {
+          await tx.customerRefreshToken.deleteMany({
+            where: { accountId: 'acct-1', familyId: 'fam-x' },
+          });
+          throw new Error('boom after staging');
+        },
+      ),
+    ).rejects.toThrow('boom after staging');
+
+    expect(db.rows).toHaveLength(1);
+    expect(db.transactions[0]!.rolledBack).toBe(true);
+  });
+
+  it('refresh coalesces a legacy NULL-family customer row into a fresh family', async () => {
+    const db = makeCustomerRefreshTokenDb([
+      {
+        id: 'rt-legacy',
+        accountId: 'acct-1',
+        familyId: null,
+        tokenHash: hashToken('legacy-customer-token'),
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      },
+    ]);
+    const service = makeService(
+      {
+        customerRefreshToken: db.customerRefreshToken,
+        customerAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+        },
+      },
+      db,
+    );
+
+    const result = await service.refresh({ refreshToken: 'legacy-customer-token' });
+
+    expect(result.accessToken).toBeTruthy();
+    expect(db.rows).toHaveLength(2);
+    expect(db.rows[0]!.id).toBe('rt-legacy');
+    expect(db.rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(db.rows[0]!.familyId).toBeNull();
+    expect(db.rows[1]!.familyId).toEqual(expect.any(String));
+    expect(db.rows[1]!.familyId).not.toBeNull();
+    expect(db.rows[1]!.revokedAt).toBeNull();
+  });
+
+  it('replaying a revoked legacy NULL-family customer row deletes only that singleton row', async () => {
+    const db = makeCustomerRefreshTokenDb([
+      {
+        id: 'rt-legacy',
+        accountId: 'acct-1',
+        familyId: null,
+        tokenHash: hashToken('legacy-customer-token'),
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+      },
+    ]);
+    const service = makeService(
+      {
+        customerRefreshToken: db.customerRefreshToken,
+        customerAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+        },
+      },
+      db,
+    );
+
+    await service.refresh({ refreshToken: 'legacy-customer-token' });
+    expect(db.rows).toHaveLength(2);
+
+    await expect(
+      service.refresh({ refreshToken: 'legacy-customer-token' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(db.customerRefreshToken.deleteMany).toHaveBeenLastCalledWith({
+      where: { accountId: 'acct-1', id: 'rt-legacy' },
+    });
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0]!.revokedAt).toBeNull();
+    expect(db.rows[0]!.familyId).toEqual(expect.any(String));
+  });
+
+  it('concurrent customer refreshes of the same token have exactly one winner; the loser wipes the family', async () => {
+    let resolveSecondRead!: () => void;
+    const secondRead = new Promise<void>((resolve) => {
+      resolveSecondRead = resolve;
+    });
+    let releaseClaims!: () => void;
+    const claimsGate = new Promise<void>((resolve) => {
+      releaseClaims = resolve;
+    });
+
+    const db = makeCustomerRefreshTokenDb(
+      [
+        {
+          id: 'rt-1',
+          accountId: 'acct-1',
+          familyId: 'fam-1',
+          tokenHash: hashToken('race-customer-token'),
+          expiresAt: new Date(Date.now() + 60_000),
+          revokedAt: null,
+        },
+      ],
+      {
+        onFind: (readCount: number) => {
+          if (readCount === 2) resolveSecondRead();
+        },
+        beforeClaim: async () => {
+          await claimsGate;
+        },
+      },
+    );
+    const service = makeService(
+      {
+        customerRefreshToken: db.customerRefreshToken,
+        customerAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'acct-1', email: 'juan@example.com' }),
+        },
+      },
+      db,
+    );
+
+    const first = service.refresh({ refreshToken: 'race-customer-token' });
+    const second = service.refresh({ refreshToken: 'race-customer-token' });
+    await secondRead;
+    releaseClaims();
+
+    const [outcomeA, outcomeB] = await Promise.allSettled([first, second]);
+    expect([outcomeA.status, outcomeB.status].sort()).toEqual(['fulfilled', 'rejected']);
+    const winner = outcomeA.status === 'fulfilled' ? outcomeA.value : outcomeB.value;
+    expect(winner.accessToken).toBeTruthy();
+    const loser = outcomeA.status === 'rejected' ? outcomeA.reason : outcomeB.reason;
+    expect(loser).toBeInstanceOf(UnauthorizedException);
+
+    // Exactly one sibling minted, and the loser wipes it as part of the family.
+    expect(db.customerRefreshToken.create).toHaveBeenCalledTimes(1);
+    expect(db.rows).toHaveLength(0);
+    expect(db.customerRefreshToken.deleteMany).toHaveBeenCalledWith({
+      where: { accountId: 'acct-1', familyId: 'fam-1' },
+    });
+    expect(db.customerRefreshToken.updateMany).toHaveBeenCalledTimes(2);
+    expect(db.customerRefreshToken.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'rt-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
     });
   });
 });
