@@ -20,6 +20,7 @@ import {
   type AdminCategoryNode,
   type CreateCategoryInput,
 } from "@/lib/admin-api";
+import { errorStatus } from "@/lib/admin-auth";
 
 // --- constants mirroring backend category.dto.ts ----------------------------
 // name: z.string().min(1).max(120); slug: min(1).max(120) kebab-case;
@@ -339,14 +340,14 @@ export default function AdminCategoriesPage() {
         setFormError(null);
         setNonce((n) => n + 1);
       } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : "Save failed.";
         // 409 duplicate slug — attach to the slug field with the exact copy.
-        if (message === "A category with this slug already exists") {
+        if (errorStatus(err) === 409) {
           setErrors((prev) => ({ ...prev, slug: SLUG_CONFLICT }));
         } else {
           // 400 self-parent / bad parent and anything else: verbatim inline.
-          setFormError(message);
+          setFormError(
+            err instanceof Error ? err.message : "Save failed.",
+          );
         }
       } finally {
         setFormPending(false);

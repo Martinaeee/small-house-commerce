@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
-import { safeAdminNext } from "@/lib/admin-auth";
+import { errorStatus, safeAdminNext } from "@/lib/admin-auth";
 
 const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
@@ -35,11 +35,14 @@ function LoginForm() {
       await login(email.trim().toLowerCase(), password);
       router.push(safeAdminNext(searchParams.get("next")));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Login failed";
-      // Backend answers bad credentials with 401 "Invalid credentials"; map
-      // to the friendly admin wording. Network/5xx messages stay verbatim.
+      // 401 is bad credentials → friendly admin wording. Every other failure
+      // (network/5xx/…) keeps the verbatim backend message.
       setError(
-        message === "Invalid credentials" ? "Invalid email or password." : message,
+        errorStatus(err) === 401
+          ? "Invalid email or password."
+          : err instanceof Error
+            ? err.message
+            : "Login failed",
       );
       setPending(false);
     }

@@ -25,6 +25,7 @@ import {
   type AdminProduct,
   type CreateProductInput,
 } from "@/lib/admin-api";
+import { errorStatus } from "@/lib/admin-auth";
 
 /**
  * Task 10: product edit (/admin/products/:id/edit).
@@ -37,14 +38,8 @@ import {
  * once an order item/reservation references an SKU — spec §14 gap #5).
  */
 
-// adminAuthedFetch rejects with a bare Error (no HTTP status); the backend's
-// NotFoundException('Product not found') serializes to this exact message.
-const NOT_FOUND_MESSAGE = "Product not found";
-
-// POST/PATCH 409 from rethrowKnown (Prisma P2002). Same UI mapping as the
-// create page (spec §8.7): on this form the unique column is the slug.
-const SLUG_CONFLICT_MESSAGE =
-  "A record with the same unique value already exists";
+// POST/PATCH 409 from rethrowKnown (Prisma P2002); on this form the unique
+// column is the slug — same UI mapping as the create page (spec §8.7).
 const SLUG_CONFLICT_UI = "A product with this slug already exists.";
 
 const SCALAR_KEYS = [
@@ -222,15 +217,15 @@ export default function EditProductPage(): ReactNode {
       .then(([productResult, categoriesResult]) => {
         if (!active || !mounted.current) return;
         if (productResult.status === "rejected") {
-          const message =
-            productResult.reason instanceof Error
-              ? productResult.reason.message
-              : "Failed to load product.";
-          // Message-exact 404 classification (same approach as order detail).
-          if (message === NOT_FOUND_MESSAGE) {
+          // 404 → not-found state; anything else (403/5xx/…) is a load error.
+          if (errorStatus(productResult.reason) === 404) {
             setNotFound(true);
           } else {
-            setLoadError(message);
+            setLoadError(
+              productResult.reason instanceof Error
+                ? productResult.reason.message
+                : "Failed to load product.",
+            );
           }
         } else if (categoriesResult.status === "rejected") {
           setLoadError(
@@ -328,13 +323,14 @@ export default function EditProductPage(): ReactNode {
         })
         .catch((err: unknown) => {
           if (!mounted.current) return;
-          const message =
-            err instanceof Error ? err.message : "Failed to save product.";
-          // Keep form state: `product`/`initial` are untouched, so the form's
-          // internal value survives and the backend message shows verbatim
-          // (including the §14-gap-#5 "Referenced record does not exist" 400).
+          // 409 → slug-specific wording. Everything else stays verbatim,
+          // including the §14-gap-#5 "Referenced record does not exist" 400.
           setError(
-            message === SLUG_CONFLICT_MESSAGE ? SLUG_CONFLICT_UI : message,
+            errorStatus(err) === 409
+              ? SLUG_CONFLICT_UI
+              : err instanceof Error
+                ? err.message
+                : "Failed to save product.",
           );
         })
         .finally(() => {

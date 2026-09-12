@@ -79,8 +79,15 @@ function ProductsPageContent() {
 
   const filtersActive = Boolean(search || status || categoryId);
 
+  // Blocked-delete page alert (kept across refetch); declared before the
+  // URL-filter callbacks so they can clear it when filters change.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
+      // Any filter change (committed search, status, category, page) dismisses
+      // a stale blocked-delete alert.
+      setDeleteError(null);
       const next = new URLSearchParams(searchParams.toString());
       for (const [key, value] of Object.entries(patch)) {
         if (value === null || value === "") next.delete(key);
@@ -115,6 +122,7 @@ function ProductsPageContent() {
 
   const clearFilters = useCallback(() => {
     setSearchInput("");
+    setDeleteError(null);
     router.replace(pathname, { scroll: false });
   }, [pathname, router]);
 
@@ -152,7 +160,6 @@ function ProductsPageContent() {
 
   const [data, setData] = useState<Paged<AdminProduct> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Bumped to force a re-run of the current query (Retry / post-delete truth).
   const queryKey = [
     status,
@@ -363,8 +370,20 @@ function ProductsPageContent() {
           role="alert"
           className="mt-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
         >
-          <p className="font-semibold">Product could not be deleted.</p>
-          <p className="mt-1">{deleteError}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-semibold">Product could not be deleted.</p>
+              <p className="mt-1">{deleteError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteError(null)}
+              aria-label="Dismiss error"
+              className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-700 hover:bg-red-100"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       ) : null}
 

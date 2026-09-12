@@ -112,6 +112,26 @@ export function clearAdminSession(): void {
   emitAdminAuthEvent("admin-session-end");
 }
 
+/**
+ * Error thrown for every non-2xx admin API response. Carries the backend
+ * message verbatim (Error.message) plus the HTTP status so call sites can
+ * classify outcomes (401/403/404/409/…) without matching message strings.
+ */
+export class AdminApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "AdminApiError";
+    this.status = status;
+  }
+}
+
+/** HTTP status carried by an AdminApiError, or null for non-API failures. */
+export function errorStatus(err: unknown): number | null {
+  return err instanceof AdminApiError ? err.status : null;
+}
+
 async function readError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { message?: string };
@@ -162,8 +182,8 @@ export async function refreshAdminAccess(): Promise<string | null> {
 
 /**
  * Admin-authenticated fetch: attaches the in-memory bearer token; on 401 runs
- * the single-flight refresh and retries once. Throws Error with the backend
- * message (readError) on failure.
+ * the single-flight refresh and retries once. Throws AdminApiError with the
+ * backend message (readError) and the final response status on failure.
  */
 export async function adminAuthedFetch<T>(
   path: string,
@@ -186,7 +206,7 @@ export async function adminAuthedFetch<T>(
     const refreshed = await refreshAdminAccess();
     if (refreshed) res = await run(refreshed);
   }
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw new AdminApiError(await readError(res), res.status);
   return res.json() as Promise<T>;
 }
 
@@ -239,7 +259,7 @@ export const adminAuthApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) throw new Error(await readError(res));
+    if (!res.ok) throw new AdminApiError(await readError(res), res.status);
     const data = (await res.json()) as TokenPair;
     // New session: invalidate any in-flight refresh from a previous session.
     sessionEpoch += 1;

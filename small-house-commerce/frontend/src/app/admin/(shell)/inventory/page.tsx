@@ -26,6 +26,7 @@ import {
   type Paged,
   type ProductStatus,
 } from "@/lib/admin-api";
+import { errorStatus } from "@/lib/admin-auth";
 
 // Spec §8.5 / §14 gap #1: there is NO stock GET endpoint. The SKU list is
 // sourced from GET /admin/products and live On Hand / Reserved / Available
@@ -45,10 +46,9 @@ const MAX_REASON = 255;
 const SKU_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*[-_][A-Za-z0-9_-]*$/;
 const INTEGER_RE = /^[+-]?\d+$/;
 
-// 403 from GET /admin/products when the role lacks PRODUCT_MANAGE (the route
-// is class-gated; INVENTORY_VIEW alone is insufficient — see task-7 report
-// "Newly discovered gap"). Retry cannot fix a permission denial.
-const PERMISSION_MESSAGE = "Missing required permission";
+// GET /admin/products returns 403 when the role lacks PRODUCT_MANAGE (the
+// route is class-gated; INVENTORY_VIEW alone is insufficient — see task-7
+// report "Newly discovered gap"). Retry cannot fix a permission denial.
 
 interface SkuRow {
   productId: string;
@@ -169,6 +169,8 @@ function InventoryPageContent() {
 
   const [data, setData] = useState<Paged<AdminProduct> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set from the HTTP status (403), not the message body.
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   const queryKey = [
@@ -194,10 +196,12 @@ function InventoryPageContent() {
         if (!active) return;
         setData(res);
         setError(null);
+        setPermissionDenied(false);
         setFetchedKey(queryKey);
       })
       .catch((err: unknown) => {
         if (!active) return;
+        setPermissionDenied(errorStatus(err) === 403);
         setError(err instanceof Error ? err.message : "Failed to load SKUs.");
         setFetchedKey(queryKey);
       });
@@ -205,8 +209,6 @@ function InventoryPageContent() {
       active = false;
     };
   }, [queryKey, status, serverSearch, page]);
-
-  const permissionDenied = error === PERMISSION_MESSAGE;
 
   // --- session stock (spec §8.5: adjusted rows only) ------------------------
 

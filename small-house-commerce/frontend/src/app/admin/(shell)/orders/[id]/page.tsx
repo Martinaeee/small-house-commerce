@@ -25,6 +25,7 @@ import {
   type OrderStatus,
   type SourceType,
 } from "@/lib/admin-api";
+import { errorStatus } from "@/lib/admin-auth";
 
 // Eligibility sets mirrored verbatim from the Task 5 orders list page.
 const CONFIRM_BLOCKED = new Set<OrderStatus>([
@@ -41,10 +42,6 @@ const CANCEL_BLOCKED = new Set<OrderStatus>([
   "AFTER_SALES",
   "SHIPPING",
 ]);
-
-// adminAuthedFetch rejects with a bare Error (no HTTP status); the backend's
-// NotFoundException serializes to this exact message.
-const NOT_FOUND_MESSAGE = "Order not found";
 
 const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   FB_POST: "Facebook post",
@@ -154,12 +151,14 @@ function OrderDetailPage(): ReactNode {
       })
       .catch((err: unknown) => {
         if (!active || !mounted.current) return;
-        const message =
-          err instanceof Error ? err.message : "Failed to load order.";
-        if (message === NOT_FOUND_MESSAGE) {
+        // Only the GET/load path maps 404 to the not-found state; mutation
+        // failures keep surfacing their verbatim message inside the dialog.
+        if (errorStatus(err) === 404) {
           setNotFound(true);
         } else {
-          setLoadError(message);
+          setLoadError(
+            err instanceof Error ? err.message : "Failed to load order.",
+          );
         }
       })
       .finally(() => {
@@ -225,8 +224,8 @@ function OrderDetailPage(): ReactNode {
       setActionError(null);
       setNonce((n) => n + 1);
     } catch (err) {
-      // Any non-2xx (adminAuthedFetch carries no status): keep the dialog
-      // open and surface the backend message verbatim.
+      // Any non-2xx (even a 404 — mutations never flip the page to
+      // not-found): keep the dialog open and show the message verbatim.
       if (!mounted.current) return;
       setActionError(err instanceof Error ? err.message : "Request failed.");
     } finally {

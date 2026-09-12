@@ -13,16 +13,7 @@ import {
 } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
 import { adminApi, type AdminCategoryNode } from "@/lib/admin-api";
-
-/**
- * POST /admin/products 409s (products.service rethrowKnown, Prisma P2002)
- * with this generic message. adminAuthedFetch throws only Error(message) —
- * no HTTP status — so the stable backend copy is the conflict signal. On
- * this form that unique violation is the slug the user typed, so spec §8.7
- * maps it to the slug-specific alert.
- */
-const SLUG_CONFLICT_MESSAGE =
-  "A record with the same unique value already exists";
+import { errorStatus } from "@/lib/admin-auth";
 
 export default function NewProductPage(): ReactNode {
   const router = useRouter();
@@ -86,12 +77,15 @@ export default function NewProductPage(): ReactNode {
         router.push(`/admin/products/${created.id}/edit`);
       })
       .catch((err: unknown) => {
-        const message =
-          err instanceof Error ? err.message : "Failed to create product.";
+        // POST /admin/products 409s (products.service rethrowKnown, Prisma
+        // P2002): the unique violation here is the typed slug, so spec §8.7
+        // maps 409 to the slug-specific alert; other messages stay verbatim.
         setError(
-          message === SLUG_CONFLICT_MESSAGE
+          errorStatus(err) === 409
             ? "A product with this slug already exists."
-            : message,
+            : err instanceof Error
+              ? err.message
+              : "Failed to create product.",
         );
         setPending(false);
       });
