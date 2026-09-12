@@ -1375,11 +1375,12 @@ import { AppModule } from './app.module.js';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Production sits behind exactly one reverse proxy (Caddy/nginx in the prod
-  // compose — proxy topology is a separate workstream). Trusting one hop makes
-  // Express take the LEFT-MOST X-Forwarded-For entry as request.ip, which the
-  // throttle guard buckets on. Do not raise this above 1 without re-checking
-  // header spoofing: the client controls everything before the trusted hop.
+  // Production sits behind exactly one reverse proxy (Caddy in the prod
+  // compose). Trusting one hop makes Express derive request.ip from the
+  // X-Forwarded-For entry immediately to the LEFT of the trusted proxy hop;
+  // client-supplied entries further left are ignored (verified on Express 5 /
+  // proxy-addr). The throttle guard buckets on that address. Do not raise this
+  // above 1 without re-checking header spoofing.
   app.set('trust proxy', 1);
 
   // All routes live under /api/v1 per SYSTEM_ARCHITECTURE.md §62-65:
@@ -1654,8 +1655,11 @@ describe('buildTrgmSearch — LIKE wildcard escaping (M5)', () => {
     );
     expect(likePatterns).not.toContain('%%');
     expect(likePatterns).toContain('%\\%%');
-    // The raw token is still bound separately for word_similarity.
-    expect(flatValues(result.match)).toContain('%');
+    // A 1-char token takes the ILIKE-only branch (<3 chars, no trgm binds):
+    // the raw token is never passed to word_similarity, so both bound LIKE
+    // values (name + slug) are the escaped pattern — observed ['%\\%%','%\\%%'].
+    expect(likePatterns.length).toBe(2);
+    expect(likePatterns.every((value) => value === '%\\%%')).toBe(true);
   });
 
   it('escapes underscore and backslash tokens', () => {
@@ -1670,6 +1674,9 @@ describe('buildTrgmSearch — LIKE wildcard escaping (M5)', () => {
   it('keeps ordinary token patterns unchanged', () => {
     const result = buildTrgmSearch(['chair']);
     expect(flatValues(result.match)).toContain('%chair%');
+    // Tokens >= 3 chars also bind the raw token for word_similarity (short
+    // tokens never reach the trgm branch — see the first test above).
+    expect(flatValues(result.match)).toContain('chair');
   });
 });
 ```
@@ -2003,6 +2010,6 @@ Expected: zero lint/build/test failures; migration status "up to date"; no un-ge
 git status --porcelain | grep -E 'HOMEPAGE_SPEC|2026-09-11-pdp-refinement|docs/research/' || echo 'clean'
 ```
 
-Any lines printed are expected pre-existing modifications; verify none of the wave's commits included them (`git show --stat HEAD~6..HEAD`).
+Any lines printed are expected pre-existing modifications; verify none of the wave's commits included them — the wave makes 9 commits, so check `git show --stat HEAD~8..HEAD`.
 
 - [ ] Smoke the auth surfaces manually: admin login (wrong password 401, valid 200), customer login, refresh once (200), replay old refresh token (401, family rows deleted in both tables), then a fresh login still works (proving revocation was scoped to the family, not the account).
