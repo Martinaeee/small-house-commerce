@@ -566,18 +566,20 @@ Logical backup (cron recommended, e.g. nightly 03:17). First create the destinat
 sudo install -d -o root -g root -m 0750 /srv/backups
 ```
 
+The directory is root-owned, so install the cron line in **root's** crontab (`sudo crontab -e`; the system crontab runs as root). If you instead run it from a non-root user's crontab, `chown` the directory to that user first — otherwise the nightly redirect fails silently with a permission error.
+
 ```bash
 17 3 * * * cd /path/to/small-house-commerce && docker compose -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | zstd > /srv/backups/small-house-$(date +\%F).sql.zst
 ```
 
 The `sh -c '...'` single quotes are essential: `$POSTGRES_USER`/`$POSTGRES_DB` must expand **inside** the db container, where compose sets them. Cron's host shell has neither variable, so an unquoted/outer expansion runs `pg_dump -U "" ""` and silently writes a 0-byte archive.
 
-Restore into a CLEAN database — a plain `pg_dump` archive restored over existing objects errors on every duplicate. Stop the backend, drop and recreate the target database (the postgres maintenance db survives this), restore, then start the backend again:
+Restore into a CLEAN database — a plain `pg_dump` archive restored over existing objects errors on every duplicate. Stop the backend, drop and recreate the target database (the postgres maintenance db survives this), restore, then start the backend again (`backup.sql.zst` is a placeholder — use the dated file cron wrote, e.g. `/srv/backups/small-house-2026-09-12.sql.zst`):
 
 ```bash
 docker compose -f docker-compose.prod.yml stop backend
 docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";"'
-zstd -d -c backup.sql.zst | docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+zstd -d -c /srv/backups/small-house-YYYY-MM-DD.sql.zst | docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 docker compose -f docker-compose.prod.yml up -d backend
 ```
 
