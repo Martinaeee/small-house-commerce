@@ -605,10 +605,24 @@ docker compose -p sh-smoke \
 
 (Run from anywhere; substitute the absolute path to the `small-house-commerce` directory.)
 
-`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Verify `http://127.0.0.1:8080/` and `http://127.0.0.1:8080/api/v1`, then tear down INCLUDING the smoke volumes:
+`DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Seed the category tree (proves the frontend's runtime `API_TARGET` Server Component path, not just browser routing), warm the homepage once to trigger ISR regeneration, wait a few seconds, then verify pages, API paths, and log hygiene:
 
 ```bash
-docker compose -p sh-smoke -f docker-compose.prod.yml down -v
+docker compose -p sh-smoke --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
+  -f /tmp/sh-smoke.compose.yml exec -T backend pnpm exec tsx prisma/seed-categories.ts
+curl -fsS http://127.0.0.1:8080/ -o /dev/null && sleep 6
+curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials"   # SSR shows seeded data
+curl -fsS http://127.0.0.1:8080/api/v1                              # Hello World!
+curl -fsS http://127.0.0.1:8080/api/v1/storefront/categories -o /dev/null
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
+  | grep -cE "ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|EACCES"   # must be 0
+```
+
+Then tear down INCLUDING the smoke volumes:
+
+```bash
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
+rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
 Only the `sh-smoke` project's volumes are removed; dev databases and any real `small-house-prod` stack are untouched.
@@ -635,14 +649,22 @@ Expected: warnings about empty required values are acceptable for the template, 
 
 - [ ] **Step 6: Full local smoke with throwaway project**
 
-Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose copy under `/tmp` with Caddy remapped to `127.0.0.1:8080:80`, temp env file with `DOMAIN=:80`, project name `sh-smoke`, `up -d --build`). Then verify:
+Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose copy under `/tmp` with Caddy remapped to `127.0.0.1:8080:80`, temp env file with `DOMAIN=:80`, project name `sh-smoke`, `up -d --build`, `--project-directory` pointing at the real project dir). Then verify:
 
 ```bash
-curl -fsS http://127.0.0.1:8080/ -o /dev/null && echo "homepage via caddy OK"
+PD=/ABSOLUTE/PATH/TO/small-house-commerce
+# Seed the category tree so real SSR content proves the runtime API_TARGET
+# path works — empty pages served from build-time fallback would mask a
+# silently-wrong fetch target (Task 3 re-review INFO).
+docker compose -p sh-smoke --project-directory "$PD" -f /tmp/sh-smoke.compose.yml \
+  exec -T backend pnpm exec tsx prisma/seed-categories.ts
+curl -fsS http://127.0.0.1:8080/ -o /dev/null   # warm: triggers background ISR regeneration
+sleep 6
+curl -fsS http://127.0.0.1:8080/ | grep -q "Bedroom Essentials" && echo "SSR shows seeded category OK"
 curl -fsS http://127.0.0.1:8080/api/v1 && echo "API health via caddy OK"
 curl -fsS "http://127.0.0.1:8080/api/v1/storefront/categories" -o /dev/null && echo "API wildcard route via caddy OK"
-# Pages exercise Server Component fetches via the runtime API_TARGET.
-for p in / /collections /search; do curl -fsS "http://127.0.0.1:8080$p" -o /dev/null; done
+# More pages exercising Server Component fetches via the runtime API_TARGET.
+for p in /collections /search; do curl -fsS "http://127.0.0.1:8080$p" -o /dev/null; done
 sleep 5
 # Must be 0: no failed SSR/ISR backend fetches (runtime API_TARGET works),
 # no EACCES prerender-cache errors either.
@@ -652,7 +674,7 @@ docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
-Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** (`/api/v1/*` wildcard matcher; an empty list is correct — the smoke DB is migrated but unseeded); the frontend-log error grep prints **0**; teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
+Expected: `SSR shows seeded category OK` (revalidated homepage HTML contains the seeded root-category name rendered by `MainNav`); homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** with the seeded tree (`/api/v1/*` wildcard matcher); the frontend-log error grep prints **0**; teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
 
 - [ ] **Step 7: Commit**
 
