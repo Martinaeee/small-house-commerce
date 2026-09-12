@@ -18,15 +18,19 @@ COPY . .
 RUN pnpm run build
 
 # ---- runner: only the standalone trace ------------------------------------
+# NOTE: no API_TARGET ENV here. Next 16 bakes rewrites() destinations into
+# routes-manifest.json at build time; a runtime ENV cannot change them. In
+# production Caddy routes /api/v1/* directly to the backend (see Task 4),
+# so the baked dev rewrite is never exercised.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-# Default for the compose network; compose overrides/keeps this explicitly.
-ENV API_TARGET=http://backend:3000
-COPY --from=build /app/public ./public
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
+# --chown so the node user can update the prerender cache at runtime
+# (root-owned artifacts make every cold route log EACCES).
+COPY --chown=node:node --from=build /app/public ./public
+COPY --chown=node:node --from=build /app/.next/standalone ./
+COPY --chown=node:node --from=build /app/.next/static ./.next/static
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
