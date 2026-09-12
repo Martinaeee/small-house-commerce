@@ -628,12 +628,12 @@ Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose
 ```bash
 curl -fsS http://127.0.0.1:8080/ -o /dev/null && echo "homepage via caddy OK"
 curl -fsS http://127.0.0.1:8080/api/v1 && echo "API health via caddy OK"
-curl -fsS http://127.0.0.1:8080/api/v1/products -o /dev/null && echo "API wildcard route via caddy OK"
+curl -fsS "http://127.0.0.1:8080/api/v1/storefront/categories" -o /dev/null && echo "API wildcard route via caddy OK"
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
-Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/products` returns the catalog JSON (`/api/v1/*` wildcard matcher; Caddy → backend → migrated DB); teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
+Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** (`/api/v1/*` wildcard matcher; an empty list is correct — the smoke DB is migrated but unseeded); teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
 
 - [ ] **Step 7: Commit**
 
