@@ -1,0 +1,655 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { Badge } from "@/components/admin/Badge";
+import { Dialog } from "@/components/admin/Dialog";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { Field, Select, TextInput } from "@/components/admin/Field";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { TableSkeleton } from "@/components/admin/Skeleton";
+import { Button } from "@/components/ui/Button";
+import {
+  adminApi,
+  type AdminCategoryNode,
+  type CreateCategoryInput,
+} from "@/lib/admin-api";
+
+// --- constants mirroring backend category.dto.ts ----------------------------
+// name: z.string().min(1).max(120); slug: min(1).max(120) kebab-case;
+// imageUrl: z.string().url().max(2048).nullable(); sortOrder: z.number().int().
+const NAME_MAX = 120;
+const SLUG_MAX = 120;
+const IMAGE_URL_MAX = 2048;
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SLUG_HINT =
+  "slug must be lowercase kebab-case (e.g. folding-chair)";
+// Backend 409 body (Prisma P2002); rendered with a trailing period.
+const SLUG_CONFLICT = "A category with this slug already exists.";
+// Required nonnegative whole number (client posture mirrors ProductForm).
+const SORT_RE = /^\d+$/;
+
+type CategoryStatus = "ACTIVE" | "DISABLED";
+type FlatRow = { node: AdminCategoryNode; depth: number };
+type FieldErrors = Record<string, string>;
+
+// Stable display order: sortOrder asc, then name asc (the API already orders
+// this way; this only guarantees the requirement).
+function sortTree(nodes: AdminCategoryNode[]): AdminCategoryNode[] {
+  return [...nodes]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map((node) =>
+      node.children.length > 0
+        ? { ...node, children: sortTree(node.children) }
+        : node,
+    );
+}
+
+// Depth-first flatten for the table rows and the parent <select> options.
+function flattenTree(
+  nodes: AdminCategoryNode[],
+  depth = 0,
+  acc: FlatRow[] = [],
+): FlatRow[] {
+  for (const node of nodes) {
+    acc.push({ node, depth });
+    if (node.children.length > 0) flattenTree(node.children, depth + 1, acc);
+  }
+  return acc;
+}
+
+// New forest with one node (and its subtree) removed — optimistic delete.
+function removeNode(
+  nodes: AdminCategoryNode[],
+  id: string,
+): AdminCategoryNode[] {
+  return nodes
+    .filter((node) => node.id !== id)
+    .map((node) =>
+      node.children.length > 0
+        ? { ...node, children: removeNode(node.children, id) }
+        : node,
+    );
+}
+
+function emptyForm(
+  mode: "create" | "edit",
+  presetParentId = "",
+): CategoryForm {
+  return {
+    mode,
+    id: null,
+    name: "",
+    slug: "",
+    parentId: presetParentId,
+    sortOrder: "0",
+    imageUrl: "",
+    status: "ACTIVE",
+  };
+}
+
+type CategoryForm = {
+  mode: "create" | "edit";
+  id: string | null;
+  name: string;
+  slug: string;
+  parentId: string;
+  sortOrder: string;
+  imageUrl: string;
+  status: CategoryStatus;
+};
+
+export default function AdminCategoriesPage() {
+  const { hasPermission } = useAdminAuth();
+  const canManage = hasPermission("PRODUCT_MANAGE");
+
+  // --- tree data ------------------------------------------------------------
+
+  const [tree, setTree] = useState<AdminCategoryNode[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .listCategories()
+      .then((res) => {
+        if (active) {
+          setLoadError(null);
+          setTree(sortTree(res));
+        }
+      })
+      .catch((err: unknown) => {
+        // 403 for roles without PRODUCT_MANAGE lands here verbatim
+        // ("Missing required permission") — surface as the page error.
+        if (active) {
+          setTree(null);
+          setLoadError(
+            err instanceof Error ? err.message : "Failed to load categories.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [nonce]);
+
+  const sortedTree = useMemo(() => tree ?? [], [tree]);
+  const rows = useMemo(() => flattenTree(sortedTree), [sortedTree]);
+
+  // --- create / edit dialog --------------------------------------------------
+
+  const [form, setForm] = useState<CategoryForm>(emptyForm("create"));
+  const [formOpen, setFormOpen] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formPending, setFormPending] = useState(false);
+
+  // Parent options: every category, depth indented. The edited category's own
+  // id is excluded (client mirror of "cannot be its own parent"); descendant
+  // exclusion is intentionally not implemented per task ruling.
+  const parentOptions = useMemo(
+    () => rows.filter((row) => row.node.id !== form.id),
+    [rows, form.id],
+  );
+
+  const openCreate = useCallback((presetParentId = "") => {
+    setErrors({});
+    setFormError(null);
+    setForm(emptyForm("create", presetParentId));
+    setFormOpen(true);
+  }, []);
+
+  const openEdit = useCallback((node: AdminCategoryNode) => {
+    setErrors({});
+    setFormError(null);
+    setForm({
+      mode: "edit",
+      id: node.id,
+      name: node.name,
+      slug: node.slug,
+      parentId: node.parentId ?? "",
+      sortOrder: String(node.sortOrder),
+      imageUrl: node.imageUrl ?? "",
+      status: node.status,
+    });
+    setFormOpen(true);
+  }, []);
+
+  const closeForm = useCallback(() => {
+    if (formPending) return;
+    setFormOpen(false);
+    setErrors({});
+    setFormError(null);
+  }, [formPending]);
+
+  const patchForm = useCallback(
+    (patch: Partial<CategoryForm>) => {
+      setForm((prev) => ({ ...prev, ...patch }));
+    },
+    [],
+  );
+
+  const validate = useCallback(
+    (value: CategoryForm): CreateCategoryInput | null => {
+      const next: FieldErrors = {};
+
+      const name = value.name.trim();
+      if (!name) next.name = "Name is required.";
+      else if (name.length > NAME_MAX)
+        next.name = `Name must be ${NAME_MAX} characters or fewer.`;
+
+      const slug = value.slug.trim();
+      if (!slug) next.slug = "Slug is required.";
+      else if (slug.length > SLUG_MAX || !SLUG_RE.test(slug))
+        next.slug = SLUG_HINT;
+
+      const sortRaw = value.sortOrder.trim();
+      let sortOrder = 0;
+      if (!sortRaw) next.sortOrder = "Sort order is required.";
+      else if (!SORT_RE.test(sortRaw))
+        next.sortOrder = "Sort order must be a whole number of 0 or greater.";
+      else sortOrder = Number(sortRaw);
+
+      const imageUrl = value.imageUrl.trim();
+      if (imageUrl) {
+        if (imageUrl.length > IMAGE_URL_MAX)
+          next.imageUrl = `Image URL must be ${IMAGE_URL_MAX} characters or fewer.`;
+        else {
+          try {
+            // Mirror z.string().url() (WHATWG URL parse).
+            new URL(imageUrl);
+          } catch {
+            next.imageUrl = "Image URL must be a valid URL.";
+          }
+        }
+      }
+
+      setErrors(next);
+      if (Object.keys(next).length > 0) return null;
+
+      return {
+        name,
+        slug,
+        parentId: value.parentId || null,
+        sortOrder,
+        imageUrl: imageUrl || null,
+        status: value.status,
+      };
+    },
+    [],
+  );
+
+  const submitForm = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const payload = validate(form);
+      if (!payload) return;
+      setFormPending(true);
+      setFormError(null);
+      try {
+        if (form.mode === "edit" && form.id) {
+          await adminApi.updateCategory(form.id, payload);
+        } else {
+          await adminApi.createCategory(payload);
+        }
+        setFormOpen(false);
+        setErrors({});
+        setFormError(null);
+        setNonce((n) => n + 1);
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Save failed.";
+        // 409 duplicate slug — attach to the slug field with the exact copy.
+        if (message === "A category with this slug already exists") {
+          setErrors((prev) => ({ ...prev, slug: SLUG_CONFLICT }));
+        } else {
+          // 400 self-parent / bad parent and anything else: verbatim inline.
+          setFormError(message);
+        }
+      } finally {
+        setFormPending(false);
+      }
+    },
+    [form, validate],
+  );
+
+  // --- delete dialog ---------------------------------------------------------
+
+  const [deleteTarget, setDeleteTarget] = useState<AdminCategoryNode | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+
+  const openDelete = useCallback((node: AdminCategoryNode) => {
+    setDeleteError(null);
+    setDeleteTarget(node);
+  }, []);
+
+  const closeDelete = useCallback(() => {
+    if (deletePending) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }, [deletePending]);
+
+  const submitDelete = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const target = deleteTarget;
+      if (!target) return;
+      setDeletePending(true);
+      setDeleteError(null);
+      // Optimistic: drop the subtree immediately; a blocked delete refetches
+      // server truth and restores it.
+      setTree((prev) => (prev ? removeNode(prev, target.id) : prev));
+      try {
+        await adminApi.deleteCategory(target.id);
+        setDeleteTarget(null);
+        setDeleteError(null);
+        setNonce((n) => n + 1);
+      } catch (err: unknown) {
+        setDeleteError(
+          err instanceof Error ? err.message : "Delete failed.",
+        );
+        // Refetch restores the row (and the 400 "Category still has products"
+        // alert stays visible inside the dialog).
+        setNonce((n) => n + 1);
+      } finally {
+        setDeletePending(false);
+      }
+    },
+    [deleteTarget],
+  );
+
+  // --- render ----------------------------------------------------------------
+
+  const loading = tree === null && !loadError;
+
+  return (
+    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <PageHeader
+        title="Categories"
+        count={tree ? rows.length : undefined}
+        actions={
+          canManage ? (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => openCreate("")}
+            >
+              New root category
+            </Button>
+          ) : null
+        }
+      />
+
+      <div className="mt-4">
+        {loading ? (
+          <TableSkeleton rows={6} cols={5} />
+        ) : loadError ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-border bg-card p-6"
+          >
+            <p className="text-sm font-semibold text-ink">
+              Couldn&apos;t load categories.
+            </p>
+            <p className="mt-1 text-sm text-ink-muted">{loadError}</p>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={reload}
+              className="mt-4"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No categories yet — create your first category."
+            action={
+              canManage ? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => openCreate("")}
+                >
+                  New root category
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+            <table className="w-full min-w-[760px] text-sm">
+              <caption className="sr-only">Categories</caption>
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <th scope="col" className="px-4 py-3">Name</th>
+                  <th scope="col" className="px-4 py-3">Slug</th>
+                  <th scope="col" className="px-4 py-3">Sort</th>
+                  <th scope="col" className="px-4 py-3">Status</th>
+                  <th scope="col" className="px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ node, depth }) => {
+                  const rowBusy =
+                    deletePending && deleteTarget?.id === node.id;
+                  return (
+                    <tr
+                      key={node.id}
+                      className="border-b border-border last:border-0"
+                    >
+                      <td
+                        className="px-4 py-3 font-medium text-ink"
+                        style={{ paddingLeft: `${1 + depth * 2}rem` }}
+                      >
+                        {node.name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="block max-w-[220px] truncate text-ink-secondary"
+                          title={node.slug}
+                        >
+                          {node.slug}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-ink-secondary">
+                        {node.sortOrder}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          value={node.status}
+                          tone={node.status === "ACTIVE" ? "green" : "red"}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        {canManage ? (
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(node)}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openCreate(node.id)}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              <span aria-hidden="true">Add child</span>
+                              <span className="sr-only">
+                                {`Add child category under ${node.name}`}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDelete(node)}
+                              disabled={rowBusy}
+                              className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Create / edit dialog */}
+      <Dialog
+        open={formOpen}
+        onClose={closeForm}
+        title={form.mode === "edit" ? "Edit category" : "Add category"}
+        width="md"
+      >
+        <form onSubmit={submitForm} noValidate>
+          {formError ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-lg border border-sale/40 bg-sale/5 p-3 text-sm text-red-700"
+            >
+              {formError}
+            </p>
+          ) : null}
+          <div className="flex flex-col gap-4">
+            <Field label="Name" htmlFor="cat-name" error={errors.name}>
+              <TextInput
+                id="cat-name"
+                value={form.name}
+                maxLength={NAME_MAX}
+                autoComplete="off"
+                onChange={(e) => patchForm({ name: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Slug" htmlFor="cat-slug" error={errors.slug}>
+              <TextInput
+                id="cat-slug"
+                value={form.slug}
+                maxLength={SLUG_MAX}
+                placeholder="folding-chair"
+                autoComplete="off"
+                onChange={(e) => patchForm({ slug: e.target.value })}
+              />
+              {!errors.slug ? (
+                <p className="mt-1 text-xs text-ink-muted">{SLUG_HINT}</p>
+              ) : null}
+            </Field>
+
+            <Field label="Parent" htmlFor="cat-parent">
+              <Select
+                id="cat-parent"
+                value={form.parentId}
+                onChange={(e) => patchForm({ parentId: e.target.value })}
+              >
+                <option value="">None (root)</option>
+                {parentOptions.map(({ node, depth }) => (
+                  <option key={node.id} value={node.id}>
+                    {"  ".repeat(depth)}
+                    {depth > 0 ? "– " : ""}
+                    {node.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label="Sort order"
+                htmlFor="cat-sort"
+                error={errors.sortOrder}
+              >
+                <TextInput
+                  id="cat-sort"
+                  inputMode="numeric"
+                  value={form.sortOrder}
+                  autoComplete="off"
+                  onChange={(e) => patchForm({ sortOrder: e.target.value })}
+                />
+              </Field>
+
+              <Field label="Status" htmlFor="cat-status">
+                <Select
+                  id="cat-status"
+                  value={form.status}
+                  onChange={(e) =>
+                    patchForm({ status: e.target.value as CategoryStatus })
+                  }
+                >
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="DISABLED">DISABLED</option>
+                </Select>
+              </Field>
+            </div>
+
+            <Field
+              label="Image URL (optional)"
+              htmlFor="cat-image"
+              error={errors.imageUrl}
+            >
+              <TextInput
+                id="cat-image"
+                type="url"
+                value={form.imageUrl}
+                maxLength={IMAGE_URL_MAX}
+                placeholder="https://"
+                autoComplete="off"
+                onChange={(e) => patchForm({ imageUrl: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={closeForm}
+              disabled={formPending}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={formPending}
+              aria-busy={formPending}
+            >
+              {formPending
+                ? "Working…"
+                : form.mode === "edit"
+                  ? "Save"
+                  : "Create"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Delete dialog */}
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={closeDelete}
+        title="Delete category"
+        width="sm"
+      >
+        {deleteTarget ? (
+          <form onSubmit={submitDelete}>
+            <p className="text-sm text-ink-secondary">
+              {`Delete ${deleteTarget.name}? Child categories move to the root; this fails if any products use it.`}
+            </p>
+            {deleteError ? (
+              <p
+                role="alert"
+                className="mt-4 rounded-lg border border-sale/40 bg-sale/5 p-3 text-sm text-red-700"
+              >
+                {deleteError}
+              </p>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={closeDelete}
+                disabled={deletePending}
+              >
+                Back
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={deletePending}
+                aria-busy={deletePending}
+                className="bg-red-600 hover:bg-red-700 active:bg-red-700"
+              >
+                {deletePending ? "Working…" : "Delete"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </Dialog>
+    </div>
+  );
+}
