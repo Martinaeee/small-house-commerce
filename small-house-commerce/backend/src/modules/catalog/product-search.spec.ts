@@ -68,3 +68,42 @@ describe('buildTrgmSearch', () => {
     expect(commas.length).toBeGreaterThan(0);
   });
 });
+
+describe('buildTrgmSearch — LIKE wildcard escaping (M5)', () => {
+  it('sets ESCAPE \'\\\' on every ILIKE and never binds a bare %% pattern', () => {
+    const result = buildTrgmSearch(['%']);
+    expect(result.match.sql).toContain("ESCAPE '\\'");
+    expect(result.rank.sql).toContain("ESCAPE '\\'");
+
+    // Bound LIKE patterns start and end with %; a '%'-only token must become
+    // '%\%%' (escaped wildcard), never the match-all '%%'.
+    const likePatterns = flatValues(result.match).filter(
+      (value): value is string =>
+        typeof value === 'string' && value.length > 1 && value.startsWith('%') && value.endsWith('%'),
+    );
+    expect(likePatterns).not.toContain('%%');
+    expect(likePatterns).toContain('%\\%%');
+    // A 1-char token takes the ILIKE-only branch (<3 chars, no trgm binds):
+    // the raw token is never passed to word_similarity, so both bound LIKE
+    // values (name + slug) are the escaped pattern — observed ['%\\%%','%\\%%'].
+    expect(likePatterns.length).toBe(2);
+    expect(likePatterns.every((value) => value === '%\\%%')).toBe(true);
+  });
+
+  it('escapes underscore and backslash tokens', () => {
+    const underscore = buildTrgmSearch(['a_b']);
+    expect(underscore.match.sql).toContain("ESCAPE '\\'");
+    expect(flatValues(underscore.match)).toContain('%a\\_b%');
+
+    const backslash = buildTrgmSearch(['a\\b']);
+    expect(flatValues(backslash.match)).toContain('%a\\\\b%');
+  });
+
+  it('keeps ordinary token patterns unchanged', () => {
+    const result = buildTrgmSearch(['chair']);
+    expect(flatValues(result.match)).toContain('%chair%');
+    // Tokens >= 3 chars also bind the raw token for word_similarity (short
+    // tokens never reach the trgm branch — see the first test above).
+    expect(flatValues(result.match)).toContain('chair');
+  });
+});

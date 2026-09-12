@@ -20,28 +20,38 @@ export function tokenizeSearch(raw: string): string[] {
     .slice(0, MAX_SEARCH_TOKENS);
 }
 
+/** Escapes LIKE meta-characters; callers append `ESCAPE '\'` to the predicate. */
+function escapeLike(token: string): string {
+  return token.replace(/[\\%_]/g, '\\$&');
+}
+
+function likePattern(token: string): string {
+  return `%${escapeLike(token)}%`;
+}
+
 /** Boolean group: this single token matches via trgm OR substring. */
 function tokenCondition(token: string): Prisma.Sql {
-  const pattern = `%${token}%`;
+  const pattern = likePattern(token);
   if (token.length < 3) {
     return Prisma.sql`(
-      products.name ILIKE ${pattern}
-      OR products.slug ILIKE ${pattern}
+      products.name ILIKE ${pattern} ESCAPE '\\'
+      OR products.slug ILIKE ${pattern} ESCAPE '\\'
     )`;
   }
   return Prisma.sql`(
     word_similarity(${token}, products.name) >= ${TRGM_MATCH_THRESHOLD}::double precision
     OR word_similarity(${token}, products.slug) >= ${TRGM_MATCH_THRESHOLD}::double precision
-    OR products.name ILIKE ${pattern}
-    OR products.slug ILIKE ${pattern}
+    OR products.name ILIKE ${pattern} ESCAPE '\\'
+    OR products.slug ILIKE ${pattern} ESCAPE '\\'
   )`;
 }
 
 /** Per-token relevance: best name/slug similarity, with an exact-prefix boost. */
 function tokenScore(token: string): Prisma.Sql {
-  const pattern = `%${token}%`;
+  const pattern = likePattern(token);
   const exact = Prisma.sql`CASE
-      WHEN products.name ILIKE ${pattern} OR products.slug ILIKE ${pattern}
+      WHEN products.name ILIKE ${pattern} ESCAPE '\\'
+        OR products.slug ILIKE ${pattern} ESCAPE '\\'
       THEN 0.9 ELSE 0 END`;
   if (token.length < 3) {
     return exact;
