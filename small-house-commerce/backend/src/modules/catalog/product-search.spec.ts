@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Prisma } from '../../generated/prisma/client.js';
 import {
   TRGM_MATCH_THRESHOLD,
@@ -105,5 +106,30 @@ describe('buildTrgmSearch — LIKE wildcard escaping (M5)', () => {
     // Tokens >= 3 chars also bind the raw token for word_similarity (short
     // tokens never reach the trgm branch — see the first test above).
     expect(flatValues(result.match)).toContain('chair');
+  });
+});
+
+describe('storefront product SQL hygiene', () => {
+  const productsServiceSource = readFileSync(
+    new URL('./products.service.ts', import.meta.url),
+    'utf8',
+  );
+
+  it('fuzzy search ORDER BY ends with the deterministic products.id DESC tiebreak (M4)', () => {
+    expect(productsServiceSource).toMatch(
+      /ORDER BY rank DESC, products\.created_at DESC, products\.id DESC\s*LIMIT/,
+    );
+  });
+
+  it('STOREFRONT_SELECT whitelists no supplier/cost columns on skus', () => {
+    const start = productsServiceSource.indexOf('const STOREFRONT_SELECT');
+    const end = productsServiceSource.indexOf('} satisfies Prisma.ProductSelect');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const block = productsServiceSource.slice(start, end);
+    for (const forbidden of ['supplierSku', 'supplierCost', 'costCurrency', 'landedCost']) {
+      expect(block).not.toContain(forbidden);
+    }
+    expect(block).toContain('skuCode');
   });
 });

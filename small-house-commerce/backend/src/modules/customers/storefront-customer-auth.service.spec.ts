@@ -14,6 +14,29 @@ function p2002(target: string) {
   );
 }
 
+/** Collects every object key at every depth, including inside arrays. */
+function collectKeys(value: unknown, keys: Set<string> = new Set()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const item of value) collectKeys(item, keys);
+  } else if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      keys.add(key);
+      collectKeys(child, keys);
+    }
+  }
+  return keys;
+}
+
+const FORBIDDEN_STOREFRONT_KEYS = [
+  'supplierSku',
+  'supplierCost',
+  'costCurrency',
+  'landedCost',
+  'isVisible',
+  'source',
+  'verifiedOrderItemId',
+];
+
 const SECRET = 'test-secret-test-secret-test-secret-0123456789';
 const config = {
   getOrThrow: (key: string) => (key === 'jwt.accessTtl' ? '1h' : '7d'),
@@ -448,12 +471,21 @@ describe('StorefrontCustomerAuthService', () => {
             currency: 'PHP',
             grandTotal: { toString: () => '1999.00' },
             createdAt: new Date('2026-09-01T00:00:00.000Z'),
+            // Decoy columns that must never survive serialization.
+            supplierSku: 'SKU-SUPPLIER',
+            supplierCost: 5,
+            costCurrency: 'CNY',
+            landedCost: 7,
             items: [
               {
                 productNameSnapshot: 'Stock Chair',
                 variantSnapshot: 'Default',
                 quantity: 2,
                 lineTotal: { toString: () => '3998.00' },
+                source: 'ADMIN',
+                isVisible: false,
+                verifiedOrderItemId: 'oi-1',
+                landedCost: 9,
               },
             ],
           },
@@ -461,11 +493,15 @@ describe('StorefrontCustomerAuthService', () => {
         count: vi.fn().mockResolvedValue(1),
       },
     });
+
     const page = await service.listOrders('acct-1', { page: 1, pageSize: 10 });
-    expect(page.items[0].grandTotal).toBe(1999);
-    expect(page.items[0].items[0].lineTotal).toBe(3998);
-    expect(JSON.stringify(page.items)).not.toContain('optimizer');
-    expect(JSON.stringify(page.items)).not.toContain('landedCost');
+    expect(page.items[0]!.grandTotal).toBe(1999);
+    expect(page.items[0]!.items[0]!.lineTotal).toBe(3998);
+
+    const serializedKeys = collectKeys(page.items);
+    for (const forbidden of FORBIDDEN_STOREFRONT_KEYS) {
+      expect(serializedKeys.has(forbidden)).toBe(false);
+    }
   });
 
   it('returns an empty order page when no phone is linked yet', async () => {
@@ -706,5 +742,76 @@ describe('StorefrontCustomerAuthService', () => {
       where: { id: 'rt-1', revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+  });
+
+  it('login (happy path) returns tokens and profile for a valid password', async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({
+      customerAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          ...accountRow,
+          passwordHash: await argon2.hash('longpassword'),
+          customer: null,
+        }),
+      },
+      customerRefreshToken: { create },
+    });
+
+    const result = await service.login({ email: 'juan@example.com', password: 'longpassword' });
+
+    expect(result.account.email).toBe('juan@example.com');
+    expect(result.accessToken).toBeTruthy();
+    expect(result.refreshToken).toBeTruthy();
+    expect(create.mock.calls[0]![0].data.familyId).toEqual(expect.any(String));
+  });
+
+  it('logout invalidates the presented refresh token idempotently', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const service = makeService({ customerRefreshToken: { updateMany } });
+
+    await expect(service.logout('some-refresh-token')).resolves.toEqual({ ok: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { tokenHash: hashToken('some-refresh-token'), revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('updateMe with only a name updates the account without touching the phone-keyed Customer', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const upsert = vi.fn();
+    const service = makeService({
+      customer: { upsert },
+      customerAccount: {
+        // Call 1: requireAccount at entry. Call 2: requireAccount inside me().
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce({ ...accountRow })
+          .mockResolvedValueOnce({ ...accountRow, name: 'Juanita', customer: null }),
+        update,
+      },
+    });
+
+    const profile = await service.updateMe('acct-1', { name: 'Juanita' });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'acct-1' },
+      data: { name: 'Juanita' },
+    });
+    expect(upsert).not.toHaveBeenCalled();
+    expect(profile.name).toBe('Juanita');
+  });
+
+  it('register rethrows non-P2002 database errors unchanged', async () => {
+    const boom = new Error('database down');
+    const service = makeService({
+      customerAccount: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue(boom),
+      },
+    });
+
+    await expect(
+      service.register({ name: 'Juan', email: 'juan@example.com', password: 'longpassword' }),
+    ).rejects.toBe(boom);
   });
 });
