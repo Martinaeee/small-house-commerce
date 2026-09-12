@@ -180,14 +180,17 @@ RUN pnpm run build
 # ---- runner: full node_modules kept (CLI needed for migrate + tsx seed) --
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=build /app/prisma7.config.ts ./
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/generated ./src/generated
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
+# --chown on every COPY sets ownership as the files land; a trailing
+# `RUN chown -R node:node /app` would copy-up the whole tree (~547 MB layer:
+# node_modules + dist + generated). --chmod needs BuildKit (enabled by the
+# `# syntax=docker/dockerfile:1` directive at the top of this file).
+COPY --chown=node:node --from=build /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --chown=node:node --from=build /app/prisma7.config.ts ./
+COPY --chown=node:node --from=build /app/prisma ./prisma
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/src/generated ./src/generated
+COPY --chown=node:node --chmod=755 docker-entrypoint.sh ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=6 \
@@ -489,6 +492,7 @@ Single-VPS deployment for the Small House stack: Caddy 2 (TLS) routes pages to t
 - A domain name with an **A record** pointing to the server's public IP (e.g. `shop.example.com → 203.0.113.10`).
 - DNS fully propagated before first boot, so Caddy can issue the Let's Encrypt certificate.
 - Firewall: open **22, 80, 443 only**. PostgreSQL and the app ports are never published to the host.
+- Host `zstd` CLI for the §7 backup/restore pipes (not present on a minimal Ubuntu 24.04): `sudo apt-get update && sudo apt-get install -y zstd`
 
 ## 2. Configure
 
@@ -556,7 +560,11 @@ docker compose -f docker-compose.prod.yml restart backend
 
 ## 7. Backups
 
-Logical backup (cron recommended, e.g. nightly 03:17):
+Logical backup (cron recommended, e.g. nightly 03:17). First create the destination directory once (the redirect fails with no such directory on a fresh VPS):
+
+```bash
+sudo install -d -o root -g root -m 0750 /srv/backups
+```
 
 ```bash
 17 3 * * * cd /path/to/small-house-commerce && docker compose -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | zstd > /srv/backups/small-house-$(date +\%F).sql.zst
@@ -564,10 +572,13 @@ Logical backup (cron recommended, e.g. nightly 03:17):
 
 The `sh -c '...'` single quotes are essential: `$POSTGRES_USER`/`$POSTGRES_DB` must expand **inside** the db container, where compose sets them. Cron's host shell has neither variable, so an unquoted/outer expansion runs `pg_dump -U "" ""` and silently writes a 0-byte archive.
 
-Restore into a fresh database:
+Restore into a CLEAN database — a plain `pg_dump` archive restored over existing objects errors on every duplicate. Stop the backend, drop and recreate the target database (the postgres maintenance db survives this), restore, then start the backend again:
 
 ```bash
+docker compose -f docker-compose.prod.yml stop backend
+docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\" WITH (FORCE);" -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";"'
 zstd -d -c backup.sql.zst | docker compose -f docker-compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose -f docker-compose.prod.yml up -d backend
 ```
 
 Keep at least 14 daily files; verify a restore monthly.
@@ -584,7 +595,7 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d
 
 ## 9. Rollback
 
-Migrations in this project are forward-only and non-destructive. Code rollback is `git checkout <prev> && build && up -d`, but a revision whose schema changed requires restoring the database backup taken before the upgrade — take a backup immediately before every production upgrade. The `postgres:18-alpine` data directory lives at `/var/lib/postgresql/18/docker` inside the `prod_pgdata` volume (image-major versioned): upgrading the db image to a new major version (e.g. 18 → 19) does not upgrade data in place — plan a dump/restore or `pg_upgrade`.
+Migrations in this project are forward-only and non-destructive. Code rollback is `git checkout <prev> && build && up -d`, but a revision whose schema changed requires restoring the database backup taken before the upgrade — take a backup immediately before every production upgrade, and restore with the §7 clean-database procedure (stop backend → DROP/CREATE → restore → start backend); restoring the dump over the existing database fails on duplicate objects. The `postgres:18-alpine` data directory lives at `/var/lib/postgresql/18/docker` inside the `prod_pgdata` volume (image-major versioned): upgrading the db image to a new major version (e.g. 18 → 19) does not upgrade data in place — plan a dump/restore or `pg_upgrade`.
 
 ## 10. Local smoke (no domain, no TLS)
 
@@ -613,13 +624,18 @@ EOF
 PD=/ABSOLUTE/PATH/TO/small-house-commerce
 docker compose -p sh-smoke --project-directory "$PD" \
   -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build db backend
-# Wait for the API (the entrypoint applies migrations before serving):
+# Wait for the API (the entrypoint applies migrations before serving).
+# Fail loudly instead of silently continuing if it never comes up:
+API_READY=""
 for i in $(seq 1 60); do
-  docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml exec -T backend \
-    node -e "fetch('http://localhost:3000/api/v1').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-    && break
+  if docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml exec -T backend \
+      node -e "fetch('http://localhost:3000/api/v1').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+    API_READY=1
+    break
+  fi
   sleep 2
 done
+[ -n "$API_READY" ] || { echo "backend API never became ready (check: docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs backend)" >&2; exit 1; }
 ```
 
 (Run from anywhere; substitute the absolute path to the `small-house-commerce` directory.)
@@ -632,11 +648,12 @@ docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml \
 docker compose -p sh-smoke --project-directory "$PD" \
   -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build frontend caddy
 curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials -o /dev/null   # warm
+SSR_OK=""
 for i in $(seq 1 60); do
-  curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials" && break
+  curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials" && { SSR_OK=1; break; }
   sleep 5
 done
-curl -fsS http://127.0.0.1:8080/categories/bedroom-essentials | grep -q "Bedroom Essentials"   # SSR shows seeded data
+[ "$SSR_OK" = 1 ] && echo "SSR shows seeded category OK" || { echo "SSR content never updated" >&2; exit 1; }
 curl -fsS http://127.0.0.1:8080/api/v1                              # Hello World!
 curl -fsS http://127.0.0.1:8080/api/v1/storefront/categories -o /dev/null
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
