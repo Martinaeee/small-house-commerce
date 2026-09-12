@@ -766,14 +766,28 @@ describe('StorefrontCustomerAuthService', () => {
   });
 
   it('logout invalidates the presented refresh token idempotently', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
     const service = makeService({ customerRefreshToken: { updateMany } });
+    const tokenHash = hashToken('some-refresh-token');
 
     await expect(service.logout('some-refresh-token')).resolves.toEqual({ ok: true });
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { tokenHash: hashToken('some-refresh-token'), revokedAt: null },
+    await expect(service.logout('some-refresh-token')).resolves.toEqual({ ok: true });
+
+    // The revokedAt: null filter makes the second call a no-op write, but the
+    // service still reports ok; both writes carry the identical where clause.
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    const expectedCall = {
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: expect.any(Date) },
-    });
+    };
+    expect(updateMany).toHaveBeenNthCalledWith(1, expectedCall);
+    expect(updateMany).toHaveBeenNthCalledWith(2, expectedCall);
+    expect(updateMany.mock.calls[0]![0].where).toEqual(
+      updateMany.mock.calls[1]![0].where,
+    );
   });
 
   it('updateMe with only a name updates the account without touching the phone-keyed Customer', async () => {

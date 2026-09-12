@@ -44,6 +44,9 @@ export class StorefrontCustomersController {
   @UseGuards(ThrottleGuard)
   @Throttle(
     { key: 'customer-login:ip', bucket: 'ip', limit: 10, windowMs: 10 * 60_000 },
+    // Per-email bucket is a deliberate brute-force guard (5 / 10 min).
+    // Trade-off: anyone can deliberately lock a victim's email out for the
+    // window; captcha or an email+IP compound key is future work.
     { key: 'customer-login:email', bucket: 'email', limit: 5, windowMs: 10 * 60_000 },
   )
   @HttpCode(HttpStatus.OK)
