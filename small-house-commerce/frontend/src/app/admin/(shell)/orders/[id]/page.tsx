@@ -121,6 +121,9 @@ function OrderDetailPage(): ReactNode {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [nonce, setNonce] = useState(0);
+  // Last route id the rendered state belongs to; see the render-phase reset
+  // below (after all useState declarations).
+  const [observedId, setObservedId] = useState(id);
   const queryKey = `${id}|${nonce}`;
   // Loading is DERIVED (same pattern as the orders list): true until this
   // exact key settles — no synchronous setState in the fetch effect body.
@@ -172,6 +175,26 @@ function OrderDetailPage(): ReactNode {
   const [dialog, setDialog] = useState<"confirm" | "cancel" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
+
+  // Client-side navigation between order ids does not remount this page.
+  // Reset every order-derived state DURING RENDER when the id changes — React's
+  // sanctioned "store information from previous renders" pattern (also used by
+  // the orders list URL sync) — so the new fetch shows the skeleton instead of
+  // the previous order, whose action buttons would be bound to the OLD id, or
+  // a lingering "Order not found." state. On initial mount observedId === id,
+  // so nothing resets and there is no flash beyond the intended skeleton. The
+  // post-action refetch bumps `nonce` only (same id), skips this reset, and
+  // keeps the rendered order on screen.
+  if (id !== observedId) {
+    setObservedId(id);
+    setOrder(null);
+    setLoadError(null);
+    setNotFound(false);
+    setSettledKey(null);
+    setDialog(null);
+    setActionError(null);
+    setActionPending(false);
+  }
 
   const openDialog = useCallback((kind: "confirm" | "cancel") => {
     setActionError(null);
