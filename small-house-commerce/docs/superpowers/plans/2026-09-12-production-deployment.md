@@ -4,7 +4,7 @@
 
 **Goal:** Ship everything needed to run the Small House stack on a single VPS behind automatic HTTPS — production Docker images for backend and frontend, a compose stack with PostgreSQL + Caddy, and a deployment runbook — without touching any external account.
 
-**Architecture:** Multi-stage Docker builds on `node:22-bookworm-slim` with frozen pnpm 12.3.4 installs. Backend image runs `prisma migrate deploy` on boot then `node dist/main`; frontend image runs the Next.js 16 standalone server. Caddy 2 terminates TLS (Let's Encrypt) and reverse-proxies: page/asset traffic goes to the frontend, while `/api/v1` and `/api/v1/*` are routed **directly to the backend** over the internal Docker network. The Next rewrite in `next.config.ts` is dev-only: Next 16 evaluates `rewrites()` at build time and bakes the destination into `routes-manifest.json`, so a runtime `API_TARGET` ENV is inert — production API traffic must never depend on that rewrite (Task 3 review BLOCKER-1 ruling). No port except 80/443 is published.
+**Architecture:** Multi-stage Docker builds on `node:22-bookworm-slim` with frozen pnpm 12.3.4 installs. Backend image runs `prisma migrate deploy` on boot then `node dist/main`; frontend image runs the Next.js 16 standalone server. Caddy 2 terminates TLS (Let's Encrypt) and reverse-proxies: page/asset traffic goes to the frontend, while `/api/v1` and `/api/v1/*` are routed **directly to the backend** over the internal Docker network. The Next rewrite in `next.config.ts` never carries production browser traffic: Next 16 evaluates `rewrites()` at build time and bakes the destination into `routes-manifest.json`, so its target cannot be changed at runtime (Task 3 review BLOCKER-1 ruling). A runtime `API_TARGET` ENV is still required on the frontend container — but only for Server Components, whose `serverApiUrl()` reads it at request time for SSR/ISR fetches. No port except 80/443 is published.
 
 **Tech Stack:** Docker / Docker Compose v2, Node 22, pnpm 12.3.4 (corepack), Prisma 7.10 (`prisma7.config.ts`, plain `pnpm exec prisma ...` — never `--schema`), Next 16 standalone output, Caddy 2, PostgreSQL 18.
 
@@ -248,7 +248,7 @@ git commit -m "chore(deploy): backend production image with migrate-on-boot"
 
 **Interfaces:**
 - Consumes: `.next/standalone`, `.next/static`, `public/` from Task 1's build config.
-- Produces: image `small-house-frontend` (local tag) on port 3000; `NEXT_PUBLIC_META_PIXEL_ID` is a build ARG. **There is no runtime `API_TARGET` ENV**: Next 16 bakes `rewrites()` destinations into `.next/routes-manifest.json` at build time (review BLOCKER-1), so the Next rewrite is dev-only and is never hit in production — Caddy routes `/api/v1/*` straight to the backend (Task 4). Artifacts must be owned by the runtime user (`--chown=node:node`), otherwise every prerendered route logs an `EACCES: Failed to update prerender cache` stack on first hit (review MAJOR-1).
+- Produces: image `small-house-frontend` (local tag) on port 3000; `NEXT_PUBLIC_META_PIXEL_ID` is a build ARG; runtime ENV `API_TARGET` (default `http://backend:3000`) is consumed at **request time by Server Components** via `serverApiUrl()` (`src/lib/api.ts`) for SSR/ISR data fetches. Do NOT confuse it with the `rewrites()` destination: Next 16 bakes that into `.next/routes-manifest.json` at build time (review BLOCKER-1), so the rewrite can never be retargeted at runtime — in production browser API calls bypass the image anyway because Caddy routes `/api/v1/*` straight to the backend (Task 4). Artifacts must be owned by the runtime user (`--chown=node:node`), otherwise every prerendered route logs an `EACCES: Failed to update prerender cache` stack on first hit (review MAJOR-1).
 
 - [ ] **Step 1: Create `frontend/Dockerfile`**
 
@@ -273,14 +273,16 @@ COPY . .
 RUN pnpm run build
 
 # ---- runner: only the standalone trace ------------------------------------
-# NOTE: no API_TARGET ENV here. Next 16 bakes rewrites() destinations into
-# routes-manifest.json at build time; a runtime ENV cannot change them. In
-# production Caddy routes /api/v1/* directly to the backend (see Task 4),
-# so the baked dev rewrite is never exercised.
+# API_TARGET here is read at REQUEST time by serverApiUrl() in Server
+# Components (SSR/ISR fetches). It does NOT affect rewrites(): that
+# destination is baked into routes-manifest.json at build time and stays
+# dev-only — in production Caddy routes browser /api/v1/* calls straight
+# to the backend, while server-side fetches call this URL directly.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+ENV API_TARGET=http://backend:3000
 # --chown so the node user can update the prerender cache at runtime
 # (root-owned artifacts make every cold route log EACCES).
 COPY --chown=node:node --from=build /app/public ./public
@@ -316,7 +318,7 @@ docker logs sh-smoke-frontend 2>&1 | grep -c "EACCES" || true
 docker stop sh-smoke-frontend
 ```
 
-Expected: homepage HTML returns 200; the `grep -c EACCES` line prints **0** (no `Failed to update prerender cache` stack traces); no Facebook script is present with the dummy pixel ID mismatch behavior beyond what `tracking.ts` already defines (dummy ID merely exercises the build arg path). API-path verification (`/api/v1/*`) is NOT part of this smoke — it runs through Caddy in Task 4, since production API traffic bypasses this image entirely.
+Expected: homepage HTML returns 200; the `grep -c EACCES` line prints **0** (no `Failed to update prerender cache` stack traces); no Facebook script is present with the dummy pixel ID mismatch behavior beyond what `tracking.ts` already defines (dummy ID merely exercises the build arg path). Delayed background-ISR fetch errors against `http://backend:3000` (DNS failure) are EXPECTED in this image-only smoke — no backend container is reachable — and are explicitly NOT a finding; they disappear in the Task 4 full-stack smoke, where `API_TARGET` resolves and the frontend log must contain zero fetch/proxy errors after page hits. API-path verification through Caddy is Task 4.
 
 - [ ] **Step 4: Commit**
 
@@ -387,8 +389,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-    # No API_TARGET: Next bakes rewrites at build time; Caddy routes
-    # /api/v1/* straight to the backend and never sends API traffic here.
+      # Used at request time by Server Components (serverApiUrl) for SSR/ISR
+      # data fetches. It does not steer browser traffic: Caddy routes
+      # /api/v1/* directly to the backend, and the baked Next rewrite is
+      # dev-only.
+      API_TARGET: http://backend:3000
 
   caddy:
     image: caddy:2-alpine
@@ -470,7 +475,7 @@ NEXT_PUBLIC_META_PIXEL_ID=
 ````markdown
 # Production Deployment Runbook
 
-Single-VPS deployment for the Small House stack: Caddy 2 (TLS) routes pages to the Next.js 16 standalone server and sends `/api/v1/*` directly to the NestJS API → PostgreSQL 18, all on one Docker host. Artifacts: `docker-compose.prod.yml`, `deploy/Caddyfile`, `backend/Dockerfile`, `frontend/Dockerfile`. The frontend's Next rewrite exists for local development only — rewrite destinations are baked at image build time, so production never routes API calls through it.
+Single-VPS deployment for the Small House stack: Caddy 2 (TLS) routes pages to the Next.js 16 standalone server and sends browser `/api/v1/*` calls directly to the NestJS API → PostgreSQL 18, all on one Docker host. Artifacts: `docker-compose.prod.yml`, `deploy/Caddyfile`, `backend/Dockerfile`, `frontend/Dockerfile`. Two distinct API paths exist by design: browser calls are same-origin `/api/v1/*` routed by Caddy straight to the backend (the Next rewrite target is baked at image build time and cannot carry prod traffic); Server Components fetch the backend directly at container runtime using the `API_TARGET` ENV (`http://backend:3000`).
 
 ## 1. Prerequisites
 
@@ -591,8 +596,14 @@ DOMAIN=:80
 ACME_EMAIL=ops@example.test
 NEXT_PUBLIC_META_PIXEL_ID=
 EOF
-docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build
+# --project-directory keeps the ./backend ./frontend build contexts and the
+# ./deploy/Caddyfile volume resolving against the real project dir, not /tmp.
+docker compose -p sh-smoke \
+  --project-directory /ABSOLUTE/PATH/TO/small-house-commerce \
+  -f /tmp/sh-smoke.compose.yml --env-file /tmp/sh-smoke.env up -d --build
 ```
+
+(Run from anywhere; substitute the absolute path to the `small-house-commerce` directory.)
 
 `DOMAIN=:80` makes Caddy serve plain HTTP (no ACME attempt). Verify `http://127.0.0.1:8080/` and `http://127.0.0.1:8080/api/v1`, then tear down INCLUDING the smoke volumes:
 
@@ -608,7 +619,8 @@ Only the `sh-smoke` project's volumes are removed; dev databases and any real `s
 - **Migration failure:** backend stops in the entrypoint; fix the migration forward (never reset in production); the DB is untouched up to the failed statement.
 - **Caddy stuck on TLS:** confirm DNS A record and open ports 80/443; `docker compose logs caddy`.
 - **Pixel not firing:** pixel ID is build-time; confirm the build arg via `docker compose config` and rebuild the frontend image.
-- **Storefront API calls fail with 500/ECONNRESET:** the Caddyfile must route `/api/v1 /api/v1/*` to `backend:3000` directly. The Next standalone server bakes its rewrite target at image build time and ignores `API_TARGET` at runtime, so trying to proxy API traffic through the frontend cannot work.
+- **Browser storefront API calls fail with 500/ECONNRESET:** the Caddyfile must route `/api/v1 /api/v1/*` to `backend:3000` directly. The Next standalone server bakes its rewrite target at image build time, so proxying *browser* API traffic through the frontend cannot work.
+- **Pages render but with fetch-failed/ISR errors in the frontend log (stale or empty catalog data):** that is the runtime `API_TARGET` ENV, used directly by Server Components (not the rewrite). Confirm the frontend service has `API_TARGET=http://backend:3000` and that the backend is healthy on the compose network.
 - Behind Caddy the app trusts exactly one proxy hop (`trust proxy = 1` in `main.ts`); do not add a second proxy without adjusting it.
 ````
 
@@ -629,11 +641,18 @@ Follow the exact procedure documented in `docs/DEPLOYMENT.md` §10 (temp compose
 curl -fsS http://127.0.0.1:8080/ -o /dev/null && echo "homepage via caddy OK"
 curl -fsS http://127.0.0.1:8080/api/v1 && echo "API health via caddy OK"
 curl -fsS "http://127.0.0.1:8080/api/v1/storefront/categories" -o /dev/null && echo "API wildcard route via caddy OK"
+# Pages exercise Server Component fetches via the runtime API_TARGET.
+for p in / /collections /search; do curl -fsS "http://127.0.0.1:8080$p" -o /dev/null; done
+sleep 5
+# Must be 0: no failed SSR/ISR backend fetches (runtime API_TARGET works),
+# no EACCES prerender-cache errors either.
+docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml logs frontend \
+  | grep -cE "ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|EACCES"
 docker compose -p sh-smoke -f /tmp/sh-smoke.compose.yml down -v
 rm -f /tmp/sh-smoke.compose.yml /tmp/sh-smoke.compose.yml.bak /tmp/sh-smoke.env
 ```
 
-Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** (`/api/v1/*` wildcard matcher; an empty list is correct — the smoke DB is migrated but unseeded); teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
+Expected: homepage 200 through Caddy; bare API path returns `Hello World!` (exact `/api/v1` matcher) and `/api/v1/storefront/categories` returns **200 JSON** (`/api/v1/*` wildcard matcher; an empty list is correct — the smoke DB is migrated but unseeded); the frontend-log error grep prints **0**; teardown removes all `sh-smoke_*` volumes and leaves the dev `small-house-postgres` container running (`docker ps`). Nothing is created in the project directory.
 
 - [ ] **Step 7: Commit**
 
