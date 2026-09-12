@@ -79,12 +79,25 @@ export class AuthService {
         return { status: 'invalid' as const };
       }
 
-      await tx.refreshToken.update({
-        where: { id: stored.id },
+      // Atomic claim. Prisma interactive transactions run at READ COMMITTED,
+      // so a second concurrent refresh can have read the same unrevoked row.
+      // The conditional update is evaluated against the latest row version
+      // under the row lock: exactly one transaction counts 1. A count of 0
+      // means a concurrent request claimed it first — take the reuse path.
+      const claimed = await tx.refreshToken.updateMany({
+        where: { id: stored.id, revokedAt: null },
         data: { revokedAt: now },
       });
+      if (claimed.count !== 1) {
+        await this.revokeFamily(tx, stored.userId, stored.familyId, stored.id);
+        return { status: 'invalid' as const };
+      }
 
-      const user = await tx.user.findUnique({ where: { id: stored.userId } });
+      // Select only what is used; never load passwordHash on the rotation path.
+      const user = await tx.user.findUnique({
+        where: { id: stored.userId },
+        select: { id: true, email: true, status: true },
+      });
       if (!user || user.status !== 'ACTIVE') {
         return { status: 'invalid' as const };
       }
