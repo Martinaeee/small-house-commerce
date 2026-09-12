@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   Injectable,
   UnauthorizedException,
@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import argon2 from 'argon2';
+import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { MsDuration } from './auth.module.js';
 import type { LoginInput, RefreshInput } from './dto/auth.dto.js';
@@ -48,7 +49,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const tokens = await this.issueTokens(user.id, user.email);
+    const tokens = await this.issueTokens(this.prisma, user.id, user.email, randomUUID());
 
     return {
       ...tokens,
@@ -58,25 +59,67 @@ export class AuthService {
 
   async refresh(input: RefreshInput) {
     const tokenHash = hashToken(input.refreshToken);
-    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    const now = new Date();
 
-    if (!stored || stored.revokedAt !== null || stored.expiresAt <= new Date()) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    // Throwing inside the callback would roll back the family revocation, so
+    // the callback returns an outcome and the 401 is thrown after commit.
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.refreshToken.findUnique({ where: { tokenHash } });
+      if (!stored) {
+        return { status: 'invalid' as const };
+      }
 
-    // Rotate: revoke the presented token, then issue a new pair. A replayed
-    // old token now finds itself revoked and is rejected.
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() },
+      if (stored.expiresAt <= now) {
+        return { status: 'invalid' as const };
+      }
+
+      if (stored.revokedAt !== null) {
+        // Reuse of an already-rotated token: revoke the entire family.
+        await this.revokeFamily(tx, stored.userId, stored.familyId, stored.id);
+        return { status: 'invalid' as const };
+      }
+
+      await tx.refreshToken.update({
+        where: { id: stored.id },
+        data: { revokedAt: now },
+      });
+
+      const user = await tx.user.findUnique({ where: { id: stored.userId } });
+      if (!user || user.status !== 'ACTIVE') {
+        return { status: 'invalid' as const };
+      }
+
+      const tokens = await this.issueTokens(
+        tx,
+        user.id,
+        user.email,
+        stored.familyId ?? randomUUID(),
+      );
+      return { status: 'ok' as const, tokens };
     });
 
-    const user = await this.prisma.user.findUnique({ where: { id: stored.userId } });
-    if (!user || user.status !== 'ACTIVE') {
+    if (outcome.status !== 'ok') {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    return outcome.tokens;
+  }
 
-    return this.issueTokens(user.id, user.email);
+  /**
+   * Deletes every token in a rotation family. A null familyId can only exist
+   * for a row written out-of-band (the migration backfills all real rows);
+   * such a row is a singleton family of one.
+   */
+  private async revokeFamily(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    familyId: string | null,
+    selfId: string,
+  ): Promise<void> {
+    if (familyId !== null) {
+      await tx.refreshToken.deleteMany({ where: { userId, familyId } });
+    } else {
+      await tx.refreshToken.deleteMany({ where: { userId, id: selfId } });
+    }
   }
 
   async logout(refreshToken: string) {
@@ -128,7 +171,12 @@ export class AuthService {
     };
   }
 
-  private async issueTokens(userId: string, email: string) {
+  private async issueTokens(
+    client: Prisma.TransactionClient | PrismaService,
+    userId: string,
+    email: string,
+    familyId: string,
+  ) {
     const accessTtl = this.config.getOrThrow<MsDuration>('jwt.accessTtl');
     const refreshTtl = this.config.getOrThrow<string>('jwt.refreshTtl');
 
@@ -139,9 +187,10 @@ export class AuthService {
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + durationToMillis(refreshTtl));
 
-    await this.prisma.refreshToken.create({
+    await client.refreshToken.create({
       data: {
         userId,
+        familyId,
         tokenHash: hashToken(refreshToken),
         expiresAt,
       },
