@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 /**
  * Dependency-free sliding-window-log rate limiter.
  *
@@ -90,16 +92,24 @@ export function normalizeClientIp(ip: string | null | undefined): string {
   if (!ip) {
     return 'unknown';
   }
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  // Reject anything that is not a literal IPv4/IPv6 address (hostnames,
+  // 'unknown' spoofs, malformed octets like 999.1.1.1) into the shared
+  // unknown bucket instead of letting arbitrary strings mint buckets.
+  if (isIP(ip) === 0) {
+    return 'unknown';
+  }
+  // Uppercase IPv6 hex must not mint a second bucket for the same /64.
+  const canonical = ip.toLowerCase();
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(canonical);
   if (mapped) {
     return mapped[1]!;
   }
-  if (!ip.includes(':')) {
-    return ip;
+  if (!canonical.includes(':')) {
+    return canonical;
   }
 
   // Expand '::' into zero groups, then keep the network side (first 4).
-  const [head, tail] = ip.split('::');
+  const [head, tail] = canonical.split('::');
   const headGroups = head ? head.split(':') : [];
   const tailGroups = tail ? tail.split(':') : [];
   const missing = 8 - headGroups.length - tailGroups.length;

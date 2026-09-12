@@ -64,4 +64,17 @@ describe('normalizeClientIp', () => {
     );
     expect(normalizeClientIp(undefined)).toBe('unknown');
   });
+
+  it('buckets non-IP garbage as unknown', () => {
+    expect(normalizeClientIp('abc')).toBe('unknown');
+    expect(normalizeClientIp('999.1.1.1')).toBe('unknown');
+    expect(normalizeClientIp('::ffff:999.1.1.1')).toBe('unknown');
+  });
+
+  it('lowercases IPv6 hex so one /64 is one bucket', () => {
+    expect(normalizeClientIp('2001:DB8:1:2::1')).toBe('2001:db8:1:2::/64');
+    expect(normalizeClientIp('2001:DB8:1:2::1')).toBe(
+      normalizeClientIp('2001:db8:1:2::abcd'),
+    );
+  });
 });
