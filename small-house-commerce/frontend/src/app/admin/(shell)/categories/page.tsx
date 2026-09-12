@@ -32,6 +32,11 @@ const SLUG_HINT =
   "slug must be lowercase kebab-case (e.g. folding-chair)";
 // Backend 409 body (Prisma P2002); rendered with a trailing period.
 const SLUG_CONFLICT = "A category with this slug already exists.";
+// CategoriesService.update() maps parentId null -> undefined, so moving a
+// child back to root silently no-ops (PATCH 200, relationship unchanged).
+// The UI must not offer that action.
+const ROOT_MOVE_HINT =
+  "Moving a category back to the root is not supported in this build.";
 // Required nonnegative whole number (client posture mirrors ProductForm).
 const SORT_RE = /^\d+$/;
 
@@ -64,6 +69,25 @@ function flattenTree(
   return acc;
 }
 
+// Finds a node anywhere in the forest (DFS).
+function findNode(
+  nodes: AdminCategoryNode[],
+  id: string,
+): AdminCategoryNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const hit = findNode(node.children, id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// Collects the node's own id plus every descendant id (DFS).
+function collectSubtreeIds(node: AdminCategoryNode, acc: Set<string>): void {
+  acc.add(node.id);
+  for (const child of node.children) collectSubtreeIds(child, acc);
+}
+
 // New forest with one node (and its subtree) removed — optimistic delete.
 function removeNode(
   nodes: AdminCategoryNode[],
@@ -85,6 +109,7 @@ function emptyForm(
   return {
     mode,
     id: null,
+    originalParentId: null,
     name: "",
     slug: "",
     parentId: presetParentId,
@@ -97,6 +122,9 @@ function emptyForm(
 type CategoryForm = {
   mode: "create" | "edit";
   id: string | null;
+  // Parent at dialog-open time (null for roots and for create mode); drives
+  // the disabled "None (root)" option and the root-move submit guard.
+  originalParentId: string | null;
   name: string;
   slug: string;
   parentId: string;
@@ -153,13 +181,34 @@ export default function AdminCategoriesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formPending, setFormPending] = useState(false);
 
-  // Parent options: every category, depth indented. The edited category's own
-  // id is excluded (client mirror of "cannot be its own parent"); descendant
-  // exclusion is intentionally not implemented per task ruling.
+  // Parent options: every category, depth indented. In EDIT mode exclude the
+  // edited node's ENTIRE subtree (itself + all descendants). The backend only
+  // guards self-parent (400); picking a descendant returns 200 and creates a
+  // cycle that buildTree() silently drops from the admin tree and storefront
+  // mega menu, so the cycle has to be prevented client-side. CREATE mode
+  // excludes nothing.
+  const subtreeExcludeIds = useMemo(() => {
+    if (form.mode !== "edit" || !form.id) return null;
+    const target = findNode(sortedTree, form.id);
+    if (!target) return null;
+    const ids = new Set<string>();
+    collectSubtreeIds(target, ids);
+    return ids;
+  }, [form.mode, form.id, sortedTree]);
+
   const parentOptions = useMemo(
-    () => rows.filter((row) => row.node.id !== form.id),
-    [rows, form.id],
+    () =>
+      rows.filter(
+        (row) => !subtreeExcludeIds?.has(row.node.id),
+      ),
+    [rows, subtreeExcludeIds],
   );
+
+  // A child cannot be moved back to root through this build (the backend maps
+  // parentId:null -> undefined on PATCH), so "None (root)" is offered only
+  // when creating or when editing an existing root.
+  const rootOptionDisabled =
+    form.mode === "edit" && form.originalParentId !== null;
 
   const openCreate = useCallback((presetParentId = "") => {
     setErrors({});
@@ -174,6 +223,7 @@ export default function AdminCategoriesPage() {
     setForm({
       mode: "edit",
       id: node.id,
+      originalParentId: node.parentId,
       name: node.name,
       slug: node.slug,
       parentId: node.parentId ?? "",
@@ -194,6 +244,18 @@ export default function AdminCategoriesPage() {
   const patchForm = useCallback(
     (patch: Partial<CategoryForm>) => {
       setForm((prev) => ({ ...prev, ...patch }));
+      // Clear-on-edit: any field the user retries immediately drops its
+      // validation/server error (e.g. the 409 slug conflict).
+      setErrors((prev) => {
+        let next: FieldErrors | null = null;
+        for (const key of Object.keys(patch)) {
+          if (prev[key]) {
+            (next ??= { ...prev });
+            delete next[key];
+          }
+        }
+        return next ?? prev;
+      });
     },
     [],
   );
@@ -253,6 +315,17 @@ export default function AdminCategoriesPage() {
       event.preventDefault();
       const payload = validate(form);
       if (!payload) return;
+      // Defensive mirror of the disabled "None (root)" option: the backend
+      // PATCH maps parentId:null -> undefined, so the move would 200 while
+      // silently doing nothing. Block it instead.
+      if (
+        form.mode === "edit" &&
+        form.originalParentId !== null &&
+        !payload.parentId
+      ) {
+        setErrors((prev) => ({ ...prev, parentId: ROOT_MOVE_HINT }));
+        return;
+      }
       setFormPending(true);
       setFormError(null);
       try {
@@ -516,13 +589,19 @@ export default function AdminCategoriesPage() {
               ) : null}
             </Field>
 
-            <Field label="Parent" htmlFor="cat-parent">
+            <Field
+              label="Parent"
+              htmlFor="cat-parent"
+              error={errors.parentId}
+            >
               <Select
                 id="cat-parent"
                 value={form.parentId}
                 onChange={(e) => patchForm({ parentId: e.target.value })}
               >
-                <option value="">None (root)</option>
+                <option value="" disabled={rootOptionDisabled}>
+                  None (root)
+                </option>
                 {parentOptions.map(({ node, depth }) => (
                   <option key={node.id} value={node.id}>
                     {"  ".repeat(depth)}
@@ -531,6 +610,9 @@ export default function AdminCategoriesPage() {
                   </option>
                 ))}
               </Select>
+              {rootOptionDisabled && !errors.parentId ? (
+                <p className="mt-1 text-xs text-ink-muted">{ROOT_MOVE_HINT}</p>
+              ) : null}
             </Field>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
