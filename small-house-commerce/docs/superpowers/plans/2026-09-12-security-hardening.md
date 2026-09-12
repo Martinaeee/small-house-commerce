@@ -179,6 +179,10 @@ git commit -m "fix(security): refresh-token family ids with additive backfill mi
 
 **Why the 401 is thrown after the transaction:** Prisma interactive transactions roll back every statement when the callback throws. Family revocation must *persist*, so the callback returns a discriminated outcome (`{status:'invalid'}` / `{status:'ok', tokens}`) and the service throws `UnauthorizedException` after the callback resolves and commits.
 
+> **CONTROLLER RULING (2026-09-12, post Task-2 review) — supersedes the rotate snippets in Tasks 2a/2b below.** Postgres runs Prisma interactive transactions at READ COMMITTED; `findUnique` + an unconditional `update({ where:{id} })` lets two concurrent refreshes of the same valid token BOTH succeed (two valid new pairs, reuse detector never fires). The rotation MUST atomically claim the row:
+> `const claimed = await tx.<table>.updateMany({ where: { id: stored.id, revokedAt: null }, data: { revokedAt: now } });`
+> — `claimed.count === 1` is the single winner (proceed to issue siblings); `count !== 1` means the row was claimed first by a concurrent request OR was already revoked: take the SAME family-reuse path (revoke/delete the whole family, outcome `{status:'invalid'}` thrown after commit). The unconditional `update` snippets printed in Steps below are to be read with this replacement. Additionally: admin refresh must `select` only `{ id, email, status }` (never load `passwordHash`), and the tests must include (a) a `$transaction` fake that models rollback-on-throw so outcome-after-commit is structurally enforced, (b) legacy NULL `familyId` rows for both the coalesce and singleton-revoke branches, and (c) an interleaved-concurrency test that fails on the old read-then-update pattern and proves exactly one winner plus family wipe.
+
 ### Task 2a: Admin `AuthService`
 
 **Files:**
