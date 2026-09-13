@@ -515,6 +515,12 @@ function ProductsPageContent() {
                             >
                               Edit
                             </Link>
+                            <Link
+                              href={`/admin/products/${row.id}/reviews`}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              Reviews
+                            </Link>
                             <button
                               type="button"
                               onClick={() => openDelete(row)}

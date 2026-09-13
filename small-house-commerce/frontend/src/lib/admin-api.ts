@@ -259,6 +259,40 @@ export interface AdminProduct {
   variants: AdminVariant[];
 }
 
+/** Raw ProductReview row (admin endpoints return the unscoped Prisma row). */
+export interface AdminReview {
+  id: string;
+  productId: string;
+  source: "ADMIN" | "CUSTOMER";
+  authorName: string;
+  location: string | null;
+  rating: number;
+  title: string | null;
+  comment: string;
+  photos: string[];
+  isVisible: boolean;
+  verifiedOrderItemId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAdminReviewInput {
+  authorName: string;
+  location?: string;
+  rating: number;
+  title?: string;
+  comment: string;
+  photos: string[];
+  isVisible: boolean;
+}
+
+// PATCH mirrors updateAdminReviewSchema: every field optional; location/title
+// may be explicitly null to clear them.
+export type UpdateAdminReviewInput = Partial<Omit<CreateAdminReviewInput, "location" | "title">> & {
+  location?: string | null;
+  title?: string | null;
+};
+
 export interface AdminCategoryNode {
   id: string;
   parentId: string | null;
@@ -409,6 +443,35 @@ export const adminApi = {
   deleteProduct: (id: string): Promise<{ ok: boolean }> =>
     adminAuthedFetch<{ ok: boolean }>(
       `/api/v1/admin/products/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
+  // --- product reviews (cold-start admin moderation) ----------------------
+
+  listProductReviews: (productId: string): Promise<AdminReview[]> =>
+    adminAuthedFetch<AdminReview[]>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews`,
+    ),
+
+  createProductReview: (
+    productId: string,
+    input: CreateAdminReviewInput,
+  ): Promise<AdminReview> =>
+    adminAuthedFetch<AdminReview>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  updateReview: (id: string, input: UpdateAdminReviewInput): Promise<AdminReview> =>
+    adminAuthedFetch<AdminReview>(
+      `/api/v1/admin/reviews/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  // Backend returns 2xx with an empty body (adminRemove resolves void).
+  deleteReview: (id: string): Promise<void> =>
+    adminAuthedFetch<void>(
+      `/api/v1/admin/reviews/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
 

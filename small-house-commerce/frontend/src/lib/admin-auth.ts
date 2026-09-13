@@ -207,7 +207,10 @@ export async function adminAuthedFetch<T>(
     if (refreshed) res = await run(refreshed);
   }
   if (!res.ok) throw new AdminApiError(await readError(res), res.status);
-  return res.json() as Promise<T>;
+  // Some endpoints (e.g. DELETE /admin/reviews/:id) return 2xx with no body.
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text === "" ? undefined : (JSON.parse(text) as T)) as T;
 }
 
 /** Pure RBAC helper: the backend remains the enforcement authority. */
