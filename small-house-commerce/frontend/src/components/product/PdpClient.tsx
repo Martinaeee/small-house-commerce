@@ -6,14 +6,28 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Product } from "@/lib/api";
 import { api, cartStorage } from "@/lib/api";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import { track } from "@/lib/tracking";
+
+const SUPPORT_EMAIL = "support@smallhouse.ph";
 import { RatingStars } from "./RatingStars";
 import { ProductGallery } from "./ProductGallery";
 import { ProductLightbox } from "./ProductLightbox";
 import { ProductDetailsModal } from "./ProductDetailsModal";
 import { MobileStickyCta } from "./MobileStickyCta";
+
+/** Small inline truck glyph for the delivery estimate card. */
+function TruckGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 text-cta" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="7" cy="18" r="1.6" />
+      <circle cx="17" cy="18" r="1.6" />
+    </svg>
+  );
+}
 
 /** Small inline cart glyph used for the mobile quick-add action. */
 function CartGlyph() {
@@ -26,7 +40,15 @@ function CartGlyph() {
   );
 }
 
-export function PdpClient({ product, categoryName }: { product: Product; categoryName: string | null }) {
+export function PdpClient({
+  product,
+  category,
+  delivery,
+}: {
+  product: Product;
+  category: { name: string; slug: string } | null;
+  delivery: DeliveryWindows;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const variants = product.variants;
@@ -150,6 +172,11 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
   }
 
   const stockLabel = outOfStock ? "Out of Stock" : lowStock ? `Only ${available} left` : null;
+  const variantSuffix =
+    selectedVariant && variants.length > 1 ? ` — ${selectedVariant.name}` : "";
+  const restockHref = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+    `Restock request: ${product.name}${variantSuffix}`,
+  )}`;
   const overlayOpen = lightboxIndex !== null || detailsOpen;
   const ratingRow =
     product.reviewCount > 0 && product.ratingAverage !== null ? (
@@ -173,14 +200,17 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
 
         <div className="flex flex-col gap-4">
           {/* Breadcrumb */}
-          {/* Categories have no storefront landing route in V1, so the
-              category name is plain text; only Home is a link. */}
           <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
             <Link href="/" className="hover:text-cta">Home</Link>
-            {categoryName && (
+            {category && (
               <>
                 {" › "}
-                <span className="text-ink-secondary">{categoryName}</span>
+                <Link
+                  href={`/categories/${category.slug}`}
+                  className="text-ink-secondary hover:text-cta"
+                >
+                  {category.name}
+                </Link>
               </>
             )}
             {" › "}
@@ -248,25 +278,57 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
             </button>
           )}
 
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-ink-secondary">Qty</span>
-            <div className="flex items-center rounded-lg border border-border bg-card">
-              <button type="button" aria-label="Decrease quantity"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="h-11 w-11 text-lg text-ink hover:text-cta">−</button>
-              <span className="w-8 text-center text-base font-semibold" data-testid="qty">{quantity}</span>
-              <button type="button" aria-label="Increase quantity"
-                onClick={() => setQuantity((q) => Math.min(99, q + 1))}
-                className="h-11 w-11 text-lg text-ink hover:text-cta">+</button>
+          {outOfStock ? (
+            <div className="rounded-lg border border-border bg-background p-4" data-testid="oos-contact">
+              <p className="text-sm font-semibold text-ink">Currently out of stock</p>
+              <p className="mt-1 text-sm text-ink-secondary">
+                This variant is temporarily unavailable. Email us to ask about restocking or
+                request a special order.
+              </p>
+              <ButtonLink
+                href={restockHref}
+                size="md"
+                className="mt-3"
+                data-testid="contact-restock"
+              >
+                Contact us to order
+              </ButtonLink>
+              <p className="mt-2 text-xs text-ink-muted">
+                {SUPPORT_EMAIL} · Mon–Sat, 9am–6pm PHT
+              </p>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-start gap-2.5 rounded-lg border border-border bg-background p-3 text-sm">
+                <TruckGlyph />
+                <div>
+                  <p className="font-semibold text-ink">Estimated delivery</p>
+                  <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
+                  <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button onClick={orderNow} disabled={busy} className="flex-1" data-testid="order-now">ORDER NOW</Button>
-            <Button variant="secondary" onClick={() => addToCart(quantity)} disabled={busy} className="flex-1">
-              ADD TO CART
-            </Button>
-          </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-ink-secondary">Qty</span>
+                <div className="flex items-center rounded-lg border border-border bg-card">
+                  <button type="button" aria-label="Decrease quantity"
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                    className="h-11 w-11 text-lg text-ink hover:text-cta">−</button>
+                  <span className="w-8 text-center text-base font-semibold" data-testid="qty">{quantity}</span>
+                  <button type="button" aria-label="Increase quantity"
+                    onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+                    className="h-11 w-11 text-lg text-ink hover:text-cta">+</button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button onClick={orderNow} disabled={busy} className="flex-1" data-testid="order-now">ORDER NOW</Button>
+                <Button variant="secondary" onClick={() => addToCart(quantity)} disabled={busy} className="flex-1">
+                  ADD TO CART
+                </Button>
+              </div>
+            </>
+          )}
 
           {notice && <p role="status" className="rounded-lg border border-primary bg-primary-light/40 px-3 py-2 text-sm text-cta">{notice}</p>}
 
@@ -294,6 +356,7 @@ export function PdpClient({ product, categoryName }: { product: Product; categor
           compareAtPrice={compareAt}
           outOfStock={outOfStock}
           busy={busy}
+          contactHref={restockHref}
           onOrderNow={orderNow}
         />
       )}

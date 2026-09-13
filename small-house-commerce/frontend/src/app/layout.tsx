@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://smallhouse.ph"),
   title: {
     default: "Small House PH — Smart Furniture for Small Homes",
     template: "%s | Small House PH",

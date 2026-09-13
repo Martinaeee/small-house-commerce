@@ -9,7 +9,7 @@ export function ReviewSection({ product }: { product: Product }) {
   const average = product.ratingAverage;
 
   return (
-    <section id="reviews" className="scroll-mt-24 rounded-lg border border-border bg-card p-6">
+    <section id="reviews" className="scroll-mt-28 rounded-lg border border-border bg-card p-6">
       <h2 className="mb-4 text-2xl font-semibold text-ink">Customer Reviews</h2>
 
       {count === 0 || average === null ? (

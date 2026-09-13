@@ -4,13 +4,15 @@
 import { Button } from "@/components/ui/Button";
 import { PriceBox } from "@/components/ui/PriceBox";
 
-/** PDP_SPEC §12: fixed name + price + ORDER NOW, mobile only. */
+/** PDP_SPEC §12: fixed name + price + ORDER NOW, mobile only.
+ *  Out of stock: the action becomes a mailto contact link when provided. */
 export function MobileStickyCta({
   name,
   price,
   compareAtPrice,
   outOfStock,
   busy,
+  contactHref,
   onOrderNow,
 }: {
   name: string;
@@ -18,6 +20,7 @@ export function MobileStickyCta({
   compareAtPrice: number | null;
   outOfStock: boolean;
   busy: boolean;
+  contactHref?: string | null;
   onOrderNow: () => void;
 }) {
   return (
@@ -27,15 +30,25 @@ export function MobileStickyCta({
           <p className="truncate text-sm font-semibold text-ink">{name}</p>
           <PriceBox price={price} compareAtPrice={compareAtPrice} />
         </div>
-        <Button
-          onClick={onOrderNow}
-          disabled={busy || outOfStock}
-          size="md"
-          className="shrink-0"
-          data-testid="sticky-order-now"
-        >
-          {outOfStock ? "Out of Stock" : "ORDER NOW"}
-        </Button>
+        {outOfStock && contactHref ? (
+          <a
+            href={contactHref}
+            className="inline-flex h-12 min-w-[120px] shrink-0 items-center justify-center rounded-lg border border-cta/40 px-6 text-base font-semibold text-cta hover:bg-primary-light/40"
+            data-testid="sticky-contact"
+          >
+            Contact us
+          </a>
+        ) : (
+          <Button
+            onClick={onOrderNow}
+            disabled={busy || outOfStock}
+            size="md"
+            className="shrink-0"
+            data-testid="sticky-order-now"
+          >
+            {outOfStock ? "Out of Stock" : "ORDER NOW"}
+          </Button>
+        )}
       </div>
     </div>
   );
