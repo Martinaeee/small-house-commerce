@@ -293,6 +293,79 @@ export type UpdateAdminReviewInput = Partial<Omit<CreateAdminReviewInput, "locat
   title?: string | null;
 };
 
+// --- landing pages ("Single Pages") ------------------------------------------
+
+export type LandingStatus = "ACTIVE" | "DISABLED";
+export type LandingEffectiveStatus = "LIVE" | "SCHEDULED" | "ENDED" | "DISABLED";
+
+export interface AdminLandingPageRow {
+  id: string;
+  name: string;
+  adCode: string | null;
+  slug: string;
+  productId: string;
+  productName: string;
+  titleOverride: string | null;
+  status: LandingStatus;
+  effectiveStatus: LandingEffectiveStatus;
+  startAt: string | null;
+  endAt: string | null;
+  sortOrder: number;
+  updatedAt: string;
+  views: number;
+  orders: number;
+  conversionRate: number;
+}
+
+export interface LandingImageOverrideInput {
+  url: string;
+  altText?: string | null;
+}
+
+export interface AdminLandingPageDetail extends AdminLandingPageRow {
+  imagesOverride: LandingImageOverrideInput[] | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  promoEnabled: boolean;
+  promoHeadline: string | null;
+  promoSubtext: string | null;
+  createdAt: string;
+}
+
+export interface LandingPageInput {
+  name: string;
+  slug?: string;
+  titleOverride?: string | null;
+  adCode?: string | null;
+  imagesOverride?: LandingImageOverrideInput[] | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  promoEnabled?: boolean;
+  promoHeadline?: string | null;
+  promoSubtext?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  status?: LandingStatus;
+  sortOrder?: number;
+}
+
+export interface PresignUploadResult {
+  uploadUrl: string;
+  publicUrl: string;
+  key: string;
+  expiresIn: number;
+}
+
+export interface BatchReviewInput {
+  authorName: string;
+  location?: string | null;
+  rating: number;
+  title?: string | null;
+  comment: string;
+  photos?: string[];
+  isVisible?: boolean;
+}
+
 export interface AdminCategoryNode {
   id: string;
   parentId: string | null;
@@ -538,4 +611,88 @@ export const adminApi = {
       `/api/v1/admin/collections/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ productIds }) },
     ),
+
+  // --- product landing pages ("Single Pages") -----------------------------
+
+  listLandingPages: (p: {
+    search?: string;
+    status?: LandingStatus;
+    effectiveStatus?: LandingEffectiveStatus;
+    productId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sortBy?: "updatedAt" | "title";
+    sortDir?: "asc" | "desc";
+    page?: number;
+    pageSize?: number;
+  }): Promise<Paged<AdminLandingPageRow>> =>
+    adminAuthedFetch<Paged<AdminLandingPageRow>>(
+      `/api/v1/admin/landing-pages${buildQuery({
+        search: p.search,
+        status: p.status,
+        effectiveStatus: p.effectiveStatus,
+        productId: p.productId,
+        dateFrom: p.dateFrom,
+        dateTo: p.dateTo,
+        sortBy: p.sortBy,
+        sortDir: p.sortDir,
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
+  listProductLandingPages: (productId: string): Promise<AdminLandingPageDetail[]> =>
+    adminAuthedFetch<AdminLandingPageDetail[]>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/landing-pages`,
+    ),
+
+  createLandingPage: (
+    productId: string,
+    input: LandingPageInput,
+  ): Promise<AdminLandingPageDetail> =>
+    adminAuthedFetch<AdminLandingPageDetail>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/landing-pages`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  updateLandingPage: (
+    id: string,
+    input: Partial<LandingPageInput>,
+  ): Promise<AdminLandingPageDetail> =>
+    adminAuthedFetch<AdminLandingPageDetail>(
+      `/api/v1/admin/landing-pages/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  deleteLandingPage: (id: string): Promise<void> =>
+    adminAuthedFetch<void>(`/api/v1/admin/landing-pages/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+
+  bulkTitleLandingPages: (
+    ids: string[],
+    titleOverride: string,
+  ): Promise<{ updated: number }> =>
+    adminAuthedFetch<{ updated: number }>("/api/v1/admin/landing-pages/bulk-title", {
+      method: "POST",
+      body: JSON.stringify({ ids, titleOverride }),
+    }),
+
+  batchCreateReviews: (
+    productId: string,
+    items: BatchReviewInput[],
+  ): Promise<{ created: number }> =>
+    adminAuthedFetch<{ created: number }>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews/batch`,
+      { method: "POST", body: JSON.stringify({ items }) },
+    ),
+
+  presignUpload: (
+    contentType: string,
+    fileName: string,
+  ): Promise<PresignUploadResult> =>
+    adminAuthedFetch<PresignUploadResult>("/api/v1/admin/uploads/presign", {
+      method: "POST",
+      body: JSON.stringify({ contentType, fileName }),
+    }),
 };

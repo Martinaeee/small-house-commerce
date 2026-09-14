@@ -180,6 +180,7 @@ export default function EditProductPage(): ReactNode {
   const router = useRouter();
 
   const [product, setProduct] = useState<AdminProduct | null>(null);
+  const [landingCount, setLandingCount] = useState<number | null>(null);
   const [categories, setCategories] = useState<AdminCategoryNode[] | null>(
     null,
   );
@@ -205,6 +206,23 @@ export default function EditProductPage(): ReactNode {
       mounted.current = false;
     };
   }, []);
+
+  // Landing-page count for the Single Pages quick link ("落地页 (N)").
+  useEffect(() => {
+    if (!product) return;
+    let active = true;
+    adminApi
+      .listProductLandingPages(product.id)
+      .then((rows) => {
+        if (active) setLandingCount(rows.length);
+      })
+      .catch(() => {
+        if (active) setLandingCount(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [product]);
 
   // Product + categories load together; both endpoints require PRODUCT_MANAGE
   // at the backend, so a role lacking it gets a verbatim 403 in the alert.
@@ -405,7 +423,22 @@ export default function EditProductPage(): ReactNode {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader title="Edit product" actions={<BackLink />} />
+      <PageHeader
+        title="Edit product"
+        actions={
+          <span className="flex items-center gap-4">
+            {product && landingCount !== null ? (
+              <Link
+                href={`/admin/single-pages?productId=${product.id}`}
+                className="text-sm font-semibold text-cta hover:underline"
+              >
+                落地页 ({landingCount})
+              </Link>
+            ) : null}
+            <BackLink />
+          </span>
+        }
+      />
 
       {notice ? (
         <div
