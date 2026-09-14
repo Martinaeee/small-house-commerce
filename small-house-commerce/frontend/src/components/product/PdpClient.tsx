@@ -223,7 +223,7 @@ export function PdpClient({
             <button
               type="button"
               onClick={() => addToCart(1)}
-              disabled={outOfStock || busy}
+              disabled={busy}
               aria-label="Add to cart"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border text-cta hover:border-primary disabled:text-ink-muted md:hidden"
             >
@@ -278,16 +278,57 @@ export function PdpClient({
             </button>
           )}
 
-          {outOfStock ? (
+          {/* Out-of-stock variants can still be added to the cart (the cart
+              flags them unavailable and blocks checkout until restocked);
+              ORDER NOW is hidden then, and the contact card stays below. */}
+          <div className="flex items-start gap-2.5 rounded-lg border border-border bg-background p-3 text-sm">
+            <TruckGlyph />
+            <div>
+              <p className="font-semibold text-ink">Estimated delivery</p>
+              <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
+              <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-ink-secondary">Qty</span>
+            <div className="flex items-center rounded-lg border border-border bg-card">
+              <button type="button" aria-label="Decrease quantity"
+                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                className="h-11 w-11 text-lg text-ink hover:text-cta">−</button>
+              <span className="w-8 text-center text-base font-semibold" data-testid="qty">{quantity}</span>
+              <button type="button" aria-label="Increase quantity"
+                onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+                className="h-11 w-11 text-lg text-ink hover:text-cta">+</button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {!outOfStock && (
+              <Button onClick={orderNow} disabled={busy} className="flex-1" data-testid="order-now">ORDER NOW</Button>
+            )}
+            <Button
+              variant={outOfStock ? "primary" : "secondary"}
+              onClick={() => addToCart(quantity)}
+              disabled={busy}
+              className="flex-1"
+              data-testid="add-to-cart"
+            >
+              ADD TO CART
+            </Button>
+          </div>
+
+          {outOfStock && (
             <div className="rounded-lg border border-border bg-background p-4" data-testid="oos-contact">
               <p className="text-sm font-semibold text-ink">Currently out of stock</p>
               <p className="mt-1 text-sm text-ink-secondary">
-                This variant is temporarily unavailable. Email us to ask about restocking or
-                request a special order.
+                You can still add it to your cart to save it — checkout stays unavailable until
+                the item is restocked — or email us to ask about restocking or a special order.
               </p>
               <ButtonLink
                 href={restockHref}
                 size="md"
+                variant="secondary"
                 className="mt-3"
                 data-testid="contact-restock"
               >
@@ -297,37 +338,6 @@ export function PdpClient({
                 {SUPPORT_EMAIL} · Mon–Sat, 9am–6pm PHT
               </p>
             </div>
-          ) : (
-            <>
-              <div className="flex items-start gap-2.5 rounded-lg border border-border bg-background p-3 text-sm">
-                <TruckGlyph />
-                <div>
-                  <p className="font-semibold text-ink">Estimated delivery</p>
-                  <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
-                  <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-ink-secondary">Qty</span>
-                <div className="flex items-center rounded-lg border border-border bg-card">
-                  <button type="button" aria-label="Decrease quantity"
-                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    className="h-11 w-11 text-lg text-ink hover:text-cta">−</button>
-                  <span className="w-8 text-center text-base font-semibold" data-testid="qty">{quantity}</span>
-                  <button type="button" aria-label="Increase quantity"
-                    onClick={() => setQuantity((q) => Math.min(99, q + 1))}
-                    className="h-11 w-11 text-lg text-ink hover:text-cta">+</button>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button onClick={orderNow} disabled={busy} className="flex-1" data-testid="order-now">ORDER NOW</Button>
-                <Button variant="secondary" onClick={() => addToCart(quantity)} disabled={busy} className="flex-1">
-                  ADD TO CART
-                </Button>
-              </div>
-            </>
           )}
 
           {notice && <p role="status" className="rounded-lg border border-primary bg-primary-light/40 px-3 py-2 text-sm text-cta">{notice}</p>}
@@ -358,6 +368,7 @@ export function PdpClient({
           busy={busy}
           contactHref={restockHref}
           onOrderNow={orderNow}
+          onAddToCart={() => addToCart(quantity)}
         />
       )}
     </>
