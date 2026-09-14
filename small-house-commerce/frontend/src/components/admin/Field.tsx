@@ -15,11 +15,15 @@ export const inputCls =
 export function Field({
   label,
   error,
+  hint,
   children,
   htmlFor,
 }: {
   label: string;
   error?: string;
+  // Operator-facing guidance (Chinese in the admin back office). Shown muted
+  // under the control; validation errors render after it in red.
+  hint?: ReactNode;
   children: ReactNode;
   htmlFor?: string;
 }): ReactNode {
@@ -27,6 +31,7 @@ export function Field({
     <label className="flex flex-col gap-1 text-sm font-medium text-ink" htmlFor={htmlFor}>
       {label}
       <div>{children}</div>
+      {hint ? <p className="text-xs font-normal leading-relaxed text-ink-muted">{hint}</p> : null}
       {error ? (
         <p className="text-xs text-red-700" role="alert">
           {error}

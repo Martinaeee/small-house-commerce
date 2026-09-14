@@ -92,6 +92,36 @@ const SOLUTIONS = [
   "RENTAL_FRIENDLY",
 ] as const;
 
+// Chinese operator labels for the enum-backed controls. The submitted value
+// stays the English enum code the API expects; only the back-office UI shows
+// the Chinese gloss. The storefront never renders these.
+const STATUS_LABELS: Record<ProductStatus, string> = {
+  DRAFT: "DRAFT — 草稿：前台完全看不到，先保存检查用",
+  ACTIVE: "ACTIVE — 上架：前台可搜索、可下单",
+  DISABLED: "DISABLED — 下架：前台隐藏，数据保留，可随时重新上架",
+};
+const ROOM_LABELS: Record<string, string> = {
+  BEDROOM: "BEDROOM — 卧室",
+  STORAGE: "STORAGE — 收纳/储物空间",
+  DINING_LIVING: "DINING_LIVING — 餐厅/客厅",
+  HOME_OFFICE: "HOME_OFFICE — 书房/居家办公",
+};
+const ROLE_LABELS: Record<string, string> = {
+  HERO: "HERO — 主推款",
+  CORE: "CORE — 常规款",
+  ENTRY: "ENTRY — 引流款（低价）",
+  PREMIUM: "PREMIUM — 利润款（高客单）",
+  PRE_ORDER: "PRE_ORDER — 预售款",
+};
+const SOLUTION_LABELS: Record<string, string> = {
+  FOLDABLE: "FOLDABLE — 可折叠",
+  NARROW_SPACE: "NARROW_SPACE — 窄缝/小空间适用",
+  MOBILE: "MOBILE — 带轮可移动",
+  MULTIFUNCTIONAL: "MULTIFUNCTIONAL — 多功能/可组合",
+  HIDDEN_STORAGE: "HIDDEN_STORAGE — 封闭/隐藏收纳",
+  RENTAL_FRIENDLY: "RENTAL_FRIENDLY — 租房友好、搬家可带走",
+};
+
 // Backend DTO bounds (product.dto.ts / category.dto.ts slugSchema).
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Structural UUID only (ids in this DB are UUIDv7; z.string().uuid() accepts
@@ -112,13 +142,14 @@ const DIMENSION_FIELDS: {
     | "foldedHeight"
     | "foldedDepth";
   label: string;
+  hint: string;
 }[] = [
-  { key: "width", label: "Width" },
-  { key: "height", label: "Height" },
-  { key: "depth", label: "Depth" },
-  { key: "foldedWidth", label: "Folded width" },
-  { key: "foldedHeight", label: "Folded height" },
-  { key: "foldedDepth", label: "Folded depth" },
+  { key: "width", label: "Width", hint: "展开宽度，单位 cm" },
+  { key: "height", label: "Height", hint: "展开总高，单位 cm" },
+  { key: "depth", label: "Depth", hint: "展开深度，单位 cm" },
+  { key: "foldedWidth", label: "Folded width", hint: "折叠后宽度 cm，不可折叠留空" },
+  { key: "foldedHeight", label: "Folded height", hint: "折叠后高度/厚度 cm，不可折叠留空" },
+  { key: "foldedDepth", label: "Folded depth", hint: "折叠后深度 cm，不可折叠留空" },
 ];
 
 const SKU_NUM_FIELDS: { key: keyof SkuFormValue; label: string }[] = [
@@ -132,6 +163,48 @@ const SKU_NUM_FIELDS: { key: keyof SkuFormValue; label: string }[] = [
   { key: "packageDepth", label: "Package depth" },
   { key: "packageWeight", label: "Package weight" },
   { key: "volumetricWeight", label: "Volumetric weight" },
+];
+
+const SKU_LABELS: Partial<Record<keyof SkuFormValue, string>> = Object.fromEntries(
+  SKU_NUM_FIELDS.map((f) => [f.key, f.label]),
+);
+
+// Chinese per-field guidance inside the SKU box.
+const SKU_FIELD_HINTS: Partial<Record<keyof SkuFormValue, ReactNode>> = {
+  price: "前台售价，单位比索 ₱。不填价格，该款式在前台无法购买。",
+  compareAtPrice:
+    "划线原价（可选）。高于售价时前台显示折扣；不打折请留空，不要填等于售价的数。",
+  supplierCost: "出厂价，内部成本字段，前台不会显示。",
+  landedCost: "到菲落地成本，内部核算字段，前台不显示。",
+  productWeight: "产品净重，单位 kg。",
+  packageWidth: "外包装宽，单位 cm。",
+  packageHeight: "外包装高，单位 cm。",
+  packageDepth: "外包装深，单位 cm。",
+  packageWeight: "带包装毛重，单位 kg。",
+  volumetricWeight: "体积重，单位 kg，物流计费用；可先留空。",
+};
+
+// How the numeric SKU fields are grouped in the form (serialization still
+// iterates the flat SKU_NUM_FIELDS list).
+const SKU_FIELD_GROUPS: {
+  title: string;
+  hint?: string;
+  keys: (keyof SkuFormValue)[];
+}[] = [
+  { title: "零售价（前台展示）", keys: ["price", "compareAtPrice"] },
+  { title: "内部成本（前台不显示）", keys: ["supplierCost", "landedCost"] },
+  {
+    title: "物流与包装",
+    hint: "仅用于发货/运费核算，不在前台展示；可先留空，发货前补齐。",
+    keys: [
+      "productWeight",
+      "packageWidth",
+      "packageHeight",
+      "packageDepth",
+      "packageWeight",
+      "volumetricWeight",
+    ],
+  },
 ];
 
 export function emptySkuFormValue(): SkuFormValue {
@@ -453,14 +526,19 @@ function flattenCategories(
 
 function Section({
   title,
+  hint,
   children,
 }: {
   title: string;
+  hint?: ReactNode;
   children: ReactNode;
 }): ReactNode {
   return (
     <section className="mt-4 rounded-xl border border-border bg-card p-5">
       <h2 className="text-base font-semibold text-ink">{title}</h2>
+      {hint ? (
+        <p className="mt-1 text-xs leading-relaxed text-ink-muted">{hint}</p>
+      ) : null}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -581,6 +659,50 @@ export function ProductForm({
         : value.solutions.filter((s) => s !== solution),
     });
 
+  // Derive a kebab-case slug from the English product name. Product names
+  // are English by convention; non-ASCII runs collapse to separators, so a
+  // Chinese-only name would produce an empty slug (button then no-ops).
+  const autoSlug = (): void => {
+    const slug = value.name
+      .trim()
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120);
+    if (slug) patch({ slug });
+  };
+
+  // Renders one numeric SKU field (price group / cost group / logistics
+  // group) with its Chinese operator hint.
+  const renderSkuField = (
+    variantIndex: number,
+    key: keyof SkuFormValue,
+  ): ReactNode => {
+    const sku = value.variants[variantIndex]?.sku ?? null;
+    return (
+      <Field
+        key={key}
+        label={SKU_LABELS[key] ?? key}
+        htmlFor={`pf-variants-${variantIndex}-sku-${key}`}
+        error={err(`variants.${variantIndex}.sku.${key}`)}
+        hint={SKU_FIELD_HINTS[key]}
+      >
+        <TextInput
+          id={`pf-variants-${variantIndex}-sku-${key}`}
+          inputMode="decimal"
+          value={sku ? sku[key] : ""}
+          onChange={(e) =>
+            setSku(variantIndex, {
+              [key]: e.target.value,
+            } as Partial<SkuFormValue>)
+          }
+          autoComplete="off"
+        />
+      </Field>
+    );
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const result = serializeFormValue(value);
@@ -617,10 +739,45 @@ export function ProductForm({
         </div>
       ) : null}
 
+      {/* Operator workflow guide (internal back office; never storefront). */}
+      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
+        <p className="text-sm font-semibold text-ink">上架流程（新商品按此顺序操作）</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>
+            在本页填写商品信息、图片、款式与价格，先以
+            <span className="font-semibold"> DRAFT 草稿</span>保存。
+          </li>
+          <li>
+            到 Products 列表确认无误后，用 Edit 把 Status 改为
+            <span className="font-semibold"> ACTIVE 上架</span>（DRAFT 在前台完全不可见）。
+          </li>
+          <li>
+            到左侧 <span className="font-semibold">Inventory</span> 页给每个 SKU
+            入库：搜到商品 → Adjust → 填正数数量（如 50）和原因。库存为 0
+            时前台显示 Out of Stock，不能下单。
+          </li>
+          <li>
+            到左侧 <span className="font-semibold">Collections</span> 页把商品加入
+            New Arrivals（前台显示 New 角标）。Bestseller 角标只挂真实热销款，新品不要挂。
+          </li>
+        </ol>
+        <p className="mt-2">
+          出厂价、物流尺寸等成本字段仅后台可见；前台只显示售价和商品描述。
+        </p>
+      </div>
+
       {/* ---------------- Basics ---------------- */}
-      <Section title="Basics">
+      <Section
+        title="Basics"
+        hint="商品的基本信息与运营属性。带 * 为必填。"
+      >
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Name *" htmlFor="pf-name" error={err("name")}>
+          <Field
+            label="Name *"
+            htmlFor="pf-name"
+            error={err("name")}
+            hint="前台展示的英文商品名。建议：品类 + 核心特征 + 规格/层数，如 Foldable Shoe Cabinet 3-Tier with Clear Doors。"
+          >
             <TextInput
               id="pf-name"
               value={value.name}
@@ -639,7 +796,19 @@ export function ProductForm({
               onChange={(e) => patch({ slug: e.target.value })}
               autoComplete="off"
             />
-            <p className="mt-1 text-xs text-ink-muted">{SLUG_HINT}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className="text-xs text-ink-muted">{SLUG_HINT}</p>
+              <button
+                type="button"
+                onClick={autoSlug}
+                className="text-xs font-semibold text-cta hover:underline"
+              >
+                根据名称自动生成
+              </button>
+            </div>
+            <p className="text-xs text-ink-muted">
+              商品网页地址（/products/ 后面那段），只能用小写字母、数字和连字符；保存后不要随意修改，避免旧链接失效。
+            </p>
           </Field>
 
           <div className="md:col-span-2">
@@ -647,10 +816,11 @@ export function ProductForm({
               label="Description"
               htmlFor="pf-description"
               error={err("description")}
+              hint="英文详情描述（顾客可见），支持换行。材质、颜色、承重、安装方式、核心卖点都写在这里——这些规格前台没有单独的字段。最多 5,000 字符。"
             >
               <Textarea
                 id="pf-description"
-                rows={4}
+                rows={6}
                 value={value.description}
                 onChange={(e) => patch({ description: e.target.value })}
               />
@@ -661,6 +831,7 @@ export function ProductForm({
             label="Category *"
             htmlFor="pf-category"
             error={err("categoryId")}
+            hint="商品的固定归属，决定它出现在哪个分类页。一个商品只能选一个分类；营销分组（新品/热销）在 Collections 页管理。"
           >
             <Select
               id="pf-category"
@@ -680,7 +851,12 @@ export function ProductForm({
             </Select>
           </Field>
 
-          <Field label="Status" htmlFor="pf-status" error={err("status")}>
+          <Field
+            label="Status"
+            htmlFor="pf-status"
+            error={err("status")}
+            hint="DRAFT 草稿只在后台可见；ACTIVE 后前台才能搜到和购买；DISABLED 是临时下架，数据保留。"
+          >
             <Select
               id="pf-status"
               value={value.status}
@@ -690,13 +866,18 @@ export function ProductForm({
             >
               {PRODUCT_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {STATUS_LABELS[s]}
                 </option>
               ))}
             </Select>
           </Field>
 
-          <Field label="Room" htmlFor="pf-room" error={err("room")}>
+          <Field
+            label="Room"
+            htmlFor="pf-room"
+            error={err("room")}
+            hint="主要使用空间（单选），用于前台分类页的 Room 筛选；不确定可留空。"
+          >
             <Select
               id="pf-room"
               value={value.room}
@@ -705,7 +886,7 @@ export function ProductForm({
               <option value="">—</option>
               {ROOMS.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {ROOM_LABELS[r] ?? r}
                 </option>
               ))}
             </Select>
@@ -715,6 +896,7 @@ export function ProductForm({
             label="Internal role"
             htmlFor="pf-internal-role"
             error={err("internalRole")}
+            hint="内部运营定位，不直接展示给顾客，用于推荐排序：引流款低价拉新，利润款做高客单。"
           >
             <Select
               id="pf-internal-role"
@@ -724,7 +906,7 @@ export function ProductForm({
               <option value="">—</option>
               {INTERNAL_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {ROLE_LABELS[r] ?? r}
                 </option>
               ))}
             </Select>
@@ -732,6 +914,9 @@ export function ProductForm({
 
           <fieldset className="md:col-span-2">
             <legend className="text-sm font-medium text-ink">Solutions</legend>
+            <p className="mt-1 text-xs text-ink-muted">
+              卖点标签（可多选），驱动前台分类页的 Solution 筛选；不符合的不要勾选。
+            </p>
             <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {SOLUTIONS.map((s) => (
                 <li key={s}>
@@ -743,7 +928,7 @@ export function ProductForm({
                       onChange={(e) => toggleSolution(s, e.target.checked)}
                       className="h-4 w-4 rounded border-border accent-cta"
                     />
-                    {s}
+                    {SOLUTION_LABELS[s] ?? s}
                   </label>
                 </li>
               ))}
@@ -753,19 +938,23 @@ export function ProductForm({
       </Section>
 
       {/* ---------------- Dimensions ---------------- */}
-      <Section title="Dimensions">
+      <Section
+        title="Dimensions"
+        hint="商品尺寸，全部以厘米 cm 填写。填写后前台商品页自动出现 Size guide；不适用的项目留空即可。可折叠商品建议同时填折叠后尺寸（也是折叠结构的勾选依据）。"
+      >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {DIMENSION_FIELDS.map(({ key, label }) => (
+          {DIMENSION_FIELDS.map(({ key, label, hint }) => (
             <Field
               key={key}
               label={label}
               htmlFor={`pf-${key}`}
               error={err(key)}
+              hint={hint}
             >
               <TextInput
                 id={`pf-${key}`}
                 inputMode="decimal"
-                placeholder="Optional"
+                placeholder="选填"
                 value={value[key]}
                 onChange={(e) => patch({ [key]: e.target.value })}
                 autoComplete="off"
@@ -776,9 +965,19 @@ export function ProductForm({
       </Section>
 
       {/* ---------------- Images ---------------- */}
-      <Section title="Images">
+      <Section
+        title="Images"
+        hint={
+          <>
+            只能填写图片网址 URL（以 http(s):// 开头），系统暂不支持本地选图上传。图片文件可发给开发放到网站
+            <span className="font-mono"> /images/products/ </span>
+            目录后取得网址，或使用任意图床链接。Sort 数字最小的是主图；建议 4–6
+            张：白底主图、细节、尺寸图、生活场景图，不要带中文水印。
+          </>
+        }
+      >
         {value.images.length === 0 ? (
-          <p className="text-sm text-ink-muted">No images added yet.</p>
+          <p className="text-sm text-ink-muted">还没有图片，点下方按钮添加第一张（主图）。</p>
         ) : (
           <ul className="flex flex-col gap-3">
             {value.images.map((img, i) => (
@@ -790,6 +989,7 @@ export function ProductForm({
                   label={i === 0 ? "URL" : ""}
                   htmlFor={`pf-images-${i}-url`}
                   error={err(`images.${i}.url`)}
+                  hint={i === 0 ? "图片网址，必须是可直接打开的图片链接。" : undefined}
                 >
                   <TextInput
                     id={`pf-images-${i}-url`}
@@ -808,6 +1008,7 @@ export function ProductForm({
                   label={i === 0 ? "Alt text" : ""}
                   htmlFor={`pf-images-${i}-alt`}
                   error={err(`images.${i}.altText`)}
+                  hint={i === 0 ? "图片文字描述（英文即可），SEO 用。" : undefined}
                 >
                   <TextInput
                     id={`pf-images-${i}-alt`}
@@ -823,6 +1024,7 @@ export function ProductForm({
                   label={i === 0 ? "Sort" : ""}
                   htmlFor={`pf-images-${i}-sort`}
                   error={err(`images.${i}.sortOrder`)}
+                  hint={i === 0 ? "0 为主图" : undefined}
                 >
                   <TextInput
                     id={`pf-images-${i}-sort`}
@@ -862,10 +1064,13 @@ export function ProductForm({
       </Section>
 
       {/* ---------------- Variants & SKUs ---------------- */}
-      <Section title="Variants & SKUs">
+      <Section
+        title="Variants & SKUs"
+        hint="款式 = 顾客可选择的颜色/规格。每个款式对应一个 SKU；一款商品至少要有 1 个勾选了 Has SKU 的款式，保存后才能到 Inventory 页入库并销售。即使只有一种颜色也建议建 1 个款式（名字可填 Default）。"
+      >
         {value.variants.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            No variants yet. A sellable product needs a variant with a SKU.
+            还没有款式。点下方 Add variant 添加；可销售商品至少需要 1 个带 SKU 的款式。
           </p>
         ) : (
           <ul className="flex flex-col gap-4">
@@ -893,6 +1098,7 @@ export function ProductForm({
                     label="Variant name *"
                     htmlFor={`pf-variants-${i}-name`}
                     error={err(`variants.${i}.name`)}
+                    hint="款式名 = 前台商品卡上的款式按钮文字，通常填颜色，如 White / Black；只有一款可填 Default。"
                   >
                     <TextInput
                       id={`pf-variants-${i}-name`}
@@ -908,6 +1114,7 @@ export function ProductForm({
                     label="Position"
                     htmlFor={`pf-variants-${i}-position`}
                     error={err(`variants.${i}.position`)}
+                    hint="显示顺序，0 起"
                   >
                     <TextInput
                       id={`pf-variants-${i}-position`}
@@ -935,7 +1142,13 @@ export function ProductForm({
                     className="h-4 w-4 rounded border-border accent-cta"
                     disabled={pending}
                   />
-                  Has SKU
+                  <span>
+                    Has SKU
+                    <span className="font-normal text-ink-muted">
+                      {" "}
+                      — 勾选后才能填价格、入库销售；不勾选时该款式在前台只显示 View Details
+                    </span>
+                  </span>
                 </label>
 
                 {vr.sku ? (
@@ -945,6 +1158,7 @@ export function ProductForm({
                         label="SKU code *"
                         htmlFor={`pf-variants-${i}-sku-code`}
                         error={err(`variants.${i}.sku.skuCode`)}
+                        hint="内部库存编码，全店唯一。建议规则：品牌-品类-款式，如 LWG-SHOE3-WHT。"
                       >
                         <TextInput
                           id={`pf-variants-${i}-sku-code`}
@@ -959,6 +1173,7 @@ export function ProductForm({
                         label="SKU status"
                         htmlFor={`pf-variants-${i}-sku-status`}
                         error={err(`variants.${i}.sku.status`)}
+                        hint="ACTIVE 可售；DISABLED 停售（数据保留）。"
                       >
                         <Select
                           id={`pf-variants-${i}-sku-status`}
@@ -980,6 +1195,7 @@ export function ProductForm({
                         label="Supplier SKU"
                         htmlFor={`pf-variants-${i}-supplier-sku`}
                         error={err(`variants.${i}.sku.supplierSku`)}
+                        hint="工厂货号/型号（如 2786-3），内部使用，前台不显示。"
                       >
                         <TextInput
                           id={`pf-variants-${i}-supplier-sku`}
@@ -994,38 +1210,35 @@ export function ProductForm({
                         label="Cost currency"
                         htmlFor={`pf-variants-${i}-cost-currency`}
                         error={err(`variants.${i}.sku.costCurrency`)}
+                        hint="成本货币代码，如 CNY。不影响售价——售价固定为 PHP ₱。"
                       >
                         <TextInput
                           id={`pf-variants-${i}-cost-currency`}
                           value={vr.sku.costCurrency}
-                          placeholder="PHP"
+                          placeholder="CNY"
                           onChange={(e) =>
                             setSku(i, { costCurrency: e.target.value })
                           }
                           autoComplete="off"
                         />
                       </Field>
-                      {SKU_NUM_FIELDS.map(({ key, label }) => (
-                        <Field
-                          key={key}
-                          label={label}
-                          htmlFor={`pf-variants-${i}-sku-${key}`}
-                          error={err(`variants.${i}.sku.${key}`)}
-                        >
-                          <TextInput
-                            id={`pf-variants-${i}-sku-${key}`}
-                            inputMode="decimal"
-                            value={vr.sku ? vr.sku[key] : ""}
-                            onChange={(e) =>
-                              setSku(i, { [key]: e.target.value } as Partial<
-                                SkuFormValue
-                              >)
-                            }
-                            autoComplete="off"
-                          />
-                        </Field>
-                      ))}
                     </div>
+
+                    {SKU_FIELD_GROUPS.map((group) => (
+                      <div key={group.title} className="mt-4">
+                        <p className="text-xs font-semibold text-ink-secondary">
+                          {group.title}
+                        </p>
+                        {group.hint ? (
+                          <p className="mt-0.5 text-xs text-ink-muted">
+                            {group.hint}
+                          </p>
+                        ) : null}
+                        <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                          {group.keys.map((key) => renderSkuField(i, key))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </li>

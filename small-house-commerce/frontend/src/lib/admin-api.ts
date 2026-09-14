@@ -304,6 +304,17 @@ export interface AdminCategoryNode {
   children: AdminCategoryNode[];
 }
 
+export interface AdminCollectionRow {
+  id: string;
+  name: string;
+  slug: string;
+  type: "NAVIGATION" | "MARKETING" | "SCENARIO" | "SYSTEM";
+  description: string | null;
+  status: "ACTIVE" | "DISABLED";
+  sortOrder: number;
+  _count: { products: number };
+}
+
 // --- request DTOs (Decimal fields send as JSON numbers; zod z.number()) ------
 
 export interface CreateProductInput {
@@ -507,5 +518,24 @@ export const adminApi = {
     adminAuthedFetch<{ onHand: number; reserved: number; available: number }>(
       "/api/v1/admin/inventory/adjust",
       { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  // --- collections (membership management) --------------------------------
+  // PATCH /admin/collections/:id { productIds } REPLACES the full membership
+  // (service deleteMany + createMany, sortOrder = array index), so callers
+  // must always submit the complete ordered id list.
+
+  listCollections: (): Promise<Paged<AdminCollectionRow>> =>
+    adminAuthedFetch<Paged<AdminCollectionRow>>(
+      "/api/v1/admin/collections?page=1&pageSize=100",
+    ),
+
+  setCollectionProducts: (
+    id: string,
+    productIds: string[],
+  ): Promise<AdminCollectionRow> =>
+    adminAuthedFetch<AdminCollectionRow>(
+      `/api/v1/admin/collections/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ productIds }) },
     ),
 };

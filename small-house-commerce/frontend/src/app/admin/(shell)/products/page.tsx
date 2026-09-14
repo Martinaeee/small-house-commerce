@@ -298,6 +298,25 @@ function ProductsPageContent() {
         }
       />
 
+      {/* Chinese operator legend. */}
+      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
+        <p className="text-sm font-semibold text-ink">商品状态与上架要点</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>
+            <span className="font-semibold">DRAFT</span> 草稿：前台完全看不到，可先保存预览链接检查；
+            <span className="font-semibold"> ACTIVE</span> 上架中：前台可搜索、可下单；
+            <span className="font-semibold"> DISABLED</span> 已下架：前台隐藏，数据保留。
+          </li>
+          <li>
+            商品本身不存库存：保存后需到 <span className="font-semibold">Inventory</span> 页给
+            SKU 入库，库存为 0 时前台显示 Out of Stock。
+          </li>
+          <li>
+            New / Bestseller 角标由 <span className="font-semibold">Collections</span> 页的集合归属控制，不是商品字段。
+          </li>
+        </ul>
+      </div>
+
       {/* Filter bar */}
       <div className="mt-4 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">

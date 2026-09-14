@@ -42,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/inventory", label: "Inventory", permission: "INVENTORY_VIEW" },
   { href: "/admin/products", label: "Products", permission: "PRODUCT_MANAGE" },
   { href: "/admin/categories", label: "Categories", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/collections", label: "Collections", permission: "PRODUCT_MANAGE" },
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled])';

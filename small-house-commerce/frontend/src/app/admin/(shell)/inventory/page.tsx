@@ -347,6 +347,34 @@ function InventoryPageContent() {
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader title="Inventory" />
 
+      {/* Chinese operator guide for stock-in/out workflow. */}
+      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
+        <p className="text-sm font-semibold text-ink">库存怎么录入（新商品入库流程）</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>
+            商品在 Products 页保存为 <span className="font-semibold">ACTIVE</span> 且带
+            SKU 后，在下面搜索框输入商品名找到对应 SKU。
+          </li>
+          <li>
+            点该行的 <span className="font-semibold">Adjust</span>：入库填
+            <span className="font-semibold">正数</span>（如首批 50 件填
+            <span className="font-mono"> 50</span>）；盘亏/破损出库填
+            <span className="font-semibold">负数</span>（如 <span className="font-mono">-2</span>）。
+          </li>
+          <li>
+            Reason 原因<span className="font-semibold">必填</span>，例如「首批入库 50
+            件」「盘点破损 -2」，便于事后追溯。
+          </li>
+        </ol>
+        <p className="mt-2">
+          可售库存 Available = 在库 On hand − 被未完成订单占用 Reserved。库存为 0
+          的款式在前台显示 Out of Stock、不能下单；补货后自动恢复。
+        </p>
+        <p className="mt-1 text-ink-muted">
+          注意：V1 版本库存数字只在本次会话调整过该 SKU 后显示在表格里（刷新页面后不回看历史），但下单扣减/拦截始终以真实库存为准。
+        </p>
+      </div>
+
       {/* Filter bar */}
       <div className="mt-4 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
@@ -584,7 +612,12 @@ function InventoryPageContent() {
                     readOnly
                   />
                 </Field>
-                <Field label="Quantity" htmlFor="adjust-quantity" error={qtyError ?? undefined}>
+                <Field
+                  label="Quantity"
+                  htmlFor="adjust-quantity"
+                  error={qtyError ?? undefined}
+                  hint="入库填正数（如 50）；出库/盘亏填负数（如 -2）。必须是整数，不能为 0。"
+                >
                   <TextInput
                     id="adjust-quantity"
                     type="number"
@@ -601,7 +634,12 @@ function InventoryPageContent() {
                     }}
                   />
                 </Field>
-                <Field label="Reason" htmlFor="adjust-reason" error={reasonError ?? undefined}>
+                <Field
+                  label="Reason"
+                  htmlFor="adjust-reason"
+                  error={reasonError ?? undefined}
+                  hint="必填，写清调整原因，如：首批入库 50 件 / 盘点破损 -2。"
+                >
                   <TextInput
                     id="adjust-reason"
                     type="text"

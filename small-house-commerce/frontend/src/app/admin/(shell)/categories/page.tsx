@@ -426,6 +426,25 @@ export default function AdminCategoriesPage() {
         }
       />
 
+      {/* Chinese operator guide. */}
+      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
+        <p className="text-sm font-semibold text-ink">分类（Category）怎么用</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>
+            分类是商品的<span className="font-semibold">固定归属</span>，一个商品只属于一个分类，决定它出现在哪个分类页和面包屑里；营销分组（New Arrivals、Best Sellers
+            等）在左侧 Collections 页管理，两者不冲突。
+          </li>
+          <li>
+            Parent 决定层级：不填是一级大类；选了上级就是子分类（如 Shoe Racks
+            在 Storage &amp; Organization 下）。Sort 数字越小越靠前。
+          </li>
+          <li>
+            Image URL 是分类页<span className="font-semibold">顶部横幅大图</span>
+            （建议宽幅约 3:1）；留空时分类页只显示文字标题，不影响使用。
+          </li>
+        </ul>
+      </div>
+
       <div className="mt-4">
         {loading ? (
           <TableSkeleton rows={6} cols={5} />
@@ -566,7 +585,12 @@ export default function AdminCategoriesPage() {
             </p>
           ) : null}
           <div className="flex flex-col gap-4">
-            <Field label="Name" htmlFor="cat-name" error={errors.name}>
+            <Field
+              label="Name"
+              htmlFor="cat-name"
+              error={errors.name}
+              hint="英文分类名，前台直接显示。"
+            >
               <TextInput
                 id="cat-name"
                 value={form.name}
@@ -586,7 +610,12 @@ export default function AdminCategoriesPage() {
                 onChange={(e) => patchForm({ slug: e.target.value })}
               />
               {!errors.slug ? (
-                <p className="mt-1 text-xs text-ink-muted">{SLUG_HINT}</p>
+                <>
+                  <p className="mt-1 text-xs text-ink-muted">{SLUG_HINT}</p>
+                  <p className="text-xs text-ink-muted">
+                    分类页网址（/categories/ 后面那段），保存后不要随意改。
+                  </p>
+                </>
               ) : null}
             </Field>
 
@@ -594,6 +623,7 @@ export default function AdminCategoriesPage() {
               label="Parent"
               htmlFor="cat-parent"
               error={errors.parentId}
+              hint="上级分类：不选就是一级大类；选了上级则成为它的子分类。"
             >
               <Select
                 id="cat-parent"
@@ -621,6 +651,7 @@ export default function AdminCategoriesPage() {
                 label="Sort order"
                 htmlFor="cat-sort"
                 error={errors.sortOrder}
+                hint="同级分类的排序，数字越小越靠前。"
               >
                 <TextInput
                   id="cat-sort"
@@ -631,7 +662,11 @@ export default function AdminCategoriesPage() {
                 />
               </Field>
 
-              <Field label="Status" htmlFor="cat-status">
+              <Field
+                label="Status"
+                htmlFor="cat-status"
+                hint="ACTIVE 前台可见；DISABLED 隐藏整个分类页（分类内商品本身状态不变）。"
+              >
                 <Select
                   id="cat-status"
                   value={form.status}
@@ -649,6 +684,7 @@ export default function AdminCategoriesPage() {
               label="Image URL (optional)"
               htmlFor="cat-image"
               error={errors.imageUrl}
+              hint="分类页顶部横幅大图的网址；留空则分类页只显示文字标题。"
             >
               <TextInput
                 id="cat-image"
