@@ -54,7 +54,6 @@ export class OrdersService {
       variantId: string;
       variantName: string;
       unitPrice: Prisma.Decimal;
-      compareAtPrice: Prisma.Decimal | null;
       unitCost: Prisma.Decimal | null;
     }[] = [];
 
@@ -80,7 +79,6 @@ export class OrdersService {
         variantId: sku.variant.id,
         variantName: sku.variant.name,
         unitPrice: sku.price,
-        compareAtPrice: sku.compareAtPrice,
         unitCost: sku.landedCost,
       });
     }
@@ -98,15 +96,17 @@ export class OrdersService {
       }
     }
 
-    // Totals: shipping is 0 until the shipping-rate-rules module lands.
+    // Totals at the actual selling price: order lines already snapshot
+    // unitPrice/lineTotal at the selling price, so subtotal = sum of lines.
+    // compareAtPrice is a merchandising strikethrough, not an order discount —
+    // subtracting it again undercharged every marked-down SKU; discountTotal is
+    // reserved for order-level promotions (coupons), which don't exist yet.
+    // Shipping is 0 until the shipping-rate-rules module lands.
     let subtotal = 0;
-    let discount = 0;
     for (const line of lines) {
       subtotal += Number(line.unitPrice) * line.quantity;
-      if (line.compareAtPrice !== null && Number(line.compareAtPrice) > Number(line.unitPrice)) {
-        discount += (Number(line.compareAtPrice) - Number(line.unitPrice)) * line.quantity;
-      }
     }
+    const discount = 0;
     const shippingTotal = 0;
     const grandTotal = subtotal - discount + shippingTotal;
 

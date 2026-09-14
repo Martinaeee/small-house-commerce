@@ -88,17 +88,15 @@ function PreviewRow({
   );
 }
 
-function totalsFor(lines: { unitPrice: number | null; compareAtPrice: number | null; quantity: number }[]) {
+function totalsFor(lines: { unitPrice: number | null; quantity: number }[]) {
+  // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
+  // not a discount deducted again at checkout.
   let subtotal = 0;
-  let discount = 0;
   for (const line of lines) {
     if (line.unitPrice === null) continue;
     subtotal += line.unitPrice * line.quantity;
-    if (line.compareAtPrice !== null && line.compareAtPrice > line.unitPrice) {
-      discount += (line.compareAtPrice - line.unitPrice) * line.quantity;
-    }
   }
-  return { subtotal, discount, total: subtotal - discount };
+  return { subtotal, discount: 0, total: subtotal };
 }
 
 export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {

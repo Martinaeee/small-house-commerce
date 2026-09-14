@@ -188,18 +188,15 @@ export class CartService {
     }
 
     let subtotal = 0;
-    let discount = 0;
 
     const items = cart.items.map((item) => {
       const unitPrice = item.sku.price === null ? 0 : Number(item.sku.price);
-      const compareAt = item.sku.compareAtPrice === null ? 0 : Number(item.sku.compareAtPrice);
       const lineTotal = unitPrice * item.quantity;
       const availableInventory = availableBySku.get(item.sku.id) ?? 0;
 
+      // compareAtPrice is a strikethrough reference, not a cart discount —
+      // the total due is the selling-price subtotal.
       subtotal += lineTotal;
-      if (compareAt > unitPrice) {
-        discount += (compareAt - unitPrice) * item.quantity;
-      }
 
       return {
         itemId: item.id,
@@ -218,14 +215,15 @@ export class CartService {
     });
 
     // Shipping is 0 until the shipping-rate-rules module lands (DATABASE.md §81).
+    // discount stays 0 until order-level promotions exist.
     return {
       cartId: cart.id,
       expiresAt: cart.expiresAt,
       items,
       subtotal,
-      discount,
+      discount: 0,
       shipping: 0,
-      total: subtotal - discount,
+      total: subtotal,
     };
   }
 }

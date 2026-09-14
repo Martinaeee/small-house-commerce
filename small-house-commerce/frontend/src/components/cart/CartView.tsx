@@ -202,16 +202,14 @@ function ItemThumb({ item, imageUrl }: { item: CartItem; imageUrl: string | null
 }
 
 function totalsFor(items: CartItem[]) {
+  // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
+  // not a discount deducted again at checkout.
   let subtotal = 0;
-  let discount = 0;
   for (const item of items) {
     if (item.unitPrice === null) continue;
     subtotal += item.unitPrice * item.quantity;
-    if (item.compareAtPrice !== null && item.compareAtPrice > item.unitPrice) {
-      discount += (item.compareAtPrice - item.unitPrice) * item.quantity;
-    }
   }
-  return { subtotal, discount, total: subtotal - discount };
+  return { subtotal, discount: 0, total: subtotal };
 }
 
 export function CartView() {
