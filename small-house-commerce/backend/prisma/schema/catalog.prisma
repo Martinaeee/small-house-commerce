@@ -125,6 +125,7 @@ model Product {
   category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images   ProductImage[]
   reviews  ProductReview[]
+  landingPages ProductLandingPage[]
   variants ProductVariant[]
   skus     Sku[]
   collections CollectionProduct[]
