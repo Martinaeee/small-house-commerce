@@ -153,8 +153,8 @@ const DIMENSION_FIELDS: {
 ];
 
 const SKU_NUM_FIELDS: { key: keyof SkuFormValue; label: string }[] = [
-  { key: "price", label: "Price (₱)" },
-  { key: "compareAtPrice", label: "Compare-at price (₱)" },
+  { key: "price", label: "Price 售价 (₱)" },
+  { key: "compareAtPrice", label: "Compare-at price 划线原价 (₱)" },
   { key: "supplierCost", label: "Supplier cost" },
   { key: "landedCost", label: "Landed cost" },
   { key: "productWeight", label: "Product weight" },
