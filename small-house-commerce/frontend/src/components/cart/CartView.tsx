@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CartItem } from "@/lib/api";
 import { useCart } from "./CartContext";
+import { CartRecommendations } from "./CartRecommendations";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -483,6 +484,8 @@ export function CartView() {
               );
             })}
           </ul>
+
+          <CartRecommendations />
         </div>
 
         {/* Summary — selected lines only */}
