@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, TextInput, Textarea } from "@/components/admin/Field";
+import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import {
   adminApi,
   type AdminLandingPageDetail,
@@ -309,17 +310,18 @@ export function LandingPageForm({
         <div className="flex flex-col gap-2">
           {form.images.map((image, i) => (
             <div key={i} className="flex items-center gap-2">
-              <TextInput
-                aria-label={`第 ${i + 1} 张图片 URL`}
-                placeholder="https://…"
-                value={image.url}
-                onChange={(e) =>
-                  set(
-                    "images",
-                    form.images.map((item, j) => (j === i ? { ...item, url: e.target.value } : item)),
-                  )
-                }
-              />
+              <div className="min-w-0 flex-1">
+                <ImageUrlInput
+                  ariaLabel={`第 ${i + 1} 张图片 URL`}
+                  value={image.url}
+                  onChange={(url) =>
+                    set(
+                      "images",
+                      form.images.map((item, j) => (j === i ? { ...item, url } : item)),
+                    )
+                  }
+                />
+              </div>
               <TextInput
                 aria-label={`第 ${i + 1} 张图片 alt 文本`}
                 placeholder="alt（可空）"

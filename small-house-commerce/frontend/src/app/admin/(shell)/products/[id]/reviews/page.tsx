@@ -8,6 +8,7 @@ import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
+import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -562,12 +563,14 @@ function ProductReviewsContent({ productId }: { productId: string }) {
               <div className="flex flex-col gap-2">
                 {form.photos.map((photo, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <TextInput
-                      value={photo}
-                      placeholder="https://…"
-                      onChange={(e) => setPhoto(index, e.target.value)}
-                      className="flex-1"
-                    />
+                    <div className="min-w-0 flex-1">
+                      <ImageUrlInput
+                        ariaLabel={`Review photo ${index + 1} URL`}
+                        value={photo}
+                        onChange={(url) => setPhoto(index, url)}
+                        disabled={pending}
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => removePhotoRow(index)}

@@ -9,6 +9,7 @@ import {
   Textarea,
 } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
+import { ImageUrlInput } from "./ImageUrlInput";
 import type {
   AdminCategoryNode,
   CreateProductInput,
@@ -969,9 +970,8 @@ export function ProductForm({
         title="Images"
         hint={
           <>
-            只能填写图片网址 URL（以 http(s):// 开头），系统暂不支持本地选图上传。图片文件可发给开发放到网站
-            <span className="font-mono"> /images/products/ </span>
-            目录后取得网址，或使用任意图床链接。Sort 数字最小的是主图；建议 4–6
+            可直接粘贴图片网址，或点「上传图片」从电脑选图（JPG/PNG/WebP，单张不超过
+            8MB，直传 Cloudflare R2）。Sort 数字最小的是主图；建议 4–6
             张：白底主图、细节、尺寸图、生活场景图，不要带中文水印。
           </>
         }
@@ -991,17 +991,16 @@ export function ProductForm({
                   error={err(`images.${i}.url`)}
                   hint={i === 0 ? "图片网址，必须是可直接打开的图片链接。" : undefined}
                 >
-                  <TextInput
+                  <ImageUrlInput
                     id={`pf-images-${i}-url`}
                     // Row 0 has the visible Field label; later rows must
                     // still expose an accessible name (spec §12) — Field's
                     // label prop is string-only, so use aria-label (wins the
                     // accessible-name computation over the empty wrapper).
-                    aria-label={i === 0 ? undefined : `Image ${i + 1} URL`}
+                    ariaLabel={i === 0 ? undefined : `Image ${i + 1} URL`}
                     value={img.url}
-                    placeholder="https://…"
-                    onChange={(e) => setImage(i, { url: e.target.value })}
-                    autoComplete="off"
+                    onChange={(url) => setImage(i, { url })}
+                    disabled={pending}
                   />
                 </Field>
                 <Field
