@@ -158,6 +158,7 @@ export class OrdersService {
               campaignId: input.attribution.campaignId ?? null,
               adsetId: input.attribution.adsetId ?? null,
               adId: input.attribution.adId ?? null,
+              landingPageId: input.attribution.landingPageId ?? null,
               utmSource: input.attribution.utmSource ?? null,
               utmMedium: input.attribution.utmMedium ?? null,
               utmCampaign: input.attribution.utmCampaign ?? null,

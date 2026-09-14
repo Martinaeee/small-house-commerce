@@ -29,6 +29,7 @@ export const checkoutSchema = z.object({
     campaignId: z.string().max(64).nullable().optional(),
     adsetId: z.string().max(64).nullable().optional(),
     adId: z.string().max(64).nullable().optional(),
+    landingPageId: z.string().uuid().nullable().optional(),
     utmSource: z.string().max(120).nullable().optional(),
     utmMedium: z.string().max(120).nullable().optional(),
     utmCampaign: z.string().max(120).nullable().optional(),
