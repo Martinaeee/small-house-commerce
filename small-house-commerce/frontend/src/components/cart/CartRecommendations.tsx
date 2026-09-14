@@ -11,12 +11,15 @@ import { formatPrice } from "@/components/ui/PriceBox";
 
 /**
  * Compact "You May Also Like" strip on the cart page. Candidate sources, in
- * priority order: products from the same category as the cart lines, the
- * best-sellers collection, then the general catalog. Within each source
- * discounted in-stock products rank first, products already in the cart are
- * excluded, and out-of-stock products are never recommended. The section
- * renders nothing until candidates exist, and stays a single compact row
- * (horizontal scroll on mobile, 3 mini cards on desktop).
+ * priority order: the best-sellers collection, then general-catalog products
+ * from OTHER categories than the cart lines, and same-category products only
+ * as a last resort to fill the row. Rationale: once a shopper buys one type
+ * of home goods (e.g. a folding chair) the need is largely met, so cross-type
+ * best sellers outrank near-duplicates. Within every source discounted
+ * in-stock products rank first; same-product variants (they share the cart
+ * product's slug) and out-of-stock products are never recommended. The
+ * section renders nothing until candidates exist, and stays a single compact
+ * row (horizontal scroll on mobile, 3 mini cards on desktop).
  */
 
 const TAKE = 3;
@@ -24,7 +27,7 @@ const POOL_PAGE_SIZE = 24;
 
 interface Pools {
   cartKey: string;
-  sameCategory: Product[];
+  cartCategoryIds: string[];
   bestSellers: Product[];
   general: Product[];
 }
@@ -61,33 +64,18 @@ export function CartRecommendations() {
       const cartProducts = (
         await Promise.all(cartSlugs.map((slug) => fetchProduct(slug)))
       ).filter((product): product is Product => product !== null);
-      const categoryIds = [...new Set(cartProducts.map((product) => product.categoryId))];
+      const cartCategoryIds = [...new Set(cartProducts.map((product) => product.categoryId))];
 
-      const [categoryPages, bestSellersPage, generalPage] = await Promise.all([
-        Promise.all(
-          categoryIds.map((categoryId) =>
-            api.getProducts({ categoryId, pageSize: POOL_PAGE_SIZE }).catch(() => null),
-          ),
-        ),
+      const [bestSellersPage, generalPage] = await Promise.all([
         api.getCollectionProducts("best-sellers").catch(() => null),
         api.getProducts({ pageSize: POOL_PAGE_SIZE }).catch(() => null),
       ]);
 
       if (cancelled) return;
 
-      const seen = new Set<string>();
-      const sameCategory: Product[] = [];
-      for (const page of categoryPages) {
-        for (const product of page?.items ?? []) {
-          if (!seen.has(product.slug)) {
-            seen.add(product.slug);
-            sameCategory.push(product);
-          }
-        }
-      }
       setPools({
         cartKey,
-        sameCategory,
+        cartCategoryIds,
         bestSellers: bestSellersPage?.items ?? [],
         general: generalPage?.items ?? [],
       });
@@ -101,6 +89,7 @@ export function CartRecommendations() {
   const recommendations = useMemo<Product[] | null>(() => {
     if (!pools || pools.cartKey !== cartKey) return null;
     const inCart = new Set(cartSlugs);
+    const cartCategories = new Set(pools.cartCategoryIds);
 
     const eligible = (product: Product) => {
       if (inCart.has(product.slug)) return false;
@@ -115,12 +104,21 @@ export function CartRecommendations() {
         .sort((a, b) => b.pct - a.pct)
         .map((entry) => entry.product);
 
+    // Best sellers first (never same product as a cart line); then other
+    // categories for cross-type discovery; same category only fills gaps.
+    const otherCategory = pools.general.filter(
+      (product) => !cartCategories.has(product.categoryId),
+    );
+    const sameCategory = pools.general.filter((product) =>
+      cartCategories.has(product.categoryId),
+    );
+
     const chosen: Product[] = [];
     const seen = new Set<string>();
     for (const product of [
-      ...ranked(pools.sameCategory),
       ...ranked(pools.bestSellers),
-      ...ranked(pools.general),
+      ...ranked(otherCategory),
+      ...ranked(sameCategory),
     ]) {
       if (seen.has(product.slug)) continue;
       seen.add(product.slug);
