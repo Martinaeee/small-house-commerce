@@ -39,7 +39,7 @@ model ProductLandingPage {
 model LandingPageVisit {
   id            String   @id @default(uuid(7)) @db.Uuid
   landingPageId String   @map("landing_page_id") @db.Uuid
-  visitKey      String
+  visitKey      String   @map("visit_key")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   landingPage ProductLandingPage @relation(fields: [landingPageId], references: [id], onDelete: Cascade)
