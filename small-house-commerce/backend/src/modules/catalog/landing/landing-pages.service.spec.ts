@@ -2,7 +2,12 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProductsService } from '../products.service.js';
 import { LandingPagesService } from './landing-pages.service.js';
-import { createLandingPageSchema, updateLandingPageSchema } from './dto/landing-page.dto.js';
+import {
+  adminLandingPageQuerySchema,
+  bulkTitleLandingPagesSchema,
+  createLandingPageSchema,
+  updateLandingPageSchema,
+} from './dto/landing-page.dto.js';
 import { effectiveStatus } from './landing-page.util.js';
 
 const NOW = new Date('2026-09-14T12:00:00Z');
@@ -205,5 +210,154 @@ describe('LandingPagesService CRUD', () => {
     await expect(service.adminRemove('11111111-1111-1111-1111-111111111111')).resolves.toEqual({
       id: '11111111-1111-1111-1111-111111111111',
     });
+  });
+});
+
+describe('LandingPagesService.adminList metrics', () => {
+  type MetricsRow = {
+    id: string;
+    productId: string;
+    name: string;
+    slug: string;
+    adCode: string | null;
+    titleOverride: string | null;
+    promoEnabled: boolean;
+    promoHeadline: string | null;
+    promoSubtext: string | null;
+    startAt: Date | null;
+    endAt: Date | null;
+    status: 'ACTIVE' | 'DISABLED';
+    sortOrder: number;
+    createdAt: Date;
+    updatedAt: Date;
+    product: { name: string };
+  };
+  type ListArgs = {
+    where: {
+      productId?: string;
+      status?: string;
+      OR: Array<Record<string, unknown>>;
+      AND?: unknown[];
+      updatedAt: { gte?: Date; lt?: Date };
+    };
+    orderBy: unknown[];
+  };
+  type CountGroup = Array<{ landingPageId: string; _count: { _all: number } }>;
+
+  function createMetricsMock() {
+    return {
+      product: { findUnique: vi.fn(async () => ({ id: 'p1' })) },
+      productLandingPage: {
+        findMany: vi.fn(
+          async (_args: ListArgs): Promise<MetricsRow[]> => [
+            {
+              id: 'lp-1', productId: 'p1', name: 'A', slug: 'a', adCode: null, titleOverride: null,
+              promoEnabled: false, promoHeadline: null, promoSubtext: null,
+              status: 'ACTIVE', startAt: null, endAt: null, sortOrder: 0,
+              createdAt: new Date('2026-09-10T00:00:00Z'),
+              updatedAt: new Date('2026-09-10T00:00:00Z'), product: { name: 'Chair' },
+            },
+            {
+              id: 'lp-2', productId: 'p1', name: 'B', slug: 'b', adCode: 'FB-9', titleOverride: 'B 标题',
+              promoEnabled: false, promoHeadline: null, promoSubtext: null,
+              status: 'ACTIVE', startAt: null, endAt: null, sortOrder: 1,
+              createdAt: new Date('2026-09-11T00:00:00Z'),
+              updatedAt: new Date('2026-09-11T00:00:00Z'), product: { name: 'Chair' },
+            },
+          ],
+        ),
+        count: vi.fn(async () => 2),
+        updateMany: vi.fn(
+          async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({ count: 2 }),
+        ),
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+      landingPageVisit: {
+        groupBy: vi.fn(
+          async (_args: { where: Record<string, unknown> }): Promise<CountGroup> => [
+            { landingPageId: 'lp-1', _count: { _all: 4 } },
+          ],
+        ),
+      },
+      orderAttribution: {
+        groupBy: vi.fn(
+          async (_args: { where: Record<string, unknown> }): Promise<CountGroup> => [
+            { landingPageId: 'lp-1', _count: { _all: 2 } },
+          ],
+        ),
+      },
+      $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    };
+  }
+
+  it('joins visits/orders and computes conversion rate, zero when no views', async () => {
+    const prisma = createMetricsMock();
+    const service = new LandingPagesService(prisma as never, { storefrontGetBySlug: vi.fn() } as never);
+    const result = await service.adminList(adminLandingPageQuerySchema.parse({}));
+
+    expect(result.total).toBe(2);
+    const a = result.items.find((i) => i.id === 'lp-1')!;
+    const b = result.items.find((i) => i.id === 'lp-2')!;
+    expect(a).toMatchObject({ productName: 'Chair', views: 4, orders: 2, conversionRate: 0.5, effectiveStatus: 'LIVE' });
+    expect(b).toMatchObject({ views: 0, orders: 0, conversionRate: 0 });
+
+    const orderWhere = prisma.orderAttribution.groupBy.mock.calls[0]![0].where;
+    expect(orderWhere).toMatchObject({
+      landingPageId: { in: ['lp-1', 'lp-2'] },
+      order: { orderStatus: { notIn: ['CANCELLED', 'DENIED'] } },
+    });
+  });
+
+  it('passes search/status/date/effective/product filters into Prisma where', async () => {
+    const prisma = createMetricsMock();
+    const service = new LandingPagesService(prisma as never, { storefrontGetBySlug: vi.fn() } as never);
+    await service.adminList(
+      adminLandingPageQuerySchema.parse({
+        search: '椅',
+        status: 'ACTIVE',
+        effectiveStatus: 'LIVE',
+        productId: '22222222-2222-4222-a222-222222222222',
+        dateFrom: '2026-09-01',
+        dateTo: '2026-09-30',
+        sortBy: 'title',
+        sortDir: 'asc',
+      }),
+    );
+    const args = prisma.productLandingPage.findMany.mock.calls[0]![0] as ListArgs;
+    expect(args.where.productId).toBe('22222222-2222-4222-a222-222222222222');
+    expect(args.where.status).toBe('ACTIVE');
+    expect(args.where.OR.map((c: { name?: unknown }) => 'name' in c)).toContain(true);
+    expect(args.where.AND).toHaveLength(2);
+    expect(args.where.updatedAt.gte).toEqual(new Date('2026-09-01T00:00:00Z'));
+    expect(args.where.updatedAt.lt).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(args.orderBy[0]).toEqual({ titleOverride: 'asc' });
+  });
+
+  it('bulkRetitle updates all ids in one statement; DTO bounds are 1..100 ids and 1..200 chars', async () => {
+    const prisma = createMetricsMock();
+    const service = new LandingPagesService(prisma as never, { storefrontGetBySlug: vi.fn() } as never);
+    await expect(service.bulkRetitle(['lp-1', 'lp-2'], '圣诞促销')).resolves.toEqual({ updated: 2 });
+    expect(prisma.productLandingPage.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: { in: ['lp-1', 'lp-2'] } },
+      data: { titleOverride: '圣诞促销' },
+    });
+
+    expect(bulkTitleLandingPagesSchema.safeParse({ ids: [], titleOverride: 'x' }).success).toBe(false);
+    expect(
+      bulkTitleLandingPagesSchema.safeParse({
+        ids: Array.from({ length: 101 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`),
+        titleOverride: 'x',
+      }).success,
+    ).toBe(false);
+    expect(bulkTitleLandingPagesSchema.safeParse({ ids: ['11111111-1111-1111-1111-111111111111'], titleOverride: '' }).success).toBe(false);
+    expect(
+      bulkTitleLandingPagesSchema.safeParse({
+        ids: ['11111111-1111-1111-1111-111111111111'],
+        titleOverride: 'x'.repeat(201),
+      }).success,
+    ).toBe(false);
   });
 });

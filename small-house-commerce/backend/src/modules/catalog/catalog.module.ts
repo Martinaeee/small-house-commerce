@@ -7,6 +7,11 @@ import {
   AdminReviewsController,
 } from './admin/reviews.controller.js';
 import { AdminSuppliersController } from './admin/suppliers.controller.js';
+import {
+  AdminLandingPagesController,
+  AdminProductLandingPagesController,
+} from './landing/admin/landing-pages.controller.js';
+import { LandingPagesService } from './landing/landing-pages.service.js';
 import { CategoriesService } from './categories.service.js';
 import { ProductsService } from './products.service.js';
 import { ReviewsService } from './reviews.service.js';
@@ -24,10 +29,18 @@ import { SuppliersService } from './suppliers.service.js';
     AdminProductReviewsController,
     AdminReviewsController,
     AdminSuppliersController,
+    AdminLandingPagesController,
+    AdminProductLandingPagesController,
     StorefrontCategoriesController,
     StorefrontProductsController,
   ],
-  providers: [CategoriesService, ProductsService, ReviewsService, SuppliersService],
+  providers: [
+    CategoriesService,
+    ProductsService,
+    ReviewsService,
+    SuppliersService,
+    LandingPagesService,
+  ],
   exports: [ReviewsService],
 })
 export class CatalogModule {}
