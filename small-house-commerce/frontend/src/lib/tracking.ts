@@ -7,16 +7,22 @@
  * orders carry them to the backend snapshot (§5: every order preserves AID).
  */
 
-type Attribution = {
+export type Attribution = {
   sourceType?: string;
   aid?: string | null;
   campaignId?: string | null;
   adsetId?: string | null;
   adId?: string | null;
+  landingPageId?: string | null;
   utmSource?: string | null;
   utmMedium?: string | null;
   utmCampaign?: string | null;
 };
+
+/** Last-visited landing page wins; read back at checkout (TRACKING: sh:lp). */
+export const LANDING_PAGE_STORAGE_KEY = "sh:lp";
+/** One UUID per browser tab session, reused for every LP beacon in the tab. */
+export const LANDING_VISIT_SESSION_KEY = "sh:lpvisit";
 
 declare global {
   interface Window {
@@ -44,7 +50,14 @@ export function readAttribution(): Attribution {
     utmSource: params.get("utm_source") ?? null,
     utmMedium: params.get("utm_medium") ?? null,
     utmCampaign: params.get("utm_campaign") ?? null,
+    landingPageId: window.localStorage.getItem(LANDING_PAGE_STORAGE_KEY) ?? null,
   };
+}
+
+/** Called by the LP view tracker: this LP gets attribution until another is visited. */
+export function persistLandingPage(landingPageId: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LANDING_PAGE_STORAGE_KEY, landingPageId);
 }
 
 /** Loads the Meta Pixel base script once. Safe to call on every page. */

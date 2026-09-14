@@ -6,6 +6,8 @@
  * because rewrites only apply to browser requests.
  */
 
+import type { Attribution } from "./tracking";
+
 export const serverApiUrl = (path: string): string => {
   const target = process.env.API_TARGET ?? "http://localhost:3000";
   return `${target}${path}`;
@@ -141,26 +143,59 @@ export interface Paged<T> {
   pageSize: number;
 }
 
+export interface LandingImageOverride {
+  url: string;
+  altText?: string | null;
+}
+
+export interface LandingPageInfo {
+  id: string;
+  name: string;
+  slug: string;
+  titleOverride: string | null;
+  imagesOverride: LandingImageOverride[] | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  promoEnabled: boolean;
+  promoHeadline: string | null;
+  promoSubtext: string | null;
+}
+
+export interface LandingPageComposite {
+  landingPage: LandingPageInfo;
+  product: Product;
+}
+
 // --- browser client (relative paths, proxied) --------------------------------
+
+async function assertOk(res: Response): Promise<void> {
+  if (res.ok) return;
+  let message = `Request failed: ${res.status}`;
+  try {
+    const body = (await res.json()) as { message?: string };
+    if (body.message) message = body.message;
+  } catch {
+    /* keep default message */
+  }
+  throw new Error(message);
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
-
-  if (!res.ok) {
-    let message = `Request failed: ${res.status}`;
-    try {
-      const body = (await res.json()) as { message?: string };
-      if (body.message) message = body.message;
-    } catch {
-      /* keep default message */
-    }
-    throw new Error(message);
-  }
-
+  await assertOk(res);
   return res.json() as Promise<T>;
+}
+
+// View beacons return 204 No Content.
+async function requestVoid(path: string, init?: RequestInit): Promise<void> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  await assertOk(res);
 }
 
 export const api = {
@@ -187,6 +222,15 @@ export const api = {
     return request<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
   },
   getProductBySlug: (slug: string) => request<Product>(`/api/v1/storefront/products/${slug}`),
+  getLandingPage: (slug: string) =>
+    request<LandingPageComposite>(
+      `/api/v1/storefront/lp/${encodeURIComponent(slug)}`,
+    ),
+  recordLandingPageView: (slug: string, visitKey: string) =>
+    requestVoid(`/api/v1/storefront/lp/${encodeURIComponent(slug)}/view`, {
+      method: "POST",
+      body: JSON.stringify({ visitKey }),
+    }),
   getCollections: (type?: string) =>
     request<{ items: Collection[]; total: number }>(
       `/api/v1/storefront/collections${type ? `?type=${type}` : ""}`,
@@ -227,7 +271,7 @@ export const api = {
       landmark?: string | null;
     };
     items: { skuId: string; quantity: number }[];
-    attribution?: { sourceType?: string; aid?: string | null };
+    attribution?: Attribution;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",

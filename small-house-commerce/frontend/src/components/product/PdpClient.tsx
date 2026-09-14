@@ -1,7 +1,7 @@
 // src/components/product/PdpClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Product } from "@/lib/api";
@@ -44,10 +44,16 @@ export function PdpClient({
   product,
   category,
   delivery,
+  productPath,
+  promoSlot,
 }: {
   product: Product;
   category: { name: string; slug: string } | null;
   delivery: DeliveryWindows;
+  /** Base path for ?variant= sync; LP pages pass /lp/<slug>, PDP defaults to /products/<slug>. */
+  productPath?: string;
+  /** Optional promotional block rendered between breadcrumb and H1 (LP only). */
+  promoSlot?: ReactNode;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -108,12 +114,13 @@ export function PdpClient({
     if (urlVariant === null && selectedVariantId === initialVariantId) return;
     const params = new URLSearchParams(window.location.search);
     params.set("variant", selectedVariantId);
-    const url = `/products/${product.slug}?${params.toString()}`;
+    const basePath = productPath ?? `/products/${product.slug}`;
+    const url = `${basePath}?${params.toString()}`;
     // Garbage ?variant= is normalized without growing history.
     const urlIsInvalid = urlVariant !== null && !variants.some((v) => v.id === urlVariant);
     if (urlIsInvalid) router.replace(url, { scroll: false });
     else router.push(url, { scroll: false });
-  }, [selectedVariantId, urlVariant, initialVariantId, variants, product.slug, router]);
+  }, [selectedVariantId, urlVariant, initialVariantId, variants, productPath, product.slug, router]);
 
   // Reserve space for the fixed mobile CTA so the footer stays reachable.
   useEffect(() => {
@@ -218,6 +225,8 @@ export function PdpClient({
             {" › "}
             <span className="text-ink-secondary">{product.name}</span>
           </nav>
+
+          {promoSlot}
 
           {/* Name row; quick-add glyph replaces the wishlist heart on mobile */}
           <div className="flex items-start justify-between gap-3">

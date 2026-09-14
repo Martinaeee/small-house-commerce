@@ -1,21 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Suspense } from "react";
-import { PdpClient } from "@/components/product/PdpClient";
-import { PdpInfoSections } from "@/components/product/PdpInfoSections";
-import { ProductCard } from "@/components/product/ProductCard";
-import { ReviewSection } from "@/components/product/ReviewSection";
-import { TrustBar } from "@/components/ui/TrustBar";
+import { PdpView } from "@/components/product/PdpView";
 import { deliveryWindows } from "@/lib/deliveryWindow";
-import { serverApiUrl, type Category, type Paged, type Product, type Sku } from "@/lib/api";
+import { absoluteUrl, buildProductJsonLd } from "@/lib/product-jsonld";
+import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
 
 export const revalidate = 120;
-
-const SITE_URL = "https://smallhouse.ph";
-
-function absoluteUrl(url: string): string {
-  return url.startsWith("/") ? `${SITE_URL}${url}` : url;
-}
 
 async function fetchProduct(slug: string): Promise<Product | null> {
   try {
@@ -29,7 +19,7 @@ async function fetchProduct(slug: string): Promise<Product | null> {
   }
 }
 
-async function fetchCategoryInfo(
+export async function fetchCategoryInfo(
   categoryId: string,
 ): Promise<{ name: string; slug: string } | null> {
   try {
@@ -48,82 +38,6 @@ async function fetchCategoryInfo(
   } catch {
     return null;
   }
-}
-
-/** Product (+ BreadcrumbList) JSON-LD. Omit fields we cannot populate honestly. */
-function buildJsonLd(
-  product: Product,
-  category: { name: string; slug: string } | null,
-): Record<string, unknown> {
-  const pageUrl = `${SITE_URL}/products/${product.slug}`;
-  const images = [...product.images]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((image) => absoluteUrl(image.url));
-
-  const sellableSkus = product.variants.flatMap((variant) =>
-    variant.sku ? [variant.sku] : [],
-  );
-  const pricedSkus = sellableSkus.filter(
-    (sku): sku is Sku => sku.price !== null,
-  );
-
-  const offers =
-    pricedSkus.length > 0
-      ? {
-          "@type": "AggregateOffer",
-          priceCurrency: "PHP",
-          lowPrice: Math.min(...pricedSkus.map((sku) => sku.price as number)),
-          highPrice: Math.max(...pricedSkus.map((sku) => sku.price as number)),
-          offerCount: pricedSkus.length,
-          availability: sellableSkus.some((sku) => sku.availableInventory > 0)
-            ? "https://schema.org/InStock"
-            : "https://schema.org/OutOfStock",
-          itemCondition: "https://schema.org/NewCondition",
-          url: pageUrl,
-        }
-      : undefined;
-
-  // Aggregate ratings only exist when visible reviews exist; inventing one
-  // would be fake-review markup.
-  const aggregateRating =
-    product.reviewCount > 0 && product.ratingAverage !== null
-      ? {
-          "@type": "AggregateRating",
-          ratingValue: product.ratingAverage,
-          reviewCount: product.reviewCount,
-          bestRating: 5,
-          worstRating: 1,
-        }
-      : undefined;
-
-  const productLd: Record<string, unknown> = {
-    "@type": "Product",
-    name: product.name,
-    description: product.description ?? undefined,
-    image: images.length > 0 ? images : undefined,
-    sku: sellableSkus[0]?.skuCode,
-    brand: { "@type": "Brand", name: "Small House" },
-    category: category?.name,
-    offers,
-    aggregateRating,
-  };
-
-  const crumbs = [
-    { name: "Home", url: SITE_URL },
-    ...(category ? [{ name: category.name, url: `${SITE_URL}/categories/${category.slug}` }] : []),
-    { name: product.name, url: pageUrl },
-  ];
-  const breadcrumbLd = {
-    "@type": "BreadcrumbList",
-    itemListElement: crumbs.map((crumb, index) => ({
-      "@type": "ListItem",
-      position: index + 1,
-      name: crumb.name,
-      item: crumb.url,
-    })),
-  };
-
-  return { "@context": "https://schema.org", "@graph": [productLd, breadcrumbLd] };
 }
 
 export async function generateMetadata({
@@ -188,61 +102,13 @@ export default async function ProductDetailPage({
     }
   }
 
-  const jsonLd = buildJsonLd(product, category);
-  const delivery = deliveryWindows();
-
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          // Escape "<" as the JSON escape so admin-authored strings cannot
-          // break out of the script tag; JSON parsers still read it as "<".
-          __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
-        }}
-      />
-      <Suspense fallback={null}>
-        {/* key remounts the island per product so in-app PDP→PDP navigation
-            cannot carry the previous product selected variant into state/URL. */}
-        <PdpClient key={product.id} product={product} category={category} delivery={delivery} />
-      </Suspense>
-
-      {/* Desktop section anchors; the 64px offset clears the sticky header. */}
-      <nav
-        aria-label="Product sections"
-        className="sticky top-16 z-20 mt-10 hidden gap-6 border-b border-border bg-background/95 py-3 text-sm font-semibold backdrop-blur lg:flex"
-      >
-        {product.description && (
-          <a href="#details" className="text-ink-secondary hover:text-cta">Details</a>
-        )}
-        <a href="#shipping-faq" className="text-ink-secondary hover:text-cta">Delivery &amp; FAQs</a>
-        <a href="#reviews" className="text-ink-secondary hover:text-cta">Reviews</a>
-      </nav>
-
-      <section className="mt-12 flex flex-col gap-8 lg:mt-8">
-        {product.description && (
-          <div id="details" className="scroll-mt-28 rounded-lg border border-border bg-card p-6">
-            <h2 className="mb-3 text-2xl font-semibold text-ink">Description</h2>
-            <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">
-              {product.description}
-            </p>
-          </div>
-        )}
-        <PdpInfoSections />
-        <ReviewSection product={product} />
-        <TrustBar />
-      </section>
-
-      {related.length > 0 && (
-        <section className="mt-12">
-          <h2 className="mb-6 text-2xl font-semibold text-ink">You May Also Like</h2>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {related.map((item) => (
-              <ProductCard key={item.id} product={item} />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
+    <PdpView
+      product={product}
+      category={category}
+      delivery={deliveryWindows()}
+      related={related}
+      jsonLd={buildProductJsonLd(product, category)}
+    />
   );
 }
