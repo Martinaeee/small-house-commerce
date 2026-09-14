@@ -366,6 +366,12 @@ export interface BatchReviewInput {
   isVisible?: boolean;
 }
 
+export interface BatchLineError {
+  row: number;
+  field: string;
+  message: string;
+}
+
 export interface AdminCategoryNode {
   id: string;
   parentId: string | null;

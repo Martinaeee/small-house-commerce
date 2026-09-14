@@ -119,11 +119,13 @@ export function clearAdminSession(): void {
  */
 export class AdminApiError extends Error {
   readonly status: number;
+  readonly details?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, details?: unknown) {
     super(message);
     this.name = "AdminApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -132,12 +134,12 @@ export function errorStatus(err: unknown): number | null {
   return err instanceof AdminApiError ? err.status : null;
 }
 
-async function readError(res: Response): Promise<string> {
+async function readError(res: Response): Promise<{ message: string; body: unknown }> {
   try {
     const body = (await res.json()) as { message?: string };
-    return body.message ?? `Request failed: ${res.status}`;
+    return { message: body.message ?? `Request failed: ${res.status}`, body };
   } catch {
-    return `Request failed: ${res.status}`;
+    return { message: `Request failed: ${res.status}`, body: undefined };
   }
 }
 
@@ -206,7 +208,16 @@ export async function adminAuthedFetch<T>(
     const refreshed = await refreshAdminAccess();
     if (refreshed) res = await run(refreshed);
   }
-  if (!res.ok) throw new AdminApiError(await readError(res), res.status);
+  if (!res.ok) {
+    const error = await readError(res);
+    throw new AdminApiError(
+      error.message,
+      res.status,
+      typeof error.body === "object" && error.body !== null && "errors" in error.body
+        ? (error.body as { errors: unknown }).errors
+        : undefined,
+    );
+  }
   // Some endpoints (e.g. DELETE /admin/reviews/:id) return 2xx with no body.
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -262,7 +273,16 @@ export const adminAuthApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) throw new AdminApiError(await readError(res), res.status);
+    if (!res.ok) {
+      const error = await readError(res);
+      throw new AdminApiError(
+        error.message,
+        res.status,
+        typeof error.body === "object" && error.body !== null && "errors" in error.body
+          ? (error.body as { errors: unknown }).errors
+          : undefined,
+      );
+    }
     const data = (await res.json()) as TokenPair;
     // New session: invalidate any in-flight refresh from a previous session.
     sessionEpoch += 1;

@@ -9,6 +9,7 @@ import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import { BatchImportReviewsDialog } from "./batch-import-dialog";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -153,6 +154,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
 
   const [editing, setEditing] = useState<AdminReview | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
   const [pending, setPending] = useState(false);
@@ -338,6 +340,11 @@ function ProductReviewsContent({ productId }: { productId: string }) {
             >
               Back to product
             </Link>
+            {canManage ? (
+              <Button variant="secondary" size="md" onClick={() => setBatchOpen(true)}>
+                批量导入
+              </Button>
+            ) : null}
             {canManage ? (
               <Button size="md" onClick={openCreate}>
                 Add review
@@ -658,6 +665,13 @@ function ProductReviewsContent({ productId }: { productId: string }) {
           </form>
         ) : null}
       </Dialog>
+
+      <BatchImportReviewsDialog
+        productId={productId}
+        open={batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onImported={reload}
+      />
     </div>
   );
 }
