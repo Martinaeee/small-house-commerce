@@ -31,7 +31,9 @@ export function AccountEntry() {
         aria-label="Your account"
       >
         {icon}
-        <span className="hidden text-sm font-medium lg:inline">Hi, {firstName}</span>
+        <span className="hidden text-sm font-medium lg:inline xl:hidden">
+          Hi, {firstName}
+        </span>
       </Link>
     );
   }
@@ -43,7 +45,7 @@ export function AccountEntry() {
       aria-label="Log in"
     >
       {icon}
-      <span className="hidden text-sm font-medium lg:inline">
+      <span className="hidden text-sm font-medium lg:inline xl:hidden">
         {status === "loading" ? "" : "Log in"}
       </span>
     </Link>

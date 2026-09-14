@@ -25,6 +25,9 @@ import { formatPrice } from "@/components/ui/PriceBox";
  */
 const DEBOUNCE_MS = 250;
 const SUGGESTION_LIMIT = 6;
+// The xl single-row header pill is only 160px wide; never let the suggestion
+// panel shrink below this (it right-aligns to the pill to stay on-screen).
+const SUGGESTION_PANEL_MIN_WIDTH = 320;
 
 function SearchIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -208,7 +211,7 @@ export function SiteSearch() {
           onClick={(e) => measure(e.currentTarget)}
           onKeyDown={onKeyDown}
           role="combobox"
-          placeholder="Search furniture…"
+          placeholder="Search…"
           aria-label="Search products"
           aria-expanded={open}
           aria-controls={`${navId}-search-suggestions`}
@@ -238,10 +241,12 @@ export function SiteSearch() {
         <SearchIcon className="h-6 w-6" />
       </button>
 
-      {/* Desktop: wide centered pill on row 1. flex-1 grows it between logo and
-          the account/cart cluster; max-w + mx-auto center the capped width.
-          py-2.5 holds row 1 at the original 64px header height. */}
-      <div className="mx-auto hidden w-full max-w-[560px] flex-1 py-2.5 lg:block">
+      {/* Desktop pill. lg: wide centered pill on header row 1 (flex-1 grows it
+          between logo and the account/cart cluster; max-w + mx-auto center the
+          capped width). xl: fixed-width pill pushed to the right edge next to
+          the account icon on the merged single row. py-2.5 keeps the 64px
+          header height. */}
+      <div className="mx-auto hidden w-full max-w-[560px] flex-1 py-2.5 lg:block xl:ml-auto xl:mr-0 xl:w-40 xl:max-w-none xl:flex-none">
         {renderField(null)}
       </div>
 
@@ -285,7 +290,19 @@ export function SiteSearch() {
             <div
               id={`${navId}-search-suggestions`}
               className="fixed z-50 overflow-hidden rounded-lg border border-border bg-background shadow-lg"
-              style={{ top: anchor.top, left: anchor.left, width: anchor.width }}
+              style={{
+                top: anchor.top,
+                width: Math.max(anchor.width, SUGGESTION_PANEL_MIN_WIDTH),
+                // When the panel is wider than the narrow xl pill, right-align
+                // it to the pill so it stays inside the viewport; wide lg/mobile
+                // anchors already meet the min width, so this is their own left.
+                left: Math.min(
+                  anchor.left,
+                  anchor.left +
+                    anchor.width -
+                    Math.max(anchor.width, SUGGESTION_PANEL_MIN_WIDTH),
+                ),
+              }}
               role="listbox"
             >
               {loading && results.length === 0 ? (

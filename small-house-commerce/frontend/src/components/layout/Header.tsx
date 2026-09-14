@@ -7,10 +7,12 @@ import { SiteSearch } from "./SiteSearch";
 /**
  * DESIGN_SYSTEM §11 Navigation + HOMEPAGE_SPEC §6 Header.
  * Sits below the site-wide AnnouncementBar and sticks to the top on scroll.
- * Desktop (lg+): two rows in one wrapping flex line — row 1 logo | search
- * pill | account/cart, row 2 the full-width mega-menu nav (order-6 /
- * basis-full). Mobile: hamburger (left) + centered logo + compact search /
- * account / cart targets; hamburger opens MainNav's left slide-in drawer.
+ * Desktop lg (1024–1279px): two rows in one wrapping flex line — row 1
+ * logo | search pill | account/cart, row 2 the full-width mega-menu nav
+ * (order-6 / basis-full). xl (≥1280px): everything on one row — logo |
+ * nav, then search/account/cart pushed right (ml-auto). Mobile: hamburger
+ * (left) + centered logo + compact search / account / cart targets;
+ * hamburger opens MainNav's left slide-in drawer.
  */
 
 const LOGO = "Small House PH";
@@ -18,7 +20,7 @@ const LOGO = "Small House PH";
 export function Header({ navItems }: { navItems: NavItem[] }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6">
+      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6 xl:gap-x-2.5">
         {/* Logo: first in flow on desktop; absolutely centered on mobile
             (the in-flow hamburger/cart then occupy left/right). */}
         <Link

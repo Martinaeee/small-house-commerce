@@ -189,14 +189,16 @@ export function MainNav({ items }: { items: NavItem[] }) {
           (order-6 + basis-full wrap it under the logo/search/icons line). */}
       <nav
         aria-label="Main navigation"
-        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex"
+        // lg: second row of the wrapping header (order-6/basis-full).
+        // xl: inline after the logo on the single merged row.
+        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex xl:order-none xl:basis-auto xl:gap-x-2.5 xl:pb-0 xl:pt-0"
       >
         {items.map((item) =>
           item.kind === "link" ? (
             <Link
               key={item.href}
               href={item.href}
-              className="shrink-0 text-sm font-medium text-ink hover:text-cta"
+              className="shrink-0 text-sm font-medium text-ink hover:text-cta xl:text-[13px]"
             >
               {item.label}
             </Link>
@@ -226,11 +228,14 @@ export function MainNav({ items }: { items: NavItem[] }) {
                   }
                   aria-expanded={desktopOpen === item.root.slug}
                   aria-controls={`${navId}-mega-panel`}
-                  className="shrink-0 py-2 text-sm font-medium text-ink hover:text-cta"
+                  className="shrink-0 py-2 text-sm font-medium text-ink hover:text-cta xl:text-[13px]"
                 >
                   {item.root.name}
                 </Link>
-                <span aria-hidden className="py-2 text-ink">
+                {/* Chevron hidden on the tight single xl row; hover/focus still
+                    opens the mega panel and the label itself links to the
+                    category. Kept on the lg two-row header. */}
+                <span aria-hidden className="py-2 text-ink xl:hidden">
                   <Chevron open={desktopOpen === item.root.slug} />
                 </span>
               </span>
