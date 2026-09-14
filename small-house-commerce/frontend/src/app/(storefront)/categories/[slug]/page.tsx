@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CollectionFilters } from "@/components/collection/CollectionFilters";
-import { ProductCard } from "@/components/product/ProductCard";
+import { CategoryPlpClient } from "@/components/category/CategoryPlpClient";
 import { findCategory } from "@/lib/nav";
+import { PLP_PAGE_SIZE } from "@/lib/plp";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
 
 export const revalidate = 120;
@@ -30,21 +30,13 @@ async function resolveCategory(slug: string): Promise<ResolvedCategory | null> {
   }
 }
 
-async function fetchProducts(
-  categoryId: string,
-  page: number,
-  filters: { room?: string; solution?: string; minPrice?: number; maxPrice?: number },
-): Promise<Paged<Product> | null> {
+async function fetchFirstPage(categoryId: string): Promise<Paged<Product> | null> {
   try {
     const q = new URLSearchParams({
       categoryId,
-      page: String(page),
-      pageSize: "24",
+      page: "1",
+      pageSize: String(PLP_PAGE_SIZE),
     });
-    if (filters.room) q.set("room", filters.room);
-    if (filters.solution) q.set("solution", filters.solution);
-    if (filters.minPrice !== undefined) q.set("minPrice", String(filters.minPrice));
-    if (filters.maxPrice !== undefined) q.set("maxPrice", String(filters.maxPrice));
     const res = await fetch(serverApiUrl(`/api/v1/storefront/products?${q.toString()}`), {
       next: { revalidate },
     });
@@ -72,40 +64,17 @@ export async function generateMetadata({
   };
 }
 
-export default async function CategoryPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ slug: string }>;
-  searchParams: Promise<{
-    page?: string;
-    room?: string;
-    solution?: string;
-    minPrice?: string;
-    maxPrice?: string;
-  }>;
-}) {
+export default async function CategoryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page) || 1);
 
   const resolved = await resolveCategory(slug);
   if (!resolved) notFound();
   const { node, parent } = resolved;
 
-  const filters = {
-    room: sp.room,
-    solution: sp.solution,
-    minPrice: sp.minPrice !== undefined ? Number(sp.minPrice) : undefined,
-    maxPrice: sp.maxPrice !== undefined ? Number(sp.maxPrice) : undefined,
-  };
-
   // Backend expands the subtree: a root page lists products on every leaf.
-  const products = await fetchProducts(node.id, page, filters);
+  const products = await fetchFirstPage(node.id);
   const items = products?.items ?? [];
-  const totalPages = products ? Math.max(1, Math.ceil(products.total / products.pageSize)) : 1;
-  const activeFilterCount =
-    (filters.room ? 1 : 0) + (filters.solution ? 1 : 0) + (filters.minPrice !== undefined ? 1 : 0);
+  const total = products?.total ?? 0;
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
@@ -126,97 +95,41 @@ export default async function CategoryPage({
         <span className="text-ink-secondary">{node.name}</span>
       </nav>
 
-      {/* Header */}
-      <section className="mt-4 flex flex-col gap-3">
-        <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{node.name}</h1>
-        {node.children.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {node.children.map((leaf) => (
-              <Link
-                key={leaf.id}
-                href={`/categories/${leaf.slug}`}
-                className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-ink-secondary transition-colors hover:border-primary hover:text-cta"
-              >
-                {leaf.name}
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Sub-category sections */}
+      {node.children.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {node.children.map((leaf) => (
+            <Link
+              key={leaf.id}
+              href={`/categories/${leaf.slug}`}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+            >
+              {leaf.name}
+            </Link>
+          ))}
+        </div>
+      )}
 
-      {/* Filters */}
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
-        <CollectionFilters
-          basePath={`/categories/${slug}`}
-          active={{
-            room: sp.room,
-            solution: sp.solution,
-            minPrice: sp.minPrice,
-            maxPrice: sp.maxPrice,
-          }}
-        />
-      </div>
+      {/* Category hero: category image with overlaid name; plain title until
+          the admin uploads one. */}
+      {node.imageUrl ? (
+        <div className="relative mt-4 h-48 overflow-hidden rounded-lg sm:h-64">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={node.imageUrl}
+            alt={node.name}
+            className="h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-ink/60 via-ink/25 to-transparent" />
+          <h1 className="absolute bottom-5 left-5 text-3xl font-semibold text-white drop-shadow-sm sm:text-4xl">
+            {node.name}
+          </h1>
+        </div>
+      ) : (
+        <h1 className="mt-4 text-3xl font-semibold text-ink sm:text-4xl">{node.name}</h1>
+      )}
 
-      {/* Products */}
-      <section className="mt-8">
-        <h2 className="mb-6 text-2xl font-semibold text-ink">
-          {node.name}
-          {products && (
-            <span className="ml-2 text-base font-normal text-ink-muted">
-              ({products.total}
-              {activeFilterCount > 0 ? " filtered" : ""})
-            </span>
-          )}
-        </h2>
-
-        {items.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card p-8 text-center">
-            <p className="text-ink-secondary">
-              {activeFilterCount > 0
-                ? "No products match these filters."
-                : "No products in this category yet."}
-            </p>
-            {activeFilterCount > 0 && (
-              <Link
-                href={`/categories/${slug}`}
-                className="mt-3 inline-block text-sm text-cta hover:underline"
-              >
-                Clear all filters
-              </Link>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-              {items.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
-
-            <nav aria-label="Category pages" className="mt-8 flex items-center justify-center gap-4">
-              {page > 1 && (
-                <Link
-                  href={`/categories/${slug}?page=${page - 1}`}
-                  className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-ink hover:border-primary"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="text-sm text-ink-muted">
-                Page {page} of {totalPages}
-              </span>
-              {page < totalPages && (
-                <Link
-                  href={`/categories/${slug}?page=${page + 1}`}
-                  className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-ink hover:border-primary"
-                >
-                  Load more
-                </Link>
-              )}
-            </nav>
-          </>
-        )}
-      </section>
+      <CategoryPlpClient categoryId={node.id} initialProducts={items} initialTotal={total} />
     </div>
   );
 }
