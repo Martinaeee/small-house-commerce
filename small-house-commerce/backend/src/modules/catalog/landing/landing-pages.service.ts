@@ -6,6 +6,7 @@ import { ProductsService } from '../products.service.js';
 import type {
   AdminLandingPageQuery,
   CreateLandingPageInput,
+  LandingImageOverrideInput,
   UpdateLandingPageInput,
 } from './dto/landing-page.dto.js';
 import { effectiveStatus, type LandingEffectiveStatus } from './landing-page.util.js';
@@ -41,6 +42,12 @@ function nextUtcDay(date: string): Date {
 
 function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'P2002';
+}
+
+// Only accept an actual non-empty array of objects from the Json column.
+function toImageOverrides(value: Prisma.JsonValue | null): LandingImageOverrideInput[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return value as LandingImageOverrideInput[];
 }
 
 // '' from a trimmed optional string is normalized to NULL; undefined stays
@@ -207,6 +214,62 @@ export class LandingPagesService {
     await this.ensureLandingPage(id);
     await this.prisma.productLandingPage.delete({ where: { id } });
     return { id };
+  }
+
+  // Public composite for /lp/:slug: whitelisted LP fields + the same storefront
+  // product payload the PDP uses. Every non-public state collapses to 404 so
+  // scheduled/disabled/ended pages are not disclosed.
+  async storefrontGetComposite(slug: string) {
+    const lp = await this.prisma.productLandingPage.findUnique({
+      where: { slug },
+      include: { product: { select: { slug: true, status: true } } },
+    });
+    if (!lp || lp.product.status !== 'ACTIVE' || effectiveStatus(lp) !== 'LIVE') {
+      throw new NotFoundException(`Landing page #${slug} not found`);
+    }
+    const product = await this.products.storefrontGetBySlug(lp.product.slug);
+    return {
+      landingPage: {
+        id: lp.id,
+        name: lp.name,
+        slug: lp.slug,
+        titleOverride: lp.titleOverride,
+        imagesOverride: toImageOverrides(lp.imagesOverride),
+        seoTitle: lp.seoTitle,
+        seoDescription: lp.seoDescription,
+        promoEnabled: lp.promoEnabled,
+        promoHeadline: lp.promoHeadline,
+        promoSubtext: lp.promoSubtext,
+      },
+      product,
+    };
+  }
+
+  // Idempotent per-session view beacon. Never throws for a not-live page or a
+  // first-hit race: the count stays correct either way.
+  async recordView(slug: string, visitKey: string): Promise<void> {
+    const lp = await this.prisma.productLandingPage.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        status: true,
+        startAt: true,
+        endAt: true,
+        product: { select: { status: true } },
+      },
+    });
+    if (!lp || lp.product.status !== 'ACTIVE' || effectiveStatus(lp) !== 'LIVE') return;
+    try {
+      await this.prisma.landingPageVisit.upsert({
+        where: { landingPageId_visitKey: { landingPageId: lp.id, visitKey } },
+        create: { landingPageId: lp.id, visitKey },
+        update: {},
+      });
+    } catch (error) {
+      // Concurrent first-hit race: the unique row already exists, count is unchanged.
+      if (isUniqueViolation(error)) return;
+      throw error;
+    }
   }
 
   private async ensureProduct(productId: string) {

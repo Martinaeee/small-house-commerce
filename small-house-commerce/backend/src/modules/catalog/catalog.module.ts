@@ -12,6 +12,7 @@ import {
   AdminProductLandingPagesController,
 } from './landing/admin/landing-pages.controller.js';
 import { LandingPagesService } from './landing/landing-pages.service.js';
+import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
 import { CategoriesService } from './categories.service.js';
 import { ProductsService } from './products.service.js';
 import { ReviewsService } from './reviews.service.js';
@@ -33,6 +34,7 @@ import { SuppliersService } from './suppliers.service.js';
     AdminProductLandingPagesController,
     StorefrontCategoriesController,
     StorefrontProductsController,
+    StorefrontLandingPagesController,
   ],
   providers: [
     CategoriesService,

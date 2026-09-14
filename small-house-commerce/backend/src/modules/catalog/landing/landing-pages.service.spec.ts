@@ -361,3 +361,118 @@ describe('LandingPagesService.adminList metrics', () => {
     ).toBe(false);
   });
 });
+
+describe('storefront landing composite + view beacon', () => {
+  const liveInclude = () => ({
+    id: 'lp-1',
+    name: 'A',
+    adCode: 'FB-1',
+    slug: 'a',
+    titleOverride: '促销名',
+    imagesOverride: [{ url: 'https://cdn.example.test/a.jpg', altText: '图' }],
+    seoTitle: null,
+    seoDescription: null,
+    promoEnabled: true,
+    promoHeadline: 'Christmas Sale',
+    promoSubtext: null,
+    status: 'ACTIVE' as const,
+    startAt: null,
+    endAt: null,
+    sortOrder: 0,
+    product: { slug: 'chair', status: 'ACTIVE' as const },
+  });
+
+  it('returns whitelisted landing fields plus the storefront product', async () => {
+    const prisma = {
+      product: { findUnique: vi.fn() },
+      productLandingPage: { findUnique: vi.fn(async () => liveInclude()) },
+      landingPageVisit: { upsert: vi.fn() },
+    };
+    const products = {
+      storefrontGetBySlug: vi.fn(async () => ({ id: 'p1', slug: 'chair', name: 'Chair' })),
+    };
+    const service = new LandingPagesService(prisma as never, products as never);
+
+    const result = await service.storefrontGetComposite('a');
+    expect(products.storefrontGetBySlug).toHaveBeenCalledWith('chair');
+    expect(result.landingPage).toEqual({
+      id: 'lp-1',
+      name: 'A',
+      slug: 'a',
+      titleOverride: '促销名',
+      imagesOverride: [{ url: 'https://cdn.example.test/a.jpg', altText: '图' }],
+      seoTitle: null,
+      seoDescription: null,
+      promoEnabled: true,
+      promoHeadline: 'Christmas Sale',
+      promoSubtext: null,
+    });
+    expect(result.landingPage).not.toHaveProperty('adCode');
+    expect(result.landingPage).not.toHaveProperty('status');
+    expect(result.product).toMatchObject({ slug: 'chair' });
+  });
+
+  it.each([
+    ['missing', null],
+    ['disabled', { ...liveInclude(), status: 'DISABLED' as const }],
+    ['scheduled', { ...liveInclude(), startAt: new Date('2099-01-01T00:00:00Z') }],
+    ['ended', { ...liveInclude(), endAt: new Date('2000-01-01T00:00:00Z') }],
+    ['parent draft', { ...liveInclude(), product: { slug: 'chair', status: 'DRAFT' as const } }],
+  ])('404 when %s', async (_label, row) => {
+    const prisma = {
+      productLandingPage: { findUnique: vi.fn(async () => row) },
+      landingPageVisit: { upsert: vi.fn() },
+    };
+    const products = { storefrontGetBySlug: vi.fn() };
+    const service = new LandingPagesService(prisma as never, products as never);
+    await expect(service.storefrontGetComposite('a')).rejects.toBeInstanceOf(NotFoundException);
+    expect(products.storefrontGetBySlug).not.toHaveBeenCalled();
+  });
+
+  it('recordView upserts with the compound unique key for a live LP', async () => {
+    const prisma = {
+      productLandingPage: {
+        findUnique: vi.fn(async () => ({
+          id: 'lp-1', status: 'ACTIVE' as const, startAt: null, endAt: null,
+          product: { status: 'ACTIVE' as const },
+        })),
+      },
+      landingPageVisit: { upsert: vi.fn(async () => ({})) },
+    };
+    const service = new LandingPagesService(prisma as never, { storefrontGetBySlug: vi.fn() } as never);
+    await service.recordView('a', 'visit-uuid-1234');
+    expect(prisma.landingPageVisit.upsert).toHaveBeenCalledWith({
+      where: { landingPageId_visitKey: { landingPageId: 'lp-1', visitKey: 'visit-uuid-1234' } },
+      create: { landingPageId: 'lp-1', visitKey: 'visit-uuid-1234' },
+      update: {},
+    });
+  });
+
+  it('recordView is a silent no-op when not live and swallows a race P2002', async () => {
+    type ViewLookup = {
+      id: string;
+      status: 'ACTIVE' | 'DISABLED';
+      startAt: Date | null;
+      endAt: Date | null;
+      product: { status: 'ACTIVE' | 'DRAFT' };
+    };
+    const prisma = {
+      productLandingPage: {
+        findUnique: vi.fn(async (): Promise<ViewLookup> => ({
+          id: 'lp-1', status: 'DISABLED', startAt: null, endAt: null,
+          product: { status: 'ACTIVE' },
+        })),
+      },
+      landingPageVisit: { upsert: vi.fn() },
+    };
+    const service = new LandingPagesService(prisma as never, { storefrontGetBySlug: vi.fn() } as never);
+    await expect(service.recordView('a', 'visit-uuid-1234')).resolves.toBeUndefined();
+    expect(prisma.landingPageVisit.upsert).not.toHaveBeenCalled();
+
+    prisma.productLandingPage.findUnique.mockResolvedValueOnce({
+      id: 'lp-1', status: 'ACTIVE', startAt: null, endAt: null, product: { status: 'ACTIVE' },
+    });
+    prisma.landingPageVisit.upsert.mockRejectedValueOnce({ code: 'P2002' });
+    await expect(service.recordView('a', 'visit-uuid-1234')).resolves.toBeUndefined();
+  });
+});
