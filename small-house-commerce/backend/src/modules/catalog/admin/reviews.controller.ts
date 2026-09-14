@@ -14,8 +14,10 @@ import { Permissions } from '../../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
+  batchReviewsSchema,
   createAdminReviewSchema,
   updateAdminReviewSchema,
+  type BatchReviewsInput,
   type CreateAdminReviewInput,
   type UpdateAdminReviewInput,
 } from '../dto/review.dto.js';
@@ -35,6 +37,14 @@ export class AdminProductReviewsController {
   @Get(':productId/reviews')
   list(@Param('productId') productId: string) {
     return this.reviews.adminListForProduct(productId);
+  }
+
+  @Post(':productId/reviews/batch')
+  batchCreate(
+    @Param('productId') productId: string,
+    @Body(new ZodValidationPipe(batchReviewsSchema)) body: BatchReviewsInput,
+  ) {
+    return this.reviews.adminBatchCreate(productId, body.items);
   }
 
   @Post(':productId/reviews')

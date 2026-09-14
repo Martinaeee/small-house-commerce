@@ -30,3 +30,11 @@ export const updateAdminReviewSchema = createAdminReviewSchema
     title: z.string().trim().max(200).nullable().optional(),
   });
 export type UpdateAdminReviewInput = z.infer<typeof updateAdminReviewSchema>;
+
+// Rows are validated one-by-one against createAdminReviewSchema inside the
+// service: the outer schema only bounds the batch size so a huge paste
+// fails fast and row-level errors can point at the offending row.
+export const batchReviewsSchema = z.object({
+  items: z.array(z.unknown()).min(1).max(100),
+});
+export type BatchReviewsInput = z.infer<typeof batchReviewsSchema>;

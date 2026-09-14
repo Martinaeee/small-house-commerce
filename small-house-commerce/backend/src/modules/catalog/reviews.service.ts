@@ -1,10 +1,12 @@
 // src/modules/catalog/reviews.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type {
+  BatchReviewsInput,
   CreateAdminReviewInput,
   UpdateAdminReviewInput,
 } from './dto/review.dto.js';
+import { createAdminReviewSchema } from './dto/review.dto.js';
 import {
   serializeReview,
   type RatingSummary,
@@ -34,6 +36,57 @@ export class ReviewsService {
         isVisible: input.isVisible,
       },
     });
+  }
+
+  // All rows validated before any insert: one bad row rejects the WHOLE batch
+  // with row-scoped errors and zero inserts (all-or-nothing TSV import).
+  async adminBatchCreate(productId: string, items: BatchReviewsInput['items']) {
+    const parsed: CreateAdminReviewInput[] = [];
+    const errors: Array<{ row: number; field: string; message: string }> = [];
+
+    items.forEach((raw, index) => {
+      const result = createAdminReviewSchema.safeParse(raw);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          errors.push({
+            row: index + 1,
+            field: issue.path.join('.') || '(root)',
+            message: issue.message,
+          });
+        }
+      } else {
+        parsed.push(result.data);
+      }
+    });
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: '有评论行未通过校验，未导入任何评论',
+        errors,
+      });
+    }
+
+    await this.ensureProduct(productId);
+
+    await this.prisma.$transaction(
+      parsed.map((input) =>
+        this.prisma.productReview.create({
+          data: {
+            productId,
+            source: 'ADMIN',
+            authorName: input.authorName,
+            location: input.location ?? null,
+            rating: input.rating,
+            title: input.title ?? null,
+            comment: input.comment,
+            photos: input.photos,
+            isVisible: input.isVisible,
+          },
+        }),
+      ),
+    );
+
+    return { created: parsed.length };
   }
 
   async adminListForProduct(productId: string) {
