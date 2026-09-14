@@ -3,17 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, cartStorage, type CartSummary } from "@/lib/api";
+import { api, type CartItem, type Product } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
+import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { useCart } from "@/components/cart/CartContext";
+import { useProductImages } from "@/lib/productImages";
 import { readAttribution, track } from "@/lib/tracking";
 
 /**
  * COD checkout (CHECKOUT_SPEC §5, §8-§9, §13, §15).
  *
- * Items come from the cart (localStorage cartId) or from a Buy Now deep link
- * (?skuId&qty). The backend re-validates stock and rejects the whole order on
- * any shortfall; errors (e.g. insufficient stock) surface here.
+ * Two entries:
+ * - PDP Buy Now: ?skuId&qty&slug (image/variant/price resolved from the
+ *   public product endpoint, cart untouched by ordering);
+ * - cart: ?items=<itemId,itemId> — only selected cart lines are shown and
+ *   ordered; after success those lines are removed while unselected lines
+ *   stay in the cart. The backend re-validates stock for every submitted SKU.
  */
 
 const inputCls =
@@ -22,12 +28,84 @@ const inputCls =
 interface CheckoutFormProps {
   skuId?: string;
   qty?: string;
+  itemsParam?: string;
+  slug?: string;
 }
 
-export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
+interface PreviewLine {
+  key: string;
+  slug: string;
+  name: string;
+  variant: string;
+  quantity: number;
+  unitPrice: number | null;
+  compareAtPrice: number | null;
+}
+
+function PreviewRow({
+  line,
+  imageUrl,
+}: {
+  line: PreviewLine;
+  imageUrl: string | null | undefined;
+}) {
+  return (
+    <li className="flex gap-3 py-2">
+      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border">
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <PlaceholderImage label="" className="h-full w-full" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/products/${line.slug}`}
+          className="line-clamp-2 text-sm font-medium text-ink hover:text-cta"
+        >
+          {line.name}
+        </Link>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          {line.variant} · Qty {line.quantity}
+        </p>
+      </div>
+      <div className="shrink-0 text-right">
+        {line.unitPrice !== null ? (
+          <>
+            <p className="text-sm font-semibold text-ink">
+              {formatPrice(line.unitPrice * line.quantity)}
+            </p>
+            {line.quantity > 1 && (
+              <p className="text-xs text-ink-muted">{formatPrice(line.unitPrice)} each</p>
+            )}
+          </>
+        ) : (
+          <span className="text-sm text-ink-muted">—</span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function totalsFor(lines: { unitPrice: number | null; compareAtPrice: number | null; quantity: number }[]) {
+  let subtotal = 0;
+  let discount = 0;
+  for (const line of lines) {
+    if (line.unitPrice === null) continue;
+    subtotal += line.unitPrice * line.quantity;
+    if (line.compareAtPrice !== null && line.compareAtPrice > line.unitPrice) {
+      discount += (line.compareAtPrice - line.unitPrice) * line.quantity;
+    }
+  }
+  return { subtotal, discount, total: subtotal - discount };
+}
+
+export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {
   const router = useRouter();
-  const [cart, setCart] = useState<CartSummary | null>(null);
-  const [cartLoading, setCartLoading] = useState(skuId === undefined);
+  const { cart, loading: cartLoading, removeItems } = useCart();
+  const [product, setProduct] = useState<Product | null>(null);
+  const [productError, setProductError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,39 +120,102 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
     landmark: "",
   });
 
-  // Buy Now quantity or first cart item quantity.
   const buyNowQty = Math.min(99, Math.max(1, Number(qty) || 1));
+  const isBuyNow = Boolean(skuId);
+  const requestedIds = useMemo(
+    () =>
+      (itemsParam ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [itemsParam],
+  );
 
+  // Buy Now: resolve name/variant/image/price via the product endpoint.
   useEffect(() => {
-    if (skuId) return; // Buy Now path: items come from the URL
-    const id = cartStorage.get();
-    (id ? api.getCart(id) : Promise.resolve(null))
-      .then((summary) => {
-        if (summary) setCart(summary);
+    if (!isBuyNow || !slug) return;
+    let cancelled = false;
+    api
+      .getProductBySlug(slug)
+      .then((p) => {
+        if (!cancelled) setProduct(p);
       })
-      .catch(() => setError("Could not load your cart. Please try again."))
-      .finally(() => setCartLoading(false));
-  }, [skuId]);
+      .catch(() => {
+        if (!cancelled) setProductError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isBuyNow, slug]);
 
-  const items = useMemo(() => {
-    if (skuId) return [{ skuId, quantity: buyNowQty }];
-    return (
-      cart?.items.map((item) => ({ skuId: item.skuId, quantity: item.quantity })) ?? []
-    );
-  }, [skuId, buyNowQty, cart]);
+  const selectedItems: CartItem[] = useMemo(() => {
+    if (isBuyNow || !cart) return [];
+    const wanted = new Set(requestedIds);
+    return cart.items.filter((item) => wanted.has(item.itemId));
+  }, [isBuyNow, cart, requestedIds]);
 
-  const total = skuId ? null : cart ? cart.total : null;
+  const lines: PreviewLine[] = useMemo(() => {
+    if (isBuyNow) {
+      if (!product || !skuId) return [];
+      const variant = product.variants.find((v) => v.sku?.id === skuId);
+      const sku = variant?.sku ?? null;
+      return [
+        {
+          key: skuId,
+          slug: product.slug,
+          name: product.name,
+          variant: variant?.name ?? "Default",
+          quantity: buyNowQty,
+          unitPrice: sku?.price ?? null,
+          compareAtPrice: sku?.compareAtPrice ?? null,
+        },
+      ];
+    }
+    return selectedItems.map((item) => ({
+      key: item.itemId,
+      slug: item.productSlug,
+      name: item.productName,
+      variant: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      compareAtPrice: item.compareAtPrice,
+    }));
+  }, [isBuyNow, product, skuId, buyNowQty, selectedItems]);
+
+  const slugs = useMemo(() => lines.map((line) => line.slug), [lines]);
+  const images = useProductImages(slugs);
+
+  const totals = useMemo(() => totalsFor(lines), [lines]);
+  const total = isBuyNow ? (product ? totals.total : null) : totals.total;
+
+  const orderItems = useMemo(() => {
+    if (isBuyNow) return skuId ? [{ skuId, quantity: buyNowQty }] : [];
+    return selectedItems.map((item) => ({ skuId: item.skuId, quantity: item.quantity }));
+  }, [isBuyNow, skuId, buyNowQty, selectedItems]);
+
+  // Cart path blockers once the cart has loaded: nothing selected, unknown
+  // item ids (hand-edited URL), or selected stock problems.
+  const cartBlocked =
+    !isBuyNow &&
+    !cartLoading &&
+    requestedIds.length > 0 &&
+    (selectedItems.length !== requestedIds.length ||
+      selectedItems.some((item) => item.unavailable));
+
+  const ready = isBuyNow
+    ? Boolean(skuId)
+    : !cartLoading && !cartBlocked && orderItems.length > 0;
 
   // TRACKING_SPEC §12 InitiateCheckout.
   useEffect(() => {
-    if (items.length === 0) return;
+    if (orderItems.length === 0) return;
     track("InitiateCheckout", {
-      contents: items.map((item) => ({ id: item.skuId, quantity: item.quantity })),
+      contents: orderItems.map((item) => ({ id: item.skuId, quantity: item.quantity })),
       value: total ?? undefined,
       currency: "PHP",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skuId, items.length]);
+  }, [isBuyNow, orderItems.length]);
 
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -85,6 +226,10 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
     if (!form.name.trim() || !form.phone.trim() || !form.province.trim() ||
         !form.city.trim() || !form.streetAddress.trim()) {
       setError("Please fill in your name, phone, province, city and full address.");
+      return;
+    }
+    if (orderItems.length === 0) {
+      setError("No items to check out.");
       return;
     }
 
@@ -102,13 +247,16 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
           streetAddress: form.streetAddress.trim(),
           landmark: form.landmark.trim() || null,
         },
-        items,
+        items: orderItems,
         attribution: readAttribution(),
       });
+      // Cart checkout removes ONLY the purchased lines; a Buy Now order never
+      // touches the visitor's saved cart.
+      if (!isBuyNow) {
+        await removeItems(selectedItems.map((item) => item.itemId));
+      }
       // Stash the total so the success page can fire the Purchase event.
       if (total !== null) sessionStorage.setItem("lastOrderTotal", String(total));
-      // Fresh cart for the next order.
-      cartStorage.set("");
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
       setError(
@@ -116,16 +264,33 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
           ? e.message
           : "Could not place your order. Please try again.",
       );
-    } finally {
       setSubmitting(false);
     }
   }
 
-  if (cartLoading) {
+  if (!isBuyNow && cartLoading) {
     return <p className="py-16 text-center text-ink-secondary">Loading checkout…</p>;
   }
 
-  if (items.length === 0) {
+  if (cartBlocked) {
+    return (
+      <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
+        <h1 className="mb-3 text-2xl font-semibold text-ink">Checkout unavailable</h1>
+        <p className="mb-6 text-ink-secondary">
+          Some selected items are out of stock or no longer in your cart. Return to your cart
+          to review your selection.
+        </p>
+        <Link
+          href="/cart"
+          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+        >
+          Back to Cart
+        </Link>
+      </div>
+    );
+  }
+
+  if (!ready) {
     return (
       <div className="py-16 text-center">
         <p className="mb-4 text-ink-secondary">Your cart is empty.</p>
@@ -144,35 +309,38 @@ export function CheckoutForm({ skuId, qty }: CheckoutFormProps) {
         {/* Order preview (§7) + summary (§13) */}
         <aside className="order-2 flex flex-col gap-4 lg:order-1 lg:col-span-2">
           <div className="rounded-lg border border-border bg-card p-5">
-            <h2 className="mb-3 text-lg font-semibold text-ink">Your Order</h2>
-            {skuId ? (
-              <p className="text-sm text-ink-secondary">
-                1 item × {buyNowQty} (Buy Now)
-              </p>
+            <h2 className="mb-1 text-lg font-semibold text-ink">Your Order</h2>
+            {isBuyNow && product === null && !productError ? (
+              <p className="py-2 text-sm text-ink-muted">Loading item…</p>
+            ) : lines.length === 0 ? (
+              <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {cart?.items.map((item) => (
-                  <li key={item.itemId} className="flex justify-between gap-3 text-sm">
-                    <span className="line-clamp-1 text-ink">
-                      {item.productName} × {item.quantity}
-                    </span>
-                    <span className="shrink-0 font-medium text-ink">
-                      {item.unitPrice !== null
-                        ? formatPrice(item.unitPrice * item.quantity)
-                        : "—"}
-                    </span>
-                  </li>
+              <ul className="divide-y divide-border">
+                {lines.map((line) => (
+                  <PreviewRow key={line.key} line={line} imageUrl={images.get(line.slug)} />
                 ))}
               </ul>
             )}
 
             <dl className="mt-4 flex flex-col gap-2 border-t border-border pt-4 text-sm">
-              {cart && cart.discount > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-ink-secondary">Subtotal</dt>
+                <dd className="font-medium text-ink">
+                  {isBuyNow && total === null
+                    ? "Calculated at checkout"
+                    : formatPrice(totals.subtotal)}
+                </dd>
+              </div>
+              {totals.discount > 0 && (
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Discount</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(cart.discount)}</dd>
+                  <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
                 </div>
               )}
+              <div className="flex justify-between">
+                <dt className="text-ink-secondary">Shipping</dt>
+                <dd className="font-medium text-ink">COD — calculated at checkout</dd>
+              </div>
               <div className="flex justify-between border-t border-border pt-3 text-base">
                 <dt className="font-semibold text-ink">Total (COD)</dt>
                 <dd className="font-bold text-ink">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { NavItem } from "@/lib/nav";
 import { AccountEntry } from "@/components/auth/AccountEntry";
+import { CartBadge } from "@/components/cart/CartBadge";
 import { MainNav } from "./MainNav";
 import { SiteSearch } from "./SiteSearch";
 
@@ -42,7 +43,7 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
           <AccountEntry />
           <Link
             href="/cart"
-            className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta max-[374px]:p-1 lg:p-2"
+            className="relative flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta max-[374px]:p-1 lg:p-2"
             aria-label="Shopping cart"
           >
             <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6" aria-hidden>
@@ -54,6 +55,7 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
               />
               <path d="M8.5 9V6a3.5 3.5 0 0 1 7 0v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
+            <CartBadge />
           </Link>
         </div>
       </div>

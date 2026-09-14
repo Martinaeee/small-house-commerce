@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Product } from "@/lib/api";
-import { api, cartStorage } from "@/lib/api";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { useCart } from "@/components/cart/CartContext";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import { track } from "@/lib/tracking";
@@ -51,6 +51,7 @@ export function PdpClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { addItem } = useCart();
   const variants = product.variants;
   const images = product.images;
 
@@ -145,8 +146,7 @@ export function PdpClient({
     setBusy(true);
     setNotice(null);
     try {
-      const summary = await api.addToCart({ cartId: cartStorage.get(), skuId: sku.id, quantity: qty });
-      cartStorage.set(summary.cartId);
+      await addItem({ skuId: sku.id, quantity: qty });
       setNotice("Added to cart");
       track("AddToCart", {
         content_ids: [sku.id],
@@ -168,7 +168,9 @@ export function PdpClient({
       setNotice("This item is out of stock");
       return;
     }
-    router.push(`/checkout?skuId=${sku.id}&qty=${quantity}`);
+    router.push(
+      `/checkout?skuId=${sku.id}&qty=${quantity}&slug=${encodeURIComponent(product.slug)}`,
+    );
   }
 
   const stockLabel = outOfStock ? "Out of Stock" : lowStock ? `Only ${available} left` : null;
