@@ -89,7 +89,11 @@ export function ImageUrlInput({
           className={`${inputCls} min-w-0 flex-1`}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            // A failed file pick must leave no stale alert once the operator pastes a URL.
+            setError(null);
+            onChange(e.target.value);
+          }}
           disabled={disabled || uploading}
           autoComplete="off"
         />
