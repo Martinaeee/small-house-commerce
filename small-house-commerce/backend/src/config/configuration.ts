@@ -27,6 +27,13 @@ export function configuration() {
       accessTtl: env.JWT_ACCESS_TTL,
       refreshTtl: env.JWT_REFRESH_TTL,
     },
+    r2: {
+      accountId: env.R2_ACCOUNT_ID ?? null,
+      accessKeyId: env.R2_ACCESS_KEY_ID ?? null,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY ?? null,
+      bucket: env.R2_BUCKET ?? null,
+      publicBaseUrl: env.R2_PUBLIC_BASE_URL ?? null,
+    },
   };
 }
 

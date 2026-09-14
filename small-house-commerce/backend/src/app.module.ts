@@ -9,6 +9,7 @@ import { CollectionsModule } from './modules/collections/collections.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
+import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -32,6 +33,7 @@ import { UsersModule } from './modules/users/users.module.js';
     InventoryModule,
     OrdersModule,
     CollectionsModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

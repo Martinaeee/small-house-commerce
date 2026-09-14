@@ -30,6 +30,14 @@ export const envSchema = z.object({
   // Durations in the vercel/ms format used by @nestjs/jwt, e.g. "1h", "7d".
   JWT_ACCESS_TTL: z.string().min(1).default('1h'),
   JWT_REFRESH_TTL: z.string().min(1).default('7d'),
+
+  // Cloudflare R2 direct image uploads. All optional: the app boots and the
+  // URL-paste flow works without them; only presigning returns 503.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().optional(),
+  R2_PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
