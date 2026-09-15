@@ -223,13 +223,18 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     (selectedItems.length !== requestedIds.length ||
       selectedItems.some((item) => item.unavailable));
 
+  // Buy Now is only submittable once the product resolved AND the requested
+  // skuId exists on one of its variants. A hand-edited ?skuId is a dead end.
+  const buyNowMatchedSku =
+    !isBuyNow || (product !== null && product.variants.some((v) => v.sku?.id === skuId));
+
   const ready = isBuyNow
-    ? Boolean(skuId)
+    ? product !== null && !productError && buyNowMatchedSku
     : !cartLoading && !cartBlocked && orderItems.length > 0;
 
   // TRACKING_SPEC §12 InitiateCheckout.
   useEffect(() => {
-    if (orderItems.length === 0) return;
+    if (orderItems.length === 0 || (isBuyNow && !buyNowMatchedSku)) return;
     track("InitiateCheckout", {
       contents: orderItems.map((item) => ({ id: item.skuId, quantity: item.quantity })),
       value: total ?? undefined,
@@ -329,6 +334,41 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         >
           Back to Cart
         </Link>
+      </div>
+    );
+  }
+
+  if (isBuyNow && product === null && !productError) {
+    return <p className="py-16 text-center text-ink-secondary">Loading item…</p>;
+  }
+
+  if (isBuyNow && (productError || (product !== null && !buyNowMatchedSku))) {
+    return (
+      <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-sale/10">
+          <svg viewBox="0 0 20 20" className="h-6 w-6 text-sale" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M10 6v5M10 13.5v.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </div>
+        <h1 className="mb-3 text-2xl font-semibold text-ink">We couldn&apos;t load this item.</h1>
+        <p className="mb-6 text-ink-secondary">
+          The product may be unavailable or the link was incomplete. You can go back to the
+          product page or continue shopping.
+        </p>
+        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+          {slug && (
+            <Link
+              href={`/products/${slug}`}
+              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+            >
+              Back to product
+            </Link>
+          )}
+          <Link href="/collections" className="text-sm text-cta hover:underline">
+            Continue shopping
+          </Link>
+        </div>
       </div>
     );
   }
