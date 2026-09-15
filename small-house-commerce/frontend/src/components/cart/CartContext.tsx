@@ -22,10 +22,16 @@ import { api, cartStorage, type CartSummary } from "@/lib/api";
 interface CartContextValue {
   cart: CartSummary | null;
   loading: boolean;
+  isOpen: boolean;
+  openCart: () => void;
+  closeCart: () => void;
   /** Replace state with an API-returned summary (add-to-cart response). */
   applySummary: (summary: CartSummary) => void;
   reload: () => Promise<void>;
-  addItem: (input: { skuId: string; quantity: number }) => Promise<CartSummary>;
+  addItem: (
+    input: { skuId: string; quantity: number },
+    opts?: { openDrawer?: boolean },
+  ) => Promise<CartSummary>;
   updateItem: (itemId: string, quantity: number) => Promise<CartSummary>;
   removeItem: (itemId: string) => Promise<CartSummary>;
   /** Delete the given lines one by one (partial checkout) then resync. */
@@ -39,6 +45,9 @@ const CartContext = createContext<CartContextValue | null>(null);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+  const openCart = useCallback(() => setIsOpen(true), []);
+  const closeCart = useCallback(() => setIsOpen(false), []);
 
   const reload = useCallback(async () => {
     const id = cartStorage.get();
@@ -103,10 +112,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addItem = useCallback(
-    async ({ skuId, quantity }: { skuId: string; quantity: number }) => {
+    async (
+      { skuId, quantity }: { skuId: string; quantity: number },
+      opts?: { openDrawer?: boolean },
+    ) => {
       const summary = await api.addToCart({ cartId: cartStorage.get(), skuId, quantity });
       cartStorage.set(summary.cartId);
       setCart(summary);
+      if (opts?.openDrawer !== false) setIsOpen(true);
       return summary;
     },
     [],
@@ -152,6 +165,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const value: CartContextValue = {
     cart,
     loading,
+    isOpen,
+    openCart,
+    closeCart,
     applySummary,
     reload,
     addItem,
