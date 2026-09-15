@@ -258,7 +258,10 @@ export class HomepageService {
           data.enabled = row.enabled;
           data.sortOrder = row.sortOrder;
           if (row.payload !== undefined) {
-            data.payload = this.validatePayload(type, row.payload);
+            // Explicit null is the SQL-null sentinel, not a validated empty
+            // JSON object; omitted payloads never reach this branch.
+            data.payload =
+              row.payload === null ? Prisma.DbNull : this.validatePayload(type, row.payload);
           }
           await tx.homepageSection.update({ where: { id: row.id }, data });
         } else {
@@ -269,10 +272,10 @@ export class HomepageService {
               subtitle: row.subtitle ?? null,
               enabled: row.enabled,
               sortOrder: row.sortOrder,
+              // Both omitted and explicit-null payloads persist SQL NULL;
+              // validated objects persist as parsed JSON.
               payload:
-                row.payload === undefined
-                  ? Prisma.DbNull
-                  : this.validatePayload(type, row.payload),
+                row.payload == null ? Prisma.DbNull : this.validatePayload(type, row.payload),
             },
           });
         }

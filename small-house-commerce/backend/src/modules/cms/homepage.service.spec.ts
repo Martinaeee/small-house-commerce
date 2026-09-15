@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { HomepageSectionType as T } from '../../generated/prisma/client.js';
+import { HomepageSectionType as T, Prisma } from '../../generated/prisma/client.js';
 import type { ProductsService } from '../catalog/products.service.js';
 import { HomepageService } from './homepage.service.js';
 
@@ -10,6 +10,16 @@ interface JoinRow {
   productId: string;
   sortOrder: number;
   badge: string | null;
+}
+
+// The service returns a discriminated union of per-type section views; tests
+// index result rows by position, so view them through this loose shape.
+interface StorefrontSectionView {
+  id: string;
+  type: T;
+  payload: unknown;
+  products?: Array<{ id: string; badge: string | null }>;
+  categories?: Array<{ id: string }>;
 }
 
 interface SectionFixture {
@@ -118,7 +128,7 @@ function createContext(sections: SectionFixture[]) {
         where.id.in.map((id) => ({ id })),
       ),
     },
-    $transaction: vi.fn(async (cb: (tx: typeof tx) => unknown) => cb(tx)),
+    $transaction: vi.fn(async (cb: (client: typeof tx) => unknown) => cb(tx)),
   };
 
   return { prisma, products, tx };
@@ -148,11 +158,11 @@ describe('HomepageService.storefrontGet', () => {
     const result = await service.storefrontGet();
 
     expect(result.sections.map((s) => s.id)).toEqual(['grid', 'cats']);
-    const grid = result.sections[0];
+    const grid = result.sections[0] as StorefrontSectionView;
     expect(grid.products).toHaveLength(1);
     expect(grid.products?.[0]).toMatchObject({ id: 'p1', badge: '新品' });
 
-    const cats = result.sections[1];
+    const cats = result.sections[1] as StorefrontSectionView;
     expect(cats.categories?.map((c) => c.id)).toEqual(['c1']);
   });
 
@@ -168,7 +178,7 @@ describe('HomepageService.storefrontGet', () => {
     const service = new HomepageService(ctx.prisma as never, ctx.products);
 
     const result = await service.storefrontGet();
-    expect(result.sections[0].products).toHaveLength(2);
+    expect((result.sections[0] as StorefrontSectionView).products).toHaveLength(2);
   });
 
   it('returns empty-payload sections (USP defaults happen on the frontend)', async () => {
@@ -270,6 +280,73 @@ describe('HomepageService.saveSections', () => {
         ],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a 4th PRODUCT_GRID row with 400 even though grids repeat', async () => {
+    const ctx = createContext([
+      section({ id: 'g1', type: T.PRODUCT_GRID, sortOrder: 0 }),
+      section({ id: 'g2', type: T.PRODUCT_GRID, sortOrder: 1 }),
+      section({ id: 'g3', type: T.PRODUCT_GRID, sortOrder: 2 }),
+    ]);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    await expect(
+      service.saveSections({
+        sections: [
+          { id: 'g1', type: T.PRODUCT_GRID, enabled: true, sortOrder: 0 },
+          { id: 'g2', type: T.PRODUCT_GRID, enabled: true, sortOrder: 1 },
+          { id: 'g3', type: T.PRODUCT_GRID, enabled: true, sortOrder: 2 },
+          { type: T.PRODUCT_GRID, enabled: true, sortOrder: 3 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.tx.homepageSection.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a 3rd PRODUCT_STORY row with 400, counting omitted singleton survivors', async () => {
+    // An omitted HERO survives the save and is counted against its own limit,
+    // but it must not mask the PRODUCT_STORY overflow (limit 2).
+    const ctx = createContext([
+      section({ id: 'h1', type: T.HERO, sortOrder: 0 }),
+      section({ id: 's1', type: T.PRODUCT_STORY, sortOrder: 1 }),
+      section({ id: 's2', type: T.PRODUCT_STORY, sortOrder: 2 }),
+    ]);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    await expect(
+      service.saveSections({
+        sections: [
+          { id: 's1', type: T.PRODUCT_STORY, enabled: true, sortOrder: 0 },
+          { id: 's2', type: T.PRODUCT_STORY, enabled: true, sortOrder: 1 },
+          { type: T.PRODUCT_STORY, enabled: true, sortOrder: 2 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.tx.homepageSection.create).not.toHaveBeenCalled();
+  });
+
+  it('persists explicit payload: null as the Prisma.DbNull sentinel on update and create', async () => {
+    const ctx = createContext([section({ id: 'h1', type: T.HERO })]);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    await service.saveSections({
+      sections: [
+        { id: 'h1', type: T.HERO, enabled: true, sortOrder: 0, payload: null },
+        { type: T.CONFIDENCE, enabled: true, sortOrder: 1, payload: null },
+      ],
+    });
+
+    const updateCall = ctx.tx.homepageSection.update.mock.calls[0]?.[0] as {
+      data: { payload?: unknown };
+    };
+    const createCall = ctx.tx.homepageSection.create.mock.calls[0]?.[0] as {
+      data: { payload?: unknown };
+    };
+    // Identity, not deepEqual: DbNull is an opaque singleton that serializes
+    // to {} — toEqual({}) would pass even if the service stored an empty JSON
+    // object instead of the SQL-null sentinel.
+    expect(updateCall.data.payload).toBe(Prisma.DbNull);
+    expect(createCall.data.payload).toBe(Prisma.DbNull);
   });
 
   it('requires type when creating and rejects changing an existing type', async () => {

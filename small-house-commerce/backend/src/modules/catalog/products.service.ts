@@ -250,8 +250,10 @@ export class ProductsService {
   // --- storefront ----------------------------------------------------------
 
   async storefrontList(query: StorefrontProductQuery) {
-    // Homepage Recently Viewed: ordered batch lookup, no pagination.
-    if (query.ids && query.ids.length > 0) {
+    // Homepage Recently Viewed: ordered batch lookup, no pagination. The
+    // parameter's mere presence triggers the branch — `?ids=` preprocesses to
+    // [] and must answer with an empty page, not the full catalog listing.
+    if (query.ids !== undefined) {
       const items = await this.storefrontByIds(query.ids);
       return { items, total: items.length, page: 1, pageSize: items.length };
     }
