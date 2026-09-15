@@ -59,13 +59,13 @@ export default async function HomePage() {
       <section className="bg-gradient-to-b from-primary-light/50 to-background">
         <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-6 px-4 py-16 text-center sm:px-6 sm:py-24">
           <h1 className="max-w-2xl text-4xl font-semibold text-ink sm:text-5xl">
-            Small Space.
+            Small space,
             <br />
-            More Possibilities.
+            big <span className="lowercase text-cta">luwag</span>.
           </h1>
           <p className="max-w-xl text-base text-ink-secondary">
-            Furniture designed for condos, rentals and everyday small-space
-            living.
+            Small-space furniture, made roomy — designed for condos and
+            rentals, cash on delivery nationwide.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <ButtonLink

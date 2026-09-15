@@ -54,7 +54,7 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-[420px]">
         <div className="rounded-xl border border-border bg-card p-6">
-          <h1 className="text-xl font-semibold text-ink">Small House Admin</h1>
+          <h1 className="text-xl font-semibold text-ink">LUWAG Admin</h1>
           <form className="mt-6 flex flex-col gap-4" onSubmit={onSubmit} noValidate>
             <label className="flex flex-col gap-1 text-sm font-medium text-ink">
               Email

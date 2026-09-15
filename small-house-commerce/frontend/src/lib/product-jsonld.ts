@@ -1,6 +1,6 @@
 import type { Product, Sku } from "./api";
 
-export const SITE_URL = "https://smallhouse.ph";
+export const SITE_URL = "https://luwag.ph";
 
 export function absoluteUrl(url: string): string {
   return url.startsWith("/") ? `${SITE_URL}${url}` : url;
@@ -58,7 +58,7 @@ export function buildProductJsonLd(
     description: product.description ?? undefined,
     image: images.length > 0 ? images : undefined,
     sku: sellableSkus[0]?.skuCode,
-    brand: { "@type": "Brand", name: "Small House" },
+    brand: { "@type": "Brand", name: "LUWAG Living" },
     category: category?.name,
     offers,
     aggregateRating,

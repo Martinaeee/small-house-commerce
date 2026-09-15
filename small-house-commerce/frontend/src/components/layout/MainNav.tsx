@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import type { Category } from "@/lib/api";
 import type { NavItem, NavTree } from "@/lib/nav";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { BrandWordmark } from "./BrandWordmark";
 
 /**
  * Castlery-style main navigation (spec 2026-09-11-navigation-mega-menu-design).
@@ -321,7 +322,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
               }`}
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-4">
-                <span className="text-base font-bold text-cta">Small House PH</span>
+                <BrandWordmark />
                 <button
                   ref={closeButtonRef}
                   type="button"

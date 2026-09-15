@@ -11,7 +11,7 @@ import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import { track } from "@/lib/tracking";
 
-const SUPPORT_EMAIL = "support@smallhouse.ph";
+const SUPPORT_EMAIL = "support@luwag.ph";
 import { RatingStars } from "./RatingStars";
 import { ProductGallery } from "./ProductGallery";
 import { ProductLightbox } from "./ProductLightbox";

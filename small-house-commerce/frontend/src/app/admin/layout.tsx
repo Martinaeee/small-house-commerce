@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { AdminAuthProvider } from "@/components/admin/AdminAuthProvider";
 
-// `absolute` bypasses the ROOT layout template ("%s | Small House PH"),
+// `absolute` bypasses the ROOT layout template ("%s | LUWAG Living"),
 // which would otherwise double-suffix admin tabs; child pages export no
-// titles, so every admin tab reads exactly "Admin — Small House PH".
+// titles, so every admin tab reads exactly "Admin — LUWAG Living".
 export const metadata: Metadata = {
   title: {
-    absolute: "Admin — Small House PH",
-    template: "%s | Small House Admin",
+    absolute: "Admin — LUWAG Living",
+    template: "%s | LUWAG Admin",
   },
 };
 

@@ -64,7 +64,7 @@ function LoginForm() {
         </Button>
       </form>
       <p className="mt-4 text-sm text-ink-secondary">
-        New to Small House PH?{" "}
+        New to LUWAG Living?{" "}
         <Link
           href={`/register?next=${encodeURIComponent(safeNext(searchParams.get("next")))}`}
           className="text-cta hover:underline"

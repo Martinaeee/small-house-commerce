@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://smallhouse.ph"),
+  metadataBase: new URL("https://luwag.ph"),
   title: {
-    default: "Small House PH — Smart Furniture for Small Homes",
-    template: "%s | Small House PH",
+    default: "LUWAG Living | Small-Space & Condo Furniture Philippines",
+    template: "%s | LUWAG Living",
   },
   description:
-    "Space-saving furniture for Philippine small homes. Cash on delivery, nationwide delivery.",
+    "Small-space furniture, made roomy — for Filipino condos and rentals. Cash on delivery, nationwide.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

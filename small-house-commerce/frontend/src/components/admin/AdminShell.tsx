@@ -212,7 +212,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       {/* Desktop fixed sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-border bg-card md:flex">
         <div className="flex h-14 items-center border-b border-border px-5">
-          <span className="text-base font-bold text-cta">Small House Admin</span>
+          <span className="text-base font-bold text-cta">LUWAG Admin</span>
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <NavList items={nav} pathname={pathname} />
@@ -283,7 +283,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
               }`}
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-4">
-                <span className="text-base font-bold text-cta">Small House Admin</span>
+                <span className="text-base font-bold text-cta">LUWAG Admin</span>
                 <button
                   ref={closeButtonRef}
                   type="button"

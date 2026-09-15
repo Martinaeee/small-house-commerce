@@ -4,6 +4,7 @@ import { AccountEntry } from "@/components/auth/AccountEntry";
 import { CartBadge } from "@/components/cart/CartBadge";
 import { MainNav } from "./MainNav";
 import { SiteSearch } from "./SiteSearch";
+import { BrandWordmark } from "./BrandWordmark";
 
 /**
  * DESIGN_SYSTEM §11 Navigation + HOMEPAGE_SPEC §6 Header.
@@ -16,7 +17,7 @@ import { SiteSearch } from "./SiteSearch";
  * hamburger opens MainNav's left slide-in drawer.
  */
 
-const LOGO = "Small House PH";
+/** LUWAG wordmark (Brand Foundation §4-C); descriptor context lives in the footer/hero. */
 
 export function Header({ navItems }: { navItems: NavItem[] }) {
   return (
@@ -26,9 +27,9 @@ export function Header({ navItems }: { navItems: NavItem[] }) {
             (the in-flow hamburger/cart then occupy left/right). */}
         <Link
           href="/"
-          className="absolute left-1/2 -translate-x-1/2 shrink-0 text-base font-bold text-cta max-[374px]:text-[15px] lg:static lg:left-auto lg:translate-x-0 lg:text-lg"
+          className="absolute left-1/2 flex -translate-x-1/2 shrink-0 items-center max-[374px]:text-[15px] lg:static lg:left-auto lg:translate-x-0 lg:text-lg"
         >
-          {LOGO}
+          <BrandWordmark />
         </Link>
 
         {/* Hamburger (mobile) + desktop mega-menu nav */}

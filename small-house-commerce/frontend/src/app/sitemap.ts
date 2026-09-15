@@ -4,7 +4,7 @@ import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 /** SEO §23: sitemap from the live storefront categories, collections and products. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = "https://smallhouse.ph";
+  const base = "https://luwag.ph";
 
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: base, changeFrequency: "weekly", priority: 1 },

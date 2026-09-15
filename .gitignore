@@ -30,3 +30,6 @@ build/
 
 # local experiment workspace (superseded prototype, kept on disk only)
 试验1/
+
+# playwright MCP scratch output
+.playwright-mcp/

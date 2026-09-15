@@ -38,7 +38,7 @@ function DetailsItem({
   );
 }
 
-const SUPPORT_EMAIL = "support@smallhouse.ph";
+const SUPPORT_EMAIL = "support@luwag.ph";
 
 export function PdpInfoSections() {
   const mailto = `mailto:${SUPPORT_EMAIL}`;
@@ -116,7 +116,7 @@ export function PdpInfoSections() {
 
       <DetailsItem title="Do I need to drill or mount anything?">
         <p>
-          Most Small House pieces are freestanding or foldable and need no drilling at all, which
+          Most LUWAG Living pieces are freestanding or foldable and need no drilling at all, which
           makes them rental-friendly. If a specific item requires wall fixing, it is noted in the
           product details.
         </p>
