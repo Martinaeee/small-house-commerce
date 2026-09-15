@@ -63,14 +63,18 @@ export function HeroSection({ section }: { section: HomepageSection }) {
               </video>
               <div className="absolute inset-0 bg-gradient-to-r from-ink/60 via-ink/25 to-transparent" />
             </div>
-            <div className="relative aspect-[4/5] w-full md:hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={mobile || poster || desktop}
-                alt=""
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-b from-ink/40 to-ink/50" />
+            <div className="relative aspect-[4/5] w-full bg-ink md:hidden">
+              {mobile || poster || desktop ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={mobile || poster || desktop}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-b from-ink/40 to-ink/50" />
+                </>
+              ) : null}
             </div>
           </>
         ) : (

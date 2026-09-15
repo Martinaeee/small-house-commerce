@@ -337,7 +337,7 @@ function ProductPickerDialog({
         </form>
 
         {multi && cap !== undefined ? (
-          <p className={`text-xs ${atCap ? "text-red-700" : "text-ink-muted"}`}>
+          <p className={`text-xs ${atCap ? "text-sale" : "text-ink-muted"}`}>
             {atCap
               ? "每个区块最多关联 24 个商品"
               : `还可选 ${Math.max(0, cap - picked.size)} 个`}

@@ -36,7 +36,12 @@ export default async function HomePage() {
 
   // IA slot 13: Recently Viewed sits before the first footer-ish (sortOrder >= 100)
   // section; when no such section exists it appends after everything.
-  const rvIndex = sections.findIndex((section) => section.sortOrder >= 100);
+  const validSections = sections.filter((section) => {
+    const known = Boolean(SECTION_REGISTRY[section.type]);
+    if (!known) console.warn(`[home] dropping unknown section type: ${section.type}`);
+    return known;
+  });
+  const rvIndex = validSections.findIndex((section) => section.sortOrder >= 100);
 
   return (
     <>
@@ -45,7 +50,7 @@ export default async function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildHomeJsonLd()) }}
       />
-      {sections.map((section, index) => {
+      {validSections.map((section, index) => {
         const SectionComponent = SECTION_REGISTRY[section.type];
         if (!SectionComponent) return null;
         return (
