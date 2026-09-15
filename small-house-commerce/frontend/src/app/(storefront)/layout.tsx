@@ -4,6 +4,7 @@ import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
 import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
+import { CartDrawer } from "@/components/cart/CartDrawer";
 import { buildNav } from "@/lib/nav";
 import { serverApiUrl, type Category, type Collection } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
@@ -43,6 +44,7 @@ export default async function StorefrontLayout({
       <Header navItems={navItems} />
       <main className="flex-1">{children}</main>
       <Footer collections={footerCollections} />
+      <CartDrawer />
       <MessengerChat />
     </Providers>
   );
