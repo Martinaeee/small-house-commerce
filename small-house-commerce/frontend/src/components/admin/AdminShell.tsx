@@ -43,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/products", label: "Products", permission: "PRODUCT_MANAGE" },
   { href: "/admin/categories", label: "Categories", permission: "PRODUCT_MANAGE" },
   { href: "/admin/collections", label: "Collections", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/homepage", label: "首页装修", permission: "PRODUCT_MANAGE" },
   { href: "/admin/single-pages", label: "Single Pages", permission: "PRODUCT_MANAGE" },
 ];
 
