@@ -56,6 +56,32 @@ describe('homepage payload schemas', () => {
     expect(hero.safeParse({ desktopImage: 'not-a-url' }).success).toBe(false);
   });
 
+  it('rejects protocol-relative links and keeps valid in-app / https links working', () => {
+    const hero = homepagePayloadSchemas[HomepageSectionType.HERO];
+    expect(hero.safeParse({ ctaPrimaryLink: '//evil.com/x' }).success).toBe(false);
+    expect(hero.safeParse({ ctaPrimaryLink: '/collections/x' }).success).toBe(true);
+    expect(hero.safeParse({ ctaPrimaryLink: '#solutions' }).success).toBe(true);
+    expect(hero.safeParse({ ctaPrimaryLink: 'https://luwag.ph/x' }).success).toBe(true);
+    const solutions = homepagePayloadSchemas[HomepageSectionType.SOLUTIONS];
+    expect(
+      solutions.safeParse({ items: [{ title: 't', link: '//evil.com/x' }] }).success,
+    ).toBe(false);
+    expect(
+      solutions.safeParse({ items: [{ title: 't', link: '/collections/x' }] }).success,
+    ).toBe(true);
+  });
+
+  it('rejects non-https media URLs and keeps https media URLs working', () => {
+    const hero = homepagePayloadSchemas[HomepageSectionType.HERO];
+    expect(hero.safeParse({ desktopImage: 'http://example.com/a.jpg' }).success).toBe(false);
+    expect(hero.safeParse({ desktopImage: 'javascript:alert(1)' }).success).toBe(false);
+    expect(hero.safeParse({ desktopImage: 'https://cdn.example.com/a.jpg' }).success).toBe(true);
+    expect(hero.safeParse({ desktopImage: 'not-a-url' }).success).toBe(false);
+    const story = homepagePayloadSchemas[HomepageSectionType.PRODUCT_STORY];
+    expect(story.safeParse({ imageUrl: 'http://example.com/a.jpg' }).success).toBe(false);
+    expect(story.safeParse({ imageUrl: 'https://cdn.example.com/a.jpg' }).success).toBe(true);
+  });
+
   it('rejects over-length text', () => {
     const hero = homepagePayloadSchemas[HomepageSectionType.HERO];
     expect(hero.safeParse({ ctaPrimaryText: 'x'.repeat(121) }).success).toBe(false);

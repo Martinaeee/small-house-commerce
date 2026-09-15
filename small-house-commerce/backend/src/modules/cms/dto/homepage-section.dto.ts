@@ -6,11 +6,22 @@ const inAppOrHttps = z
   .string()
   .max(2048)
   .refine(
-    (value) => value.startsWith('/') || value.startsWith('#') || value.startsWith('https://'),
-    { message: 'Link must start with / or #, or be an https URL' },
+    (value) =>
+      (value.startsWith('/') && !value.startsWith('//')) ||
+      value.startsWith('#') ||
+      value.startsWith('https://'),
+    { message: 'Link must start with / or # (but not //), or be an https URL' },
   );
 
-const mediaUrl = () => z.string().url().max(2048);
+/** Absolute https media URL only (CDN/R2 presigned links). */
+const mediaUrl = () =>
+  z
+    .string()
+    .url()
+    .max(2048)
+    .refine((value) => value.startsWith('https://'), {
+      message: 'Media URL must be an https:// URL',
+    });
 
 const heroPayloadSchema = z.object({
   desktopImage: mediaUrl().optional(),
