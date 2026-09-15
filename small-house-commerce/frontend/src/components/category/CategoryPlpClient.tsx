@@ -112,23 +112,21 @@ function CategoryPlpClientInner({
         );
       }
 
-      // Badge sources: the two fixed-slug identity collections, plus up to four
-      // promo collections carrying an admin badgeLabel (spec §4.3). The field
-      // does not exist on the phase-1 backend, so until phase 2 this is the
-      // exact bestseller/new behaviour already shipped.
+      // Identity collections are fetched by fixed slug unconditionally — the
+      // old behaviour did not depend on the list endpoint succeeding (or on
+      // the collection being inside its first page).
+      const badgeCollections: { slug: string; badge: CardBadge }[] = [
+        { slug: "best-sellers", badge: BESTSELLER_BADGE },
+        { slug: "new-arrivals", badge: NEW_BADGE },
+      ];
+      // Up to four promo collections carry an admin badgeLabel (spec §4.3).
+      // The field does not exist on the phase-1 backend, so until phase 2
+      // this list contributes nothing.
       let collections: Collection[] = [];
       try {
         collections = (await api.getCollections()).items;
       } catch {
         collections = [];
-      }
-      const badgeCollections: { slug: string; badge: CardBadge }[] = [];
-      for (const collection of collections) {
-        if (collection.slug === "best-sellers") {
-          badgeCollections.push({ slug: collection.slug, badge: BESTSELLER_BADGE });
-        } else if (collection.slug === "new-arrivals") {
-          badgeCollections.push({ slug: collection.slug, badge: NEW_BADGE });
-        }
       }
       // Spec §4.3: badgeLabel promos, first 4 by sortOrder (sort client-side so
       // the rule holds regardless of the list endpoint's ordering).
