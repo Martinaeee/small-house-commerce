@@ -31,7 +31,12 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const aliveRef = useRef(true);
-  useEffect(() => () => { aliveRef.current = false; }, []);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   const selectedIndex = product.variants.findIndex((v) => v.id === selectedId);
   const variant = selectedIndex >= 0 ? product.variants[selectedIndex] : null;
