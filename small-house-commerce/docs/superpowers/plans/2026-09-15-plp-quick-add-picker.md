@@ -17,7 +17,7 @@
 - 只允许触碰本计划列出的文件：`src/lib/variantImages.ts`（新建）、`src/components/cart/CartContext.tsx`、`src/components/cart/QuickAddView.tsx`（新建）、`src/components/cart/CartDrawer.tsx`、`src/components/product/PlpProductCard.tsx`。**不许改** `lib/tracking.ts`、`lib/api.ts`、PDP、ProductCard、服务端组件、后端任何文件。
 - 冻结的 COD/配送文案一字不动（含 CartDrawer 既有服务条三句与 "Shipping / COD — calculated at checkout"）；新增 UI 文案仅限本计划明示的英文串。
 - Meta Pixel：AddToCart 仍在**真实加购成功后恰好一次**（卡片直加路径与 Confirm 路径各保留/新增一处）；打开选款抽屉、切款式、切视图、关抽屉零事件；不新增其他事件类型。
-- eslint：不新增任何 `eslint-disable`（仓库零先例）；遵守 `react-hooks/set-state-in-effect`——open effect 内禁止 setState，状态重置走稳定事件回调。
+- eslint：不新增任何**种类**的 `eslint-disable`（`@next/next/no-img-element` 图片豁免是仓库既有先例，本计划代码块内两处该豁免明确允许，见 T2/T3 代码旁注）；遵守 `react-hooks/set-state-in-effect`——open effect 内禁止 setState，状态重置走稳定事件回调。
 - 价格只显示 PHP（经 `PriceBox`/`formatPrice`）；Tailwind 只用设计 token（cta/ink/border/sale/card/background/primary 等既有名称）。
 - 每个任务结束必须三门禁绿：在 `small-house-commerce/frontend` 下 `npx tsc --noEmit`、`npx eslint src`、`npm run build`。
 - 无测试框架：不新建测试运行器；纯函数的正确性由代码内确定性 + 最终浏览器验收覆盖。
