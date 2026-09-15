@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type Product } from "@/lib/api";
+import { buildPlpQuery, parsePlpState } from "@/lib/plpUrl";
 import {
   DEFAULT_FILTERS,
   PLP_MAX_PRODUCTS,
@@ -45,13 +46,15 @@ async function fetchCollectionSlugs(slug: string): Promise<Set<string>> {
   return slugs;
 }
 
-export function CategoryPlpClient({
+function CategoryPlpClientInner({
   categoryId,
   initialProducts,
   initialTotal,
   initialLoadFailed,
 }: CategoryPlpClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
   // Synced from the server prop: the server remounts this island (key flip)
   // after a successful router.refresh() retry, so no setter is needed.
   const [loadFailed] = useState(initialLoadFailed);
@@ -59,8 +62,20 @@ export function CategoryPlpClient({
   const [loading, setLoading] = useState(initialTotal > initialProducts.length);
   const [bestsellerSlugs, setBestsellerSlugs] = useState<Set<string>>(new Set());
   const [newSlugs, setNewSlugs] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<SortKey>("recommended");
-  const [filters, setFilters] = useState<PlpFilters>(DEFAULT_FILTERS);
+  const [sort, setSort] = useState<SortKey>(() => parsePlpState(searchParams).sort);
+  const [filters, setFilters] = useState<PlpFilters>(
+    () => parsePlpState(searchParams).filters,
+  );
+  // Back/forward -> URL is the source of truth. Reconciled during render
+  // (same pattern as the admin orders/products lists) instead of an effect so
+  // external navigation updates state without a cascading post-paint render.
+  const [syncedParams, setSyncedParams] = useState(searchParams);
+  if (searchParams !== syncedParams) {
+    setSyncedParams(searchParams);
+    const next = parsePlpState(searchParams);
+    setSort(next.sort);
+    setFilters(next.filters);
+  }
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Load the remaining pages (page 1 was server-rendered) plus the badge
@@ -116,6 +131,15 @@ export function CategoryPlpClient({
       window.removeEventListener("keydown", onKey);
     };
   }, [drawerOpen]);
+
+  // State -> URL via replace (history stays clean for the back button).
+  useEffect(() => {
+    const qs = buildPlpQuery(sort, filters);
+    if (qs !== searchParams.toString()) {
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sort, filters]);
 
   const visibleProducts = useMemo(() => {
     const filtered = filterProducts(allProducts, filters);
@@ -259,5 +283,19 @@ export function CategoryPlpClient({
         </div>
       )}
     </div>
+  );
+}
+
+export function CategoryPlpClient(props: CategoryPlpClientProps) {
+  return (
+    <Suspense
+      fallback={
+        <div className="mt-6 rounded-lg border border-border bg-card p-8 text-center text-sm text-ink-muted">
+          Loading products…
+        </div>
+      }
+    >
+      <CategoryPlpClientInner {...props} />
+    </Suspense>
   );
 }
