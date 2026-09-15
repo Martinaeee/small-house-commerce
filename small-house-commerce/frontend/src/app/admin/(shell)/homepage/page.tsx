@@ -239,6 +239,7 @@ function ProductPickerDialog({
   title,
   multi,
   initialSelected,
+  cap,
   onClose,
   onApply,
   onNames,
@@ -247,6 +248,8 @@ function ProductPickerDialog({
   title: string;
   multi: boolean;
   initialSelected: string[];
+  // Multi-select ceiling (joins: 24/section). Single-select modes omit it.
+  cap?: number;
   onClose: () => void;
   onApply: (ids: string[]) => void;
   onNames: (names: Record<string, string>) => void;
@@ -295,7 +298,11 @@ function ProductPickerDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const atCap = multi && cap !== undefined && picked.size >= cap;
+
   const toggle = (id: string) => {
+    // Unchecking stays allowed at the cap; adding a new row is blocked.
+    if (multi && cap !== undefined && !picked.has(id) && picked.size >= cap) return;
     setPicked((prev) => {
       const next = new Set(prev);
       if (multi) {
@@ -329,6 +336,14 @@ function ProductPickerDialog({
           </Button>
         </form>
 
+        {multi && cap !== undefined ? (
+          <p className={`text-xs ${atCap ? "text-red-700" : "text-ink-muted"}`}>
+            {atCap
+              ? "每个区块最多关联 24 个商品"
+              : `还可选 ${Math.max(0, cap - picked.size)} 个`}
+          </p>
+        ) : null}
+
         <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
           {loading ? (
             <p className="p-4 text-sm text-ink-muted">加载中…</p>
@@ -343,6 +358,12 @@ function ProductPickerDialog({
                 <input
                   type={multi ? "checkbox" : "radio"}
                   checked={picked.has(product.id)}
+                  disabled={
+                    multi &&
+                    cap !== undefined &&
+                    !picked.has(product.id) &&
+                    picked.size >= cap
+                  }
                   onChange={() => toggle(product.id)}
                 />
                 <span className="flex-1 text-sm text-ink">{product.name}</span>
@@ -677,17 +698,21 @@ function PayloadEditor(props: EditorProps) {
     case "BRAND_STORY":
     case "CONFIDENCE": {
       const bullets = Array.isArray(p.bullets) ? p.bullets.map((b) => str(b)) : [];
+      const nonEmptyBullets = bullets.map((b) => b.trim()).filter(Boolean).length;
       return (
         <div className="flex flex-col gap-3">
           <Labeled label="标题（可选）"><TextInput value={str(p.heading)} maxLength={120} onChange={(e) => setField("heading", e.target.value)} /></Labeled>
           <Labeled label="正文（可选）"><Textarea rows={4} maxLength={3000} value={str(p.body)} onChange={(e) => setField("body", e.target.value)} /></Labeled>
-          <Labeled label="要点列表（每行一条，最多 6 条）">
+          <Field
+            label="要点列表（每行一条，最多 6 条）"
+            error={nonEmptyBullets > 6 ? "最多 6 条要点，请删减空行" : undefined}
+          >
             <Textarea
               rows={4}
               value={bullets.join("\n")}
               onChange={(e) => setField("bullets", e.target.value.split("\n"))}
             />
-          </Labeled>
+          </Field>
         </div>
       );
     }
@@ -755,6 +780,35 @@ function HomepageAdminContent() {
     return map;
   }, [drafts]);
 
+  const typeRemaining = (type: HomepageSectionType) =>
+    SECTION_LIMITS[type] - (counts.get(type) ?? 0);
+
+  // Render-phase adjustment (same pattern as ProductForm's syncedInitial):
+  // once the selected add-type saturates — last row added, reload or save —
+  // move the selector to a type that still has slots. The guard converges in
+  // one render; if every type is capped the selection is left as-is and the
+  // add button stays disabled.
+  const firstAvailableType = (Object.keys(TYPE_LABELS) as HomepageSectionType[]).find(
+    (type) => typeRemaining(type) > 0,
+  );
+  if (typeRemaining(addType) <= 0 && firstAvailableType) {
+    setAddType(firstAvailableType);
+  }
+
+  const addLeft = typeRemaining(addType);
+
+  // Text blocks cap bullets at 6 (backend zod); non-empty trimmed lines only,
+  // so blank spacer/empty trailing lines do not count toward the block.
+  const bulletsBlocking = useMemo(
+    () =>
+      (sorted ?? []).filter((d) => {
+        if (d.type !== "BRAND_STORY" && d.type !== "CONFIDENCE") return false;
+        const list = Array.isArray(d.payload.bullets) ? d.payload.bullets : [];
+        return list.filter((b) => str(b).trim()).length > 6;
+      }),
+    [sorted],
+  );
+
   const patchDraft = (key: string, patch: Partial<SectionDraft>) =>
     setDrafts((prev) => prev!.map((d) => (d.key === key ? { ...d, ...patch } : d)));
 
@@ -771,6 +825,8 @@ function HomepageAdminContent() {
     );
 
   const addSection = () => {
+    // Button-level guard (the option is also disabled in the dropdown).
+    if ((counts.get(addType) ?? 0) >= SECTION_LIMITS[addType]) return;
     const maxSort = Math.max(-10, ...(drafts ?? []).map((d) => d.sortOrder));
     const draft: SectionDraft = {
       key: `new-${crypto.randomUUID()}`,
@@ -822,16 +878,25 @@ function HomepageAdminContent() {
       const saved = await adminApi.saveHomepageSections(body);
       const savedSorted = [...saved].sort((a, b) => a.sortOrder - b.sortOrder);
 
-      // Draft order and the persisted set are 1:1 (singletons are never
-      // deletable, deleted non-singletons are gone on both sides).
-      const dirty = sorted
-        .map((draft, index) => ({ draft, saved: savedSorted[index] }))
-        .filter(({ draft }) => draft.joinsDirty && draft.id);
+      // Merge server ids/types back into drafts BEFORE any joins PUT. The
+      // PATCH response is the full persisted set in the same sorted order as
+      // the `sorted` body we sent (singletons are never deleted client-side;
+      // deleted non-singletons vanish on both sides — 1:1 zip by index).
+      // Durable ids matter when a later PUT 400s (25 joins, product deleted
+      // mid-session): retry must UPDATE these sections, not CREATE duplicates.
+      const merged = sorted.map((draft, i) => ({
+        ...draft,
+        id: savedSorted[i]?.id ?? draft.id,
+        type: savedSorted[i]?.type ?? draft.type,
+      }));
+      setDrafts(merged);
 
-      for (const { draft, saved: row } of dirty) {
-        if (!row) continue;
+      // PUT loop runs against the local merged copy — it must not wait for the
+      // setDrafts re-render. Every row now carries an id; PUT only the dirty.
+      for (const draft of merged) {
+        if (!draft.joinsDirty || !draft.id) continue;
         await adminApi.setHomepageSectionProducts(
-          row.id,
+          draft.id,
           draft.products.map((r, i) => ({
             productId: r.productId,
             sortOrder: i,
@@ -892,48 +957,68 @@ function HomepageAdminContent() {
 
   if (!canManage) {
     return (
-      <EmptyState
-        title="没有权限"
-        hint="首页装修需要商品管理权限（PRODUCT_MANAGE），请联系管理员。"
-      />
+      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <EmptyState
+          title="没有权限"
+          hint="首页装修需要商品管理权限（PRODUCT_MANAGE），请联系管理员。"
+        />
+      </div>
     );
   }
   if (permissionDenied) {
-    return <EmptyState title="没有权限" hint="后台拒绝了本次访问（403）。" />;
+    return (
+      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <EmptyState title="没有权限" hint="后台拒绝了本次访问（403）。" />
+      </div>
+    );
   }
   if (error) {
     return (
-      <EmptyState
-        title="加载失败"
-        hint={error}
-        action={<Button onClick={reload}>重试</Button>}
-      />
+      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <EmptyState
+          title="加载失败"
+          hint={error}
+          action={<Button onClick={reload}>重试</Button>}
+        />
+      </div>
     );
   }
-  if (!sorted) return <TableSkeleton />;
+  if (!sorted) {
+    return (
+      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <TableSkeleton />
+      </div>
+    );
+  }
 
   return (
-    <>
+    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
         title="首页装修"
         count={sorted.length}
         actions={
           <div className="flex items-center gap-3">
             {savedAt ? <span className="text-sm text-ink-secondary">已发布 {savedAt}</span> : null}
-            <Button onClick={saveAll} disabled={saving}>
+            <Button onClick={saveAll} disabled={saving || bulletsBlocking.length > 0}>
               {saving ? "保存中…" : "保存发布"}
             </Button>
           </div>
         }
       />
 
+      {bulletsBlocking.length > 0 ? (
+        <div className="mb-4 mt-4 rounded-lg border border-sale bg-sale/10 p-3 text-sm text-ink">
+          最多 6 条要点，请删减空行
+        </div>
+      ) : null}
+
       {saveError ? (
-        <div className="mb-4 rounded-lg border border-sale bg-sale/10 p-3 text-sm text-ink">
+        <div className="mb-4 mt-4 rounded-lg border border-sale bg-sale/10 p-3 text-sm text-ink">
           保存失败：{saveError}
         </div>
       ) : null}
 
-      <div className="mb-4 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-3">
+      <div className="mb-4 mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-3">
         <Labeled label="添加新区块">
           <Select
             value={addType}
@@ -949,7 +1034,12 @@ function HomepageAdminContent() {
             })}
           </Select>
         </Labeled>
-        <Button variant="secondary" onClick={addSection}>
+        <Button
+          variant="secondary"
+          onClick={addSection}
+          disabled={addLeft <= 0}
+          title={addLeft <= 0 ? "该类型已达上限" : undefined}
+        >
           添加区块
         </Button>
         <span className="text-xs text-ink-muted">
@@ -1036,13 +1126,14 @@ function HomepageAdminContent() {
           open
           title="选择商品"
           multi={picker.mode === "multi"}
+          cap={picker.mode === "multi" ? 24 : undefined}
           initialSelected={pickerInitial}
           onClose={() => setPicker(null)}
           onApply={onPickerApply}
           onNames={(incoming) => setNames((prev) => ({ ...prev, ...incoming }))}
         />
       ) : null}
-    </>
+    </div>
   );
 }
 
