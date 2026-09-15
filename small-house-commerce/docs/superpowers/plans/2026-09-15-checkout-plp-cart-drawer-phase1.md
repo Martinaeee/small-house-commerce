@@ -154,8 +154,10 @@ const [errors, setErrors] = useState<Partial<Record<CheckoutField, string>>>({})
 把现有 `set` 工厂替换为（改动时顺手清掉该字段错误）：
 
 ```ts
+// 文件顶部 react 导入行已存在命名导入，改为：
+// import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 const set =
-  (field: CheckoutField) => (e: React.ChangeEvent<HTMLInputElement>) => {
+  (field: CheckoutField) => (e: ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [field]: e.target.value }));
     setErrors((current) => {
       if (!current[field]) return current;
@@ -808,6 +810,7 @@ git commit -m "feat(plp): image cards for subcategories with photos, pills kept 
 创建 `frontend/src/lib/plpUrl.ts`：
 
 ```ts
+import type { Room, Solution } from "./api";
 import {
   DEFAULT_FILTERS,
   PRICE_BAND_OPTIONS,
@@ -816,8 +819,6 @@ import {
   SORT_OPTIONS,
   type PlpFilters,
   type PriceBand,
-  type Room,
-  type Solution,
   type SortKey,
 } from "./plp";
 
@@ -1189,6 +1190,8 @@ useEffect(() => {
         badgeCollections.push({ slug: collection.slug, badge: NEW_BADGE });
       }
     }
+    // Spec §4.3: badgeLabel promos, first 4 by sortOrder (sort client-side so
+    // the rule holds regardless of the list endpoint's ordering).
     const promos = collections
       .filter(
         (collection) =>
@@ -1196,6 +1199,8 @@ useEffect(() => {
           collection.slug !== "best-sellers" &&
           collection.slug !== "new-arrivals",
       )
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
       .slice(0, 4);
     for (const collection of promos) {
       badgeCollections.push({
