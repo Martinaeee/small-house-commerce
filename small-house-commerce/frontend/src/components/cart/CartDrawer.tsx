@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useCart } from "./CartContext";
+import { QuickAddView } from "./QuickAddView";
 import { useProductImages } from "@/lib/productImages";
 import {
   firstSku,
@@ -31,12 +32,15 @@ export function CartDrawer() {
   const {
     cart,
     isOpen,
+    view,
+    pickerProduct,
     closeCart,
     updateItem,
     removeItem,
     reload,
     addItem,
     takeDrawerOpener,
+    goToCartView,
   } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -164,7 +168,12 @@ export function CartDrawer() {
   const hasItems = items.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Your cart">
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-label={view === "picker" ? "Add to cart" : "Your cart"}
+    >
       <button
         type="button"
         aria-label="Close cart"
@@ -177,7 +186,7 @@ export function CartDrawer() {
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-base font-bold uppercase tracking-wide text-ink">
-            Your Cart ({unitCount})
+            {view === "picker" ? "Add to Cart" : `Your Cart (${unitCount})`}
           </h2>
           <button
             ref={closeButtonRef}
@@ -192,6 +201,19 @@ export function CartDrawer() {
           </button>
         </div>
 
+        {view === "picker" && pickerProduct ? (
+          <QuickAddView
+            product={pickerProduct}
+            onClose={handleClose}
+            onAdded={() => {
+              goToCartView();
+              // The close button is chrome that survives the view swap;
+              // move focus before the Confirm button unmounts.
+              closeButtonRef.current?.focus();
+            }}
+          />
+        ) : (
+          <>
         <ul className="border-b border-border bg-background px-4 py-2">
           {SERVICE_LINES.map((line) => (
             <li key={line} className="flex items-center gap-2 py-1 text-xs text-ink-secondary">
@@ -416,6 +438,8 @@ export function CartDrawer() {
               Continue shopping
             </button>
           </div>
+        )}
+          </>
         )}
       </aside>
     </div>

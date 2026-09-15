@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { Product, ProductVariant } from "@/lib/api";
+import type { Product } from "@/lib/api";
 import type { CardBadge } from "@/lib/plpBadges";
 import { useCart } from "@/components/cart/CartContext";
+import { sellableVariants, sortedProductImages } from "@/lib/variantImages";
 import { track } from "@/lib/tracking";
 import { PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -15,8 +16,8 @@ import { RatingStars } from "./RatingStars";
  * still serves homepage/collections). Merchandise badges (Best Seller/New and
  * an optional promo chip) come from collection membership passed by the
  * parent — never invented.
- * Variant-name buttons switch the main image by positional mapping
- * (variant index -> images sorted by sortOrder, fallback to the first image)
+ * Multi-style products open the quick-add variant picker; single-style
+ * products add directly. The picker owns the positional variant→image mapping
  * until the backend links images to variants directly.
  */
 
@@ -25,26 +26,18 @@ interface PlpProductCardProps {
   badges: CardBadge[];
 }
 
-function firstSellableIndex(variants: readonly ProductVariant[]): number {
-  const i = variants.findIndex((v) => v.sku !== null && v.sku.price !== null);
-  return i === -1 ? 0 : i;
-}
-
 export function PlpProductCard({ product, badges }: PlpProductCardProps) {
-  const { addItem } = useCart();
-  const [selectedIndex, setSelectedIndex] = useState(() => firstSellableIndex(product.variants));
+  const { addItem, openPicker } = useCart();
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState(false);
 
-  const variant = product.variants[selectedIndex] ?? null;
-  const sku = variant?.sku ?? null;
-  const sellable = sku !== null && sku.price !== null;
-  const inStock = sellable && sku!.availableInventory > 0;
-  const hasAnySellable = product.variants.some((v) => v.sku !== null && v.sku!.price !== null);
+  const sellable = sellableVariants(product);
+  const hasMultipleStyles = sellable.length > 1;
+  const sku = sellable[0]?.sku ?? null;
+  const inStock = sku !== null && sku.availableInventory > 0;
+  const hasAnySellable = sellable.length > 0;
 
-  const sortedImages = [...product.images].sort((a, b) => a.sortOrder - b.sortOrder);
-  const image =
-    sortedImages[selectedIndex] ?? sortedImages[0] ?? null;
+  const image = sortedProductImages(product)[0] ?? null;
 
   async function quickAdd() {
     if (!sku || busy || !inStock) return;
@@ -86,8 +79,9 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
         )}
 
         {(() => {
-          // Selecting an out-of-stock style replaces the merchandise badge.
-          const showOos = !hasAnySellable || (sellable && !inStock);
+          // An out-of-stock card replaces the merchandise badge; multi-style
+          // cards keep product badges (the picker shows per-style stock).
+          const showOos = !hasAnySellable || (!hasMultipleStyles && !inStock);
           if (showOos) {
             return (
               <span className="absolute left-3 top-3 rounded bg-ink/85 px-2 py-1 text-xs font-semibold text-white">
@@ -118,32 +112,6 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
       </Link>
 
       <div className="flex flex-1 flex-col gap-1.5 p-3 sm:p-4">
-        {product.variants.length > 1 && (
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${product.name} styles`}>
-            {product.variants.map((v, i) => {
-              const disabled = v.sku === null;
-              const active = i === selectedIndex;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => !disabled && setSelectedIndex(i)}
-                  disabled={disabled}
-                  aria-pressed={active}
-                  data-testid={`plp-variant-${product.slug}-${i}`}
-                  className={`max-w-[8rem] truncate rounded-full border px-2.5 py-1 text-[11px] leading-none transition-colors ${
-                    active
-                      ? "border-cta bg-cta text-white"
-                      : "border-border bg-card text-ink-secondary hover:border-primary hover:text-cta"
-                  } ${disabled ? "cursor-not-allowed opacity-40 hover:border-border hover:text-ink-secondary" : ""}`}
-                >
-                  {v.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         <h3 className="line-clamp-2 text-sm font-semibold text-ink">
           <Link href={`/products/${product.slug}`} className="hover:text-cta">
             {product.name}
@@ -159,15 +127,16 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
         )}
 
         <div className="mt-auto pt-2">
-          {hasAnySellable ? (
-            <button
-              type="button"
-              onClick={quickAdd}
-              disabled={!inStock || busy}
-              data-testid={`plp-add-${product.slug}`}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2 text-sm font-medium text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
-            >
-              {busy ? (
+          <button
+            type="button"
+            onClick={hasMultipleStyles ? () => openPicker(product) : quickAdd}
+            disabled={hasMultipleStyles ? false : !inStock || busy}
+            data-testid={`plp-add-${product.slug}`}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2 text-sm font-medium text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
+          >
+            {hasMultipleStyles
+              ? "Add to Cart"
+              : busy ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   Adding…
@@ -190,15 +159,7 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
               ) : (
                 "Out of Stock"
               )}
-            </button>
-          ) : (
-            <Link
-              href={`/products/${product.slug}`}
-              className="block w-full rounded-lg border border-border bg-card py-2 text-center text-sm font-medium text-ink-secondary transition-colors hover:border-primary hover:text-cta"
-            >
-              View Details
-            </Link>
-          )}
+          </button>
         </div>
       </div>
     </article>
