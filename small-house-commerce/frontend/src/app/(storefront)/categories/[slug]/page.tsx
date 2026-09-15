@@ -77,6 +77,9 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const products = await fetchFirstPage(node.id);
   const items = products?.items ?? [];
   const total = products?.total ?? 0;
+  // null = the first-page request failed; an empty page is a genuinely empty
+  // category and must keep the normal empty state.
+  const initialLoadFailed = products === null;
 
   const jsonLdBlocks = buildCategoryJsonLd(node, parent, items);
 
@@ -142,7 +145,16 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
         <h1 className="mt-4 text-3xl font-semibold text-ink sm:text-4xl">{node.name}</h1>
       )}
 
-      <CategoryPlpClient categoryId={node.id} initialProducts={items} initialTotal={total} />
+      {/* router.refresh() preserves Client Component state, so the key flips
+          failed -> ready after a successful retry to force a clean remount
+          seeded from the new server-rendered first page. */}
+      <CategoryPlpClient
+        key={initialLoadFailed ? "load-failed" : "load-ok"}
+        categoryId={node.id}
+        initialProducts={items}
+        initialTotal={total}
+        initialLoadFailed={initialLoadFailed}
+      />
     </div>
   );
 }

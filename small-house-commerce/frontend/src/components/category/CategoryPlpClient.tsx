@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, type Product } from "@/lib/api";
 import {
   DEFAULT_FILTERS,
@@ -27,6 +28,7 @@ interface CategoryPlpClientProps {
   categoryId: string;
   initialProducts: Product[];
   initialTotal: number;
+  initialLoadFailed: boolean;
 }
 
 async function fetchCollectionSlugs(slug: string): Promise<Set<string>> {
@@ -47,7 +49,12 @@ export function CategoryPlpClient({
   categoryId,
   initialProducts,
   initialTotal,
+  initialLoadFailed,
 }: CategoryPlpClientProps) {
+  const router = useRouter();
+  // Synced from the server prop: the server remounts this island (key flip)
+  // after a successful router.refresh() retry, so no setter is needed.
+  const [loadFailed] = useState(initialLoadFailed);
   const [allProducts, setAllProducts] = useState<Product[]>(initialProducts);
   const [loading, setLoading] = useState(initialTotal > initialProducts.length);
   const [bestsellerSlugs, setBestsellerSlugs] = useState<Set<string>>(new Set());
@@ -116,6 +123,23 @@ export function CategoryPlpClient({
   }, [allProducts, filters, sort, bestsellerSlugs]);
 
   const filterCount = activeFilterCount(filters);
+
+  // First-page fetch failure (server passed initialLoadFailed). Distinct from
+  // a genuinely empty category, which keeps the normal empty state below.
+  if (loadFailed) {
+    return (
+      <div className="mt-6 rounded-lg border border-border bg-card p-8 text-center">
+        <p className="text-ink-secondary">We couldn&apos;t load these products.</p>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-3 rounded-lg bg-cta px-5 py-2 text-sm font-medium text-white hover:bg-cta-hover"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-6 grid gap-6 lg:grid-cols-[210px_minmax(0,1fr)]">
