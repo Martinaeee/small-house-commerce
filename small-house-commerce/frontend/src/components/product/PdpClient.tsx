@@ -10,6 +10,7 @@ import { useCart } from "@/components/cart/CartContext";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import { track } from "@/lib/tracking";
+import { recordProductView } from "@/lib/recently-viewed";
 
 const SUPPORT_EMAIL = "support@luwag.ph";
 import { RatingStars } from "./RatingStars";
@@ -121,6 +122,11 @@ export function PdpClient({
     if (urlIsInvalid) router.replace(url, { scroll: false });
     else router.push(url, { scroll: false });
   }, [selectedVariantId, urlVariant, initialVariantId, variants, productPath, product.slug, router]);
+
+  // Homepage Recently Viewed (IA slot 13): newest-first, capped in the helper.
+  useEffect(() => {
+    recordProductView(product.id);
+  }, [product.id]);
 
   // Reserve space for the fixed mobile CTA so the footer stays reachable.
   useEffect(() => {
