@@ -129,6 +129,7 @@ model Product {
   variants ProductVariant[]
   skus     Sku[]
   collections CollectionProduct[]
+  homepageSections HomepageSectionProduct[]
 
   @@index([categoryId])
   @@index([status])
