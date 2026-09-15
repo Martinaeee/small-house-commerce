@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Product, ProductVariant } from "@/lib/api";
+import type { CardBadge } from "@/lib/plpBadges";
 import { useCart } from "@/components/cart/CartContext";
 import { track } from "@/lib/tracking";
 import { PriceBox } from "@/components/ui/PriceBox";
@@ -11,18 +12,17 @@ import { RatingStars } from "./RatingStars";
 
 /**
  * Castlery-style PLP card (category pages only; the shared static ProductCard
- * still serves homepage/collections). Merchandise badge (Bestseller/New)
- * comes from collection membership passed by the parent — never invented.
+ * still serves homepage/collections). Merchandise badges (Best Seller/New and
+ * an optional promo chip) come from collection membership passed by the
+ * parent — never invented.
  * Variant-name buttons switch the main image by positional mapping
  * (variant index -> images sorted by sortOrder, fallback to the first image)
  * until the backend links images to variants directly.
  */
 
-export type PlpBadge = "bestseller" | "new" | null;
-
 interface PlpProductCardProps {
   product: Product;
-  badge: PlpBadge;
+  badges: CardBadge[];
 }
 
 function firstSellableIndex(variants: readonly ProductVariant[]): number {
@@ -30,7 +30,7 @@ function firstSellableIndex(variants: readonly ProductVariant[]): number {
   return i === -1 ? 0 : i;
 }
 
-export function PlpProductCard({ product, badge }: PlpProductCardProps) {
+export function PlpProductCard({ product, badges }: PlpProductCardProps) {
   const { addItem } = useCart();
   const [selectedIndex, setSelectedIndex] = useState(() => firstSellableIndex(product.variants));
   const [busy, setBusy] = useState(false);
@@ -95,14 +95,23 @@ export function PlpProductCard({ product, badge }: PlpProductCardProps) {
               </span>
             );
           }
-          if (!badge) return null;
+          if (badges.length === 0) return null;
           return (
-            <span
-              className={`absolute left-3 top-3 rounded px-2 py-1 text-xs font-semibold text-white ${
-                badge === "bestseller" ? "bg-ink/85" : "bg-primary-dark/90"
-              }`}
-            >
-              {badge === "bestseller" ? "Bestseller" : "New"}
+            <span className="absolute left-3 top-3 flex gap-1.5">
+              {badges.slice(0, 2).map((badge) => (
+                <span
+                  key={`${badge.kind}-${badge.label}`}
+                  className={`rounded px-2 py-1 text-xs font-semibold text-white ${
+                    badge.kind === "promo"
+                      ? "bg-sale"
+                      : badge.kind === "new"
+                        ? "bg-primary-dark/90"
+                        : "bg-ink/85"
+                  }`}
+                >
+                  {badge.label}
+                </span>
+              ))}
             </span>
           );
         })()}
