@@ -11,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, cartStorage, type CartSummary } from "@/lib/api";
+import { api, cartStorage, type CartSummary, type Product } from "@/lib/api";
 
 /**
  * Single source of truth for the guest cart on the client (Shopee/Taobao
@@ -20,10 +20,18 @@ import { api, cartStorage, type CartSummary } from "@/lib/api";
  * with the summary the API returns, so the badge and pages never refetch.
  * Cross-tab changes to the cartId key trigger a reload.
  */
+export type DrawerView = "cart" | "picker";
+
 interface CartContextValue {
   cart: CartSummary | null;
   loading: boolean;
   isOpen: boolean;
+  view: DrawerView;
+  pickerProduct: Product | null;
+  /** Open the drawer in the variant-picker view for the given product. */
+  openPicker: (product: Product) => void;
+  /** Switch an open drawer from picker to cart view (after a successful add). */
+  goToCartView: () => void;
   openCart: () => void;
   closeCart: () => void;
   /** Consume (and clear) the element focused when the drawer was requested. */
@@ -49,18 +57,38 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
+  const [view, setView] = useState<DrawerView>("cart");
+  const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
   // Captured synchronously in the add-to-cart click task — before the busy
   // rerender disables the trigger and Chrome moves focus to <body> — and
   // consumed once by the drawer's open effect for focus restoration.
   const drawerOpenerRef = useRef<HTMLElement | null>(null);
-  const openCart = useCallback(() => {
+  const captureOpener = useCallback(() => {
     const active = document.activeElement;
     if (active instanceof HTMLElement && active !== document.body) {
       drawerOpenerRef.current = active;
     }
-    setIsOpen(true);
   }, []);
-  const closeCart = useCallback(() => setIsOpen(false), []);
+  const openCart = useCallback(() => {
+    captureOpener();
+    setView("cart");
+    setIsOpen(true);
+  }, [captureOpener]);
+  const openPicker = useCallback(
+    (product: Product) => {
+      captureOpener();
+      setPickerProduct(product);
+      setView("picker");
+      setIsOpen(true);
+    },
+    [captureOpener],
+  );
+  const goToCartView = useCallback(() => setView("cart"), []);
+  const closeCart = useCallback(() => {
+    setIsOpen(false);
+    setPickerProduct(null);
+    setView("cart");
+  }, []);
   const takeDrawerOpener = useCallback(() => {
     const el = drawerOpenerRef.current;
     drawerOpenerRef.current = null;
@@ -198,6 +226,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     cart,
     loading,
     isOpen,
+    view,
+    pickerProduct,
+    openPicker,
+    goToCartView,
     openCart,
     closeCart,
     takeDrawerOpener,
