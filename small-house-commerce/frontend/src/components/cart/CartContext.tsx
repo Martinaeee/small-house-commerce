@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -25,6 +26,8 @@ interface CartContextValue {
   isOpen: boolean;
   openCart: () => void;
   closeCart: () => void;
+  /** Consume (and clear) the element focused when the drawer was requested. */
+  takeDrawerOpener: () => HTMLElement | null;
   /** Replace state with an API-returned summary (add-to-cart response). */
   applySummary: (summary: CartSummary) => void;
   reload: () => Promise<void>;
@@ -46,8 +49,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
-  const openCart = useCallback(() => setIsOpen(true), []);
+  // Captured synchronously in the add-to-cart click task — before the busy
+  // rerender disables the trigger and Chrome moves focus to <body> — and
+  // consumed once by the drawer's open effect for focus restoration.
+  const drawerOpenerRef = useRef<HTMLElement | null>(null);
+  const openCart = useCallback(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) {
+      drawerOpenerRef.current = active;
+    }
+    setIsOpen(true);
+  }, []);
   const closeCart = useCallback(() => setIsOpen(false), []);
+  const takeDrawerOpener = useCallback(() => {
+    const el = drawerOpenerRef.current;
+    drawerOpenerRef.current = null;
+    return el;
+  }, []);
 
   const reload = useCallback(async () => {
     const id = cartStorage.get();
@@ -116,11 +134,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
       { skuId, quantity }: { skuId: string; quantity: number },
       opts?: { openDrawer?: boolean },
     ) => {
-      const summary = await api.addToCart({ cartId: cartStorage.get(), skuId, quantity });
-      cartStorage.set(summary.cartId);
-      setCart(summary);
-      if (opts?.openDrawer !== false) setIsOpen(true);
-      return summary;
+      const willOpen = opts?.openDrawer !== false;
+      // Still the same click task and the trigger is focused here; after the
+      // await the disabled rerender has moved focus to <body> (FAIL-1). When
+      // the drawer stays closed (quick-add inside it) the ref is never touched.
+      if (willOpen) {
+        const active = document.activeElement;
+        drawerOpenerRef.current =
+          active instanceof HTMLElement && active !== document.body ? active : null;
+      }
+      try {
+        const summary = await api.addToCart({ cartId: cartStorage.get(), skuId, quantity });
+        cartStorage.set(summary.cartId);
+        setCart(summary);
+        if (willOpen) setIsOpen(true);
+        return summary;
+      } catch (err) {
+        if (willOpen) drawerOpenerRef.current = null;
+        throw err;
+      }
     },
     [],
   );
@@ -168,6 +200,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     isOpen,
     openCart,
     closeCart,
+    takeDrawerOpener,
     applySummary,
     reload,
     addItem,

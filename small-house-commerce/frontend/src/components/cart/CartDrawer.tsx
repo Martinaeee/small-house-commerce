@@ -28,7 +28,16 @@ const SERVICE_LINES = [
 ];
 
 export function CartDrawer() {
-  const { cart, isOpen, closeCart, updateItem, removeItem, reload, addItem } = useCart();
+  const {
+    cart,
+    isOpen,
+    closeCart,
+    updateItem,
+    removeItem,
+    reload,
+    addItem,
+    takeDrawerOpener,
+  } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -49,7 +58,19 @@ export function CartDrawer() {
   // Scroll lock, initial focus, focus trap, Escape, and focus restoration.
   useEffect(() => {
     if (!isOpen) return;
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Prefer the opener captured synchronously in the add-to-cart click task
+    // (FAIL-1: by effect time the disabled trigger has lost focus to <body>).
+    // Effect-time capture stays the fallback for the openCart() path.
+    openerRef.current = takeDrawerOpener();
+    if (!openerRef.current) {
+      const active = document.activeElement;
+      openerRef.current =
+        active instanceof HTMLElement && active !== document.body ? active : null;
+    }
+    // Reopening must not show a stale remove-confirm or line error.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded open-transition reset, not a mount sync
+    setConfirmId(null);
+    setLineError(null);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
@@ -67,10 +88,13 @@ export function CartDrawer() {
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && active === first) {
+      // Pull back from the backdrop button / <body>, which are reachable by
+      // Tab even though they live outside the panel.
+      const inside = active !== null && panelRef.current.contains(active);
+      if (e.shiftKey && (!inside || active === first)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (!inside || active === last)) {
         e.preventDefault();
         first.focus();
       }
@@ -82,7 +106,7 @@ export function CartDrawer() {
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus();
     };
-  }, [isOpen, closeCart]);
+  }, [isOpen, closeCart, takeDrawerOpener]);
 
   async function changeQty(item: CartItem, quantity: number) {
     if (busyId) return;
@@ -100,6 +124,7 @@ export function CartDrawer() {
   }
 
   async function confirmRemove(item: CartItem) {
+    if (busyId) return;
     setBusyId(item.itemId);
     try {
       await removeItem(item.itemId);
@@ -376,7 +401,7 @@ export function CartDrawer() {
                 <dd className="font-medium text-ink">COD — calculated at checkout</dd>
               </div>
             </dl>
-            <ButtonLink href="/cart" className="w-full">
+            <ButtonLink href="/cart" className="w-full" onClick={closeCart}>
               CHECKOUT
             </ButtonLink>
             <button
