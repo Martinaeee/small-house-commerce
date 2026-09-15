@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { useCart } from "./CartContext";
@@ -30,6 +30,8 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
   const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
 
   const selectedIndex = product.variants.findIndex((v) => v.id === selectedId);
   const variant = selectedIndex >= 0 ? product.variants[selectedIndex] : null;
@@ -66,8 +68,10 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
         value: sku.price,
         currency: "PHP",
       });
+      if (!aliveRef.current) return;
       onAdded();
     } catch {
+      if (!aliveRef.current) return;
       setError("Sorry, we couldn't add that right now. Please try again.");
       setBusy(false);
     }
@@ -119,8 +123,17 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
         </div>
 
         <div className="border-t border-border px-4 py-3">
-          <span className="text-sm font-medium text-ink-secondary">Color/Style</span>
-          <div className="mt-2 flex flex-wrap gap-2.5">
+          <span
+            id={`picker-style-label-${product.slug}`}
+            className="text-sm font-medium text-ink-secondary"
+          >
+            Color/Style
+          </span>
+          <div
+            role="group"
+            aria-labelledby={`picker-style-label-${product.slug}`}
+            className="mt-2 flex flex-wrap gap-2.5"
+          >
             {product.variants.map((v, i) => {
               const thumb = variantImage(product, i);
               const disabled = v.sku === null;
