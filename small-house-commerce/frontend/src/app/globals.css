@@ -28,6 +28,10 @@
   /* §5.6 promotion (sale only) */
   --color-sale: #d9534f;
 
+  /* positive state (logged-in check badge); added after the design-system
+     palette, which defines no success color */
+  --color-success: #217a3c;
+
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
 
