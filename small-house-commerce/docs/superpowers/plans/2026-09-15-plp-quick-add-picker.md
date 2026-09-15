@@ -567,9 +567,10 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
         )}
 ```
 
-5. 购物车按钮的 `onClick`/`disabled`/文案改为分流（class 与 testid 不变）：
+5. 购物车区的**外层 `hasAnySellable` 三元必须保留**（0 可售款仍是整宽 View Details 链接，spec §3.1）；仅把内层按钮的 `onClick`/`disabled`/文案改为分流（class 与 testid 不变）。最终结构：
 
 ```tsx
+          {hasAnySellable ? (
             <button
               type="button"
               onClick={hasMultipleStyles ? () => openPicker(product) : quickAdd}
@@ -603,6 +604,14 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
                   "Out of Stock"
                 )}
             </button>
+          ) : (
+            <Link
+              href={`/products/${product.slug}`}
+              className="block w-full rounded-lg border border-border bg-card py-2 text-center text-sm font-medium text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+            >
+              View Details
+            </Link>
+          )}
 ```
 
 徽章区 `showOos = !hasAnySellable || (sellable && !inStock)` 表达式里 `sellable` 现在是数组——改为 `!hasAnySellable || (!hasMultipleStyles && !inStock)`（多款式卡即使各款全 OOS 也只显示商品徽章，入口进抽屉后再显示各款 OOS；全店无任何 sellable 时仍出 "Out of Stock" 角标）：
