@@ -348,9 +348,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
       <h1 className="mb-6 text-3xl font-semibold text-ink">Checkout</h1>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-        {/* Order preview (§7) + summary (§13) */}
-        <aside className="order-2 flex flex-col gap-4 lg:order-1 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
+        {/* 1. Order preview (mobile first; desktop left column, row 1) */}
+        <div className="lg:col-start-1 lg:col-span-2 lg:row-start-1">
           <div className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-1 text-lg font-semibold text-ink">Your Order</h2>
             {isBuyNow && product === null && !productError ? (
@@ -364,46 +364,11 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 ))}
               </ul>
             )}
-
-            <dl className="mt-4 flex flex-col gap-2 border-t border-border pt-4 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Subtotal</dt>
-                <dd className="font-medium text-ink">
-                  {isBuyNow && total === null
-                    ? "Calculated at checkout"
-                    : formatPrice(totals.subtotal)}
-                </dd>
-              </div>
-              {totals.discount > 0 && (
-                <div className="flex justify-between">
-                  <dt className="text-ink-secondary">Discount</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Shipping</dt>
-                <dd className="font-medium text-ink">COD — calculated at checkout</dd>
-              </div>
-              <div className="flex justify-between border-t border-border pt-3 text-base">
-                <dt className="font-semibold text-ink">Total (COD)</dt>
-                <dd className="font-bold text-ink">
-                  {total !== null ? formatPrice(total) : "Calculated at checkout"}
-                </dd>
-              </div>
-            </dl>
           </div>
+        </div>
 
-          <div className="rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary">
-            <p className="font-semibold text-ink">Cash on Delivery</p>
-            <p className="mt-1">
-              Pay in cash when your order arrives. Estimated delivery:
-              Metro Manila 3-5 days, provinces 5-7 days.
-            </p>
-          </div>
-        </aside>
-
-        {/* Customer information (§8) + delivery address (§9) */}
-        <div className="order-1 flex flex-col gap-4 lg:order-2 lg:col-span-3">
+        {/* 2. Contact information — existing <section> card moved here verbatim */}
+        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-1">
           <section className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-4 text-lg font-semibold text-ink">Contact Information</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -442,7 +407,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               We use your mobile number for delivery updates.
             </p>
           </section>
+        </div>
 
+        {/* 3. Delivery address — existing <section> card moved here verbatim */}
+        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-2">
           <section className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-4 text-lg font-semibold text-ink">Delivery Address</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -504,9 +472,52 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               </label>
             </div>
           </section>
+        </div>
 
+        {/* 4. Totals + COD assurance (desktop left column, row 2) */}
+        <div className="flex flex-col gap-4 lg:col-start-1 lg:col-span-2 lg:row-start-2">
+          <div className="rounded-lg border border-border bg-card p-5">
+            <dl className="flex flex-col gap-2 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-ink-secondary">Subtotal</dt>
+                <dd className="font-medium text-ink">
+                  {isBuyNow && total === null
+                    ? "Calculated at checkout"
+                    : formatPrice(totals.subtotal)}
+                </dd>
+              </div>
+              {totals.discount > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-ink-secondary">Discount</dt>
+                  <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <dt className="text-ink-secondary">Shipping</dt>
+                <dd className="font-medium text-ink">COD — calculated at checkout</dd>
+              </div>
+              <div className="flex justify-between border-t border-border pt-3 text-base">
+                <dt className="font-semibold text-ink">Total (COD)</dt>
+                <dd className="font-bold text-ink">
+                  {total !== null ? formatPrice(total) : "Calculated at checkout"}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary">
+            <p className="font-semibold text-ink">Cash on Delivery</p>
+            <p className="mt-1">
+              Pay in cash when your order arrives. Estimated delivery:
+              Metro Manila 3-5 days, provinces 5-7 days.
+            </p>
+          </div>
+        </div>
+
+        {/* 5. Submit error + CTA (mobile bottom; desktop right column, row 3) */}
+        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-3">
           {error && (
-            <p role="alert" className="rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale">
+            <p role="alert" className="mb-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale">
               {error}
             </p>
           )}
@@ -514,7 +525,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           <Button onClick={placeOrder} disabled={submitting} className="w-full" data-testid="place-order">
             {submitting ? "Placing order…" : "PLACE COD ORDER"}
           </Button>
-          <p className="text-center text-xs text-ink-muted">
+          <p className="mt-2 text-center text-xs text-ink-muted">
             Cash on Delivery · No payment needed now
           </p>
         </div>
