@@ -356,11 +356,13 @@ export interface PresignUploadResult {
   expiresIn: number;
 }
 
+// Mirrors createAdminReviewSchema (backend): optional text fields are
+// omitted, not null — the batch endpoint rejects null with a zod 400.
 export interface BatchReviewInput {
   authorName: string;
-  location?: string | null;
+  location?: string;
   rating: number;
-  title?: string | null;
+  title?: string;
   comment: string;
   photos?: string[];
   isVisible?: boolean;

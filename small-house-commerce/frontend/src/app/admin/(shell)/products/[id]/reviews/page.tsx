@@ -9,7 +9,7 @@ import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
-import { BatchImportReviewsDialog } from "./batch-import-dialog";
+import { BatchReviewsGridDialog } from "./batch-reviews-grid-dialog";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -666,7 +666,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
         ) : null}
       </Dialog>
 
-      <BatchImportReviewsDialog
+      <BatchReviewsGridDialog
         productId={productId}
         open={batchOpen}
         onClose={() => setBatchOpen(false)}

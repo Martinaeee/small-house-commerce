@@ -17,6 +17,8 @@ const FOCUSABLE =
 const widthCls = {
   sm: "w-[min(92vw,24rem)]",
   md: "w-[min(92vw,32rem)]",
+  // Wide modal for the tabular batch review editor (many columns).
+  lg: "w-[min(96vw,72rem)]",
 } as const;
 
 interface DialogProps {
@@ -24,7 +26,7 @@ interface DialogProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
-  width?: "sm" | "md";
+  width?: "sm" | "md" | "lg";
 }
 
 export function Dialog({
