@@ -2,7 +2,14 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { api, type Product } from "@/lib/api";
+import { api, type Collection, type Product } from "@/lib/api";
+import {
+  BESTSELLER_BADGE,
+  NEW_BADGE,
+  buildBadgeMap,
+  visibleBadges,
+  type CardBadge,
+} from "@/lib/plpBadges";
 import { buildPlpQuery, parsePlpState } from "@/lib/plpUrl";
 import {
   DEFAULT_FILTERS,
@@ -59,9 +66,12 @@ function CategoryPlpClientInner({
   // after a successful router.refresh() retry, so no setter is needed.
   const [loadFailed] = useState(initialLoadFailed);
   const [allProducts, setAllProducts] = useState<Product[]>(initialProducts);
-  const [loading, setLoading] = useState(initialTotal > initialProducts.length);
-  const [bestsellerSlugs, setBestsellerSlugs] = useState<Set<string>>(new Set());
-  const [newSlugs, setNewSlugs] = useState<Set<string>>(new Set());
+  // A failed first page renders the retry card with no spinner: no requests
+  // follow (see effect guard), so loading starts false on that mount.
+  const [loading, setLoading] = useState(
+    initialTotal > initialProducts.length && !initialLoadFailed,
+  );
+  const [badgeMap, setBadgeMap] = useState<Map<string, CardBadge[]>>(new Map());
   const [sort, setSort] = useState<SortKey>(() => parsePlpState(searchParams).sort);
   const [filters, setFilters] = useState<PlpFilters>(
     () => parsePlpState(searchParams).filters,
@@ -82,6 +92,11 @@ function CategoryPlpClientInner({
   // collections. State is only set after the awaits.
   useEffect(() => {
     let alive = true;
+    // A failed first page already shows the retry card (loading seeded false
+    // above). Don't fire the remaining-page / collection / badge requests
+    // behind it; the post-retry key-flip remounts with
+    // initialLoadFailed=false and loads everything.
+    if (initialLoadFailed) return;
     void (async () => {
       const pageCount = Math.min(
         5,
@@ -96,10 +111,52 @@ function CategoryPlpClientInner({
             .catch(() => []),
         );
       }
-      const [rest, bestsellers, news] = await Promise.all([
+
+      // Badge sources: the two fixed-slug identity collections, plus up to four
+      // promo collections carrying an admin badgeLabel (spec §4.3). The field
+      // does not exist on the phase-1 backend, so until phase 2 this is the
+      // exact bestseller/new behaviour already shipped.
+      let collections: Collection[] = [];
+      try {
+        collections = (await api.getCollections()).items;
+      } catch {
+        collections = [];
+      }
+      const badgeCollections: { slug: string; badge: CardBadge }[] = [];
+      for (const collection of collections) {
+        if (collection.slug === "best-sellers") {
+          badgeCollections.push({ slug: collection.slug, badge: BESTSELLER_BADGE });
+        } else if (collection.slug === "new-arrivals") {
+          badgeCollections.push({ slug: collection.slug, badge: NEW_BADGE });
+        }
+      }
+      // Spec §4.3: badgeLabel promos, first 4 by sortOrder (sort client-side so
+      // the rule holds regardless of the list endpoint's ordering).
+      const promos = collections
+        .filter(
+          (collection) =>
+            (collection.badgeLabel ?? "").trim() !== "" &&
+            collection.slug !== "best-sellers" &&
+            collection.slug !== "new-arrivals",
+        )
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .slice(0, 4);
+      for (const collection of promos) {
+        badgeCollections.push({
+          slug: collection.slug,
+          badge: { kind: "promo", label: (collection.badgeLabel ?? "").trim() },
+        });
+      }
+
+      const [rest, memberSets] = await Promise.all([
         Promise.all(pageRequests).then((pages) => pages.flat()),
-        fetchCollectionSlugs("best-sellers"),
-        fetchCollectionSlugs("new-arrivals"),
+        Promise.all(
+          badgeCollections.map(async (source) => ({
+            source,
+            slugs: await fetchCollectionSlugs(source.slug),
+          })),
+        ),
       ]);
       if (!alive) return;
       if (rest.length > 0) {
@@ -108,14 +165,16 @@ function CategoryPlpClientInner({
           return [...current, ...rest.filter((p) => !seen.has(p.id))];
         });
       }
-      setBestsellerSlugs(bestsellers);
-      setNewSlugs(news);
+      const entries = memberSets.flatMap(({ source, slugs }) =>
+        [...slugs].map((slug) => ({ slug, badge: source.badge })),
+      );
+      setBadgeMap(buildBadgeMap(entries));
       setLoading(false);
     })();
     return () => {
       alive = false;
     };
-  }, [categoryId, initialTotal, initialProducts.length]);
+  }, [categoryId, initialTotal, initialProducts.length, initialLoadFailed]);
 
   // Lock body scroll while the mobile filter drawer is open + Escape closes.
   useEffect(() => {
@@ -140,6 +199,16 @@ function CategoryPlpClientInner({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort, filters]);
+
+  // The recommended sort surfaces best-sellers first; derive that slug set
+  // from the unified badge map instead of keeping separate state.
+  const bestsellerSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    for (const [slug, badges] of badgeMap) {
+      if (badges.some((badge) => badge.kind === "bestseller")) slugs.add(slug);
+    }
+    return slugs;
+  }, [badgeMap]);
 
   const visibleProducts = useMemo(() => {
     const filtered = filterProducts(allProducts, filters);
@@ -231,13 +300,7 @@ function CategoryPlpClientInner({
               <PlpProductCard
                 key={product.id}
                 product={product}
-                badge={
-                  bestsellerSlugs.has(product.slug)
-                    ? "bestseller"
-                    : newSlugs.has(product.slug)
-                      ? "new"
-                      : null
-                }
+                badges={visibleBadges(badgeMap, product.slug)}
               />
             ))}
           </div>

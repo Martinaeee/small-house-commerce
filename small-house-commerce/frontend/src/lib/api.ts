@@ -108,6 +108,8 @@ export interface Collection {
   sortOrder: number;
   seoTitle?: string | null;
   seoDescription?: string | null;
+  /** Admin-set promo chip text (e.g. "9.9 Sale"); absent until backend phase 2. */
+  badgeLabel?: string | null;
 }
 
 export interface CollectionSection {
