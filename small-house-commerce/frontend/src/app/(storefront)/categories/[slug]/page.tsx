@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CategoryPlpClient } from "@/components/category/CategoryPlpClient";
+import { buildCategoryJsonLd } from "@/lib/category-jsonld";
 import { findCategory } from "@/lib/nav";
 import { PLP_PAGE_SIZE } from "@/lib/plp";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
@@ -77,8 +78,19 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const items = products?.items ?? [];
   const total = products?.total ?? 0;
 
+  const jsonLdBlocks = buildCategoryJsonLd(node, parent, items);
+
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
+      {jsonLdBlocks.map((block, index) => (
+        <script
+          key={index}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(block).replace(/</g, "\u003c"),
+          }}
+        />
+      ))}
       {/* Breadcrumb */}
       <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
         <Link href="/" className="hover:text-cta">
