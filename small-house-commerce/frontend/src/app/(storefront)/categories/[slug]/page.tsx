@@ -87,7 +87,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
           key={index}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(block).replace(/</g, "\u003c"),
+            __html: JSON.stringify(block).replace(/</g, "\\u003c"),
           }}
         />
       ))}
