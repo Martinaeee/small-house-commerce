@@ -5,6 +5,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
+import { poppins } from "@/lib/fonts";
 
 // ISR: storefront data changes through the admin, not per request.
 const REVALIDATE = 120;
@@ -61,7 +62,8 @@ export default async function HomePage() {
           <h1 className="max-w-2xl text-4xl font-semibold text-ink sm:text-5xl">
             Small space,
             <br />
-            big <span className="lowercase text-cta">luwag</span>.
+            big{" "}
+            <span className={`${poppins.className} lowercase text-cta`}>luwag</span>.
           </h1>
           <p className="max-w-xl text-base text-ink-secondary">
             Small-space furniture, made roomy — designed for condos and

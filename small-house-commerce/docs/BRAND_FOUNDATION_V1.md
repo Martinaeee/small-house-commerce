@@ -209,11 +209,17 @@ grew. Carries "spacious" without literal furniture; doubles as a favicon.
 The **L** formed by two generous-spaced strokes that bracket an open
 space (negative space = the room). Quiet, premium, works at 16px.
 
-### C. Pure wordmark (safe, fast to ship)
-Custom rounded-geometric "**luwag**" lowercase in Poppins weight 600 with
-unusually generous letter-spacing — the spacing itself is the joke:
-the name *looks* maluwag. Lowest cost, zero misreading risk, best for a
-quick launch; can gain a symbol later.
+### C. Wordmark + tile lockup (SHIPPED — v2, 2026-09-15)
+"**luwag**" lowercase in **Poppins 700 with near-zero tracking
+(0.02em)**, paired left of the text with the direction-A tile
+(favicon geometry, ~1.12em tall, 0.4em gap). v0 shipped Poppins-600 at
+0.42em tracking without the font actually loaded (system fallback); at
+18px it read sparse/cheap. The v2 lockup follows the furniture-house
+convention (IKEA/MUJI/Nitori: tight bold word carried by a symbol) and
+the tile supplies the "room that grew" idea the wide spacing was trying
+to express. Lockup is flush left in the header, em-sized so one size
+override scales mark + word together. A custom-drawn wordmark can still
+replace Poppins later without touching the tile.
 
 **Hard no's:** lungs/breath marks (Ginhawa leftover), spoons/ladles/
 bowls (Cebuano), porridge, house cliches with pitched roofs unless
