@@ -33,3 +33,6 @@ build/
 
 # playwright MCP scratch output
 .playwright-mcp/
+
+# linked git worktrees for parallel feature work
+.claude/worktrees/

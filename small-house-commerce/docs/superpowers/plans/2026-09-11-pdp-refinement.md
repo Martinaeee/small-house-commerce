@@ -165,11 +165,16 @@ export const createAdminReviewSchema = z.object({
 });
 export type CreateAdminReviewInput = z.infer<typeof createAdminReviewSchema>;
 
-// PATCH: every field optional; no defaults here so an omitted field means
-// "leave unchanged" (same partial-update convention as updateProductSchema).
+// PATCH: every field optional; no defaults may survive here so an omitted
+// field means "leave unchanged". Zod 4's .partial() PRESERVES inner
+// defaults, so omit the defaulted fields first and re-add them plain —
+// the same convention as updateProductSchema in product.dto.ts.
 export const updateAdminReviewSchema = createAdminReviewSchema
+  .omit({ photos: true, isVisible: true })
   .partial()
   .extend({
+    photos: z.array(photoSchema).max(6).optional(),
+    isVisible: z.boolean().optional(),
     // Allow explicitly clearing the optional text fields.
     location: z.string().trim().max(120).nullable().optional(),
     title: z.string().trim().max(200).nullable().optional(),
@@ -438,12 +443,27 @@ export class ReviewsService {
   async storefrontForProduct(
     productId: string,
   ): Promise<{ reviews: StorefrontReviewShape[] } & RatingSummary> {
-    const rows = await this.prisma.productReview.findMany({
-      where: { productId, isVisible: true },
-      orderBy: { createdAt: 'desc' },
-      take: STOREFRONT_REVIEW_TAKE,
-    });
-    return { reviews: rows.map(serializeReview), ...summarizeRatings(rows) };
+    // The reviews[] page is capped at 10, but count/average MUST span all
+    // visible reviews (spec: the cap applies to the list, not the summary),
+    // so run the page query and the aggregate in parallel.
+    const [rows, agg] = await Promise.all([
+      this.prisma.productReview.findMany({
+        where: { productId, isVisible: true },
+        orderBy: { createdAt: 'desc' },
+        take: STOREFRONT_REVIEW_TAKE,
+      }),
+      this.prisma.productReview.aggregate({
+        where: { productId, isVisible: true },
+        _count: { _all: true },
+        _avg: { rating: true },
+      }),
+    ]);
+    const avg = agg._avg.rating;
+    return {
+      reviews: rows.map(serializeReview),
+      reviewCount: agg._count._all,
+      ratingAverage: avg === null ? null : Math.round(avg * 10) / 10,
+    };
   }
 
   /** Visible-only averages for a batch of products (list pages/cards). */
