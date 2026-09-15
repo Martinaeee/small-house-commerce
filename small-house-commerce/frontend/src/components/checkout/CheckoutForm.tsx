@@ -241,7 +241,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       currency: "PHP",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isBuyNow, orderItems.length]);
+  }, [isBuyNow, orderItems.length, buyNowMatchedSku]);
 
   const set =
     (field: CheckoutField) => (e: ChangeEvent<HTMLInputElement>) => {
