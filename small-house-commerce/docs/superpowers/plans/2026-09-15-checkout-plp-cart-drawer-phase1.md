@@ -455,7 +455,7 @@ if (isBuyNow && (productError || (product !== null && !buyNowMatchedSku))) {
 }
 ```
 
-说明：区块 1 预览卡里的 `"Loading item…"` / `"Item details unavailable."` 分支保留（正常流程中这两个早返回使它们几乎不可见，但不删除，防御性渲染不变）。`InitiateCheckout` effect 依赖 `orderItems`，sku 不命中时 `orderItems` 仍含 `[{skuId, qty}]`——给该 effect 加条件：把 effect 内首行改为 `if (orderItems.length === 0 || (isBuyNow && !buyNowMatchedSku)) return;`，避免坏 URL 发事件。
+说明：区块 1 预览卡里的 `"Loading item…"` / `"Item details unavailable."` 分支保留（正常流程中这两个早返回使它们几乎不可见，但不删除，防御性渲染不变）。`InitiateCheckout` effect 首行改为 `if (orderItems.length === 0 || (isBuyNow && !buyNowMatchedSku)) return;`，避免坏 URL 发事件；**同时把 effect 依赖数组改为 `[isBuyNow, orderItems.length, buyNowMatchedSku]`**——否则 Buy Now 在挂载时 product 未解析被拦截、解析后依赖不变再也不会触发，像素事件在该路径消失（购物车路径 buyNowMatchedSku 恒 true，触发时机不变）。
 
 - [ ] **Step 3: 静态验证**
 
