@@ -127,39 +127,48 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
         )}
 
         <div className="mt-auto pt-2">
-          <button
-            type="button"
-            onClick={hasMultipleStyles ? () => openPicker(product) : quickAdd}
-            disabled={hasMultipleStyles ? false : !inStock || busy}
-            data-testid={`plp-add-${product.slug}`}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2 text-sm font-medium text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
-          >
-            {hasMultipleStyles
-              ? "Add to Cart"
-              : busy ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  Adding…
-                </>
-              ) : added ? (
-                <>
-                  <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
-                    <path
-                      d="M3 8.5 6.5 12 13 4.5"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  Added
-                </>
-              ) : inStock ? (
-                "Add to Cart"
-              ) : (
-                "Out of Stock"
-              )}
-          </button>
+          {hasAnySellable ? (
+            <button
+              type="button"
+              onClick={hasMultipleStyles ? () => openPicker(product) : quickAdd}
+              disabled={hasMultipleStyles ? false : !inStock || busy}
+              data-testid={`plp-add-${product.slug}`}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2 text-sm font-medium text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
+            >
+              {hasMultipleStyles
+                ? "Add to Cart"
+                : busy ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Adding…
+                  </>
+                ) : added ? (
+                  <>
+                    <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
+                      <path
+                        d="M3 8.5 6.5 12 13 4.5"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    Added
+                  </>
+                ) : inStock ? (
+                  "Add to Cart"
+                ) : (
+                  "Out of Stock"
+                )}
+            </button>
+          ) : (
+            <Link
+              href={`/products/${product.slug}`}
+              className="block w-full rounded-lg border border-border bg-card py-2 text-center text-sm font-medium text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+            >
+              View Details
+            </Link>
+          )}
         </div>
       </div>
     </article>
