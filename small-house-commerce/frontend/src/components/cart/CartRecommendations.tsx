@@ -1,132 +1,26 @@
 // src/components/cart/CartRecommendations.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { api, type Product, type Sku } from "@/lib/api";
+import type { Product } from "@/lib/api";
 import { useCart } from "./CartContext";
-import { fetchProduct } from "@/lib/productCache";
+import {
+  discountPct,
+  firstSku,
+  useCartRecommendations,
+} from "@/lib/useCartRecommendations";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 
-/**
- * Compact "You May Also Like" strip on the cart page. Candidate sources, in
- * priority order: the best-sellers collection, then general-catalog products
- * from OTHER categories than the cart lines, and same-category products only
- * as a last resort to fill the row. Rationale: once a shopper buys one type
- * of home goods (e.g. a folding chair) the need is largely met, so cross-type
- * best sellers outrank near-duplicates. Within every source discounted
- * in-stock products rank first; same-product variants (they share the cart
- * product's slug) and out-of-stock products are never recommended. The
- * section renders nothing until candidates exist, and stays a single compact
- * row (horizontal scroll on mobile, 3 mini cards on desktop).
- */
-
-const TAKE = 3;
-const POOL_PAGE_SIZE = 24;
-
-interface Pools {
-  cartKey: string;
-  cartCategoryIds: string[];
-  bestSellers: Product[];
-  general: Product[];
-}
-
-function firstSku(product: Product): Sku | null {
-  return product.variants.find((variant) => variant.sku)?.sku ?? null;
-}
-
-function discountPct(sku: Sku): number {
-  if (sku.price === null || !sku.compareAtPrice || sku.compareAtPrice <= sku.price) {
-    return 0;
-  }
-  return Math.round((1 - sku.price / sku.compareAtPrice) * 100);
-}
-
+/** Compact "You May Also Like" strip; pool fetch and ranking live in useCartRecommendations. */
 export function CartRecommendations() {
   const { cart, addItem } = useCart();
-  const [pools, setPools] = useState<Pools | null>(null);
+  const recommendations = useCartRecommendations(cart);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [addedSlug, setAddedSlug] = useState<string | null>(null);
 
-  const cartSlugs = useMemo(
-    () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
-    [cart],
-  );
-  const cartKey = cartSlugs.join(",");
-
-  // Resolve cart-line categories (detail payloads are session-cached), then
-  // fetch the three candidate pools. State is only set after the awaits.
-  useEffect(() => {
-    if (cartKey === "") return;
-    let cancelled = false;
-    void (async () => {
-      const cartProducts = (
-        await Promise.all(cartSlugs.map((slug) => fetchProduct(slug)))
-      ).filter((product): product is Product => product !== null);
-      const cartCategoryIds = [...new Set(cartProducts.map((product) => product.categoryId))];
-
-      const [bestSellersPage, generalPage] = await Promise.all([
-        api.getCollectionProducts("best-sellers").catch(() => null),
-        api.getProducts({ pageSize: POOL_PAGE_SIZE }).catch(() => null),
-      ]);
-
-      if (cancelled) return;
-
-      setPools({
-        cartKey,
-        cartCategoryIds,
-        bestSellers: bestSellersPage?.items ?? [],
-        general: generalPage?.items ?? [],
-      });
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey]);
-
-  const recommendations = useMemo<Product[] | null>(() => {
-    if (!pools || pools.cartKey !== cartKey) return null;
-    const inCart = new Set(cartSlugs);
-    const cartCategories = new Set(pools.cartCategoryIds);
-
-    const eligible = (product: Product) => {
-      if (inCart.has(product.slug)) return false;
-      const sku = firstSku(product);
-      return sku !== null && sku.price !== null && sku.availableInventory > 0;
-    };
-
-    const ranked = (list: Product[]) =>
-      list
-        .filter(eligible)
-        .map((product) => ({ product, pct: discountPct(firstSku(product)!) }))
-        .sort((a, b) => b.pct - a.pct)
-        .map((entry) => entry.product);
-
-    // Best sellers first (never same product as a cart line); then other
-    // categories for cross-type discovery; same category only fills gaps.
-    const otherCategory = pools.general.filter(
-      (product) => !cartCategories.has(product.categoryId),
-    );
-    const sameCategory = pools.general.filter((product) =>
-      cartCategories.has(product.categoryId),
-    );
-
-    const chosen: Product[] = [];
-    const seen = new Set<string>();
-    for (const product of [
-      ...ranked(pools.bestSellers),
-      ...ranked(otherCategory),
-      ...ranked(sameCategory),
-    ]) {
-      if (seen.has(product.slug)) continue;
-      seen.add(product.slug);
-      chosen.push(product);
-      if (chosen.length >= TAKE) break;
-    }
-    return chosen;
-  }, [pools, cartKey, cartSlugs]);
+  if (recommendations.length === 0) return null;
 
   async function quickAdd(product: Product) {
     const sku = firstSku(product);
@@ -144,8 +38,6 @@ export function CartRecommendations() {
       setBusySlug(null);
     }
   }
-
-  if (!recommendations || recommendations.length === 0) return null;
 
   return (
     <section className="mt-8" aria-label="Recommended products">
