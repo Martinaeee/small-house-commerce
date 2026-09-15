@@ -113,17 +113,48 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
 
       {/* Sub-category sections */}
       {node.children.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {node.children.map((leaf) => (
-            <Link
-              key={leaf.id}
-              href={`/categories/${leaf.slug}`}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-ink-secondary transition-colors hover:border-primary hover:text-cta"
-            >
-              {leaf.name}
-            </Link>
-          ))}
-        </div>
+        <>
+          {node.children.filter((leaf) => !leaf.imageUrl).length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {node.children
+                .filter((leaf) => !leaf.imageUrl)
+                .map((leaf) => (
+                  <Link
+                    key={leaf.id}
+                    href={`/categories/${leaf.slug}`}
+                    className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+                  >
+                    {leaf.name}
+                  </Link>
+                ))}
+            </div>
+          )}
+          {node.children.some((leaf) => leaf.imageUrl) && (
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {node.children
+                .filter((leaf) => leaf.imageUrl)
+                .map((leaf) => (
+                  <Link
+                    key={leaf.id}
+                    href={`/categories/${leaf.slug}`}
+                    className="group relative block aspect-[4/3] overflow-hidden rounded-lg border border-border"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={leaf.imageUrl ?? ""}
+                      alt={leaf.name}
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-ink/70 via-ink/10 to-transparent" />
+                    <span className="absolute bottom-2 left-3 right-3 text-sm font-semibold text-white">
+                      {leaf.name}
+                    </span>
+                  </Link>
+                ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Category hero: category image with overlaid name; plain title until
