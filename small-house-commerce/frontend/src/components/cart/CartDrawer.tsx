@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useCart } from "./CartContext";
 import { useProductImages } from "@/lib/productImages";
@@ -47,6 +47,14 @@ export function CartDrawer() {
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [addedSlug, setAddedSlug] = useState<string | null>(null);
 
+  // Every exit path clears per-line transient state before close, so a
+  // reopen never flashes a stale remove-confirm or line error.
+  const handleClose = useCallback(() => {
+    setConfirmId(null);
+    setLineError(null);
+    closeCart();
+  }, [closeCart]);
+
   const recommendations = useCartRecommendations(cart);
   const slugs = useMemo(
     () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
@@ -67,17 +75,13 @@ export function CartDrawer() {
       openerRef.current =
         active instanceof HTMLElement && active !== document.body ? active : null;
     }
-    // Reopening must not show a stale remove-confirm or line error.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded open-transition reset, not a mount sync
-    setConfirmId(null);
-    setLineError(null);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        closeCart();
+        handleClose();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
@@ -106,7 +110,7 @@ export function CartDrawer() {
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus();
     };
-  }, [isOpen, closeCart, takeDrawerOpener]);
+  }, [isOpen, handleClose, takeDrawerOpener]);
 
   async function changeQty(item: CartItem, quantity: number) {
     if (busyId) return;
@@ -165,7 +169,7 @@ export function CartDrawer() {
         type="button"
         aria-label="Close cart"
         className="absolute inset-0 bg-ink/40"
-        onClick={closeCart}
+        onClick={handleClose}
       />
       <aside
         ref={panelRef}
@@ -178,7 +182,7 @@ export function CartDrawer() {
           <button
             ref={closeButtonRef}
             type="button"
-            onClick={closeCart}
+            onClick={handleClose}
             aria-label="Close cart"
             className="text-ink-secondary hover:text-ink"
           >
@@ -222,7 +226,7 @@ export function CartDrawer() {
                     <div className="min-w-0 flex-1">
                       <Link
                         href={`/products/${item.productSlug}`}
-                        onClick={closeCart}
+                        onClick={handleClose}
                         className="line-clamp-2 text-sm font-medium text-ink hover:text-cta"
                       >
                         {item.productName}
@@ -322,7 +326,7 @@ export function CartDrawer() {
                         <li key={product.id} className="flex items-center gap-3">
                           <Link
                             href={`/products/${product.slug}`}
-                            onClick={closeCart}
+                            onClick={handleClose}
                             className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-border"
                           >
                             {image ? (
@@ -335,7 +339,7 @@ export function CartDrawer() {
                           <div className="min-w-0 flex-1">
                             <Link
                               href={`/products/${product.slug}`}
-                              onClick={closeCart}
+                              onClick={handleClose}
                               className="line-clamp-2 text-xs font-medium text-ink hover:text-cta"
                             >
                               {product.name}
@@ -374,7 +378,7 @@ export function CartDrawer() {
               <p className="mb-4 text-sm text-ink-secondary">Your cart is empty</p>
               <button
                 type="button"
-                onClick={closeCart}
+                onClick={handleClose}
                 className="text-sm font-semibold text-cta hover:underline"
               >
                 Continue shopping
@@ -401,12 +405,12 @@ export function CartDrawer() {
                 <dd className="font-medium text-ink">COD — calculated at checkout</dd>
               </div>
             </dl>
-            <ButtonLink href="/cart" className="w-full" onClick={closeCart}>
+            <ButtonLink href="/cart" className="w-full" onClick={handleClose}>
               CHECKOUT
             </ButtonLink>
             <button
               type="button"
-              onClick={closeCart}
+              onClick={handleClose}
               className="mt-2 w-full text-center text-sm text-ink-secondary hover:text-ink"
             >
               Continue shopping
