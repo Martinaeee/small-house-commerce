@@ -250,6 +250,12 @@ export class ProductsService {
   // --- storefront ----------------------------------------------------------
 
   async storefrontList(query: StorefrontProductQuery) {
+    // Homepage Recently Viewed: ordered batch lookup, no pagination.
+    if (query.ids && query.ids.length > 0) {
+      const items = await this.storefrontByIds(query.ids);
+      return { items, total: items.length, page: 1, pageSize: items.length };
+    }
+
     const where: Prisma.ProductWhereInput = { status: 'ACTIVE' };
 
     const tokens = query.search ? tokenizeSearch(query.search) : [];
@@ -298,6 +304,29 @@ export class ProductsService {
       page: query.page,
       pageSize: query.pageSize,
     };
+  }
+
+  /**
+   * Storefront-shaped products by id, returned in the requested order.
+   * ACTIVE only; every row goes through the same inventory + review
+   * enrichment as list/PDP responses. Shared by the CMS homepage grids and
+   * the storefront `ids=` query (Recently Viewed), so sellability/rating
+   * logic is never duplicated outside this service.
+   */
+  async storefrontByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+
+    const items = await this.prisma.product.findMany({
+      where: { id: { in: ids }, status: 'ACTIVE' },
+      select: STOREFRONT_SELECT,
+    });
+    // findMany does not preserve the id order; re-apply it.
+    const byId = new Map(items.map((item) => [item.id, item]));
+    const ordered = ids
+      .map((id) => byId.get(id))
+      .filter((item): item is StorefrontProductRecord => item !== undefined);
+
+    return this.presentStorefront(ordered);
   }
 
   /**

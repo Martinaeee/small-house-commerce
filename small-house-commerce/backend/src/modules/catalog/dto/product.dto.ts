@@ -102,6 +102,19 @@ export const storefrontProductQuerySchema = z.object({
   maxPrice: z.coerce.number().nonnegative().optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(48).default(24),
+  // Homepage "Recently Viewed": ordered id batch lookup (max 12).
+  ids: z
+    .preprocess(
+      (value) =>
+        typeof value === 'string'
+          ? value
+              .split(',')
+              .map((part) => part.trim())
+              .filter(Boolean)
+          : value,
+      z.array(z.string().uuid()).max(12),
+    )
+    .optional(),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
