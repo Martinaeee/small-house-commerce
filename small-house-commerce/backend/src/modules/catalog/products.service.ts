@@ -15,6 +15,7 @@ import type {
 import { ReviewsService } from './reviews.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
+import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
@@ -114,7 +115,7 @@ export class ProductsService {
     await this.ensureCategory(input.categoryId);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const created = await this.prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
           data: {
             name: input.name,
@@ -155,6 +156,8 @@ export class ProductsService {
           include: ADMIN_PRODUCT_INCLUDE,
         });
       });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      return created;
     } catch (error) {
       this.rethrowKnown(error);
     }
@@ -175,7 +178,7 @@ export class ProductsService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const updated = await this.prisma.$transaction(async (tx) => {
         const data: Prisma.ProductUpdateInput = {};
 
         if (input.name !== undefined) data.name = input.name;
@@ -221,6 +224,8 @@ export class ProductsService {
           include: ADMIN_PRODUCT_INCLUDE,
         });
       });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      return updated;
     } catch (error) {
       this.rethrowKnown(error);
     }
@@ -238,6 +243,7 @@ export class ProductsService {
 
     // Cascade deletes variants, SKUs and images (schema onDelete: Cascade).
     await this.prisma.product.delete({ where: { id } });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { ok: true };
   }
 

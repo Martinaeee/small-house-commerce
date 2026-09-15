@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { CollectionCard } from "@/components/collection/CollectionCard";
 import { serverApiUrl, type Collection } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const metadata: Metadata = { title: "Shop by Space" };
 export const revalidate = 300;
@@ -9,7 +10,7 @@ export default async function CollectionsIndexPage() {
   let collections: Collection[] = [];
   try {
     const res = await fetch(serverApiUrl("/api/v1/storefront/collections"), {
-      next: { revalidate },
+      next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (res.ok) collections = ((await res.json()) as { items: Collection[] }).items;
   } catch {

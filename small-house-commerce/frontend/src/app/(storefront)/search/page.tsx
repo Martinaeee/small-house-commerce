@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { ProductCard } from "@/components/product/ProductCard";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const revalidate = 120;
 
@@ -47,9 +48,11 @@ export default async function SearchPage({
     try {
       const [productsRes, categoriesRes] = await Promise.all([
         fetch(serverApiUrl(`/api/v1/storefront/products?${params.toString()}`), {
-          next: { revalidate: 120 },
+          next: { revalidate: 120, tags: STOREFRONT_TAGS },
         }),
-        fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 300 } }),
+        fetch(serverApiUrl("/api/v1/storefront/categories"), {
+          next: { revalidate: 300, tags: STOREFRONT_TAGS },
+        }),
       ]);
       // Non-OK HTTP is handled inline (falls through to the empty state below);
       // the try/catch covers network-level rejection (backend down).

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Category } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import type { CreateCategoryInput, UpdateCategoryInput } from './dto/category.dto.js';
 
 type CategoryNode = Category & { children: CategoryNode[] };
@@ -37,7 +38,9 @@ export class CategoriesService {
     }
 
     try {
-      return await this.prisma.category.create({ data: input });
+      const category = await this.prisma.category.create({ data: input });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      return category;
     } catch (error) {
       this.rethrowKnown(error);
     }
@@ -54,7 +57,9 @@ export class CategoriesService {
     await this.ensureExists(id);
 
     try {
-      return await this.prisma.category.update({ where: { id }, data: input });
+      const category = await this.prisma.category.update({ where: { id }, data: input });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      return category;
     } catch (error) {
       this.rethrowKnown(error);
     }
@@ -66,6 +71,7 @@ export class CategoriesService {
     try {
       // Children are promoted to root (SetNull); products block the delete (Restrict).
       await this.prisma.category.delete({ where: { id } });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
       return { ok: true };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {

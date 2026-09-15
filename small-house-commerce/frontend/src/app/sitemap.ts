@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { serverApiUrl, type Category, type Collection, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 /** SEO §23: sitemap from the live storefront categories, collections and products. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -15,9 +16,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   let categories: Category[] = [];
   try {
     const [c, p, g] = await Promise.all([
-      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: 3600 } }),
-      fetch(serverApiUrl("/api/v1/storefront/products?pageSize=48"), { next: { revalidate: 3600 } }),
-      fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 3600 } }),
+      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: 3600, tags: STOREFRONT_TAGS } }),
+      fetch(serverApiUrl("/api/v1/storefront/products?pageSize=48"), { next: { revalidate: 3600, tags: STOREFRONT_TAGS } }),
+      fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 3600, tags: STOREFRONT_TAGS } }),
     ]);
     if (c.ok) collections = ((await c.json()) as { items: Collection[] }).items;
     if (p.ok) products = ((await p.json()) as Paged<Product>).items;

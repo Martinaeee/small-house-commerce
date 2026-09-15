@@ -51,6 +51,12 @@ export function ReviewSection({ product }: { product: Product }) {
                 <p className="text-xs text-ink-muted">
                   {review.authorName}
                   {review.location ? `, ${review.location}` : ""}
+                  {" · "}
+                  {new Date(review.createdAt).toLocaleDateString("en-PH", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </p>
               </li>
             ))}

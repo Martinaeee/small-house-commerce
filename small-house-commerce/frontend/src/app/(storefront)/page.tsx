@@ -4,6 +4,7 @@ import { ProductCard } from "@/components/product/ProductCard";
 import { ButtonLink } from "@/components/ui/Button";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 // ISR: storefront data changes through the admin, not per request.
 const REVALIDATE = 120;
@@ -29,8 +30,8 @@ const SOLUTIONS: { name: string; blurb: string; href: string }[] = [
 async function getHomepageData() {
   try {
     const [collectionsRes, productsRes] = await Promise.all([
-      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: REVALIDATE } }),
-      fetch(serverApiUrl("/api/v1/storefront/products?pageSize=8"), { next: { revalidate: REVALIDATE } }),
+      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: REVALIDATE, tags: STOREFRONT_TAGS } }),
+      fetch(serverApiUrl("/api/v1/storefront/products?pageSize=8"), { next: { revalidate: REVALIDATE, tags: STOREFRONT_TAGS } }),
     ]);
 
     const collections = collectionsRes.ok

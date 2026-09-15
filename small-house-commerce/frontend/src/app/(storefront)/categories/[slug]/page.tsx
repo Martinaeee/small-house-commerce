@@ -5,6 +5,7 @@ import { CategoryPlpClient } from "@/components/category/CategoryPlpClient";
 import { findCategory } from "@/lib/nav";
 import { PLP_PAGE_SIZE } from "@/lib/plp";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const revalidate = 120;
 
@@ -17,7 +18,7 @@ interface ResolvedCategory {
 async function resolveCategory(slug: string): Promise<ResolvedCategory | null> {
   try {
     const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
-      next: { revalidate: 300 },
+      next: { revalidate: 300, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     const roots = (await res.json()) as Category[];
@@ -38,7 +39,7 @@ async function fetchFirstPage(categoryId: string): Promise<Paged<Product> | null
       pageSize: String(PLP_PAGE_SIZE),
     });
     const res = await fetch(serverApiUrl(`/api/v1/storefront/products?${q.toString()}`), {
-      next: { revalidate },
+      next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     return (await res.json()) as Paged<Product>;

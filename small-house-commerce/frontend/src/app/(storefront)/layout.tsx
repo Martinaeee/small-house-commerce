@@ -6,14 +6,15 @@ import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { buildNav } from "@/lib/nav";
 import { serverApiUrl, type Category, type Collection } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 async function getNavData(): Promise<{ roots: Category[]; collections: Collection[] }> {
   try {
     const [categoriesRes, collectionsRes] = await Promise.all([
-      fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 300 } }),
+      fetch(serverApiUrl("/api/v1/storefront/categories"), { next: { revalidate: 300, tags: STOREFRONT_TAGS } }),
       // All ACTIVE collections: buildNav only surfaces flat links whose backing
       // collection exists; the footer receives the NAVIGATION slice.
-      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: 300 } }),
+      fetch(serverApiUrl("/api/v1/storefront/collections"), { next: { revalidate: 300, tags: STOREFRONT_TAGS } }),
     ]);
     const roots = categoriesRes.ok ? ((await categoriesRes.json()) as Category[]) : [];
     const collections = collectionsRes

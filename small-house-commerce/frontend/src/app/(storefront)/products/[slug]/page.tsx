@@ -4,13 +4,14 @@ import { PdpView } from "@/components/product/PdpView";
 import { deliveryWindows } from "@/lib/deliveryWindow";
 import { absoluteUrl, buildProductJsonLd } from "@/lib/product-jsonld";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const revalidate = 120;
 
 async function fetchProduct(slug: string): Promise<Product | null> {
   try {
     const res = await fetch(serverApiUrl(`/api/v1/storefront/products/${slug}`), {
-      next: { revalidate },
+      next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     return (await res.json()) as Product;
@@ -24,7 +25,7 @@ export async function fetchCategoryInfo(
 ): Promise<{ name: string; slug: string } | null> {
   try {
     const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
-      next: { revalidate: 300 },
+      next: { revalidate: 300, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     const tree = (await res.json()) as Category[];
@@ -87,7 +88,7 @@ export default async function ProductDetailPage({
     fetchCategoryInfo(product.categoryId),
     fetch(
       serverApiUrl(`/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=5`),
-      { next: { revalidate } },
+      { next: { revalidate, tags: STOREFRONT_TAGS } },
     ).catch(() => null),
   ]);
 

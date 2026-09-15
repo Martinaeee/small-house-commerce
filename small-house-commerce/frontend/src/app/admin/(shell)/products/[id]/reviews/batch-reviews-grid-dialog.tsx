@@ -9,10 +9,11 @@ import {
   type BatchLineError,
   type BatchReviewInput,
 } from "@/lib/admin-api";
+import { dateToLocalInput, nowLocalInput } from "@/lib/datetime-input";
 
 /**
  * Spreadsheet-style batch review editor for one product:
- * - rows: 作者 / 地区 / 标题 / 评论 / 多图(直传 R2 或 URL) / 评分 / 显示
+ * - rows: 作者 / 地区 / 标题 / 评论 / 多图(直传 R2 或 URL) / 时间 / 评分 / 显示
  * - TSV paste ("从表格粘贴") fills rows in one shot (Excel/Sheets columns)
  * - one atomic save (all rows or none); backend row/field errors pin cells
  */
@@ -29,9 +30,9 @@ const ACCEPTED_TYPES: Record<string, string> = {
 
 // Column order mirrors createAdminReviewSchema (review.dto.ts).
 const FORMAT_HINT =
-  "每行一条，列之间用 Tab（可直接从 Excel/Google Sheets 整列粘贴）：姓名 ⇥ 地区(可空) ⇥ 星级1-5 ⇥ 标题(可空) ⇥ 评论 ⇥ 图片URL(可空，多张用 | 分隔)";
+  "每行一条，列之间用 Tab（可直接从 Excel/Google Sheets 整列粘贴）：姓名 ⇥ 地区(可空) ⇥ 星级1-5 ⇥ 标题(可空) ⇥ 评论 ⇥ 图片URL(可空，多张用 | 分隔) ⇥ 时间(可空，如 2026-08-01 或 2026-08-01 14:30，留空=当前时间)";
 const EXAMPLE_LINE =
-  "Maria Santos\tManila\t5\tSturdy shelf\tEasy to assemble and holds our books.\thttps://example.com/a.jpg|https://example.com/b.jpg";
+  "Maria Santos\tManila\t5\tSturdy shelf\tEasy to assemble and holds our books.\thttps://example.com/a.jpg|https://example.com/b.jpg\t2026-08-01 14:30";
 
 const FIELD_LABELS: Record<string, string> = {
   authorName: "作者",
@@ -40,11 +41,19 @@ const FIELD_LABELS: Record<string, string> = {
   title: "标题",
   comment: "评论",
   photos: "图片",
+  createdAt: "时间",
   isVisible: "显示",
   "(root)": "整行",
 };
 
-type RowField = "authorName" | "location" | "rating" | "title" | "comment" | "photos";
+type RowField =
+  | "authorName"
+  | "location"
+  | "rating"
+  | "title"
+  | "comment"
+  | "photos"
+  | "createdAt";
 type RowErrors = Partial<Record<RowField, string>>;
 
 type PhotoState = "uploading" | "done" | "error";
@@ -64,6 +73,8 @@ interface GridRow {
   title: string;
   comment: string;
   photos: PhotoSlot[];
+  // datetime-local value in the operator's local zone ("" = now).
+  createdAt: string;
   isVisible: boolean;
 }
 
@@ -82,8 +93,35 @@ function newRow(): GridRow {
     title: "",
     comment: "",
     photos: [],
+    createdAt: "",
     isVisible: true,
   };
+}
+
+/**
+ * Parse a pasted date cell. Accepts "", "YYYY-MM-DD", "YYYY-MM-DD HH:mm[:ss]",
+ * the datetime-local T-form and ISO strings. Date-only is interpreted in the
+ * local zone. Returns a datetime-local value, or a Chinese error message.
+ */
+function parseTsvDate(raw: string): { value: string; error?: string } {
+  const text = raw.trim();
+  if (!text) return { value: "" };
+  let d: Date | null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [y, m, day] = text.split("-").map(Number);
+    d = new Date(y, m - 1, day);
+  } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+    d = new Date(text.replace(" ", "T"));
+  } else {
+    const ts = Date.parse(text);
+    d = Number.isNaN(ts) ? null : new Date(ts);
+  }
+  if (!d || Number.isNaN(d.getTime())) {
+    return { value: "", error: "时间格式无法识别（用 2026-08-01 或 2026-08-01 14:30）" };
+  }
+  if (d.getTime() < Date.UTC(2000, 0, 1)) return { value: "", error: "时间不能早于 2000 年" };
+  if (d.getTime() > Date.now() + 60_000) return { value: "", error: "时间不能晚于当前时间" };
+  return { value: dateToLocalInput(d) };
 }
 
 function validPhotoUrl(value: string): boolean {
@@ -111,6 +149,14 @@ function validateRow(row: GridRow): RowErrors {
   if (title.length > 200) errors.title = "不超过 200 字";
   if (comment.length < 1) errors.comment = "必填";
   else if (comment.length > 5000) errors.comment = "不超过 5000 字";
+
+  const createdAt = row.createdAt.trim();
+  if (createdAt) {
+    const when = new Date(createdAt);
+    if (Number.isNaN(when.getTime())) errors.createdAt = "时间格式不正确";
+    else if (when.getTime() < Date.UTC(2000, 0, 1)) errors.createdAt = "不能早于 2000 年";
+    else if (when.getTime() > Date.now() + 60_000) errors.createdAt = "不能晚于当前时间";
+  }
 
   if (row.photos.some((p) => p.state === "uploading")) errors.photos = "图片上传中";
   else if (row.photos.some((p) => p.state === "error"))
@@ -140,11 +186,19 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
       return;
     }
     const cells = line.split("\t");
-    if (cells.length < 5 || cells.length > 6) {
-      skipped.push(`第 ${rowNumber} 行：应为 5–6 列（Tab 分隔），实际 ${cells.length} 列`);
+    if (cells.length < 5 || cells.length > 7) {
+      skipped.push(`第 ${rowNumber} 行：应为 5–7 列（Tab 分隔），实际 ${cells.length} 列`);
       return;
     }
-    const [authorName, location, ratingRaw, title, comment, photosRaw = ""] = cells;
+    const [
+      authorName,
+      location,
+      ratingRaw,
+      title,
+      comment,
+      photosRaw = "",
+      dateRaw = "",
+    ] = cells;
     const problems: string[] = [];
     const name = authorName.trim();
     if (!name || name.length > 120) problems.push("姓名必填且不超过 120 字");
@@ -164,6 +218,8 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
     } else if (!photoUrls.every(validPhotoUrl)) {
       problems.push("图片 URL 需为 http(s) 开头的合法链接");
     }
+    const parsedDate = parseTsvDate(dateRaw);
+    if (parsedDate.error) problems.push(parsedDate.error);
     if (problems.length > 0) {
       skipped.push(`第 ${rowNumber} 行：${problems.join("；")}`);
       return;
@@ -176,6 +232,7 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
       title: title.trim(),
       comment: comment.trim(),
       photos: photoUrls.map((url) => ({ id: nextId("photo"), url, state: "done" as const })),
+      createdAt: parsedDate.value,
     });
   });
 
@@ -529,6 +586,9 @@ export function BatchReviewsGridDialog({
       comment: row.comment.trim(),
       photos: row.photos.map((p) => p.url),
       isVisible: row.isVisible,
+      // Empty lets the backend stamp now; grid validation already rejected
+      // unparseable/future values.
+      createdAt: row.createdAt.trim() ? new Date(row.createdAt.trim()).toISOString() : undefined,
     }));
 
     setPending(true);
@@ -556,6 +616,10 @@ export function BatchReviewsGridDialog({
     list.push(e);
     serverByRowKey.set(key, list);
   });
+
+  // datetime-local `max` is evaluated per render; future values are also
+  // rejected by validateRow/parseTsvDate in case the dialog stays open long.
+  const maxDate = nowLocalInput();
 
   const errorRowKeys = new Set([
     ...Object.keys(clientErrors).filter((k) => Object.keys(clientErrors[k] ?? {}).length > 0),
@@ -645,7 +709,7 @@ export function BatchReviewsGridDialog({
           ) : null}
 
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[1100px] text-sm">
+            <table className="w-full min-w-[1260px] text-sm">
               <caption className="sr-only">批量评论表格</caption>
               <thead>
                 <tr className="border-b border-border bg-primary-light/30 text-left text-xs font-semibold text-ink-secondary">
@@ -664,6 +728,9 @@ export function BatchReviewsGridDialog({
                   </th>
                   <th scope="col" className="w-52 px-2 py-2">
                     图片（最多 {MAX_PHOTOS} 张）
+                  </th>
+                  <th scope="col" className="w-48 px-2 py-2">
+                    时间（可空=当前）
                   </th>
                   <th scope="col" className="w-24 px-2 py-2">
                     评分
@@ -763,6 +830,26 @@ export function BatchReviewsGridDialog({
                         ) : null}
                       </td>
                       <td className="px-2 py-2">
+                        <input
+                          type="datetime-local"
+                          value={row.createdAt}
+                          min="2000-01-01T00:00"
+                          max={maxDate}
+                          onChange={(e) => patchRow(row.key, { createdAt: e.target.value })}
+                          disabled={pending}
+                          aria-label={`第 ${index + 1} 行时间`}
+                          title="留空 = 提交时的当前时间"
+                          className={`w-44 rounded-lg border bg-card px-2 py-1.5 text-sm focus:outline-none ${
+                            rowErrs.createdAt
+                              ? "border-sale/60 focus:border-sale"
+                              : "border-border focus:border-cta"
+                          }`}
+                        />
+                        {rowErrs.createdAt ? (
+                          <p className="mt-0.5 text-[11px] text-red-700">{rowErrs.createdAt}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-2">
                         <select
                           value={row.rating}
                           onChange={(e) => patchRow(row.key, { rating: Number(e.target.value) })}
@@ -806,7 +893,7 @@ export function BatchReviewsGridDialog({
                     </tr>
                     {srvErrs.length > 0 ? (
                       <tr className={hasError ? "bg-sale/5" : ""}>
-                        <td colSpan={9} className="border-b border-border px-2 pb-2">
+                        <td colSpan={10} className="border-b border-border px-2 pb-2">
                           <p className="text-[11px] leading-relaxed text-red-700">
                             {srvErrs.map((error, i) => (
                               <span key={i} className="mr-3">

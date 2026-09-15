@@ -38,6 +38,11 @@ export const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   R2_PUBLIC_BASE_URL: z.string().url().optional(),
+
+  // On-demand storefront revalidation. Both must be set for the best-effort
+  // bridge to run; unset either and admin writes simply fall back to ISR.
+  REVALIDATE_URL: z.string().url().optional(),
+  REVALIDATE_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

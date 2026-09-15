@@ -284,6 +284,8 @@ export interface CreateAdminReviewInput {
   comment: string;
   photos: string[];
   isVisible: boolean;
+  // ISO 8601; omit to stamp "now". Backend rejects future dates.
+  createdAt?: string;
 }
 
 // PATCH mirrors updateAdminReviewSchema: every field optional; location/title
@@ -366,6 +368,8 @@ export interface BatchReviewInput {
   comment: string;
   photos?: string[];
   isVisible?: boolean;
+  // ISO 8601; omit to stamp "now". Rejected by the backend if in the future.
+  createdAt?: string;
 }
 
 export interface BatchLineError {

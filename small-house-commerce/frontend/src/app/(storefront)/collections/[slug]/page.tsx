@@ -5,6 +5,7 @@ import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ButtonLink } from "@/components/ui/Button";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const revalidate = 120;
 
@@ -23,7 +24,7 @@ export async function generateMetadata({
 async function fetchCollection(slug: string) {
   try {
     const res = await fetch(serverApiUrl(`/api/v1/storefront/collections/${slug}`), {
-      next: { revalidate },
+      next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     return (await res.json()) as Collection & { sections: unknown[] };
@@ -45,7 +46,7 @@ async function fetchProducts(
     if (filters.maxPrice !== undefined) q.set("maxPrice", String(filters.maxPrice));
     const res = await fetch(
       serverApiUrl(`/api/v1/storefront/collections/${slug}/products?${q.toString()}`),
-      { next: { revalidate } },
+      { next: { revalidate, tags: STOREFRONT_TAGS } },
     );
     if (!res.ok) return null;
     return (await res.json()) as Paged<Product>;

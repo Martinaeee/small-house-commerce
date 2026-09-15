@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma } from '../../../generated/prisma/client.js';
 import type { LandingPageStatus } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
+import { CACHE_TAGS, revalidateCache } from '../../../common/revalidation.js';
 import { ProductsService } from '../products.service.js';
 import type {
   AdminLandingPageQuery,
@@ -171,6 +172,7 @@ export class LandingPagesService {
       where: { id: { in: ids } },
       data: { titleOverride },
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { updated: result.count };
   }
 
@@ -187,6 +189,7 @@ export class LandingPagesService {
         endAt: input.endAt ? new Date(input.endAt) : null,
       };
       const row = await this.prisma.productLandingPage.create({ data });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
       return this.serialize(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -207,12 +210,14 @@ export class LandingPagesService {
         endAt: input.endAt === undefined ? undefined : input.endAt === null ? null : new Date(input.endAt),
       },
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return this.serialize(row);
   }
 
   async adminRemove(id: string) {
     await this.ensureLandingPage(id);
     await this.prisma.productLandingPage.delete({ where: { id } });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { id };
   }
 

@@ -11,6 +11,7 @@ import {
   type Product,
   type ProductImage,
 } from "@/lib/api";
+import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 // One directory up from the lp route tree: reuse the PDP data helpers.
 import { fetchCategoryInfo } from "../../products/[slug]/page";
 
@@ -19,7 +20,7 @@ export const revalidate = 120;
 async function fetchLandingPage(slug: string): Promise<LandingPageComposite | null> {
   try {
     const res = await fetch(serverApiUrl(`/api/v1/storefront/lp/${slug}`), {
-      next: { revalidate },
+      next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     return (await res.json()) as LandingPageComposite;
@@ -98,7 +99,7 @@ export default async function LandingPageRoute({
     fetchCategoryInfo(product.categoryId),
     fetch(
       serverApiUrl(`/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=5`),
-      { next: { revalidate } },
+      { next: { revalidate, tags: STOREFRONT_TAGS } },
     ).catch(() => null),
   ]);
 

@@ -4,6 +4,18 @@ import { z } from 'zod';
 // Admin enters reviews for cold start (PDP_SPEC §22). Photos are URLs, max 6.
 const photoSchema = z.string().url().max(2048);
 
+// Merchants may backdate reviews to spread cold-start content over time.
+// Omitted = server now(). Future timestamps are rejected; ISO 8601 only
+// (the client converts its datetime-local value with toISOString()).
+const reviewCreatedAtSchema = z
+  .iso.datetime()
+  .refine((v) => Date.parse(v) >= Date.UTC(2000, 0, 1), {
+    message: '评论时间不能早于 2000 年',
+  })
+  .refine((v) => Date.parse(v) <= Date.now() + 60_000, {
+    message: '评论时间不能晚于当前时间',
+  });
+
 export const createAdminReviewSchema = z.object({
   authorName: z.string().trim().min(1).max(120),
   location: z.string().trim().max(120).optional(),
@@ -12,6 +24,7 @@ export const createAdminReviewSchema = z.object({
   comment: z.string().trim().min(1).max(5000),
   photos: z.array(photoSchema).max(6).default([]),
   isVisible: z.boolean().default(true),
+  createdAt: reviewCreatedAtSchema.optional(),
 });
 export type CreateAdminReviewInput = z.infer<typeof createAdminReviewSchema>;
 

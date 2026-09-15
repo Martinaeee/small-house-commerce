@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { batchReviewsSchema } from './dto/review.dto.js';
+import { batchReviewsSchema, createAdminReviewSchema } from './dto/review.dto.js';
 import { ReviewsService } from './reviews.service.js';
 
 function createPrismaMock() {
@@ -75,5 +75,56 @@ describe('ReviewsService.adminBatchCreate', () => {
     expect(batchReviewsSchema.safeParse({ items: [] }).success).toBe(false);
     expect(batchReviewsSchema.safeParse({ items: Array(101).fill(validRow()) }).success).toBe(false);
     expect(batchReviewsSchema.safeParse({ items: [validRow()] }).success).toBe(true);
+  });
+
+  it('persists an admin-supplied backdated createdAt as a Date', async () => {
+    const prisma = createPrismaMock();
+    const service = new ReviewsService(prisma as never);
+    const when = '2026-08-01T04:00:00.000Z';
+
+    await service.adminBatchCreate('p1', [{ ...validRow(), createdAt: when }]);
+
+    expect(prisma.productReview.create).toHaveBeenCalledTimes(1);
+    expect(prisma.productReview.create.mock.calls[0][0].data).toMatchObject({
+      createdAt: new Date(when),
+    });
+  });
+
+  it('single create with omitted createdAt leaves the DB default', async () => {
+    const prisma = createPrismaMock();
+    const service = new ReviewsService(prisma as never);
+
+    await service.adminCreate('p1', {
+      authorName: 'Maria',
+      rating: 5,
+      comment: 'ok',
+      photos: [],
+      isVisible: true,
+    });
+
+    expect(prisma.productReview.create.mock.calls[0][0].data.createdAt).toBeUndefined();
+  });
+});
+
+describe('createAdminReviewSchema.createdAt', () => {
+  it('accepts a past ISO timestamp and rejects future/garbage', () => {
+    expect(
+      createAdminReviewSchema.safeParse({ ...validRow(), createdAt: '2026-08-01T04:00:00.000Z' })
+        .success,
+    ).toBe(true);
+    expect(createAdminReviewSchema.safeParse({ ...validRow() }).success).toBe(true);
+
+    const future = new Date(Date.now() + 24 * 3600_000).toISOString();
+    const futureResult = createAdminReviewSchema.safeParse({ ...validRow(), createdAt: future });
+    expect(futureResult.success).toBe(false);
+    if (!futureResult.success) {
+      expect(futureResult.error.issues[0].message).toMatch(/不能晚于/);
+    }
+
+    const bad = createAdminReviewSchema.safeParse({
+      ...validRow(),
+      createdAt: 'September 1st',
+    });
+    expect(bad.success).toBe(false);
   });
 });

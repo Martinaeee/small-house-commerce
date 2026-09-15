@@ -20,6 +20,7 @@ import {
   type CreateAdminReviewInput,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import { isoToLocalInput, nowLocalInput } from "@/lib/datetime-input";
 
 /**
  * Admin per-product review management (/admin/products/:id/reviews).
@@ -36,6 +37,8 @@ type FormState = {
   comment: string;
   photos: string[];
   isVisible: boolean;
+  // datetime-local value in the operator's local zone ("" = now on create).
+  createdAt: string;
 };
 
 type FormErrors = Partial<Record<keyof FormState | "photos" | "form", string>>;
@@ -48,6 +51,7 @@ const EMPTY_FORM: FormState = {
   comment: "",
   photos: [""],
   isVisible: true,
+  createdAt: "",
 };
 
 function reviewToForm(review: AdminReview): FormState {
@@ -60,6 +64,7 @@ function reviewToForm(review: AdminReview): FormState {
     // Always keep one editable row, even for a review with zero photos.
     photos: review.photos.length > 0 ? [...review.photos] : [""],
     isVisible: review.isVisible,
+    createdAt: isoToLocalInput(review.createdAt),
   };
 }
 
@@ -78,6 +83,17 @@ function validate(form: FormState): FormErrors {
   if (title.length > 200) errors.title = "Maximum 200 characters.";
   if (comment.length < 1) errors.comment = "Comment is required.";
   else if (comment.length > 5000) errors.comment = "Maximum 5,000 characters.";
+  const createdAt = form.createdAt.trim();
+  if (createdAt) {
+    const when = new Date(createdAt);
+    if (Number.isNaN(when.getTime())) {
+      errors.createdAt = "评论时间格式不正确。";
+    } else if (when.getTime() < Date.UTC(2000, 0, 1)) {
+      errors.createdAt = "评论时间不能早于 2000 年。";
+    } else if (when.getTime() > Date.now() + 60_000) {
+      errors.createdAt = "评论时间不能晚于当前时间。";
+    }
+  }
   if (photos.length > 6) errors.photos = "Up to 6 photos.";
   for (const photo of photos) {
     if (photo.length > 2048) {
@@ -213,6 +229,19 @@ function ProductReviewsContent({ productId }: { productId: string }) {
         setErrors(validation);
         return;
       }
+      // Date semantics: empty on create lets the DB stamp now; an unchanged
+      // value on edit is omitted (don't truncate the stored seconds); clearing
+      // it on edit explicitly resets the review to the current time.
+      const dateRaw = form.createdAt.trim();
+      const dateUnchanged =
+        editing !== null && dateRaw !== "" && dateRaw === isoToLocalInput(editing.createdAt);
+      const createdAtIso = !dateRaw
+        ? editing
+          ? new Date().toISOString()
+          : undefined
+        : dateUnchanged
+          ? undefined
+          : new Date(dateRaw).toISOString();
       const payload: CreateAdminReviewInput = {
         authorName: form.authorName.trim(),
         location: form.location.trim() || undefined,
@@ -221,6 +250,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
         comment: form.comment.trim(),
         photos: form.photos.map((p) => p.trim()).filter(Boolean),
         isVisible: form.isVisible,
+        ...(createdAtIso !== undefined && { createdAt: createdAtIso }),
       };
       setPending(true);
       setErrors({});
@@ -551,6 +581,25 @@ function ProductReviewsContent({ productId }: { productId: string }) {
                 value={form.title}
                 maxLength={200}
                 onChange={(e) => patchForm({ title: e.target.value })}
+              />
+            </Field>
+            <Field
+              label="评论时间（选填）"
+              htmlFor="review-created-at"
+              error={errors.createdAt}
+              hint={
+                editing
+                  ? "留空并保存 = 改为当前时间；不改时间请保持原值。不能选择未来时间。"
+                  : "留空 = 提交时的当前时间；可手动指定一个过去的时间。"
+              }
+            >
+              <TextInput
+                id="review-created-at"
+                type="datetime-local"
+                value={form.createdAt}
+                min="2000-01-01T00:00"
+                max={nowLocalInput()}
+                onChange={(e) => patchForm({ createdAt: e.target.value })}
               />
             </Field>
             <Field label="Comment" htmlFor="review-comment" error={errors.comment}>

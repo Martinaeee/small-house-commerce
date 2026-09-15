@@ -12,6 +12,7 @@ import {
   type RatingSummary,
   type StorefrontReviewShape,
 } from './review-utils.js';
+import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
 const STOREFRONT_REVIEW_TAKE = 10;
 
@@ -23,7 +24,7 @@ export class ReviewsService {
 
   async adminCreate(productId: string, input: CreateAdminReviewInput) {
     await this.ensureProduct(productId);
-    return this.prisma.productReview.create({
+    const review = await this.prisma.productReview.create({
       data: {
         productId,
         source: 'ADMIN',
@@ -34,8 +35,11 @@ export class ReviewsService {
         comment: input.comment,
         photos: input.photos,
         isVisible: input.isVisible,
+        ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
       },
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    return review;
   }
 
   // All rows validated before any insert: one bad row rejects the WHOLE batch
@@ -81,11 +85,13 @@ export class ReviewsService {
             comment: input.comment,
             photos: input.photos,
             isVisible: input.isVisible,
+            ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
           },
         }),
       ),
     );
 
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { created: parsed.length };
   }
 
@@ -100,7 +106,7 @@ export class ReviewsService {
   async adminUpdate(id: string, input: UpdateAdminReviewInput) {
     await this.ensureReview(id);
     // Map null to null (clear), undefined is omitted by Prisma automatically.
-    return this.prisma.productReview.update({
+    const review = await this.prisma.productReview.update({
       where: { id },
       data: {
         ...(input.authorName !== undefined && { authorName: input.authorName }),
@@ -110,13 +116,17 @@ export class ReviewsService {
         ...(input.comment !== undefined && { comment: input.comment }),
         ...(input.photos !== undefined && { photos: input.photos }),
         ...(input.isVisible !== undefined && { isVisible: input.isVisible }),
+        ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
       },
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    return review;
   }
 
   async adminRemove(id: string) {
     await this.ensureReview(id);
     await this.prisma.productReview.delete({ where: { id } });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
   }
 
   // --- storefront ----------------------------------------------------------
