@@ -43,6 +43,7 @@ describe('serializeReview', () => {
       title: 'Great',
       comment: 'Perfect for my condo.',
       photos: ['https://example.com/a.jpg'],
+      variant: null,
       isVisible: true,
       source: 'ADMIN',
       verifiedOrderItemId: 'should-not-leak',
@@ -60,6 +61,10 @@ describe('serializeReview', () => {
       comment: 'Perfect for my condo.',
       photos: ['https://example.com/a.jpg'],
       createdAt: '2026-09-01T10:00:00.000Z',
+      variant: null,
+      helpfulCount: 0,
+      // Non-null linked order id surfaces only as a boolean, never the id.
+      verifiedPurchase: true,
     });
     expect(Object.keys(out)).not.toContain('source');
     expect(Object.keys(out)).not.toContain('isVisible');

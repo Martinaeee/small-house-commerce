@@ -74,4 +74,14 @@ export class AdminReviewsController {
   remove(@Param('id') id: string) {
     return this.reviews.adminRemove(id);
   }
+
+  @Get(':id/reports')
+  listReports(@Param('id') id: string) {
+    return this.reviews.adminListReports(id);
+  }
+
+  @Delete(':id/reports')
+  clearReports(@Param('id') id: string) {
+    return this.reviews.adminClearReports(id);
+  }
 }

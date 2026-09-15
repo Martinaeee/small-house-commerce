@@ -13,7 +13,7 @@ import { dateToLocalInput, nowLocalInput } from "@/lib/datetime-input";
 
 /**
  * Spreadsheet-style batch review editor for one product:
- * - rows: 作者 / 地区 / 标题 / 评论 / 多图(直传 R2 或 URL) / 时间 / 评分 / 显示
+ * - rows: 作者 / 地区 / 标题 / 评论 / 多图(直传 R2 或 URL) / 规格 / 时间 / 评分 / 显示
  * - TSV paste ("从表格粘贴") fills rows in one shot (Excel/Sheets columns)
  * - one atomic save (all rows or none); backend row/field errors pin cells
  */
@@ -30,9 +30,9 @@ const ACCEPTED_TYPES: Record<string, string> = {
 
 // Column order mirrors createAdminReviewSchema (review.dto.ts).
 const FORMAT_HINT =
-  "每行一条，列之间用 Tab（可直接从 Excel/Google Sheets 整列粘贴）：姓名 ⇥ 地区(可空) ⇥ 星级1-5 ⇥ 标题(可空) ⇥ 评论 ⇥ 图片URL(可空，多张用 | 分隔) ⇥ 时间(可空，如 2026-08-01 或 2026-08-01 14:30，留空=当前时间)";
+  "每行一条，列之间用 Tab（可直接从 Excel/Google Sheets 整列粘贴）：姓名 ⇥ 地区(可空) ⇥ 星级1-5 ⇥ 标题(可空) ⇥ 评论 ⇥ 图片URL(可空，多张用 | 分隔) ⇥ 时间(可空，如 2026-08-01 或 2026-08-01 14:30，留空=当前时间) ⇥ 规格(可空，如 Color: Walnut Brown | Size: S)";
 const EXAMPLE_LINE =
-  "Maria Santos\tManila\t5\tSturdy shelf\tEasy to assemble and holds our books.\thttps://example.com/a.jpg|https://example.com/b.jpg\t2026-08-01 14:30";
+  "Maria Santos\tManila\t5\tSturdy shelf\tEasy to assemble and holds our books.\thttps://example.com/a.jpg|https://example.com/b.jpg\t2026-08-01 14:30\tColor: Walnut Brown | Size: S";
 
 const FIELD_LABELS: Record<string, string> = {
   authorName: "作者",
@@ -41,6 +41,7 @@ const FIELD_LABELS: Record<string, string> = {
   title: "标题",
   comment: "评论",
   photos: "图片",
+  variant: "规格",
   createdAt: "时间",
   isVisible: "显示",
   "(root)": "整行",
@@ -53,6 +54,7 @@ type RowField =
   | "title"
   | "comment"
   | "photos"
+  | "variant"
   | "createdAt";
 type RowErrors = Partial<Record<RowField, string>>;
 
@@ -73,6 +75,8 @@ interface GridRow {
   title: string;
   comment: string;
   photos: PhotoSlot[];
+  // Free-text option descriptor shown under the review date on the PDP.
+  variant: string;
   // datetime-local value in the operator's local zone ("" = now).
   createdAt: string;
   isVisible: boolean;
@@ -93,6 +97,7 @@ function newRow(): GridRow {
     title: "",
     comment: "",
     photos: [],
+    variant: "",
     createdAt: "",
     isVisible: true,
   };
@@ -149,6 +154,7 @@ function validateRow(row: GridRow): RowErrors {
   if (title.length > 200) errors.title = "不超过 200 字";
   if (comment.length < 1) errors.comment = "必填";
   else if (comment.length > 5000) errors.comment = "不超过 5000 字";
+  if (row.variant.trim().length > 300) errors.variant = "规格最多 300 个字符。";
 
   const createdAt = row.createdAt.trim();
   if (createdAt) {
@@ -186,8 +192,8 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
       return;
     }
     const cells = line.split("\t");
-    if (cells.length < 5 || cells.length > 7) {
-      skipped.push(`第 ${rowNumber} 行：应为 5–7 列（Tab 分隔），实际 ${cells.length} 列`);
+    if (cells.length < 5 || cells.length > 8) {
+      skipped.push(`第 ${rowNumber} 行：应为 5–8 列（Tab 分隔），实际 ${cells.length} 列`);
       return;
     }
     const [
@@ -198,6 +204,7 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
       comment,
       photosRaw = "",
       dateRaw = "",
+      variantRaw = "",
     ] = cells;
     const problems: string[] = [];
     const name = authorName.trim();
@@ -218,6 +225,7 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
     } else if (!photoUrls.every(validPhotoUrl)) {
       problems.push("图片 URL 需为 http(s) 开头的合法链接");
     }
+    if (variantRaw.trim().length > 300) problems.push("规格最多 300 个字符");
     const parsedDate = parseTsvDate(dateRaw);
     if (parsedDate.error) problems.push(parsedDate.error);
     if (problems.length > 0) {
@@ -232,6 +240,7 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
       title: title.trim(),
       comment: comment.trim(),
       photos: photoUrls.map((url) => ({ id: nextId("photo"), url, state: "done" as const })),
+      variant: variantRaw.trim(),
       createdAt: parsedDate.value,
     });
   });
@@ -585,6 +594,7 @@ export function BatchReviewsGridDialog({
       title: row.title.trim() || undefined,
       comment: row.comment.trim(),
       photos: row.photos.map((p) => p.url),
+      variant: row.variant.trim() || undefined,
       isVisible: row.isVisible,
       // Empty lets the backend stamp now; grid validation already rejected
       // unparseable/future values.
@@ -709,7 +719,7 @@ export function BatchReviewsGridDialog({
           ) : null}
 
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[1260px] text-sm">
+            <table className="w-full min-w-[1420px] text-sm">
               <caption className="sr-only">批量评论表格</caption>
               <thead>
                 <tr className="border-b border-border bg-primary-light/30 text-left text-xs font-semibold text-ink-secondary">
@@ -728,6 +738,9 @@ export function BatchReviewsGridDialog({
                   </th>
                   <th scope="col" className="w-52 px-2 py-2">
                     图片（最多 {MAX_PHOTOS} 张）
+                  </th>
+                  <th scope="col" className="w-40 px-2 py-2">
+                    规格
                   </th>
                   <th scope="col" className="w-48 px-2 py-2">
                     时间（可空=当前）
@@ -831,6 +844,24 @@ export function BatchReviewsGridDialog({
                       </td>
                       <td className="px-2 py-2">
                         <input
+                          value={row.variant}
+                          maxLength={300}
+                          placeholder="可空，如 Color: … | Size: …"
+                          onChange={(e) => patchRow(row.key, { variant: e.target.value })}
+                          disabled={pending}
+                          aria-label={`第 ${index + 1} 行规格`}
+                          className={`w-full rounded-lg border bg-card px-2 py-1.5 text-sm focus:outline-none ${
+                            rowErrs.variant
+                              ? "border-sale/60 focus:border-sale"
+                              : "border-border focus:border-cta"
+                          }`}
+                        />
+                        {rowErrs.variant ? (
+                          <p className="mt-0.5 text-[11px] text-red-700">{rowErrs.variant}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
                           type="datetime-local"
                           value={row.createdAt}
                           min="2000-01-01T00:00"
@@ -893,7 +924,7 @@ export function BatchReviewsGridDialog({
                     </tr>
                     {srvErrs.length > 0 ? (
                       <tr className={hasError ? "bg-sale/5" : ""}>
-                        <td colSpan={10} className="border-b border-border px-2 pb-2">
+                        <td colSpan={11} className="border-b border-border px-2 pb-2">
                           <p className="text-[11px] leading-relaxed text-red-700">
                             {srvErrs.map((error, i) => (
                               <span key={i} className="mr-3">

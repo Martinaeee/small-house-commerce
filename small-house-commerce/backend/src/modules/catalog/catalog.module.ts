@@ -18,6 +18,7 @@ import { ProductsService } from './products.service.js';
 import { ReviewsService } from './reviews.service.js';
 import { StorefrontCategoriesController } from './storefront/categories.controller.js';
 import { StorefrontProductsController } from './storefront/products.controller.js';
+import { StorefrontReviewsController } from './storefront/reviews.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 
 @Module({
@@ -34,6 +35,7 @@ import { SuppliersService } from './suppliers.service.js';
     AdminProductLandingPagesController,
     StorefrontCategoriesController,
     StorefrontProductsController,
+    StorefrontReviewsController,
     StorefrontLandingPagesController,
   ],
   providers: [

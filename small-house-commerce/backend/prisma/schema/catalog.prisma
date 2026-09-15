@@ -225,13 +225,51 @@ model ProductReview {
   title               String?
   comment             String
   photos              String[]     @default([])
+  // Merchant-entered option descriptor shown on the storefront, exactly as
+  // Amazon prints "Color: ... | Size: ...". Free text: no SKU linkage in V1.
+  variant             String?
   isVisible           Boolean      @default(true) @map("is_visible")
   verifiedOrderItemId String?      @map("verified_order_item_id") @db.Uuid
   createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  helpfulVotes ReviewHelpfulVote[]
+  reports      ReviewReport[]
 
   @@index([productId, isVisible])
   @@map("product_reviews")
+}
+
+/// Anonymous "this review was helpful" votes. At most one row per
+/// (review, visitor); the visitor carries a random cookie id and only its
+/// salted SHA-256 hash is stored, so the table cannot identify shoppers.
+model ReviewHelpfulVote {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  reviewId    String   @map("review_id") @db.Uuid
+  visitorHash String   @map("visitor_hash")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  // Composite unique doubles as the reviewId-prefix index for count queries.
+  @@unique([reviewId, visitorHash])
+  @@map("review_helpful_votes")
+}
+
+/// Shopper-submitted review reports (PDP "Report" link). One open report per
+/// (review, visitor); a repeat report refreshes reason/createdAt. Merchants
+/// inspect and clear these from the product's admin reviews page.
+model ReviewReport {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  reviewId    String   @map("review_id") @db.Uuid
+  reason      String?
+  visitorHash String   @map("visitor_hash")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, visitorHash])
+  @@index([reviewId])
+  @@map("review_reports")
 }

@@ -22,6 +22,8 @@ export const createAdminReviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
   title: z.string().trim().max(200).optional(),
   comment: z.string().trim().min(1).max(5000),
+  // Amazon-style option descriptor, e.g. "Color: Walnut Brown | Size: S".
+  variant: z.string().trim().max(300).optional(),
   photos: z.array(photoSchema).max(6).default([]),
   isVisible: z.boolean().default(true),
   createdAt: reviewCreatedAtSchema.optional(),
@@ -41,6 +43,7 @@ export const updateAdminReviewSchema = createAdminReviewSchema
     // Allow explicitly clearing the optional text fields.
     location: z.string().trim().max(120).nullable().optional(),
     title: z.string().trim().max(200).nullable().optional(),
+    variant: z.string().trim().max(300).nullable().optional(),
   });
 export type UpdateAdminReviewInput = z.infer<typeof updateAdminReviewSchema>;
 

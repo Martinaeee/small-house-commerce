@@ -17,6 +17,7 @@ import {
   adminApi,
   type AdminProduct,
   type AdminReview,
+  type AdminReviewReport,
   type CreateAdminReviewInput,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
@@ -35,6 +36,7 @@ type FormState = {
   rating: number;
   title: string;
   comment: string;
+  variant: string;
   photos: string[];
   isVisible: boolean;
   // datetime-local value in the operator's local zone ("" = now on create).
@@ -49,6 +51,7 @@ const EMPTY_FORM: FormState = {
   rating: 5,
   title: "",
   comment: "",
+  variant: "",
   photos: [""],
   isVisible: true,
   createdAt: "",
@@ -61,6 +64,7 @@ function reviewToForm(review: AdminReview): FormState {
     rating: review.rating,
     title: review.title ?? "",
     comment: review.comment,
+    variant: review.variant ?? "",
     // Always keep one editable row, even for a review with zero photos.
     photos: review.photos.length > 0 ? [...review.photos] : [""],
     isVisible: review.isVisible,
@@ -75,6 +79,7 @@ function validate(form: FormState): FormErrors {
   const location = form.location.trim();
   const title = form.title.trim();
   const comment = form.comment.trim();
+  const variant = form.variant.trim();
   const photos = form.photos.map((p) => p.trim()).filter(Boolean);
 
   if (authorName.length < 1) errors.authorName = "Author name is required.";
@@ -83,6 +88,7 @@ function validate(form: FormState): FormErrors {
   if (title.length > 200) errors.title = "Maximum 200 characters.";
   if (comment.length < 1) errors.comment = "Comment is required.";
   else if (comment.length > 5000) errors.comment = "Maximum 5,000 characters.";
+  if (variant.length > 300) errors.variant = "规格最多 300 个字符。";
   const createdAt = form.createdAt.trim();
   if (createdAt) {
     const when = new Date(createdAt);
@@ -248,6 +254,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
         rating: form.rating,
         title: form.title.trim() || undefined,
         comment: form.comment.trim(),
+        variant: form.variant.trim() || undefined,
         photos: form.photos.map((p) => p.trim()).filter(Boolean),
         isVisible: form.isVisible,
         ...(createdAtIso !== undefined && { createdAt: createdAtIso }),
@@ -261,6 +268,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
             ...payload,
             location: form.location.trim() || null,
             title: form.title.trim() || null,
+            variant: form.variant.trim() || null,
           });
         } else {
           await adminApi.createProductReview(productId, payload);
@@ -330,6 +338,44 @@ function ProductReviewsContent({ productId }: { productId: string }) {
     },
     [deleteTarget],
   );
+
+  // --- reports dialog -------------------------------------------------------
+
+  const [reportsTarget, setReportsTarget] = useState<AdminReview | null>(null);
+  const [reports, setReports] = useState<AdminReviewReport[] | null>(null);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportsBusy, setReportsBusy] = useState(false);
+
+  const openReports = useCallback(async (review: AdminReview) => {
+    setReportsTarget(review);
+    setReports(null);
+    setReportsError(null);
+    try {
+      setReports(await adminApi.listReviewReports(review.id));
+    } catch (err) {
+      setReportsError(err instanceof Error ? err.message : "Could not load reports.");
+    }
+  }, []);
+
+  const closeReports = useCallback(() => {
+    if (reportsBusy) return;
+    setReportsTarget(null);
+  }, [reportsBusy]);
+
+  const clearReports = useCallback(async () => {
+    if (!reportsTarget) return;
+    setReportsBusy(true);
+    setReportsError(null);
+    try {
+      await adminApi.clearReviewReports(reportsTarget.id);
+      setReportsTarget(null);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setReportsError(err instanceof Error ? err.message : "Could not clear reports.");
+    } finally {
+      setReportsBusy(false);
+    }
+  }, [reportsTarget]);
 
   const visibleCount = useMemo(
     () => reviews?.filter((r) => r.isVisible).length ?? 0,
@@ -449,6 +495,20 @@ function ProductReviewsContent({ productId }: { productId: string }) {
                       {review.source === "ADMIN" ? (
                         <p className="mt-0.5 text-xs text-ink-muted">Merchant-authored</p>
                       ) : null}
+                      {review._count ? (
+                        <p className="mt-0.5 text-xs text-ink-muted">
+                          有用 {review._count.helpfulVotes}
+                        </p>
+                      ) : null}
+                      {review._count && review._count.reports > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => openReports(review)}
+                          className="mt-0.5 text-xs font-semibold text-red-700 hover:underline"
+                        >
+                          举报 {review._count.reports}（查看）
+                        </button>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 font-semibold text-ink">
                       {review.rating}
@@ -461,6 +521,9 @@ function ProductReviewsContent({ productId }: { productId: string }) {
                       <p className="line-clamp-3 whitespace-pre-line text-ink-secondary">
                         {review.comment}
                       </p>
+                      {review.variant ? (
+                        <p className="mt-1 text-xs text-ink-muted">{review.variant}</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       {review.photos.length > 0 ? (
@@ -581,6 +644,20 @@ function ProductReviewsContent({ productId }: { productId: string }) {
                 value={form.title}
                 maxLength={200}
                 onChange={(e) => patchForm({ title: e.target.value })}
+              />
+            </Field>
+            <Field
+              label="规格（选填）"
+              htmlFor="review-variant"
+              error={errors.variant}
+              hint="显示在评论日期下方，如 Color: Walnut Brown | Size: S。留空则不显示该行。"
+            >
+              <TextInput
+                id="review-variant"
+                value={form.variant}
+                maxLength={300}
+                placeholder="如 Color: Walnut Brown | Size: S"
+                onChange={(e) => patchForm({ variant: e.target.value })}
               />
             </Field>
             <Field
@@ -712,6 +789,65 @@ function ProductReviewsContent({ productId }: { productId: string }) {
               </Button>
             </div>
           </form>
+        ) : null}
+      </Dialog>
+
+      {/* Customer reports */}
+      <Dialog
+        open={reportsTarget !== null}
+        onClose={closeReports}
+        title="顾客举报"
+        width="md"
+      >
+        {reportsTarget ? (
+          <div>
+            <p className="text-sm text-ink-secondary">
+              {`${reportsTarget.authorName} · ${reportsTarget.rating} 星 · ${reportsTarget.title ?? ""}`}
+            </p>
+            {reportsError ? (
+              <p className="mt-3 rounded-lg border border-sale/40 bg-sale/5 p-3 text-sm text-red-700" role="alert">
+                {reportsError}
+              </p>
+            ) : reports === null ? (
+              <p className="mt-3 text-sm text-ink-muted">Loading…</p>
+            ) : reports.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-muted">暂无举报（可能已清除）。</p>
+            ) : (
+              <ul className="mt-3 flex flex-col gap-2">
+                {reports.map((report) => (
+                  <li key={report.id} className="rounded-lg border border-border p-3 text-sm">
+                    <p className="whitespace-pre-line text-ink-secondary">
+                      {report.reason?.trim() || "（顾客未填写原因）"}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {new Date(report.createdAt).toLocaleString("en-PH", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <Button type="button" variant="secondary" size="md" onClick={closeReports} disabled={reportsBusy}>
+                Back
+              </Button>
+              <Button
+                type="button"
+                size="md"
+                onClick={clearReports}
+                disabled={reportsBusy || reports?.length === 0}
+                aria-busy={reportsBusy}
+                className="bg-red-600 hover:bg-red-700 active:bg-red-700"
+              >
+                {reportsBusy ? "Working…" : "清除全部举报"}
+              </Button>
+            </div>
+          </div>
         ) : null}
       </Dialog>
 

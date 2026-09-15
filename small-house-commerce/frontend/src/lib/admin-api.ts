@@ -269,11 +269,14 @@ export interface AdminReview {
   rating: number;
   title: string | null;
   comment: string;
+  variant: string | null;
   photos: string[];
   isVisible: boolean;
   verifiedOrderItemId: string | null;
   createdAt: string;
   updatedAt: string;
+  // Present on the list endpoint (include _count); absent on create/update.
+  _count?: { helpfulVotes: number; reports: number };
 }
 
 export interface CreateAdminReviewInput {
@@ -282,18 +285,29 @@ export interface CreateAdminReviewInput {
   rating: number;
   title?: string;
   comment: string;
+  // Amazon-style option descriptor, e.g. "Color: Walnut Brown | Size: S".
+  variant?: string;
   photos: string[];
   isVisible: boolean;
   // ISO 8601; omit to stamp "now". Backend rejects future dates.
   createdAt?: string;
 }
 
-// PATCH mirrors updateAdminReviewSchema: every field optional; location/title
-// may be explicitly null to clear them.
-export type UpdateAdminReviewInput = Partial<Omit<CreateAdminReviewInput, "location" | "title">> & {
+// PATCH mirrors updateAdminReviewSchema: every field optional; location/title/
+// variant may be explicitly null to clear them.
+export type UpdateAdminReviewInput = Partial<
+  Omit<CreateAdminReviewInput, "location" | "title" | "variant">
+> & {
   location?: string | null;
   title?: string | null;
+  variant?: string | null;
 };
+
+export interface AdminReviewReport {
+  id: string;
+  reason: string | null;
+  createdAt: string;
+}
 
 // --- landing pages ("Single Pages") ------------------------------------------
 
@@ -366,6 +380,7 @@ export interface BatchReviewInput {
   rating: number;
   title?: string;
   comment: string;
+  variant?: string;
   photos?: string[];
   isVisible?: boolean;
   // ISO 8601; omit to stamp "now". Rejected by the backend if in the future.
@@ -568,6 +583,17 @@ export const adminApi = {
   deleteReview: (id: string): Promise<void> =>
     adminAuthedFetch<void>(
       `/api/v1/admin/reviews/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
+  listReviewReports: (id: string): Promise<AdminReviewReport[]> =>
+    adminAuthedFetch<AdminReviewReport[]>(
+      `/api/v1/admin/reviews/${encodeURIComponent(id)}/reports`,
+    ),
+
+  clearReviewReports: (id: string): Promise<{ cleared: number }> =>
+    adminAuthedFetch<{ cleared: number }>(
+      `/api/v1/admin/reviews/${encodeURIComponent(id)}/reports`,
       { method: "DELETE" },
     ),
 

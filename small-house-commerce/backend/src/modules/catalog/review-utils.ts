@@ -29,6 +29,12 @@ export interface StorefrontReviewShape {
   comment: string;
   photos: string[];
   createdAt: string;
+  /** Merchant-entered option descriptor ("Color: … | Size: …"), or null. */
+  variant: string | null;
+  /** Number of unique shoppers who marked the review helpful. */
+  helpfulCount: number;
+  /** TRUE only for reviews tied to a real order item — never for ADMIN rows. */
+  verifiedPurchase: boolean;
 }
 
 type SerializableReview = {
@@ -39,7 +45,10 @@ type SerializableReview = {
   title: string | null;
   comment: string;
   photos: string[];
+  variant: string | null;
+  verifiedOrderItemId: string | null;
   createdAt: Date;
+  _count?: { helpfulVotes: number };
 };
 
 export function serializeReview(review: SerializableReview): StorefrontReviewShape {
@@ -52,5 +61,9 @@ export function serializeReview(review: SerializableReview): StorefrontReviewSha
     comment: review.comment,
     photos: review.photos,
     createdAt: review.createdAt.toISOString(),
+    variant: review.variant,
+    helpfulCount: review._count?.helpfulVotes ?? 0,
+    // The badge is a factual claim; only a linked order makes it true.
+    verifiedPurchase: review.verifiedOrderItemId !== null,
   };
 }

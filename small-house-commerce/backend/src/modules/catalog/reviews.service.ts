@@ -33,6 +33,7 @@ export class ReviewsService {
         rating: input.rating,
         title: input.title ?? null,
         comment: input.comment,
+        variant: input.variant ?? null,
         photos: input.photos,
         isVisible: input.isVisible,
         ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
@@ -83,6 +84,7 @@ export class ReviewsService {
             rating: input.rating,
             title: input.title ?? null,
             comment: input.comment,
+            variant: input.variant ?? null,
             photos: input.photos,
             isVisible: input.isVisible,
             ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
@@ -100,7 +102,25 @@ export class ReviewsService {
     return this.prisma.productReview.findMany({
       where: { productId },
       orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { helpfulVotes: true, reports: true } } },
     });
+  }
+
+  /** Recent report reasons for the admin reviews page (newest first). */
+  async adminListReports(reviewId: string) {
+    await this.ensureReview(reviewId);
+    return this.prisma.reviewReport.findMany({
+      where: { reviewId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  /** Merchant reviewed the reports and dismissed them. */
+  async adminClearReports(reviewId: string) {
+    await this.ensureReview(reviewId);
+    const result = await this.prisma.reviewReport.deleteMany({ where: { reviewId } });
+    return { cleared: result.count };
   }
 
   async adminUpdate(id: string, input: UpdateAdminReviewInput) {
@@ -114,6 +134,7 @@ export class ReviewsService {
         ...(input.rating !== undefined && { rating: input.rating }),
         ...(input.title !== undefined && { title: input.title }),
         ...(input.comment !== undefined && { comment: input.comment }),
+        ...(input.variant !== undefined && { variant: input.variant }),
         ...(input.photos !== undefined && { photos: input.photos }),
         ...(input.isVisible !== undefined && { isVisible: input.isVisible }),
         ...(input.createdAt !== undefined && { createdAt: new Date(input.createdAt) }),
@@ -142,6 +163,7 @@ export class ReviewsService {
         where: { productId, isVisible: true },
         orderBy: { createdAt: 'desc' },
         take: STOREFRONT_REVIEW_TAKE,
+        include: { _count: { select: { helpfulVotes: true } } },
       }),
       this.prisma.productReview.aggregate({
         where: { productId, isVisible: true },
@@ -180,7 +202,44 @@ export class ReviewsService {
     return result;
   }
 
+  /**
+   * One helpful vote per shopper (cookie-derived hash). Idempotent: a repeat
+   * click keeps the single row and returns the unchanged count. Hidden/missing
+   * reviews 404 so the endpoint cannot probe isVisible state.
+   */
+  async addHelpfulVote(reviewId: string, visitorHash: string) {
+    await this.ensureVisibleReview(reviewId);
+    await this.prisma.reviewHelpfulVote.upsert({
+      where: { reviewId_visitorHash: { reviewId, visitorHash } },
+      create: { reviewId, visitorHash },
+      update: {},
+    });
+    const aggregate = await this.prisma.reviewHelpfulVote.aggregate({
+      where: { reviewId },
+      _count: { _all: true },
+    });
+    return { helpfulCount: aggregate._count._all, voted: true };
+  }
+
+  /** One open report per shopper; a repeat report refreshes reason/time. */
+  async addReport(reviewId: string, reason: string | null, visitorHash: string) {
+    await this.ensureVisibleReview(reviewId);
+    await this.prisma.reviewReport.upsert({
+      where: { reviewId_visitorHash: { reviewId, visitorHash } },
+      create: { reviewId, reason, visitorHash },
+      update: { reason, createdAt: new Date() },
+    });
+  }
+
   // --- internal ------------------------------------------------------------
+
+  private async ensureVisibleReview(reviewId: string): Promise<void> {
+    const review = await this.prisma.productReview.findFirst({
+      where: { id: reviewId, isVisible: true },
+      select: { id: true },
+    });
+    if (!review) throw new NotFoundException('Review not found');
+  }
 
   private async ensureProduct(productId: string): Promise<void> {
     const product = await this.prisma.product.findUnique({

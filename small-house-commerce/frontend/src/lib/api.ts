@@ -68,6 +68,11 @@ export interface Review {
   comment: string;
   photos: string[];
   createdAt: string;
+  /** Merchant-entered option descriptor ("Color: … | Size: …"), or null. */
+  variant: string | null;
+  helpfulCount: number;
+  /** True only for reviews backed by a real order — never admin-entered. */
+  verifiedPurchase: boolean;
 }
 
 export interface Product {
@@ -222,6 +227,16 @@ export const api = {
     return request<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
   },
   getProductBySlug: (slug: string) => request<Product>(`/api/v1/storefront/products/${slug}`),
+  markReviewHelpful: (reviewId: string) =>
+    request<{ helpfulCount: number; voted: boolean }>(
+      `/api/v1/storefront/reviews/${reviewId}/helpful`,
+      { method: "POST", body: "{}" },
+    ),
+  reportReview: (reviewId: string, reason?: string) =>
+    request<{ ok: boolean }>(`/api/v1/storefront/reviews/${reviewId}/report`, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
   getLandingPage: (slug: string) =>
     request<LandingPageComposite>(
       `/api/v1/storefront/lp/${encodeURIComponent(slug)}`,

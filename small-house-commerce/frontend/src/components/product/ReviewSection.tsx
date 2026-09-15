@@ -1,6 +1,7 @@
 // src/components/product/ReviewSection.tsx
 import type { Product } from "@/lib/api";
 import { RatingStars } from "./RatingStars";
+import { ReviewCard } from "./ReviewCard";
 
 /** PDP_SPEC §22. Read-only in V1: admin-authored reviews, no write form. */
 export function ReviewSection({ product }: { product: Product }) {
@@ -24,41 +25,7 @@ export function ReviewSection({ product }: { product: Product }) {
 
           <ul className="flex flex-col gap-6">
             {reviews.map((review) => (
-              <li key={review.id} className="border-b border-border pb-6 last:border-0 last:pb-0">
-                <div className="mb-1 flex items-center gap-2">
-                  <RatingStars value={review.rating} className="text-sm" />
-                  {review.title && (
-                    <span className="text-sm font-semibold text-ink">{review.title}</span>
-                  )}
-                </div>
-                <p className="mb-2 whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
-                  {review.comment}
-                </p>
-                {review.photos.length > 0 && (
-                  <div className="mb-2 flex gap-2">
-                    {review.photos.map((photo) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={photo}
-                        src={photo}
-                        alt="Customer review"
-                        className="h-16 w-16 rounded-md border border-border object-cover"
-                        loading="lazy"
-                      />
-                    ))}
-                  </div>
-                )}
-                <p className="text-xs text-ink-muted">
-                  {review.authorName}
-                  {review.location ? `, ${review.location}` : ""}
-                  {" · "}
-                  {new Date(review.createdAt).toLocaleDateString("en-PH", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </p>
-              </li>
+              <ReviewCard key={review.id} review={review} />
             ))}
           </ul>
         </>
