@@ -22,13 +22,13 @@ export function ProductGridSection({ section }: { section: HomepageSection }) {
       ) : (
         <div className={gridClass}>
           {products.map((product, index) => (
-            <span
+            <div
               key={product.id}
               className="contents"
               {...trackAttrs("ProductClick", section, index + 1)}
             >
               <ProductCard product={product} badge={product.badge ?? undefined} />
-            </span>
+            </div>
           ))}
         </div>
       )}

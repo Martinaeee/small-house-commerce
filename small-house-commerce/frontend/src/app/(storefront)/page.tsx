@@ -20,6 +20,7 @@ export default async function HomePage() {
       <HomeTracking />
       {sections.map((section) => {
         const SectionComponent = SECTION_REGISTRY[section.type];
+        if (!SectionComponent) return null;
         return <SectionComponent key={section.id} section={section} />;
       })}
       {/* Task 7 inserts <RecentlyViewed /> before the first sortOrder >= 100 section. */}
