@@ -2078,3 +2078,23 @@ PORT=3003 npm run dev
 - **Spec 覆盖**：§4.1 C1/C4→Task1、C2→Task2、C3→Task3；§4.2 JSON-LD→T4、错误态→T5、子类图卡→T6、URL→T7；§4.3 徽章类型/优先级/无 Save%/OOS 覆盖/可选先行→T8+T9；§4.4 context/抽屉/hook 抽取/挂载/三句服务条/CHECKOUT→/cart/空车态/无新事件→T10–T13；§9 验证→T13/T14；§3 ProductCard 协商→T14-S6。阶段 2（§5）明确不在本计划。
 - **类型一致性**：`CardBadge`/`visibleBadges`/`buildBadgeMap` 在 T8 定义、T9 与卡片消费；`parsePlpState`/`buildPlpQuery` 同名同签名；`useCartRecommendations(cart): Product[]` 同时被 CartRecommendations 与 CartDrawer 使用；`initialLoadFailed` 在 T5 服务端/客户端同名字段；`addItem(input, opts?)` 第二参数可选，所有旧调用兼容。
 - **冻结字符串**：四句 COD/配送文案在 T2/T12 均以原文搬运，服务条三句为 spec 新增白名单。
+
+---
+
+## 实现收尾记录（2026-09-15，SDD 完成）
+
+分支 `feat/checkout-category`，25 commits（e482e51..7af131d），工作树干净。门禁：tsc 0 错、eslint src 0 problems、next build 22/22 页全程绿；零新 npm 依赖（package.json/lockfile 零 diff）；后端/migration 未触碰。
+
+**验收链路**：T14 浏览器验收 34 PASS / 1 FAIL（FAIL-1 焦点归还）/ 5 SKIPPED → T14b route-mock 徽章补验 6 场景全 PASS（Best Seller/New/双集合去重/OOS 覆盖/promo 单枚/promo+identity 两枚共存）→ opus 整支终审 0 Critical / 3 Important / 3 Minor（With fixes）→ ONE fix wave（8fff729、6d21ab9、7af131d）→ scoped re-review APPROVED → 浏览器回归 13 PASS / 1 FAIL（A4，裁决 parked，见下）。
+
+**Fix wave 三提交**：8fff729 抽屉焦点同步预捕获（addItem await 前捕获 activeElement，rejection 清 ref，忽略 document.body；takeDrawerOpener 消费；CHECKOUT 关抽屉双保险；busyId 守卫；遮罩 Tab 陷阱）；6d21ab9 PLP island key 加 `node.id` 前缀修跨类目软导航旧网格（pre-existing，控制器 override 进 wave，独立提交）；7af131d rework——重置 confirm/error 从 open effect 改为稳定 handleClose（全仓零 eslint-disable 先例；effect 内重置会闪现陈旧帧），9 个关闭出口统一。
+
+**Parked residual — FAIL-A4（/cart 推荐条 quick-add 后焦点落 body）**：加购使推荐卡按资格规则卸载（唯一推荐时整个 section 卸载；opener 在抽屉打开时已 `document.contains===false`），结构上无节点可还焦。Pre-existing（T14 5.13 已记录卡片移除），非 wave 引入；终审设计审计误判该路径被 opener 捕获覆盖。裁决 accept-and-document 到阶段 2：WAI-ARIA 允许 body 作最终 fallback；仅限 /cart 推荐条的键盘/读屏路径，不阻转化主路径。建议修复（阶段 2 小项）：抽屉 cleanup 检测 opener disconnected 时 fallback 聚焦 header cart 按钮（始终存活、语义合理；focus 不触发 click）。判错代价：若本应现在修，代价仅为阶段 2 多带一个小提交；线 B 整体尚未上线，不存在线上回退面。
+
+**其余 deferred minors（终审处置，全部 accept-and-document，除非注明）**：T1 自动聚焦 invalid 字段 focus 边框样式；T3 无 slug 的 Buy Now 链接永久 Loading（应用内不可生成该链接；阶段 2 可选硬化）；T5 首页失败仍发无 ItemList 的 CollectionPage JSON-LD（pre-existing，诚实标记）；T5/T9 失败挂载仍发徽章集合请求（T9 effect 重写时的 `if (initialLoadFailed) return` 守卫待阶段 2 核查）；T7 utm/未知参数首帧规范化 + parsePlpState 双解析；T9 成员请求间无 alive 复检（pre-existing 模式）；T11 "three candidate pools" 注释措辞；T12 跨行 busy 时非忙行步进静默 no-op；dev StrictMode 重复 Purchase 入队（生产单次；tracking.ts 属线 A，本阶段不动）。
+
+**阶段 2 carry（spec §5，另写计划；每条 migration 前与并行线串行打招呼）**：3 条后端 migration（只加可空列/新表，禁 reset）；shipping/estimate 模块（TDD）；storefront collections 列表 Prisma select 加 `badgeLabel`（否则 promo chip 永不出现，前端类型已就绪）；promo chip truncate/max-width 随 badgeLabel 一起；手机校验文案与后端对齐；FAIL-A4 opener-death fallback。生产部署/生产库 migration 须用户单独确认。
+
+**数据注记**：测试订单 PH100009（"Test Acceptance"，2 椅 COD ₱3,998）留在共享库，删除须用户批准；受其影响 stock-chair 实测 availableInventory=4（T14 时为 5），步进 cap 按实时库存正确。
+
+**线 A 协调结论**：PlpProductCard prop reshape + api.ts 可选 badgeLabel 字段事前通报、无冲突；CartDrawer 全局挂载（bdabeca，layout 纯追加 +2 行）与线 A MobileTabBar 三处追加 hunk 不相邻，rebase 汇合无冲突；ProductCard（首页 Order Now 快捷加购需客户端化）协商结论＝按现状保留，线 A 收尾时作为可选增强呈交，本分支不触碰。
