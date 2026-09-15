@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type CartItem, type Product } from "@/lib/api";
@@ -10,6 +10,11 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { useCart } from "@/components/cart/CartContext";
 import { useProductImages } from "@/lib/productImages";
 import { readAttribution, track } from "@/lib/tracking";
+import {
+  CHECKOUT_FIELD_ORDER,
+  validateCheckoutForm,
+  type CheckoutField,
+} from "@/lib/checkoutValidation";
 
 /**
  * COD checkout (CHECKOUT_SPEC §5, §8-§9, §13, §15).
@@ -88,6 +93,23 @@ function PreviewRow({
   );
 }
 
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-sale">
+      {message}
+    </p>
+  );
+}
+
+const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
+  name: "checkout-name",
+  phone: "checkout-phone",
+  province: "checkout-province",
+  city: "checkout-city",
+  streetAddress: "checkout-address",
+};
+
 function totalsFor(lines: { unitPrice: number | null; quantity: number }[]) {
   // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
   // not a discount deducted again at checkout.
@@ -106,6 +128,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [productError, setProductError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<CheckoutField, string>>>({});
 
   const [form, setForm] = useState({
     name: "",
@@ -215,15 +238,37 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuyNow, orderItems.length]);
 
-  const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [field]: e.target.value }));
+  const set =
+    (field: CheckoutField) => (e: ChangeEvent<HTMLInputElement>) => {
+      setForm((f) => ({ ...f, [field]: e.target.value }));
+      setErrors((current) => {
+        if (!current[field]) return current;
+        const next = { ...current };
+        delete next[field];
+        return next;
+      });
+    };
+
+  // Re-validate one field on blur so a corrected-but-still-bad value gets
+  // flagged before submit.
+  const revalidate = (field: CheckoutField) => () =>
+    setErrors((current) => {
+      const fresh = validateCheckoutForm(form);
+      const next = { ...current };
+      if (fresh[field]) next[field] = fresh[field];
+      else delete next[field];
+      return next;
+    });
 
   async function placeOrder() {
     setError(null);
 
-    if (!form.name.trim() || !form.phone.trim() || !form.province.trim() ||
-        !form.city.trim() || !form.streetAddress.trim()) {
-      setError("Please fill in your name, phone, province, city and full address.");
+    const validation = validateCheckoutForm(form);
+    setErrors(validation);
+    if (Object.keys(validation).length > 0) {
+      const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
+      const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
+      if (focusId) document.getElementById(focusId)?.focus();
       return;
     }
     if (orderItems.length === 0) {
@@ -364,18 +409,33 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 Full Name *
-                <input className={inputCls} value={form.name} onChange={set("name")} placeholder="Juan Dela Cruz" />
+                <input
+                  id="checkout-name"
+                  className={`${inputCls}${errors.name ? " border-sale" : ""}`}
+                  value={form.name}
+                  onChange={set("name")}
+                  onBlur={revalidate("name")}
+                  aria-invalid={Boolean(errors.name)}
+                  aria-describedby={errors.name ? "checkout-name-error" : undefined}
+                  placeholder="Juan Dela Cruz"
+                />
+                <FieldError id="checkout-name" message={errors.name} />
               </label>
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 Mobile Number *
                 <input
-                  className={inputCls}
+                  id="checkout-phone"
+                  className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
                   value={form.phone}
                   onChange={set("phone")}
+                  onBlur={revalidate("phone")}
+                  aria-invalid={Boolean(errors.phone)}
+                  aria-describedby={errors.phone ? "checkout-phone-error" : undefined}
                   placeholder="0917 123 4567"
                   inputMode="tel"
                   autoComplete="tel"
                 />
+                <FieldError id="checkout-phone" message={errors.phone} />
               </label>
             </div>
             <p className="mt-2 text-xs text-ink-muted">
@@ -388,11 +448,31 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 Province *
-                <input className={inputCls} value={form.province} onChange={set("province")} placeholder="Metro Manila" />
+                <input
+                  id="checkout-province"
+                  className={`${inputCls}${errors.province ? " border-sale" : ""}`}
+                  value={form.province}
+                  onChange={set("province")}
+                  onBlur={revalidate("province")}
+                  aria-invalid={Boolean(errors.province)}
+                  aria-describedby={errors.province ? "checkout-province-error" : undefined}
+                  placeholder="Metro Manila"
+                />
+                <FieldError id="checkout-province" message={errors.province} />
               </label>
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 City / Municipality *
-                <input className={inputCls} value={form.city} onChange={set("city")} placeholder="Quezon City" />
+                <input
+                  id="checkout-city"
+                  className={`${inputCls}${errors.city ? " border-sale" : ""}`}
+                  value={form.city}
+                  onChange={set("city")}
+                  onBlur={revalidate("city")}
+                  aria-invalid={Boolean(errors.city)}
+                  aria-describedby={errors.city ? "checkout-city-error" : undefined}
+                  placeholder="Quezon City"
+                />
+                <FieldError id="checkout-city" message={errors.city} />
               </label>
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 Barangay
@@ -405,11 +485,18 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
                 Full Address *
                 <input
-                  className={inputCls}
+                  id="checkout-address"
+                  className={`${inputCls}${errors.streetAddress ? " border-sale" : ""}`}
                   value={form.streetAddress}
                   onChange={set("streetAddress")}
+                  onBlur={revalidate("streetAddress")}
+                  aria-invalid={Boolean(errors.streetAddress)}
+                  aria-describedby={
+                    errors.streetAddress ? "checkout-address-error" : undefined
+                  }
                   placeholder="House no., street, subdivision"
                 />
+                <FieldError id="checkout-address" message={errors.streetAddress} />
               </label>
               <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
                 Landmark
