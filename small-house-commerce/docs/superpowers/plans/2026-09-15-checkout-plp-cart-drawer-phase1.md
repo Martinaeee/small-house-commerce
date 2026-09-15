@@ -648,10 +648,11 @@ const total = products?.total ?? 0;
 const initialLoadFailed = products === null;
 ```
 
-客户端调用改为：
+客户端调用改为（**必须带 key 翻转**——App Router 的 `router.refresh()` 只重取 RSC，同位置客户端组件的 state 会保留；不翻转 key 则 loadFailed 永远为 true，Try again 无效）：
 
 ```tsx
 <CategoryPlpClient
+  key={initialLoadFailed ? "load-failed" : "load-ok"}
   categoryId={node.id}
   initialProducts={items}
   initialTotal={total}
