@@ -683,3 +683,32 @@ route 把 `POST /api/v1/storefront/cart/items` 伪造成 500：Confirm 后停留
 - **无占位符**：所有代码块完整可贴；错误文案逐字给出；无 "适当处理" 类步骤。
 - **类型一致性**：`DrawerView`/`openPicker`/`goToCartView`/`pickerProduct`/`view` 在 T1 定义、T3 消费；`QuickAddViewProps {product,onAdded,onClose}` T2 定义、T3 调用一致；`sellableVariants`/`variantImage`/`sortedProductImages` T1 定义、T2/T3 消费签名一致；`addItem({skuId,quantity},{openDrawer:false})` 与阶段 1 CartContext 签名一致。
 - **约束自查**：5 个文件全部在 Global Constraints 白名单；tracking.ts/api.ts/PDP/ProductCard/后端零改动；无新依赖；无 `set-state-in-effect`（新状态全部在事件回调中变更；open effect 未改）。
+
+---
+
+## 附录：执行收尾（2026-09-16，SDD 全流程完成）
+
+**分支**：`feat/plp-quick-add`（堆叠于 `feat/checkout-category`，合入顺序：先阶段 1 后本支）。**状态：保留分支，未 merge/push**（用户既定偏好；merge/push 需明确指令）。
+
+**提交链**（BASE f458f43）：
+- `956047a` T1：CartContext 双视图状态 + `src/lib/variantImages.ts`（sellableVariants/variantImage/sortedProductImages）
+- `cf67559` T2：QuickAddView 选款抽屉主体
+- `e11ed3d` T3：CartDrawer 双视图 + PlpProductCard 分流（多款式开选款 / 单款直加 / 0 可售 View Details，移除卡面 pills）
+- `c85bec5` 计划修正（T3 brief 缺陷：0 可售必须保留 View Details，spec 优先）
+- `5bd5f34` T3 修复：恢复 View Details CTA
+- `6c66642` fix wave：迟到响应 unmount guard（aliveRef）+ Color/Style role=group
+- `f9ad401` fix：effect setup 重新置回 aliveRef（修 StrictMode dev replay 导致 6c66642 在 dev 下整体不换视图；prod 不受影响）
+- `3dddfbb` 文档：Global Constraints 的 eslint-disable 表述与已批准的 img 豁免对齐
+
+**评审与验收**：T1/T2/T3 任务评审均 APPROVED（T3 经一轮 fix loop）；T4 浏览器验收 **8/8 PASS**；opus 全分支终审（f458f43..5bd5f34）**CLEAN：0 Critical / 0 Important / 4 Minor**；fix wave 定向复审 6c66642 判 NOT ADDRESSED（新发现 N1 StrictMode，dev-only）→ f9ad401 复审 **ADDRESSED**；浏览器对最终代码回归 **10/10 PASS**（含确定性信号门控的"加购中途关闭并重开同款/他款选款"竞态：新弹窗保持选款视图、迟到 200 像素仍恰好一条、迟到 500 不污染新实例、已挂载 500 仍显示固定错误）。
+
+**终审 Minor 裁决（全部接受不改码，除 Minor 1 已修）**：
+1. ~~迟到 onAdded 翻转新弹窗~~ → 已修（6c66642+f9ad401）。
+2. AddToCart `value` 为单价（qty>1 时非行额）——spec §4.4 要求与阶段 1 直加 payload 逐字一致，阶段 1 恒 qty1；保持，若后续业务要行额再统一两条路径。
+3. `price === null` 的有 sku 款式在选款视图中可选中——spec §3.2 仅禁 `sku === null`，与 PDP 一致。
+4. add→cart 切换后 pickerProduct 仍驻留——安全（渲染以 view==="picker" 为闸，open/close 均覆盖/清空）。
+T2 deferred：selectVariant 死参 `index`（保留，计划签名）；busy 时款式/步进器不禁用（闭包捕获 sku/qty，不可能错配）；spinner 不加 role=status（仓库零先例）。a11y parity（role=group）已随 fix wave 补上。
+
+**环境事实**：真实种子数据中 0 个真正多可售款式商品、几乎无商品图；选款/图片/全 OOS 等状态用浏览器侧 route-mock 验证（Next 16 硬 MPA 导航 → document-start initScript 改写内联 flight 流；fetch 包装造 500/延迟），无代码/DB 改动、无订单；真实数据路径（单款直加、null-sku View Details、OOS 按钮禁用）均未 mock 验证。验收 guest cart（01a0a5e3、01a0a603）已逐项 DELETE 清空，库存预留释放；PH100009 仍按用户指示保留。3003 dev server 保留运行。
+
+**后续（不在本支）**：第二波——首页/搜索/集合页的服务端 ProductCard 加 client wrapper 复用同一 QuickAddView（spec §8，待线 A 收尾协调，ProductCard/api.ts 属线 A 共享文件，动手前通报）；阶段 2 独立计划（3 条后端 migration、shipping、badgeLabel select、chip truncation、手机文案、FAIL-A4 opener 脱焦回退）；远期 ProductImage.variantId 可空迁移让款式图从位置映射升级为真实关联。
