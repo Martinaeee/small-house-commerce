@@ -1173,23 +1173,22 @@ useEffect(() => {
       );
     }
 
-    // Badge sources: the two fixed-slug identity collections, plus up to four
-    // promo collections carrying an admin badgeLabel (spec §4.3). The field
-    // does not exist on the phase-1 backend, so until phase 2 this is the
-    // exact bestseller/new behaviour already shipped.
+    // Badge sources: the two fixed-slug identity collections are seeded
+    // UNCONDITIONALLY — identity chips/bestseller pin must survive a list
+    // endpoint failure or the slugs falling outside the list page. The list
+    // call only contributes up to four promo collections carrying an admin
+    // badgeLabel (spec §4.3). The field does not exist on the phase-1
+    // backend, so until phase 2 this is the exact bestseller/new behaviour
+    // already shipped.
+    const badgeCollections: { slug: string; badge: CardBadge }[] = [
+      { slug: "best-sellers", badge: BESTSELLER_BADGE },
+      { slug: "new-arrivals", badge: NEW_BADGE },
+    ];
     let collections: Collection[] = [];
     try {
       collections = (await api.getCollections()).items;
     } catch {
       collections = [];
-    }
-    const badgeCollections: { slug: string; badge: CardBadge }[] = [];
-    for (const collection of collections) {
-      if (collection.slug === "best-sellers") {
-        badgeCollections.push({ slug: collection.slug, badge: BESTSELLER_BADGE });
-      } else if (collection.slug === "new-arrivals") {
-        badgeCollections.push({ slug: collection.slug, badge: NEW_BADGE });
-      }
     }
     // Spec §4.3: badgeLabel promos, first 4 by sortOrder (sort client-side so
     // the rule holds regardless of the list endpoint's ordering).
