@@ -178,9 +178,10 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
 
       {/* router.refresh() preserves Client Component state, so the key flips
           failed -> ready after a successful retry to force a clean remount
-          seeded from the new server-rendered first page. */}
+          seeded from the new server-rendered first page. The node.id prefix
+          also forces a clean mount per category on soft client navigation. */}
       <CategoryPlpClient
-        key={initialLoadFailed ? "load-failed" : "load-ok"}
+        key={`${node.id}-${initialLoadFailed ? "load-failed" : "load-ok"}`}
         categoryId={node.id}
         initialProducts={items}
         initialTotal={total}
