@@ -3,14 +3,15 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type CartItem, type Product } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
-import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { useProductImages } from "@/lib/productImages";
 import { readAttribution, track } from "@/lib/tracking";
+import { useCheckoutLines } from "./useCheckoutLines";
+import { OrderPreview } from "./OrderPreview";
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
@@ -38,62 +39,6 @@ interface CheckoutFormProps {
   slug?: string;
 }
 
-interface PreviewLine {
-  key: string;
-  slug: string;
-  name: string;
-  variant: string;
-  quantity: number;
-  unitPrice: number | null;
-  compareAtPrice: number | null;
-}
-
-function PreviewRow({
-  line,
-  imageUrl,
-}: {
-  line: PreviewLine;
-  imageUrl: string | null | undefined;
-}) {
-  return (
-    <li className="flex gap-3 py-2">
-      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border">
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <PlaceholderImage label="" className="h-full w-full" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <Link
-          href={`/products/${line.slug}`}
-          className="line-clamp-2 text-sm font-medium text-ink hover:text-cta"
-        >
-          {line.name}
-        </Link>
-        <p className="mt-0.5 text-xs text-ink-muted">
-          {line.variant} · Qty {line.quantity}
-        </p>
-      </div>
-      <div className="shrink-0 text-right">
-        {line.unitPrice !== null ? (
-          <>
-            <p className="text-sm font-semibold text-ink">
-              {formatPrice(line.unitPrice * line.quantity)}
-            </p>
-            {line.quantity > 1 && (
-              <p className="text-xs text-ink-muted">{formatPrice(line.unitPrice)} each</p>
-            )}
-          </>
-        ) : (
-          <span className="text-sm text-ink-muted">—</span>
-        )}
-      </div>
-    </li>
-  );
-}
-
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
@@ -111,23 +56,10 @@ const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
   streetAddress: "checkout-address",
 };
 
-function totalsFor(lines: { unitPrice: number | null; quantity: number }[]) {
-  // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
-  // not a discount deducted again at checkout.
-  let subtotal = 0;
-  for (const line of lines) {
-    if (line.unitPrice === null) continue;
-    subtotal += line.unitPrice * line.quantity;
-  }
-  return { subtotal, discount: 0, total: subtotal };
-}
-
 export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {
   const router = useRouter();
-  const { cart, loading: cartLoading, removeItems } = useCart();
+  const { removeItems } = useCart();
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
-  const [product, setProduct] = useState<Product | null>(null);
-  const [productError, setProductError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Partial<Record<CheckoutField, string>>>({});
@@ -143,96 +75,23 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     landmark: "",
   });
 
-  const buyNowQty = Math.min(99, Math.max(1, Number(qty) || 1));
-  const isBuyNow = Boolean(skuId);
-  const requestedIds = useMemo(
-    () =>
-      (itemsParam ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    [itemsParam],
-  );
-
-  // Buy Now: resolve name/variant/image/price via the product endpoint.
-  useEffect(() => {
-    if (!isBuyNow || !slug) return;
-    let cancelled = false;
-    api
-      .getProductBySlug(slug)
-      .then((p) => {
-        if (!cancelled) setProduct(p);
-      })
-      .catch(() => {
-        if (!cancelled) setProductError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isBuyNow, slug]);
-
-  const selectedItems: CartItem[] = useMemo(() => {
-    if (isBuyNow || !cart) return [];
-    const wanted = new Set(requestedIds);
-    return cart.items.filter((item) => wanted.has(item.itemId));
-  }, [isBuyNow, cart, requestedIds]);
-
-  const lines: PreviewLine[] = useMemo(() => {
-    if (isBuyNow) {
-      if (!product || !skuId) return [];
-      const variant = product.variants.find((v) => v.sku?.id === skuId);
-      const sku = variant?.sku ?? null;
-      return [
-        {
-          key: skuId,
-          slug: product.slug,
-          name: product.name,
-          variant: variant?.name ?? "Default",
-          quantity: buyNowQty,
-          unitPrice: sku?.price ?? null,
-          compareAtPrice: sku?.compareAtPrice ?? null,
-        },
-      ];
-    }
-    return selectedItems.map((item) => ({
-      key: item.itemId,
-      slug: item.productSlug,
-      name: item.productName,
-      variant: item.variantName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      compareAtPrice: item.compareAtPrice,
-    }));
-  }, [isBuyNow, product, skuId, buyNowQty, selectedItems]);
+  const checkout = useCheckoutLines({ skuId, qty, itemsParam, slug });
+  const {
+    isBuyNow,
+    cartLoading,
+    product,
+    productError,
+    cartBlocked,
+    buyNowMatchedSku,
+    ready,
+    lines,
+    orderItems,
+    totals,
+    total,
+  } = checkout;
 
   const slugs = useMemo(() => lines.map((line) => line.slug), [lines]);
   const images = useProductImages(slugs);
-
-  const totals = useMemo(() => totalsFor(lines), [lines]);
-  const total = isBuyNow ? (product ? totals.total : null) : totals.total;
-
-  const orderItems = useMemo(() => {
-    if (isBuyNow) return skuId ? [{ skuId, quantity: buyNowQty }] : [];
-    return selectedItems.map((item) => ({ skuId: item.skuId, quantity: item.quantity }));
-  }, [isBuyNow, skuId, buyNowQty, selectedItems]);
-
-  // Cart path blockers once the cart has loaded: nothing selected, unknown
-  // item ids (hand-edited URL), or selected stock problems.
-  const cartBlocked =
-    !isBuyNow &&
-    !cartLoading &&
-    requestedIds.length > 0 &&
-    (selectedItems.length !== requestedIds.length ||
-      selectedItems.some((item) => item.unavailable));
-
-  // Buy Now is only submittable once the product resolved AND the requested
-  // skuId exists on one of its variants. A hand-edited ?skuId is a dead end.
-  const buyNowMatchedSku =
-    !isBuyNow || (product !== null && product.variants.some((v) => v.sku?.id === skuId));
-
-  const ready = isBuyNow
-    ? product !== null && !productError && buyNowMatchedSku
-    : !cartLoading && !cartBlocked && orderItems.length > 0;
 
   // TRACKING_SPEC §12 InitiateCheckout.
   useEffect(() => {
@@ -303,7 +162,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       // Cart checkout removes ONLY the purchased lines; a Buy Now order never
       // touches the visitor's saved cart.
       if (!isBuyNow) {
-        await removeItems(selectedItems.map((item) => item.itemId));
+        await removeItems(checkout.cartItemIds);
       }
       // Stash the total so the success page can fire the Purchase event.
       if (total !== null) sessionStorage.setItem("lastOrderTotal", String(total));
@@ -426,11 +285,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             ) : lines.length === 0 ? (
               <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
             ) : (
-              <ul className="divide-y divide-border">
-                {lines.map((line) => (
-                  <PreviewRow key={line.key} line={line} imageUrl={images.get(line.slug)} />
-                ))}
-              </ul>
+              <OrderPreview lines={lines} images={images} />
             )}
           </div>
         </div>
