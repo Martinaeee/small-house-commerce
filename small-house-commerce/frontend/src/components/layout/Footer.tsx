@@ -5,7 +5,15 @@ import { BrandWordmark } from "./BrandWordmark";
  * FRONTEND_SPEC §16 Footer. Static trust + contact content is fine here;
  * navigation links stay data-driven (collections), shown for convenience.
  */
-export function Footer({ collections }: { collections: { id: string; slug: string; name: string }[] }) {
+export function Footer({
+  collections,
+  supportEmail,
+  supportHours,
+}: {
+  collections: { id: string; slug: string; name: string }[];
+  supportEmail: string;
+  supportHours: string;
+}) {
   return (
     <footer className="mt-16 border-t border-border bg-card">
       <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-10 px-4 py-12 sm:px-6 md:grid-cols-3">
@@ -40,8 +48,8 @@ export function Footer({ collections }: { collections: { id: string; slug: strin
           <p className="text-sm font-semibold text-ink">Contact</p>
           <ul className="mt-3 flex flex-col gap-2 text-sm text-ink-secondary">
             <li>Cash on Delivery nationwide</li>
-            <li>Mon–Sat, 9am–6pm (PHT)</li>
-            <li>support@luwag.ph</li>
+            <li>{supportHours}</li>
+            <li>{supportEmail}</li>
           </ul>
         </div>
       </div>
