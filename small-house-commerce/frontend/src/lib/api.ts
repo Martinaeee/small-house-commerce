@@ -123,6 +123,32 @@ export interface HomepageCategoryTile {
 /** A full storefront Product plus its per-section badge. */
 export type HomepageSectionProduct = Product & { badge: string | null };
 
+// --- room scene hotspots (ROOM_INSPIRATION payload) --------------------------
+
+/** Admin/input shape: a dot positioned by percentage over its scene image. */
+export interface RoomSceneHotspotInput {
+  productId: string;
+  xPct: number;
+  yPct: number;
+}
+
+/** Admin-persisted scene (payload.scenes[n] before storefront hydration). */
+export interface RoomScene {
+  id: string;
+  imageUrl: string;
+  alt?: string;
+  hotspots: RoomSceneHotspotInput[];
+}
+
+/** Storefront shape: backend replaces productId with the hydrated product. */
+export interface RoomSceneHotspot extends RoomSceneHotspotInput {
+  product: Product;
+}
+
+export interface HydratedRoomScene extends Omit<RoomScene, "hotspots"> {
+  hotspots: RoomSceneHotspot[];
+}
+
 export interface HomepageSection {
   id: string;
   type: HomepageSectionType;

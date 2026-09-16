@@ -43,6 +43,52 @@
   --container-content: 1200px;
 }
 
+/*
+ * Homepage room-scene hotspot entry (one-shot staggered pop + ping ring).
+ * Delays are supplied inline per dot; both are disabled for users who
+ * prefer reduced motion.
+ */
+@keyframes hotspot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hotspot-ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+.hotspot-pop {
+  animation: hotspot-pop 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.hotspot-ring {
+  animation: hotspot-ring 600ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-pop,
+  .hotspot-ring {
+    animation: none;
+  }
+}
+
 @layer base {
   body {
     background-color: var(--color-background);
