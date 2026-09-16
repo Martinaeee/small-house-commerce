@@ -88,6 +88,7 @@ export function CheckoutConfirmView({
   async function placeOrder() {
     if (!draft) return;
     setError(null);
+    if (submitting) return;
     if (checkout.orderItems.length === 0) {
       setError("No items to check out.");
       return;
@@ -109,7 +110,11 @@ export function CheckoutConfirmView({
         attribution: readAttribution(),
       });
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
-      if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
+      try {
+        if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
+      } catch {
+        // Storage unavailable: skip the success-page total stash; the order stands.
+      }
       clearCheckoutDraft();
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
