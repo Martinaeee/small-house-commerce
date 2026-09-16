@@ -38,10 +38,14 @@ function DetailsItem({
   );
 }
 
-const SUPPORT_EMAIL = "support@luwag.ph";
-
-export function PdpInfoSections() {
-  const mailto = `mailto:${SUPPORT_EMAIL}`;
+export function PdpInfoSections({
+  supportEmail,
+  supportHours,
+}: {
+  supportEmail: string;
+  supportHours: string;
+}) {
+  const mailto = `mailto:${supportEmail}`;
   return (
     <section
       id="shipping-faq"
@@ -60,9 +64,9 @@ export function PdpInfoSections() {
           <li>
             Questions about your delivery? Email{" "}
             <a href={mailto} className="font-medium text-cta underline-offset-2 hover:underline">
-              {SUPPORT_EMAIL}
+              {supportEmail}
             </a>{" "}
-            (Mon–Sat, 9am–6pm PHT).
+            ({supportHours}).
           </li>
         </ul>
       </DetailsItem>
@@ -72,7 +76,7 @@ export function PdpInfoSections() {
           Returns are accepted only for items that arrive damaged or defective. Please contact
           us at{" "}
           <a href={mailto} className="font-medium text-cta underline-offset-2 hover:underline">
-            {SUPPORT_EMAIL}
+            {supportEmail}
           </a>{" "}
           <strong>within 48 hours of delivery</strong> with photos of the item and its packaging,
           and we will arrange a replacement or refund. Items cannot be returned for non-quality
@@ -99,7 +103,7 @@ export function PdpInfoSections() {
 
       <DetailsItem title="Can I change or cancel my order?">
         <p>
-          Contact us as soon as possible at {SUPPORT_EMAIL}. Address or item changes are possible
+          Contact us as soon as possible at {supportEmail}. Address or item changes are possible
           while the order is still being processed; once an order has shipped, it can no longer be
           changed or redirected.
         </p>

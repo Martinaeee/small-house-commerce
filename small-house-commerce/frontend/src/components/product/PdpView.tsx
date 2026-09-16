@@ -4,6 +4,7 @@ import { PdpInfoSections } from "./PdpInfoSections";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { TrustBar } from "@/components/ui/TrustBar";
+import { fetchSiteSettings } from "@/lib/site-settings";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import type { Product } from "@/lib/api";
 
@@ -12,7 +13,7 @@ import type { Product } from "@/lib/api";
  * supplies a merged product (overridden name/images) and optional promoSlot;
  * everything else (reviews, specs, price, related) is the shared product.
  */
-export function PdpView({
+export async function PdpView({
   product,
   category,
   delivery,
@@ -28,7 +29,9 @@ export function PdpView({
   jsonLd: unknown;
   promoSlot?: ReactNode;
   productPath?: string;
-}) {
+}): Promise<ReactNode> {
+  // Request-deduped with the layout's identical fetch (same URL + ISR tag).
+  const settings = await fetchSiteSettings();
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <script
@@ -73,7 +76,10 @@ export function PdpView({
             </p>
           </div>
         )}
-        <PdpInfoSections />
+        <PdpInfoSections
+          supportEmail={settings.supportEmail}
+          supportHours={settings.supportHours}
+        />
         <ReviewSection product={product} />
         <TrustBar />
       </section>

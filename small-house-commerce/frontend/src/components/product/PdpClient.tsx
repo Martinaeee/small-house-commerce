@@ -7,11 +7,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Product } from "@/lib/api";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { useCart } from "@/components/cart/CartContext";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import { track } from "@/lib/tracking";
 
-const SUPPORT_EMAIL = "support@luwag.ph";
 import { RatingStars } from "./RatingStars";
 import { ProductGallery } from "./ProductGallery";
 import { ProductLightbox } from "./ProductLightbox";
@@ -58,6 +58,7 @@ export function PdpClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { addItem } = useCart();
+  const { supportEmail, supportHours } = useSiteSettings();
   const variants = product.variants;
   const images = product.images;
 
@@ -183,7 +184,7 @@ export function PdpClient({
   const stockLabel = outOfStock ? "Out of Stock" : lowStock ? `Only ${available} left` : null;
   const variantSuffix =
     selectedVariant && variants.length > 1 ? ` — ${selectedVariant.name}` : "";
-  const restockHref = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+  const restockHref = `mailto:${supportEmail}?subject=${encodeURIComponent(
     `Restock request: ${product.name}${variantSuffix}`,
   )}`;
   const overlayOpen = lightboxIndex !== null || detailsOpen;
@@ -346,7 +347,7 @@ export function PdpClient({
                 Contact us to order
               </ButtonLink>
               <p className="mt-2 text-xs text-ink-muted">
-                {SUPPORT_EMAIL} · Mon–Sat, 9am–6pm PHT
+                {supportEmail} · {supportHours}
               </p>
             </div>
           )}
