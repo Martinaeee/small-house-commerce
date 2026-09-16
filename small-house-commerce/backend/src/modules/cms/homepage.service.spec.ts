@@ -226,6 +226,70 @@ describe('HomepageService.storefrontGet', () => {
     expect('productId' in ugcPayload.entries[0]).toBe(false);
     expect('product' in ugcPayload.entries[1]).toBe(false);
   });
+
+  it('hydrates room scene hotspot products with one batched lookup, drops inactive ids, keeps 0-stock ACTIVE', async () => {
+    const sections = [
+      section({
+        id: 'room',
+        type: T.ROOM_INSPIRATION,
+        payload: {
+          scenes: [
+            {
+              id: 'scene1',
+              imageUrl: 'https://cdn.example.com/s1.jpg',
+              alt: '客厅',
+              hotspots: [
+                { productId: 'p1', xPct: 10, yPct: 20 },
+                { productId: 'p2', xPct: 30, yPct: 40 },
+                { productId: 'p-gone', xPct: 50, yPct: 60 },
+              ],
+            },
+          ],
+        },
+      }),
+    ];
+    const ctx = createContext(sections);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    const result = await service.storefrontGet();
+    const payload = result.sections[0].payload as {
+      scenes: Array<{
+        id: string;
+        imageUrl: string;
+        alt?: string;
+        hotspots: Array<{ productId: string; xPct: number; yPct: number; product: { id: string } }>;
+      }>;
+    };
+
+    expect(payload.scenes).toHaveLength(1);
+    expect(payload.scenes[0]).toMatchObject({ id: 'scene1', imageUrl: 'https://cdn.example.com/s1.jpg', alt: '客厅' });
+    expect(payload.scenes[0].hotspots.map((h) => h.product.id)).toEqual(['p1', 'p2']);
+    expect(payload.scenes[0].hotspots[0]).toMatchObject({ productId: 'p1', xPct: 10, yPct: 20 });
+    // p2 has 0 inventory in the fixture but stays: ROOM_INSPIRATION has no stock gate.
+    expect(payload.scenes[0].hotspots[1].product.id).toBe('p2');
+    // Join ids and payload ids share the single batched lookup (dedup set).
+    expect(ctx.products.storefrontByIds).toHaveBeenCalledWith(expect.arrayContaining(['p1', 'p2', 'p-gone']));
+  });
+
+  it('keeps legacy ROOM_INSPIRATION payload byte-for-byte when scenes is absent', async () => {
+    const sections = [
+      section({
+        id: 'room',
+        type: T.ROOM_INSPIRATION,
+        payload: { imageUrl: 'https://cdn.example.com/legacy.jpg', heading: 'Old', body: 'Text' },
+        products: [join('room', 'p1', 0)],
+      }),
+    ];
+    const ctx = createContext(sections);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    const result = await service.storefrontGet();
+    expect(result.sections[0].payload).toEqual({
+      imageUrl: 'https://cdn.example.com/legacy.jpg',
+      heading: 'Old',
+      body: 'Text',
+    });
+  });
 });
 
 describe('HomepageService.saveSections', () => {

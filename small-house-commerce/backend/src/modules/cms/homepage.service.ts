@@ -73,6 +73,9 @@ export class HomepageService {
           }
         }
       }
+      if (section.type === HomepageSectionType.ROOM_INSPIRATION) {
+        for (const id of this.collectRoomSceneIds(payload)) productIds.add(id);
+      }
     }
 
     const hydrated = await this.products.storefrontByIds([...productIds]);
@@ -127,7 +130,7 @@ export class HomepageService {
           ...product,
           badge: section.products.find((j) => j.productId === product.id)?.badge ?? null,
         }));
-      return { ...base, payload, products };
+      return { ...base, payload: this.hydrateRoomScenes(payload, productById), products };
     }
 
     if (section.type === HomepageSectionType.PRODUCT_STORY) {
@@ -182,6 +185,73 @@ export class HomepageService {
     return section.payload && typeof section.payload === 'object' && !Array.isArray(section.payload)
       ? (section.payload as Record<string, unknown>)
       : {};
+  }
+
+  /** Defensive read of every hotspot productId inside a room payload's scenes. */
+  private collectRoomSceneIds(payload: Record<string, unknown>): string[] {
+    if (!Array.isArray(payload.scenes)) return [];
+    const ids: string[] = [];
+    for (const scene of payload.scenes) {
+      if (!scene || typeof scene !== 'object') continue;
+      const hotspots = (scene as Record<string, unknown>).hotspots;
+      if (!Array.isArray(hotspots)) continue;
+      for (const hotspot of hotspots) {
+        if (
+          hotspot &&
+          typeof hotspot === 'object' &&
+          typeof (hotspot as Record<string, unknown>).productId === 'string'
+        ) {
+          ids.push((hotspot as Record<string, string>).productId);
+        }
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Replace each scene hotspot's productId with the hydrated ACTIVE product.
+   * Unresolved dots are dropped (inactive/deleted); scenes with broken images
+   * are dropped too. No stock gate — same rule as the legacy room list.
+   */
+  private hydrateRoomScenes(
+    payload: Record<string, unknown>,
+    productById: Map<string, HydratedProduct>,
+  ): Record<string, unknown> {
+    if (!Array.isArray(payload.scenes)) return payload;
+
+    const scenes = payload.scenes.flatMap((rawScene) => {
+      if (!rawScene || typeof rawScene !== 'object') return [];
+      const scene = rawScene as Record<string, unknown>;
+      if (typeof scene.id !== 'string' || typeof scene.imageUrl !== 'string') return [];
+
+      const hotspots = Array.isArray(scene.hotspots) ? scene.hotspots : [];
+      const nextHotspots = hotspots.flatMap((rawHotspot) => {
+        if (!rawHotspot || typeof rawHotspot !== 'object') return [];
+        const hotspot = rawHotspot as Record<string, unknown>;
+        if (typeof hotspot.productId !== 'string') return [];
+        if (typeof hotspot.xPct !== 'number' || typeof hotspot.yPct !== 'number') return [];
+        const product = productById.get(hotspot.productId);
+        if (!product) return [];
+        return [
+          {
+            productId: hotspot.productId,
+            xPct: hotspot.xPct,
+            yPct: hotspot.yPct,
+            product,
+          },
+        ];
+      });
+
+      const nextScene: Record<string, unknown> = {
+        id: scene.id,
+        imageUrl: scene.imageUrl,
+        hotspots: nextHotspots,
+      };
+      if (typeof scene.alt === 'string') nextScene.alt = scene.alt;
+      return [nextScene];
+    });
+
+    return { ...payload, scenes };
   }
 
   // --- admin ---------------------------------------------------------------
