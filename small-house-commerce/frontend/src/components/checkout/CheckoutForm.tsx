@@ -3,17 +3,17 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
 import { deliveryWindowFor } from "@/lib/deliveryWindow";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
-import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { useProductImages } from "@/lib/productImages";
-import { readAttribution, track } from "@/lib/tracking";
+import { track } from "@/lib/tracking";
+import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
+import { checkoutQueryString } from "./checkoutItems";
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
@@ -60,10 +60,7 @@ const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
 
 export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {
   const router = useRouter();
-  const { removeItems } = useCart();
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Partial<Record<CheckoutField, string>>>({});
 
   const [form, setForm] = useState({
@@ -77,7 +74,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     landmark: "",
   });
 
-  const checkout = useCheckoutLines({ skuId, qty, itemsParam, slug });
   const {
     isBuyNow,
     cartLoading,
@@ -90,10 +86,29 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     orderItems,
     totals,
     total,
-  } = checkout;
+  } = useCheckoutLines({ skuId, qty, itemsParam, slug });
 
   const slugs = useMemo(() => lines.map((line) => line.slug), [lines]);
   const images = useProductImages(slugs);
+
+  // Restore a draft left by an earlier REVIEW ORDER (back-button / re-entry).
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      // The await keeps the setState out of the effect's synchronous body
+      // (react-hooks/set-state-in-effect; same convention as
+      // AuthProvider/CartContext/CheckoutConfirmView).
+      await Promise.resolve();
+      if (!alive) return;
+      const d = readCheckoutDraft();
+      if (d) {
+        setForm((f) => ({ ...f, ...d.customer }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // TRACKING_SPEC §12 InitiateCheckout.
   useEffect(() => {
@@ -128,9 +143,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       return next;
     });
 
-  async function placeOrder() {
-    setError(null);
-
+  function goToReview() {
     const validation = validateCheckoutForm(form);
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
@@ -139,44 +152,18 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       if (focusId) document.getElementById(focusId)?.focus();
       return;
     }
-    if (orderItems.length === 0) {
-      setError("No items to check out.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      // AID/UTM from the URL flow into the order attribution snapshot (§5).
-      const order = await api.createOrder({
-        customer: {
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-          province: form.province.trim(),
-          city: form.city.trim(),
-          barangay: form.barangay.trim() || null,
-          postalCode: form.postalCode.trim() || null,
-          streetAddress: form.streetAddress.trim(),
-          landmark: form.landmark.trim() || null,
-        },
-        items: orderItems,
-        attribution: readAttribution(),
-      });
-      // Cart checkout removes ONLY the purchased lines; a Buy Now order never
-      // touches the visitor's saved cart.
-      if (!isBuyNow) {
-        await removeItems(checkout.cartItemIds);
-      }
-      // Stash the total so the success page can fire the Purchase event.
-      if (total !== null) sessionStorage.setItem("lastOrderTotal", String(total));
-      router.push(`/order-success/${order.orderNumber}`);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Could not place your order. Please try again.",
-      );
-      setSubmitting(false);
-    }
+    if (orderItems.length === 0) return; // ready 门禁已挡住，双保险
+    writeCheckoutDraft({
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      province: form.province.trim(),
+      city: form.city.trim(),
+      barangay: form.barangay.trim() || "",
+      postalCode: form.postalCode.trim() || "",
+      streetAddress: form.streetAddress.trim(),
+      landmark: form.landmark.trim() || "",
+    });
+    router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
   if (!isBuyNow && cartLoading) {
@@ -395,7 +382,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 Landmark
                 <input className={inputCls} value={form.landmark} onChange={set("landmark")} placeholder="Near…" />
               </label>
-              <p data-testid="checkout-privacy-note" className="mt-3 text-xs text-ink-secondary">
+              <p data-testid="checkout-privacy-note" className="col-span-full mt-3 text-xs text-ink-secondary">
                 Your information is used only to process and deliver your order.
               </p>
             </div>
@@ -452,16 +439,14 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           </div>
         </div>
 
-        {/* 5. Submit error + CTA (mobile bottom; desktop right column, row 3) */}
+        {/* 5. Review CTA (mobile bottom; desktop right column, row 3) */}
         <div className="lg:col-start-3 lg:col-span-3 lg:row-start-3">
-          {error && (
-            <p role="alert" className="mb-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale">
-              {error}
-            </p>
-          )}
-
-          <Button onClick={placeOrder} disabled={submitting} className="w-full" data-testid="place-order">
-            {submitting ? "Placing order…" : "PLACE COD ORDER"}
+          <Button
+            onClick={goToReview}
+            className="w-full"
+            data-testid="review-order"
+          >
+            REVIEW ORDER
           </Button>
           <p className="mt-2 text-center text-xs text-ink-muted">
             Cash on Delivery · No payment needed now
