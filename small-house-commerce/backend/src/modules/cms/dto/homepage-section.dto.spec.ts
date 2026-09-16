@@ -202,6 +202,36 @@ describe('homepage payload schemas', () => {
     ).toBe(true);
   });
 
+  it('pins exact room-scene boundaries: 0/100 coords, 8/16 scene ids, alt 120, finite numbers', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.ROOM_INSPIRATION];
+    const pid = crypto.randomUUID();
+    const scene = (over: Record<string, unknown>) => ({
+      scenes: [
+        {
+          id: 'abcdefgh',
+          imageUrl: 'https://x.io/a.jpg',
+          hotspots: [{ productId: pid, xPct: 0, yPct: 100 }],
+          ...over,
+        },
+      ],
+    });
+
+    // Coordinate endpoints are inclusive; non-finite numbers never pass.
+    expect(schema.safeParse(scene({})).success).toBe(true);
+    expect(schema.safeParse(scene({ hotspots: [{ productId: pid, xPct: Number.NaN, yPct: 1 }] })).success).toBe(false);
+    expect(schema.safeParse(scene({ hotspots: [{ productId: pid, xPct: Number.POSITIVE_INFINITY, yPct: 1 }] })).success).toBe(false);
+
+    // Scene id: exactly 8–16 lowercase alphanumerics.
+    expect(schema.safeParse({ scenes: [{ id: 'a1b2c3d', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
+    expect(schema.safeParse({ scenes: [{ id: 'a1b2c3d4', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(true);
+    expect(schema.safeParse({ scenes: [{ id: 'a1b2c3d4e5f6g7h8', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(true);
+    expect(schema.safeParse({ scenes: [{ id: 'a1b2c3d4e5f6g7h89', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
+
+    // Alt caps at 120 chars.
+    expect(schema.safeParse(scene({ alt: 'x'.repeat(120) })).success).toBe(true);
+    expect(schema.safeParse(scene({ alt: 'x'.repeat(121) })).success).toBe(false);
+  });
+
   it('validates the whole-section save body', () => {
     const ok = saveHomepageSectionsSchema.safeParse({
       sections: [{ enabled: true, sortOrder: 0, type: HomepageSectionType.HERO }],

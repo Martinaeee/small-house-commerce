@@ -268,7 +268,46 @@ describe('HomepageService.storefrontGet', () => {
     // p2 has 0 inventory in the fixture but stays: ROOM_INSPIRATION has no stock gate.
     expect(payload.scenes[0].hotspots[1].product.id).toBe('p2');
     // Join ids and payload ids share the single batched lookup (dedup set).
+    expect(ctx.products.storefrontByIds).toHaveBeenCalledTimes(1);
     expect(ctx.products.storefrontByIds).toHaveBeenCalledWith(expect.arrayContaining(['p1', 'p2', 'p-gone']));
+  });
+
+  it('drops hotspots with non-finite coordinates and dedupes payload ids against join ids', async () => {
+    const sections = [
+      section({
+        id: 'room',
+        type: T.ROOM_INSPIRATION,
+        payload: {
+          scenes: [
+            {
+              id: 'scene1',
+              imageUrl: 'https://cdn.example.com/s1.jpg',
+              hotspots: [
+                { productId: 'p1', xPct: 5, yPct: 95 },
+                { productId: 'p2', xPct: Number.NaN, yPct: 40 },
+                { productId: 'p2', xPct: Number.POSITIVE_INFINITY, yPct: 40 },
+              ],
+            },
+          ],
+        },
+        // p1 also appears as a legacy join row — the lookup must stay single
+        // and de-duplicated across both id sources.
+        products: [join('room', 'p1', 0)],
+      }),
+    ];
+    const ctx = createContext(sections);
+    const service = new HomepageService(ctx.prisma as never, ctx.products);
+
+    const result = await service.storefrontGet();
+    const payload = result.sections[0].payload as {
+      scenes: Array<{ hotspots: Array<{ productId: string; product: { id: string } }> }>;
+    };
+
+    // Only the well-formed p1 dot survives hydration.
+    expect(payload.scenes[0].hotspots.map((h) => h.product.id)).toEqual(['p1']);
+    expect(ctx.products.storefrontByIds).toHaveBeenCalledTimes(1);
+    const lookupIds = vi.mocked(ctx.products.storefrontByIds).mock.calls[0][0];
+    expect([...lookupIds].sort()).toEqual(['p1', 'p2']);
   });
 
   it('keeps legacy ROOM_INSPIRATION payload byte-for-byte when scenes is absent', async () => {

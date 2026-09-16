@@ -93,16 +93,26 @@ export function RoomSceneGallery({
   }, [scenes, failed]);
 
   // Any scroll/resize dismisses the card: its fixed position is viewport-relative.
+  // Capture phase on window also catches page scroll and inner containers —
+  // scroll events themselves do not bubble.
   useEffect(() => {
-    const rail = railRef.current;
     const close = () => setOpenCard(null);
-    rail?.addEventListener("scroll", close, { passive: true });
+    window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
     return () => {
-      rail?.removeEventListener("scroll", close);
+      window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
     };
   }, []);
+
+  // Restore focus to the dot when the portaled card unmounts.
+  const activatorRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!openCard) {
+      activatorRef.current?.focus();
+      activatorRef.current = null;
+    }
+  }, [openCard]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -118,12 +128,17 @@ export function RoomSceneGallery({
     const rect = el.getBoundingClientRect();
     const left = Math.min(
       Math.max(rect.left + rect.width / 2 - CARD_WIDTH / 2, 8),
-      window.innerWidth - CARD_WIDTH - 8,
+      Math.max(8, window.innerWidth - CARD_WIDTH - 8),
     );
     const belowTop = rect.bottom + 8;
-    const top =
-      belowTop + CARD_HEIGHT > window.innerHeight ? rect.top - 8 - CARD_HEIGHT : belowTop;
+    const top = Math.max(
+      8,
+      belowTop + CARD_HEIGHT > window.innerHeight ? rect.top - 8 - CARD_HEIGHT : belowTop,
+    );
     setCardPos({ top, left });
+    activatorRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : el;
     setOpenCard({ sceneId, index });
   }, []);
 
@@ -181,6 +196,7 @@ export function RoomSceneGallery({
                       type="button"
                       data-hotspot={`${scene.id}-${index}`}
                       aria-expanded={isOpen}
+                      aria-controls={`room-card-${scene.id}-${index}`}
                       aria-label={`查看商品：${hotspot.product.name}`}
                       onClick={() =>
                         isOpen
@@ -189,10 +205,17 @@ export function RoomSceneGallery({
                       }
                       className="relative h-7 w-7 transition-transform hover:scale-110"
                     >
-                      {played.has(scene.id) && !reduced ? (
+                      {/* Animations stay mounted but paused until the scene
+                          enters view: the 0% keyframe (opacity 0) hides the
+                          dots pre-pop, so a slow scroll-in can't flash static
+                          dots before the staggered sequence starts. */}
+                      {!reduced ? (
                         <span
-                          className="hotspot-ring pointer-events-none absolute inset-0 rounded-full border border-cta/50 opacity-0"
-                          style={{ animationDelay: `${index * 90 + 120}ms` }}
+                          className="hotspot-ring pointer-events-none absolute inset-0 rounded-full border border-cta/50"
+                          style={{
+                            animationDelay: `${index * 90 + 120}ms`,
+                            animationPlayState: played.has(scene.id) ? "running" : "paused",
+                          }}
                         />
                       ) : null}
                       {/* Inner layer owns the pop animation AND the disc shell
@@ -201,10 +224,13 @@ export function RoomSceneGallery({
                       <span
                         className={`inline-flex h-full w-full items-center justify-center rounded-full bg-white/95 shadow-md ${
                           isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
-                        } ${played.has(scene.id) && !reduced ? "hotspot-pop" : ""}`}
+                        } ${!reduced ? "hotspot-pop" : ""}`}
                         style={
-                          played.has(scene.id) && !reduced
-                            ? { animationDelay: `${index * 90}ms` }
+                          !reduced
+                            ? {
+                                animationDelay: `${index * 90}ms`,
+                                animationPlayState: played.has(scene.id) ? "running" : "paused",
+                              }
                             : undefined
                         }
                       >
@@ -241,7 +267,19 @@ export function RoomSceneGallery({
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={scene.imageUrl} alt="" className="h-full w-full object-cover" />
+              <img
+                src={scene.imageUrl}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+                onError={() =>
+                  setFailed((prev) => {
+                    const next = new Set(prev);
+                    next.add(scene.id);
+                    return next;
+                  })
+                }
+              />
             </button>
           ))}
         </div>
@@ -267,15 +305,18 @@ export function RoomSceneGallery({
             <>
               <button
                 type="button"
+                tabIndex={-1}
                 aria-label="关闭商品卡"
                 className="fixed inset-0 z-40 cursor-default"
                 onClick={() => setOpenCard(null)}
               />
               <Link
                 href={`/products/${openHotspotData.product.slug}`}
+                id={`room-card-${openCard.sceneId}-${openCard.index}`}
+                ref={(el) => el?.focus()}
                 {...trackAttrs("ProductClick", section, openCard.index + 1)}
                 onClick={() => setOpenCard(null)}
-                className="fixed z-50 flex w-60 gap-3 rounded-xl border border-border bg-card p-3 shadow-lg"
+                className="fixed z-50 flex w-60 gap-3 rounded-xl border border-border bg-card p-3 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-cta"
                 style={{ top: cardPos.top, left: cardPos.left }}
               >
                 <span className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-primary-light/30">

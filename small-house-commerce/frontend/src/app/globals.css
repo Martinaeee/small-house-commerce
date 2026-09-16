@@ -64,7 +64,13 @@
 }
 
 @keyframes hotspot-ring {
+  /* Fade in during the first 15% so the backwards-fill delay and the paused
+     pre-play state both render the ring invisible rather than as a halo. */
   0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  15% {
     opacity: 0.7;
     transform: scale(1);
   }

@@ -209,9 +209,10 @@ export class HomepageService {
   }
 
   /**
-   * Replace each scene hotspot's productId with the hydrated ACTIVE product.
-   * Unresolved dots are dropped (inactive/deleted); scenes with broken images
-   * are dropped too. No stock gate — same rule as the legacy room list.
+   * Attach the hydrated ACTIVE product to each scene hotspot, retaining
+   * productId and coordinates. Unresolved dots are dropped
+   * (inactive/deleted); scenes with broken shapes are dropped too. No stock
+   * gate — same rule as the legacy room list.
    */
   private hydrateRoomScenes(
     payload: Record<string, unknown>,
@@ -229,7 +230,14 @@ export class HomepageService {
         if (!rawHotspot || typeof rawHotspot !== 'object') return [];
         const hotspot = rawHotspot as Record<string, unknown>;
         if (typeof hotspot.productId !== 'string') return [];
-        if (typeof hotspot.xPct !== 'number' || typeof hotspot.yPct !== 'number') return [];
+        if (
+          typeof hotspot.xPct !== 'number' ||
+          typeof hotspot.yPct !== 'number' ||
+          !Number.isFinite(hotspot.xPct) ||
+          !Number.isFinite(hotspot.yPct)
+        ) {
+          return [];
+        }
         const product = productById.get(hotspot.productId);
         if (!product) return [];
         return [
