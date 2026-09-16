@@ -19,6 +19,11 @@ const NUDGE_DELAY_MS = 45_000;
 const DRAG_THRESHOLD_PX = 5;
 const NUDGE_DISMISS_KEY = "luwag_chat_nudge_dismissed";
 
+// Minimum space above the FAB for the nudge card (~88px tall); below this the
+// card flips below the FAB so it can never render off-screen and consume the
+// one-shot invisibly.
+const NUDGE_CARD_RESERVE_PX = 128;
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), Math.max(min, max));
 
@@ -39,6 +44,18 @@ function writeNudgeDismissed(): void {
   }
 }
 
+// role="dialog" includes drawers that stay mounted while closed: the mobile
+// menu renders off-screen inside an inert, aria-hidden container (and is
+// display:none at lg widths). Only an actually open, visible dialog suppresses
+// the nudge.
+function hasOpenDialog(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>("[role='dialog']")).some((el) => {
+    if (el.closest("[aria-hidden='true'], [inert]")) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 1 && rect.height > 1;
+  });
+}
+
 export function MessengerChat() {
   const { messengerUrl } = useSiteSettings();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -53,9 +70,12 @@ export function MessengerChat() {
   } | null>(null);
   // A drag-ending click must not open the chat; reset once it has fired.
   const suppressClickRef = useRef(false);
-  // Seeded from sessionStorage so a dismissal earlier in this tab never revives.
-  const firedRef = useRef(readNudgeDismissed());
-  const dismissedRef = useRef(readNudgeDismissed());
+  // Seeded once from sessionStorage so a dismissal earlier in this tab never
+  // revives. Lazy initializer reads storage once total; useRef then just takes
+  // the boolean (render-phase ref writes are banned by react-hooks/refs).
+  const [initiallyDismissed] = useState(() => readNudgeDismissed());
+  const firedRef = useRef(initiallyDismissed);
+  const dismissedRef = useRef(initiallyDismissed);
 
   const dismissNudge = useCallback(() => {
     firedRef.current = true;
@@ -137,8 +157,9 @@ export function MessengerChat() {
       if (firedRef.current || dismissedRef.current || document.hidden) return;
       timer = setTimeout(() => {
         if (firedRef.current || dismissedRef.current || document.hidden) return;
-        // Cart drawer / pickers / mobile menu are role="dialog" — never compete.
-        if (document.querySelector("[role='dialog']")) {
+        // Open cart/picker/menu dialogs suppress the nudge; closed drawers can
+        // stay mounted, so visibility must be checked, not mere existence.
+        if (hasOpenDialog()) {
           schedule();
           return;
         }
@@ -233,6 +254,11 @@ export function MessengerChat() {
       ? "left-0"
       : "right-0";
 
+  // Default position (pos === null) is bottom-right, so the card always goes
+  // above; only a FAB parked near the top flips it below.
+  const nudgeVerticalClass =
+    pos && pos.y <= NUDGE_CARD_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
+
   return (
     <div
       data-testid="messenger-chat-anchor"
@@ -250,7 +276,7 @@ export function MessengerChat() {
         <div
           role="status"
           data-testid="chat-nudge"
-          className={`absolute bottom-full mb-3 w-60 rounded-xl border border-border bg-card p-3 shadow-xl ${nudgeSideClass}`}
+          className={`absolute ${nudgeVerticalClass} w-60 rounded-xl border border-border bg-card p-3 shadow-xl ${nudgeSideClass}`}
         >
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-semibold text-ink">Have questions?</p>
