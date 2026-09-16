@@ -101,6 +101,10 @@ export function RoomSceneEditor({
       return;
     }
 
+    // Relocation is armed for a DIFFERENT scene's image: clicks there are a
+    // no-op rather than dropping a fresh pending dot + opening the picker.
+    if (move) return;
+
     const validCount = scene.hotspots.length;
     if (validCount >= MAX_HOTSPOTS) return;
     scene.hotspots.push({ productId: "", xPct, yPct });
@@ -211,7 +215,13 @@ export function RoomSceneEditor({
                   </span>
                 ))}
                 {move?.s === sIndex ? (
-                  <span className="absolute left-2 top-2 rounded bg-cta px-2 py-1 text-xs text-white">
+                  <span
+                    // Banner sits inside the click-to-place layer: stop clicks
+                    // on its text/padding from bubbling to placeOnImage (which
+                    // would otherwise jump the dot under the banner, top-left).
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute left-2 top-2 rounded bg-cta px-2 py-1 text-xs text-white"
+                  >
                     点击图片选择新位置
                     <button
                       type="button"

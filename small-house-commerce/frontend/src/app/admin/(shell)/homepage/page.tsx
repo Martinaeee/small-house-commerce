@@ -276,6 +276,7 @@ function ProductPickerDialog({
   multi,
   initialSelected,
   cap,
+  excludedIds,
   onClose,
   onApply,
   onNames,
@@ -286,6 +287,9 @@ function ProductPickerDialog({
   initialSelected: string[];
   // Multi-select ceiling (joins: 24/section). Single-select modes omit it.
   cap?: number;
+  // Single mode: product ids the caller forbids (e.g. already pinned by
+  // another hotspot in the same room scene — backend zod rejects duplicates).
+  excludedIds?: ReadonlySet<string>;
   onClose: () => void;
   onApply: (ids: string[]) => void;
   onNames: (names: Record<string, string>) => void;
@@ -337,6 +341,8 @@ function ProductPickerDialog({
   const atCap = multi && cap !== undefined && picked.size >= cap;
 
   const toggle = (id: string) => {
+    // Defense against keyboard/label activation of a visually disabled row.
+    if (!multi && excludedIds?.has(id)) return;
     // Unchecking stays allowed at the cap; adding a new row is blocked.
     if (multi && cap !== undefined && !picked.has(id) && picked.size >= cap) return;
     setPicked((prev) => {
@@ -386,28 +392,42 @@ function ProductPickerDialog({
           ) : items.length === 0 ? (
             <p className="p-4 text-sm text-ink-muted">没有匹配商品。</p>
           ) : (
-            items.map((product) => (
-              <label
-                key={product.id}
-                className="flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-primary-light/30"
-              >
-                <input
-                  type={multi ? "checkbox" : "radio"}
-                  checked={picked.has(product.id)}
-                  disabled={
-                    multi &&
-                    cap !== undefined &&
-                    !picked.has(product.id) &&
-                    picked.size >= cap
-                  }
-                  onChange={() => toggle(product.id)}
-                />
-                <span className="flex-1 text-sm text-ink">{product.name}</span>
-                <span className="text-xs text-ink-muted">
-                  {product.status === "ACTIVE" ? "在售" : "已下架"}
-                </span>
-              </label>
-            ))
+            items.map((product) => {
+              // Multi: over-cap rows blocked (already-picked stay toggleable).
+              // Single: caller-excluded products (pinned elsewhere in the same
+              // room scene) can't be re-picked — a duplicate would 400 the save.
+              const blocked =
+                (multi &&
+                  cap !== undefined &&
+                  !picked.has(product.id) &&
+                  picked.size >= cap) ||
+                (!multi && excludedIds?.has(product.id) === true);
+              return (
+                <label
+                  key={product.id}
+                  className={`flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 ${
+                    blocked
+                      ? "cursor-not-allowed text-ink-muted"
+                      : "cursor-pointer hover:bg-primary-light/30"
+                  }`}
+                >
+                  <input
+                    type={multi ? "checkbox" : "radio"}
+                    checked={picked.has(product.id)}
+                    disabled={blocked}
+                    onChange={() => toggle(product.id)}
+                  />
+                  <span
+                    className={`flex-1 text-sm ${blocked ? "text-ink-muted" : "text-ink"}`}
+                  >
+                    {product.name}
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    {product.status === "ACTIVE" ? "在售" : "已下架"}
+                  </span>
+                </label>
+              );
+            })
           )}
         </div>
 
@@ -1008,6 +1028,17 @@ function HomepageAdminContent() {
       const { sceneIndex, hotspotIndex } = picker.target;
       const scene = scenes[sceneIndex];
       if (scene && scene.hotspots[hotspotIndex]) {
+        // Defense in depth: the dialog already greys out same-scene
+        // duplicates, but persisting one would make backend zod 400 the
+        // whole saveAll batch. Refuse the write; the pending dot is left for
+        // sanitize/prune (or cancel) to drop.
+        if (
+          ids[0] &&
+          scene.hotspots.some((h, i) => i !== hotspotIndex && h.productId === ids[0])
+        ) {
+          setPicker(null);
+          return;
+        }
         if (ids[0]) scene.hotspots[hotspotIndex].productId = ids[0];
         else scene.hotspots.splice(hotspotIndex, 1);
         // Drop any other abandoned pending dots, then persist back to draft.
@@ -1022,6 +1053,26 @@ function HomepageAdminContent() {
         productId: ids[0] ?? "",
       };
       patchPayload(draft.key, { entries: next });
+    }
+    setPicker(null);
+  };
+
+  // Cancel / backdrop / Esc: a room picker opened for a freshly placed dot
+  // (productId still "") means the operator abandoned the dot — revoke it so
+  // no temporary dot lingers (spec §5.3 "取消则撤掉临时点"). Existing hotspots
+  // opened via "更换商品" are left untouched.
+  const onPickerClose = () => {
+    if (picker && picker.mode === "single" && picker.target.kind === "room") {
+      const draft = drafts?.find((d) => d.key === picker.key);
+      if (draft) {
+        const scenes = readScenes(draft.payload.scenes);
+        const { sceneIndex, hotspotIndex } = picker.target;
+        const scene = scenes[sceneIndex];
+        if (scene && scene.hotspots[hotspotIndex]?.productId === "") {
+          scene.hotspots.splice(hotspotIndex, 1);
+          patchPayload(draft.key, { scenes });
+        }
+      }
     }
     setPicker(null);
   };
@@ -1041,6 +1092,24 @@ function HomepageAdminContent() {
     const value = str(entries[picker.target.index]?.productId);
     return value ? [value] : [];
   }, [picker, drafts]);
+
+  // Room single-picker only: products already pinned by OTHER hotspots in the
+  // same scene are disabled in the dialog (spec §5.3/§8.3 — one product per
+  // scene; a duplicate would make backend zod reject the whole save batch).
+  // The hotspot currently being edited is exempt.
+  const pickerExcludedIds: ReadonlySet<string> | undefined =
+    picker && picker.mode === "single" && picker.target.kind === "room"
+      ? (() => {
+          const { sceneIndex, hotspotIndex } = picker.target;
+          const draft = drafts?.find((d) => d.key === picker.key);
+          if (!draft) return undefined;
+          const scenes = readScenes(draft.payload.scenes);
+          const ids = (scenes[sceneIndex]?.hotspots ?? [])
+            .map((h, i) => (i === hotspotIndex ? "" : h.productId))
+            .filter((id): id is string => id !== "");
+          return new Set(ids);
+        })()
+      : undefined;
 
   if (!canManage) {
     return (
@@ -1214,8 +1283,9 @@ function HomepageAdminContent() {
           title="选择商品"
           multi={picker.mode === "multi"}
           cap={picker.mode === "multi" ? 24 : undefined}
+          excludedIds={pickerExcludedIds}
           initialSelected={pickerInitial}
-          onClose={() => setPicker(null)}
+          onClose={onPickerClose}
           onApply={onPickerApply}
           onNames={(incoming) => setNames((prev) => ({ ...prev, ...incoming }))}
         />
