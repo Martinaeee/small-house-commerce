@@ -1,0 +1,12 @@
+// Site-wide singleton settings (contact/support configuration).
+// Exactly one row exists, with the fixed id below; the migration seeds it.
+model SiteSetting {
+  id           String   @id @map("id") @db.Uuid
+  messengerUrl String   @default("") @map("messenger_url")
+  supportEmail String   @default("support@luwag.ph") @map("support_email")
+  supportHours String   @default("Mon–Sat, 9am–6pm (PHT)") @map("support_hours")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("site_settings")
+}
