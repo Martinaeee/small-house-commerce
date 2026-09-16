@@ -157,10 +157,10 @@ printf 'SELECT id, messenger_url, support_email, support_hours FROM site_setting
 确认生成的 client 包含新模型：
 
 ```bash
-grep -c "siteSetting" src/generated/prisma/client.js
+grep -rl "site_settings" src/generated/prisma | head
 ```
 
-期望：≥1（client.js 内含 delegate；具体实现可能在相邻生成文件中，`grep -rl "site_settings" src/generated/prisma | head` 也应有输出）。
+期望：≥1。（本仓库 `prisma-client` 生成器输出 TypeScript，delegate 可能在 `src/generated/prisma/internal/class.ts` 与 `models/SiteSetting.ts` 中；以 `grep -rl "site_settings" src/generated/prisma | head` 有输出为准。）
 
 - [ ] **Step 5: 提交**
 
@@ -314,10 +314,10 @@ export class StorefrontSettingsController {
 
 ```ts
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../../../auth/jwt-auth.guard.js';
-import { Permissions } from '../../../auth/permissions.decorator.js';
-import { PermissionsGuard } from '../../../auth/permissions.guard.js';
-import { ZodValidationPipe } from '../../../../common/pipes/zod-validation.pipe.js';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import { Permissions } from '../../auth/permissions.decorator.js';
+import { PermissionsGuard } from '../../auth/permissions.guard.js';
+import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
   updateSettingsSchema,
   type UpdateSettingsInput,
