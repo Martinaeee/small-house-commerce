@@ -6,6 +6,7 @@ import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import { RoomSceneEditor, makeSceneId, readScenes } from "@/components/admin/RoomSceneEditor";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -73,6 +74,7 @@ interface SectionDraft {
 type PickerState =
   | { key: string; mode: "multi" }
   | { key: string; mode: "single"; target: { kind: "story" } | { kind: "ugc"; index: number } }
+  | { key: string; mode: "single"; target: { kind: "room"; sceneIndex: number; hotspotIndex: number } }
   | null;
 
 function str(value: unknown): string {
@@ -145,9 +147,43 @@ function sanitizePayload(
       if (productId) out.productId = productId;
       return out;
     }
-    case "ROOM_INSPIRATION":
+    case "ROOM_INSPIRATION": {
       ["imageUrl", "heading", "body"].forEach(copy);
+      const rawScenes = Array.isArray(p.scenes) ? p.scenes : [];
+      const round1 = (n: unknown): number | null =>
+        typeof n === "number" && Number.isFinite(n)
+          ? Math.min(100, Math.max(0, Math.round(n * 10) / 10))
+          : null;
+      const scenes = rawScenes
+        .flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return [];
+          const s = raw as Record<string, unknown>;
+          const imageUrl = str(s.imageUrl).trim();
+          if (!imageUrl.startsWith("https://")) return [];
+          const id = str(s.id);
+          const hotspots = (Array.isArray(s.hotspots) ? s.hotspots : []).flatMap((rawDot) => {
+            if (!rawDot || typeof rawDot !== "object") return [];
+            const dot = rawDot as Record<string, unknown>;
+            const productId = str(dot.productId).trim();
+            const xPct = round1(dot.xPct);
+            const yPct = round1(dot.yPct);
+            // Empty productId = abandoned "pending" dot from a cancelled picker.
+            if (!productId || xPct === null || yPct === null) return [];
+            return [{ productId, xPct, yPct }];
+          });
+          const scene: Record<string, unknown> = {
+            id: /^[a-z0-9]{8,16}$/.test(id) ? id : makeSceneId(),
+            imageUrl,
+            hotspots,
+          };
+          const alt = str(s.alt).trim();
+          if (alt) scene.alt = alt;
+          return [scene];
+        })
+        .slice(0, 5);
+      if (scenes.length > 0) out.scenes = scenes;
       return out;
+    }
     case "UGC": {
       const entries = Array.isArray(p.entries) ? p.entries : [];
       out.entries = entries
@@ -651,13 +687,48 @@ function PayloadEditor(props: EditorProps) {
       return (
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <MediaField id={`room-img-${draft.key}`} label="房间大图 URL" value={str(p.imageUrl)} onChange={(v) => setField("imageUrl", v)} />
-            <Labeled label="标题"><TextInput value={str(p.heading)} maxLength={120} onChange={(e) => setField("heading", e.target.value)} /></Labeled>
+            <Labeled label="标题">
+              <TextInput value={str(p.heading)} maxLength={120} onChange={(e) => setField("heading", e.target.value)} />
+            </Labeled>
             <div className="md:col-span-2">
-              <Labeled label="正文"><Textarea rows={3} maxLength={2000} value={str(p.body)} onChange={(e) => setField("body", e.target.value)} /></Labeled>
+              <Labeled label="正文">
+                <Textarea rows={3} maxLength={2000} value={str(p.body)} onChange={(e) => setField("body", e.target.value)} />
+              </Labeled>
             </div>
           </div>
-          <JoinsEditor {...props} />
+
+          <Field
+            label="场景图热点（新）"
+            hint="配置后前台展示可点热点画廊；留空则回退到下方旧版单图模式。"
+          >
+            <RoomSceneEditor
+              value={p.scenes}
+              names={props.names}
+              onChange={(scenes) => setField("scenes", scenes)}
+              onPickProduct={(sceneIndex, hotspotIndex) =>
+                openPicker({
+                  key: draft.key,
+                  mode: "single",
+                  target: { kind: "room", sceneIndex, hotspotIndex },
+                })
+              }
+            />
+          </Field>
+
+          <details className="rounded-lg border border-border bg-background p-3">
+            <summary className="cursor-pointer text-sm font-medium text-ink">
+              旧版单图模式（不含场景图时生效）
+            </summary>
+            <div className="mt-3 flex flex-col gap-3">
+              <MediaField
+                id={`room-img-${draft.key}`}
+                label="房间大图 URL"
+                value={str(p.imageUrl)}
+                onChange={(v) => setField("imageUrl", v)}
+              />
+              <JoinsEditor {...props} />
+            </div>
+          </details>
         </div>
       );
 
@@ -932,6 +1003,17 @@ function HomepageAdminContent() {
       setJoinRows(draft.key, rows);
     } else if (picker.target.kind === "story") {
       patchPayload(draft.key, { productId: ids[0] ?? "" });
+    } else if (picker.target.kind === "room") {
+      const scenes = readScenes(draft.payload.scenes);
+      const { sceneIndex, hotspotIndex } = picker.target;
+      const scene = scenes[sceneIndex];
+      if (scene && scene.hotspots[hotspotIndex]) {
+        if (ids[0]) scene.hotspots[hotspotIndex].productId = ids[0];
+        else scene.hotspots.splice(hotspotIndex, 1);
+        // Drop any other abandoned pending dots, then persist back to draft.
+        scene.hotspots = scene.hotspots.filter((h) => h.productId !== "");
+        patchPayload(draft.key, { scenes });
+      }
     } else {
       const entries = Array.isArray(draft.payload.entries) ? draft.payload.entries : [];
       const next = [...entries];
@@ -950,6 +1032,11 @@ function HomepageAdminContent() {
     if (!draft) return [];
     if (picker.mode === "multi") return draft.products.map((r) => r.productId);
     if (picker.target.kind === "story") return str(draft.payload.productId) ? [str(draft.payload.productId)] : [];
+    if (picker.target.kind === "room") {
+      const scenes = readScenes(draft.payload.scenes);
+      const id = scenes[picker.target.sceneIndex]?.hotspots[picker.target.hotspotIndex]?.productId;
+      return id ? [id] : [];
+    }
     const entries = Array.isArray(draft.payload.entries) ? draft.payload.entries : [];
     const value = str(entries[picker.target.index]?.productId);
     return value ? [value] : [];
