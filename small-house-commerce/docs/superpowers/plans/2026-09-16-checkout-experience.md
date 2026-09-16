@@ -41,7 +41,7 @@
 
 ```ts
 // SCRATCH — deterministic ETA-math verification; delete after Task 1.
-import { addBusinessDays, isMetroManila, deliveryWindowFor, formatDeliveryRange } from "./src/lib/deliveryWindow";
+import { addBusinessDays, isMetroManila, deliveryWindowFor, deliveryWindows, formatDeliveryRange } from "./src/lib/deliveryWindow";
 
 let failures = 0;
 function eq(label: string, actual: unknown, expected: unknown) {
@@ -58,14 +58,16 @@ eq("addBusinessDays Wed+5", addBusinessDays(WED, 5).toDateString(), "Tue Sep 22 
 eq("addBusinessDays Wed+7", addBusinessDays(WED, 7).toDateString(), "Thu Sep 24 2026");
 eq("addBusinessDays Sun+1", addBusinessDays(SUN, 1).toDateString(), "Mon Sep 21 2026");
 eq("addBusinessDays Sun+0", addBusinessDays(SUN, 0).toDateString(), "Sun Sep 20 2026");
-eq("addBusinessDays Fri+1 skips Sun", addBusinessDays(new Date("2026-09-18T12:00:00+08:00"), 1).toDateString(), "Mon Sep 21 2026");
+eq("addBusinessDays Fri+1", addBusinessDays(new Date("2026-09-18T12:00:00+08:00"), 1).toDateString(), "Sat Sep 19 2026");
 
 eq("MM window Wed", deliveryWindowFor("Metro Manila", WED), "Sep 19–22");
 eq("province window Wed", deliveryWindowFor("Cebu", WED), "Sep 22–24");
 eq("lowercase+spaces NCR", deliveryWindowFor("  metro manila ", WED), "Sep 19–22");
 eq("NCR alt name", deliveryWindowFor("National Capital Region", WED), "Sep 19–22");
 eq("empty → provincial", deliveryWindowFor("", WED), "Sep 22–24");
-eq("cross-month MM", deliveryWindowFor("NCR", new Date("2026-09-28T12:00:00+08:00")), "Oct 1 – Oct 5");
+eq("cross-month MM (Sun start)", deliveryWindowFor("NCR", new Date("2026-09-27T12:00:00+08:00")), "Sep 30 – Oct 2");
+eq("PDP metro === checkout MM", deliveryWindows(new Date("2026-09-16T12:00:00+08:00")).metro, deliveryWindowFor("Metro Manila", new Date("2026-09-16T12:00:00+08:00")));
+eq("PDP provincial window Wed", deliveryWindows(new Date("2026-09-16T12:00:00+08:00")).provincial, "Sep 22–24");
 
 eq("isMetroManila MM", isMetroManila("Metro Manila"), true);
 eq("isMetroManila ncr", isMetroManila("NCR"), true);
@@ -118,7 +120,7 @@ export function deliveryWindowFor(province: string, now: Date = new Date()): str
 }
 ```
 
-并把 `deliveryWindows()` 的两个分支从 `formatDeliveryRange(now, 3, 5)` / `(now, 5, 7)` 改为 `formatDeliveryRange(addBusinessDays(now, 3), 0, 2)` / `(addBusinessDays(now, 5), 0, 2)`。理由：`deliveryWindows()` 无省份入参，须保持「3–5 / 5–7 工作日」语义且不重复实现算法——用 `addBusinessDays(now, 3)` 起算再加 0–2 天。模块顶部注释更新为工作日（跳过周日）语义，其余注释风格照旧。
+并把 `deliveryWindows()` 的两个分支从 `formatDeliveryRange(now, 3, 5)` / `(now, 5, 7)` 改为调用同一业务日 helper：内部新增 `function businessDayRange(now, minDays, maxDays): string`（起点 `addBusinessDays(now, minDays)`、终点 `addBusinessDays(now, maxDays)`，以起点为基准经 `formatDeliveryRange` 渲染跨度），然后 `metro: businessDayRange(now, 3, 5)` / `provincial: businessDayRange(now, 5, 7)`。**PDP 与 checkout 必须共用同一区间值**（spec §5.2 场景 11 一致性；勿用「+3bd 起算再加 0–2 自然日」——窗口内含周日时差一天）。模块顶部注释更新为工作日（跳过周日）语义，其余注释风格照旧。
 
 - [ ] **Step 4: 运行断言脚本确认全 PASS**
 
