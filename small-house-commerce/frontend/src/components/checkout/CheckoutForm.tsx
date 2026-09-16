@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { deliveryWindowFor } from "@/lib/deliveryWindow";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useCart } from "@/components/cart/CartContext";
@@ -12,6 +13,7 @@ import { useProductImages } from "@/lib/productImages";
 import { readAttribution, track } from "@/lib/tracking";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
+import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
@@ -393,6 +395,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 Landmark
                 <input className={inputCls} value={form.landmark} onChange={set("landmark")} placeholder="Near…" />
               </label>
+              <p data-testid="checkout-privacy-note" className="mt-3 text-xs text-ink-secondary">
+                Your information is used only to process and deliver your order.
+              </p>
             </div>
           </section>
         </div>
@@ -428,11 +433,21 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             </dl>
           </div>
 
+          <CheckoutTrustStrip
+            deliveryRange={
+              form.province.trim()
+                ? deliveryWindowFor(form.province)
+                : "Metro Manila 3-5 days · provinces 5-7 days"
+            }
+          />
+
           <div className="rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary">
             <p className="font-semibold text-ink">Cash on Delivery</p>
             <p className="mt-1">
-              Pay in cash when your order arrives. Estimated delivery:
-              Metro Manila 3-5 days, provinces 5-7 days.
+              Pay in cash when your order arrives.{" "}
+              {form.province.trim()
+                ? `Estimated delivery: ${deliveryWindowFor(form.province)}`
+                : "Estimated delivery: Metro Manila 3-5 days, provinces 5-7 days."}
             </p>
           </div>
         </div>
