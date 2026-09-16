@@ -1,0 +1,49 @@
+// Homepage CMS: one generic section table with a per-type JSON payload,
+// plus its product join (homepage-only product selection, spec §4.1).
+// Sources: docs/superpowers/specs/2026-09-15-homepage-redesign-design.md §4.
+
+enum HomepageSectionType {
+  HERO
+  USP
+  CATEGORY_TILES
+  PRODUCT_GRID
+  SOLUTIONS
+  PRODUCT_STORY
+  ROOM_INSPIRATION
+  UGC
+  BRAND_STORY
+  CONFIDENCE
+}
+
+model HomepageSection {
+  id        String              @id @default(uuid(7)) @db.Uuid
+  type      HomepageSectionType
+  title     String?
+  subtitle  String?
+  enabled   Boolean             @default(true)
+  sortOrder Int                 @default(0) @map("sort_order")
+  payload   Json?
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products HomepageSectionProduct[]
+
+  @@index([enabled, sortOrder])
+  @@map("homepage_sections")
+}
+
+model HomepageSectionProduct {
+  id        String @id @default(uuid(7)) @db.Uuid
+  sectionId String @map("section_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+  sortOrder Int    @default(0) @map("sort_order")
+  badge     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  section HomepageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, productId])
+  @@index([productId])
+  @@map("homepage_section_products")
+}
