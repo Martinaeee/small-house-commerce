@@ -1,0 +1,300 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import Link from "next/link";
+import type { HomepageSection, HydratedRoomScene } from "@/lib/api";
+import { trackAttrs } from "@/lib/home-tracking";
+import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { PriceBox } from "@/components/ui/PriceBox";
+import { SectionPlaceholder } from "./SectionPlaceholder";
+
+/**
+ * Castlery-style shoppable room gallery: a full-width snap rail on every
+ * breakpoint (desktop thumbnails scroll it), white hotspot dots that pop in
+ * sequence once per scene, and a portaled product card linking to the PDP.
+ */
+const CARD_WIDTH = 240;
+const CARD_HEIGHT = 96;
+
+interface OpenCard {
+  sceneId: string;
+  index: number;
+}
+
+export function RoomSceneGallery({
+  section,
+  scenes,
+}: {
+  section: Pick<HomepageSection, "id" | "title">;
+  scenes: HydratedRoomScene[];
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [active, setActive] = useState(0);
+  const [played, setPlayed] = useState<Set<string>>(() => new Set());
+  const [reduced, setReduced] = useState(false);
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
+  const [openCard, setOpenCard] = useState<OpenCard | null>(null);
+  const [cardPos, setCardPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // SSR = false, client = true: gates the createPortal call (house idiom,
+  // shared with MainNav/SiteSearch; avoids set-state-in-effect).
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+
+  // Reduced motion: skip the observer-driven pop sequence entirely and show
+  // every dot statically.
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => {
+      setReduced(mq.matches);
+      if (mq.matches) setPlayed(new Set(scenes.map((s) => s.id)));
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [scenes]);
+
+  // Fire each scene's pop sequence once when it first fills >=60% of the rail.
+  useEffect(() => {
+    if (reduced) return;
+    const rail = railRef.current;
+    if (!rail) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting || entry.intersectionRatio < 0.6) continue;
+          const id = (entry.target as HTMLElement).dataset.sceneId;
+          if (!id) continue;
+          setActive(scenes.findIndex((s) => s.id === id));
+          setPlayed((prev) => {
+            if (prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+          });
+        }
+      },
+      { root: rail, threshold: 0.6 },
+    );
+    const els = rail.querySelectorAll<HTMLElement>("[data-scene-id]");
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [reduced, scenes]);
+
+  // Any scroll/resize dismisses the card: its fixed position is viewport-relative.
+  useEffect(() => {
+    const rail = railRef.current;
+    const close = () => setOpenCard(null);
+    rail?.addEventListener("scroll", close, { passive: true });
+    window.addEventListener("resize", close);
+    return () => {
+      rail?.removeEventListener("scroll", close);
+      window.removeEventListener("resize", close);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenCard(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const openHotspot = useCallback((sceneId: string, index: number) => {
+    const el = document.querySelector<HTMLElement>(`[data-hotspot="${sceneId}-${index}"]`);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(rect.left + rect.width / 2 - CARD_WIDTH / 2, 8),
+      window.innerWidth - CARD_WIDTH - 8,
+    );
+    const belowTop = rect.bottom + 8;
+    const top =
+      belowTop + CARD_HEIGHT > window.innerHeight ? rect.top - 8 - CARD_HEIGHT : belowTop;
+    setCardPos({ top, left });
+    setOpenCard({ sceneId, index });
+  }, []);
+
+  const visibleScenes = scenes.filter((s) => !failed.has(s.id));
+
+  if (visibleScenes.length === 0) {
+    return (
+      <SectionPlaceholder
+        title={section.title ?? ""}
+        message="Room inspiration coming soon."
+        inside
+      />
+    );
+  }
+
+  const openHotspotData = openCard
+    ? visibleScenes
+        .find((s) => s.id === openCard.sceneId)
+        ?.hotspots[openCard.index]
+    : undefined;
+
+  return (
+    <div>
+      <div
+        ref={railRef}
+        className="flex snap-x snap-mandatory overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {visibleScenes.map((scene) => (
+          <div key={scene.id} data-scene-id={scene.id} className="w-full shrink-0 snap-center px-0.5">
+            <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-primary-light/30">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={scene.imageUrl}
+                alt={scene.alt ?? section.title ?? ""}
+                loading="lazy"
+                className="h-full w-full object-cover"
+                onError={() =>
+                  setFailed((prev) => {
+                    const next = new Set(prev);
+                    next.add(scene.id);
+                    return next;
+                  })
+                }
+              />
+              {scene.hotspots.map((hotspot, index) => {
+                const isOpen =
+                  openCard?.sceneId === scene.id && openCard.index === index;
+                return (
+                  <span
+                    key={hotspot.product.id}
+                    className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
+                    style={{ left: `${hotspot.xPct}%`, top: `${hotspot.yPct}%` }}
+                  >
+                    <button
+                      type="button"
+                      data-hotspot={`${scene.id}-${index}`}
+                      aria-expanded={isOpen}
+                      aria-label={`查看商品：${hotspot.product.name}`}
+                      onClick={() =>
+                        isOpen
+                          ? setOpenCard(null)
+                          : openHotspot(scene.id, index)
+                      }
+                      className={`relative flex h-7 w-7 items-center justify-center rounded-full bg-white/95 shadow-md transition-transform hover:scale-110 ${
+                        isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
+                      } ${played.has(scene.id) && !reduced ? "hotspot-pop" : ""}`}
+                      style={
+                        played.has(scene.id) && !reduced
+                          ? { animationDelay: `${index * 90}ms` }
+                          : undefined
+                      }
+                    >
+                      {played.has(scene.id) && !reduced ? (
+                        <span
+                          className="hotspot-ring pointer-events-none absolute inset-0 rounded-full border border-cta/50 opacity-0"
+                          style={{ animationDelay: `${index * 90 + 120}ms` }}
+                        />
+                      ) : null}
+                      <span className="h-2 w-2 rounded-full bg-cta" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop thumbnail selector */}
+      {visibleScenes.length > 1 ? (
+        <div className="mt-3 hidden justify-center gap-2 lg:flex">
+          {visibleScenes.map((scene, index) => (
+            <button
+              key={scene.id}
+              type="button"
+              aria-label={`查看第 ${index + 1} 张场景图`}
+              onClick={() => {
+                railRef.current
+                  ?.querySelector(`[data-scene-id="${scene.id}"]`)
+                  ?.scrollIntoView({
+                    behavior: reduced ? "auto" : "smooth",
+                    inline: "center",
+                    block: "nearest",
+                  });
+              }}
+              className={`relative h-16 w-28 overflow-hidden rounded-lg ring-offset-2 ${
+                active === index ? "ring-2 ring-cta" : "ring-1 ring-border"
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={scene.imageUrl} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Mobile indicator dots */}
+      {visibleScenes.length > 1 ? (
+        <div className="mt-3 flex justify-center gap-1.5 lg:hidden" aria-hidden>
+          {visibleScenes.map((scene, index) => (
+            <span
+              key={scene.id}
+              className={`h-2 rounded-full transition-all ${
+                active === index ? "w-4 bg-cta" : "w-2 bg-border"
+              }`}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Portaled product card (fixed positioning escapes rail overflow) */}
+      {mounted && openCard && openHotspotData
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                aria-label="关闭商品卡"
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setOpenCard(null)}
+              />
+              <Link
+                href={`/products/${openHotspotData.product.slug}`}
+                {...trackAttrs("ProductClick", section, openCard.index + 1)}
+                onClick={() => setOpenCard(null)}
+                className="fixed z-50 flex w-60 gap-3 rounded-xl border border-border bg-card p-3 shadow-lg"
+                style={{ top: cardPos.top, left: cardPos.left }}
+              >
+                <span className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-primary-light/30">
+                  {openHotspotData.product.images[0]?.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={openHotspotData.product.images[0].url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <PlaceholderImage label="" className="h-full w-full" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-2 block text-sm font-medium text-ink">
+                    {openHotspotData.product.name}
+                  </span>
+                  <PriceBox
+                    price={openHotspotData.product.variants[0]?.sku?.price ?? null}
+                    compareAtPrice={
+                      openHotspotData.product.variants[0]?.sku?.compareAtPrice ?? null
+                    }
+                  />
+                </span>
+                <span aria-hidden className="self-center text-lg text-cta">
+                  ›
+                </span>
+              </Link>
+            </>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}

@@ -2,17 +2,35 @@ import Link from "next/link";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell } from "./sectionShell";
-import type { HomepageSection } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
+import { parseScenes } from "./room-scenes";
+import { RoomSceneGallery } from "./RoomSceneGallery";
 import { trackAttrs } from "@/lib/home-tracking";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function RoomInspirationSection({ section }: { section: HomepageSection }) {
+export function RoomInspirationSection({ section }: SectionProps) {
   const p = section.payload ?? {};
+  const scenes = parseScenes(p);
   const image = str(p.imageUrl);
   const heading = str(p.heading) || section.title || "";
   const body = str(p.body);
   const products = section.products ?? [];
+
+  // New gallery mode: a non-empty scenes array owns the section; legacy
+  // imageUrl / joins stay in the DB but are not rendered while scenes exist.
+  if (scenes) {
+    return (
+      <SectionShell>
+        <SectionHeading title={heading} />
+        <RoomSceneGallery
+          section={{ id: section.id, title: section.title }}
+          scenes={scenes}
+        />
+        {body ? <p className="mt-4 text-ink-secondary">{body}</p> : null}
+      </SectionShell>
+    );
+  }
 
   if (!image && products.length === 0 && !body) {
     return <SectionPlaceholder title={section.title} message="Room inspiration coming soon." />;
