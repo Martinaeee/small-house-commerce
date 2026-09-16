@@ -393,6 +393,21 @@ export interface BatchLineError {
   message: string;
 }
 
+export interface AdminSiteSettings {
+  id: string;
+  messengerUrl: string;
+  supportEmail: string;
+  supportHours: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateSiteSettingsInput {
+  messengerUrl: string;
+  supportEmail: string;
+  supportHours: string;
+}
+
 export interface AdminCategoryNode {
   id: string;
   parentId: string | null;
@@ -724,6 +739,19 @@ export const adminApi = {
       `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews/batch`,
       { method: "POST", body: JSON.stringify({ items }) },
     ),
+
+  // --- site settings (singleton, SYSTEM_SETTINGS_EDIT = SUPER_ADMIN) ------
+
+  getSettings: (): Promise<AdminSiteSettings> =>
+    adminAuthedFetch<AdminSiteSettings>("/api/v1/admin/settings"),
+
+  updateSettings: (
+    input: UpdateSiteSettingsInput,
+  ): Promise<AdminSiteSettings> =>
+    adminAuthedFetch<AdminSiteSettings>("/api/v1/admin/settings", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 
   presignUpload: (
     contentType: string,
