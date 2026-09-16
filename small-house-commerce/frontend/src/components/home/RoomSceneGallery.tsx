@@ -187,9 +187,7 @@ export function RoomSceneGallery({
                           ? setOpenCard(null)
                           : openHotspot(scene.id, index)
                       }
-                      className={`relative flex h-7 w-7 items-center justify-center rounded-full bg-white/95 shadow-md transition-transform hover:scale-110 ${
-                        isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
-                      }`}
+                      className="relative h-7 w-7 transition-transform hover:scale-110"
                     >
                       {played.has(scene.id) && !reduced ? (
                         <span
@@ -197,12 +195,13 @@ export function RoomSceneGallery({
                           style={{ animationDelay: `${index * 90 + 120}ms` }}
                         />
                       ) : null}
-                      {/* Inner layer owns the pop animation so its fill-mode
+                      {/* Inner layer owns the pop animation AND the disc shell
+                          so the whole dot lights up together; its fill-mode
                           transform never overrides the button's hover scale. */}
                       <span
-                        className={`inline-flex h-full w-full items-center justify-center ${
-                          played.has(scene.id) && !reduced ? "hotspot-pop" : ""
-                        }`}
+                        className={`inline-flex h-full w-full items-center justify-center rounded-full bg-white/95 shadow-md ${
+                          isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
+                        } ${played.has(scene.id) && !reduced ? "hotspot-pop" : ""}`}
                         style={
                           played.has(scene.id) && !reduced
                             ? { animationDelay: `${index * 90}ms` }
