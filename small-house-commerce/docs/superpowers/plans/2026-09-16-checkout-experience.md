@@ -37,10 +37,11 @@
 
 - [ ] **Step 1: 写确定性断言脚本（失败态）**
 
-创建 `frontend/tmp-eta-check.ts`（**必须在 `frontend/` 根目录，不在 src 下**，避免被 tsc/eslint 收录）：
+创建 `frontend/tmp-eta-check.ts`（**必须在 `frontend/` 根目录，不在 src 下**，避免被 tsc/eslint 收录；**首行必须设 `process.env.TZ = "UTC"`**——整个脚本即 UTC 服务器平价测试；原固定 12:00+08:00=04:00Z 用例在两时区同墙日期、期望值不变）：
 
 ```ts
 // SCRATCH — deterministic ETA-math verification; delete after Task 1.
+process.env.TZ = "UTC";
 import { addBusinessDays, isMetroManila, deliveryWindowFor, deliveryWindows, formatDeliveryRange } from "./src/lib/deliveryWindow";
 
 let failures = 0;
@@ -69,6 +70,12 @@ eq("cross-month MM (Sun start)", deliveryWindowFor("NCR", new Date("2026-09-27T1
 eq("PDP metro === checkout MM", deliveryWindows(new Date("2026-09-16T12:00:00+08:00")).metro, deliveryWindowFor("Metro Manila", new Date("2026-09-16T12:00:00+08:00")));
 eq("PDP provincial window Wed", deliveryWindows(new Date("2026-09-16T12:00:00+08:00")).provincial, "Sep 22–24");
 
+// TZ 平价（复审 MAJOR 的回归守卫）：UTC 服务器必须与 Manila 浏览器同值。
+// 2026-09-02T18:00Z = Manila 周四 Sep 3 02:00。
+eq("UTC server MM window (18:00Z)", deliveryWindowFor("Metro Manila", new Date("2026-09-02T18:00:00Z")), "Sep 7–9");
+eq("UTC server PDP metro (18:00Z)", deliveryWindows(new Date("2026-09-02T18:00:00Z")).metro, "Sep 7–9");
+eq("UTC server provincial (18:00Z)", deliveryWindowFor("Cebu", new Date("2026-09-02T18:00:00Z")), "Sep 9–11");
+
 eq("isMetroManila MM", isMetroManila("Metro Manila"), true);
 eq("isMetroManila ncr", isMetroManila("NCR"), true);
 eq("isMetroManila NCR alt", isMetroManila("National Capital Region"), true);
@@ -87,18 +94,47 @@ console.log("ALL PASS");
 
 - [ ] **Step 3: 升级 deliveryWindow.ts**
 
-保留现有注释、`TIME_ZONE`、`manilaDayParts`、`formatDeliveryRange`、`deliveryWindows()` 导出与签名。新增/替换：
+保留现有注释、`TIME_ZONE`、`manilaDayParts`、`formatDeliveryRange`、`deliveryWindows()` 导出与签名。新增/替换（**工作日推进必须按 Manila 日历、与运行时区无关**——模块注释承诺 UTC 服务器与 PH 浏览器同值；勿用 `getDay()/setDate()`，生产容器默认 UTC 会在 16:00–24:00Z 期间渲染出错；星期判定经 `Date.UTC(y,m-1,d).getUTCDay()`，因 Manila 日 (y,m,d) 内含 UTC (y,m,d) 00:00）：
 
 ```ts
-/** n 个工作日（跳过周日）后的 Date；n=0 返回原日期。 */
+type ManilaWallDate = { year: number; month: number; day: number };
+
+function manilaWallDate(date: Date): ManilaWallDate {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(date);
+  const value = (t: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === t)?.value ?? "0");
+  return { year: value("year"), month: value("month"), day: value("day") };
+}
+
+/** Weekday (0=Sun..6=Sat) of a Manila wall date. */
+function manilaWeekday(date: Date): number {
+  const { year, month, day } = manilaWallDate(date);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/** n 个工作日（跳过周日）后的 Date；n=0 返回同刻克隆。+24h 即 +1 Manila 日
+ *  （菲律宾无夏令时），推进与星期判定均按 Manila 日历，运行时区无关。 */
 export function addBusinessDays(date: Date, n: number): Date {
   const next = new Date(date.getTime());
   let remaining = n;
   while (remaining > 0) {
-    next.setDate(next.getDate() + 1);
-    if (next.getDay() !== 0) remaining--; // Sunday is not a business day
+    next.setTime(next.getTime() + 24 * 60 * 60 * 1000);
+    if (manilaWeekday(next) !== 0) remaining--; // Sunday is not a business day
   }
   return next;
+}
+
+/** 区间（工作日端点，经 formatDeliveryRange 渲染；跨度恒为整天数，勿 Math.round）。 */
+function businessDayRange(now: Date, minDays: number, maxDays: number): string {
+  const start = addBusinessDays(now, minDays);
+  const end = addBusinessDays(now, maxDays);
+  const span = (end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000);
+  return formatDeliveryRange(start, 0, span);
 }
 
 const METRO_MANILA_ALIASES = new Set([
@@ -115,8 +151,8 @@ export function isMetroManila(province: string): boolean {
 /** Province-aware range: Metro Manila 3–5 business days, provinces 5–7. */
 export function deliveryWindowFor(province: string, now: Date = new Date()): string {
   return isMetroManila(province)
-    ? formatDeliveryRange(now, 3, 5)
-    : formatDeliveryRange(now, 5, 7);
+    ? businessDayRange(now, 3, 5)
+    : businessDayRange(now, 5, 7);
 }
 ```
 
