@@ -15,7 +15,9 @@ import { SectionPlaceholder } from "./SectionPlaceholder";
  * sequence once per scene, and a portaled product card linking to the PDP.
  */
 const CARD_WIDTH = 240;
-const CARD_HEIGHT = 96;
+// Conservative upper bound for the flip-up math: a card whose struck-through
+// price wraps measures ~125px tall, so 130 keeps the flipped card on screen.
+const CARD_HEIGHT = 130;
 
 interface OpenCard {
   sceneId: string;
@@ -58,9 +60,13 @@ export function RoomSceneGallery({
     return () => mq.removeEventListener("change", apply);
   }, [scenes]);
 
-  // Fire each scene's pop sequence once when it first fills >=60% of the rail.
+  // Track the in-view scene for thumbnails / indicator dots, and fire each
+  // scene's pop sequence once when it first fills >=60% of the rail. Runs even
+  // under reduced motion (only the animation class is gated by !reduced). The
+  // active index is computed over the post-onError visible list so a failed
+  // early image cannot shift the highlight; resubscribing on `failed` is safe
+  // because the played Set guarantees no scene replays its pop sequence.
   useEffect(() => {
-    if (reduced) return;
     const rail = railRef.current;
     if (!rail) return;
     const observer = new IntersectionObserver(
@@ -69,7 +75,8 @@ export function RoomSceneGallery({
           if (!entry.isIntersecting || entry.intersectionRatio < 0.6) continue;
           const id = (entry.target as HTMLElement).dataset.sceneId;
           if (!id) continue;
-          setActive(scenes.findIndex((s) => s.id === id));
+          const idx = scenes.filter((s) => !failed.has(s.id)).findIndex((s) => s.id === id);
+          if (idx >= 0) setActive(idx);
           setPlayed((prev) => {
             if (prev.has(id)) return prev;
             const next = new Set(prev);
@@ -83,7 +90,7 @@ export function RoomSceneGallery({
     const els = rail.querySelectorAll<HTMLElement>("[data-scene-id]");
     els.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [reduced, scenes]);
+  }, [scenes, failed]);
 
   // Any scroll/resize dismisses the card: its fixed position is viewport-relative.
   useEffect(() => {
@@ -182,12 +189,7 @@ export function RoomSceneGallery({
                       }
                       className={`relative flex h-7 w-7 items-center justify-center rounded-full bg-white/95 shadow-md transition-transform hover:scale-110 ${
                         isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
-                      } ${played.has(scene.id) && !reduced ? "hotspot-pop" : ""}`}
-                      style={
-                        played.has(scene.id) && !reduced
-                          ? { animationDelay: `${index * 90}ms` }
-                          : undefined
-                      }
+                      }`}
                     >
                       {played.has(scene.id) && !reduced ? (
                         <span
@@ -195,7 +197,20 @@ export function RoomSceneGallery({
                           style={{ animationDelay: `${index * 90 + 120}ms` }}
                         />
                       ) : null}
-                      <span className="h-2 w-2 rounded-full bg-cta" />
+                      {/* Inner layer owns the pop animation so its fill-mode
+                          transform never overrides the button's hover scale. */}
+                      <span
+                        className={`inline-flex h-full w-full items-center justify-center ${
+                          played.has(scene.id) && !reduced ? "hotspot-pop" : ""
+                        }`}
+                        style={
+                          played.has(scene.id) && !reduced
+                            ? { animationDelay: `${index * 90}ms` }
+                            : undefined
+                        }
+                      >
+                        <span className="h-2 w-2 rounded-full bg-cta" />
+                      </span>
                     </button>
                   </span>
                 );
