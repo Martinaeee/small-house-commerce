@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { useCart } from "@/components/cart/CartContext";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { useProductImages } from "@/lib/productImages";
 import { readAttribution, track } from "@/lib/tracking";
 import {
@@ -124,6 +125,7 @@ function totalsFor(lines: { unitPrice: number | null; quantity: number }[]) {
 export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {
   const router = useRouter();
   const { cart, loading: cartLoading, removeItems } = useCart();
+  const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
   const [product, setProduct] = useState<Product | null>(null);
   const [productError, setProductError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -386,7 +388,33 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
-      <h1 className="mb-6 text-3xl font-semibold text-ink">Checkout</h1>
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <h1 className="text-3xl font-semibold text-ink">Checkout</h1>
+        <p
+          data-testid="checkout-need-help"
+          className="text-xs leading-relaxed text-ink-secondary sm:max-w-[420px] sm:text-right"
+        >
+          <span className="font-semibold text-ink">Need help? </span>
+          {messengerUrl ? (
+            <>
+              <a
+                href={messengerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cta hover:underline"
+              >
+                Chat on Messenger
+              </a>
+              {" · "}
+            </>
+          ) : null}
+          <a href={`mailto:${supportEmail}`} className="text-cta hover:underline">
+            {supportEmail}
+          </a>
+          {" · "}
+          {supportHours}
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
         {/* 1. Order preview (mobile first; desktop left column, row 1) */}
