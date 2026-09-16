@@ -125,6 +125,83 @@ describe('homepage payload schemas', () => {
     ).toBe(false);
   });
 
+  it('accepts ROOM_INSPIRATION scenes with hotspots and keeps legacy fields', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.ROOM_INSPIRATION];
+    const result = schema.safeParse({
+      heading: 'Shop the look',
+      scenes: [
+        {
+          id: 'a1b2c3d4',
+          imageUrl: 'https://cdn.example.com/room-1.jpg',
+          alt: '马尼拉公寓客厅',
+          hotspots: [
+            { productId: crypto.randomUUID(), xPct: 34.2, yPct: 57.8 },
+            { productId: crypto.randomUUID(), xPct: 3, yPct: 97 },
+          ],
+        },
+        {
+          id: 'b2c3d4e5',
+          imageUrl: 'https://cdn.example.com/room-2.jpg',
+          hotspots: [],
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects malformed room scenes', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.ROOM_INSPIRATION];
+    const baseHotspot = { productId: crypto.randomUUID(), xPct: 10, yPct: 10 };
+
+    expect(schema.safeParse({ scenes: [{ id: 'BAD-ID', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
+    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'http://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
+    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ ...baseHotspot, xPct: 101 }] }] }).success).toBe(false);
+    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ ...baseHotspot, yPct: -0.1 }] }] }).success).toBe(false);
+    expect(
+      schema.safeParse({
+        scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [baseHotspot, baseHotspot] }],
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ ...baseHotspot, productId: 'not-a-uuid' }] }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('enforces room scene/hotspot caps but allows the same product across scenes', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.ROOM_INSPIRATION];
+    const pid = crypto.randomUUID();
+    expect(
+      schema.safeParse({
+        scenes: Array.from({ length: 6 }, () => ({
+          id: 'abcdefgh',
+          imageUrl: 'https://x.io/a.jpg',
+          hotspots: [],
+        })),
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        scenes: [
+          {
+            id: 'abcdefgh',
+            imageUrl: 'https://x.io/a.jpg',
+            hotspots: Array.from({ length: 9 }, () => ({ productId: crypto.randomUUID(), xPct: 1, yPct: 1 })),
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        scenes: [
+          { id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ productId: pid, xPct: 1, yPct: 1 }] },
+          { id: 'ijklmnop', imageUrl: 'https://x.io/b.jpg', hotspots: [{ productId: pid, xPct: 2, yPct: 2 }] },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it('validates the whole-section save body', () => {
     const ok = saveHomepageSectionsSchema.safeParse({
       sections: [{ enabled: true, sortOrder: 0, type: HomepageSectionType.HERO }],

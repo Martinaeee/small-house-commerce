@@ -71,10 +71,41 @@ const productStoryPayloadSchema = z.object({
   productId: z.string().uuid().optional(),
 });
 
+const roomHotspotSchema = z.object({
+  productId: z.string().uuid(),
+  xPct: z.number().min(0).max(100),
+  yPct: z.number().min(0).max(100),
+});
+
+const roomSceneSchema = z.object({
+  id: z.string().regex(/^[a-z0-9]{8,16}$/),
+  imageUrl: mediaUrl(),
+  alt: z.string().max(120).optional(),
+  hotspots: z
+    .array(roomHotspotSchema)
+    .max(8)
+    .superRefine((hotspots, ctx) => {
+      // Same product twice in one scene would stack two dots on one item.
+      const seen = new Set<string>();
+      hotspots.forEach((hotspot, index) => {
+        if (seen.has(hotspot.productId)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index, 'productId'],
+            message: 'product appears twice in one scene',
+          });
+        }
+        seen.add(hotspot.productId);
+      });
+    }),
+});
+
 const roomPayloadSchema = z.object({
   imageUrl: mediaUrl().optional(),
   heading: z.string().max(120).optional(),
   body: z.string().max(2000).optional(),
+  // Multi-scene hotspot gallery (spec 2026-09-15-room-scene-hotspots §2).
+  scenes: z.array(roomSceneSchema).max(5).optional(),
 });
 
 const ugcEntrySchema = z.object({
