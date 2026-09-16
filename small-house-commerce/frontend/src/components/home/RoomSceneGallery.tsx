@@ -61,8 +61,9 @@ export function RoomSceneGallery({
   }, [scenes]);
 
   // Track the in-view scene for thumbnails / indicator dots, and fire each
-  // scene's pop sequence once when it first fills >=60% of the rail. Runs even
-  // under reduced motion (only the animation class is gated by !reduced). The
+  // scene's pop sequence once on its first positive intersection (the 60%
+  // ratio only decides thumbnail/indicator highlighting). Runs even under
+  // reduced motion (only the animation class is gated by !reduced). The
   // active index is computed over the post-onError visible list so a failed
   // early image cannot shift the highlight; resubscribing on `failed` is safe
   // because the played Set guarantees no scene replays its pop sequence.
@@ -72,20 +73,25 @@ export function RoomSceneGallery({
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting || entry.intersectionRatio < 0.6) continue;
+          if (!entry.isIntersecting) continue;
           const id = (entry.target as HTMLElement).dataset.sceneId;
           if (!id) continue;
-          const idx = scenes.filter((s) => !failed.has(s.id)).findIndex((s) => s.id === id);
-          if (idx >= 0) setActive(idx);
+          // Arm on ANY positive intersection: in wide-and-short windows the
+          // slide may never reach 60% of the rail, and gating visibility on
+          // that ratio would leave the dots paused at opacity 0 forever.
           setPlayed((prev) => {
             if (prev.has(id)) return prev;
             const next = new Set(prev);
             next.add(id);
             return next;
           });
+          // The 0.6 threshold alone drives thumbnail/indicator highlighting.
+          if (entry.intersectionRatio < 0.6) continue;
+          const idx = scenes.filter((s) => !failed.has(s.id)).findIndex((s) => s.id === id);
+          if (idx >= 0) setActive(idx);
         }
       },
-      { root: rail, threshold: 0.6 },
+      { root: rail, threshold: [0, 0.6] },
     );
     const els = rail.querySelectorAll<HTMLElement>("[data-scene-id]");
     els.forEach((el) => observer.observe(el));
@@ -107,6 +113,12 @@ export function RoomSceneGallery({
 
   // Restore focus to the dot when the portaled card unmounts.
   const activatorRef = useRef<HTMLElement | null>(null);
+  // Stable callback ref: focuses once when a card mounts (the Link is keyed
+  // per scene/index, so opening a different dot detaches and reattaches).
+  // preventScroll keeps the fixed card from moving the page behind it.
+  const cardRef = useCallback((el: HTMLAnchorElement | null) => {
+    el?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     if (!openCard) {
       activatorRef.current?.focus();
@@ -311,9 +323,10 @@ export function RoomSceneGallery({
                 onClick={() => setOpenCard(null)}
               />
               <Link
+                key={`${openCard.sceneId}-${openCard.index}`}
                 href={`/products/${openHotspotData.product.slug}`}
                 id={`room-card-${openCard.sceneId}-${openCard.index}`}
-                ref={(el) => el?.focus()}
+                ref={cardRef}
                 {...trackAttrs("ProductClick", section, openCard.index + 1)}
                 onClick={() => setOpenCard(null)}
                 className="fixed z-50 flex w-60 gap-3 rounded-xl border border-border bg-card p-3 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-cta"
