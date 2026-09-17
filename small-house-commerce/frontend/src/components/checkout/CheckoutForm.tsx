@@ -18,6 +18,7 @@ import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
+import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import {
   CHECKOUT_FIELD_ORDER,
@@ -379,38 +380,31 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           <section className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-4 text-lg font-semibold text-ink">Delivery Address</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                Province *
-                <input
-                  id="checkout-province"
-                  className={`${inputCls}${errors.province ? " border-sale" : ""}`}
-                  value={form.province}
-                  onChange={set("province")}
-                  onBlur={revalidate("province")}
-                  aria-invalid={Boolean(errors.province)}
-                  aria-describedby={errors.province ? "checkout-province-error" : undefined}
-                  placeholder="Metro Manila"
-                />
-                <FieldError id="checkout-province" message={errors.province} />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                City / Municipality *
-                <input
-                  id="checkout-city"
-                  className={`${inputCls}${errors.city ? " border-sale" : ""}`}
-                  value={form.city}
-                  onChange={set("city")}
-                  onBlur={revalidate("city")}
-                  aria-invalid={Boolean(errors.city)}
-                  aria-describedby={errors.city ? "checkout-city-error" : undefined}
-                  placeholder="Quezon City"
-                />
-                <FieldError id="checkout-city" message={errors.city} />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                Barangay
-                <input className={inputCls} value={form.barangay} onChange={set("barangay")} placeholder="Barangay" />
-              </label>
+              <PsgcAddressSelects
+                province={form.province}
+                city={form.city}
+                barangay={form.barangay}
+                onProvinceChange={(v) => {
+                  setForm((f) => ({ ...f, province: v, city: "", barangay: "" }));
+                  setErrors((cur) => {
+                    const n = { ...cur };
+                    delete n.province;
+                    return n;
+                  });
+                }}
+                onCityChange={(v) => {
+                  setForm((f) => ({ ...f, city: v, barangay: "" }));
+                  setErrors((cur) => {
+                    const n = { ...cur };
+                    delete n.city;
+                    return n;
+                  });
+                }}
+                onBarangayChange={(v) => setForm((f) => ({ ...f, barangay: v }))}
+                errors={errors}
+                onBlurField={(field) => revalidate(field)()}
+                inputCls={inputCls}
+              />
               <label className="flex flex-col gap-1 text-sm font-medium text-ink">
                 Postal Code
                 <input className={inputCls} value={form.postalCode} onChange={set("postalCode")} placeholder="1100" inputMode="numeric" />
