@@ -330,6 +330,56 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Guest order lookup (spec §3.1): exact order-number + phone match.
+   * Every failure (missing order, unparseable phone, non-matching phone)
+   * resolves to the SAME 404 so the response cannot reveal order existence.
+   */
+  async lookup(orderNumber: string, phone: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+
+    const notFound = () =>
+      new NotFoundException(
+        'Order not found. Check your order number and mobile number.',
+      );
+
+    if (!order) {
+      throw notFound();
+    }
+
+    // The shared util returns null for unparseable input (and may throw in
+    // other call styles); either outcome is a non-match here, never a 400.
+    let queryPhone: string | null = null;
+    try {
+      queryPhone = normalizePhilippinePhone(phone);
+    } catch {
+      queryPhone = null;
+    }
+
+    let snapshotPhone: string | null = null;
+    const storedSnapshotPhone = order.shippingAddress?.phone;
+    if (storedSnapshotPhone) {
+      try {
+        snapshotPhone = normalizePhilippinePhone(storedSnapshotPhone);
+      } catch {
+        snapshotPhone = null;
+      }
+    }
+
+    const customerPhone = order.customer?.normalizedPhone ?? null;
+    if (
+      !queryPhone ||
+      (queryPhone !== customerPhone && queryPhone !== snapshotPhone)
+    ) {
+      throw notFound();
+    }
+
+    return order;
+  }
+
   private normalizePhone(phone: string): string {
     const normalized = normalizePhilippinePhone(phone);
     if (!normalized) {

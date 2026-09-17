@@ -45,5 +45,11 @@ export const orderQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const lookupSchema = z.object({
+  orderNumber: z.string().regex(/^PH\d+$/),
+  phone: z.string().min(1).max(32),
+});
+
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type OrderQuery = z.infer<typeof orderQuerySchema>;
+export type LookupInput = z.infer<typeof lookupSchema>;

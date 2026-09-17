@@ -1,7 +1,12 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from '../orders.service.js';
-import { checkoutSchema, type CheckoutInput } from '../dto/order.dto.js';
+import {
+  checkoutSchema,
+  lookupSchema,
+  type CheckoutInput,
+  type LookupInput,
+} from '../dto/order.dto.js';
 
 /**
  * Guest COD checkout (API_SPEC §18). Buy Now on the PDP uses the same
@@ -17,5 +22,12 @@ export class StorefrontOrdersController {
     @Body(new ZodValidationPipe(checkoutSchema)) body: CheckoutInput,
   ) {
     return this.ordersService.checkout(body);
+  }
+
+  // Guest order tracking (spec §3.1): no guard — order number + phone is
+  // the shared secret. Distinct static path, no conflict with @Post().
+  @Post('lookup')
+  lookup(@Body(new ZodValidationPipe(lookupSchema)) body: LookupInput) {
+    return this.ordersService.lookup(body.orderNumber, body.phone);
   }
 }
