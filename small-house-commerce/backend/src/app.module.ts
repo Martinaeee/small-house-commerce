@@ -9,6 +9,7 @@ import { CollectionsModule } from './modules/collections/collections.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
+import { PsgcModule } from './modules/psgc/psgc.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { configuration } from './config/configuration.js';
@@ -33,6 +34,7 @@ import { UsersModule } from './modules/users/users.module.js';
     CartModule,
     InventoryModule,
     OrdersModule,
+    PsgcModule,
     CollectionsModule,
     UploadsModule,
     SettingsModule,
