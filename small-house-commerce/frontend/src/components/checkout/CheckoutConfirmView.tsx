@@ -31,6 +31,20 @@ import { checkoutQueryString } from "./checkoutItems";
  * existing cart-line removal and total stash.
  */
 
+/**
+ * Format an ISO yyyy-MM-dd value as "Oct 3, 2026" in Asia/Manila. The stored
+ * convention is UTC midnight (spec §3.2, ruling D-1), so formatting with the
+ * Manila zone renders the same calendar day the buyer picked.
+ */
+function formatPreferredDate(value: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00Z`));
+}
+
 interface CheckoutConfirmViewProps {
   skuId?: string;
   qty?: string;
@@ -95,25 +109,29 @@ export function CheckoutConfirmView({
     }
     setSubmitting(true);
     try {
-      const order = await api.createOrder({
+      const payload = {
         customer: {
-          name: draft.customer.name,
-          phone: draft.customer.phone,
-          province: draft.customer.province,
-          city: draft.customer.city,
+          ...draft.customer,
           barangay: draft.customer.barangay || null,
           postalCode: draft.customer.postalCode || null,
-          streetAddress: draft.customer.streetAddress,
           landmark: draft.customer.landmark || null,
         },
         items: checkout.orderItems,
         attribution: readAttribution(),
-      });
+        preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
+      };
+      // lib/api.ts 类型声明禁改（项目约束），调用侧交叉断言扩展可选字段
+      const order = await api.createOrder(
+        payload as Parameters<typeof api.createOrder>[0] & {
+          preferredDeliveryDate: string | null;
+        },
+      );
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
       try {
         if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
+        sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
       } catch {
-        // Storage unavailable: skip the success-page total stash; the order stands.
+        // Storage unavailable: skip the success-page stashes; the order stands.
       }
       clearCheckoutDraft();
       router.push(`/order-success/${order.orderNumber}`);
@@ -184,6 +202,11 @@ export function CheckoutConfirmView({
                 <p className="mt-1">{`Landmark: ${draft.customer.landmark}`}</p>
               ) : null}
             </div>
+            {draft.preferredDeliveryDate ? (
+              <p className="mt-3 text-sm text-ink-secondary" data-testid="confirm-preferred-date">
+                {`Preferred delivery date: ${formatPreferredDate(draft.preferredDeliveryDate)}`}
+              </p>
+            ) : null}
             <p data-testid="checkout-privacy-note" className="mt-3 text-xs text-ink-secondary">
               Your information is used only to process and deliver your order.
             </p>

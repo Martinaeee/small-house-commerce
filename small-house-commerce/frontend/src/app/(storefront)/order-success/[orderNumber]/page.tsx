@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import { PurchaseTracking } from "@/components/tracking/PurchaseTracking";
+import { PreferredDateLine } from "@/components/checkout/PreferredDateLine";
 
 export const metadata: Metadata = { title: "Order Received" };
 
@@ -42,6 +43,7 @@ export default async function OrderSuccessPage({
             <dd className="font-medium text-ink">Order Received</dd>
           </div>
         </dl>
+        <PreferredDateLine />
         <Link
           href={`/track-order?order=${orderNumber}`}
           className="text-sm text-cta hover:underline"
