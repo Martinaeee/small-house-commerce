@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from '../orders.service.js';
 import {
@@ -27,6 +27,7 @@ export class StorefrontOrdersController {
   // Guest order tracking (spec §3.1): no guard — order number + phone is
   // the shared secret. Distinct static path, no conflict with @Post().
   @Post('lookup')
+  @HttpCode(200)
   lookup(@Body(new ZodValidationPipe(lookupSchema)) body: LookupInput) {
     return this.ordersService.lookup(body.orderNumber, body.phone);
   }
