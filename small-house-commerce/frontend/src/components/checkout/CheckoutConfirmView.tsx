@@ -120,12 +120,7 @@ export function CheckoutConfirmView({
         attribution: readAttribution(),
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
       };
-      // lib/api.ts 类型声明禁改（项目约束），调用侧交叉断言扩展可选字段
-      const order = await api.createOrder(
-        payload as Parameters<typeof api.createOrder>[0] & {
-          preferredDeliveryDate: string | null;
-        },
-      );
+      const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
       try {
         if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));

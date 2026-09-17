@@ -289,6 +289,7 @@ export const api = {
     };
     items: { skuId: string; quantity: number }[];
     attribution?: Attribution;
+    preferredDeliveryDate?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
@@ -298,6 +299,7 @@ export const api = {
           attribution: input.attribution ?? { sourceType: "ORGANIC" },
           customer: input.customer,
           items: input.items,
+          preferredDeliveryDate: input.preferredDeliveryDate ?? null,
         }),
       },
     ),
