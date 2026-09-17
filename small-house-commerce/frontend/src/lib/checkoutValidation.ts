@@ -45,6 +45,11 @@ export function isValidPhilippineMobile(raw: string): boolean {
   return false;
 }
 
+/** Format check only (empty is the caller's required-check): returns an error message or undefined. */
+export function validatePhone(value: string): string | undefined {
+  return isValidPhilippineMobile(value) ? undefined : PHONE_ERROR;
+}
+
 /** Validates the five required fields; barangay/postalCode/landmark stay optional. */
 export function validateCheckoutForm(values: CheckoutFormValues): CheckoutErrors {
   const errors: CheckoutErrors = {};
@@ -53,8 +58,11 @@ export function validateCheckoutForm(values: CheckoutFormValues): CheckoutErrors
       errors[field] = `Please enter your ${label}.`;
     }
   }
-  if (!errors.phone && !isValidPhilippineMobile(values.phone)) {
-    errors.phone = PHONE_ERROR;
+  if (!errors.phone) {
+    const phoneError = validatePhone(values.phone);
+    if (phoneError) {
+      errors.phone = phoneError;
+    }
   }
   return errors;
 }
