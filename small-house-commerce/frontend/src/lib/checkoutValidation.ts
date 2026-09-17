@@ -13,6 +13,10 @@ export interface CheckoutFormValues {
   postalCode: string;
   streetAddress: string;
   landmark: string;
+  // Optional in this interface (not in CheckoutDraftCustomer): the confirm
+  // view validates draft.customer, and the order-level date lives at the
+  // draft top level per spec §2. CheckoutField still includes the key.
+  preferredDeliveryDate?: string;
 }
 
 export type CheckoutField = keyof CheckoutFormValues;
@@ -50,11 +54,20 @@ export function validatePhone(value: string): string | undefined {
   return isValidPhilippineMobile(value) ? undefined : PHONE_ERROR;
 }
 
+/** 可选配送日期校验：空值合法；非空须为合法日期且非周日（UTC 零点约定）。 */
+export function validatePreferredDate(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "Please enter a valid date.";
+  if (d.getUTCDay() === 0) return "Delivery is not available on Sundays. Please choose another date.";
+  return undefined;
+}
+
 /** Validates the five required fields; barangay/postalCode/landmark stay optional. */
 export function validateCheckoutForm(values: CheckoutFormValues): CheckoutErrors {
   const errors: CheckoutErrors = {};
   for (const { field, label } of REQUIRED_FIELDS) {
-    if (!values[field].trim()) {
+    if (!values[field]?.trim()) {
       errors[field] = `Please enter your ${label}.`;
     }
   }

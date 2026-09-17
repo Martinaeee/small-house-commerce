@@ -29,7 +29,7 @@ function addDays(now: Date, days: number): Date {
 
 type ManilaWallDate = { year: number; month: number; day: number };
 
-function manilaWallDate(date: Date): ManilaWallDate {
+export function manilaWallDate(date: Date): ManilaWallDate {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TIME_ZONE,
     year: "numeric",
@@ -58,6 +58,12 @@ export function addBusinessDays(date: Date, n: number): Date {
     if (manilaWeekday(next) !== 0) remaining--; // Sunday is not a business day
   }
   return next;
+}
+
+/** Manila 日历日 → "yyyy-MM-dd"（供 <input type="date"> 的 min/max/value）。 */
+export function toDateInputValue(date: Date): string {
+  const { year, month, day } = manilaWallDate(date);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 /** "Sep 16–18" within one month; "Sep 28 – Oct 2" across a month boundary. */

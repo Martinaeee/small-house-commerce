@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deliveryWindowFor } from "@/lib/deliveryWindow";
+import {
+  addBusinessDays,
+  deliveryWindowFor,
+  manilaWallDate,
+  toDateInputValue,
+} from "@/lib/deliveryWindow";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
@@ -17,6 +22,7 @@ import { checkoutQueryString } from "./checkoutItems";
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
+  validatePreferredDate,
   type CheckoutField,
 } from "@/lib/checkoutValidation";
 
@@ -41,10 +47,18 @@ interface CheckoutFormProps {
   slug?: string;
 }
 
-function FieldError({ id, message }: { id: string; message?: string }) {
+function FieldError({
+  id,
+  message,
+  testId,
+}: {
+  id: string;
+  message?: string;
+  testId?: string;
+}) {
   if (!message) return null;
   return (
-    <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-sale">
+    <p id={`${id}-error`} data-testid={testId} role="alert" className="mt-1 text-xs text-sale">
       {message}
     </p>
   );
@@ -72,6 +86,19 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     postalCode: "",
     streetAddress: "",
     landmark: "",
+    preferredDeliveryDate: "",
+  });
+
+  // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
+  // wall clock (min = +3 business days, max = +30 calendar days). A form left
+  // open across midnight can drift ≤1 day — accepted, same trade-off as B batch.
+  const [dateBounds] = useState(() => {
+    const { year, month, day } = manilaWallDate(new Date());
+    const manilaToday = new Date(Date.UTC(year, month - 1, day));
+    return {
+      min: toDateInputValue(addBusinessDays(manilaToday, 3)),
+      max: toDateInputValue(new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000)),
+    };
   });
 
   const {
@@ -102,7 +129,11 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       if (!alive) return;
       const d = readCheckoutDraft();
       if (d) {
-        setForm((f) => ({ ...f, ...d.customer }));
+        setForm((f) => ({
+          ...f,
+          ...d.customer,
+          preferredDeliveryDate: d.preferredDeliveryDate ?? "",
+        }));
       }
     })();
     return () => {
@@ -143,8 +174,30 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       return next;
     });
 
+  // Spec §3.3 Sunday guard: a Sunday picked from the date picker is rejected
+  // immediately — clear the value and show the inline warning (UTC-midnight
+  // convention; also covers an invalid typed value in text-input fallback).
+  const onPreferredDateChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const dateError = validatePreferredDate(value);
+    if (dateError) {
+      setForm((f) => ({ ...f, preferredDeliveryDate: "" }));
+      setErrors((current) => ({ ...current, preferredDeliveryDate: dateError }));
+      return;
+    }
+    setForm((f) => ({ ...f, preferredDeliveryDate: value }));
+    setErrors((current) => {
+      if (!current.preferredDeliveryDate) return current;
+      const next = { ...current };
+      delete next.preferredDeliveryDate;
+      return next;
+    });
+  };
+
   function goToReview() {
     const validation = validateCheckoutForm(form);
+    const preferredDateError = validatePreferredDate(form.preferredDeliveryDate);
+    if (preferredDateError) validation.preferredDeliveryDate = preferredDateError;
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
       const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
@@ -162,7 +215,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    });
+    }, form.preferredDeliveryDate.trim() || null);
     router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
@@ -382,6 +435,36 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 Landmark
                 <input className={inputCls} value={form.landmark} onChange={set("landmark")} placeholder="Near…" />
               </label>
+              <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
+                Preferred delivery date (optional)
+                <input
+                  id="checkout-preferred-date"
+                  type="date"
+                  data-testid="checkout-preferred-date"
+                  className={`${inputCls}${errors.preferredDeliveryDate ? " border-sale" : ""}`}
+                  min={dateBounds.min}
+                  max={dateBounds.max}
+                  value={form.preferredDeliveryDate}
+                  onChange={onPreferredDateChange}
+                  aria-invalid={Boolean(errors.preferredDeliveryDate)}
+                  aria-describedby={
+                    errors.preferredDeliveryDate ? "checkout-preferred-date-error" : undefined
+                  }
+                />
+                <FieldError
+                  id="checkout-preferred-date"
+                  testId="checkout-preferred-date-error"
+                  message={errors.preferredDeliveryDate}
+                />
+              </label>
+              <p
+                data-testid="checkout-preferred-date-hint"
+                className="col-span-full -mt-2 text-xs text-ink-muted"
+              >
+                {form.province.trim()
+                  ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                  : "Choose a preferred date (optional)."}
+              </p>
               <p data-testid="checkout-privacy-note" className="col-span-full mt-3 text-xs text-ink-secondary">
                 Your information is used only to process and deliver your order.
               </p>
