@@ -125,6 +125,10 @@ export function CheckoutConfirmView({
       try {
         if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
+        // Same literal key as CheckoutForm's IC_FIRED_KEY: clear the
+        // once-per-checkout-session guard so the NEXT order in this tab fires
+        // InitiateCheckout again.
+        sessionStorage.removeItem("luwag_ic_fired");
       } catch {
         // Storage unavailable: skip the success-page stashes; the order stands.
       }

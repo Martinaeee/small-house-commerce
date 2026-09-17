@@ -163,7 +163,10 @@ export function MessengerChat() {
           schedule();
           return;
         }
+        // Popping up OR dismissing both mark this session as used, so a hard
+        // refresh (which resets firedRef) cannot revive the nudge.
         firedRef.current = true;
+        writeNudgeDismissed();
         setNudgeVisible(true);
       }, NUDGE_DELAY_MS);
     };

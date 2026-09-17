@@ -21,6 +21,7 @@ import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import {
+  fetchBarangays,
   listMunicipalities,
   listProvinces,
   matchPsgcName,
@@ -46,6 +47,11 @@ import {
 
 const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
+
+// TRACKING_SPEC: InitiateCheckout fires ONCE per checkout session. The confirm
+// step's "Edit" link remounts this form (it is no longer the only checkout
+// page), which would otherwise re-fire on every visit back.
+const IC_FIRED_KEY = "luwag_ic_fired";
 
 interface CheckoutFormProps {
   skuId?: string;
@@ -156,9 +162,17 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     };
   }, []);
 
-  // TRACKING_SPEC §12 InitiateCheckout.
+  // TRACKING_SPEC §12 InitiateCheckout — at most once per checkout session
+  // (see IC_FIRED_KEY). Fail-open: if sessionStorage is unavailable the event
+  // still fires, and a storage write must never throw into the effect.
   useEffect(() => {
     if (orderItems.length === 0 || (isBuyNow && !buyNowMatchedSku)) return;
+    try {
+      if (sessionStorage.getItem(IC_FIRED_KEY) === "1") return;
+      sessionStorage.setItem(IC_FIRED_KEY, "1");
+    } catch {
+      // Storage unavailable: proceed and fire.
+    }
     track("InitiateCheckout", {
       contents: orderItems.map((item) => ({ id: item.skuId, quantity: item.quantity })),
       value: total ?? undefined,
@@ -265,6 +279,23 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           const city = matchPsgcName(listMunicipalities(province), addr.city);
           if (city) {
             handleCityChange(city); // clears the city error
+            // Best-effort barangay backfill (spec §3.4 "命中才填"). MUST run
+            // after handleCityChange, which blanks the barangay. The list is
+            // fetched through the shared province|city cache; only a confident
+            // name match is written. Its own try/catch keeps a failure (network,
+            // timeout, no match) from disturbing the province/city fill above.
+            if (addr.barangay) {
+              try {
+                const barangays = await fetchBarangays(province, city);
+                const barangay = matchPsgcName(
+                  barangays.map((b) => b.name),
+                  addr.barangay,
+                );
+                if (barangay) handleBarangayChange(barangay);
+              } catch {
+                // Silent: barangay stays blank for the user to pick.
+              }
+            }
           } else {
             // Spec §3.4/§5.3: province matched but city did not → leave the
             // city blank and PROMPT (never leave the user guessing why the
@@ -480,7 +511,23 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 disabled={locating}
                 className="text-sm font-medium text-cta hover:underline disabled:opacity-60"
               >
-                {locating ? "Locating…" : "Use my location"}
+                <span className="inline-flex items-center gap-1.5">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="12" cy="10" r="2.5" />
+                  </svg>
+                  {locating ? "Locating…" : "Use my location"}
+                </span>
               </button>
             </div>
             {locationError && (

@@ -40,8 +40,21 @@ const municipalities: PsgcMunicipality[] = municipalitiesJson.map((m) => ({
   city: m.city === true,
 }));
 
+// Region ordering is fixed ONCE at module load from the snapshot's own row
+// order: the file groups provinces by region, so first appearance is the
+// canonical PSGC region order (NCR, CAR, Region I…BARMM). Sorting by that
+// index instead of the region label's alphabet puts Metro Manila first and
+// keeps every region's provinces contiguous (spec §3.3).
+const regionOrder: string[] = [];
+const regionByName = new Map<string, string>();
+for (const p of provinces) {
+  if (!regionByName.has(p.name)) regionByName.set(p.name, p.region);
+  if (!regionOrder.includes(p.region)) regionOrder.push(p.region);
+}
+
 /**
- * Distinct PSGC province names, alphabetical (includes Metro Manila).
+ * Distinct PSGC province names, ordered by region (canonical PSGC region
+ * order) then alphabetically within each region (spec §3.3).
  *
  * Provinces whose municipality list is empty are EXCLUDED: the snapshot lists
  * "Isabela City" (Region IX) as a province with zero municipalities.json rows,
@@ -51,9 +64,14 @@ const municipalities: PsgcMunicipality[] = municipalitiesJson.map((m) => ({
  */
 export function listProvinces(): string[] {
   const withCities = new Set(municipalities.map((m) => m.province));
+  const rank = (name: string) => {
+    const region = regionByName.get(name);
+    const index = region === undefined ? -1 : regionOrder.indexOf(region);
+    return index === -1 ? regionOrder.length : index;
+  };
   return Array.from(new Set(provinces.map((p) => p.name)))
     .filter((name) => withCities.has(name))
-    .sort((a, b) => a.localeCompare(b));
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
 /**
