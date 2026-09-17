@@ -40,11 +40,20 @@ const municipalities: PsgcMunicipality[] = municipalitiesJson.map((m) => ({
   city: m.city === true,
 }));
 
-/** Distinct PSGC province names, alphabetical (85 entries incl. Metro Manila). */
+/**
+ * Distinct PSGC province names, alphabetical (includes Metro Manila).
+ *
+ * Provinces whose municipality list is empty are EXCLUDED: the snapshot lists
+ * "Isabela City" (Region IX) as a province with zero municipalities.json rows,
+ * so selecting it would dead-end the required City select with no options and
+ * no free-text path (final-review finding 2). Its barangays (prefix 0997) are
+ * likewise unreachable, so nothing is lost by hiding it.
+ */
 export function listProvinces(): string[] {
-  return Array.from(new Set(provinces.map((p) => p.name))).sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const withCities = new Set(municipalities.map((m) => m.province));
+  return Array.from(new Set(provinces.map((p) => p.name)))
+    .filter((name) => withCities.has(name))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -78,7 +87,9 @@ export async function fetchBarangays(
   const url = `/api/v1/storefront/psgc/barangays?province=${encodeURIComponent(
     province,
   )}&city=${encodeURIComponent(city)}`;
-  const res = await fetch(url);
+  // Bounded so a hung request cannot leave the select on "Loading…" forever
+  // (final-review finding 5); the caller's error path offers free-text retry.
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error("Could not load barangays.");
 
   const data = (await res.json()) as { city: string; barangays: PsgcBarangay[] };
@@ -101,7 +112,7 @@ export interface NominatimAddress {
 export async function reverseGeocode(lat: number, lon: number): Promise<NominatimAddress> {
   const res = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`,
-    { headers: { "Accept-Language": "en" } },
+    { headers: { "Accept-Language": "en" }, signal: AbortSignal.timeout(10_000) },
   );
   if (!res.ok) throw new Error("reverse geocode failed");
   const data = (await res.json()) as {
@@ -125,10 +136,27 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
 }
 
 /**
- * PSGC-name matcher: trim/lowercase/collapse-spaces. Also strips accents
- * (NFD → combining-mark strip) so Nominatim's "Las Piñas" vs PSGC's
- * "Las Piñas" / "Las Pinas" variants agree. Returns the canonical candidate
- * name, or undefined on no (exact or fuzzy) match.
+ * PSGC-name matcher: trim/lowercase/collapse-spaces, accent-stripped (NFD) so
+ * Nominatim's "Las Piñas" / "Las Pinas" agree with the snapshot.
+ *
+ * Matching is EXACT (never substring) at three levels, in order:
+ *   1. the full snapshot name,
+ *   2. the snapshot name's BASE — the text before a parenthetical alias, and
+ *   3. the input with a trailing "City" removed.
+ *
+ * Passes 2 and 3 exist because OSM reports statutory names the snapshot spells
+ * differently: OSM says "Samar" where the snapshot says "Samar (Western
+ * Samar)", and "Quezon City" / "Cebu City" / "Davao City" where the snapshot
+ * says "Quezon" / "Cebu" / "Davao". Both passes are deterministic — verified
+ * against the snapshot: exactly one province and three municipalities carry a
+ * parenthetical, only one entry ends in "City", and no base/suffix-stripped
+ * name collides with a sibling in the same scope.
+ *
+ * A substring/fuzzy pass was tried and REMOVED (final-review finding 1): it
+ * mis-bound shorter inputs to the wrong sibling — "Samar" resolved to the first
+ * alphabetical hit "Eastern Samar", silently writing the WRONG province into a
+ * required field. When nothing matches exactly we return undefined so the
+ * caller leaves the field blank and prompts, per spec §3.4 ("置信匹配").
  */
 export function matchPsgcName(candidates: string[], raw: string | undefined): string | undefined {
   if (!raw) return undefined;
@@ -139,10 +167,17 @@ export function matchPsgcName(candidates: string[], raw: string | undefined): st
       .replace(/\s+/g, " ")
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "");
+  const base = (s: string) => {
+    const m = s.match(/^(.*?) \(/);
+    return m ? m[1] : s;
+  };
   const n = norm(raw);
   if (!n) return undefined;
-  return (
-    candidates.find((c) => norm(c) === n) ??
-    candidates.find((c) => norm(c).includes(n) || n.includes(norm(c)))
-  );
+  const exact = candidates.find((c) => norm(c) === n);
+  if (exact !== undefined) return exact;
+  const baseHit = candidates.find((c) => norm(base(c)) === n);
+  if (baseHit !== undefined) return baseHit;
+  const withoutCity = n.replace(/ city$/, "");
+  if (withoutCity === n || !withoutCity) return undefined;
+  return candidates.find((c) => norm(base(c)) === withoutCity);
 }

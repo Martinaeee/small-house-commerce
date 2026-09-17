@@ -113,6 +113,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // surface an inline hint and never block ordering.
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  // Informational (not an error): province filled, city left for the user.
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
 
   const {
     isBuyNow,
@@ -211,6 +213,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // clear any stale location error when the user edits these fields manually.
   const handleProvinceChange = (v: string) => {
     setLocationError(null);
+    setLocationNotice(null);
     setForm((f) => ({ ...f, province: v, city: "", barangay: "" }));
     setErrors((cur) => {
       const n = { ...cur };
@@ -221,6 +224,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
   const handleCityChange = (v: string) => {
     setLocationError(null);
+    setLocationNotice(null);
     setForm((f) => ({ ...f, city: v, barangay: "" }));
     setErrors((cur) => {
       const n = { ...cur };
@@ -238,6 +242,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // per-city barangay list is only fetched by PsgcAddressSelects).
   const handleUseMyLocation = () => {
     setLocationError(null);
+    setLocationNotice(null);
     if (!("geolocation" in navigator)) {
       setLocationError("Could not detect your location. Please select your province and city.");
       return;
@@ -248,15 +253,24 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         const { latitude, longitude } = pos.coords;
         try {
           const addr = await reverseGeocode(latitude, longitude);
-          const provinces = listProvinces();
-          const province = matchPsgcName(provinces, addr.province);
+          // Province MUST match exactly — the fuzzy pass can bind a shorter
+          // OSM name to the wrong province ("Samar" → "Eastern Samar");
+          // municipalities keep the fuzzy pass so "Quezon City" → "Quezon".
+          const province = matchPsgcName(listProvinces(), addr.province);
           if (!province) {
             setLocationError("Could not detect your location. Please select your province and city.");
             return;
           }
           handleProvinceChange(province); // resets city/barangay + clears the province error
           const city = matchPsgcName(listMunicipalities(province), addr.city);
-          if (city) handleCityChange(city); // clears the city error
+          if (city) {
+            handleCityChange(city); // clears the city error
+          } else {
+            // Spec §3.4/§5.3: province matched but city did not → leave the
+            // city blank and PROMPT (never leave the user guessing why the
+            // city they had typed disappeared).
+            setLocationNotice("We filled in your province. Please select your city.");
+          }
           // NOTE: no revalidate() here — the change handlers above already
           // deleted the field errors, and revalidating against the STALE
           // pre-click `form` snapshot would re-flag the empty province/city.
@@ -476,6 +490,15 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 className="mb-3 text-xs text-sale"
               >
                 {locationError}
+              </p>
+            )}
+            {locationNotice && (
+              <p
+                role="status"
+                data-testid="location-notice"
+                className="mb-3 text-xs text-ink-secondary"
+              >
+                {locationNotice}
               </p>
             )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

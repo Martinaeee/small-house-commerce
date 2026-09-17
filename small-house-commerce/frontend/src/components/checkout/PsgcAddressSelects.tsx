@@ -335,6 +335,19 @@ export function PsgcAddressSelects({
             {barangayLegacy ? (
               <LegacyNote value={barangay} testid="psgc-barangay-legacy" />
             ) : null}
+            {/* A few (province, city) pairs resolve to no barangays in the
+                2021 snapshot (0.6% of rows). Without this the select is simply
+                empty with no explanation (final-review finding 4). The field is
+                optional, so this informs rather than blocks. */}
+            {city &&
+            !barangayLoading &&
+            barangayState.status === "ready" &&
+            barangayState.options.length === 0 &&
+            !barangayLegacy ? (
+              <p className="mt-1 text-xs text-ink-muted" data-testid="psgc-barangay-empty">
+                No barangays found for this city — you can skip this field.
+              </p>
+            ) : null}
           </>
         )}
       </div>
