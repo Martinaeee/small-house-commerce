@@ -37,23 +37,31 @@ export const checkoutSchema = z.object({
   preferredDeliveryDate: z
     .string()
     .date()
-    .refine((d) => new Date(`${d}T00:00:00+08:00`).getUTCDay() !== 0, {
+    .refine((d) => new Date(`${d}T00:00:00Z`).getUTCDay() !== 0, {
       message: 'Delivery is not available on Sundays.',
     })
     .refine((d) => {
-      // Manila 时区下：d ∈ [today+3, today+30]（自然日界；前端可选集为工作日并跳过周日，合法选择必然满足）
-      const date = new Date(`${d}T00:00:00+08:00`);
-      const today = new Date();
+      // Manila 日历日（规范时刻 = UTC 零点）：d ∈ [Manila今天+3, Manila今天+30]（自然日界；
+      // 前端可选集为工作日并跳过周日，合法选择必然满足）
+      const date = new Date(`${d}T00:00:00Z`);
+      // Manila「今天」须按 Asia/Manila 墙钟取（服务器可能跑 UTC）——用
+      // Intl.DateTimeFormat(timeZone "Asia/Manila") 取 y/m/d（与 deliveryWindow.ts 同族惯用法）
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      }).formatToParts(new Date());
+      const v = (t: Intl.DateTimeFormatPartTypes) =>
+        Number(parts.find((p) => p.type === t)?.value ?? '0');
+      const today = new Date(Date.UTC(v('year'), v('month') - 1, v('day')));
       const min = new Date(today);
-      min.setDate(min.getDate() + 3);
+      min.setUTCDate(min.getUTCDate() + 3);
       const max = new Date(today);
-      max.setDate(max.getDate() + 30);
-      const day = date.getUTCFullYear() * 10000 + (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
-      const minDay =
-        min.getUTCFullYear() * 10000 + (min.getUTCMonth() + 1) * 100 + min.getUTCDate();
-      const maxDay =
-        max.getUTCFullYear() * 10000 + (max.getUTCMonth() + 1) * 100 + max.getUTCDate();
-      return day >= minDay && day <= maxDay;
+      max.setUTCDate(max.getUTCDate() + 30);
+      const dNum = (x: Date) =>
+        x.getUTCFullYear() * 10000 + (x.getUTCMonth() + 1) * 100 + x.getUTCDate();
+      return dNum(date) >= dNum(min) && dNum(date) <= dNum(max);
     }, { message: 'Preferred delivery date must be within the next 30 days.' })
     .nullable()
     .optional(),

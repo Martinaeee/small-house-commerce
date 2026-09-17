@@ -123,7 +123,7 @@ export class OrdersService {
           shippingTotal: new Prisma.Decimal(shippingTotal),
           grandTotal: new Prisma.Decimal(grandTotal),
           preferredDeliveryDate: input.preferredDeliveryDate
-            ? new Date(`${input.preferredDeliveryDate}T00:00:00+08:00`)
+            ? new Date(`${input.preferredDeliveryDate}T00:00:00Z`)
             : null,
           items: {
             create: lines.map((line) => ({
