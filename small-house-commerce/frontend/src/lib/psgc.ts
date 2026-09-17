@@ -85,3 +85,64 @@ export async function fetchBarangays(
   barangayCache.set(key, data.barangays);
   return data.barangays;
 }
+
+export interface NominatimAddress {
+  province?: string;
+  city?: string;
+  barangay?: string;
+}
+
+/**
+ * Nominatim reverse geocode (client-side, no key). Confidence-fill only
+ * (spec §3.4): province/city resolve from address levels Nominatim returns,
+ * barangay best-effort. Throws on network/HTTP failure so the caller can
+ * show the inline hint — never blocks ordering (spec §2, §5.3).
+ */
+export async function reverseGeocode(lat: number, lon: number): Promise<NominatimAddress> {
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`,
+    { headers: { "Accept-Language": "en" } },
+  );
+  if (!res.ok) throw new Error("reverse geocode failed");
+  const data = (await res.json()) as {
+    address?: {
+      province?: string;
+      state?: string;
+      region?: string;
+      city?: string;
+      municipality?: string;
+      town?: string;
+      suburb?: string;
+      neighbourhood?: string;
+    };
+  };
+  const a = data.address ?? {};
+  return {
+    province: a.province ?? a.state ?? a.region,
+    city: a.city ?? a.municipality ?? a.town,
+    barangay: a.suburb ?? a.neighbourhood,
+  };
+}
+
+/**
+ * PSGC-name matcher: trim/lowercase/collapse-spaces. Also strips accents
+ * (NFD → combining-mark strip) so Nominatim's "Las Piñas" vs PSGC's
+ * "Las Piñas" / "Las Pinas" variants agree. Returns the canonical candidate
+ * name, or undefined on no (exact or fuzzy) match.
+ */
+export function matchPsgcName(candidates: string[], raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const norm = (s: string) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "");
+  const n = norm(raw);
+  if (!n) return undefined;
+  return (
+    candidates.find((c) => norm(c) === n) ??
+    candidates.find((c) => norm(c).includes(n) || n.includes(norm(c)))
+  );
+}

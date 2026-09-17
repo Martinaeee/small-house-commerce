@@ -21,6 +21,12 @@ import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import {
+  listMunicipalities,
+  listProvinces,
+  matchPsgcName,
+  reverseGeocode,
+} from "@/lib/psgc";
+import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
   validatePreferredDate,
@@ -101,6 +107,12 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       max: toDateInputValue(new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000)),
     };
   });
+
+  // Use-my-location (spec §3.4): geolocation is requested only on button click
+  // (checkout-only decision); reverse geocoding is confidence-fill, failures
+  // surface an inline hint and never block ordering.
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const {
     isBuyNow,
@@ -193,6 +205,79 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       delete next.preferredDeliveryDate;
       return next;
     });
+  };
+
+  // PSGC cascade change handlers (spec §3.3): reset downstream levels and
+  // clear any stale location error when the user edits these fields manually.
+  const handleProvinceChange = (v: string) => {
+    setLocationError(null);
+    setForm((f) => ({ ...f, province: v, city: "", barangay: "" }));
+    setErrors((cur) => {
+      const n = { ...cur };
+      delete n.province;
+      return n;
+    });
+  };
+
+  const handleCityChange = (v: string) => {
+    setLocationError(null);
+    setForm((f) => ({ ...f, city: v, barangay: "" }));
+    setErrors((cur) => {
+      const n = { ...cur };
+      delete n.city;
+      return n;
+    });
+  };
+
+  const handleBarangayChange = (v: string) =>
+    setForm((f) => ({ ...f, barangay: v }));
+
+  // Use my location (spec §3.4): geolocation → Nominatim reverse geocode →
+  // confidence-fill province/city via the same handlers as manual selection.
+  // Barangay is best-effort; with no cached list here it is left blank for the
+  // user to pick (spec: 命中才填).
+  const handleUseMyLocation = () => {
+    setLocationError(null);
+    if (!("geolocation" in navigator)) {
+      setLocationError("Could not detect your location. Please select your province and city.");
+      return;
+    }
+    setLocating(true);
+    let city: string | undefined;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const addr = await reverseGeocode(latitude, longitude);
+          const provinces = listProvinces();
+          const province = matchPsgcName(provinces, addr.province);
+          if (!province) {
+            setLocationError("Could not detect your location. Please select your province and city.");
+            return;
+          }
+          handleProvinceChange(province); // resets city/barangay via the existing handler
+          city = matchPsgcName(listMunicipalities(province), addr.city);
+          if (city) {
+            handleCityChange(city);
+            const b = matchPsgcName([], addr.barangay); // no cached list — skip barangay fill
+            void b;
+          }
+          // barangay left blank for the user to pick (spec: 命中才填; we don't have the list here)
+        } catch {
+          setLocationError("Could not detect your location. Please select your province and city.");
+        } finally {
+          setLocating(false);
+          // revalidate the filled fields
+          revalidate("province")();
+          if (city) revalidate("city")();
+        }
+      },
+      () => {
+        setLocating(false);
+        setLocationError("Could not detect your location. Please select your province and city.");
+      },
+      { timeout: 10000, maximumAge: 60000 },
+    );
   };
 
   function goToReview() {
@@ -378,29 +463,35 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         {/* 3. Delivery address — existing <section> card moved here verbatim */}
         <div className="lg:col-start-3 lg:col-span-3 lg:row-start-2">
           <section className="rounded-lg border border-border bg-card p-5">
-            <h2 className="mb-4 text-lg font-semibold text-ink">Delivery Address</h2>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-ink">Delivery Address</h2>
+              <button
+                type="button"
+                data-testid="use-my-location"
+                onClick={handleUseMyLocation}
+                disabled={locating}
+                className="text-sm font-medium text-cta hover:underline disabled:opacity-60"
+              >
+                {locating ? "Locating…" : "Use my location"}
+              </button>
+            </div>
+            {locationError && (
+              <p
+                role="alert"
+                data-testid="location-error"
+                className="mb-3 text-xs text-sale"
+              >
+                {locationError}
+              </p>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <PsgcAddressSelects
                 province={form.province}
                 city={form.city}
                 barangay={form.barangay}
-                onProvinceChange={(v) => {
-                  setForm((f) => ({ ...f, province: v, city: "", barangay: "" }));
-                  setErrors((cur) => {
-                    const n = { ...cur };
-                    delete n.province;
-                    return n;
-                  });
-                }}
-                onCityChange={(v) => {
-                  setForm((f) => ({ ...f, city: v, barangay: "" }));
-                  setErrors((cur) => {
-                    const n = { ...cur };
-                    delete n.city;
-                    return n;
-                  });
-                }}
-                onBarangayChange={(v) => setForm((f) => ({ ...f, barangay: v }))}
+                onProvinceChange={handleProvinceChange}
+                onCityChange={handleCityChange}
+                onBarangayChange={handleBarangayChange}
                 errors={errors}
                 onBlurField={(field) => revalidate(field)()}
                 inputCls={inputCls}
