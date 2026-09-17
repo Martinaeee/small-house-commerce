@@ -15,7 +15,7 @@
 
 - 后端 migration：**additive-only、可空列**；共享 Postgres（localhost:5432/small_house）迁移串行（先通知线 A），`prisma migrate reset` 禁止。
 - 零新 npm 依赖（无日期库；日历用原生 `<input type="date">` + 现有 `addBusinessDays` 纯函数）。
-- `frontend/src/lib/api.ts` 禁止修改——`createOrder` 的 payload 类型在 api.ts 内（L279-291）。**裁定：api.ts 内类型需加可选字段时，以「类型声明最小侵入」为限——若不可行则改为在调用侧断言；实现计划中裁定具体方式**（优先：api.ts 的 createOrder 参数类型加 `preferredDeliveryDate?: string | null`——该行是类型声明非逻辑，若评审认为仍属「修改 api.ts」则改走调用侧类型断言。D 批实现时先问控制器）。
+- `frontend/src/lib/api.ts`：**用户裁定（2026-09-17）解除冻结，允许 2 行纯新增**——`createOrder` 输入类型加 `preferredDeliveryDate?: string | null`、请求体序列化加 `preferredDeliveryDate: input.preferredDeliveryDate ?? null`（既有调用方行为零变化；后续同类需求仍须先问）。D-T3 初版采用的调用侧交叉类型断言**作废**（类型断言不上 wire——api.ts 显式枚举序列化会丢弃该字段），改回普通调用。
 - 冻结 COD 文案不受影响；新文案英文。
 - 后台列表/详情页为 AdminShell 区域（线 A 共享列表含 AdminShell——本批只改 `admin/(shell)/orders/*` 页面，仍先通知线 A）。
 - 草稿机制（`luwag_checkout_draft`）：preferredDeliveryDate 属于**订单数据**（非 customer 数据）——放草稿顶层 `preferredDeliveryDate?: string | null`（ISO `yyyy-MM-dd`），与 `savedAt` 平级；确认页与表单页共用。
