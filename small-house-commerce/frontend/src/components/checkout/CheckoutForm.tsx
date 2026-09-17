@@ -234,8 +234,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
   // Use my location (spec §3.4): geolocation → Nominatim reverse geocode →
   // confidence-fill province/city via the same handlers as manual selection.
-  // Barangay is best-effort; with no cached list here it is left blank for the
-  // user to pick (spec: 命中才填).
+  // Barangay is left blank for the user to pick (spec §3.4: 命中才填; the
+  // per-city barangay list is only fetched by PsgcAddressSelects).
   const handleUseMyLocation = () => {
     setLocationError(null);
     if (!("geolocation" in navigator)) {
@@ -243,7 +243,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       return;
     }
     setLocating(true);
-    let city: string | undefined;
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
@@ -255,21 +254,16 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             setLocationError("Could not detect your location. Please select your province and city.");
             return;
           }
-          handleProvinceChange(province); // resets city/barangay via the existing handler
-          city = matchPsgcName(listMunicipalities(province), addr.city);
-          if (city) {
-            handleCityChange(city);
-            const b = matchPsgcName([], addr.barangay); // no cached list — skip barangay fill
-            void b;
-          }
-          // barangay left blank for the user to pick (spec: 命中才填; we don't have the list here)
+          handleProvinceChange(province); // resets city/barangay + clears the province error
+          const city = matchPsgcName(listMunicipalities(province), addr.city);
+          if (city) handleCityChange(city); // clears the city error
+          // NOTE: no revalidate() here — the change handlers above already
+          // deleted the field errors, and revalidating against the STALE
+          // pre-click `form` snapshot would re-flag the empty province/city.
         } catch {
           setLocationError("Could not detect your location. Please select your province and city.");
         } finally {
           setLocating(false);
-          // revalidate the filled fields
-          revalidate("province")();
-          if (city) revalidate("city")();
         }
       },
       () => {
