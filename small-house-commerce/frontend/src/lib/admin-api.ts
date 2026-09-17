@@ -108,6 +108,7 @@ export interface AdminOrderRow {
   confirmationNote: string | null;
   createdAt: string;
   updatedAt: string;
+  preferredDeliveryDate: string | null;
 }
 
 export interface AdminOrderCustomer {

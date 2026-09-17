@@ -63,6 +63,20 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+// Preferred delivery date is a calendar date (@db.Date, UTC midnight on the
+// wire): same en-PH date style as formatDateTime, without the time part.
+// Falls back to the raw value if it cannot be parsed.
+function formatPreferredDate(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function textOrDash(value: string | null | undefined): string {
   return value === null || value === undefined || value === "" ? "—" : value;
 }
@@ -354,6 +368,13 @@ function OrderDetailPage(): ReactNode {
         },
       ]
     : [];
+
+  if (order.preferredDeliveryDate) {
+    addressRows.push({
+      label: "Preferred delivery date",
+      value: formatPreferredDate(order.preferredDeliveryDate),
+    });
+  }
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">

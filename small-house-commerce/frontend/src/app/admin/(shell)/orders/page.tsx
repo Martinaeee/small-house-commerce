@@ -72,6 +72,20 @@ const TERMINAL_STATUSES = new Set<OrderStatus>([
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Preferred delivery date is a calendar date (@db.Date, UTC midnight on the
+// wire): same en-PH date style as the Created column, minus a meaningless
+// time component. Missing/invalid values render as an em dash.
+function formatPreferredDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 type ActionDialog = { id: string; kind: "confirm" | "cancel" } | null;
 
 function OrdersPageContent() {
@@ -385,6 +399,7 @@ function OrdersPageContent() {
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
                   <th scope="col" className="px-4 py-3">Order Number</th>
                   <th scope="col" className="px-4 py-3">Created</th>
+                  <th scope="col" className="px-4 py-3">Preferred</th>
                   <th scope="col" className="px-4 py-3">Customer</th>
                   <th scope="col" className="px-4 py-3">Phone</th>
                   <th scope="col" className="px-4 py-3">Items</th>
@@ -422,6 +437,9 @@ function OrdersPageContent() {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
+                        {formatPreferredDate(row.preferredDeliveryDate)}
                       </td>
                       <td className="px-4 py-3 text-ink">
                         {row.customer.name ?? "—"}
