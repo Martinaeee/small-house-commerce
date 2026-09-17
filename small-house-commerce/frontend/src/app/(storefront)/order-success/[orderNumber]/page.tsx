@@ -42,6 +42,13 @@ export default async function OrderSuccessPage({
             <dd className="font-medium text-ink">Order Received</dd>
           </div>
         </dl>
+        <Link
+          href={`/track-order?order=${orderNumber}`}
+          className="text-sm text-cta hover:underline"
+          data-testid="success-track-link"
+        >
+          Track your order
+        </Link>
       </div>
 
       <p className="text-sm text-ink-muted">

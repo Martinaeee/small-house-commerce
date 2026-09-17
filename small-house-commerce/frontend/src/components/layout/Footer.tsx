@@ -47,6 +47,14 @@ export function Footer({
         <div>
           <p className="text-sm font-semibold text-ink">Contact</p>
           <ul className="mt-3 flex flex-col gap-2 text-sm text-ink-secondary">
+            <li>
+              <Link
+                href="/track-order"
+                className="text-sm text-ink-secondary hover:text-cta"
+              >
+                Track Order
+              </Link>
+            </li>
             <li>Cash on Delivery nationwide</li>
             <li>{supportHours}</li>
             <li>{supportEmail}</li>
