@@ -33,30 +33,38 @@ additive-only 迁移；无默认值。
 
 ### 3.2 后端 DTO 与校验
 
+**日期约定（裁定 D-1，终审前修正）**：ISO 串 `"yyyy-MM-dd"` 视为 **Manila 日历日**；规范时刻 = **UTC 零点**（`new Date("${d}T00:00:00Z")`）——其 `getUTC*` 读出的日历日即 Manila 日历日；落库 `@db.Date`（UTC 会话）存同一日历日；读取后按 Asia/Manila 格式化仍为同日。**禁止** `T00:00:00+08:00` 写法（与 getUTC* 组合偏移一天：周日误判、范围 +4..+31、DATE 倒退一天——D-T1 实证）。
+
 `orders/dto/order.dto.ts` 的 `checkoutSchema` 新增：
 ```ts
 preferredDeliveryDate: z
   .string()
   .date()
-  .refine((d) => new Date(`${d}T00:00:00+08:00`).getUTCDay() !== 0, {
+  .refine((d) => new Date(`${d}T00:00:00Z`).getUTCDay() !== 0, {
     message: "Delivery is not available on Sundays.",
   })
   .refine((d) => {
-    // Manila 时区下：d ∈ [today+3, today+30]（自然日界；前端可选集为工作日并跳过周日，
-    // 合法选择必然满足 [today+3, today+30]）
-    const date = new Date(`${d}T00:00:00+08:00`);
-    const today = new Date(); // 服务器本地（PH 无 DST，与 +08:00 一致）
-    const min = new Date(today); min.setDate(min.getDate() + 3);
-    const max = new Date(today); max.setDate(max.getDate() + 30);
-    const day = date.getUTCFullYear() * 10000 + (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
-    const minDay = min.getUTCFullYear() * 10000 + (min.getUTCMonth() + 1) * 100 + min.getUTCDate();
-    const maxDay = max.getUTCFullYear() * 10000 + (max.getUTCMonth() + 1) * 100 + max.getUTCDate();
-    return day >= minDay && day <= maxDay;
+    // Manila 日历日（规范时刻 = UTC 零点）：d ∈ [Manila今天+3, Manila今天+30]（自然日界；
+    // 前端可选集为工作日并跳过周日，合法选择必然满足）
+    const date = new Date(`${d}T00:00:00Z`);
+    // Manila「今天」须按 Asia/Manila 墙钟取（服务器可能跑 UTC）——用
+    // Intl.DateTimeFormat(timeZone "Asia/Manila") 取 y/m/d（与 deliveryWindow.ts 同族惯用法）
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila", year: "numeric", month: "numeric", day: "numeric",
+    }).formatToParts(new Date());
+    const v = (t: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((p) => p.type === t)?.value ?? "0");
+    const today = new Date(Date.UTC(v("year"), v("month") - 1, v("day")));
+    const min = new Date(today); min.setUTCDate(min.getUTCDate() + 3);
+    const max = new Date(today); max.setUTCDate(max.getUTCDate() + 30);
+    const dNum = (x: Date) =>
+      x.getUTCFullYear() * 10000 + (x.getUTCMonth() + 1) * 100 + x.getUTCDate();
+    return dNum(date) >= dNum(min) && dNum(date) <= dNum(max);
   }, { message: "Preferred delivery date must be within the next 30 days." })
   .nullable()
   .optional(),
 ```
-- 解析后存入 `tx.order.create({ data: { preferredDeliveryDate: new Date(`${value}T00:00:00+08:00`) } })`（无值 → 不写/写 null）。
+- 解析后存入 `tx.order.create({ data: { preferredDeliveryDate: new Date(`${value}T00:00:00Z`) } })`（无值 → 写 null）。
 - 服务端不重算工作日集（前端为唯一入口且后端上下界宽松覆盖——最小合法偏移 ≥3 天、最大 ≤30 天，见 B 批 `addBusinessDays` 性质：+3bd ≥ +3 自然日）。
 
 ### 3.3 前端 checkout 表单（表单页）
