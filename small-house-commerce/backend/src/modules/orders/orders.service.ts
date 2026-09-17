@@ -122,6 +122,9 @@ export class OrdersService {
           discountTotal: new Prisma.Decimal(discount),
           shippingTotal: new Prisma.Decimal(shippingTotal),
           grandTotal: new Prisma.Decimal(grandTotal),
+          preferredDeliveryDate: input.preferredDeliveryDate
+            ? new Date(`${input.preferredDeliveryDate}T00:00:00+08:00`)
+            : null,
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,

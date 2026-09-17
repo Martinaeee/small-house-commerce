@@ -181,6 +181,7 @@ model Order {
   confirmationNote String? @map("confirmation_note")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   items           OrderItem[]
