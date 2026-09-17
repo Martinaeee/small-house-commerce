@@ -67,6 +67,7 @@ export function SiteSearch() {
   const [activeRow, setActiveRow] = useState(-1);
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
 
+  const desktopInputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const seq = useRef(0);
@@ -144,6 +145,21 @@ export function SiteSearch() {
     }
   }, []);
 
+  // One-click clear for the in-field ✕ (iOS Safari never shows the native
+  // type="search" cancel). Bumping seq invalidates any in-flight suggestion
+  // response; focus returns to whichever field owns the button.
+  const clearQuery = useCallback(
+    (inputRef: { current: HTMLInputElement | null } | null) => {
+      seq.current += 1;
+      setQuery("");
+      setResults([]);
+      setSettledTerm("");
+      setActiveRow(-1);
+      inputRef?.current?.focus();
+    },
+    [],
+  );
+
   const goToResults = useCallback(
     (value: string) => {
       const q = value.trim();
@@ -215,8 +231,29 @@ export function SiteSearch() {
           aria-label="Search products"
           aria-expanded={open}
           aria-controls={`${navId}-search-suggestions`}
-          className="h-11 w-full rounded-full border border-border bg-card pl-10 pr-4 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
+          className={`h-11 w-full rounded-full border border-border bg-card pl-10 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none [&::-webkit-search-cancel-button]:hidden ${
+            query.length > 0 ? "pr-9" : "pr-4"
+          }`}
         />
+        {query.length > 0 ? (
+          <button
+            type="button"
+            aria-label="Clear search"
+            // Keep focus inside the input so the suggestion flow is uninterrupted.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => clearQuery(inputRef)}
+            className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted hover:bg-primary-light/50 hover:text-ink"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden>
+              <path
+                d="m6 6 12 12M18 6 6 18"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        ) : null}
       </div>
     </form>
   );
@@ -247,7 +284,7 @@ export function SiteSearch() {
           the account icon on the merged single row. py-2.5 keeps the 64px
           header height. */}
       <div className="mx-auto hidden w-full max-w-[560px] flex-1 py-2.5 lg:block xl:ml-auto xl:mr-0 xl:w-40 xl:max-w-none xl:flex-none">
-        {renderField(null)}
+        {renderField(desktopInputRef)}
       </div>
 
       {/* Mobile full-width bar under the sticky header */}

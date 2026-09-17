@@ -45,6 +45,6 @@ import { SuppliersService } from './suppliers.service.js';
     SuppliersService,
     LandingPagesService,
   ],
-  exports: [ReviewsService],
+  exports: [ReviewsService, ProductsService],
 })
 export class CatalogModule {}

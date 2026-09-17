@@ -84,3 +84,9 @@ export function track(event: string, data?: Record<string, unknown>): void {
   if (typeof window === "undefined" || !PIXEL_ID || !window.fbq) return;
   window.fbq("track", event, data);
 }
+
+/** Fires a custom Meta Pixel event (homepage funnel), same no-op guards as track(). */
+export function trackCustom(event: string, data?: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !PIXEL_ID || !window.fbq) return;
+  window.fbq("trackCustom", event, data);
+}

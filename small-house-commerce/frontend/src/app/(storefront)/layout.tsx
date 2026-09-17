@@ -5,6 +5,8 @@ import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
 import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { BackToTop } from "@/components/layout/BackToTop";
 import { buildNav } from "@/lib/nav";
 import { serverApiUrl, type Category, type Collection } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
@@ -56,6 +58,8 @@ export default async function StorefrontLayout({
       />
       <CartDrawer />
       <MessengerChat />
+      <MobileTabBar />
+      <BackToTop />
     </Providers>
   );
 }
