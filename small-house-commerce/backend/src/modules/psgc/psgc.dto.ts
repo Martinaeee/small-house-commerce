@@ -8,8 +8,8 @@ import { z } from 'zod';
  * carries no province field.
  */
 export const barangayQuerySchema = z.object({
-  province: z.string().min(1).max(120),
-  city: z.string().min(1).max(120),
+  province: z.string().trim().min(1).max(120),
+  city: z.string().trim().min(1).max(120),
 });
 
 export type BarangayQuery = z.infer<typeof barangayQuerySchema>;

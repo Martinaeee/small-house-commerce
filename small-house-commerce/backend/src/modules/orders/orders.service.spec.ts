@@ -1,5 +1,6 @@
 import { Prisma } from '../../generated/prisma/client.js';
 import { describe, expect, it, vi } from 'vitest';
+import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { checkoutSchema } from './dto/order.dto.js';
 import { OrdersService } from './orders.service.js';
@@ -53,6 +54,7 @@ function createHarness() {
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
     sku: { findUnique: vi.fn(async () => skuRecord()) },
+    order: { findUnique: vi.fn() },
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
@@ -100,5 +102,79 @@ describe('OrdersService.checkout attribution', () => {
       attribution: { landingPageId: 'not-a-uuid' },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('OrdersService.lookup', () => {
+  // Every failure path must resolve to this EXACT string so the response can
+  // never reveal whether the order number exists (spec §3.1).
+  const NOT_FOUND_MESSAGE = 'Order not found. Check your order number and mobile number.';
+
+  function orderRecord(overrides: {
+    customerPhone?: string | null;
+    snapshotPhone?: string | null;
+  } = {}) {
+    const { customerPhone = '+639171234567', snapshotPhone = null } = overrides;
+    return {
+      id: 'order-1',
+      orderNumber: 'PH1001',
+      customer: customerPhone === null ? null : { normalizedPhone: customerPhone },
+      shippingAddress: snapshotPhone === null ? null : { phone: snapshotPhone },
+    };
+  }
+
+  it('throws the uniform 404 when the order number does not exist', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(null);
+
+    const err = await service.lookup('PH9999', '09171234567').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect((err as Error).message).toBe(NOT_FOUND_MESSAGE);
+  });
+
+  it('throws the uniform 404 when the phone does not match the customer', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      orderRecord({ customerPhone: '+639171234567' }),
+    );
+
+    const err = await service
+      .lookup('PH1001', '09170000000')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect((err as Error).message).toBe(NOT_FOUND_MESSAGE);
+  });
+
+  it('throws the uniform 404 when the submitted phone is unparseable', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      orderRecord({ customerPhone: '+639171234567' }),
+    );
+
+    const err = await service.lookup('PH1001', 'abc').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect((err as Error).message).toBe(NOT_FOUND_MESSAGE);
+  });
+
+  it('returns the order when the phone matches the customer record', async () => {
+    const { service, prisma } = createHarness();
+    const order = orderRecord({ customerPhone: '+639171234567' });
+    prisma.order.findUnique.mockResolvedValue(order);
+
+    await expect(service.lookup('PH1001', '09171234567')).resolves.toBe(order);
+  });
+
+  it('returns the order when the phone matches the shipping-address snapshot', async () => {
+    const { service, prisma } = createHarness();
+    const order = orderRecord({
+      customerPhone: '+639000000000',
+      snapshotPhone: '09171234567',
+    });
+    prisma.order.findUnique.mockResolvedValue(order);
+
+    await expect(service.lookup('PH1001', '09171234567')).resolves.toBe(order);
   });
 });
