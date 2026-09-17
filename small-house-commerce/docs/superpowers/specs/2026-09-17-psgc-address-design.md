@@ -35,9 +35,15 @@ checkout 省/市/Barangay 目前是自由文本（易错、无法级联、配送
 
 ### 3.2 后端端点
 
-**GET `/api/v1/storefront/psgc/barangays?city=<名称>`**（无鉴权）：
-- 模块级加载一次（`fs.readFileSync` + JSON.parse，启动时 ~50ms）；按 `citymun === city` 过滤（精确匹配，名称规范化 trim）。
-- 返回 `{ city, barangays: [{ code, name }] }`；城市无匹配 → `[]`（200，非 404——前端据此显示「未找到」）；`city` 缺失/超长 → 400 Zod。
+**裁定 E-1（E-T1 复审后修正）**：barangays 数据无省字段且同名市跨省重复（如 San Fernando 出现在多省）——仅按 `city` 匹配会串省。端点改为双参：
+
+**GET `/api/v1/storefront/psgc/barangays?province=<省名>&city=<市名>`**（无鉴权）：
+- 模块级加载两次（barangays 4.3MB + municipalities 112KB，启动时一次性）。
+- **匹配语义（确定性、无逐查询模糊）**：
+  1. 加载时构建映射：对 municipalities 每项，在 barangays 的去重 citymun 集合中解析其对应 citymun——归一化（NFD 去重音、小写、去非字母数字、去尾部 "city"/"of"）后取「相等或包含」的 citymun；无匹配的市（如 Manila——其 barangays 按区划名挂载）落到**手工区划集合**（Manila: Tondo 等 16 区 + 别名）。
+  2. 查询时：`province+city` 在 municipalities 中按归一化精确匹配（两字段都须命中——省上下文消除同名歧义）→ 取其解析出的 citymun → 按 `citymun === citymun解析值` **精确**过滤 barangays。
+- 返回 `{ city, barangays: [{ code, name }] }`（code 一律 `String()` 化）；省/市任一缺失或超长（max 120）→ 400 Zod；值先 trim。
+- 无匹配 → `[]`（200，非 404）。
 
 ### 3.3 前端级联选择（checkout 表单）
 
@@ -97,7 +103,7 @@ CheckoutConfirmView 地址卡底部 ← Google Maps iframe embed（免 key）
 
 ### 5.2 浏览器/接口验收（:3003/:3004）
 
-1. 数据：前端 3 个 JSON 可解析、省 85 项含 "Metro Manila"(NCR)；后端 barangays 端点按 "Quezon City" 过滤返回其 barangay 列表（条数正确、含 "Pob." 类型），未知市返回 `[]`，缺参 400。
+1. 数据：前端 3 个 JSON 可解析、省 85 项含 "Metro Manila"(NCR)；后端 barangays 端点 `?province=Metro Manila&city=Quezon` 返回 QC 的 142 个 barangay（裁定 E-1 后双参）；`?province=Metro Manila&city=Manila` 返回 Manila 区划集合下的 barangay；同名市跨省消歧（如 Pampanga 与 La Union 的 San Fernando 各自只返回本省集合）；未知组合返回 `[]`，缺参/超长 400。
 2. 级联：选 "Metro Manila" → 市列表仅 NCR 市（Manila/Quezon City/Makati…）；选市 → barangay 可搜索加载；切换省 → 市/barangay 重置；直接手填历史值（草稿回填）仍可显示（值不在列表时 select 显示原文兜底——**裁定：value 不在选项集时渲染只读文本 + 可重选**）。
 3. 定位：按钮点击出现权限询问（可授/拒）；授权后（测试用固定坐标 stub 或真实授权）省/市回填正确；拒绝 → 行内提示且不阻塞下单。
 4. 地图：确认页地址卡含 iframe（src 含编码地址）；无地址不渲染。
