@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Success-page preferred-date line (spec §3.5). The success page is a server
@@ -8,17 +8,34 @@ import { useState } from "react";
  * order, so the picked date is carried over from the confirm step via
  * sessionStorage — the same fault-tolerant pattern as lastOrderTotal. Renders
  * nothing when no date was chosen or storage is unavailable (spec §5.3).
+ *
+ * The sessionStorage read happens in a deferred effect, never during render:
+ * SSR and the first client render both produce null, so there is no hydration
+ * mismatch on a hard refresh with a stashed date (§5.2 scenario 5).
  */
 export function PreferredDateLine() {
-  // Lazy initializer keeps the storage read out of the effect body
-  // (react-hooks/set-state-in-effect) and is StrictMode-safe.
-  const [preferredDate] = useState(() => {
-    try {
-      return sessionStorage.getItem("lastPreferredDate") ?? "";
-    } catch {
-      return "";
-    }
-  });
+  const [preferredDate, setPreferredDate] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      // sessionStorage is browser-only; the await also keeps the setState out
+      // of the effect's synchronous body (react-hooks/set-state-in-effect;
+      // same convention as CheckoutConfirmView/AuthProvider/CartContext).
+      await Promise.resolve();
+      if (!alive) return;
+      try {
+        const raw = sessionStorage.getItem("lastPreferredDate") ?? "";
+        // 仅接受合法 yyyy-MM-dd，防手改存储触发 Intl 抛错
+        setPreferredDate(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "");
+      } catch {
+        setPreferredDate("");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (!preferredDate) return null;
 
@@ -32,7 +49,7 @@ export function PreferredDateLine() {
   }).format(new Date(`${preferredDate}T00:00:00Z`));
 
   return (
-    <p className="text-sm text-ink-secondary" data-testid="success-preferred-date">
+    <p className="mt-3 text-sm text-ink-secondary" data-testid="success-preferred-date">
       {`Preferred delivery date: ${formatted}`}
     </p>
   );
