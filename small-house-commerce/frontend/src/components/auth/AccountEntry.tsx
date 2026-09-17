@@ -30,7 +30,26 @@ export function AccountEntry() {
         className="flex items-center gap-2 rounded-lg p-1.5 text-ink hover:text-cta max-[374px]:p-1 lg:p-2"
         aria-label="Your account"
       >
-        {icon}
+        <span className="relative inline-flex">
+          {icon}
+          {/* Green ✅ at the icon's bottom-right: signed-in state indicator
+              (guests render the bare icon). Mirrors the cart badge geometry. */}
+          <span
+            data-testid="account-signedin-badge"
+            className="absolute -bottom-0.5 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-success ring-2 ring-background"
+            aria-hidden
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="h-2.5 w-2.5">
+              <path
+                d="m5 12.5 4.5 4.5L19 7.5"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </span>
         <span className="hidden text-sm font-medium lg:inline xl:hidden">
           Hi, {firstName}
         </span>

@@ -415,6 +415,61 @@ export interface AdminCollectionRow {
   _count: { products: number };
 }
 
+// --- homepage CMS ------------------------------------------------------------
+
+export type HomepageSectionType =
+  | "HERO"
+  | "USP"
+  | "CATEGORY_TILES"
+  | "PRODUCT_GRID"
+  | "SOLUTIONS"
+  | "PRODUCT_STORY"
+  | "ROOM_INSPIRATION"
+  | "UGC"
+  | "BRAND_STORY"
+  | "CONFIDENCE";
+
+export interface AdminHomepageSectionProduct {
+  id: string;
+  productId: string;
+  sortOrder: number;
+  badge: string | null;
+  product: {
+    id: string;
+    name: string;
+    slug: string;
+    status: ProductStatus;
+  };
+}
+
+/** Raw admin row: payload is the unvalidated Json blob the per-type editors read/write. */
+export interface AdminHomepageSection {
+  id: string;
+  type: HomepageSectionType;
+  title: string | null;
+  subtitle: string | null;
+  enabled: boolean;
+  sortOrder: number;
+  payload: Record<string, unknown> | null;
+  products: AdminHomepageSectionProduct[];
+}
+
+export interface SaveHomepageSectionInput {
+  id?: string;
+  type?: HomepageSectionType;
+  title?: string | null;
+  subtitle?: string | null;
+  enabled: boolean;
+  sortOrder: number;
+  payload?: unknown;
+}
+
+export interface SetHomepageProductsRow {
+  productId: string;
+  sortOrder: number;
+  badge?: string | null;
+}
+
 // --- request DTOs (Decimal fields send as JSON numbers; zod z.number()) ------
 
 export interface CreateProductInput {
@@ -733,4 +788,26 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ contentType, fileName }),
     }),
+
+  // --- homepage CMS ---------------------------------------------------------
+
+  listHomepageSections: (): Promise<AdminHomepageSection[]> =>
+    adminAuthedFetch<AdminHomepageSection[]>("/api/v1/admin/homepage/sections"),
+
+  saveHomepageSections: (
+    sections: SaveHomepageSectionInput[],
+  ): Promise<AdminHomepageSection[]> =>
+    adminAuthedFetch<AdminHomepageSection[]>("/api/v1/admin/homepage/sections", {
+      method: "PATCH",
+      body: JSON.stringify({ sections }),
+    }),
+
+  setHomepageSectionProducts: (
+    id: string,
+    rows: SetHomepageProductsRow[],
+  ): Promise<{ ok: boolean; count: number }> =>
+    adminAuthedFetch<{ ok: boolean; count: number }>(
+      `/api/v1/admin/homepage/sections/${encodeURIComponent(id)}/products`,
+      { method: "PUT", body: JSON.stringify({ rows }) },
+    ),
 };

@@ -12,9 +12,11 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 
 interface ProductCardProps {
   product: Product;
+  /** Section-provided corner badge (e.g. 新品). Undefined = no chip. */
+  badge?: string;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, badge }: ProductCardProps) {
   const firstImage = product.images[0]?.url;
   const firstSku = product.variants[0]?.sku ?? null;
   const outOfStock = firstSku !== null && firstSku.availableInventory <= 0;
@@ -35,6 +37,11 @@ export function ProductCard({ product }: ProductCardProps) {
     <article className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-shadow hover:shadow-md">
       <Link href={`/products/${product.slug}`} className="relative block">
         {image}
+        {badge ? (
+          <span className="absolute right-3 top-3 rounded bg-cta px-2 py-1 text-xs font-semibold text-white">
+            {badge}
+          </span>
+        ) : null}
         {outOfStock && (
           <span className="absolute left-3 top-3 rounded bg-ink/80 px-2 py-1 text-xs font-semibold text-white">
             Out of Stock

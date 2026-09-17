@@ -28,6 +28,10 @@
   /* §5.6 promotion (sale only) */
   --color-sale: #d9534f;
 
+  /* positive state (logged-in check badge); added after the design-system
+     palette, which defines no success color */
+  --color-success: #217a3c;
+
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
 
@@ -37,6 +41,58 @@
 
   /* §7 container width */
   --container-content: 1200px;
+}
+
+/*
+ * Homepage room-scene hotspot entry (one-shot staggered pop + ping ring).
+ * Delays are supplied inline per dot; both are disabled for users who
+ * prefer reduced motion.
+ */
+@keyframes hotspot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hotspot-ring {
+  /* Fade in during the first 15% so the backwards-fill delay and the paused
+     pre-play state both render the ring invisible rather than as a halo. */
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  15% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+.hotspot-pop {
+  animation: hotspot-pop 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.hotspot-ring {
+  animation: hotspot-ring 600ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-pop,
+  .hotspot-ring {
+    animation: none;
+  }
 }
 
 @layer base {

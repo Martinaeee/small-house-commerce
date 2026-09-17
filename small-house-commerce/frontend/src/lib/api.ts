@@ -7,6 +7,7 @@
  */
 
 import type { Attribution } from "./tracking";
+import { STOREFRONT_TAGS } from "./cache-tags";
 
 export const serverApiUrl = (path: string): string => {
   const target = process.env.API_TARGET ?? "http://localhost:3000";
@@ -96,6 +97,72 @@ export interface Product {
   foldedDepth: number | null;
   images: ProductImage[];
   variants: ProductVariant[];
+}
+
+// --- homepage CMS (storefront composition) ----------------------------------
+
+export type HomepageSectionType =
+  | "HERO"
+  | "USP"
+  | "CATEGORY_TILES"
+  | "PRODUCT_GRID"
+  | "SOLUTIONS"
+  | "PRODUCT_STORY"
+  | "ROOM_INSPIRATION"
+  | "UGC"
+  | "BRAND_STORY"
+  | "CONFIDENCE";
+
+export interface HomepageCategoryTile {
+  id: string;
+  name: string;
+  slug: string;
+  imageUrl: string;
+}
+
+/** A full storefront Product plus its per-section badge. */
+export type HomepageSectionProduct = Product & { badge: string | null };
+
+// --- room scene hotspots (ROOM_INSPIRATION payload) --------------------------
+
+/** Admin/input shape: a dot positioned by percentage over its scene image. */
+export interface RoomSceneHotspotInput {
+  productId: string;
+  xPct: number;
+  yPct: number;
+}
+
+/** Admin-persisted scene (payload.scenes[n] before storefront hydration). */
+export interface RoomScene {
+  id: string;
+  imageUrl: string;
+  alt?: string;
+  hotspots: RoomSceneHotspotInput[];
+}
+
+/** Storefront shape: backend replaces productId with the hydrated product. */
+export interface RoomSceneHotspot extends RoomSceneHotspotInput {
+  product: Product;
+}
+
+export interface HydratedRoomScene extends Omit<RoomScene, "hotspots"> {
+  hotspots: RoomSceneHotspot[];
+}
+
+export interface HomepageSection {
+  id: string;
+  type: HomepageSectionType;
+  title: string | null;
+  subtitle: string | null;
+  sortOrder: number;
+  payload: Record<string, unknown>;
+  // Present only on the types hydrated by the backend.
+  products?: HomepageSectionProduct[];
+  categories?: HomepageCategoryTile[];
+}
+
+export interface HomepageResponse {
+  sections: HomepageSection[];
 }
 
 export interface Collection {
@@ -203,7 +270,22 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   await assertOk(res);
 }
 
+// Homepage composition. Server Components only (absolute URL + ISR tags);
+// the browser reads sections through server-rendered markup.
+export async function getHomepage(): Promise<HomepageResponse> {
+  const res = await fetch(serverApiUrl("/api/v1/storefront/homepage"), {
+    next: { revalidate: 120, tags: STOREFRONT_TAGS },
+  });
+  await assertOk(res);
+  return res.json() as Promise<HomepageResponse>;
+}
+
 export const api = {
+  // Recently Viewed batch lookup; backend preserves the requested id order.
+  getProductsByIds: (ids: string[]) =>
+    request<Paged<Product>>(
+      `/api/v1/storefront/products?ids=${ids.map((id) => encodeURIComponent(id)).join(",")}`,
+    ),
   getCategories: () => request<Category[]>("/api/v1/storefront/categories"),
   getProducts: (params?: {
     categoryId?: string;

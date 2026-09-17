@@ -17,6 +17,7 @@ import argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   PrismaClient,
+  HomepageSectionType,
   PermissionCode,
   RoleCode,
   type PermissionCode as PermissionCodeType,
@@ -194,6 +195,7 @@ async function main(): Promise<void> {
   await ensureInitialAdmin();
   await ensureDefaultWarehouse();
   await ensureCoreCollections();
+  await ensureHomepageSections();
 }
 
 /**
@@ -273,6 +275,162 @@ async function ensureCoreCollections(): Promise<void> {
     });
   }
   console.log(`Ensured ${core.length} core collections.`);
+}
+
+async function ensureHomepageSections(): Promise<void> {
+  // Fixed business key: (type, sortOrder). Re-running the seed refreshes the
+  // defaults but never duplicates a section. The two PRODUCT_STORY rows share
+  // a type, so sortOrder is part of the key.
+  const rootCategories = await prisma.category.findMany({
+    where: { parentId: null, status: 'ACTIVE' },
+    orderBy: { sortOrder: 'asc' },
+    take: 6,
+    select: { id: true },
+  });
+
+  const sections: Array<{
+    type: HomepageSectionType;
+    sortOrder: number;
+    title: string | null;
+    subtitle: string | null;
+    payload: Record<string, unknown>;
+  }> = [
+    {
+      type: HomepageSectionType.HERO,
+      sortOrder: 0,
+      title: 'Small Space. Big Luwag.',
+      subtitle:
+        'Furniture designed for condos, rentals and everyday small-space living.',
+      payload: {
+        ctaPrimaryText: 'Shop Small-Space Picks',
+        ctaPrimaryLink: '/collections',
+        ctaSecondaryText: 'Explore Solutions',
+        ctaSecondaryLink: '#solutions',
+      },
+    },
+    { type: HomepageSectionType.USP, sortOrder: 10, title: null, subtitle: null, payload: {} },
+    {
+      type: HomepageSectionType.CATEGORY_TILES,
+      sortOrder: 20,
+      title: 'Shop by Category',
+      subtitle: null,
+      payload: { categoryIds: rootCategories.map((c) => c.id) },
+    },
+    {
+      type: HomepageSectionType.PRODUCT_GRID,
+      sortOrder: 30,
+      title: 'Small-Space Favorites',
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.PRODUCT_STORY,
+      sortOrder: 40,
+      title: 'Made For Real Small Spaces',
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.SOLUTIONS,
+      sortOrder: 50,
+      title: 'Shop by Solution',
+      subtitle: 'Whatever your space problem, there is furniture built for it.',
+      payload: {
+        items: [
+          { title: 'Small Bedroom', blurb: 'Compact beds, wardrobes and storage', link: '/collections/bedroom-essentials' },
+          { title: 'Home Office', blurb: 'Foldable desks that disappear', link: '/collections/small-space-solutions' },
+          { title: 'Rental Friendly', blurb: 'Portable, non-permanent furniture', link: '/collections/small-space-solutions' },
+          { title: 'Foldable Furniture', blurb: 'Set up and stow in seconds', link: '/collections/small-space-solutions' },
+          { title: 'Narrow Space', blurb: 'Slim profiles for tight corners', link: '/collections/small-space-solutions' },
+          { title: 'Storage Solution', blurb: 'Make every corner useful', link: '/collections/storage-organization' },
+        ],
+      },
+    },
+    {
+      type: HomepageSectionType.PRODUCT_STORY,
+      sortOrder: 60,
+      title: null,
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.PRODUCT_GRID,
+      sortOrder: 70,
+      title: 'Small Upgrades',
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.ROOM_INSPIRATION,
+      sortOrder: 80,
+      title: 'Room Inspiration',
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.UGC,
+      sortOrder: 90,
+      title: 'Real Homes',
+      subtitle: null,
+      payload: {},
+    },
+    {
+      type: HomepageSectionType.BRAND_STORY,
+      sortOrder: 100,
+      title: null,
+      subtitle: null,
+      payload: {
+        // BRAND_FOUNDATION_V1.md §3.4, verbatim wording (markdown italics removed).
+        body: 'LUWAG Living makes furniture for small Filipino homes — the condos, apartments and rentals where every square meter counts. Our name comes from maluwag: spacious, easy-going, and maluwag sa budget. Pieces that fit, prices that don’t hurt, cash on delivery. Because a small space should feel maluwag.',
+      },
+    },
+    {
+      type: HomepageSectionType.CONFIDENCE,
+      sortOrder: 110,
+      title: null,
+      subtitle: null,
+      payload: {
+        // Migrated unchanged from the previous homepage confidence bullets.
+        bullets: [
+          'Cash on Delivery — pay at your door',
+          'Nationwide delivery',
+          'Real-time order updates by phone',
+        ],
+      },
+    },
+  ];
+
+  for (const section of sections) {
+    const existing = await prisma.homepageSection.findFirst({
+      where: { type: section.type, sortOrder: section.sortOrder },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.homepageSection.update({
+        where: { id: existing.id },
+        data: {
+          title: section.title,
+          subtitle: section.subtitle,
+          payload: section.payload as never,
+          enabled: true,
+        },
+      });
+    } else {
+      await prisma.homepageSection.create({
+        data: {
+          type: section.type,
+          sortOrder: section.sortOrder,
+          title: section.title,
+          subtitle: section.subtitle,
+          payload: section.payload as never,
+          enabled: true,
+        },
+      });
+    }
+  }
+
+  console.log(`Ensured ${sections.length} homepage sections.`);
 }
 
 main()
