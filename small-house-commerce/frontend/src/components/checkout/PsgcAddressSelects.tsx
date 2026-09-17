@@ -150,10 +150,13 @@ export function PsgcAddressSelects({
     barangayState.status === "ready"
       ? barangayState.options.map((b) => b.name)
       : [];
+  // Only flag once the pair's state is settled (ready/error) — while loading
+  // or idle the options aren't known yet, so a valid draft value must not
+  // flash the "(not in list)" note.
   const barangayLegacy =
     barangay !== "" &&
-    barangayState.status !== "error" &&
-    (barangayState.status !== "ready" || !barangayNames.includes(barangay));
+    (barangayState.status === "ready" || barangayState.status === "error") &&
+    !barangayNames.includes(barangay);
 
   function handleProvinceChange(value: string) {
     onProvinceChange(value);
@@ -268,6 +271,7 @@ export function PsgcAddressSelects({
           <>
             <input
               type="text"
+              id="psgc-barangay"
               data-testid="psgc-barangay"
               aria-label="Barangay"
               className={inputCls}
