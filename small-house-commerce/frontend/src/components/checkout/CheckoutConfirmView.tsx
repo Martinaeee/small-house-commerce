@@ -202,6 +202,18 @@ export function CheckoutConfirmView({
                 {`Preferred delivery date: ${formatPreferredDate(draft.preferredDeliveryDate)}`}
               </p>
             ) : null}
+            {draft.customer.streetAddress && draft.customer.city && draft.customer.province ? (
+              <iframe
+                data-testid="confirm-map"
+                title="Delivery location map"
+                className="mt-3 h-48 w-full rounded-lg border border-border"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                  `${draft.customer.streetAddress}, ${draft.customer.city}, ${draft.customer.province}`,
+                )}&output=embed`}
+              />
+            ) : null}
             <p data-testid="checkout-privacy-note" className="mt-3 text-xs text-ink-secondary">
               Your information is used only to process and deliver your order.
             </p>
