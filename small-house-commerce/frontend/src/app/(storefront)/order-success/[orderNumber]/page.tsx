@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import { PurchaseTracking } from "@/components/tracking/PurchaseTracking";
 import { PreferredDateLine } from "@/components/checkout/PreferredDateLine";
+import { OrderSuccessActions } from "@/components/checkout/OrderSuccessActions";
 
 export const metadata: Metadata = { title: "Order Received" };
 
@@ -44,13 +45,6 @@ export default async function OrderSuccessPage({
           </div>
         </dl>
         <PreferredDateLine />
-        <Link
-          href={`/track-order?order=${orderNumber}`}
-          className="text-sm text-cta hover:underline"
-          data-testid="success-track-link"
-        >
-          Track your order
-        </Link>
       </div>
 
       <p className="text-sm text-ink-muted">
@@ -58,12 +52,16 @@ export default async function OrderSuccessPage({
         arrives.
       </p>
 
-      <ButtonLink href="/collections" variant="secondary">
-        Continue Shopping
-      </ButtonLink>
-      <Link href="/" className="text-sm text-cta hover:underline">
-        Back to home
-      </Link>
+      {/* Checking the order is what a shopper wants next, so it leads. */}
+      <div className="flex w-full flex-col items-center gap-3">
+        <OrderSuccessActions orderNumber={orderNumber} />
+        <ButtonLink href="/collections" variant="secondary" className="w-full">
+          Continue Shopping
+        </ButtonLink>
+        <Link href="/" className="text-sm text-cta hover:underline">
+          Back to home
+        </Link>
+      </div>
     </div>
   );
 }

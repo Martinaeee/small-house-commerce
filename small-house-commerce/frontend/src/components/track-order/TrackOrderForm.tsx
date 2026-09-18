@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
@@ -90,6 +90,28 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GuestOrderResult | null>(null);
+
+  // The shopper entered this number at checkout in this same tab, so prefill it
+  // and leave tracking one click away. Deferred to an effect (never read during
+  // render) so SSR and the first client render agree — same pattern as
+  // PreferredDateLine. sessionStorage here is tab-scoped and holds nothing the
+  // shopper did not just type themselves.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      await Promise.resolve();
+      if (!alive) return;
+      try {
+        const stored = sessionStorage.getItem("lastOrderPhone");
+        if (stored) setPhone((current) => current || stored);
+      } catch {
+        // Storage unavailable: the field simply stays empty.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Editing either field invalidates any previously shown result/outcome —
   // the card below always reflects the latest successful submission.

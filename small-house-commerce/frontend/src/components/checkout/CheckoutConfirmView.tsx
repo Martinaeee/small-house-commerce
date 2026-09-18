@@ -125,6 +125,11 @@ export function CheckoutConfirmView({
       try {
         if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
+        // Carried to /track-order so the shopper does not retype the number they
+        // just entered. Tab-scoped, cleared when the tab closes, never logged
+        // and never placed in a URL (the track page still requires it to match
+        // the order, so this only saves typing for this same shopper).
+        sessionStorage.setItem("lastOrderPhone", draft.customer.phone);
         // Same literal key as CheckoutForm's IC_FIRED_KEY: clear the
         // once-per-checkout-session guard so the NEXT order in this tab fires
         // InitiateCheckout again.
