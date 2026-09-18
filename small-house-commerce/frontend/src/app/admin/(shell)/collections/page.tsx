@@ -410,7 +410,7 @@ function CollectionsPageContent() {
                               onClick={() => openHero(row)}
                               className="text-sm font-semibold text-cta hover:underline"
                             >
-                              Hero 样式{row.heroStyle ? "（已设置）" : ""}
+                              页面横幅{row.heroStyle ? "（已设置）" : ""}
                             </button>
                           </div>
                         ) : (
@@ -646,7 +646,7 @@ function CollectionsPageContent() {
       <Dialog
         open={heroEdit !== null}
         onClose={closeHero}
-        title={heroEdit ? `Hero 样式：${heroEdit.collection.name}` : "Hero 样式"}
+        title={heroEdit ? `页面横幅：${heroEdit.collection.name}` : "页面横幅"}
         width="lg"
       >
         <div className="flex flex-col gap-4">

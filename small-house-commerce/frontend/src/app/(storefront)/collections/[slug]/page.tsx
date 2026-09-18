@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { HeroBanner } from "@/components/product/HeroBanner";
 import { ProductCard } from "@/components/product/ProductCard";
-import { ButtonLink } from "@/components/ui/Button";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
@@ -86,20 +85,19 @@ export default async function CollectionPage({
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
       {/* §7 Collection Hero: admin-configurable background and centered title
-          (HeroStyle), with the description + CTA in the block beneath. */}
+          (HeroStyle) — same component as the category pages. The old
+          "Shop this collection" card beneath is gone (the filter bar and grid
+          directly follow the hero). */}
       <HeroBanner
         name={collection.name}
         style={collection.heroStyle}
         fallbackImage={collection.heroImage}
       />
-      <section className="mt-3 flex flex-col items-center gap-4 rounded-lg border border-border bg-card px-4 py-8 text-center sm:px-8">
-        {collection.description && (
-          <p className="max-w-2xl text-base text-ink-secondary">{collection.description}</p>
-        )}
-        <ButtonLink href="#products" variant="primary" size="lg">
-          Shop this collection
-        </ButtonLink>
-      </section>
+      {collection.description ? (
+        <p className="mt-4 max-w-2xl text-center text-base text-ink-secondary">
+          {collection.description}
+        </p>
+      ) : null}
 
       {/* §12 Filters */}
       <div className="mt-6 rounded-lg border border-border bg-card p-4">
