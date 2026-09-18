@@ -37,7 +37,6 @@ import { errorStatus } from "@/lib/admin-auth";
 // imageUrl: z.string().url().max(2048).nullable(); sortOrder: z.number().int().
 const NAME_MAX = 120;
 const SLUG_MAX = 120;
-const IMAGE_URL_MAX = 2048;
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SLUG_HINT =
   "slug must be lowercase kebab-case (e.g. folding-chair)";
@@ -125,7 +124,6 @@ function emptyForm(
     slug: "",
     parentId: presetParentId,
     sortOrder: "0",
-    imageUrl: "",
     status: "ACTIVE",
     heroStyle: emptyHeroStyleFormValue(),
   };
@@ -141,7 +139,6 @@ type CategoryForm = {
   slug: string;
   parentId: string;
   sortOrder: string;
-  imageUrl: string;
   status: CategoryStatus;
   /** Hero appearance for the category landing page (separate HeroStyle row). */
   heroStyle: HeroStyleFormValue;
@@ -242,7 +239,6 @@ export default function AdminCategoriesPage() {
       slug: node.slug,
       parentId: node.parentId ?? "",
       sortOrder: String(node.sortOrder),
-      imageUrl: node.imageUrl ?? "",
       status: node.status,
       heroStyle: toHeroStyleFormValue(node.heroStyle),
     });
@@ -296,20 +292,6 @@ export default function AdminCategoriesPage() {
         next.sortOrder = "Sort order must be a whole number of 0 or greater.";
       else sortOrder = Number(sortRaw);
 
-      const imageUrl = value.imageUrl.trim();
-      if (imageUrl) {
-        if (imageUrl.length > IMAGE_URL_MAX)
-          next.imageUrl = `Image URL must be ${IMAGE_URL_MAX} characters or fewer.`;
-        else {
-          try {
-            // Mirror z.string().url() (WHATWG URL parse).
-            new URL(imageUrl);
-          } catch {
-            next.imageUrl = "Image URL must be a valid URL.";
-          }
-        }
-      }
-
       // Hero styling is a separate HeroStyle row; null means "no custom
       // styling", which makes the API clear it rather than store defaults.
       const heroResult = serializeHeroStyle(value.heroStyle);
@@ -324,7 +306,6 @@ export default function AdminCategoriesPage() {
         slug,
         parentId: value.parentId || null,
         sortOrder,
-        imageUrl: imageUrl || null,
         status: value.status,
         heroStyle: heroStyleValue,
       };
@@ -460,8 +441,9 @@ export default function AdminCategoriesPage() {
             在 Storage &amp; Organization 下）。Sort 数字越小越靠前。
           </li>
           <li>
-            Image URL 是分类页<span className="font-semibold">顶部横幅大图</span>
-            （建议宽幅约 3:1）；留空时分类页只显示文字标题，不影响使用。
+            分类页<span className="font-semibold">顶部横幅大图</span>（建议宽幅约
+            3:1）在下方「Hero 样式」里配置背景图片；不配时分类页只显示居中标题，
+            不影响使用。
           </li>
         </ul>
       </div>
@@ -701,22 +683,6 @@ export default function AdminCategoriesPage() {
               </Field>
             </div>
 
-            <Field
-              label="Image URL (optional)"
-              htmlFor="cat-image"
-              error={errors.imageUrl}
-              hint="分类页顶部横幅大图的网址。下面「Hero 样式」没配背景图时会用它；都没有时只显示居中标题。"
-            >
-              <TextInput
-                id="cat-image"
-                type="url"
-                value={form.imageUrl}
-                maxLength={IMAGE_URL_MAX}
-                placeholder="https://"
-                autoComplete="off"
-                onChange={(e) => patchForm({ imageUrl: e.target.value })}
-              />
-            </Field>
           </div>
 
           <div className="mt-6 border-t border-border pt-4">
@@ -748,7 +714,7 @@ export default function AdminCategoriesPage() {
                 <HeroBanner
                   name={form.name || "类目名称"}
                   style={heroStyleFromForm(form.heroStyle)}
-                  fallbackImage={form.imageUrl.trim() || null}
+                  fallbackImage={null}
                 />
               </LivePreview>
               {form.mode === "edit" && form.slug ? (
