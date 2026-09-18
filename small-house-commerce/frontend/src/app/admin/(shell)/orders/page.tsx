@@ -542,47 +542,72 @@ function OrdersPageContent() {
             <EmptyState title="No orders yet." />
           )
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[1280px] text-sm">
-              <caption className="sr-only">Orders</caption>
-              <thead>
-                <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th scope="col" className="px-4 py-3">Order Number</th>
-                  <th scope="col" className="px-4 py-3">Created</th>
-                  <th scope="col" className="px-4 py-3">Preferred</th>
-                  <th scope="col" className="px-4 py-3">Customer</th>
-                  <th scope="col" className="px-4 py-3">Phone</th>
-                  <th scope="col" className="px-4 py-3">Items</th>
-                  <th scope="col" className="px-4 py-3">Total</th>
-                  <th scope="col" className="px-4 py-3">Classification</th>
-                  <th scope="col" className="px-4 py-3">Risk</th>
-                  <th scope="col" className="px-4 py-3">Assigned To</th>
-                  <th scope="col" className="px-4 py-3">Order Status</th>
-                  <th scope="col" className="px-4 py-3">Confirmation</th>
-                  <th scope="col" className="px-4 py-3">Payment</th>
-                  <th scope="col" className="px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.items.map((row) => {
-                  const showConfirm = canConfirmRow(row);
-                  const showCancel = canCancelRow(row);
-                  const rowBusy = actionPending && dialog?.id === row.id;
-                  const firstItem = row.items[0];
-                  return (
-                    <tr
-                      key={row.id}
-                      className="border-b border-border last:border-0"
+          <ul className="flex flex-col gap-3">
+            {data?.items.map((row) => {
+              const showConfirm = canConfirmRow(row);
+              const showCancel = canCancelRow(row);
+              const rowBusy = actionPending && dialog?.id === row.id;
+              const firstItem = row.items[0];
+              return (
+                <li
+                  key={row.id}
+                  className="rounded-xl border border-border bg-card p-4 transition-colors hover:bg-primary-light/10 sm:p-5"
+                >
+                  {/* Row header */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <Link
+                      href={`/admin/orders/${row.id}`}
+                      className="text-base font-semibold text-cta hover:underline"
                     >
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/orders/${row.id}`}
-                          className="font-semibold text-cta hover:underline"
+                      {row.orderNumber}
+                    </Link>
+                    <ClassificationBadge value={row.customerClassification} />
+                    {row.riskFlags && row.riskFlags.length > 0 ? (
+                      <span
+                        title={
+                          row.riskFlags[0]?.reason ?? undefined
+                        }
+                        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
+                      >
+                        ⚠ {row.riskFlags[0]?.flagType === "POSSIBLE_DUPLICATE" ? "Duplicate" : row.riskFlags[0]?.flagType}
+                      </span>
+                    ) : null}
+                    <span className="ml-auto flex items-center gap-2">
+                      {showConfirm ? (
+                        <button
+                          type="button"
+                          onClick={() => openDialog(row.id, "confirm")}
+                          disabled={rowBusy}
+                          className="rounded-lg bg-cta px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {row.orderNumber}
-                        </Link>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
+                          Confirm
+                        </button>
+                      ) : null}
+                      {showCancel ? (
+                        <button
+                          type="button"
+                          onClick={() => openDialog(row.id, "cancel")}
+                          disabled={rowBusy}
+                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+
+                  {/* Key fields */}
+                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
+                    <div>
+                      <div className="text-xs text-ink-muted">Customer</div>
+                      <div className="text-ink">{row.customer.name ?? "—"}</div>
+                      <div className="text-xs text-ink-secondary">
+                        {row.customer.normalizedPhone}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-ink-muted">Created</div>
+                      <div className="text-ink-secondary">
                         {new Date(row.createdAt).toLocaleString("en-PH", {
                           year: "numeric",
                           month: "short",
@@ -590,115 +615,66 @@ function OrdersPageContent() {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
-                        {formatPreferredDate(row.preferredDeliveryDate)}
-                      </td>
-                      <td className="px-4 py-3 text-ink">
-                        {row.customer.name ?? "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
-                        {row.customer.normalizedPhone}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-ink">{row.items.length} items</div>
-                        {firstItem ? (
-                          <div
-                            className="max-w-[180px] truncate text-xs text-ink-muted"
-                            title={firstItem.productNameSnapshot}
-                          >
-                            {firstItem.productNameSnapshot}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
+                      </div>
+                      {row.preferredDeliveryDate ? (
+                        <div className="text-xs text-ink-muted">
+                          Preferred: {formatPreferredDate(row.preferredDeliveryDate)}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <div className="text-xs text-ink-muted">Items</div>
+                      <div className="text-ink">{row.items.length} items</div>
+                      {firstItem ? (
+                        <div
+                          className="max-w-[180px] truncate text-xs text-ink-muted"
+                          title={firstItem.productNameSnapshot}
+                        >
+                          {firstItem.productNameSnapshot}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <div className="text-xs text-ink-muted">Total</div>
+                      <div className="font-semibold text-ink">
                         {formatAmount(row.grandTotal, row.currency)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <ClassificationBadge value={row.customerClassification} />
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.riskFlags && row.riskFlags.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {row.riskFlags.slice(0, 2).map((flag) => (
-                              <span
-                                key={flag.id}
-                                title={flag.reason ?? undefined}
-                                className="inline-flex w-fit items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
-                              >
-                                ⚠ {flag.flagType === "POSSIBLE_DUPLICATE" ? "Duplicate" : flag.flagType}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {assignees.length > 0 ? (
-                          <select
-                            value={row.assignedTo?.id ?? ""}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (value) void assignRow(row.id, value);
-                            }}
-                            aria-label="Assign order"
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-ink"
-                          >
-                            <option value="">—</option>
-                            {assignees.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name ?? "—"}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge value={row.orderStatus} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge value={row.confirmationStatus} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge value={row.paymentStatus} />
-                      </td>
-                      <td className="px-4 py-3">
-                        {!showConfirm && !showCancel ? (
-                          <span className="text-ink-muted">—</span>
-                        ) : (
-                          <div className="flex gap-3">
-                            {showConfirm ? (
-                              <button
-                                type="button"
-                                onClick={() => openDialog(row.id, "confirm")}
-                                disabled={rowBusy}
-                                className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                              >
-                                Confirm
-                              </button>
-                            ) : null}
-                            {showCancel ? (
-                              <button
-                                type="button"
-                                onClick={() => openDialog(row.id, "cancel")}
-                                disabled={rowBusy}
-                                className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                              >
-                                Cancel
-                              </button>
-                            ) : null}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status row */}
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
+                    <Badge value={row.orderStatus} />
+                    <Badge value={row.confirmationStatus} />
+                    <Badge value={row.paymentStatus} />
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-xs text-ink-muted">Assigned</span>
+                      {assignees.length > 0 ? (
+                        <select
+                          value={row.assignedTo?.id ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value) void assignRow(row.id, value);
+                          }}
+                          aria-label="Assign order"
+                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-ink"
+                        >
+                          <option value="">—</option>
+                          {assignees.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name ?? "—"}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-ink-muted">—</span>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
