@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { inputCls } from "./Field";
 
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES = 5 * 1024 * 1024;
 
 const ACCEPTED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -44,7 +44,7 @@ export function ImageUrlInput({
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError("图片不能超过 8MB");
+      setError("图片不能超过 5MB");
       return;
     }
     setUploading(true);

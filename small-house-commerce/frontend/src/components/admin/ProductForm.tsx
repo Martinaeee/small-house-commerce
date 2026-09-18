@@ -1099,7 +1099,7 @@ export function ProductForm({
         hint={
           <>
             可直接粘贴图片网址，或点「上传图片」从电脑选图（JPG/PNG/WebP，单张不超过
-            8MB，直传 Cloudflare R2）。Sort 数字最小的是主图；建议 4–6
+            5MB）。Sort 数字最小的是主图；建议 4–6
             张：白底主图、细节、尺寸图、生活场景图，不要带中文水印。
           </>
         }

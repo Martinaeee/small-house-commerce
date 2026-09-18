@@ -13,14 +13,14 @@ import { dateToLocalInput, nowLocalInput } from "@/lib/datetime-input";
 
 /**
  * Spreadsheet-style batch review editor for one product:
- * - rows: 作者 / 地区 / 标题 / 评论 / 多图(直传 R2 或 URL) / 规格 / 时间 / 评分 / 显示
+ * - rows: 作者 / 地区 / 标题 / 评论 / 多图(上传或 URL) / 规格 / 时间 / 评分 / 显示
  * - TSV paste ("从表格粘贴") fills rows in one shot (Excel/Sheets columns)
  * - one atomic save (all rows or none); backend row/field errors pin cells
  */
 
 const MAX_ROWS = 100;
 const MAX_PHOTOS = 6;
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES = 5 * 1024 * 1024;
 
 const ACCEPTED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -130,6 +130,11 @@ function parseTsvDate(raw: string): { value: string; error?: string } {
 }
 
 function validPhotoUrl(value: string): boolean {
+  // Same rule as the backend siteMediaUrl validator: absolute http(s) link or
+  // a site-relative /uploads path (protocol-relative "//" stays rejected).
+  if (value.startsWith("/") && !value.startsWith("//") && value.length > 1) {
+    return value.length <= 2048;
+  }
   try {
     const url = new URL(value);
     return (url.protocol === "http:" || url.protocol === "https:") && value.length <= 2048;
@@ -248,7 +253,7 @@ function parseTsv(raw: string, capacity: number): { rows: GridRow[]; skipped: st
   return { rows, skipped };
 }
 
-/** Per-row photo editor: thumbnails, multi-file R2 upload, URL add. */
+/** Per-row photo editor: thumbnails, multi-file upload, URL add. */
 function PhotoCell({
   row,
   disabled,
@@ -309,7 +314,7 @@ function PhotoCell({
             }
             return (
               <span key={photo.id} className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element -- admin-only R2/URL thumbs; no optimizer allowlist. */}
+                {/* eslint-disable-next-line @next/next/no-img-element -- admin-only uploaded/URL thumbs; no optimizer allowlist. */}
                 <img
                   src={photo.url}
                   alt=""
@@ -476,16 +481,12 @@ export function BatchReviewsGridDialog({
     );
   }
 
-  async function uploadOne(rowKey: string, file: File, slotId: string, ext: string) {
+  async function uploadOne(rowKey: string, file: File, slotId: string) {
     try {
-      const presign = await adminApi.presignUpload(file.type, file.name || `upload.${ext}`);
-      const putRes = await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("图片上传失败，请重试，或直接粘贴图片 URL");
-      markPhoto(rowKey, slotId, { state: "done", url: presign.publicUrl, error: undefined });
+      // Local-disk upload via the backend (was: R2 presigned PUT — R2 is not
+      // configured on this deployment). Same site-relative /uploads URLs.
+      const res = await adminApi.uploadImage(file);
+      markPhoto(rowKey, slotId, { state: "done", url: res.url, error: undefined });
       // A successful upload clears the transient file-pick rejection note.
       setClientErrors((prev) => {
         const current = prev[rowKey];
@@ -551,7 +552,7 @@ export function BatchReviewsGridDialog({
       }));
     }
     toUpload.forEach((file, i) => {
-      void uploadOne(rowKey, file, newSlots[i].id, ACCEPTED_TYPES[file.type]);
+      void uploadOne(rowKey, file, newSlots[i].id);
     });
   }
 
