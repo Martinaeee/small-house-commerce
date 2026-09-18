@@ -790,6 +790,14 @@ export const adminApi = {
       `/api/v1/admin/orders/assignees`,
     ),
 
+  /** SKU search for manual order entry (sellable SKUs only). */
+  skuSearch: (
+    q: string,
+  ): Promise<{ skuId: string; label: string; price: string | null; skuCode: string }[]> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+    ),
+
   orderCounts: (): Promise<{
     total: number;
     byStatus: Record<string, number>;

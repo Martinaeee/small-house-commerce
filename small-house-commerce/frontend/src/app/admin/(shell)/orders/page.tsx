@@ -275,22 +275,9 @@ function OrdersPageContent() {
     let active = true;
     const t = setTimeout(() => {
       adminApi
-        .listProducts({ search: skuQuery || undefined, pageSize: 8 })
-        .then((res) => {
-          if (!active) return;
-          const opts: { skuId: string; label: string; price: string | null }[] = [];
-          for (const prod of res.items) {
-            for (const variant of prod.variants ?? []) {
-              const sku = variant.sku;
-              if (!sku) continue;
-              opts.push({
-                skuId: sku.id,
-                label: `${prod.name} — ${variant.name} (${sku.skuCode})`,
-                price: sku.price ?? null,
-              });
-            }
-          }
-          setSkuOptions(opts);
+        .skuSearch(skuQuery)
+        .then((opts) => {
+          if (active) setSkuOptions(opts);
         })
         .catch(() => {
           // Non-fatal.
