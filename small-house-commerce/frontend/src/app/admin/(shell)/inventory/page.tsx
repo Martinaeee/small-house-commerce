@@ -28,10 +28,10 @@ import {
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 
-// Spec §8.5 / §14 gap #1: there is NO stock GET endpoint. The SKU list is
-// sourced from GET /admin/products and live On Hand / Reserved / Available
-// render only for SKUs adjusted during this page session (from the adjust
-// response). No movement history in V1.
+// The SKU list is sourced from GET /admin/products, which also carries each
+// SKU's live On hand / Reserved / Available — so every row shows real figures.
+// A row adjusted during this session short-circuits to the adjust response's
+// numbers instead of waiting for a refetch. No movement history in V1.
 
 const PRODUCT_STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "DISABLED"];
 
@@ -60,6 +60,11 @@ interface SkuRow {
   skuCode: string;
   skuStatus: "ACTIVE" | "DISABLED";
   price: string | null;
+  // Live stock, served with the product payload (available = on_hand −
+  // reserved). Absent rows are 0 in the database, so 0 renders as 0.
+  onHand: number;
+  reserved: number;
+  available: number;
 }
 
 interface SessionStock {
@@ -90,6 +95,9 @@ function flattenProducts(products: AdminProduct[]): SkuRow[] {
         skuCode: variant.sku.skuCode,
         skuStatus: variant.sku.status,
         price: variant.sku.price,
+        onHand: variant.sku.onHand,
+        reserved: variant.sku.reserved,
+        available: variant.sku.availableInventory,
       });
     }
   }
@@ -218,6 +226,17 @@ function InventoryPageContent() {
 
   const allRows = useMemo(
     () => (data ? flattenProducts(data.items) : []),
+    [data],
+  );
+
+  /**
+   * Products on this page with no SKU-bearing variant. Inventory is per SKU, so
+   * these can never appear below — and because they are also unsellable, the
+   * omission would otherwise be silent (this is exactly how a freshly created
+   * product goes "missing" from inventory).
+   */
+  const missingSku = useMemo(
+    () => (data ? data.items.filter((p) => !p.variants.some((v) => v.sku)) : []),
     [data],
   );
   const rows = useMemo(() => {
@@ -479,7 +498,10 @@ function InventoryPageContent() {
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const stock = sessionStock[row.skuId];
+                  // A just-adjusted row shows its fresh figure; every other row
+                  // shows the stock the products endpoint returned (SkuRow
+                  // carries the same three fields).
+                  const stock = sessionStock[row.skuId] ?? row;
                   const rowBusy = pending && dialog?.skuId === row.skuId;
                   return (
                     <tr
@@ -511,22 +533,18 @@ function InventoryPageContent() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        {stock ? (
-                          <div className="text-xs text-ink-secondary">
-                            <div>
-                              On hand{" "}
-                              <span className="font-semibold text-ink">
-                                {stock.onHand}
-                              </span>
-                            </div>
-                            <div className="text-ink-muted">
-                              Reserved {stock.reserved} · Available{" "}
-                              {stock.available}
-                            </div>
+                        <div className="text-xs text-ink-secondary">
+                          <div>
+                            On hand{" "}
+                            <span className="font-semibold text-ink">
+                              {stock.onHand}
+                            </span>
                           </div>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
+                          <div className="text-ink-muted">
+                            Reserved {stock.reserved} · Available{" "}
+                            {stock.available}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {canAdjust ? (
@@ -551,11 +569,24 @@ function InventoryPageContent() {
         )}
       </div>
 
-      {/* Honest-limitation hint (gap #1): stock is not fetched. */}
+      {!loading && !error && missingSku.length > 0 ? (
+        <p
+          data-testid="inventory-missing-sku"
+          className="mt-4 rounded-lg border border-sale/40 bg-sale/5 px-4 py-3 text-sm text-ink"
+        >
+          本页有 <strong className="font-semibold">{missingSku.length}</strong>{" "}
+          个商品还没有「款式 + SKU」，因此不会出现在下面的库存表里，也<strong className="font-semibold">无法销售</strong>：
+          {missingSku.map((p) => p.name).join("、")}。到商品编辑页的「Variants &amp;
+          SKUs」加上一个款式并勾选 Has SKU 即可。
+        </p>
+      ) : null}
+
+      {/* Stock figures come from the products endpoint now; only a row adjusted
+          during this session short-circuits to the adjust response. */}
       {!loading && !error && rows.length > 0 ? (
         <p className="mt-3 text-xs text-ink-muted">
-          Stock levels appear in a row after you adjust that SKU during this
-          session; V1 has no stock-level or movement-history view.
+          库存数字为实时读取（On hand 在库 / Reserved 被未完成订单占用 / Available
+          可售）；刚调整过的行会立刻显示新数字。V1 暂无库存流水视图。
         </p>
       ) : null}
 
