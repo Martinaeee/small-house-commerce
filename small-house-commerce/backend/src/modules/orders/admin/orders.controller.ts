@@ -55,6 +55,12 @@ export class AdminOrdersController {
     return this.ordersService.list(query);
   }
 
+  @Get('assignees')
+  @Permissions('ORDER_VIEW_ALL')
+  assignees() {
+    return this.ordersService.assignees();
+  }
+
   @Get(':id')
   @Permissions('ORDER_VIEW_ALL')
   get(@Param('id') id: string) {

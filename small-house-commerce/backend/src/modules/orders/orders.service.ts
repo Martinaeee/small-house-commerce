@@ -357,6 +357,16 @@ export class OrdersService {
 
   // --- Order workbench operations (2026-09-18 spec) ------------------------
 
+  /** Users eligible as customer-service assignees (all ACTIVE admins). */
+  async assignees() {
+    const users = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    return users;
+  }
+
   /** Assign / reassign the customer-service owner of an order. */
   async assign(orderId: string, assignedToId: string, operatorId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
