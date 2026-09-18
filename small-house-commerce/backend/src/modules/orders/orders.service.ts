@@ -9,14 +9,7 @@ import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
-import type {
-  AssignOrderInput,
-  CheckoutInput,
-  EditOrderInput,
-  MergeOrdersInput,
-  OrderQuery,
-  UpdateOrderStatusInput,
-} from './dto/order.dto.js';
+import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery } from './dto/order.dto.js';
 
 const ORDER_DETAIL_INCLUDE = {
   customer: {

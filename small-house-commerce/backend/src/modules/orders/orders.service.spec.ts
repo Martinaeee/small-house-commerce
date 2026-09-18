@@ -45,7 +45,7 @@ function checkoutOverrides(overrides: Record<string, unknown> = {}) {
 }
 
 function createHarness() {
-  const tx = {
+  const tx: Record<string, any> = {
     order: {
       create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
       update: vi.fn(async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
@@ -54,6 +54,20 @@ function createHarness() {
       })),
     },
     orderStatusHistory: { create: vi.fn(async () => ({})) },
+    customerRiskLog: { create: vi.fn(async () => ({})) },
+    customerNote: { create: vi.fn(async () => ({})) },
+    orderItem: {
+      findMany: vi.fn(async () => []),
+      delete: vi.fn(async () => ({})),
+      create: vi.fn(async () => ({})),
+      update: vi.fn(async () => ({})),
+    },
+    orderShippingAddress: {
+      update: vi.fn(async () => ({})),
+      create: vi.fn(async () => ({})),
+    },
+    orderMergeRecord: { create: vi.fn(async () => ({})) },
+    sku: { findMany: vi.fn(async () => []) },
   };
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
