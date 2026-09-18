@@ -77,20 +77,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CLASSIFICATIONS = ["NEW", "AGAIN", "RPT", "RECHECK"];
 const RISK_TYPES = ["POSSIBLE_DUPLICATE", "CUSTOMER_RECHECK", "CUSTOMER_BLOCKED"];
 
-// Preferred delivery date is a calendar date (@db.Date, UTC midnight on the
-// wire): same en-PH date style as the Created column, minus a meaningless
-// time component. Missing/invalid values render as an em dash.
-function formatPreferredDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 // Customer classification badge (CUSTOMER_RISK_SPEC §16 display rules):
 // 🟢 AGAIN / 🟡 RPT / 🔴 RECHECK / neutral NEW. Color is enhancement only —
 // the raw value is always rendered.
@@ -122,6 +108,55 @@ function ClassificationBadge({ value }: { value: string | null }) {
   );
 }
 
+// Workbench status tab (spec §7.2): label + count, color-enhanced. The raw
+// label is always rendered; counts come from /admin/orders/counts.
+function StatusTab({
+  active,
+  label,
+  count,
+  tone,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count?: number;
+  tone?: "amber" | "red" | "green";
+  onClick: () => void;
+}) {
+  const toneCls =
+    tone === "red"
+      ? "bg-red-100 text-red-700 border-red-200"
+      : tone === "amber"
+        ? "bg-amber-100 text-amber-800 border-amber-200"
+        : tone === "green"
+          ? "bg-green-100 text-green-700 border-green-200"
+          : "";
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active
+          ? `border-cta bg-cta text-white ${""}`
+          : `border-border bg-card text-ink-secondary hover:bg-primary-light/30 hover:text-cta ${toneCls && !active ? toneCls : ""}`
+      }`}
+    >
+      {label}
+      {count !== undefined ? (
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[11px] ${
+            active ? "bg-white/20" : "bg-border/60"
+          }`}
+        >
+          {count}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 type ActionDialog = { id: string; kind: "confirm" | "cancel" } | null;
 
 function OrdersPageContent() {
@@ -136,14 +171,16 @@ function OrdersPageContent() {
   // --- URL params: source of truth (brief Step 1) ---------------------------
 
   const search = searchParams.get("search")?.trim() ?? "";
-  const rawStatus = searchParams.get("status");
-  const status = ORDER_STATUSES.includes(rawStatus as OrderStatus)
-    ? (rawStatus as OrderStatus)
-    : "";
+  const rawStatus = searchParams.get("status") ?? "";
+  const status = rawStatus
+    .split(",")
+    .filter((s): s is OrderStatus => ORDER_STATUSES.includes(s as OrderStatus));
+  const statusKey = status.join(",");
   const rawClassification = searchParams.get("classification") ?? "";
   const classification = CLASSIFICATIONS.includes(rawClassification)
     ? rawClassification
     : "";
+  const confirmation = searchParams.get("confirmation") ?? "";
   const assignedTo = searchParams.get("assignedTo") ?? "";
   const rawRisk = searchParams.get("risk") ?? "";
   const risk = RISK_TYPES.includes(rawRisk) ? rawRisk : "";
@@ -153,7 +190,7 @@ function OrdersPageContent() {
     Math.max(1, Number.parseInt(searchParams.get("page") ?? "", 10)) || 1;
 
   const filtersActive = Boolean(
-    search || status || classification || assignedTo || risk || dateFrom || dateTo,
+    statusKey || classification || confirmation || assignedTo || risk || search || dateFrom || dateTo,
   );
 
   const patchParams = useCallback(
@@ -213,6 +250,58 @@ function OrdersPageContent() {
     };
   }, []);
 
+
+  // --- manual order entry (phone orders) -------------------------------------
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    phone: "",
+    province: "",
+    city: "",
+    streetAddress: "",
+    barangay: "",
+  });
+  const [skuQuery, setSkuQuery] = useState("");
+  const [skuOptions, setSkuOptions] = useState<
+    { skuId: string; label: string; price: string | null }[]
+  >([]);
+  const [pickedSku, setPickedSku] = useState<{ skuId: string; label: string } | null>(null);
+  const [createQty, setCreateQty] = useState(1);
+
+  useEffect(() => {
+    if (!showCreate) return;
+    let active = true;
+    const t = setTimeout(() => {
+      adminApi
+        .listProducts({ search: skuQuery || undefined, pageSize: 8 })
+        .then((res) => {
+          if (!active) return;
+          const opts: { skuId: string; label: string; price: string | null }[] = [];
+          for (const prod of res.items) {
+            for (const variant of prod.variants ?? []) {
+              const sku = variant.sku;
+              if (!sku) continue;
+              opts.push({
+                skuId: sku.id,
+                label: `${prod.name} — ${variant.name} (${sku.skuCode})`,
+                price: sku.price ?? null,
+              });
+            }
+          }
+          setSkuOptions(opts);
+        })
+        .catch(() => {
+          // Non-fatal.
+        });
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [showCreate, skuQuery]);
+
   // --- list data ------------------------------------------------------------
 
   const [data, setData] = useState<Paged<AdminOrderListRow> | null>(null);
@@ -220,7 +309,7 @@ function OrdersPageContent() {
   // Bumped to force a re-run of the current query (Retry / resync).
   const [nonce, setNonce] = useState(0);
 
-  const queryKey = [status, classification, assignedTo, risk, search, dateFrom, dateTo, String(page), String(nonce)].join("|");
+  const queryKey = [statusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, String(page), String(nonce)].join("|");
   // Loading is DERIVED: it flips true the moment the keyed query changes and
   // flips back false when that exact query settles — no setState in the
   // fetch effect body (react-hooks/set-state-in-effect).
@@ -229,12 +318,47 @@ function OrdersPageContent() {
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
+  async function submitCreate() {
+    if (!pickedSku) {
+      setFormError("Pick a product first.");
+      return;
+    }
+    setCreating(true);
+    setFormError(null);
+    try {
+      await adminApi.createOrder({
+        customer: {
+          name: createForm.name,
+          phone: createForm.phone,
+          province: createForm.province,
+          city: createForm.city,
+          barangay: createForm.barangay || null,
+          streetAddress: createForm.streetAddress,
+        },
+        items: [{ skuId: pickedSku.skuId, quantity: createQty }],
+      });
+      setShowCreate(false);
+      setPickedSku(null);
+      setSkuQuery("");
+      setCreateQty(1);
+      setCreateForm({ name: "", phone: "", province: "", city: "", streetAddress: "", barangay: "" });
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not create the order.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+
+
   useEffect(() => {
     let active = true;
     adminApi
       .listOrders({
-        status: status || undefined,
+        status: statusKey || undefined,
         classification: classification || undefined,
+        confirmation: confirmation || undefined,
         assignedTo: assignedTo || undefined,
         risk: risk || undefined,
         search: search || undefined,
@@ -256,7 +380,29 @@ function OrdersPageContent() {
     return () => {
       active = false;
     };
-  }, [queryKey, status, classification, assignedTo, risk, search, dateFrom, dateTo, page]);
+  }, [queryKey, statusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, page]);
+
+  // --- status tab counts (workbench tab bar) ---------------------------------
+  const [counts, setCounts] = useState<{
+    total: number;
+    byStatus: Record<string, number>;
+    needsReview: number;
+    duplicate: number;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .orderCounts()
+      .then((c) => {
+        if (active) setCounts(c);
+      })
+      .catch(() => {
+        // Non-fatal: tabs render without counts.
+      });
+    return () => {
+      active = false;
+    };
+  }, [nonce]);
 
   // --- inline confirm / cancel ----------------------------------------------
 
@@ -380,7 +526,85 @@ function OrdersPageContent() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader title="Orders" count={data?.total} />
+      <PageHeader
+        title="Orders"
+        count={data?.total}
+        actions={
+          canConfirmPerm ? (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setFormError(null);
+                setShowCreate(true);
+              }}
+            >
+              + New Order
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/* Status tab bar (workbench): one glance shows every bucket. */}
+      <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Order status tabs">
+        <StatusTab
+          active={!statusKey && !confirmation && risk !== "POSSIBLE_DUPLICATE"}
+          label="All"
+          count={counts?.total}
+          onClick={() => patchParams({ status: null, confirmation: null, risk: null, page: null })}
+        />
+        <StatusTab
+          active={statusKey === "NEW,PENDING,QUESTION"}
+          label="To handle"
+          count={
+            counts
+              ? (counts.byStatus["NEW"] ?? 0) + (counts.byStatus["PENDING"] ?? 0) + (counts.byStatus["QUESTION"] ?? 0)
+              : undefined
+          }
+          tone="amber"
+          onClick={() => patchParams({ status: "NEW,PENDING,QUESTION", confirmation: null, risk: null, page: null })}
+        />
+        <StatusTab
+          active={confirmation === "NEEDS_REVIEW"}
+          label="Review"
+          count={counts?.needsReview}
+          tone="amber"
+          onClick={() => patchParams({ status: null, confirmation: "NEEDS_REVIEW", risk: null, page: null })}
+        />
+        <StatusTab
+          active={risk === "POSSIBLE_DUPLICATE"}
+          label="Duplicate"
+          count={counts?.duplicate}
+          tone="red"
+          onClick={() => patchParams({ status: null, confirmation: null, risk: "POSSIBLE_DUPLICATE", page: null })}
+        />
+        <StatusTab
+          active={statusKey === "CONFIRMED"}
+          label="Confirmed"
+          count={counts?.byStatus["CONFIRMED"]}
+          tone="green"
+          onClick={() => patchParams({ status: "CONFIRMED", confirmation: null, risk: null, page: null })}
+        />
+        <StatusTab
+          active={statusKey === "SHIPPING"}
+          label="Shipping"
+          count={counts?.byStatus["SHIPPING"]}
+          onClick={() => patchParams({ status: "SHIPPING", confirmation: null, risk: null, page: null })}
+        />
+        <StatusTab
+          active={statusKey === "SIGNED"}
+          label="Signed"
+          count={counts?.byStatus["SIGNED"]}
+          tone="green"
+          onClick={() => patchParams({ status: "SIGNED", confirmation: null, risk: null, page: null })}
+        />
+        <StatusTab
+          active={statusKey === "CANCELLED,DENIED"}
+          label="Cancelled"
+          count={counts ? (counts.byStatus["CANCELLED"] ?? 0) + (counts.byStatus["DENIED"] ?? 0) : undefined}
+          onClick={() => patchParams({ status: "CANCELLED,DENIED", confirmation: null, risk: null, page: null })}
+        />
+      </div>
 
       {/* Filter bar */}
       <div className="mt-4 rounded-xl border border-border bg-card p-4">
@@ -542,139 +766,152 @@ function OrdersPageContent() {
             <EmptyState title="No orders yet." />
           )
         ) : (
-          <ul className="flex flex-col gap-3">
-            {data?.items.map((row) => {
-              const showConfirm = canConfirmRow(row);
-              const showCancel = canCancelRow(row);
-              const rowBusy = actionPending && dialog?.id === row.id;
-              const firstItem = row.items[0];
-              return (
-                <li
-                  key={row.id}
-                  className="rounded-xl border border-border bg-card p-4 transition-colors hover:bg-primary-light/10 sm:p-5"
-                >
-                  {/* Row header */}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Link
-                      href={`/admin/orders/${row.id}`}
-                      className="text-base font-semibold text-cta hover:underline"
+          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+            <table className="w-full min-w-[1120px] text-sm">
+              <caption className="sr-only">Orders</caption>
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <th scope="col" className="px-4 py-2.5">Order</th>
+                  <th scope="col" className="px-4 py-2.5">Customer</th>
+                  <th scope="col" className="px-4 py-2.5">Items</th>
+                  <th scope="col" className="px-4 py-2.5 text-right">Total</th>
+                  <th scope="col" className="px-4 py-2.5">Class</th>
+                  <th scope="col" className="px-4 py-2.5">Status</th>
+                  <th scope="col" className="px-4 py-2.5">Assigned</th>
+                  <th scope="col" className="px-4 py-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data?.items.map((row) => {
+                  const showConfirm = canConfirmRow(row);
+                  const showCancel = canCancelRow(row);
+                  const rowBusy = actionPending && dialog?.id === row.id;
+                  const firstItem = row.items[0];
+                  // Row tint per CUSTOMER_RISK_SPEC §16 display rules.
+                  const rowTone =
+                    row.customerClassification === "RECHECK"
+                      ? "bg-red-50/70"
+                      : row.customerClassification === "RPT"
+                        ? "bg-amber-50/70"
+                        : row.customerClassification === "AGAIN"
+                          ? "bg-green-50/50"
+                          : "";
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`border-b border-border last:border-0 hover:bg-primary-light/20 ${rowTone}`}
                     >
-                      {row.orderNumber}
-                    </Link>
-                    <ClassificationBadge value={row.customerClassification} />
-                    {row.riskFlags && row.riskFlags.length > 0 ? (
-                      <span
-                        title={
-                          row.riskFlags[0]?.reason ?? undefined
-                        }
-                        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
-                      >
-                        ⚠ {row.riskFlags[0]?.flagType === "POSSIBLE_DUPLICATE" ? "Duplicate" : row.riskFlags[0]?.flagType}
-                      </span>
-                    ) : null}
-                    <span className="ml-auto flex items-center gap-2">
-                      {showConfirm ? (
-                        <button
-                          type="button"
-                          onClick={() => openDialog(row.id, "confirm")}
-                          disabled={rowBusy}
-                          className="rounded-lg bg-cta px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={`/admin/orders/${row.id}`}
+                          className="font-semibold text-cta hover:underline"
                         >
-                          Confirm
-                        </button>
-                      ) : null}
-                      {showCancel ? (
-                        <button
-                          type="button"
-                          onClick={() => openDialog(row.id, "cancel")}
-                          disabled={rowBusy}
-                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      ) : null}
-                    </span>
-                  </div>
-
-                  {/* Key fields */}
-                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
-                    <div>
-                      <div className="text-xs text-ink-muted">Customer</div>
-                      <div className="text-ink">{row.customer.name ?? "—"}</div>
-                      <div className="text-xs text-ink-secondary">
-                        {row.customer.normalizedPhone}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-ink-muted">Created</div>
-                      <div className="text-ink-secondary">
-                        {new Date(row.createdAt).toLocaleString("en-PH", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                      {row.preferredDeliveryDate ? (
+                          {row.orderNumber}
+                        </Link>
                         <div className="text-xs text-ink-muted">
-                          Preferred: {formatPreferredDate(row.preferredDeliveryDate)}
+                          {new Date(row.createdAt).toLocaleString("en-PH", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </div>
-                      ) : null}
-                    </div>
-                    <div>
-                      <div className="text-xs text-ink-muted">Items</div>
-                      <div className="text-ink">{row.items.length} items</div>
-                      {firstItem ? (
-                        <div
-                          className="max-w-[180px] truncate text-xs text-ink-muted"
-                          title={firstItem.productNameSnapshot}
-                        >
-                          {firstItem.productNameSnapshot}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="text-ink">{row.customer.name ?? "—"}</div>
+                        <div className="text-xs text-ink-secondary">
+                          {row.customer.normalizedPhone}
                         </div>
-                      ) : null}
-                    </div>
-                    <div>
-                      <div className="text-xs text-ink-muted">Total</div>
-                      <div className="font-semibold text-ink">
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="text-ink">{row.items.length} items</div>
+                        {firstItem ? (
+                          <div
+                            className="max-w-[160px] truncate text-xs text-ink-muted"
+                            title={firstItem.productNameSnapshot}
+                          >
+                            {firstItem.productNameSnapshot}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right font-medium text-ink">
                         {formatAmount(row.grandTotal, row.currency)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Status row */}
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
-                    <Badge value={row.orderStatus} />
-                    <Badge value={row.confirmationStatus} />
-                    <Badge value={row.paymentStatus} />
-                    <div className="ml-auto flex items-center gap-2">
-                      <span className="text-xs text-ink-muted">Assigned</span>
-                      {assignees.length > 0 ? (
-                        <select
-                          value={row.assignedTo?.id ?? ""}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value) void assignRow(row.id, value);
-                          }}
-                          aria-label="Assign order"
-                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-ink"
-                        >
-                          <option value="">—</option>
-                          {assignees.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name ?? "—"}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs text-ink-muted">—</span>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <ClassificationBadge value={row.customerClassification} />
+                        {row.riskFlags && row.riskFlags.length > 0 ? (
+                          <div
+                            title={row.riskFlags[0]?.reason ?? undefined}
+                            className="mt-1 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
+                          >
+                            ⚠ {row.riskFlags[0]?.flagType === "POSSIBLE_DUPLICATE" ? "Dup" : row.riskFlags[0]?.flagType}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          <Badge value={row.orderStatus} />
+                          {row.confirmationStatus !== "UNCONFIRMED" ? (
+                            <Badge value={row.confirmationStatus} />
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        {assignees.length > 0 ? (
+                          <select
+                            value={row.assignedTo?.id ?? ""}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value) void assignRow(row.id, value);
+                            }}
+                            aria-label="Assign order"
+                            className="rounded-lg border border-border bg-background px-1.5 py-1 text-xs text-ink"
+                          >
+                            <option value="">—</option>
+                            {assignees.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name ?? "—"}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                        {!showConfirm && !showCancel ? (
+                          <span className="text-ink-muted">—</span>
+                        ) : (
+                          <div className="inline-flex gap-3">
+                            {showConfirm ? (
+                              <button
+                                type="button"
+                                onClick={() => openDialog(row.id, "confirm")}
+                                disabled={rowBusy}
+                                className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
+                              >
+                                Confirm
+                              </button>
+                            ) : null}
+                            {showCancel ? (
+                              <button
+                                type="button"
+                                onClick={() => openDialog(row.id, "cancel")}
+                                disabled={rowBusy}
+                                className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
+                              >
+                                Cancel
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -744,6 +981,154 @@ function OrdersPageContent() {
             {actionError}
           </p>
         ) : null}
+      </Dialog>
+
+      {/* Manual order entry (phone orders) */}
+      <Dialog
+        open={showCreate}
+        onClose={() => {
+          if (!creating) setShowCreate(false);
+        }}
+        title="New Order"
+        width="md"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitCreate();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Full name *" htmlFor="co-name">
+              <input
+                id="co-name"
+                type="text"
+                required
+                value={createForm.name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Mobile *" htmlFor="co-phone">
+              <input
+                id="co-phone"
+                type="text"
+                required
+                placeholder="0917 123 4567"
+                value={createForm.phone}
+                onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Province *" htmlFor="co-province">
+              <input
+                id="co-province"
+                type="text"
+                required
+                value={createForm.province}
+                onChange={(e) => setCreateForm((f) => ({ ...f, province: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="City / Municipality *" htmlFor="co-city">
+              <input
+                id="co-city"
+                type="text"
+                required
+                value={createForm.city}
+                onChange={(e) => setCreateForm((f) => ({ ...f, city: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Street address *" htmlFor="co-street">
+              <input
+                id="co-street"
+                type="text"
+                required
+                value={createForm.streetAddress}
+                onChange={(e) => setCreateForm((f) => ({ ...f, streetAddress: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Barangay" htmlFor="co-barangay">
+              <input
+                id="co-barangay"
+                type="text"
+                value={createForm.barangay}
+                onChange={(e) => setCreateForm((f) => ({ ...f, barangay: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+          <div className="mt-4 rounded-lg border border-border bg-background p-3">
+            <Field label="Product *" htmlFor="co-sku">
+              <input
+                id="co-sku"
+                type="text"
+                placeholder="Search product…"
+                value={pickedSku ? pickedSku.label : skuQuery}
+                onChange={(e) => {
+                  setPickedSku(null);
+                  setSkuQuery(e.target.value);
+                }}
+                className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            {!pickedSku && skuOptions.length > 0 ? (
+              <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border">
+                {skuOptions.map((opt) => (
+                  <li key={opt.skuId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickedSku({ skuId: opt.skuId, label: opt.label });
+                        setSkuOptions([]);
+                      }}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
+                    >
+                      <span className="truncate">{opt.label}</span>
+                      <span className="ml-3 whitespace-nowrap text-xs text-ink-secondary">
+                        {opt.price ?? "—"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="mt-2 w-28">
+              <Field label="Qty *" htmlFor="co-qty">
+                <input
+                  id="co-qty"
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={createQty}
+                  onChange={(e) => setCreateQty(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
+                />
+              </Field>
+            </div>
+          </div>
+          {formError ? (
+            <p role="alert" className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">
+              {formError}
+            </p>
+          ) : null}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setShowCreate(false)}
+              disabled={creating}
+            >
+              Back
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={creating || !pickedSku}>
+              {creating ? "Creating…" : "Create order"}
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </div>
   );

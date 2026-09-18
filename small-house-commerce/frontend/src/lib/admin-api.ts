@@ -684,8 +684,10 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 
 export const adminApi = {
   listOrders: (p: {
-    status?: OrderStatus;
+    /** Single status or comma-separated set (workbench tab buckets). */
+    status?: string;
     classification?: string;
+    confirmation?: string;
     assignedTo?: string;
     risk?: string;
     search?: string;
@@ -698,6 +700,7 @@ export const adminApi = {
       `/api/v1/admin/orders${buildQuery({
         status: p.status,
         classification: p.classification,
+        confirmation: p.confirmation,
         assignedTo: p.assignedTo,
         risk: p.risk,
         search: p.search,
@@ -786,6 +789,36 @@ export const adminApi = {
     adminAuthedFetch<{ id: string; name: string }[]>(
       `/api/v1/admin/orders/assignees`,
     ),
+
+  orderCounts: (): Promise<{
+    total: number;
+    byStatus: Record<string, number>;
+    needsReview: number;
+    duplicate: number;
+  }> => adminAuthedFetch(`/api/v1/admin/orders/counts`),
+
+  /** Manual order entry (phone orders) — reuses the storefront checkout payload. */
+  createOrder: (input: {
+    customer: {
+      name: string;
+      phone: string;
+      province: string;
+      city: string;
+      barangay?: string | null;
+      postalCode?: string | null;
+      streetAddress: string;
+      landmark?: string | null;
+    };
+    items: { skuId: string; quantity: number }[];
+    preferredDeliveryDate?: string | null;
+  }): Promise<AdminOrderRow> =>
+    adminAuthedFetch<AdminOrderRow>(`/api/v1/admin/orders`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...input,
+        attribution: { sourceType: "OTHER" },
+      }),
+    }),
 
   listProducts: (p: {
     search?: string;
