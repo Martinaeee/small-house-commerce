@@ -796,7 +796,10 @@ export class OrdersService {
   async list(query: OrderQuery) {
     const where: Prisma.OrderWhereInput = {};
 
-    if (query.status) where.orderStatus = query.status;
+    if (query.status) {
+      where.orderStatus =
+        query.status.length === 1 ? query.status[0]! : { in: query.status };
+    }
     if (query.classification) where.customerClassification = query.classification;
     if (query.assignedTo) where.assignedToId = query.assignedTo;
     if (query.risk) {

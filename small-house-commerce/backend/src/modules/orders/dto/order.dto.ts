@@ -68,7 +68,13 @@ export const checkoutSchema = z.object({
 });
 
 export const orderQuerySchema = z.object({
-  status: z.nativeEnum(OrderStatus).optional(),
+  // Single status or comma-separated set (workbench tab buckets like
+  // "NEW,PENDING,QUESTION"). Invalid entries are rejected wholesale.
+  status: z
+    .string()
+    .transform((s) => s.split(',').map((v) => v.trim()))
+    .pipe(z.array(z.nativeEnum(OrderStatus)).min(1).max(10))
+    .optional(),
   classification: z.enum(['NEW', 'AGAIN', 'RPT', 'RECHECK']).optional(),
   assignedTo: z.string().uuid().optional(),
   risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
