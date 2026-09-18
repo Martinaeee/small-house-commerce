@@ -7,12 +7,14 @@ import {
   listProvinces,
   type PsgcBarangay,
 } from "@/lib/psgc";
+import { SearchableSelect } from "./SearchableSelect";
 
 /**
  * PSGC province → city/municipality → barangay cascade for the checkout form
- * (spec §3.3). Native <select> plus an independent search filter (zero-dep
- * ruling); values stay plain PSGC name strings. Barangay is optional and
- * degrades to a free-text input when the backend lookup fails (spec §5.3).
+ * (spec §3.3). Each level is a single searchable dropdown (type to filter or
+ * pick from the list; zero-dep ruling). Values stay plain PSGC name strings.
+ * Barangay is optional and degrades to a free-text input when the backend
+ * lookup fails (spec §5.3).
  */
 interface PsgcAddressSelectsProps {
   province: string;
@@ -25,9 +27,6 @@ interface PsgcAddressSelectsProps {
   onBlurField?: (field: "province" | "city") => void;
   inputCls: string;
 }
-
-const searchCls =
-  "w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none disabled:opacity-60";
 
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
@@ -47,45 +46,6 @@ function LegacyNote({ value, testid }: { value: string; testid: string }) {
   );
 }
 
-/**
- * Case-insensitive substring filter. When the selected value is a known option
- * but the query hides it (including zero matches), keep it as the only/leading
- * option so the select always displays the form value.
- */
-function visibleOptions(
-  options: string[],
-  query: string,
-  selected: string,
-  selectedKnown: boolean,
-): string[] {
-  const q = query.trim().toLowerCase();
-  const matched = q
-    ? options.filter((o) => o.toLowerCase().includes(q))
-    : options;
-  if (selected && selectedKnown && !matched.includes(selected)) {
-    return [selected, ...matched.filter((o) => o !== selected)];
-  }
-  return matched;
-}
-
-function visibleBarangays(
-  options: PsgcBarangay[],
-  query: string,
-  selected: string,
-): PsgcBarangay[] {
-  const q = query.trim().toLowerCase();
-  const matched = q
-    ? options.filter((b) => b.name.toLowerCase().includes(q))
-    : options;
-  if (selected && !matched.some((b) => b.name === selected)) {
-    const current = options.find((b) => b.name === selected);
-    if (current) {
-      return [current, ...matched.filter((b) => b.code !== current.code)];
-    }
-  }
-  return matched;
-}
-
 export function PsgcAddressSelects({
   province,
   city,
@@ -99,10 +59,6 @@ export function PsgcAddressSelects({
 }: PsgcAddressSelectsProps) {
   const provinces = listProvinces();
   const cities = province ? listMunicipalities(province) : [];
-
-  const [provinceQuery, setProvinceQuery] = useState("");
-  const [cityQuery, setCityQuery] = useState("");
-  const [barangayQuery, setBarangayQuery] = useState("");
 
   const [barangayState, setBarangayState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -164,21 +120,11 @@ export function PsgcAddressSelects({
     // parent's handler (spec §5.2: switching province resets city/barangay).
     onCityChange("");
     onBarangayChange("");
-    setProvinceQuery("");
-    setCityQuery("");
-    setBarangayQuery("");
   }
 
   function handleCityChange(value: string) {
     onCityChange(value);
     onBarangayChange("");
-    setCityQuery("");
-    setBarangayQuery("");
-  }
-
-  function handleBarangayChange(value: string) {
-    onBarangayChange(value);
-    setBarangayQuery("");
   }
 
   const barangayLoading = barangayState.status === "loading";
@@ -187,37 +133,19 @@ export function PsgcAddressSelects({
     <>
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
         <label htmlFor="checkout-province">Province *</label>
-        <input
-          type="text"
-          data-testid="psgc-province-search"
-          aria-label="Search provinces"
-          className={searchCls}
-          value={provinceQuery}
-          onChange={(e) => setProvinceQuery(e.target.value)}
-          placeholder="Search provinces"
-          autoComplete="off"
-        />
-        <select
+        <SearchableSelect
           id="checkout-province"
-          data-testid="psgc-province"
-          className={`${inputCls}${errors?.province ? " border-sale" : ""}`}
-          value={provinceLegacy ? "" : province}
-          onChange={(e) => handleProvinceChange(e.target.value)}
+          testId="psgc-province"
+          ariaLabel="Province"
+          value={province}
+          options={provinces}
+          onChange={handleProvinceChange}
           onBlur={() => onBlurField?.("province")}
-          aria-invalid={Boolean(errors?.province)}
-          aria-describedby={errors?.province ? "checkout-province-error" : undefined}
-        >
-          <option value="" disabled>
-            Select province
-          </option>
-          {visibleOptions(provinces, provinceQuery, province, !provinceLegacy).map(
-            (name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ),
-          )}
-        </select>
+          placeholder="Select province"
+          searchPlaceholder="Search provinces…"
+          invalid={Boolean(errors?.province)}
+          describedBy={errors?.province ? "checkout-province-error" : undefined}
+        />
         {provinceLegacy ? (
           <LegacyNote value={province} testid="psgc-province-legacy" />
         ) : null}
@@ -226,42 +154,21 @@ export function PsgcAddressSelects({
 
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
         <label htmlFor="checkout-city">City / Municipality *</label>
-        <input
-          type="text"
-          data-testid="psgc-city-search"
-          aria-label="Search cities"
-          className={searchCls}
-          value={cityQuery}
-          onChange={(e) => setCityQuery(e.target.value)}
-          placeholder="Search cities"
-          autoComplete="off"
-          disabled={!province}
-        />
-        <select
+        <SearchableSelect
           id="checkout-city"
-          data-testid="psgc-city"
-          className={`${inputCls}${errors?.city ? " border-sale" : ""}${
-            !province ? " opacity-60" : ""
-          }`}
-          value={cityLegacy ? "" : city}
-          onChange={(e) => handleCityChange(e.target.value)}
+          testId="psgc-city"
+          ariaLabel="City or municipality"
+          value={city}
+          options={cities}
+          onChange={handleCityChange}
           onBlur={() => onBlurField?.("city")}
           disabled={!province}
-          aria-invalid={Boolean(errors?.city)}
-          aria-describedby={errors?.city ? "checkout-city-error" : undefined}
-        >
-          <option value="" disabled>
-            Select city / municipality
-          </option>
-          {visibleOptions(cities, cityQuery, city, !cityLegacy).map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-        {cityLegacy ? (
-          <LegacyNote value={city} testid="psgc-city-legacy" />
-        ) : null}
+          placeholder="Select city / municipality"
+          searchPlaceholder="Search cities…"
+          invalid={Boolean(errors?.city)}
+          describedBy={errors?.city ? "checkout-city-error" : undefined}
+        />
+        {cityLegacy ? <LegacyNote value={city} testid="psgc-city-legacy" /> : null}
         <FieldError id="checkout-city" message={errors?.city} />
       </div>
 
@@ -292,46 +199,18 @@ export function PsgcAddressSelects({
           </>
         ) : (
           <>
-            <input
-              type="text"
-              data-testid="psgc-barangay-search"
-              aria-label="Search barangays"
-              className={searchCls}
-              value={barangayQuery}
-              onChange={(e) => setBarangayQuery(e.target.value)}
-              placeholder="Search barangays"
-              autoComplete="off"
-              disabled={!city || barangayState.status !== "ready"}
-            />
-            <select
+            <SearchableSelect
               id="psgc-barangay"
-              data-testid="psgc-barangay"
-              className={`${inputCls}${!city ? " opacity-60" : ""}`}
-              value={barangayLegacy ? "" : barangay}
-              onChange={(e) => handleBarangayChange(e.target.value)}
-              disabled={!city || barangayLoading}
-            >
-              {barangayLoading ? (
-                <option disabled>Loading…</option>
-              ) : (
-                <>
-                  <option value="" disabled>
-                    Select barangay
-                  </option>
-                  {visibleBarangays(
-                    barangayState.status === "ready"
-                      ? barangayState.options
-                      : [],
-                    barangayQuery,
-                    barangay,
-                  ).map((b) => (
-                    <option key={b.code} value={b.name}>
-                      {b.name}
-                    </option>
-                  ))}
-                </>
-              )}
-            </select>
+              testId="psgc-barangay"
+              ariaLabel="Barangay"
+              value={barangay}
+              options={barangayNames}
+              onChange={onBarangayChange}
+              disabled={!city}
+              placeholder="Select barangay"
+              searchPlaceholder="Search barangays…"
+              loading={barangayLoading}
+            />
             {barangayLegacy ? (
               <LegacyNote value={barangay} testid="psgc-barangay-legacy" />
             ) : null}

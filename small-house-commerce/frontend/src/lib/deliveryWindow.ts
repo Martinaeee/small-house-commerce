@@ -66,6 +66,18 @@ export function toDateInputValue(date: Date): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+/**
+ * Default preferred-delivery date: the 7th business day from Manila-today
+ * (provinces deliver in 5–7 business days, so this matches the stated window
+ * and always skips Sundays). Pre-fills the checkout date field so it never
+ * shows the blank year/month/day placeholder.
+ */
+export function defaultPreferredDeliveryDate(now: Date = new Date()): string {
+  const { year, month, day } = manilaWallDate(now);
+  const manilaToday = new Date(Date.UTC(year, month - 1, day));
+  return toDateInputValue(addBusinessDays(manilaToday, 7));
+}
+
 /** "Sep 16–18" within one month; "Sep 28 – Oct 2" across a month boundary. */
 export function formatDeliveryRange(now: Date, minDays: number, maxDays: number): string {
   const start = manilaDayParts(addDays(now, minDays));

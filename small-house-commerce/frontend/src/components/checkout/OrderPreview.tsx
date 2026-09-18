@@ -35,6 +35,11 @@ function PreviewRow({
       <div className="shrink-0 text-right">
         {line.unitPrice !== null ? (
           <>
+            {line.compareAtPrice != null && line.compareAtPrice > line.unitPrice && (
+              <p className="text-xs text-ink-muted line-through">
+                {formatPrice(line.compareAtPrice * line.quantity)}
+              </p>
+            )}
             <p className="text-sm font-semibold text-ink">
               {formatPrice(line.unitPrice * line.quantity)}
             </p>

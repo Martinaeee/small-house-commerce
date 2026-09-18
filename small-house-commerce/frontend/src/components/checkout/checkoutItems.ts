@@ -19,19 +19,38 @@ export function parseItemsParam(itemsParam?: string): string[] {
     .filter(Boolean);
 }
 
-export function totalsFor(lines: { unitPrice: number | null; quantity: number }[]): {
+export interface CheckoutTotals {
   subtotal: number;
+  /** Sum of compareAtPrice×qty where compareAtPrice actually exceeds unitPrice. */
+  compareAtTotal: number;
+  /** compareAtTotal − subtotal (display-only "you save", never deducted). */
+  savings: number;
   discount: 0;
   total: number;
-} {
+}
+
+export function totalsFor(lines: {
+  unitPrice: number | null;
+  compareAtPrice?: number | null;
+  quantity: number;
+}[]): CheckoutTotals {
   // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
   // not a discount deducted again at checkout.
   let subtotal = 0;
+  let compareAtTotal = 0;
   for (const line of lines) {
     if (line.unitPrice === null) continue;
     subtotal += line.unitPrice * line.quantity;
+    if (
+      line.compareAtPrice !== null &&
+      line.compareAtPrice !== undefined &&
+      line.compareAtPrice > line.unitPrice
+    ) {
+      compareAtTotal += line.compareAtPrice * line.quantity;
+    }
   }
-  return { subtotal, discount: 0, total: subtotal };
+  const savings = Math.max(0, compareAtTotal - subtotal);
+  return { subtotal, compareAtTotal, savings, discount: 0, total: subtotal };
 }
 
 /**

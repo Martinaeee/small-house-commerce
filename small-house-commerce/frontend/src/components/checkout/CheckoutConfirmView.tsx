@@ -230,6 +230,23 @@ export function CheckoutConfirmView({
             <p className="text-sm font-medium text-ink">Cash on Delivery · No payment needed now</p>
             <dl className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-sm">
               <div className="flex justify-between">
+                <dt className="text-ink-secondary">Subtotal</dt>
+                <dd className="font-medium text-ink">
+                  {checkout.totals.savings > 0 && (
+                    <span className="mr-2 text-xs font-normal text-ink-muted line-through">
+                      {formatPrice(checkout.totals.compareAtTotal)}
+                    </span>
+                  )}
+                  {formatPrice(checkout.totals.subtotal)}
+                </dd>
+              </div>
+              {checkout.totals.savings > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-ink-secondary">You save</dt>
+                  <dd className="font-medium text-sale">−{formatPrice(checkout.totals.savings)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between">
                 <dt className="text-ink-secondary">Shipping</dt>
                 <dd className="font-medium text-ink">COD — calculated at checkout</dd>
               </div>

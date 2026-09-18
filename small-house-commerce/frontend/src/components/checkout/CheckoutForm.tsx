@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addBusinessDays,
+  defaultPreferredDeliveryDate,
   deliveryWindowFor,
   manilaWallDate,
   toDateInputValue,
@@ -99,7 +100,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     postalCode: "",
     streetAddress: "",
     landmark: "",
-    preferredDeliveryDate: "",
+    preferredDeliveryDate: defaultPreferredDeliveryDate(),
   });
 
   // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
@@ -628,11 +629,26 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               <div className="flex justify-between">
                 <dt className="text-ink-secondary">Subtotal</dt>
                 <dd className="font-medium text-ink">
-                  {isBuyNow && total === null
-                    ? "Calculated at checkout"
-                    : formatPrice(totals.subtotal)}
+                  {isBuyNow && total === null ? (
+                    "Calculated at checkout"
+                  ) : (
+                    <>
+                      {totals.savings > 0 && (
+                        <span className="mr-2 text-sm font-normal text-ink-muted line-through">
+                          {formatPrice(totals.compareAtTotal)}
+                        </span>
+                      )}
+                      {formatPrice(totals.subtotal)}
+                    </>
+                  )}
                 </dd>
               </div>
+              {totals.savings > 0 && !(isBuyNow && total === null) && (
+                <div className="flex justify-between">
+                  <dt className="text-ink-secondary">You save</dt>
+                  <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
+                </div>
+              )}
               {totals.discount > 0 && (
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Discount</dt>

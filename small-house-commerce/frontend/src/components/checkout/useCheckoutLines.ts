@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type CartItem, type Product } from "@/lib/api";
 import { useCart } from "@/components/cart/CartContext";
-import { clampQty, parseItemsParam, totalsFor, type CheckoutLine } from "./checkoutItems";
+import { clampQty, parseItemsParam, totalsFor, type CheckoutLine, type CheckoutTotals } from "./checkoutItems";
 
 export interface CheckoutLineInput {
   skuId?: string;
@@ -22,7 +22,7 @@ export interface CheckoutLines {
   lines: CheckoutLine[];
   orderItems: { skuId: string; quantity: number }[];
   cartItemIds: string[];
-  totals: { subtotal: number; discount: 0; total: number };
+  totals: CheckoutTotals;
   total: number | null;
 }
 
