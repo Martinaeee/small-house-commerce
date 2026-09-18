@@ -69,6 +69,12 @@ export class AdminOrdersController {
     return this.ordersService.counts();
   }
 
+  @Get('sku-search')
+  @Permissions('ORDER_VIEW_ALL')
+  skuSearch(@Query('q') q: string) {
+    return this.ordersService.skuSearch(q ?? '');
+  }
+
   /** Manual order entry (phone orders): reuses the storefront checkout logic. */
   @Post()
   @Permissions('ORDER_CONFIRM')

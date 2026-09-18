@@ -391,6 +391,27 @@ export class OrdersService {
     return { total, byStatus: counts, needsReview, duplicate };
   }
 
+  /** SKU search for manual order entry: sellable SKUs matching name/code. */
+  async skuSearch(q: string) {
+    const term = q.trim();
+    const skus = await this.prisma.sku.findMany({
+      where: {
+        status: 'ACTIVE',
+        price: { not: null },
+        variant: { product: { status: 'ACTIVE', ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}) } },
+      },
+      include: { variant: { select: { name: true, product: { select: { name: true } } } } },
+      orderBy: { skuCode: 'asc' },
+      take: 8,
+    });
+    return skus.map((sku) => ({
+      skuId: sku.id,
+      label: `${sku.variant.product.name} — ${sku.variant.name} (${sku.skuCode})`,
+      price: sku.price === null ? null : String(sku.price),
+      skuCode: sku.skuCode,
+    }));
+  }
+
   /** Assign / reassign the customer-service owner of an order. */
   async assign(orderId: string, assignedToId: string, operatorId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
@@ -801,6 +822,8 @@ export class OrdersService {
         query.status.length === 1 ? query.status[0]! : { in: query.status };
     }
     if (query.classification) where.customerClassification = query.classification;
+    if (query.confirmation) where.confirmationStatus = query.confirmation;
+    if (query.confirmation) where.confirmationStatus = query.confirmation;
     if (query.assignedTo) where.assignedToId = query.assignedTo;
     if (query.risk) {
       where.riskFlags = { some: { flagType: query.risk, resolved: false } };

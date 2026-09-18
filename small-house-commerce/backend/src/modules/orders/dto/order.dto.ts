@@ -76,6 +76,7 @@ export const orderQuerySchema = z.object({
     .pipe(z.array(z.nativeEnum(OrderStatus)).min(1).max(10))
     .optional(),
   classification: z.enum(['NEW', 'AGAIN', 'RPT', 'RECHECK']).optional(),
+  confirmation: z.enum(['UNCONFIRMED', 'NEEDS_REVIEW', 'CONFIRMED', 'REJECTED']).optional(),
   assignedTo: z.string().uuid().optional(),
   risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
   search: z.string().max(255).optional(),
