@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import { StorefrontPreview } from "@/components/admin/PreviewPane";
 import {
   adminApi,
   type AdminLandingPageDetail,
@@ -433,6 +434,15 @@ export function LandingPageForm({
           />
         </Field>
       </div>
+
+      {mode === "edit" && form.slug.trim() ? (
+        <div className="mt-2 rounded-lg border border-border p-3">
+          <h3 className="text-sm font-semibold text-ink">预览（落地页）</h3>
+          <div className="mt-3">
+            <StorefrontPreview path={`/lp/${form.slug.trim()}`} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-2 flex justify-end gap-3">
         <Button type="button" variant="secondary" size="md" onClick={onCancel} disabled={pending}>

@@ -8,6 +8,7 @@ import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { RoomSceneEditor, makeSceneId, readScenes } from "@/components/admin/RoomSceneEditor";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { StorefrontPreview } from "@/components/admin/PreviewPane";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
 import {
@@ -1161,6 +1162,18 @@ function HomepageAdminContent() {
           </div>
         }
       />
+
+      {/* Collapsed by default: the homepage needs real data (products,
+          collections), so it is previewed as the saved page rather than a
+          live module render. */}
+      <details className="mt-4 rounded-lg border border-border bg-card">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink">
+          预览首页（手机 / 电脑）
+        </summary>
+        <div className="border-t border-border px-4 py-4">
+          <StorefrontPreview path="/" />
+        </div>
+      </details>
 
       {bulletsBlocking.length > 0 ? (
         <div className="mb-4 mt-4 rounded-lg border border-sale bg-sale/10 p-3 text-sm text-ink">

@@ -7,10 +7,13 @@ import { Dialog } from "@/components/admin/Dialog";
 import {
   HeroStyleFields,
   emptyHeroStyleFormValue,
+  heroStyleFromForm,
   serializeHeroStyle,
   toHeroStyleFormValue,
   type HeroStyleFormValue,
 } from "@/components/admin/HeroStyleFields";
+import { LivePreview, StorefrontPreview } from "@/components/admin/PreviewPane";
+import { HeroBanner } from "@/components/product/HeroBanner";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { TextInput } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -644,6 +647,7 @@ function CollectionsPageContent() {
         open={heroEdit !== null}
         onClose={closeHero}
         title={heroEdit ? `Hero 样式：${heroEdit.collection.name}` : "Hero 样式"}
+        width="lg"
       >
         <div className="flex flex-col gap-4">
           <HeroStyleFields
@@ -657,6 +661,29 @@ function CollectionsPageContent() {
             disabled={heroPending}
             namePlaceholder={heroEdit?.collection.name ?? "集合名称"}
           />
+          {heroEdit ? (
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-ink">预览</h3>
+              <div className="mt-3 flex flex-col gap-5">
+                <LivePreview>
+                  <HeroBanner
+                    name={heroEdit.collection.name}
+                    style={heroStyleFromForm(heroEdit.value)}
+                  />
+                </LivePreview>
+                <div className="border-t border-border pt-4">
+                  <h4 className="text-xs font-semibold text-ink-secondary">
+                    整页预览（已保存版本）
+                  </h4>
+                  <div className="mt-3">
+                    <StorefrontPreview
+                      path={`/collections/${heroEdit.collection.slug}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {heroError ? (
             <p className="text-xs text-red-700" role="alert">
               {heroError}

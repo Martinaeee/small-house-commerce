@@ -10,6 +10,8 @@ import {
 } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
 import { ImageUrlInput } from "./ImageUrlInput";
+import { LivePreview, StorefrontPreview } from "./PreviewPane";
+import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import type {
   AdminCategoryNode,
   CreateProductInput,
@@ -1327,6 +1329,38 @@ export function ProductForm({
           >
             Add video
           </Button>
+        </div>
+
+        {/* Preview: the same component the storefront PDP renders, fed with the
+            blocks currently in this form. */}
+        <div className="mt-6 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold text-ink">预览</h3>
+          <div className="mt-3 flex flex-col gap-5">
+            <LivePreview>
+              <ProductDetailBody
+                description={value.description}
+                blocks={value.detailBlocks.map((block) => ({
+                  type: block.type,
+                  url: block.url,
+                  altText: block.altText,
+                }))}
+              />
+            </LivePreview>
+            {value.slug.trim() ? (
+              <div className="border-t border-border pt-4">
+                <h4 className="text-xs font-semibold text-ink-secondary">
+                  整页预览（已保存版本，商品详情页）
+                </h4>
+                <div className="mt-3">
+                  <StorefrontPreview path={`/products/${value.slug.trim()}`} />
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-ink-muted">
+                整页预览需要先保存：填好 Slug 并保存后，这里会显示商品详情页的真实效果。
+              </p>
+            )}
+          </div>
         </div>
       </Section>
 

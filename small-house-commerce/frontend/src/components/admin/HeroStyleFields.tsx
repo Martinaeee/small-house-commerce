@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Field, Select, TextInput } from "./Field";
 import { ImageUrlInput } from "./ImageUrlInput";
 import type { HeroStyleInput } from "@/lib/admin-api";
+import type { HeroStyle } from "@/lib/api";
 
 /**
  * Hero appearance editor, shared by the category and collection dialogs —
@@ -77,6 +78,24 @@ export function toHeroStyleFormValue(
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Adapts the all-strings form value into the storefront HeroStyle shape, so
+ * the live preview can render the real HeroBanner component rather than a
+ * lookalike.
+ */
+export function heroStyleFromForm(v: HeroStyleFormValue): HeroStyle {
+  return {
+    titleOverride: v.titleOverride.trim() || null,
+    titleColor: v.titleColor.trim() || null,
+    titleSize: v.titleSize.trim() ? Number(v.titleSize) : null,
+    titleFont: v.titleFont.trim() || null,
+    backgroundType: v.backgroundType,
+    backgroundColor: v.backgroundColor.trim() || null,
+    backgroundImageUrl: v.backgroundImageUrl.trim() || null,
+    backgroundBlur: Number(v.backgroundBlur.trim() || "0"),
+  };
+}
 
 /**
  * Returns `null` when nothing is customised, which makes the API delete the

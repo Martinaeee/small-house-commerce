@@ -13,10 +13,13 @@ import { Dialog } from "@/components/admin/Dialog";
 import {
   HeroStyleFields,
   emptyHeroStyleFormValue,
+  heroStyleFromForm,
   serializeHeroStyle,
   toHeroStyleFormValue,
   type HeroStyleFormValue,
 } from "@/components/admin/HeroStyleFields";
+import { LivePreview, StorefrontPreview } from "@/components/admin/PreviewPane";
+import { HeroBanner } from "@/components/product/HeroBanner";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -591,7 +594,7 @@ export default function AdminCategoriesPage() {
         open={formOpen}
         onClose={closeForm}
         title={form.mode === "edit" ? "Edit category" : "Add category"}
-        width="md"
+        width="lg"
       >
         <form onSubmit={submitForm} noValidate>
           {formError ? (
@@ -734,6 +737,35 @@ export default function AdminCategoriesPage() {
                 {errors.heroStyle}
               </p>
             ) : null}
+          </div>
+
+          <div className="mt-6 border-t border-border pt-4">
+            <h3 className="text-sm font-semibold text-ink">预览</h3>
+            <div className="mt-3 flex flex-col gap-5">
+              {/* Live: the very component the storefront renders, fed with the
+                  values currently in this dialog. */}
+              <LivePreview>
+                <HeroBanner
+                  name={form.name || "类目名称"}
+                  style={heroStyleFromForm(form.heroStyle)}
+                  fallbackImage={form.imageUrl.trim() || null}
+                />
+              </LivePreview>
+              {form.mode === "edit" && form.slug ? (
+                <div className="border-t border-border pt-4">
+                  <h4 className="text-xs font-semibold text-ink-secondary">
+                    整页预览（已保存版本）
+                  </h4>
+                  <div className="mt-3">
+                    <StorefrontPreview path={`/categories/${form.slug}`} />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  整页预览需要先保存：新建的类目还没有页面地址。
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="mt-6 flex justify-end gap-3">
