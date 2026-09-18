@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { useProductImages } from "@/lib/productImages";
 import { track } from "@/lib/tracking";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
@@ -224,12 +225,43 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     });
   };
 
+  // Postal code follows the address (province → city → barangay → ZIP).
+  // `postalAutoRef` remembers the last value WE filled, so an address change
+  // can drop a now-stale auto value while leaving the shopper's own edit alone.
+  const postalAutoRef = useRef<string | null>(null);
+
+  function withDerivedPostal(next: typeof form, previous: string): string {
+    // A value that is neither empty nor one we filled is the shopper's own
+    // edit — leave it alone for the rest of the session.
+    const isManualEntry = previous !== "" && previous !== postalAutoRef.current;
+    if (isManualEntry) return previous;
+    const { auto } = lookupPostalCode(next.province, next.city, next.barangay);
+    if (auto !== null) {
+      postalAutoRef.current = auto;
+      return auto;
+    }
+    // No ZIP for the new address: drop a value we filled earlier (now stale).
+    if (previous !== "") {
+      postalAutoRef.current = null;
+      return "";
+    }
+    return previous;
+  }
+
+  const postalLookup = useMemo(
+    () => lookupPostalCode(form.province, form.city, form.barangay),
+    [form.province, form.city, form.barangay],
+  );
+
   // PSGC cascade change handlers (spec §3.3): reset downstream levels and
   // clear any stale location error when the user edits these fields manually.
   const handleProvinceChange = (v: string) => {
     setLocationError(null);
     setLocationNotice(null);
-    setForm((f) => ({ ...f, province: v, city: "", barangay: "" }));
+    setForm((f) => {
+      const next = { ...f, province: v, city: "", barangay: "" };
+      return { ...next, postalCode: withDerivedPostal(next, f.postalCode) };
+    });
     setErrors((cur) => {
       const n = { ...cur };
       delete n.province;
@@ -240,7 +272,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const handleCityChange = (v: string) => {
     setLocationError(null);
     setLocationNotice(null);
-    setForm((f) => ({ ...f, city: v, barangay: "" }));
+    setForm((f) => {
+      const next = { ...f, city: v, barangay: "" };
+      return { ...next, postalCode: withDerivedPostal(next, f.postalCode) };
+    });
     setErrors((cur) => {
       const n = { ...cur };
       delete n.city;
@@ -249,7 +284,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   };
 
   const handleBarangayChange = (v: string) =>
-    setForm((f) => ({ ...f, barangay: v }));
+    setForm((f) => {
+      const next = { ...f, barangay: v };
+      return { ...next, postalCode: withDerivedPostal(next, f.postalCode) };
+    });
 
   // Use my location (spec §3.4): geolocation → Nominatim reverse geocode →
   // confidence-fill province/city via the same handlers as manual selection.
@@ -561,10 +599,57 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 onBlurField={(field) => revalidate(field)()}
                 inputCls={inputCls}
               />
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                Postal Code
-                <input className={inputCls} value={form.postalCode} onChange={set("postalCode")} placeholder="1100" inputMode="numeric" />
-              </label>
+              <div className="flex flex-col gap-1">
+                <label className="flex flex-col gap-1 text-sm font-medium text-ink">
+                  Postal Code
+                  <input
+                    id="checkout-postal-code"
+                    data-testid="checkout-postal-code"
+                    className={inputCls}
+                    value={form.postalCode}
+                    onChange={set("postalCode")}
+                    placeholder="1100"
+                    inputMode="numeric"
+                  />
+                </label>
+                {/* Metro Manila cities are covered by several ZIPs (one per
+                    area); when the barangay didn't pin one down, let the
+                    shopper choose instead of guessing. */}
+                {postalLookup.options.length > 1 ? (
+                  <select
+                    data-testid="checkout-postal-code-pick"
+                    aria-label="Pick a postal code"
+                    className={inputCls}
+                    value={
+                      postalLookup.options.some((o) => o.zip === form.postalCode)
+                        ? form.postalCode
+                        : ""
+                    }
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, postalCode: e.target.value }))
+                    }
+                  >
+                    <option value="">
+                      {postalLookup.auto
+                        ? "Change postal code"
+                        : `This city has ${postalLookup.options.length} ZIPs — pick one`}
+                    </option>
+                    {postalLookup.options.map((o) => (
+                      <option key={o.zip} value={o.zip}>
+                        {`${o.zip} — ${o.label}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {postalLookup.auto && form.postalCode === postalLookup.auto ? (
+                  <span
+                    data-testid="checkout-postal-code-hint"
+                    className="text-xs font-normal text-ink-muted"
+                  >
+                    Filled in from your address — you can change it.
+                  </span>
+                ) : null}
+              </div>
               <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
                 Full Address *
                 <input

@@ -162,8 +162,12 @@ export function CheckoutConfirmView({
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
-        {/* Your Order */}
-        <div className="lg:col-start-1 lg:col-span-2 lg:row-start-1">
+        {/* Two flex columns, not a shared grid row: the address card is tall
+            (map), so a row-based layout pushed the totals card far below the
+            order summary. Keeping summary + totals in one column keeps them
+            adjacent. */}
+        <div className="flex flex-col gap-6 lg:col-start-1 lg:col-span-2">
+          {/* Your Order */}
           <div data-testid="confirm-items" className="rounded-lg border border-border bg-card p-5">
             <div className="mb-1 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-ink">Your Order</h2>
@@ -173,10 +177,71 @@ export function CheckoutConfirmView({
             </div>
             <OrderPreview lines={checkout.lines} images={images} />
           </div>
+
+          {/* Payment + totals */}
+          <div className="flex flex-col gap-4">
+            <div className="rounded-lg border border-border bg-card p-5">
+              <p className="text-sm font-medium text-ink">Cash on Delivery · No payment needed now</p>
+              <dl className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-ink-secondary">Subtotal</dt>
+                  <dd className="font-medium text-ink">
+                    {checkout.totals.savings > 0 && (
+                      <span className="mr-2 text-xs font-normal text-ink-muted line-through">
+                        {formatPrice(checkout.totals.compareAtTotal)}
+                      </span>
+                    )}
+                    {formatPrice(checkout.totals.subtotal)}
+                  </dd>
+                </div>
+                {checkout.totals.savings > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-ink-secondary">You save</dt>
+                    <dd className="font-medium text-sale">−{formatPrice(checkout.totals.savings)}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <dt className="text-ink-secondary">Shipping</dt>
+                  <dd className="font-medium text-ink">COD — calculated at checkout</dd>
+                </div>
+                <div className="flex justify-between border-t border-border pt-3 text-base">
+                  <dt className="font-semibold text-ink">Total (COD)</dt>
+                  <dd className="font-bold text-ink">
+                    {checkout.total !== null ? formatPrice(checkout.total) : "Calculated at checkout"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <p
+              data-testid="checkout-need-help"
+              className="text-xs leading-relaxed text-ink-secondary"
+            >
+              <span className="font-semibold text-ink">Need help? </span>
+              {messengerUrl ? (
+                <>
+                  <a
+                    href={messengerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cta hover:underline"
+                  >
+                    Chat on Messenger
+                  </a>
+                  {" · "}
+                </>
+              ) : null}
+              <a href={`mailto:${supportEmail}`} className="text-cta hover:underline">
+                {supportEmail}
+              </a>
+              {" · "}
+              {supportHours}
+            </p>
+          </div>
         </div>
 
-        {/* Delivery address */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-1">
+        <div className="flex flex-col gap-6 lg:col-start-3 lg:col-span-3">
+          {/* Delivery address */}
           <div data-testid="confirm-address" className="rounded-lg border border-border bg-card p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-ink">Delivery Address</h2>
@@ -222,91 +287,30 @@ export function CheckoutConfirmView({
               Your information is used only to process and deliver your order.
             </p>
           </div>
-        </div>
 
-        {/* Payment + totals */}
-        <div className="flex flex-col gap-4 lg:col-start-1 lg:col-span-2 lg:row-start-2">
-          <div className="rounded-lg border border-border bg-card p-5">
-            <p className="text-sm font-medium text-ink">Cash on Delivery · No payment needed now</p>
-            <dl className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Subtotal</dt>
-                <dd className="font-medium text-ink">
-                  {checkout.totals.savings > 0 && (
-                    <span className="mr-2 text-xs font-normal text-ink-muted line-through">
-                      {formatPrice(checkout.totals.compareAtTotal)}
-                    </span>
-                  )}
-                  {formatPrice(checkout.totals.subtotal)}
-                </dd>
-              </div>
-              {checkout.totals.savings > 0 && (
-                <div className="flex justify-between">
-                  <dt className="text-ink-secondary">You save</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(checkout.totals.savings)}</dd>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Shipping</dt>
-                <dd className="font-medium text-ink">COD — calculated at checkout</dd>
-              </div>
-              <div className="flex justify-between border-t border-border pt-3 text-base">
-                <dt className="font-semibold text-ink">Total (COD)</dt>
-                <dd className="font-bold text-ink">
-                  {checkout.total !== null ? formatPrice(checkout.total) : "Calculated at checkout"}
-                </dd>
-              </div>
-            </dl>
-          </div>
+          {/* Submit */}
+          <div>
+            {error && (
+              <p
+                role="alert"
+                className="mb-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+              >
+                {error}
+              </p>
+            )}
 
-          <p
-            data-testid="checkout-need-help"
-            className="text-xs leading-relaxed text-ink-secondary sm:max-w-[420px] sm:text-right"
-          >
-            <span className="font-semibold text-ink">Need help? </span>
-            {messengerUrl ? (
-              <>
-                <a
-                  href={messengerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cta hover:underline"
-                >
-                  Chat on Messenger
-                </a>
-                {" · "}
-              </>
-            ) : null}
-            <a href={`mailto:${supportEmail}`} className="text-cta hover:underline">
-              {supportEmail}
-            </a>
-            {" · "}
-            {supportHours}
-          </p>
-        </div>
-
-        {/* Submit */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-2">
-          {error && (
-            <p
-              role="alert"
-              className="mb-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+            <Button
+              onClick={placeOrder}
+              disabled={submitting}
+              className="w-full"
+              data-testid="confirm-place-order"
             >
-              {error}
+              {submitting ? "Placing order…" : "PLACE COD ORDER"}
+            </Button>
+            <p className="mt-2 text-center text-xs text-ink-muted">
+              Cash on Delivery · No payment needed now
             </p>
-          )}
-
-          <Button
-            onClick={placeOrder}
-            disabled={submitting}
-            className="w-full"
-            data-testid="confirm-place-order"
-          >
-            {submitting ? "Placing order…" : "PLACE COD ORDER"}
-          </Button>
-          <p className="mt-2 text-center text-xs text-ink-muted">
-            Cash on Delivery · No payment needed now
-          </p>
+          </div>
         </div>
       </div>
     </div>
