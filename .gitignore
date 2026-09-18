@@ -36,3 +36,6 @@ build/
 
 # linked git worktrees for parallel feature work
 .claude/worktrees/
+# uploaded images (local-disk upload volume)
+backend/uploads/
+uploads/
