@@ -10,6 +10,13 @@ import {
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
+import {
+  HeroStyleFields,
+  emptyHeroStyleFormValue,
+  serializeHeroStyle,
+  toHeroStyleFormValue,
+  type HeroStyleFormValue,
+} from "@/components/admin/HeroStyleFields";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -117,6 +124,7 @@ function emptyForm(
     sortOrder: "0",
     imageUrl: "",
     status: "ACTIVE",
+    heroStyle: emptyHeroStyleFormValue(),
   };
 }
 
@@ -132,6 +140,8 @@ type CategoryForm = {
   sortOrder: string;
   imageUrl: string;
   status: CategoryStatus;
+  /** Hero appearance for the category landing page (separate HeroStyle row). */
+  heroStyle: HeroStyleFormValue;
 };
 
 export default function AdminCategoriesPage() {
@@ -231,6 +241,7 @@ export default function AdminCategoriesPage() {
       sortOrder: String(node.sortOrder),
       imageUrl: node.imageUrl ?? "",
       status: node.status,
+      heroStyle: toHeroStyleFormValue(node.heroStyle),
     });
     setFormOpen(true);
   }, []);
@@ -296,6 +307,12 @@ export default function AdminCategoriesPage() {
         }
       }
 
+      // Hero styling is a separate HeroStyle row; null means "no custom
+      // styling", which makes the API clear it rather than store defaults.
+      const heroResult = serializeHeroStyle(value.heroStyle);
+      const heroStyleValue = heroResult.ok ? heroResult.value : null;
+      if (!heroResult.ok) next.heroStyle = heroResult.error;
+
       setErrors(next);
       if (Object.keys(next).length > 0) return null;
 
@@ -306,6 +323,7 @@ export default function AdminCategoriesPage() {
         sortOrder,
         imageUrl: imageUrl || null,
         status: value.status,
+        heroStyle: heroStyleValue,
       };
     },
     [],
@@ -684,7 +702,7 @@ export default function AdminCategoriesPage() {
               label="Image URL (optional)"
               htmlFor="cat-image"
               error={errors.imageUrl}
-              hint="分类页顶部横幅大图的网址；留空则分类页只显示文字标题。"
+              hint="分类页顶部横幅大图的网址。下面「Hero 样式」没配背景图时会用它；都没有时只显示居中标题。"
             >
               <TextInput
                 id="cat-image"
@@ -696,6 +714,26 @@ export default function AdminCategoriesPage() {
                 onChange={(e) => patchForm({ imageUrl: e.target.value })}
               />
             </Field>
+          </div>
+
+          <div className="mt-6 border-t border-border pt-4">
+            <h3 className="text-sm font-semibold text-ink">Hero 样式（分类页顶部）</h3>
+            <div className="mt-3">
+              <HeroStyleFields
+                idPrefix="cat-hero"
+                value={form.heroStyle}
+                onChange={(patch) =>
+                  patchForm({ heroStyle: { ...form.heroStyle, ...patch } })
+                }
+                disabled={formPending}
+                namePlaceholder={form.name || "类目名称"}
+              />
+            </div>
+            {errors.heroStyle ? (
+              <p className="mt-2 text-xs text-red-700" role="alert">
+                {errors.heroStyle}
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-6 flex justify-end gap-3">

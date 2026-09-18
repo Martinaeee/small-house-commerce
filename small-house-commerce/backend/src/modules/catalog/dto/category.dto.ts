@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CategoryStatus } from '../../../generated/prisma/client.js';
+import { heroStyleSchema } from './hero-style.dto.js';
 
 /** Lowercase kebab-case, used for slugs on categories and products. */
 export const slugSchema = z
@@ -15,6 +16,8 @@ export const createCategorySchema = z.object({
   sortOrder: z.number().int().default(0),
   imageUrl: z.string().url().max(2048).nullable().optional(),
   status: z.nativeEnum(CategoryStatus).default('ACTIVE'),
+  // undefined = untouched, null = clear, object = upsert.
+  heroStyle: heroStyleSchema.nullable().optional(),
 });
 
 export const updateCategorySchema = createCategorySchema.partial();

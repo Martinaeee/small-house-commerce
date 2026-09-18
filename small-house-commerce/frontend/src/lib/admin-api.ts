@@ -423,6 +423,33 @@ export interface UpdateSiteSettingsInput {
   supportHours: string;
 }
 
+/** Hero appearance payload (see the backend heroStyle input contract).
+ *  `undefined` on a partial update = leave stored, `null` = clear. */
+export interface HeroStyleInput {
+  titleOverride?: string | null;
+  titleColor?: string | null;
+  titleSize?: number | null;
+  titleFont?: string | null;
+  backgroundType?: "SOLID" | "IMAGE";
+  backgroundColor?: string | null;
+  backgroundImageUrl?: string | null;
+  backgroundBlur?: number;
+}
+
+/** The stored HeroStyle row as the admin API returns it (null = no custom
+ *  styling, i.e. the storefront draws its default centered title). */
+export interface AdminHeroStyle {
+  id: string;
+  titleOverride: string | null;
+  titleColor: string | null;
+  titleSize: number | null;
+  titleFont: string | null;
+  backgroundType: "SOLID" | "IMAGE";
+  backgroundColor: string | null;
+  backgroundImageUrl: string | null;
+  backgroundBlur: number;
+}
+
 export interface AdminCategoryNode {
   id: string;
   parentId: string | null;
@@ -431,6 +458,7 @@ export interface AdminCategoryNode {
   sortOrder: number;
   imageUrl: string | null;
   status: "ACTIVE" | "DISABLED";
+  heroStyle: AdminHeroStyle | null;
   children: AdminCategoryNode[];
 }
 
@@ -442,6 +470,7 @@ export interface AdminCollectionRow {
   description: string | null;
   status: "ACTIVE" | "DISABLED";
   sortOrder: number;
+  heroStyle: AdminHeroStyle | null;
   _count: { products: number };
 }
 
@@ -553,6 +582,21 @@ export interface CreateCategoryInput {
   sortOrder?: number;
   imageUrl?: string | null;
   status?: "ACTIVE" | "DISABLED";
+  heroStyle?: HeroStyleInput | null;
+}
+
+/** Collection create/update payload. The admin UI only uses the hero fields
+ *  today (the rest already exist server-side), so this stays minimal. */
+export interface CreateCollectionInput {
+  name: string;
+  slug: string;
+  type?: "NAVIGATION" | "MARKETING" | "SCENARIO" | "SYSTEM";
+  description?: string | null;
+  heroImage?: string | null;
+  status?: "ACTIVE" | "DISABLED";
+  sortOrder?: number;
+  productIds?: string[];
+  heroStyle?: HeroStyleInput | null;
 }
 
 // --- client ------------------------------------------------------------------
@@ -755,6 +799,17 @@ export const adminApi = {
     adminAuthedFetch<AdminCollectionRow>(
       `/api/v1/admin/collections/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ productIds }) },
+    ),
+
+  /** Partial update; `heroStyle: null` clears the stored style, omitting it
+   *  leaves it untouched. */
+  updateCollection: (
+    id: string,
+    input: Partial<CreateCollectionInput>,
+  ): Promise<AdminCollectionRow> =>
+    adminAuthedFetch<AdminCollectionRow>(
+      `/api/v1/admin/collections/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
     ),
 
   // --- product landing pages ("Single Pages") -----------------------------

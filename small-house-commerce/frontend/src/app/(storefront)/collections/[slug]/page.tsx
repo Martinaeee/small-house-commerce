@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CollectionFilters } from "@/components/collection/CollectionFilters";
+import { HeroBanner } from "@/components/product/HeroBanner";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ButtonLink } from "@/components/ui/Button";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
@@ -84,9 +85,14 @@ export default async function CollectionPage({
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
-      {/* §7 Collection Hero: image -> title -> description -> CTA */}
-      <section className="flex flex-col items-center gap-4 rounded-lg border border-border bg-card px-4 py-10 text-center sm:px-8">
-        <h1 className="text-3xl font-semibold text-ink sm:text-4xl">{collection.name}</h1>
+      {/* §7 Collection Hero: admin-configurable background and centered title
+          (HeroStyle), with the description + CTA in the block beneath. */}
+      <HeroBanner
+        name={collection.name}
+        style={collection.heroStyle}
+        fallbackImage={collection.heroImage}
+      />
+      <section className="mt-3 flex flex-col items-center gap-4 rounded-lg border border-border bg-card px-4 py-8 text-center sm:px-8">
         {collection.description && (
           <p className="max-w-2xl text-base text-ink-secondary">{collection.description}</p>
         )}

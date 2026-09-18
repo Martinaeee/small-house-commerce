@@ -4,6 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
+import {
+  HeroStyleFields,
+  emptyHeroStyleFormValue,
+  serializeHeroStyle,
+  toHeroStyleFormValue,
+  type HeroStyleFormValue,
+} from "@/components/admin/HeroStyleFields";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { TextInput } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -118,6 +125,49 @@ function CollectionsPageContent() {
   const [saving, setSaving] = useState(false);
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // --- hero style dialog ----------------------------------------------------
+  const [heroEdit, setHeroEdit] = useState<{
+    collection: AdminCollectionRow;
+    value: HeroStyleFormValue;
+  } | null>(null);
+  const [heroPending, setHeroPending] = useState(false);
+  const [heroError, setHeroError] = useState<string | null>(null);
+
+  const openHero = useCallback((collection: AdminCollectionRow) => {
+    setHeroError(null);
+    setHeroEdit({ collection, value: toHeroStyleFormValue(collection.heroStyle) });
+  }, []);
+
+  const closeHero = useCallback(() => {
+    if (heroPending) return;
+    setHeroEdit(null);
+    setHeroError(null);
+  }, [heroPending]);
+
+  const saveHero = useCallback(async () => {
+    if (!heroEdit) return;
+    const result = serializeHeroStyle(heroEdit.value);
+    if (!result.ok) {
+      setHeroError(result.error);
+      return;
+    }
+    setHeroPending(true);
+    setHeroError(null);
+    try {
+      // null = "no custom styling": the API clears the stored row instead of
+      // persisting an all-defaults one.
+      await adminApi.updateCollection(heroEdit.collection.id, {
+        heroStyle: result.value,
+      });
+      setHeroEdit(null);
+      setNonce((n) => n + 1);
+    } catch (err: unknown) {
+      setHeroError(err instanceof Error ? err.message : "保存失败，请重试。");
+    } finally {
+      setHeroPending(false);
+    }
+  }, [heroEdit]);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -344,13 +394,22 @@ function CollectionsPageContent() {
                       </td>
                       <td className="px-4 py-3">
                         {canManage ? (
-                          <button
-                            type="button"
-                            onClick={() => openEditor(row)}
-                            className="text-sm font-semibold text-cta hover:underline"
-                          >
-                            管理商品
-                          </button>
+                          <div className="flex flex-col items-start gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openEditor(row)}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              管理商品
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openHero(row)}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              Hero 样式{row.heroStyle ? "（已设置）" : ""}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-ink-muted">—</span>
                         )}
@@ -579,6 +638,52 @@ function CollectionsPageContent() {
             </div>
           )
         ) : null}
+      </Dialog>
+
+      <Dialog
+        open={heroEdit !== null}
+        onClose={closeHero}
+        title={heroEdit ? `Hero 样式：${heroEdit.collection.name}` : "Hero 样式"}
+      >
+        <div className="flex flex-col gap-4">
+          <HeroStyleFields
+            idPrefix="col-hero"
+            value={heroEdit?.value ?? emptyHeroStyleFormValue()}
+            onChange={(patch) =>
+              setHeroEdit((prev) =>
+                prev ? { ...prev, value: { ...prev.value, ...patch } } : prev,
+              )
+            }
+            disabled={heroPending}
+            namePlaceholder={heroEdit?.collection.name ?? "集合名称"}
+          />
+          {heroError ? (
+            <p className="text-xs text-red-700" role="alert">
+              {heroError}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={closeHero}
+              disabled={heroPending}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={saveHero}
+              disabled={heroPending}
+              aria-busy={heroPending}
+            >
+              {heroPending ? "保存中…" : "保存样式"}
+            </Button>
+          </div>
+        </div>
       </Dialog>
     </div>
   );

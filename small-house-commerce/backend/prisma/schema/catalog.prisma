@@ -177,6 +177,50 @@ model ProductDetailBlock {
   @@map("product_detail_blocks")
 }
 
+/// Which kind of page a HeroStyle belongs to. Polymorphic on purpose: the same
+/// knobs apply to categories and collections, and the storefront renders both
+/// through one component (so the admin preview can reuse it too).
+enum HeroOwnerType {
+  CATEGORY
+  COLLECTION
+}
+
+enum HeroBackgroundType {
+  SOLID
+  IMAGE
+}
+
+/// Per-page hero appearance (category and collection landing pages). One row
+/// per owner; no row = the default: centered name on the page background.
+/// Deliberately no relation — the owner lives in two different tables — so
+/// readers fetch these by (ownerType, ownerId) and merge.
+model HeroStyle {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  ownerType HeroOwnerType @map("owner_type")
+  ownerId   String        @map("owner_id") @db.Uuid
+  /// Replaces the category/collection name when set.
+  titleOverride String? @map("title_override")
+  /// #rrggbb. Null = the theme's ink colour.
+  titleColor    String? @map("title_color")
+  /// Desktop px. The component clamps it to its safe range.
+  titleSize     Int?    @map("title_size")
+  /// Key into the frontend's fixed font set (brand | sans | serif).
+  titleFont     String? @map("title_font")
+
+  backgroundType     HeroBackgroundType @default(SOLID) @map("background_type")
+  /// #rrggbb; only meaningful for SOLID (null = transparent).
+  backgroundColor    String?            @map("background_color")
+  backgroundImageUrl String?            @map("background_image_url")
+  /// 0–24 px, applied to the background image LAYER only so text stays sharp.
+  backgroundBlur     Int                @default(0) @map("background_blur")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([ownerType, ownerId])
+  @@map("hero_styles")
+}
+
 /// §21: a sellable variation (e.g. Black / White / Wood). One variant is one
 /// SKU, but the SKU stays a separate model because it carries cost and
 /// package data the variant does not.

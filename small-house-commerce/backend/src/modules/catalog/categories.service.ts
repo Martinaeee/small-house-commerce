@@ -4,12 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, type Category } from '../../generated/prisma/client.js';
+import { Prisma, type Category, type HeroStyle } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import type { CreateCategoryInput, UpdateCategoryInput } from './dto/category.dto.js';
+import { loadHeroStyles, saveHeroStyle } from './hero-style.util.js';
 
-type CategoryNode = Category & { children: CategoryNode[] };
+/** `heroStyle` is a separate table, so tree nodes carry it alongside. */
+type CategoryNode = Category & { children: CategoryNode[]; heroStyle: HeroStyle | null };
 
 @Injectable()
 export class CategoriesService {
@@ -20,7 +22,7 @@ export class CategoriesService {
     const categories = await this.prisma.category.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    return buildTree(categories);
+    return this.withHeroStyles(categories);
   }
 
   /** Storefront view: only ACTIVE categories. */
@@ -29,16 +31,32 @@ export class CategoriesService {
       where: { status: 'ACTIVE' },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    return buildTree(categories);
+    return this.withHeroStyles(categories);
+  }
+
+  private async withHeroStyles(categories: Category[]): Promise<CategoryNode[]> {
+    const styles = await loadHeroStyles(
+      this.prisma,
+      'CATEGORY',
+      categories.map((category) => category.id),
+    );
+    return buildTree(categories, styles);
   }
 
   async create(input: CreateCategoryInput) {
-    if (input.parentId === null) {
-      input.parentId = undefined;
+    // heroStyle is not a Category column: it lives in its own table and is
+    // written separately (inside the same transaction).
+    const { heroStyle, ...data } = input;
+    if (data.parentId === null) {
+      data.parentId = undefined;
     }
 
     try {
-      const category = await this.prisma.category.create({ data: input });
+      const category = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.category.create({ data });
+        await saveHeroStyle(tx, 'CATEGORY', created.id, heroStyle);
+        return created;
+      });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       return category;
     } catch (error) {
@@ -50,14 +68,19 @@ export class CategoriesService {
     if (input.parentId === id) {
       throw new BadRequestException('A category cannot be its own parent');
     }
-    if (input.parentId === null) {
-      input.parentId = undefined;
+    const { heroStyle, ...data } = input;
+    if (data.parentId === null) {
+      data.parentId = undefined;
     }
 
     await this.ensureExists(id);
 
     try {
-      const category = await this.prisma.category.update({ where: { id }, data: input });
+      const category = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.category.update({ where: { id }, data });
+        await saveHeroStyle(tx, 'CATEGORY', id, heroStyle);
+        return updated;
+      });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       return category;
     } catch (error) {
@@ -105,12 +128,19 @@ export class CategoriesService {
   }
 }
 
-function buildTree(categories: Category[]): CategoryNode[] {
+function buildTree(
+  categories: Category[],
+  styles: Map<string, HeroStyle>,
+): CategoryNode[] {
   const nodes = new Map<string, CategoryNode>();
   const roots: CategoryNode[] = [];
 
   for (const category of categories) {
-    nodes.set(category.id, { ...category, children: [] });
+    nodes.set(category.id, {
+      ...category,
+      children: [],
+      heroStyle: styles.get(category.id) ?? null,
+    });
   }
 
   for (const category of categories) {

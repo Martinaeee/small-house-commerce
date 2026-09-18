@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CollectionStatus, CollectionType } from '../../../generated/prisma/client.js';
+import { heroStyleSchema } from '../../catalog/dto/hero-style.dto.js';
 
 export const createCollectionSchema = z.object({
   name: z.string().min(1).max(255),
@@ -16,6 +17,8 @@ export const createCollectionSchema = z.object({
   seoTitle: z.string().max(200).nullable().optional(),
   seoDescription: z.string().max(400).nullable().optional(),
   productIds: z.array(z.string().uuid()).default([]),
+  // undefined = untouched, null = clear, object = upsert (see hero-style.dto).
+  heroStyle: heroStyleSchema.nullable().optional(),
 });
 
 export const updateCollectionSchema = createCollectionSchema.partial();

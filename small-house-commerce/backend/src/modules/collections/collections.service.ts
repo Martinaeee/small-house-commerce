@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ReviewsService } from '../catalog/reviews.service.js';
+import { saveHeroStyle, loadHeroStyles } from '../catalog/hero-style.util.js';
 import type {
   CollectionQuery,
   CreateCollectionInput,
@@ -69,7 +70,15 @@ export class CollectionsService {
       throw new NotFoundException('Collection not found');
     }
 
-    return collection;
+    // HeroStyle carries no relation (it is polymorphic across owners), so it
+    // is fetched alongside rather than through `select`.
+    const heroStyle = await this.prisma.heroStyle.findUnique({
+      where: {
+        ownerType_ownerId: { ownerType: 'COLLECTION', ownerId: collection.id },
+      },
+    });
+
+    return { ...collection, heroStyle };
   }
 
   /**
@@ -202,11 +211,26 @@ export class CollectionsService {
       this.prisma.collection.count({ where }),
     ]);
 
-    return { items, total, page: query.page, pageSize: query.pageSize };
+    // HeroStyle has no relation to its owner, so it is merged in by hand.
+    const styles = await loadHeroStyles(
+      this.prisma,
+      'COLLECTION',
+      items.map((item) => item.id),
+    );
+
+    return {
+      items: items.map((item) => ({
+        ...item,
+        heroStyle: styles.get(item.id) ?? null,
+      })),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async create(input: CreateCollectionInput) {
-    const { productIds, ...data } = input;
+    const { productIds, heroStyle, ...data } = input;
 
     const existing = await this.prisma.collection.findUnique({ where: { slug: data.slug } });
     if (existing) {
@@ -226,12 +250,13 @@ export class CollectionsService {
         },
         include: { _count: { select: { products: true } } },
       });
+      await saveHeroStyle(tx, 'COLLECTION', collection.id, heroStyle);
       return collection;
     });
   }
 
   async update(id: string, input: UpdateCollectionInput) {
-    const { productIds, ...data } = input;
+    const { productIds, heroStyle, ...data } = input;
     const existing = await this.prisma.collection.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Collection not found');
@@ -261,6 +286,7 @@ export class CollectionsService {
         });
       }
 
+      await saveHeroStyle(tx, 'COLLECTION', id, heroStyle);
       return collection;
     });
   }

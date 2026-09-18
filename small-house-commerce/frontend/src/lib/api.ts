@@ -16,11 +16,34 @@ export const serverApiUrl = (path: string): string => {
 
 // --- types (mirror the backend storefront responses) -------------------------
 
+/**
+ * Per-page hero appearance, shared by category and collection landing pages
+ * (they render through the same component). Absent/null = the default:
+ * a centered name on the page background.
+ */
+export interface HeroStyle {
+  /** Replaces the category/collection name when set. */
+  titleOverride: string | null;
+  /** #rrggbb, or null for the theme ink colour. */
+  titleColor: string | null;
+  /** Desktop px (the component clamps it), or null for the default size. */
+  titleSize: number | null;
+  /** 'brand' | 'sans' | 'serif', or null for the default. */
+  titleFont: string | null;
+  backgroundType: "SOLID" | "IMAGE";
+  /** #rrggbb for SOLID; null = transparent. */
+  backgroundColor: string | null;
+  backgroundImageUrl: string | null;
+  /** 0–24 px blur on the background LAYER (text stays sharp). */
+  backgroundBlur: number;
+}
+
 export interface Category {
   id: string;
   name: string;
   slug: string;
   imageUrl: string | null;
+  heroStyle?: HeroStyle | null;
   children: Category[];
 }
 
@@ -189,6 +212,7 @@ export interface Collection {
   type: "NAVIGATION" | "MARKETING" | "SCENARIO" | "SYSTEM";
   description: string | null;
   heroImage: string | null;
+  heroStyle?: HeroStyle | null;
   sortOrder: number;
   seoTitle?: string | null;
   seoDescription?: string | null;

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CategoryPlpClient } from "@/components/category/CategoryPlpClient";
+import { HeroBanner } from "@/components/product/HeroBanner";
 import { buildCategoryJsonLd } from "@/lib/category-jsonld";
 import { findCategory } from "@/lib/nav";
 import { PLP_PAGE_SIZE } from "@/lib/plp";
@@ -157,24 +158,14 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
         </>
       )}
 
-      {/* Category hero: category image with overlaid name; plain title until
-          the admin uploads one. */}
-      {node.imageUrl ? (
-        <div className="relative mt-4 h-48 overflow-hidden rounded-lg sm:h-64">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={node.imageUrl}
-            alt={node.name}
-            className="h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-ink/60 via-ink/25 to-transparent" />
-          <h1 className="absolute bottom-5 left-5 text-3xl font-semibold text-white drop-shadow-sm sm:text-4xl">
-            {node.name}
-          </h1>
-        </div>
-      ) : (
-        <h1 className="mt-4 text-3xl font-semibold text-ink sm:text-4xl">{node.name}</h1>
-      )}
+      {/* Category hero: centered name plus whatever background/appearance the
+          admin configured (HeroStyle). With no configuration this is the plain
+          centered title, and Category.imageUrl still backs it when present. */}
+      <HeroBanner
+        name={node.name}
+        style={node.heroStyle}
+        fallbackImage={node.imageUrl}
+      />
 
       {/* router.refresh() preserves Client Component state, so the key flips
           failed -> ready after a successful retry to force a clean remount
