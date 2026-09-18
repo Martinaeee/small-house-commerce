@@ -48,6 +48,10 @@ function createHarness() {
   const tx = {
     order: {
       create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
+      update: vi.fn(async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
+        id: 'order-1',
+        ...(_args?.data ?? {}),
+      })),
     },
     orderStatusHistory: { create: vi.fn(async () => ({})) },
   };
@@ -63,8 +67,21 @@ function createHarness() {
     defaultWarehouse: vi.fn(async () => ({ id: 'wh-1' })),
     reserveWithin: vi.fn(async () => ({})),
   };
-  const service = new OrdersService(prisma as never, inventory as unknown as InventoryService);
-  return { service, prisma, tx, inventory };
+  const customerRisk = {
+    classifyForNewOrder: vi.fn(async () => ({
+      classification: 'NEW',
+      reason: 'No prior orders',
+      previousOrderId: null,
+    })),
+    markDuplicates: vi.fn(async () => {}),
+    logRisk: vi.fn(async () => {}),
+  };
+  const service = new OrdersService(
+    prisma as never,
+    inventory as unknown as InventoryService,
+    customerRisk as never,
+  );
+  return { service, prisma, tx, inventory, customerRisk };
 }
 
 describe('OrdersService.checkout attribution', () => {
@@ -176,5 +193,92 @@ describe('OrdersService.lookup', () => {
     prisma.order.findUnique.mockResolvedValue(order);
 
     await expect(service.lookup('PH1001', '09171234567')).resolves.toBe(order);
+  });
+});
+
+describe('OrdersService confirm gate (CUSTOMER_RISK_SPEC §17)', () => {
+  it('rejects confirming an RPT order without a review decision', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'PH100001',
+      orderStatus: 'NEW',
+      confirmationStatus: 'UNCONFIRMED',
+      customerClassification: 'RPT',
+      customerId: 'cust-1',
+    });
+    await expect(service.confirm('order-1', 'op-1')).rejects.toThrow(
+      /customer-service decision is required/,
+    );
+  });
+
+  it('confirms an RPT order when a decision is provided', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'PH100001',
+      orderStatus: 'NEW',
+      confirmationStatus: 'NEEDS_REVIEW',
+      customerClassification: 'RPT',
+      customerId: 'cust-1',
+    });
+    tx.customerRiskLog = { create: vi.fn(async () => ({})) };
+    tx.customerNote = { create: vi.fn(async () => ({})) };
+    const out = await service.confirm('order-1', 'op-1', { decision: 'CONFIRM', note: 'Called customer' });
+    expect(out.confirmationStatus).toBe('CONFIRMED');
+    expect(tx.customerRiskLog.create).toHaveBeenCalled();
+    expect(tx.customerNote.create).toHaveBeenCalled();
+  });
+
+  it('confirms a NORMAL order without a decision', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'PH100001',
+      orderStatus: 'NEW',
+      confirmationStatus: 'UNCONFIRMED',
+      customerClassification: 'NEW',
+      customerId: 'cust-1',
+    });
+    const out = await service.confirm('order-1', 'op-1');
+    expect(out.confirmationStatus).toBe('CONFIRMED');
+  });
+});
+
+describe('OrdersService.updateStatus legality', () => {
+  it('rejects an illegal transition', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'SIGNED' });
+    await expect(service.updateStatus('o1', 'CONFIRMED', undefined, 'op-1')).rejects.toThrow(
+      /Invalid status transition/,
+    );
+  });
+
+  it('allows NEW -> QUESTION', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'NEW' });
+    tx.order.update = vi.fn(async () => ({ orderStatus: 'QUESTION' }));
+    const out = await service.updateStatus('o1', 'QUESTION', 'need more info', 'op-1');
+    expect(out.orderStatus).toBe('QUESTION');
+    expect(tx.orderStatusHistory.create).toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.assign', () => {
+  it('assigns an order and writes history', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', assignedToId: null });
+    tx.order.update = vi.fn(async () => ({ assignedToId: 'cs-1' }));
+    await service.assign('o1', 'cs-1', 'op-1');
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ assignedToId: 'cs-1', assignedBy: 'op-1' }),
+      }),
+    );
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ statusDomain: 'ASSIGNMENT' }),
+      }),
+    );
   });
 });

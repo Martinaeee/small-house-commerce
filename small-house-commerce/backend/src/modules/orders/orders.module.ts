@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { OrdersService } from './orders.service.js';
+import { CustomerRiskService } from './customer-risk.service.js';
 import { StorefrontOrdersController } from './storefront/orders.controller.js';
 import { AdminOrdersController } from './admin/orders.controller.js';
 
@@ -13,6 +14,6 @@ import { AdminOrdersController } from './admin/orders.controller.js';
 @Module({
   imports: [AuthModule],
   controllers: [StorefrontOrdersController, AdminOrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, CustomerRiskService],
 })
 export class OrdersModule {}
