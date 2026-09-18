@@ -98,6 +98,12 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
       altText: image.altText ?? "",
       sortOrder: String(image.sortOrder),
     })),
+    detailBlocks: p.detailBlocks.map((block) => ({
+      type: block.type,
+      url: block.url,
+      altText: block.altText ?? "",
+      sortOrder: String(block.sortOrder),
+    })),
     variants: p.variants.map((variant) => ({
       name: variant.name,
       position: String(variant.position),
@@ -153,7 +159,8 @@ function collectStockChanges(
 }
 
 /** Order-insensitive set comparison for the solutions enum array. */
-function sameSolutionSet(a: string[], b: string[]): boolean {  if (a.length !== b.length) return false;
+function sameSolutionSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
   return [...a].sort().join("|") === [...b].sort().join("|");
 }
 
@@ -184,6 +191,11 @@ function buildProductPatch(
   }
   if (JSON.stringify(current.images) !== JSON.stringify(initial.images)) {
     patch.images = current.images;
+  }
+  if (
+    JSON.stringify(current.detailBlocks) !== JSON.stringify(initial.detailBlocks)
+  ) {
+    patch.detailBlocks = current.detailBlocks;
   }
   if (JSON.stringify(current.variants) !== JSON.stringify(initial.variants)) {
     patch.variants = current.variants;

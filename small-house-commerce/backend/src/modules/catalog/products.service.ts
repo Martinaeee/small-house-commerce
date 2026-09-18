@@ -20,6 +20,7 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
+  detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
   variants: { include: { sku: true }, orderBy: { position: 'asc' as const } },
 } satisfies Prisma.ProductInclude;
 
@@ -66,6 +67,19 @@ const STOREFRONT_SELECT = {
       },
     },
     orderBy: { position: 'asc' as const },
+  },
+} satisfies Prisma.ProductSelect;
+
+/**
+ * PDP-only extra: the description-body blocks. Deliberately NOT part of
+ * STOREFRONT_SELECT — list endpoints (PLP, recently viewed, related) would
+ * otherwise carry every product's full media deck.
+ */
+const STOREFRONT_PDP_SELECT = {
+  ...STOREFRONT_SELECT,
+  detailBlocks: {
+    select: { id: true, type: true, url: true, altText: true, sortOrder: true },
+    orderBy: { sortOrder: 'asc' as const },
   },
 } satisfies Prisma.ProductSelect;
 
@@ -178,6 +192,7 @@ export class ProductsService {
             foldedHeight: input.foldedHeight ?? null,
             foldedDepth: input.foldedDepth ?? null,
             images: { create: input.images },
+            detailBlocks: { create: input.detailBlocks },
           },
         });
 
@@ -244,6 +259,9 @@ export class ProductsService {
         // Images and variants are whole-list replacements on update.
         if (input.images !== undefined) {
           data.images = { deleteMany: {}, create: input.images };
+        }
+        if (input.detailBlocks !== undefined) {
+          data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
         }
 
         if (input.variants !== undefined) {
@@ -483,7 +501,7 @@ export class ProductsService {
   async storefrontGetBySlug(slug: string) {
     const product = await this.prisma.product.findFirst({
       where: { slug, status: 'ACTIVE' },
-      select: STOREFRONT_SELECT,
+      select: STOREFRONT_PDP_SELECT,
     });
 
     if (!product) {

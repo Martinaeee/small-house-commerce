@@ -124,6 +124,7 @@ model Product {
 
   category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images   ProductImage[]
+  detailBlocks ProductDetailBlock[]
   reviews  ProductReview[]
   landingPages ProductLandingPage[]
   variants ProductVariant[]
@@ -149,6 +150,31 @@ model ProductImage {
 
   @@index([productId])
   @@map("product_images")
+}
+
+/// What a PDP description block renders as. The supplier detail decks are
+/// image/video led, so the block list is media-first by design.
+enum DetailBlockType {
+  IMAGE
+  VIDEO
+}
+
+/// PDP description body, shown BELOW the gallery. `Product.description` stays
+/// as the short text intro; this is the long, media-heavy part (1688-style
+/// detail images and product videos), ordered by sortOrder.
+model ProductDetailBlock {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  productId String          @map("product_id") @db.Uuid
+  type      DetailBlockType
+  url       String
+  altText   String?         @map("alt_text")
+  sortOrder Int             @default(0) @map("sort_order")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_detail_blocks")
 }
 
 /// §21: a sellable variation (e.g. Black / White / Wood). One variant is one

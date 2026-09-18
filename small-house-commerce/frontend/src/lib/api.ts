@@ -51,6 +51,18 @@ export interface ProductImage {
   sortOrder: number;
 }
 
+/**
+ * One block of the PDP description body, rendered below the gallery: the
+ * supplier detail decks are image/video led, so blocks are media-only.
+ */
+export interface ProductDetailBlock {
+  id: string;
+  type: "IMAGE" | "VIDEO";
+  url: string;
+  altText: string | null;
+  sortOrder: number;
+}
+
 export type Room = "BEDROOM" | "STORAGE" | "DINING_LIVING" | "HOME_OFFICE";
 export type Solution =
   | "FOLDABLE"
@@ -96,6 +108,11 @@ export interface Product {
   foldedHeight: number | null;
   foldedDepth: number | null;
   images: ProductImage[];
+  /**
+   * Description-body blocks. Only the PDP endpoint selects them (list routes
+   * skip the media deck), so they are absent everywhere else.
+   */
+  detailBlocks?: ProductDetailBlock[];
   variants: ProductVariant[];
 }
 

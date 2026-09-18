@@ -242,6 +242,15 @@ export interface AdminProductImage {
   sortOrder: number;
 }
 
+/** Description-body block (image or video) shown below the PDP gallery. */
+export interface AdminDetailBlock {
+  id: string;
+  type: "IMAGE" | "VIDEO";
+  url: string;
+  altText: string | null;
+  sortOrder: number;
+}
+
 export interface AdminProduct {
   id: string;
   name: string;
@@ -261,6 +270,7 @@ export interface AdminProduct {
   createdAt: string;
   updatedAt: string;
   images: AdminProductImage[];
+  detailBlocks: AdminDetailBlock[];
   variants: AdminVariant[];
 }
 
@@ -508,6 +518,12 @@ export interface CreateProductInput {
   foldedHeight: number | null;
   foldedDepth: number | null;
   images: { url: string; altText?: string; sortOrder?: number }[];
+  detailBlocks: {
+    type: "IMAGE" | "VIDEO";
+    url: string;
+    altText?: string;
+    sortOrder?: number;
+  }[];
   variants: {
     name: string;
     position?: number;

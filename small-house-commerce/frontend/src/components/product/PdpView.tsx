@@ -1,6 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
 import { PdpInfoSections } from "./PdpInfoSections";
+import { ProductDetailBody } from "./ProductDetailBody";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { TrustBar } from "@/components/ui/TrustBar";
@@ -32,6 +33,12 @@ export async function PdpView({
 }): Promise<ReactNode> {
   // Request-deduped with the layout's identical fetch (same URL + ISR tag).
   const settings = await fetchSiteSettings();
+  // Description text and media blocks are one section; the anchor only earns
+  // its place when at least one of them has something to show.
+  const detailBlocks = product.detailBlocks ?? [];
+  const hasDetails =
+    Boolean(product.description?.trim()) ||
+    detailBlocks.some((block) => block.url.trim() !== "");
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <script
@@ -60,7 +67,7 @@ export async function PdpView({
         aria-label="Product sections"
         className="sticky top-16 z-20 mt-10 hidden gap-6 border-b border-border bg-background/95 py-3 text-sm font-semibold backdrop-blur lg:flex"
       >
-        {product.description && (
+        {hasDetails && (
           <a href="#details" className="text-ink-secondary hover:text-cta">Details</a>
         )}
         <a href="#shipping-faq" className="text-ink-secondary hover:text-cta">Delivery &amp; FAQs</a>
@@ -68,14 +75,10 @@ export async function PdpView({
       </nav>
 
       <section className="mt-12 flex flex-col gap-8 lg:mt-8">
-        {product.description && (
-          <div id="details" className="scroll-mt-28 rounded-lg border border-border bg-card p-6">
-            <h2 className="mb-3 text-2xl font-semibold text-ink">Description</h2>
-            <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">
-              {product.description}
-            </p>
-          </div>
-        )}
+        <ProductDetailBody
+          description={product.description}
+          blocks={detailBlocks}
+        />
         <PdpInfoSections
           supportEmail={settings.supportEmail}
           supportHours={settings.supportHours}

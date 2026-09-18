@@ -40,6 +40,14 @@ export interface ProductFormValue {
   foldedHeight: string;
   foldedDepth: string;
   images: { url: string; altText: string; sortOrder: string }[];
+  /** PDP description body. Media-only: the supplier detail decks are images
+   *  and videos, and `description` already carries the short text intro. */
+  detailBlocks: {
+    type: "IMAGE" | "VIDEO";
+    url: string;
+    altText: string;
+    sortOrder: string;
+  }[];
   variants: {
     name: string;
     position: string;
@@ -72,6 +80,7 @@ export type SkuFormValue = NonNullable<
   ProductFormValue["variants"][number]["sku"]
 >;
 export type ImageFormValue = ProductFormValue["images"][number];
+export type DetailBlockFormValue = ProductFormValue["detailBlocks"][number];
 export type VariantFormValue = ProductFormValue["variants"][number];
 
 export type SerializeFormResult =
@@ -253,6 +262,7 @@ export function emptyProductFormValue(): ProductFormValue {
     foldedHeight: "",
     foldedDepth: "",
     images: [],
+    detailBlocks: [],
     variants: [],
   };
 }
@@ -425,6 +435,49 @@ export function serializeFormValue(
     });
   });
 
+  // --- Detail blocks -------------------------------------------------------
+  const detailBlocks: CreateProductInput["detailBlocks"] = [];
+  v.detailBlocks.forEach((block, i) => {
+    const url = block.url.trim();
+    const altText = block.altText.trim();
+    const sortRaw = block.sortOrder.trim();
+    // A fully blank row is dropped silently, not validated.
+    if (!url && !altText && !sortRaw) return;
+
+    if (!url) addError(errors, `detailBlocks.${i}.url`, "Media URL is required.");
+    else if (url.length > 2048)
+      addError(
+        errors,
+        `detailBlocks.${i}.url`,
+        "Media URL must be 2,048 characters or fewer.",
+      );
+    else {
+      try {
+        new URL(url);
+      } catch {
+        addError(errors, `detailBlocks.${i}.url`, "Media URL must be a valid URL.");
+      }
+    }
+    if (altText.length > 255)
+      addError(
+        errors,
+        `detailBlocks.${i}.altText`,
+        "Alt text must be 255 characters or fewer.",
+      );
+    const sortOrder = parseNonNegativeInt(
+      sortRaw,
+      `detailBlocks.${i}.sortOrder`,
+      "Sort order",
+      errors,
+    );
+    detailBlocks.push({
+      type: block.type,
+      url,
+      ...(altText ? { altText } : {}),
+      sortOrder,
+    });
+  });
+
   // --- Variants + SKUs -----------------------------------------------------
   const variants: CreateProductInput["variants"] = [];
   v.variants.forEach((vr, i) => {
@@ -526,6 +579,7 @@ export function serializeFormValue(
     ),
     ...dimensions,
     images,
+    detailBlocks,
     variants,
   };
   return { ok: true, value };
@@ -642,6 +696,52 @@ export function ProductForm({
       ...prev,
       images: prev.images.filter((_, j) => j !== i),
     }));
+    clearValidation();
+  };
+
+  // --- detail blocks --------------------------------------------------------
+  const setDetailBlock = (i: number, p: Partial<DetailBlockFormValue>): void => {
+    setValue((prev) => ({
+      ...prev,
+      detailBlocks: prev.detailBlocks.map((b, j) => (j === i ? { ...b, ...p } : b)),
+    }));
+    clearValidation();
+  };
+  const addDetailBlock = (type: DetailBlockFormValue["type"]): void => {
+    setValue((prev) => ({
+      ...prev,
+      detailBlocks: [
+        ...prev.detailBlocks,
+        // New blocks land last: sortOrder mirrors the list position.
+        { type, url: "", altText: "", sortOrder: String(prev.detailBlocks.length) },
+      ],
+    }));
+    clearValidation();
+  };
+  const removeDetailBlock = (i: number): void => {
+    setValue((prev) => ({
+      ...prev,
+      detailBlocks: prev.detailBlocks
+        .filter((_, j) => j !== i)
+        .map((b, k) => ({ ...b, sortOrder: String(k) })),
+    }));
+    clearValidation();
+  };
+  /**
+   * Swaps a block with its neighbour and renumbers every sortOrder, so the
+   * visual order and the stored order cannot drift apart.
+   */
+  const moveDetailBlock = (i: number, delta: -1 | 1): void => {
+    setValue((prev) => {
+      const j = i + delta;
+      if (j < 0 || j >= prev.detailBlocks.length) return prev;
+      const next = [...prev.detailBlocks];
+      [next[i], next[j]] = [next[j], next[i]];
+      return {
+        ...prev,
+        detailBlocks: next.map((b, k) => ({ ...b, sortOrder: String(k) })),
+      };
+    });
     clearValidation();
   };
 
@@ -1086,6 +1186,148 @@ export function ProductForm({
         >
           Add image
         </Button>
+      </Section>
+
+      {/* ---------------- Detail blocks (description body) ---------------- */}
+      <Section
+        title="详情内容（图片 / 视频）"
+        hint={
+          <>
+            显示在商品页图集下方的详情区。顾客主要靠这里的图/视频做判断，所以详情以
+            图片视频为主：1688 详情长图、实物拍摄、安装视频都可以放。IMAGE
+            可粘贴网址或点「上传图片」；VIDEO 粘贴 MP4 直链。顺序即前台展示顺序，用 ↑ ↓
+            调整；上方「Description」的短文字会显示在详情区开头。
+          </>
+        }
+      >
+        {value.detailBlocks.length === 0 ? (
+          <p className="text-sm text-ink-muted">
+            还没有详情内容，点下方「Add image / Add video」添加第一块。
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {value.detailBlocks.map((block, i) => (
+              <li
+                key={i}
+                className="grid gap-3 md:grid-cols-[120px_1fr_200px_auto] md:items-end"
+              >
+                <Field
+                  label={i === 0 ? "类型" : ""}
+                  htmlFor={`pf-detail-${i}-type`}
+                  hint={i === 0 ? "图片或视频" : undefined}
+                >
+                  <Select
+                    id={`pf-detail-${i}-type`}
+                    aria-label={i === 0 ? undefined : `Detail block ${i + 1} type`}
+                    value={block.type}
+                    onChange={(e) =>
+                      setDetailBlock(i, {
+                        type: e.target.value as DetailBlockFormValue["type"],
+                      })
+                    }
+                    disabled={pending}
+                  >
+                    <option value="IMAGE">图片</option>
+                    <option value="VIDEO">视频</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={i === 0 ? "URL" : ""}
+                  htmlFor={`pf-detail-${i}-url`}
+                  error={err(`detailBlocks.${i}.url`)}
+                  hint={
+                    i === 0
+                      ? block.type === "VIDEO"
+                        ? "MP4 直链；手机上不自动播放，给顾客点播按钮。"
+                        : "图片网址，必须是可直接打开的图片链接。"
+                      : undefined
+                  }
+                >
+                  {block.type === "IMAGE" ? (
+                    <ImageUrlInput
+                      id={`pf-detail-${i}-url`}
+                      ariaLabel={i === 0 ? undefined : `Detail block ${i + 1} URL`}
+                      value={block.url}
+                      onChange={(url) => setDetailBlock(i, { url })}
+                      disabled={pending}
+                    />
+                  ) : (
+                    <TextInput
+                      id={`pf-detail-${i}-url`}
+                      aria-label={i === 0 ? undefined : `Detail block ${i + 1} URL`}
+                      value={block.url}
+                      placeholder="https://…/product-demo.mp4"
+                      onChange={(e) => setDetailBlock(i, { url: e.target.value })}
+                      autoComplete="off"
+                    />
+                  )}
+                </Field>
+                <Field
+                  label={i === 0 ? "Alt text" : ""}
+                  htmlFor={`pf-detail-${i}-alt`}
+                  error={err(`detailBlocks.${i}.altText`)}
+                  hint={i === 0 ? "英文描述，SEO 与无障碍用。" : undefined}
+                >
+                  <TextInput
+                    id={`pf-detail-${i}-alt`}
+                    aria-label={i === 0 ? undefined : `Detail block ${i + 1} alt text`}
+                    value={block.altText}
+                    onChange={(e) => setDetailBlock(i, { altText: e.target.value })}
+                    autoComplete="off"
+                  />
+                </Field>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={removeBtnCls}
+                    onClick={() => moveDetailBlock(i, -1)}
+                    disabled={pending || i === 0}
+                    aria-label={`Move block ${i + 1} up`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className={removeBtnCls}
+                    onClick={() => moveDetailBlock(i, 1)}
+                    disabled={pending || i === value.detailBlocks.length - 1}
+                    aria-label={`Move block ${i + 1} down`}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className={removeBtnCls}
+                    onClick={() => removeDetailBlock(i)}
+                    disabled={pending}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => addDetailBlock("IMAGE")}
+            disabled={pending}
+          >
+            Add image
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => addDetailBlock("VIDEO")}
+            disabled={pending}
+          >
+            Add video
+          </Button>
+        </div>
       </Section>
 
       {/* ---------------- Variants & SKUs ---------------- */}

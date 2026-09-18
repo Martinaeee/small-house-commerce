@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  DetailBlockType,
   InternalProductRole,
   ProductStatus,
   Room,
@@ -40,6 +41,18 @@ const imageSchema = z.object({
 });
 
 /**
+ * One block of the PDP description body. Media-only on purpose: the supplier
+ * detail decks are images/videos, and `description` already carries the short
+ * text intro.
+ */
+const detailBlockSchema = z.object({
+  type: z.nativeEnum(DetailBlockType),
+  url: z.string().url().max(2048),
+  altText: z.string().max(255).optional(),
+  sortOrder: z.number().int().default(0),
+});
+
+/**
  * Base product shape. Create requires it; update is a partial of it, with
  * images and variants treated as full replacements when present (the admin
  * form submits the whole list).
@@ -60,6 +73,7 @@ const productBaseSchema = z.object({
   foldedHeight: z.number().nonnegative().nullable().optional(),
   foldedDepth: z.number().nonnegative().nullable().optional(),
   images: z.array(imageSchema).default([]),
+  detailBlocks: z.array(detailBlockSchema).default([]),
   variants: z.array(variantSchema).default([]),
 });
 
@@ -75,11 +89,12 @@ export const createProductSchema = productBaseSchema;
  * inventory/orders -> P2003). Optional + undefined means "leave untouched".
  */
 export const updateProductSchema = productBaseSchema
-  .omit({ variants: true, images: true, status: true, solutions: true })
+  .omit({ variants: true, images: true, detailBlocks: true, status: true, solutions: true })
   .partial()
   .extend({
     variants: z.array(variantSchema).optional(),
     images: z.array(imageSchema).optional(),
+    detailBlocks: z.array(detailBlockSchema).optional(),
     status: z.nativeEnum(ProductStatus).optional(),
     solutions: z.array(z.nativeEnum(Solution)).optional(),
   });
