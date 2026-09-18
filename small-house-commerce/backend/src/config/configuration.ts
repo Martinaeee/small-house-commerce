@@ -34,6 +34,10 @@ export function configuration() {
       bucket: env.R2_BUCKET ?? null,
       publicBaseUrl: env.R2_PUBLIC_BASE_URL ?? null,
     },
+    // Local-disk image upload target (order workbench: default when R2 is unset).
+    upload: {
+      dir: env.UPLOAD_DIR ?? null,
+    },
   };
 }
 

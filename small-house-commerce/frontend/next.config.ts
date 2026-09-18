@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
         source: "/api/v1/:path*",
         destination: `${API_TARGET}/api/v1/:path*`,
       },
+      // Local-disk uploaded images are served by the backend (dev convenience:
+      // prod Caddy routes /uploads straight to the backend).
+      {
+        source: "/uploads/:path*",
+        destination: `${API_TARGET}/uploads/:path*`,
+      },
     ];
   },
 };

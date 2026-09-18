@@ -1088,6 +1088,19 @@ export const adminApi = {
       body: JSON.stringify({ contentType, fileName }),
     }),
 
+  /**
+   * Local-disk image upload: the raw file bytes ARE the request body
+   * (Content-Type carries the image type; no multipart, no multer). The
+   * backend returns the site-relative URL, e.g. /uploads/catalog/2026/….jpg.
+   * Caller-supplied Content-Type overrides adminAuthedFetch's JSON default.
+   */
+  uploadImage: (file: File): Promise<{ url: string; key: string }> =>
+    adminAuthedFetch<{ url: string; key: string }>("/api/v1/admin/uploads", {
+      method: "POST",
+      headers: { "Content-Type": file.type },
+      body: file,
+    }),
+
   // --- homepage CMS ---------------------------------------------------------
 
   listHomepageSections: (): Promise<AdminHomepageSection[]> =>

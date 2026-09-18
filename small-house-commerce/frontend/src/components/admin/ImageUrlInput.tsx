@@ -13,9 +13,8 @@ const ACCEPTED_TYPES: Record<string, string> = {
 
 /**
  * Image field for admin forms: paste a public URL, or pick a local file and
- * PUT it straight to Cloudflare R2 via a backend presigned URL (no bytes
- * transit through our API). R2 being unconfigured is normal in dev: the 503
- * surfaces the Chinese fallback telling operators to paste a URL instead.
+ * POST the bytes to the backend, which stores them on the upload volume and
+ * returns the site-relative /uploads/… URL. No third-party storage required.
  */
 export function ImageUrlInput({
   id,
@@ -52,18 +51,9 @@ export function ImageUrlInput({
     try {
       // Lazy import keeps the admin API module out of any non-upload bundle path.
       const { adminApi } = await import("@/lib/admin-api");
-      const presign = await adminApi.presignUpload(file.type, file.name || `upload.${ext}`);
-      const putRes = await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) {
-        throw new Error("图片上传失败，请重试，或直接粘贴图片 URL");
-      }
-      onChange(presign.publicUrl);
+      const res = await adminApi.uploadImage(file);
+      onChange(res.url);
     } catch (err) {
-      // Backend 503 already carries the operator-facing Chinese sentence.
       setError(err instanceof Error && err.message ? err.message : "图片上传失败，请重试");
     } finally {
       setUploading(false);

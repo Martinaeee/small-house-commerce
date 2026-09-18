@@ -36,3 +36,24 @@ describe('UploadsService.presign', () => {
     expect(service.presign('image/webp', 'p.webp').key).toMatch(/\.webp$/);
   });
 });
+
+describe('UploadsService.saveLocal', () => {
+  const config = { get: vi.fn(() => null) };
+  const service = new UploadsService(config as never);
+
+  it('writes the buffer under catalog/<year>/<uuid>.<ext> and returns its /uploads URL', async () => {
+    const res = await service.saveLocal(Buffer.from('fake-jpeg'), 'image/jpeg');
+    expect(res.url).toMatch(/^\/uploads\/catalog\/\d{4}\/[0-9a-f-]{36}\.jpg$/);
+    expect(res.key).toMatch(/^catalog\/\d{4}\/[0-9a-f-]{36}\.jpg$/);
+  });
+
+  it('maps png and webp extensions', async () => {
+    expect((await service.saveLocal(Buffer.from('x'), 'image/png')).url.endsWith('.png')).toBe(true);
+    expect((await service.saveLocal(Buffer.from('x'), 'image/webp')).url.endsWith('.webp')).toBe(true);
+  });
+
+  it('rejects unsupported types and empty bodies', async () => {
+    await expect(service.saveLocal(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported image type/);
+    await expect(service.saveLocal(Buffer.alloc(0), 'image/jpeg')).rejects.toThrow(/Empty upload/);
+  });
+});

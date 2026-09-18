@@ -39,6 +39,9 @@ COPY --chown=node:node --from=build /app/prisma ./prisma
 COPY --chown=node:node --from=build /app/dist ./dist
 COPY --chown=node:node --from=build /app/src/generated ./src/generated
 COPY --chown=node:node --chmod=755 docker-entrypoint.sh ./
+# Upload volume mount point: pre-created and owned by node so the named
+# volume inherits the ownership on first mount (node writes uploaded images).
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=6 \

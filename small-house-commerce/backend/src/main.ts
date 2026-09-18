@@ -1,6 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
+import express from 'express';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
@@ -20,6 +23,25 @@ async function bootstrap() {
 
   // Validated at boot, so this is guaranteed to be present and numeric.
   const config = app.get(ConfigService);
+
+  // Local image uploads (uploads module): the admin sends the raw image
+  // bytes as the request body, so parse them as a Buffer here — scoped to
+  // this path and to image types only, leaving every JSON endpoint untouched.
+  app.use(
+    '/api/v1/admin/uploads',
+    express.raw({
+      type: ['image/jpeg', 'image/png', 'image/webp'],
+      limit: '5mb',
+    }),
+  );
+
+  // Serve uploaded images at /uploads/*. The default keeps `next dev`
+  // working with no configuration; production mounts a Docker volume at
+  // UPLOAD_DIR=/app/uploads (docker-compose.prod.yml).
+  const uploadDir = config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
+  mkdirSync(uploadDir, { recursive: true });
+  app.useStaticAssets(uploadDir, { prefix: '/uploads/' });
+
   await app.listen(
     config.getOrThrow<number>('app.port'),
     config.getOrThrow<string>('app.host'),

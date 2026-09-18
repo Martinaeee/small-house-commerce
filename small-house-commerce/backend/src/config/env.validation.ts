@@ -38,6 +38,9 @@ export const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   R2_PUBLIC_BASE_URL: z.string().url().optional(),
+  // Local-disk image upload (default when R2 is not configured). Files land
+  // here and are served by the backend itself at /uploads/*.
+  UPLOAD_DIR: z.string().optional(),
 
   // On-demand storefront revalidation. Both must be set for the best-effort
   // bridge to run; unset either and admin writes simply fall back to ISR.
