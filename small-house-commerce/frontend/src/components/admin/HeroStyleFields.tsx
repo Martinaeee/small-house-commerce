@@ -212,37 +212,21 @@ export function HeroStyleFields({
   onChange,
   disabled = false,
   idPrefix,
-  namePlaceholder,
 }: {
   value: HeroStyleFormValue;
   onChange: (patch: Partial<HeroStyleFormValue>) => void;
   disabled?: boolean;
   /** Keeps element ids unique when two editors are mounted at once. */
   idPrefix: string;
-  /** The category/collection name, shown as the title's placeholder. */
-  namePlaceholder?: string;
 }): ReactNode {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs leading-relaxed text-ink-muted">
-        标题默认居中显示。不填任何内容时使用站点默认样式；改了任意一项就会保存为这个页面专属的样式。
+        标题始终使用上方的名称，此处只调外观（字体 / 颜色 / 字号 / 背景）。
+        不填任何内容时使用站点默认样式；改了任意一项就会保存为这个页面专属的样式。
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="标题文字"
-          htmlFor={`${idPrefix}-title`}
-          hint="留空则用类目/集合名称。"
-        >
-          <TextInput
-            id={`${idPrefix}-title`}
-            value={value.titleOverride}
-            placeholder={namePlaceholder ?? ""}
-            onChange={(e) => onChange({ titleOverride: e.target.value })}
-            disabled={disabled}
-            autoComplete="off"
-          />
-        </Field>
         <Field label="字体" htmlFor={`${idPrefix}-font`} hint="品牌字体为 LUWAG 的 Poppins。">
           <Select
             id={`${idPrefix}-font`}

@@ -659,7 +659,6 @@ function CollectionsPageContent() {
               )
             }
             disabled={heroPending}
-            namePlaceholder={heroEdit?.collection.name ?? "集合名称"}
           />
           {heroEdit ? (
             <div className="border-t border-border pt-4">

@@ -695,7 +695,6 @@ export default function AdminCategoriesPage() {
                   patchForm({ heroStyle: { ...form.heroStyle, ...patch } })
                 }
                 disabled={formPending}
-                namePlaceholder={form.name || "类目名称"}
               />
             </div>
             {errors.heroStyle ? (
