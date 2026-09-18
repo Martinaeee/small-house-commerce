@@ -95,10 +95,14 @@ export const assignOrderSchema = z.object({
 });
 export type AssignOrderInput = z.infer<typeof assignOrderSchema>;
 
-export const confirmDecisionSchema = z.object({
-  decision: z.enum(['CONFIRM', 'CANCEL', 'REQUEST_INFO']),
-  note: z.string().max(500).optional(),
-});
+// Optional on purpose: the legacy confirm call posts NO body at all (plain
+// order confirm); RPT/RECHECK review decisions send { decision, note? }.
+export const confirmDecisionSchema = z
+  .object({
+    decision: z.enum(['CONFIRM', 'CANCEL', 'REQUEST_INFO']),
+    note: z.string().max(500).optional(),
+  })
+  .optional();
 
 export const updateOrderStatusSchema = z.object({
   status: z.nativeEnum(OrderStatus),
