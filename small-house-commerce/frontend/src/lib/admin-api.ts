@@ -539,8 +539,11 @@ export interface AdminCollectionRow {
   slug: string;
   type: "NAVIGATION" | "MARKETING" | "SCENARIO" | "SYSTEM";
   description: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
   status: "ACTIVE" | "DISABLED";
   sortOrder: number;
+  heroImage: string | null;
   heroStyle: AdminHeroStyle | null;
   _count: { products: number };
 }
@@ -663,6 +666,8 @@ export interface CreateCollectionInput {
   slug: string;
   type?: "NAVIGATION" | "MARKETING" | "SCENARIO" | "SYSTEM";
   description?: string | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
   heroImage?: string | null;
   status?: "ACTIVE" | "DISABLED";
   sortOrder?: number;
