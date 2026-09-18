@@ -7,6 +7,7 @@
 后台订单页目前只有：列表（订单号/时间/客户/商品/金额/三态徽章）+ 详情（仅确认/取消 + 状态历史时间线）。用户拍板：
 
 - **客户分类标注**：`order_customer_classification` = `NEW / AGAIN / RPT / RECHECK`，下单时按算法计算存快照（DATABASE §14、CUSTOMER_RISK_SPEC §6–7）。
+- **分类影响确认与发货（§17 确认策略，用户拍板）**：NORMAL/AGAIN 标准确认；**RPT/RECHECK 进入人工复核队列**，`confirmationStatus` 置 `NEEDS_REVIEW`，必须人工复核后确认；**RECHECK 发货前强制卡点**——未来 ship 必须校验 `confirmationStatus=CONFIRMED` 且无未解决高风险 flag。现有 `checkout()` 已预留 `riskType/requiresReview` 返回字段（注释 "Risk rules land in Phase 2"），本轮即 Phase 2 落地。
 - **重复订单标注**：同手机号 + 相似商品 + 24 小时窗口 → `POSSIBLE_DUPLICATE`（CUSTOMER_RISK_SPEC §14），**只标记不自动删单**（DATABASE §47）。
 - **完整历史痕迹**：下单时间、客服是否处理、分配给哪个客服、处理结果，时间线可视化（DATABASE §45/§46、CUSTOMER_RISK_SPEC §10/§13）。
 - **订单编辑**：收货信息、备注、商品行（增删改数量）、金额重算；所有编辑留痕（DB-004）。
@@ -166,7 +167,8 @@ ELSE                                          → NEW
 | `GET /admin/orders/:id` | 增强：含 `notes[]`、`customerNotes[]`、`riskFlags[]`、`riskLogs[]`、`history[]`（联表操作人姓名）、`mergeRecords[]`、`assignedTo`、`classification` |
 | `PATCH /admin/orders/:id` | 编辑：`{ shippingAddress?, items?, note? }`。收货信息更新快照表；商品行增删改（§6.2 库存规则）；每次编辑写一条历史（statusDomain `EDIT`，comment 存变更摘要） |
 | `POST /admin/orders/:id/assign` | `{ assignedToId }`，改派客服，写历史（statusDomain `ASSIGNMENT`） |
-| `POST /admin/orders/:id/status` | `{ status, comment? }` 状态迁移（§6.1 合法表），写历史（沿用 §45 表） |
+| `POST /admin/orders/:id/confirm` | 升级现有端点：RPT/RECHECK 需带 `{ decision, note? }`（§6.1 卡点），写 risk_log/customer_note/history |
+| `POST /admin/orders/:id/status` | `{ status, comment? }` 状态迁移（§6.2 合法表），写历史（沿用 §45 表）；`CONFIRMED` 经 §6.1 卡点确认流程 |
 | `POST /admin/orders/:id/notes` | `{ content, noteType }` 追加订单内部备注（order_notes） |
 | `POST /admin/customers/:id/notes` | `{ note, orderId? }` 客户沟通记录（customer_notes） |
 | `POST /admin/orders/:id/risk-flags` | `{ flagType, reason? }` 人工标记；`PATCH /risk-flags/:flagId` resolve（降级需 ADMIN 权限，写 risk_log） |
@@ -176,7 +178,19 @@ ELSE                                          → NEW
 
 ## 6. 业务规则
 
-### 6.1 状态迁移合法表（含全部运营态）
+### 6.1 确认/发货风险卡点（CUSTOMER_RISK_SPEC §17，用户拍板）
+
+| 分类 | 确认策略 | 卡点 |
+|---|---|---|
+| NORMAL | 标准确认队列 | 无 |
+| AGAIN | 快速确认（徽章提示，可正常确认） | 无 |
+| RPT | **人工复核**：`confirmationStatus` 置 `NEEDS_REVIEW`，进入复核队列；客服按 §12 流程（Call Customer → Decision）复核后确认 | `confirm` 端点对 RPT/RECHECK 必须走复核确认（带 decision/reason），**不可直接跳过** |
+| RECHECK | 人工复核同上 + **发货前强制卡点** | 未来 `ship` 端点校验 `confirmationStatus=CONFIRMED` 且无未解决 RECHECK/POSSIBLE_DUPLICATE flag，否则拒绝 |
+
+- `checkout()` 返回已预留 `riskType/requiresReview`；本轮让 `checkout` 按 §7 算法真实计算并回填。
+- `confirm()` 现有实现（orders.service.ts:208）升级：读 `customerClassification`，RPT/RECHECK 时要求 `decision` 参数（`CONFIRM`/`CANCEL`/`REQUEST_INFO`，§12），写 `customer_risk_logs` + `customer_notes` + history，再置 CONFIRMED。
+
+### 6.2 状态迁移合法表（含全部运营态）
 
 | 当前 → 合法目标 |
 |---|
@@ -192,7 +206,7 @@ ELSE                                          → NEW
 - 取消/拒单 → 释放预留（§31 已实现）。
 - `SHIPPING`/`SIGNED` 本轮不提供操作入口（ship 留待），状态字段保留展示。
 
-### 6.2 商品行编辑库存规则（§30–§32）
+### 6.3 商品行编辑库存规则（§30–§32）
 
 服务端逐行 diff：
 1. **新增行**：校验 SKU ACTIVE + 库存充足 → `create` OrderItem + 新增预留（movement `ORDER_RESERVED`）。
@@ -240,6 +254,7 @@ ELSE                                          → NEW
   - 客户分类算法：RECHECK > RPT > AGAIN > NEW 各分支（denied/failed/pending-signed/无历史）
   - 重复检测：同号+同商品+24h → POSSIBLE_DUPLICATE；跨 24h/不同商品 → 不标
   - 状态迁移合法表（每个转移合法/非法）
+  - 确认卡点：RPT/RECHECK 无 decision 拒绝确认；带 decision 走通并写 risk_log/customer_note；NORMAL/AGAIN 直接确认不受影响
   - 商品行编辑库存 diff（增/删/改量、预留增减、金额重算、库存不足拒绝）
   - 合并（未发货校验、同客户/手机号/地址校验、merged 置 CANCELLED+释放预留、双写历史、不可逆、保留最早订单）
   - 分配/备注/风险标记写历史 + risk_log
@@ -280,6 +295,7 @@ ELSE                                          → NEW
 
 1. 列表页：每单有分类徽章（NEW/AGAIN/RPT/RECHECK）；重复订单有红色「重复 ⚠」标记；可按分类/客服/风险筛选；客服可下拉改派。
 2. 详情页：时间线完整（下单/分类/分配/状态/编辑/备注/合并/风险，含操作人姓名和时间）；状态可切换（合法迁移）；商品/收货/备注/客户沟通可编辑，编辑后金额与预留正确、历史可见；风险可标记/解除（降级需 ADMIN）。
-3. 合并：两单（同客户/同号/同地址/未发货）合并后 primary 含全部商品、merged 置 CANCELLED 且历史保留。
-4. 中英文切换：默认中文，顶栏切换，订单模块全部文案双语完整。
-5. 生产部署后门店下单/查单不受影响（回归）。
+3. **确认卡点**：RPT/RECHECK 订单无法直接确认——详情页进入复核流程（显示客户历史/风险原因 → Call → 决策 Confirm/Cancel/Request Info → 确认成功并留痕）；NORMAL/AGAIN 可直接确认。
+4. 合并：两单（同客户/同号/同地址/未发货）合并后 primary 含全部商品、merged 置 CANCELLED 且历史保留。
+5. 中英文切换：默认中文，顶栏切换，订单模块全部文案双语完整。
+6. 生产部署后门店下单/查单不受影响（回归）。
