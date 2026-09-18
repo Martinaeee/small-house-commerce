@@ -16,7 +16,6 @@ import { LivePreview, StorefrontPreview } from "@/components/admin/PreviewPane";
 import { HeroBanner } from "@/components/product/HeroBanner";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { TextInput } from "@/components/admin/Field";
-import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
 import {
@@ -301,7 +300,6 @@ function CollectionsPageContent() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader title="Collections" />
 
       {/* Chinese operator guide */}
       <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">

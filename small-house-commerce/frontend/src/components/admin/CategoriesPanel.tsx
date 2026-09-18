@@ -22,7 +22,6 @@ import { LivePreview, StorefrontPreview } from "@/components/admin/PreviewPane";
 import { HeroBanner } from "@/components/product/HeroBanner";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput } from "@/components/admin/Field";
-import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
 import {
@@ -412,21 +411,6 @@ export function CategoriesPanel() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader
-        title="Categories"
-        count={tree ? rows.length : undefined}
-        actions={
-          canManage ? (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => openCreate("")}
-            >
-              New root category
-            </Button>
-          ) : null
-        }
-      />
 
       {/* Chinese operator guide. */}
       <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
