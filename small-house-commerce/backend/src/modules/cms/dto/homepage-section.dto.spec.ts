@@ -71,14 +71,19 @@ describe('homepage payload schemas', () => {
     ).toBe(true);
   });
 
-  it('rejects non-https media URLs and keeps https media URLs working', () => {
+  it('accepts https/http and site-relative media URLs, rejects dangerous ones', () => {
     const hero = homepagePayloadSchemas[HomepageSectionType.HERO];
-    expect(hero.safeParse({ desktopImage: 'http://example.com/a.jpg' }).success).toBe(false);
+    // Local-disk uploads return site-relative /uploads paths; plain http
+    // absolute links are also legitimate (IP-era deployments). Dangerous
+    // schemes and protocol-relative URLs stay rejected.
+    expect(hero.safeParse({ desktopImage: 'http://example.com/a.jpg' }).success).toBe(true);
+    expect(hero.safeParse({ desktopImage: '/uploads/catalog/2026/a.jpg' }).success).toBe(true);
     expect(hero.safeParse({ desktopImage: 'javascript:alert(1)' }).success).toBe(false);
+    expect(hero.safeParse({ desktopImage: '//evil.example.com/a.jpg' }).success).toBe(false);
     expect(hero.safeParse({ desktopImage: 'https://cdn.example.com/a.jpg' }).success).toBe(true);
     expect(hero.safeParse({ desktopImage: 'not-a-url' }).success).toBe(false);
     const story = homepagePayloadSchemas[HomepageSectionType.PRODUCT_STORY];
-    expect(story.safeParse({ imageUrl: 'http://example.com/a.jpg' }).success).toBe(false);
+    expect(story.safeParse({ imageUrl: '/uploads/catalog/2026/b.jpg' }).success).toBe(true);
     expect(story.safeParse({ imageUrl: 'https://cdn.example.com/a.jpg' }).success).toBe(true);
   });
 
@@ -154,7 +159,8 @@ describe('homepage payload schemas', () => {
     const baseHotspot = { productId: crypto.randomUUID(), xPct: 10, yPct: 10 };
 
     expect(schema.safeParse({ scenes: [{ id: 'BAD-ID', imageUrl: 'https://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
-    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'http://x.io/a.jpg', hotspots: [] }] }).success).toBe(false);
+    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'http://x.io/a.jpg', hotspots: [] }] }).success).toBe(true);
+    expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: '/uploads/catalog/2026/c.jpg', hotspots: [] }] }).success).toBe(true);
     expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ ...baseHotspot, xPct: 101 }] }] }).success).toBe(false);
     expect(schema.safeParse({ scenes: [{ id: 'abcdefgh', imageUrl: 'https://x.io/a.jpg', hotspots: [{ ...baseHotspot, yPct: -0.1 }] }] }).success).toBe(false);
     expect(

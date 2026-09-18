@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 import { CategoryStatus } from '../../../generated/prisma/client.js';
 import { heroStyleSchema } from './hero-style.dto.js';
 
@@ -14,7 +15,7 @@ export const createCategorySchema = z.object({
   slug: slugSchema,
   parentId: z.string().uuid().nullable().optional(),
   sortOrder: z.number().int().default(0),
-  imageUrl: z.string().url().max(2048).nullable().optional(),
+  imageUrl: siteMediaUrl().nullable().optional(),
   status: z.nativeEnum(CategoryStatus).default('ACTIVE'),
   // undefined = untouched, null = clear, object = upsert.
   heroStyle: heroStyleSchema.nullable().optional(),

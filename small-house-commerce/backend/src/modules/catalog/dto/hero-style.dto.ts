@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 import { HeroBackgroundType } from '../../../generated/prisma/client.js';
 
 /**
@@ -25,7 +26,7 @@ export const heroStyleSchema = z.object({
   titleFont: z.enum(HERO_FONTS).nullable().optional(),
   backgroundType: z.nativeEnum(HeroBackgroundType).optional(),
   backgroundColor: hexColor.nullable().optional(),
-  backgroundImageUrl: z.string().url().max(2048).nullable().optional(),
+  backgroundImageUrl: siteMediaUrl().nullable().optional(),
   backgroundBlur: z.number().int().min(0).max(24).optional(),
 });
 

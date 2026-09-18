@@ -1,8 +1,9 @@
 // src/modules/catalog/dto/review.dto.ts
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 
 // Admin enters reviews for cold start (PDP_SPEC §22). Photos are URLs, max 6.
-const photoSchema = z.string().url().max(2048);
+const photoSchema = siteMediaUrl();
 
 // Merchants may backdate reviews to spread cold-start content over time.
 // Omitted = server now(). Future timestamps are rejected; ISO 8601 only

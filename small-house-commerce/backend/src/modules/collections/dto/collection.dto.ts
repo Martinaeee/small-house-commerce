@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 import { CollectionStatus, CollectionType } from '../../../generated/prisma/client.js';
 import { heroStyleSchema } from '../../catalog/dto/hero-style.dto.js';
 
@@ -11,7 +12,7 @@ export const createCollectionSchema = z.object({
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be lowercase kebab-case'),
   type: z.nativeEnum(CollectionType).default('NAVIGATION'),
   description: z.string().max(1000).nullable().optional(),
-  heroImage: z.string().url().max(2048).nullable().optional(),
+  heroImage: siteMediaUrl().nullable().optional(),
   status: z.nativeEnum(CollectionStatus).default('ACTIVE'),
   sortOrder: z.number().int().default(0),
   seoTitle: z.string().max(200).nullable().optional(),

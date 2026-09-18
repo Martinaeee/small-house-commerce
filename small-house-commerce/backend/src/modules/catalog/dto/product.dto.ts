@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 import {
   DetailBlockType,
   InternalProductRole,
@@ -35,7 +36,7 @@ const variantSchema = z.object({
 });
 
 const imageSchema = z.object({
-  url: z.string().url().max(2048),
+  url: siteMediaUrl(),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
 });
@@ -47,7 +48,7 @@ const imageSchema = z.object({
  */
 const detailBlockSchema = z.object({
   type: z.nativeEnum(DetailBlockType),
-  url: z.string().url().max(2048),
+  url: siteMediaUrl(),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
 });

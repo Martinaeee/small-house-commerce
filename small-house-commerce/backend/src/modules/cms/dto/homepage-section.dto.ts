@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { siteMediaUrl } from '../../../common/site-media-url.js';
 import { HomepageSectionType } from '../../../generated/prisma/client.js';
 
 /** In-app path/hash ("/collections", "#solutions") or absolute https URL. */
@@ -13,15 +14,8 @@ const inAppOrHttps = z
     { message: 'Link must start with / or # (but not //), or be an https URL' },
   );
 
-/** Absolute https media URL only (CDN/R2 presigned links). */
-const mediaUrl = () =>
-  z
-    .string()
-    .url()
-    .max(2048)
-    .refine((value) => value.startsWith('https://'), {
-      message: 'Media URL must be an https:// URL',
-    });
+/** Admin media URL: absolute http(s) link or site-relative /uploads path. */
+const mediaUrl = () => siteMediaUrl();
 
 const heroPayloadSchema = z.object({
   desktopImage: mediaUrl().optional(),
