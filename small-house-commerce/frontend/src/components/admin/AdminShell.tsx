@@ -14,6 +14,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { useAdminI18n } from "@/lib/admin-i18n";
 
 /**
  * Admin back-office chrome + client route guard (spec §6, §8.2).
@@ -33,19 +34,20 @@ import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 
 interface NavItem {
   href: string;
-  label: string;
+  /** i18n dictionary key (see src/i18n/zh.ts nav_*). */
+  labelKey: string;
   permission: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/admin/orders", label: "Orders", permission: "ORDER_VIEW_ALL" },
-  { href: "/admin/inventory", label: "Inventory", permission: "INVENTORY_VIEW" },
-  { href: "/admin/products", label: "Products", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/categories", label: "Categories", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/collections", label: "Collections", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/homepage", label: "首页装修", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/single-pages", label: "Single Pages", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/settings", label: "站点设置", permission: "SYSTEM_SETTINGS_EDIT" },
+  { href: "/admin/orders", labelKey: "nav_orders", permission: "ORDER_VIEW_ALL" },
+  { href: "/admin/inventory", labelKey: "nav_inventory", permission: "INVENTORY_VIEW" },
+  { href: "/admin/products", labelKey: "nav_products", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/categories", labelKey: "nav_categories", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/collections", labelKey: "nav_collections", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/homepage", labelKey: "nav_homepage", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/single-pages", labelKey: "nav_single_pages", permission: "PRODUCT_MANAGE" },
+  { href: "/admin/settings", labelKey: "nav_settings", permission: "SYSTEM_SETTINGS_EDIT" },
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
@@ -64,7 +66,7 @@ function NavList({
   pathname,
   onNavigate,
 }: {
-  items: NavItem[];
+  items: { href: string; label: string }[];
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -94,6 +96,7 @@ function NavList({
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { status, admin, hasPermission, logout } = useAdminAuth();
+  const { lang, setLang, t } = useAdminI18n();
   const router = useRouter();
   const pathname = usePathname();
   const drawerId = useId();
@@ -184,7 +187,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
     return null;
   }
 
-  const nav = NAV_ITEMS.filter((item) => hasPermission(item.permission));
+  const nav = NAV_ITEMS.filter((item) => hasPermission(item.permission)).map((item) => ({
+    href: item.href,
+    label: t(item.labelKey as never),
+  }));
   const current = nav.find(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
@@ -249,6 +255,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
               {roleCode}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setLang(lang === "zh" ? "en" : "zh")}
+            aria-label="Switch language"
+            className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink-secondary hover:text-cta"
+          >
+            {lang === "zh" ? "EN" : "中文"}
+          </button>
           <Button variant="text" size="md" onClick={onLogout} className="min-w-0 px-2">
             Log out
           </Button>
