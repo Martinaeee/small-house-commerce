@@ -129,6 +129,57 @@ export interface AdminOrderListRow extends AdminOrderRow {
     quantity: number;
     lineTotal: string;
   }[];
+  assignedTo: { id: string; name: string | null } | null;
+  riskFlags: {
+    id: string;
+    flagType: string;
+    reason: string | null;
+    resolved: boolean;
+    createdAt: string;
+  }[];
+}
+
+export interface AdminRiskFlag {
+  id: string;
+  orderId: string;
+  flagType: string;
+  reason: string | null;
+  resolved: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface AdminOrderNote {
+  id: string;
+  orderId: string;
+  userId: string | null;
+  noteType: string;
+  content: string;
+  createdAt: string;
+  operatorName?: string | null;
+}
+
+export interface AdminCustomerNote {
+  id: string;
+  customerId: string;
+  orderId: string | null;
+  operatorId: string | null;
+  note: string;
+  createdAt: string;
+  operatorName?: string | null;
+}
+
+export interface AdminRiskLog {
+  id: string;
+  customerId: string;
+  orderId: string | null;
+  riskType: string;
+  previousOrderId: string | null;
+  reason: string | null;
+  operatorId: string | null;
+  createdAt: string;
+  operatorName?: string | null;
 }
 
 export interface AdminOrderItem {
@@ -150,6 +201,7 @@ export interface AdminStatusHistory {
   newStatus: string;
   source: string;
   operatorId: string | null;
+  operatorName?: string | null;
   comment: string | null;
   createdAt: string;
 }
@@ -200,6 +252,25 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     warehouseId: string;
     quantity: number;
     status: string;
+    createdAt: string;
+  }[];
+  notes: AdminOrderNote[];
+  riskFlags: AdminRiskFlag[];
+  assignedBy: { id: string; name: string | null } | null;
+  customer: AdminOrderCustomer & {
+    notes: AdminCustomerNote[];
+    riskLogs: AdminRiskLog[];
+  };
+  mergeRecordsPrimary: {
+    id: string;
+    mergedOrder: { id: string; orderNumber: string } | null;
+    reason: string | null;
+    createdAt: string;
+  }[];
+  mergeRecordsMerged: {
+    id: string;
+    primaryOrder: { id: string; orderNumber: string } | null;
+    reason: string | null;
     createdAt: string;
   }[];
 }
@@ -614,6 +685,9 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 export const adminApi = {
   listOrders: (p: {
     status?: OrderStatus;
+    classification?: string;
+    assignedTo?: string;
+    risk?: string;
     search?: string;
     dateFrom?: string;
     dateTo?: string;
@@ -623,6 +697,9 @@ export const adminApi = {
     adminAuthedFetch<Paged<AdminOrderListRow>>(
       `/api/v1/admin/orders${buildQuery({
         status: p.status,
+        classification: p.classification,
+        assignedTo: p.assignedTo,
+        risk: p.risk,
         search: p.search,
         dateFrom: p.dateFrom,
         dateTo: p.dateTo,
@@ -647,6 +724,67 @@ export const adminApi = {
     adminAuthedFetch<AdminOrderRow>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/cancel`,
       { method: "POST" },
+    ),
+
+  // --- Order workbench (2026-09-18 spec) ---
+
+  confirmOrderWithDecision: (id: string, decision: { decision: "CONFIRM" | "CANCEL" | "REQUEST_INFO"; note?: string }): Promise<AdminOrderRow> =>
+    adminAuthedFetch<AdminOrderRow>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/confirm`,
+      { method: "POST", body: JSON.stringify(decision) },
+    ),
+
+  assignOrder: (id: string, assignedToId: string): Promise<AdminOrderRow> =>
+    adminAuthedFetch<AdminOrderRow>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/assign`,
+      { method: "POST", body: JSON.stringify({ assignedToId }) },
+    ),
+
+  updateOrderStatus: (id: string, status: string, comment?: string): Promise<AdminOrderRow> =>
+    adminAuthedFetch<AdminOrderRow>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/status`,
+      { method: "POST", body: JSON.stringify({ status, comment }) },
+    ),
+
+  editOrder: (id: string, input: { shippingAddress?: Record<string, unknown>; items?: { skuId: string; quantity: number }[]; note?: string }): Promise<AdminOrderDetail> =>
+    adminAuthedFetch<AdminOrderDetail>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  addOrderNote: (id: string, content: string, noteType?: string): Promise<AdminOrderNote> =>
+    adminAuthedFetch<AdminOrderNote>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/notes`,
+      { method: "POST", body: JSON.stringify({ content, noteType: noteType ?? "CUSTOMER_SERVICE" }) },
+    ),
+
+  addCustomerNote: (customerId: string, note: string, orderId?: string | null): Promise<AdminCustomerNote> =>
+    adminAuthedFetch<AdminCustomerNote>(
+      `/api/v1/admin/customers/${encodeURIComponent(customerId)}/notes`,
+      { method: "POST", body: JSON.stringify({ note, orderId: orderId ?? null }) },
+    ),
+
+  addRiskFlag: (id: string, flagType: string, reason?: string): Promise<AdminRiskFlag> =>
+    adminAuthedFetch<AdminRiskFlag>(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/risk-flags`,
+      { method: "POST", body: JSON.stringify({ flagType, reason }) },
+    ),
+
+  resolveRiskFlag: (flagId: string): Promise<AdminRiskFlag> =>
+    adminAuthedFetch<AdminRiskFlag>(
+      `/api/v1/admin/orders/risk-flags/${encodeURIComponent(flagId)}/resolve`,
+      { method: "PATCH" },
+    ),
+
+  mergeOrders: (primaryOrderId: string, mergedOrderId: string, reason?: string): Promise<AdminOrderDetail> =>
+    adminAuthedFetch<AdminOrderDetail>(
+      `/api/v1/admin/orders/merge`,
+      { method: "POST", body: JSON.stringify({ primaryOrderId, mergedOrderId, reason }) },
+    ),
+
+  listAssignees: (): Promise<{ id: string; name: string }[]> =>
+    adminAuthedFetch<{ id: string; name: string }[]>(
+      `/api/v1/admin/orders/assignees`,
     ),
 
   listProducts: (p: {
