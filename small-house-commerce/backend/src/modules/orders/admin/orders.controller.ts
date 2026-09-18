@@ -19,6 +19,7 @@ import {
   addOrderNoteSchema,
   addRiskFlagSchema,
   assignOrderSchema,
+  checkoutSchema,
   confirmDecisionSchema,
   editOrderSchema,
   mergeOrdersSchema,
@@ -28,6 +29,7 @@ import {
   type AddOrderNoteInput,
   type AddRiskFlagInput,
   type AssignOrderInput,
+  type CheckoutInput,
   type EditOrderInput,
   type MergeOrdersInput,
   type OrderQuery,
@@ -59,6 +61,22 @@ export class AdminOrdersController {
   @Permissions('ORDER_VIEW_ALL')
   assignees() {
     return this.ordersService.assignees();
+  }
+
+  @Get('counts')
+  @Permissions('ORDER_VIEW_ALL')
+  counts() {
+    return this.ordersService.counts();
+  }
+
+  /** Manual order entry (phone orders): reuses the storefront checkout logic. */
+  @Post()
+  @Permissions('ORDER_CONFIRM')
+  create(
+    @Body(new ZodValidationPipe(checkoutSchema)) body: CheckoutInput,
+    @CurrentUser() _user: { userId: string },
+  ) {
+    return this.ordersService.checkout(body);
   }
 
   @Get(':id')

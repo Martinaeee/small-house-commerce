@@ -367,6 +367,30 @@ export class OrdersService {
     return users;
   }
 
+  /**
+   * Per-status order counts for the workbench tab bar, plus the derived
+   * buckets the tabs surface: needsReview (RPT/RECHECK queue) and duplicate
+   * (unresolved POSSIBLE_DUPLICATE flags).
+   */
+  async counts() {
+    const [byStatus, needsReview, duplicate] = await Promise.all([
+      this.prisma.order.groupBy({ by: ['orderStatus'], _count: { _all: true } }),
+      this.prisma.order.count({
+        where: { confirmationStatus: 'NEEDS_REVIEW' },
+      }),
+      this.prisma.order.count({
+        where: { riskFlags: { some: { flagType: 'POSSIBLE_DUPLICATE', resolved: false } } },
+      }),
+    ]);
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of byStatus) {
+      counts[row.orderStatus] = row._count._all;
+      total += row._count._all;
+    }
+    return { total, byStatus: counts, needsReview, duplicate };
+  }
+
   /** Assign / reassign the customer-service owner of an order. */
   async assign(orderId: string, assignedToId: string, operatorId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
