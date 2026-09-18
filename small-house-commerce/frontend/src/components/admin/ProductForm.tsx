@@ -58,6 +58,12 @@ export interface ProductFormValue {
       packageDepth: string;
       packageWeight: string;
       volumetricWeight: string;
+      // Stock is not part of the product payload: `id` locates the SKU for the
+      // separate stock write, `stock` is the on-hand figure this form edits and
+      // `reserved` is read-only context. serializeProduct ignores all three.
+      id: string;
+      stock: string;
+      reserved: string;
     } | null;
   }[];
 }
@@ -224,6 +230,9 @@ export function emptySkuFormValue(): SkuFormValue {
     packageDepth: "",
     packageWeight: "",
     volumetricWeight: "",
+    id: "",
+    stock: "0",
+    reserved: "0",
   };
 }
 
@@ -319,6 +328,23 @@ type CreateSkuInput = NonNullable<
  * become null; optional SKU fields are omitted (undefined) when blank.
  * Task 10 will reuse this for edit (partial) serialization.
  */
+/**
+ * Stock is edited in this form but written through the inventory API, so it is
+ * not part of the serialized payload and serializeFormValue cannot validate
+ * it. Both save paths call this first; returns a message, or null when valid.
+ */
+export function validateStockEntry(value: ProductFormValue): string | null {
+  for (const [index, variant] of value.variants.entries()) {
+    const raw = variant.sku?.stock.trim() ?? "";
+    if (raw === "") continue;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return `Stock must be a whole number of 0 or more (variant ${index + 1}).`;
+    }
+  }
+  return null;
+}
+
 export function serializeFormValue(
   v: ProductFormValue,
 ): SerializeFormResult {
@@ -1221,6 +1247,41 @@ export function ProductForm({
                           autoComplete="off"
                         />
                       </Field>
+                    </div>
+
+                    {/* Stock lives in its own table, which is why the product
+                        form could not see it before. The figure shown is what
+                        the form last read and it is saved back as an absolute
+                        value, so a stale copy cannot corrupt the count the way
+                        a client-computed delta would. */}
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold text-ink-secondary">
+                        Stock 库存
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-muted">
+                        可售数量，前台据此显示库存状态并在售罄时拦住下单。保存商品时一并写入，后台保留库存流水。
+                      </p>
+                      <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <Field
+                          label="Stock 库存"
+                          htmlFor={`pf-variants-${i}-stock`}
+                          hint={
+                            !vr.sku.id
+                              ? "SKU 尚未创建：保存后会按这里的数量写入库存。"
+                              : vr.sku.reserved !== "0"
+                                ? `已有 ${vr.sku.reserved} 件被未完成订单占用，库存不能低于该数。`
+                                : "当前无订单占用。"
+                          }
+                        >
+                          <TextInput
+                            id={`pf-variants-${i}-stock`}
+                            inputMode="numeric"
+                            value={vr.sku.stock}
+                            onChange={(e) => setSku(i, { stock: e.target.value })}
+                            autoComplete="off"
+                          />
+                        </Field>
+                      </div>
                     </div>
 
                     {SKU_FIELD_GROUPS.map((group) => (

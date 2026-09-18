@@ -16,6 +16,7 @@ import { TableSkeleton } from "@/components/admin/Skeleton";
 import {
   ProductForm,
   serializeFormValue,
+  validateStockEntry,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
@@ -116,15 +117,43 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
             packageDepth: toFormNumber(variant.sku.packageDepth),
             packageWeight: toFormNumber(variant.sku.packageWeight),
             volumetricWeight: toFormNumber(variant.sku.volumetricWeight),
+            // Stock round-trips separately from the product payload (it lives
+            // in the inventory table); see applyStockChanges below.
+            id: variant.sku.id,
+            stock: String(variant.sku.onHand),
+            reserved: String(variant.sku.reserved),
           }
         : null,
     })),
   };
 }
 
+/**
+ * SKUs whose on-hand figure the admin changed, matched by SKU id (not by
+ * position — variants can be added or removed in the same save).
+ */
+function collectStockChanges(
+  current: ProductFormValue,
+  initial: ProductFormValue,
+): { skuId: string; onHand: number }[] {
+  const previous = new Map<string, string>();
+  for (const variant of initial.variants) {
+    if (variant.sku?.id) previous.set(variant.sku.id, variant.sku.stock.trim());
+  }
+
+  const changes: { skuId: string; onHand: number }[] = [];
+  for (const variant of current.variants) {
+    const sku = variant.sku;
+    if (!sku?.id) continue;
+    const next = sku.stock.trim();
+    if (previous.get(sku.id) === next) continue;
+    changes.push({ skuId: sku.id, onHand: Number(next) });
+  }
+  return changes;
+}
+
 /** Order-insensitive set comparison for the solutions enum array. */
-function sameSolutionSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
+function sameSolutionSet(a: string[], b: string[]): boolean {  if (a.length !== b.length) return false;
   return [...a].sort().join("|") === [...b].sort().join("|");
 }
 
@@ -317,8 +346,15 @@ export default function EditProductPage(): ReactNode {
         return;
       }
 
+      const stockError = validateStockEntry(value);
+      if (stockError) {
+        setError(stockError);
+        return;
+      }
+
       const patch = buildProductPatch(result.value, initialResult.value);
-      if (Object.keys(patch).length === 0) {
+      const stockChanges = collectStockChanges(value, initial);
+      if (Object.keys(patch).length === 0 && stockChanges.length === 0) {
         // Nothing changed: do not PATCH (an empty body is a no-op server-side
         // anyway, but skipping keeps the audit/ledger clean).
         setError(null);
@@ -329,31 +365,63 @@ export default function EditProductPage(): ReactNode {
       setPending(true);
       setError(null);
       setNotice(null);
-      void adminApi
-        .updateProduct(product.id, patch)
-        .then((updated) => {
+      void (async () => {
+        let productSaved = false;
+        try {
+          let saved = product;
+          if (Object.keys(patch).length > 0) {
+            saved = await adminApi.updateProduct(product.id, patch);
+            productSaved = true;
+            if (!mounted.current) return;
+            // Adopt the new server truth (trimmed values, recreated SKU ids):
+            // the new object re-keys `initial`, resetting ProductForm state.
+            setProduct(saved);
+          }
+
+          // Stock is written through the inventory API (audit trail + the
+          // reserved guard). Variants added in this save had no SKU id when the
+          // form was built, so they are matched back by SKU code.
+          const writes = [...stockChanges];
+          for (const variant of value.variants) {
+            const sku = variant.sku;
+            if (!sku || sku.id) continue;
+            const raw = sku.stock.trim();
+            if (raw === "") continue;
+            const created = saved.variants.find(
+              (v) => v.sku?.skuCode === sku.skuCode.trim(),
+            );
+            if (created?.sku) writes.push({ skuId: created.sku.id, onHand: Number(raw) });
+          }
+          for (const write of writes) {
+            await adminApi.setStock({ ...write, reason: "Product form" });
+          }
+
           if (!mounted.current) return;
-          // Adopt the new server truth (trimmed values, recreated SKU ids):
-          // the new object re-keys `initial`, resetting ProductForm state.
-          setProduct(updated);
-          setNotice("Product saved.");
+          if (writes.length > 0) {
+            // Re-read so the form shows what the server stored rather than what
+            // was typed (the reserved guard can reject a value outright).
+            setProduct(await adminApi.getProduct(product.id));
+            if (!mounted.current) return;
+          }
+          setNotice(writes.length > 0 ? "Product saved, stock updated." : "Product saved.");
           router.refresh();
-        })
-        .catch((err: unknown) => {
+        } catch (err: unknown) {
           if (!mounted.current) return;
           // 409 → slug-specific wording. Everything else stays verbatim,
           // including the §14-gap-#5 "Referenced record does not exist" 400.
-          setError(
+          const message =
             errorStatus(err) === 409
               ? SLUG_CONFLICT_UI
               : err instanceof Error
                 ? err.message
-                : "Failed to save product.",
+                : "Failed to save product.";
+          setError(
+            productSaved ? `Product saved, but the stock update failed: ${message}` : message,
           );
-        })
-        .finally(() => {
+        } finally {
           if (mounted.current) setPending(false);
-        });
+        }
+      })();
     },
     [product, initial, router],
   );

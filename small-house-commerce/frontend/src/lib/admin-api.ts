@@ -222,6 +222,10 @@ export interface AdminSku {
   packageDepth: number | null;
   packageWeight: number | null;
   volumetricWeight: number | null;
+  // Live stock from the inventory table (read-only; written via setStock).
+  onHand: number;
+  reserved: number;
+  availableInventory: number;
 }
 
 export interface AdminVariant {
@@ -700,6 +704,22 @@ export const adminApi = {
     adminAuthedFetch<{ onHand: number; reserved: number; available: number }>(
       "/api/v1/admin/inventory/adjust",
       { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  /**
+   * Absolute stock set used by the product form. Idempotent: the service turns
+   * the target into the same MANUAL_ADJUSTMENT movement the delta endpoint
+   * writes, so a stale form value cannot corrupt the count the way a
+   * client-computed delta would.
+   */
+  setStock: (input: {
+    skuId: string;
+    onHand: number;
+    reason?: string | null;
+  }): Promise<{ onHand: number; reserved: number; available: number }> =>
+    adminAuthedFetch<{ onHand: number; reserved: number; available: number }>(
+      "/api/v1/admin/inventory/stock",
+      { method: "PUT", body: JSON.stringify(input) },
     ),
 
   // --- collections (membership management) --------------------------------

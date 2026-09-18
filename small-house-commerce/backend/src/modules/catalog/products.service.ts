@@ -13,6 +13,7 @@ import type {
   UpdateProductInput,
 } from './dto/product.dto.js';
 import { ReviewsService } from './reviews.service.js';
+import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
@@ -77,9 +78,47 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reviews: ReviewsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   // --- admin ---------------------------------------------------------------
+
+  /**
+   * Adds the live stock figures to admin SKUs so the product form can show and
+   * set them — inventory lives in its own table, so without this the form has
+   * no way to see it. Prices are deliberately left untouched (unlike
+   * withAvailableInventory, which converts them for the storefront): the admin
+   * form round-trips prices as decimal strings.
+   */
+  private async withStock<T extends { variants: { sku: { id: string } | null }[] }>(
+    products: T[],
+  ): Promise<T[]> {
+    const skuIds = [
+      ...new Set(
+        products.flatMap((p) =>
+          p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id),
+        ),
+      ),
+    ];
+    const stock = await this.inventory.stockBySku(skuIds);
+
+    return products.map((product) => ({
+      ...product,
+      variants: product.variants.map((variant) => {
+        if (!variant.sku) return variant;
+        const row = stock.get(variant.sku.id);
+        return {
+          ...variant,
+          sku: {
+            ...variant.sku,
+            onHand: row?.onHand ?? 0,
+            reserved: row?.reserved ?? 0,
+            availableInventory: row?.available ?? 0,
+          },
+        };
+      }),
+    }));
+  }
 
   async list(query: AdminProductQuery) {
     const where = this.adminWhere(query);
@@ -95,7 +134,12 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
-    return { items, total, page: query.page, pageSize: query.pageSize };
+    return {
+      items: await this.withStock(items),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async get(id: string) {
@@ -108,7 +152,8 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    return product;
+    const [enriched] = await this.withStock([product]);
+    return enriched;
   }
 
   async create(input: CreateProductInput) {

@@ -9,6 +9,7 @@ import {
   ProductForm,
   emptyProductFormValue,
   serializeFormValue,
+  validateStockEntry,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
@@ -63,20 +64,40 @@ export default function NewProductPage(): ReactNode {
   };
 
   const handleSubmit = (v: ProductFormValue): void => {
+    const stockError = validateStockEntry(v);
+    if (stockError) {
+      setError(stockError);
+      return;
+    }
     // The form already validated; serialize is pure, so re-running it here
     // cannot fail — it yields the CreateProductInput payload.
     const result = serializeFormValue(v);
     if (!result.ok) return;
     setPending(true);
     setError(null);
-    adminApi
-      .createProduct(result.value)
-      .then((created) => {
+    void (async () => {
+      try {
+        const created = await adminApi.createProduct(result.value);
+        // Stock cannot exist before the SKUs do, so it is written now that the
+        // created product carries their ids (matched back by SKU code).
+        const writes: { skuId: string; onHand: number }[] = [];
+        for (const variant of v.variants) {
+          const sku = variant.sku;
+          if (!sku) continue;
+          const raw = sku.stock.trim();
+          if (raw === "") continue;
+          const match = created.variants.find(
+            (cv) => cv.sku?.skuCode === sku.skuCode.trim(),
+          );
+          if (match?.sku) writes.push({ skuId: match.sku.id, onHand: Number(raw) });
+        }
+        for (const write of writes) {
+          await adminApi.setStock({ ...write, reason: "New product" });
+        }
         // Task 9 lands on the edit route (ships Task 10); today that 404s,
         // which is expected — the product row already exists server-side.
         router.push(`/admin/products/${created.id}/edit`);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         // POST /admin/products 409s (products.service rethrowKnown, Prisma
         // P2002): the unique violation here is the typed slug, so spec §8.7
         // maps 409 to the slug-specific alert; other messages stay verbatim.
@@ -88,7 +109,8 @@ export default function NewProductPage(): ReactNode {
               : "Failed to create product.",
         );
         setPending(false);
-      });
+      }
+    })();
   };
 
   return (
