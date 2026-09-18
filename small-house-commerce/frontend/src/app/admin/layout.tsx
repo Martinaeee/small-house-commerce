@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AdminAuthProvider } from "@/components/admin/AdminAuthProvider";
+import { AdminI18nProvider } from "@/lib/admin-i18n";
 
 // `absolute` bypasses the ROOT layout template ("%s | LUWAG Living"),
 // which would otherwise double-suffix admin tabs; child pages export no
@@ -14,7 +15,9 @@ export const metadata: Metadata = {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-full bg-background text-ink">
-      <AdminAuthProvider>{children}</AdminAuthProvider>
+      <AdminI18nProvider>
+        <AdminAuthProvider>{children}</AdminAuthProvider>
+      </AdminI18nProvider>
     </div>
   );
 }

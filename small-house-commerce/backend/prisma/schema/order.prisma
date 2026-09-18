@@ -179,6 +179,10 @@ model Order {
   confirmedBy   String?  @map("confirmed_by") @db.Uuid
   confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(3)
   confirmationNote String? @map("confirmation_note")
+  // Customer-service assignment (order workbench): who is handling this order.
+  assignedToId String?  @map("assigned_to_id") @db.Uuid
+  assignedBy   String?  @map("assigned_by") @db.Uuid
+  assignedAt   DateTime? @map("assigned_at") @db.Timestamptz(3)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
@@ -187,14 +191,68 @@ model Order {
   items           OrderItem[]
   shippingAddress OrderShippingAddress?
   statusHistory   OrderStatusHistory[]
+  notes           OrderNote[]
+  riskFlags       OrderRiskFlag[]
+  mergeRecordsPrimary  OrderMergeRecord[] @relation("PrimaryOrder")
+  mergeRecordsMerged   OrderMergeRecord[] @relation("MergedOrder")
   attribution     OrderAttribution?
   payments        Payment[]
   reservations    InventoryReservation[]
 
   @@index([customerId])
   @@index([orderStatus])
+  @@index([assignedToId])
   @@index([createdAt])
   @@map("orders")
+}
+
+/// §46 order notes — internal, append-only service notes (order workbench).
+model OrderNote {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  noteType  String   @map("note_type") // CUSTOMER_SERVICE / SYSTEM / WAREHOUSE
+  content   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_notes")
+}
+
+/// §47 order risk flags — detection marks, never auto-delete the order.
+model OrderRiskFlag {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  orderId    String   @map("order_id") @db.Uuid
+  flagType   String   @map("flag_type") // POSSIBLE_DUPLICATE / CUSTOMER_RECHECK / CUSTOMER_BLOCKED
+  reason     String?
+  resolved   Boolean  @default(false)
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([flagType, resolved])
+  @@map("order_risk_flags")
+}
+
+/// §48 order merge records — merged history is never deleted.
+model OrderMergeRecord {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  primaryOrderId String   @map("primary_order_id") @db.Uuid
+  mergedOrderId  String   @map("merged_order_id") @db.Uuid
+  operatorId     String?  @map("operator_id") @db.Uuid
+  reason         String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  primaryOrder Order @relation("PrimaryOrder", fields: [primaryOrderId], references: [id], onDelete: Restrict)
+  mergedOrder  Order @relation("MergedOrder", fields: [mergedOrderId], references: [id], onDelete: Restrict)
+
+  @@index([primaryOrderId])
+  @@map("order_merge_records")
 }
 
 /// §43 order items with historical snapshots (DB-003): catalog changes never

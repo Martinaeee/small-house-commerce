@@ -69,6 +69,9 @@ export const checkoutSchema = z.object({
 
 export const orderQuerySchema = z.object({
   status: z.nativeEnum(OrderStatus).optional(),
+  classification: z.enum(['NEW', 'AGAIN', 'RPT', 'RECHECK']).optional(),
+  assignedTo: z.string().uuid().optional(),
+  risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
   search: z.string().max(255).optional(),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
@@ -84,3 +87,75 @@ export const lookupSchema = z.object({
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type OrderQuery = z.infer<typeof orderQuerySchema>;
 export type LookupInput = z.infer<typeof lookupSchema>;
+
+// --- Order workbench DTOs (2026-09-18 spec) ---
+
+export const assignOrderSchema = z.object({
+  assignedToId: z.string().uuid(),
+});
+export type AssignOrderInput = z.infer<typeof assignOrderSchema>;
+
+// Optional on purpose: the legacy confirm call posts NO body at all (plain
+// order confirm); RPT/RECHECK review decisions send { decision, note? }.
+export const confirmDecisionSchema = z
+  .object({
+    decision: z.enum(['CONFIRM', 'CANCEL', 'REQUEST_INFO']),
+    note: z.string().max(500).optional(),
+  })
+  .optional();
+
+export const updateOrderStatusSchema = z.object({
+  status: z.nativeEnum(OrderStatus),
+  comment: z.string().max(500).optional(),
+});
+export type UpdateOrderStatusInput = z.infer<typeof updateOrderStatusSchema>;
+
+export const editOrderSchema = z.object({
+  shippingAddress: z
+    .object({
+      fullName: z.string().min(1).max(120),
+      phone: z.string().min(7).max(24),
+      province: z.string().min(1).max(120),
+      city: z.string().min(1).max(120),
+      barangay: z.string().max(120).nullable().optional(),
+      postalCode: z.string().max(20).nullable().optional(),
+      streetAddress: z.string().min(1).max(255),
+      landmark: z.string().max(255).nullable().optional(),
+    })
+    .optional(),
+  items: z
+    .array(
+      z.object({
+        skuId: z.string().uuid(),
+        quantity: z.number().int().min(1).max(99),
+      }),
+    )
+    .optional(),
+  note: z.string().max(500).optional(),
+});
+export type EditOrderInput = z.infer<typeof editOrderSchema>;
+
+export const addOrderNoteSchema = z.object({
+  content: z.string().min(1).max(1000),
+  noteType: z.enum(['CUSTOMER_SERVICE', 'SYSTEM', 'WAREHOUSE']).default('CUSTOMER_SERVICE'),
+});
+export type AddOrderNoteInput = z.infer<typeof addOrderNoteSchema>;
+
+export const addCustomerNoteSchema = z.object({
+  note: z.string().min(1).max(1000),
+  orderId: z.string().uuid().nullable().optional(),
+});
+export type AddCustomerNoteInput = z.infer<typeof addCustomerNoteSchema>;
+
+export const addRiskFlagSchema = z.object({
+  flagType: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']),
+  reason: z.string().max(500).optional(),
+});
+export type AddRiskFlagInput = z.infer<typeof addRiskFlagSchema>;
+
+export const mergeOrdersSchema = z.object({
+  primaryOrderId: z.string().uuid(),
+  mergedOrderId: z.string().uuid(),
+  reason: z.string().max(500).optional(),
+});
+export type MergeOrdersInput = z.infer<typeof mergeOrdersSchema>;

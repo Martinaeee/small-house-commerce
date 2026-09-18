@@ -27,8 +27,44 @@ model Customer {
   addresses CustomerAddress[]
   orders     Order[]
   account    CustomerAccount?
+  notes      CustomerNote[]
+  riskLogs   CustomerRiskLog[]
 
   @@map("customers")
+}
+
+/// CUSTOMER_RISK_SPEC §13 customer notes — append-only customer communication
+/// records (order workbench), accumulated across orders.
+model CustomerNote {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  orderId    String?  @map("order_id") @db.Uuid
+  operatorId String?  @map("operator_id") @db.Uuid
+  note       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_notes")
+}
+
+/// CUSTOMER_RISK_SPEC §10 customer risk logs — every risk decision is
+/// recorded (calculation at order time, manual changes, flag changes).
+model CustomerRiskLog {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  customerId      String   @map("customer_id") @db.Uuid
+  orderId         String?  @map("order_id") @db.Uuid
+  riskType        String   @map("risk_type") // NEW/AGAIN/RPT/RECHECK
+  previousOrderId String?  @map("previous_order_id") @db.Uuid
+  reason          String?
+  operatorId      String?  @map("operator_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_risk_logs")
 }
 
 /// §11 customer_addresses. A customer may have several addresses; historical

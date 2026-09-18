@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { Field } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
@@ -79,6 +80,29 @@ function formatPreferredDate(value: string | null): string {
 
 function textOrDash(value: string | null | undefined): string {
   return value === null || value === undefined || value === "" ? "—" : value;
+}
+
+// Customer classification badge (CUSTOMER_RISK_SPEC §16 display rules).
+function ClassificationBadge({ value }: { value: string | null | undefined }) {
+  if (!value) return null;
+  const tone =
+    value === "RECHECK"
+      ? "bg-red-100 text-red-700"
+      : value === "RPT"
+        ? "bg-amber-100 text-amber-700"
+        : value === "AGAIN"
+          ? "bg-green-100 text-green-700"
+          : "bg-primary-light/40 text-cta";
+  const dot =
+    value === "RECHECK" ? "🔴" : value === "RPT" ? "🟡" : value === "AGAIN" ? "🟢" : "⚪";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
+    >
+      <span aria-hidden>{dot}</span>
+      {value}
+    </span>
+  );
 }
 
 function Card({
@@ -183,11 +207,56 @@ function OrderDetailPage(): ReactNode {
     };
   }, [id, queryKey]);
 
-  // --- confirm / cancel -----------------------------------------------------
+  // --- confirm / cancel / review --------------------------------------------
 
   const [dialog, setDialog] = useState<"confirm" | "cancel" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  // Review decision for RPT/RECHECK orders (CUSTOMER_RISK_SPEC §17): the
+  // customer-service agent records how the customer was handled.
+  const [reviewDecision, setReviewDecision] = useState<
+    "CONFIRM" | "CANCEL" | "REQUEST_INFO" | ""
+  >("");
+  const [reviewNote, setReviewNote] = useState("");
+
+  // --- workbench: edit / merge / assign / notes / flags ----------------------
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    phone: "",
+    province: "",
+    city: "",
+    barangay: "",
+    postalCode: "",
+    streetAddress: "",
+    landmark: "",
+  });
+  const [editNote, setEditNote] = useState("");
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState("");
+  const [mergeReason, setMergeReason] = useState("");
+  const [noteInput, setNoteInput] = useState("");
+  const [customerNoteInput, setCustomerNoteInput] = useState("");
+  const [flagType, setFlagType] = useState("CUSTOMER_RECHECK");
+  const [flagReason, setFlagReason] = useState("");
+  const [workbenchBusy, setWorkbenchBusy] = useState(false);
+  const [workbenchError, setWorkbenchError] = useState<string | null>(null);
+  const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .listAssignees()
+      .then((users) => {
+        if (active) setAssignees(users);
+      })
+      .catch(() => {
+        // Non-fatal.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Client-side navigation between order ids does not remount this page.
   // Reset every order-derived state DURING RENDER when the id changes — React's
@@ -207,10 +276,19 @@ function OrderDetailPage(): ReactNode {
     setDialog(null);
     setActionError(null);
     setActionPending(false);
+    setReviewDecision("");
+    setReviewNote("");
+    setShowEdit(false);
+    setMergeOpen(false);
+    setNoteInput("");
+    setCustomerNoteInput("");
+    setWorkbenchError(null);
   }
 
   const openDialog = useCallback((kind: "confirm" | "cancel") => {
     setActionError(null);
+    setReviewDecision("");
+    setReviewNote("");
     setDialog(kind);
   }, []);
 
@@ -227,7 +305,22 @@ function OrderDetailPage(): ReactNode {
     setActionError(null);
     try {
       if (dialog === "confirm") {
-        await adminApi.confirmOrder(order.id);
+        const cls = order.customerClassification;
+        const needsReview = cls === "RPT" || cls === "RECHECK";
+        if (needsReview && !reviewDecision) {
+          setActionError("This order requires a review decision before confirmation.");
+          setActionPending(false);
+          return;
+        }
+        await adminApi.confirmOrderWithDecision(
+          order.id,
+          needsReview
+            ? {
+                decision: reviewDecision as "CONFIRM" | "CANCEL" | "REQUEST_INFO",
+                note: reviewNote || undefined,
+              }
+            : { decision: "CONFIRM" },
+        );
       } else {
         await adminApi.cancelOrder(order.id);
       }
@@ -245,7 +338,163 @@ function OrderDetailPage(): ReactNode {
     } finally {
       if (mounted.current) setActionPending(false);
     }
-  }, [dialog, order]);
+  }, [dialog, order, reviewDecision, reviewNote]);
+
+  const handleAssign = useCallback(async (assignedToId: string) => {
+    if (!order) return;
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.assignOrder(order.id, assignedToId);
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              assignedTo: {
+                id: assignedToId,
+                name: assignees.find((u) => u.id === assignedToId)?.name ?? null,
+              },
+            }
+          : prev,
+      );
+    } catch (err) {
+      setWorkbenchError(err instanceof Error ? err.message : "Assignment failed.");
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, [order, assignees]);
+
+  const submitNote = useCallback(async () => {
+    if (!order || !noteInput.trim()) return;
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.addOrderNote(order.id, noteInput.trim());
+      setNoteInput("");
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setWorkbenchError(err instanceof Error ? err.message : "Failed to add note.");
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, [order, noteInput]);
+
+  const submitCustomerNote = useCallback(async () => {
+    if (!order || !customerNoteInput.trim()) return;
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.addCustomerNote(
+        order.customerId,
+        customerNoteInput.trim(),
+        order.id,
+      );
+      setCustomerNoteInput("");
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setWorkbenchError(
+        err instanceof Error ? err.message : "Failed to add customer note.",
+      );
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, [order, customerNoteInput]);
+
+  const submitRiskFlag = useCallback(async () => {
+    if (!order) return;
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.addRiskFlag(order.id, flagType, flagReason || undefined);
+      setFlagReason("");
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setWorkbenchError(err instanceof Error ? err.message : "Failed to add flag.");
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, [order, flagType, flagReason]);
+
+  const resolveFlag = useCallback(async (flagId: string) => {
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.resolveRiskFlag(flagId);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setWorkbenchError(err instanceof Error ? err.message : "Failed to resolve flag.");
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, []);
+
+  const submitMerge = useCallback(
+    async (mergedOrderId: string, reason: string) => {
+      if (!order) return;
+      setWorkbenchBusy(true);
+      setWorkbenchError(null);
+      try {
+        await adminApi.mergeOrders(order.id, mergedOrderId, reason || undefined);
+        setMergeOpen(false);
+        setMergeTarget("");
+        setMergeReason("");
+        setNonce((n) => n + 1);
+      } catch (err) {
+        setWorkbenchError(
+          err instanceof Error ? err.message : "Merge failed.",
+        );
+      } finally {
+        setWorkbenchBusy(false);
+      }
+    },
+    [order],
+  );
+
+  const openEdit = useCallback(() => {
+    if (!order) return;
+    setEditForm({
+      fullName: order.shippingAddress?.fullName ?? "",
+      phone: order.shippingAddress?.phone ?? "",
+      province: order.shippingAddress?.province ?? "",
+      city: order.shippingAddress?.city ?? "",
+      barangay: order.shippingAddress?.barangay ?? "",
+      postalCode: order.shippingAddress?.postalCode ?? "",
+      streetAddress: order.shippingAddress?.streetAddress ?? "",
+      landmark: order.shippingAddress?.landmark ?? "",
+    });
+    setEditNote("");
+    setWorkbenchError(null);
+    setShowEdit(true);
+  }, [order]);
+
+  const submitEdit = useCallback(async () => {
+    if (!order) return;
+    setWorkbenchBusy(true);
+    setWorkbenchError(null);
+    try {
+      await adminApi.editOrder(order.id, {
+        shippingAddress: {
+          fullName: editForm.fullName,
+          phone: editForm.phone,
+          province: editForm.province,
+          city: editForm.city,
+          barangay: editForm.barangay || null,
+          postalCode: editForm.postalCode || null,
+          streetAddress: editForm.streetAddress,
+          landmark: editForm.landmark || null,
+        },
+        note: editNote || undefined,
+      });
+      setShowEdit(false);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setWorkbenchError(
+        err instanceof Error ? err.message : "Failed to save changes.",
+      );
+    } finally {
+      setWorkbenchBusy(false);
+    }
+  }, [order, editForm, editNote]);
 
   const onDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -390,7 +639,7 @@ function OrderDetailPage(): ReactNode {
           title={order.orderNumber}
           actions={
             canConfirm || canCancel ? (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {canCancel ? (
                   <button
                     type="button"
@@ -413,14 +662,53 @@ function OrderDetailPage(): ReactNode {
                     Confirm
                   </Button>
                 ) : null}
+                <Button variant="secondary" size="md" onClick={openEdit}>
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => {
+                    setMergeTarget("");
+                    setMergeReason("");
+                    setWorkbenchError(null);
+                    setMergeOpen(true);
+                  }}
+                >
+                  Merge
+                </Button>
               </div>
             ) : undefined
           }
         />
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ClassificationBadge value={order.customerClassification} />
           <Badge value={order.orderStatus} />
           <Badge value={order.confirmationStatus} />
           <Badge value={order.paymentStatus} />
+          {order.riskFlags.length > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+              ⚠ {order.riskFlags.length} risk flag(s)
+            </span>
+          ) : null}
+          <div className="ml-1 flex items-center gap-2">
+            <label className="text-xs text-ink-muted">Assigned</label>
+            <select
+              value={order.assignedTo?.id ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value) void handleAssign(value);
+              }}
+              className="rounded-lg border border-border bg-background px-2 py-1 text-sm text-ink"
+            >
+              <option value="">—</option>
+              {assignees.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name ?? "—"}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -890,7 +1178,7 @@ function OrderDetailPage(): ReactNode {
                   </span>
                   <span className="text-ink-muted">{entry.source}</span>
                   <span className="text-xs text-ink-muted">
-                    operator: {entry.operatorId ?? "—"}
+                    {entry.operatorName ?? entry.operatorId ?? "system"}
                   </span>
                   <span className="text-ink-secondary">
                     {entry.comment ?? "—"}
@@ -906,6 +1194,179 @@ function OrderDetailPage(): ReactNode {
             </ol>
           )}
         </Card>
+
+        {/* Order notes (§46) */}
+        <Card title={`Order Notes (${order.notes?.length ?? 0})`}>
+          {order.notes && order.notes.length > 0 ? (
+            <ul className="mb-4 space-y-3">
+              {order.notes.map((note) => (
+                <li
+                  key={note.id}
+                  className="rounded-lg border border-border bg-background p-3 text-sm"
+                >
+                  <p className="text-ink">{note.content}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {note.noteType} · {note.operatorName ?? "—"} ·{" "}
+                    {formatDateTime(note.createdAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-4 text-sm text-ink-muted">No notes.</p>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={noteInput}
+              onChange={(e) => setNoteInput(e.target.value)}
+              placeholder="Internal note…"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              aria-label="Order note"
+            />
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void submitNote()}
+              disabled={workbenchBusy || !noteInput.trim()}
+            >
+              Add
+            </Button>
+          </div>
+        </Card>
+
+        {/* Customer notes (§13) + risk logs */}
+        <Card title={`Customer Notes (${order.customer.notes?.length ?? 0})`}>
+          {order.customer.notes && order.customer.notes.length > 0 ? (
+            <ul className="mb-4 space-y-3">
+              {order.customer.notes.map((note) => (
+                <li
+                  key={note.id}
+                  className="rounded-lg border border-border bg-background p-3 text-sm"
+                >
+                  <p className="text-ink">{note.note}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {note.operatorName ?? "—"} · {formatDateTime(note.createdAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-4 text-sm text-ink-muted">No customer notes.</p>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={customerNoteInput}
+              onChange={(e) => setCustomerNoteInput(e.target.value)}
+              placeholder="Customer communication…"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              aria-label="Customer note"
+            />
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void submitCustomerNote()}
+              disabled={workbenchBusy || !customerNoteInput.trim()}
+            >
+              Add
+            </Button>
+          </div>
+          {order.customer.riskLogs && order.customer.riskLogs.length > 0 ? (
+            <div className="mt-4 border-t border-border pt-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Risk history
+              </h3>
+              <ul className="mt-2 space-y-1.5">
+                {order.customer.riskLogs.slice(0, 8).map((log) => (
+                  <li key={log.id} className="text-xs text-ink-secondary">
+                    <span className="font-medium text-ink">{log.riskType}</span>
+                    {" — "}
+                    {log.reason ?? ""}
+                    <span className="text-ink-muted">
+                      {" "}
+                      · {log.operatorName ?? "system"} ·{" "}
+                      {formatDateTime(log.createdAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </Card>
+
+        {/* Risk flags (§47) */}
+        <Card title={`Risk Flags (${order.riskFlags?.length ?? 0})`}>
+          {order.riskFlags && order.riskFlags.length > 0 ? (
+            <ul className="mb-4 space-y-2">
+              {order.riskFlags.map((flag) => (
+                <li
+                  key={flag.id}
+                  className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background p-3 text-sm"
+                >
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      flag.resolved
+                        ? "bg-primary-light/40 text-ink-muted"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {flag.resolved ? "✓ " : "⚠ "}
+                    {flag.flagType}
+                  </span>
+                  <span className="flex-1 text-ink-secondary">
+                    {flag.reason ?? ""}
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    {formatDateTime(flag.createdAt)}
+                  </span>
+                  {!flag.resolved ? (
+                    <button
+                      type="button"
+                      onClick={() => void resolveFlag(flag.id)}
+                      disabled={workbenchBusy}
+                      className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted"
+                    >
+                      Resolve
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-4 text-sm text-ink-muted">No risk flags.</p>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Flag type" htmlFor="workbench-flag-type">
+              <select
+                id="workbench-flag-type"
+                value={flagType}
+                onChange={(e) => setFlagType(e.target.value)}
+                className="rounded-lg border border-border bg-background px-2 py-2 text-sm text-ink"
+              >
+                <option value="CUSTOMER_RECHECK">Customer recheck</option>
+                <option value="POSSIBLE_DUPLICATE">Possible duplicate</option>
+                <option value="CUSTOMER_BLOCKED">Customer blocked</option>
+              </select>
+            </Field>
+            <input
+              type="text"
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              placeholder="Reason…"
+              className="w-full max-w-[240px] rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              aria-label="Flag reason"
+            />
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void submitRiskFlag()}
+              disabled={workbenchBusy}
+            >
+              Add flag
+            </Button>
+          </div>
+        </Card>
       </div>
 
       <Dialog
@@ -920,6 +1381,45 @@ function OrderDetailPage(): ReactNode {
               ? `Cancel order ${order.orderNumber}? Reserved stock is released.`
               : `Confirm order ${order.orderNumber}? This marks it confirmed for fulfillment.`}
           </p>
+          {dialog === "confirm" &&
+          (order.customerClassification === "RPT" ||
+            order.customerClassification === "RECHECK") ? (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-800">
+                ⚠ This order is {order.customerClassification} — customer-service
+                review required
+              </p>
+              <div className="mt-3">
+                <Field label="Review decision" htmlFor="review-decision">
+                  <select
+                    id="review-decision"
+                    value={reviewDecision}
+                    onChange={(e) =>
+                      setReviewDecision(
+                        e.target.value as "CONFIRM" | "CANCEL" | "REQUEST_INFO" | "",
+                      )
+                    }
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm text-ink"
+                  >
+                    <option value="">Select…</option>
+                    <option value="CONFIRM">Confirm — customer verified</option>
+                    <option value="CANCEL">Cancel — refused / unreachable</option>
+                    <option value="REQUEST_INFO">Request info — need details</option>
+                  </select>
+                </Field>
+                <Field label="Review note" htmlFor="review-note">
+                  <input
+                    id="review-note"
+                    type="text"
+                    value={reviewNote}
+                    onChange={(e) => setReviewNote(e.target.value)}
+                    placeholder="What did the customer say?"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+                  />
+                </Field>
+              </div>
+            </div>
+          ) : null}
           {actionError ? (
             <p
               role="alert"
@@ -950,6 +1450,217 @@ function OrderDetailPage(): ReactNode {
                 : dialog === "cancel"
                   ? "Cancel order"
                   : "Confirm"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Edit order (shipping address) */}
+      <Dialog
+        open={showEdit}
+        onClose={() => setShowEdit(false)}
+        title={`Edit order ${order.orderNumber}`}
+        width="lg"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitEdit();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Full name" htmlFor="edit-name">
+              <input
+                id="edit-name"
+                type="text"
+                value={editForm.fullName}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, fullName: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Phone" htmlFor="edit-phone">
+              <input
+                id="edit-phone"
+                type="text"
+                value={editForm.phone}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, phone: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Street address" htmlFor="edit-street">
+              <input
+                id="edit-street"
+                type="text"
+                value={editForm.streetAddress}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, streetAddress: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Barangay" htmlFor="edit-barangay">
+              <input
+                id="edit-barangay"
+                type="text"
+                value={editForm.barangay}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, barangay: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="City / Municipality" htmlFor="edit-city">
+              <input
+                id="edit-city"
+                type="text"
+                value={editForm.city}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, city: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Province" htmlFor="edit-province">
+              <input
+                id="edit-province"
+                type="text"
+                value={editForm.province}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, province: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Postal code" htmlFor="edit-postal">
+              <input
+                id="edit-postal"
+                type="text"
+                value={editForm.postalCode}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, postalCode: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+            <Field label="Landmark" htmlFor="edit-landmark">
+              <input
+                id="edit-landmark"
+                type="text"
+                value={editForm.landmark}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, landmark: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <Field label="Edit note (optional)" htmlFor="edit-note">
+              <input
+                id="edit-note"
+                type="text"
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="Why are you editing this order?"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+          {workbenchError ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
+            >
+              {workbenchError}
+            </p>
+          ) : null}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setShowEdit(false)}
+              disabled={workbenchBusy}
+            >
+              Back
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={workbenchBusy}>
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Merge order */}
+      <Dialog
+        open={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        title="Merge order"
+        width="sm"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitMerge(mergeTarget.trim(), mergeReason.trim());
+          }}
+        >
+          <p className="text-sm text-ink-secondary">
+            Merge another order into {order.orderNumber}. Only NEW/PENDING/CONFIRMED
+            orders of the same customer / phone / address can be merged. The merged
+            order is cancelled and its items move here.
+          </p>
+          <div className="mt-4">
+            <Field label="Order number to merge" htmlFor="merge-target">
+              <input
+                id="merge-target"
+                type="text"
+                value={mergeTarget}
+                onChange={(e) => setMergeTarget(e.target.value)}
+                placeholder="e.g. PH100010"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <Field label="Reason (optional)" htmlFor="merge-reason">
+              <input
+                id="merge-reason"
+                type="text"
+                value={mergeReason}
+                onChange={(e) => setMergeReason(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+          {workbenchError ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
+            >
+              {workbenchError}
+            </p>
+          ) : null}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setMergeOpen(false)}
+              disabled={workbenchBusy}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={workbenchBusy || !mergeTarget.trim()}
+            >
+              Merge
             </Button>
           </div>
         </form>
