@@ -93,6 +93,18 @@ export type ImageFormValue = ProductFormValue["images"][number];
 export type DetailBlockFormValue = ProductFormValue["detailBlocks"][number];
 export type VariantFormValue = ProductFormValue["variants"][number];
 
+/**
+ * Appends a media card with the next sortOrder. A blank sortOrder serializes
+ * to 0, which would make every newly added card claim the cover slot (the grid
+ * badges the lowest sortOrder as 封面).
+ */
+export function appendImage(
+  images: ImageFormValue[],
+  type: ImageFormValue["type"],
+): ImageFormValue[] {
+  return [...images, { url: "", type, altText: "", sortOrder: String(images.length) }];
+}
+
 export type SerializeFormResult =
   | { ok: true; value: CreateProductInput }
   | { ok: false; error: string; fieldErrors: Record<string, string> };
@@ -763,10 +775,7 @@ export function ProductForm({
     clearValidation();
   };
   const addImage = (type: "IMAGE" | "VIDEO" = "IMAGE"): void => {
-    setValue((prev) => ({
-      ...prev,
-      images: [...prev.images, { url: "", type, altText: "", sortOrder: "" }],
-    }));
+    setValue((prev) => ({ ...prev, images: appendImage(prev.images, type) }));
     // Expand the new card's editing row right away so the operator can pick
     // a file (or paste a URL) without a second click to find it.
     setActiveMedia(value.images.length);

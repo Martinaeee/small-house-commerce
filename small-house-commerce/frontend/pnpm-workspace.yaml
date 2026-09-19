@@ -3,6 +3,9 @@
 # `allowBuilds` is the v11+ replacement for the removed `onlyBuiltDependencies`.
 #
 # unrs-resolver is pulled in by eslint-config-next and must build a native
-# binding, so it is explicitly reviewed and allowed. Everything else stays denied.
+# binding, so it is explicitly reviewed and allowed. esbuild is vitest's
+# transform runtime and needs its platform binary too. Everything else stays
+# denied.
 allowBuilds:
+  esbuild: true
   unrs-resolver: true

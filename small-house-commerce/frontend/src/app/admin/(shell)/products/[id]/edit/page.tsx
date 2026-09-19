@@ -99,17 +99,20 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     foldedDepth: toFormNumber(p.foldedDepth),
     materials: p.materials ?? "",
     features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
-    images: p.images.map((image) => ({
+    // The backend returns these ordered by sortOrder asc, so the list order is
+    // the truth. Renumbering repairs rows that were stored sharing a
+    // sortOrder — every one of them would otherwise read as the cover.
+    images: p.images.map((image, index) => ({
       url: image.url,
       type: image.type ?? "IMAGE",
       altText: image.altText ?? "",
-      sortOrder: String(image.sortOrder),
+      sortOrder: String(index),
     })),
-    detailBlocks: p.detailBlocks.map((block) => ({
+    detailBlocks: p.detailBlocks.map((block, index) => ({
       type: block.type,
       url: block.url,
       altText: block.altText ?? "",
-      sortOrder: String(block.sortOrder),
+      sortOrder: String(index),
     })),
     variants: p.variants.map((variant) => ({
       name: variant.name,
@@ -131,10 +134,12 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
             packageWeight: toFormNumber(variant.sku.packageWeight),
             volumetricWeight: toFormNumber(variant.sku.volumetricWeight),
             // Stock round-trips separately from the product payload (it lives
-            // in the inventory table); see applyStockChanges below.
+            // in the inventory table); see applyStockChanges below. Read it
+            // through toFormNumber so a response without the enrichment
+            // degrades to an empty box instead of the string "undefined".
             id: variant.sku.id,
-            stock: String(variant.sku.onHand),
-            reserved: String(variant.sku.reserved),
+            stock: toFormNumber(variant.sku.onHand),
+            reserved: toFormNumber(variant.sku.reserved),
           }
         : null,
     })),

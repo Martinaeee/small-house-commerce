@@ -224,7 +224,8 @@ export class ProductsService {
         });
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
-      return created;
+      const [enriched] = await this.withStock([created]);
+      return enriched;
     } catch (error) {
       this.rethrowKnown(error);
     }
@@ -275,20 +276,7 @@ export class ProductsService {
         }
 
         if (input.variants !== undefined) {
-          // Cascade removes the old SKUs with their variants.
-          await tx.productVariant.deleteMany({ where: { productId: id } });
-
-          for (const variant of input.variants) {
-            const created = await tx.productVariant.create({
-              data: { productId: id, name: variant.name, position: variant.position },
-            });
-
-            if (variant.sku) {
-              await tx.sku.create({
-                data: { ...variant.sku, productId: id, variantId: created.id },
-              });
-            }
-          }
+          await this.reconcileVariants(tx, id, input.variants);
         }
 
         return tx.product.update({
@@ -298,10 +286,121 @@ export class ProductsService {
         });
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
-      return updated;
+      // Same shape as get(): the edit form adopts this response as its new
+      // server truth, so a missing onHand would re-render the stock box as
+      // "undefined" and block the next save client-side.
+      const [enriched] = await this.withStock([updated]);
+      return enriched;
     } catch (error) {
       this.rethrowKnown(error);
     }
+  }
+
+  /**
+   * Applies the submitted variant list by diffing against what is stored.
+   *
+   * The old implementation deleted every variant and recreated it. SKUs are
+   * referenced by order_items / inventory_movements / inventory_reservations
+   * with onDelete: Restrict, so that answered 400 for any product with sales
+   * history — and where it did succeed it minted new SKU ids, orphaning the
+   * inventory rows keyed to the old ones.
+   *
+   * Matching is by SKU code first, then by variant name, so renaming a variant
+   * or editing its SKU code keeps the row (and its inventory) alive.
+   */
+  private async reconcileVariants(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    incoming: UpdateProductInput['variants'],
+  ): Promise<void> {
+    const variants = incoming ?? [];
+    const existing = await tx.productVariant.findMany({
+      where: { productId },
+      include: { sku: true },
+    });
+
+    const bySkuCode = new Map<string, (typeof existing)[number]>();
+    const byName = new Map<string, (typeof existing)[number]>();
+    for (const variant of existing) {
+      if (variant.sku) bySkuCode.set(variant.sku.skuCode, variant);
+      byName.set(variant.name, variant);
+    }
+
+    const kept = new Set<string>();
+
+    for (const variant of variants) {
+      const incomingSku = variant.sku;
+      const match =
+        (incomingSku ? bySkuCode.get(incomingSku.skuCode) : undefined) ??
+        byName.get(variant.name);
+
+      if (!match) {
+        const created = await tx.productVariant.create({
+          data: { productId, name: variant.name, position: variant.position },
+        });
+        if (incomingSku) {
+          await tx.sku.create({
+            data: { ...incomingSku, productId, variantId: created.id },
+          });
+        }
+        continue;
+      }
+
+      kept.add(match.id);
+      // A matched variant may still be renamed; release its old name so a
+      // later entry in the same payload can claim it.
+      byName.delete(match.name);
+      await tx.productVariant.update({
+        where: { id: match.id },
+        data: { name: variant.name, position: variant.position },
+      });
+      byName.set(variant.name, { ...match, name: variant.name });
+
+      if (incomingSku && match.sku) {
+        const { skuCode, ...rest } = incomingSku;
+        await tx.sku.update({
+          where: { id: match.sku.id },
+          data: { ...rest, skuCode, productId, variantId: match.id },
+        });
+      } else if (incomingSku && !match.sku) {
+        await tx.sku.create({
+          data: { ...incomingSku, productId, variantId: match.id },
+        });
+      } else if (!incomingSku && match.sku) {
+        try {
+          await tx.sku.delete({ where: { id: match.sku.id } });
+        } catch (error) {
+          this.rethrowVariantInUse(error, variant.name);
+        }
+      }
+    }
+
+    for (const variant of existing) {
+      if (kept.has(variant.id)) continue;
+      try {
+        await tx.productVariant.delete({ where: { id: variant.id } });
+      } catch (error) {
+        this.rethrowVariantInUse(error, variant.name);
+      }
+    }
+  }
+
+  /**
+   * A variant's SKU is pinned by order_items / inventory_movements /
+   * inventory_reservations (onDelete: Restrict). Say which variant is blocking
+   * the save instead of the bare "Referenced record does not exist" the
+   * generic P2003 mapping would produce.
+   */
+  private rethrowVariantInUse(error: unknown, variantName: string): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2003'
+    ) {
+      throw new BadRequestException(
+        `Variant "${variantName}" has orders or stock history and cannot be removed. Disable it instead.`,
+      );
+    }
+    throw error;
   }
 
   async remove(id: string) {
