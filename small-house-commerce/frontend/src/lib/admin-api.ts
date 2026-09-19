@@ -194,6 +194,25 @@ export interface AdminOrderItem {
   lineTotal: string;
 }
 
+export interface AdminShipmentItem {
+  id: string;
+  orderItemId: string;
+  quantity: number;
+  orderItem: AdminOrderItem;
+}
+
+export interface AdminShipment {
+  id: string;
+  carrier: string;
+  trackingNumber: string | null;
+  status: "SHIPPING" | "SIGNED";
+  shippingCost: string | null;
+  shippedAt: string;
+  signedAt: string | null;
+  createdAt: string;
+  items: AdminShipmentItem[];
+}
+
 export interface AdminStatusHistory {
   id: string;
   statusDomain: string;
@@ -273,6 +292,7 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     reason: string | null;
     createdAt: string;
   }[];
+  shipments: AdminShipment[];
 }
 
 // --- catalog -----------------------------------------------------------------
@@ -731,6 +751,30 @@ export const adminApi = {
   cancelOrder: (id: string): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/cancel`,
+      { method: "POST" },
+    ),
+
+  // --- Order shipments (ship flow) ---
+
+  shipOrder: (
+    id: string,
+    input: {
+      carrier: string;
+      trackingNumber?: string;
+      items: { orderItemId: string; quantity: number }[];
+    },
+  ): Promise<{ shipmentId: string; orderStatus: string; confirmationStatus: string }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/ship`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  signShipment: (
+    id: string,
+    shipmentId: string,
+  ): Promise<{ shipmentId: string; orderStatus: string }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}/sign`,
       { method: "POST" },
     ),
 

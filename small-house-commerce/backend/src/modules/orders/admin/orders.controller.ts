@@ -24,6 +24,7 @@ import {
   editOrderSchema,
   mergeOrdersSchema,
   orderQuerySchema,
+  shipOrderSchema,
   updateOrderStatusSchema,
   type AddCustomerNoteInput,
   type AddOrderNoteInput,
@@ -33,6 +34,7 @@ import {
   type EditOrderInput,
   type MergeOrdersInput,
   type OrderQuery,
+  type ShipOrderInput,
   type UpdateOrderStatusInput,
 } from '../dto/order.dto.js';
 
@@ -179,6 +181,28 @@ export class AdminOrdersController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.ordersService.merge(body, user.userId);
+  }
+
+  /** §22.3 ship — partial shipments allowed, gates in the service. */
+  @Post(':id/ship')
+  @Permissions('SHIPMENT_CREATE')
+  ship(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(shipOrderSchema)) body: ShipOrderInput,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.ordersService.ship(id, body, user.userId);
+  }
+
+  /** §69 sign a shipment; the order becomes SIGNED once all boxes are signed. */
+  @Post(':id/shipments/:shipmentId/sign')
+  @Permissions('SHIPMENT_CREATE')
+  sign(
+    @Param('id') id: string,
+    @Param('shipmentId') shipmentId: string,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.ordersService.sign(id, shipmentId, user.userId);
   }
 }
 

@@ -9,7 +9,7 @@ import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
-import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery } from './dto/order.dto.js';
+import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 
 const ORDER_DETAIL_INCLUDE = {
   customer: {
@@ -28,6 +28,10 @@ const ORDER_DETAIL_INCLUDE = {
   riskFlags: { orderBy: { createdAt: 'desc' as const } },
   mergeRecordsPrimary: { include: { mergedOrder: { select: { id: true, orderNumber: true } } } },
   mergeRecordsMerged: { include: { primaryOrder: { select: { id: true, orderNumber: true } } } },
+  shipments: {
+    include: { items: { include: { orderItem: true } } },
+    orderBy: { createdAt: 'desc' as const },
+  },
 } satisfies Prisma.OrderInclude;
 
 @Injectable()
@@ -869,6 +873,194 @@ export class OrdersService {
     }));
 
     return { items: enriched, total, page: query.page, pageSize: query.pageSize };
+  }
+
+  /**
+   * Warehouse shipping action (API_SPEC §22.3, DATABASE §61-63, §69).
+   * Ships a subset of the order's lines as one shipment; partial shipments are
+   * allowed, so the order may stay SHIPPING while more boxes are created.
+   *
+   * Gates (CUSTOMER_RISK_SPEC §17 + workbench §6.1): only CONFIRMED/SHIPPING
+   * orders with confirmationStatus CONFIRMED ship, and no unresolved
+   * RECHECK/POSSIBLE_DUPLICATE flag may remain. Over-shipping a line (beyond
+   * quantity minus what earlier shipments already covered) is rejected.
+   */
+  async ship(orderId: string, input: ShipOrderInput, operatorId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        shipments: { include: { items: true } },
+        riskFlags: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const legal = new Set<OrderStatus>(['CONFIRMED', 'SHIPPING']);
+    if (!legal.has(order.orderStatus)) {
+      throw new BadRequestException(
+        `Only confirmed orders can be shipped (current: ${order.orderStatus})`,
+      );
+    }
+    if (order.confirmationStatus !== 'CONFIRMED') {
+      throw new BadRequestException(
+        'Order must be confirmation-confirmed before shipping',
+      );
+    }
+    const blocking = order.riskFlags.filter(
+      (f) =>
+        !f.resolved &&
+        (f.flagType === 'CUSTOMER_RECHECK' || f.flagType === 'POSSIBLE_DUPLICATE'),
+    );
+    if (blocking.length > 0) {
+      throw new BadRequestException(
+        `Unresolved risk flag${blocking.length > 1 ? 's' : ''} block shipping: ${blocking
+          .map((f) => f.flagType)
+          .join(', ')}`,
+      );
+    }
+
+    // Per-line: shippedLine must fit within the line quantity minus what
+    // previous shipments already boxed (multiple packages per order, §61).
+    const shippedByLine = new Map<string, number>();
+    for (const shipment of order.shipments) {
+      for (const item of shipment.items) {
+        shippedByLine.set(item.orderItemId, (shippedByLine.get(item.orderItemId) ?? 0) + item.quantity);
+      }
+    }
+    const lineById = new Map(order.items.map((i) => [i.id, i]));
+    for (const item of input.items) {
+      const line = lineById.get(item.orderItemId);
+      if (!line) {
+        throw new BadRequestException(`Order line ${item.orderItemId} does not belong to this order`);
+      }
+      const already = shippedByLine.get(line.id) ?? 0;
+      const remaining = line.quantity - already;
+      if (item.quantity > remaining) {
+        throw new BadRequestException(
+          `Cannot ship ${item.quantity} of ${line.skuCodeSnapshot}: only ${remaining} remains`,
+        );
+      }
+    }
+
+    // Aggregate the reservation consumption per SKU.
+    const bySku = new Map<string, number>();
+    for (const item of input.items) {
+      const line = lineById.get(item.orderItemId)!;
+      bySku.set(line.skuId, (bySku.get(line.skuId) ?? 0) + item.quantity);
+    }
+
+    const warehouse = await this.inventory.defaultWarehouse();
+    return this.prisma.$transaction(async (tx) => {
+      const shipment = await tx.shipment.create({
+        data: {
+          orderId,
+          warehouseId: warehouse.id,
+          carrier: input.carrier,
+          trackingNumber: input.trackingNumber ?? null,
+          shippedAt: new Date(),
+          createdBy: operatorId,
+          items: {
+            create: input.items.map((item) => ({
+              orderItemId: item.orderItemId,
+              quantity: item.quantity,
+            })),
+          },
+        },
+      });
+
+      await this.inventory.consumeForOrder(tx, orderId, bySku);
+
+      // First shipment of a confirmed order flips it to SHIPPING; later
+      // partial shipments leave it as is (§69 until every box is signed).
+      let orderStatus = order.orderStatus;
+      if (orderStatus !== 'SHIPPING') {
+        orderStatus = 'SHIPPING';
+        await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'SHIPPING',
+            source: 'ADMIN',
+            operatorId,
+            comment: `Shipped via ${input.carrier}${input.trackingNumber ? ` · ${input.trackingNumber}` : ''}`,
+          },
+        });
+      }
+
+      await tx.orderNote.create({
+        data: {
+          orderId,
+          userId: operatorId,
+          noteType: 'WAREHOUSE',
+          content: `Shipped via ${input.carrier}${input.trackingNumber ? ` · tracking ${input.trackingNumber}` : ''} (${input.items.reduce((s, i) => s + i.quantity, 0)} item(s))`,
+        },
+      });
+
+      return { shipmentId: shipment.id, orderStatus, confirmationStatus: order.confirmationStatus };
+    });
+  }
+
+  /** §69 sign a shipment: every box signed moves the order to SIGNED. */
+  async sign(orderId: string, shipmentId: string, operatorId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { shipments: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const shipment = order.shipments.find((s) => s.id === shipmentId);
+    if (!shipment) {
+      throw new NotFoundException('Shipment not found on this order');
+    }
+    if (shipment.status === 'SIGNED') {
+      throw new BadRequestException('Shipment is already signed');
+    }
+    if (order.orderStatus !== 'SHIPPING') {
+      throw new BadRequestException(`Order is ${order.orderStatus}; only SHIPPING orders can be signed`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.shipment.update({
+        where: { id: shipmentId },
+        data: { status: 'SIGNED', signedAt: new Date() },
+      });
+
+      const remaining = await tx.shipment.count({
+        where: { orderId, status: 'SHIPPING' },
+      });
+      let orderStatus = order.orderStatus;
+      if (remaining === 0) {
+        orderStatus = 'SIGNED';
+        await tx.order.update({ where: { id: orderId }, data: { orderStatus } });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'SIGNED',
+            source: 'ADMIN',
+            operatorId,
+            comment: 'All shipments signed',
+          },
+        });
+      }
+
+      await tx.orderNote.create({
+        data: {
+          orderId,
+          userId: operatorId,
+          noteType: 'WAREHOUSE',
+          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})`,
+        },
+      });
+
+      return { shipmentId, orderStatus };
+    });
   }
 
   async get(orderId: string) {

@@ -124,6 +124,77 @@ export class InventoryService {
   }
 
   /**
+   * Consumes a subset of an order's certified reservations on shipment
+   * (DATABASE.md §32: at shipment the reservation converts to a physical
+   * SHIPMENT movement — reserved and on-hand each drop once, never twice).
+   * Works per SKU so a partial shipment only consumes the lines actually
+   * boxed; the remaining reservation stays ACTIVE for a later shipment or a
+   * cancel/release. Throws if the reserved quantity is insufficient.
+   */
+  async consumeForOrder(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    bySku: Map<string, number>,
+  ): Promise<void> {
+    for (const [skuId, quantity] of bySku) {
+      if (quantity <= 0) continue;
+      const reservations = await tx.inventoryReservation.findMany({
+        where: {
+          orderId,
+          skuId,
+          status: 'ACTIVE',
+        },
+        orderBy: { createdAt: 'asc' as const },
+      });
+      const total = reservations.reduce((sum, r) => sum + r.quantity, 0);
+      if (total < quantity) {
+        throw new BadRequestException(
+          `Insufficient reservation for SKU ${skuId}: reserved ${total}, shipping ${quantity}`,
+        );
+      }
+
+      // One deduction across the reserved/on-hand pair (available unchanged).
+      await tx.inventory.update({
+        where: { skuId_warehouseId: { skuId, warehouseId: reservations[0].warehouseId } },
+        data: {
+          reserved: { decrement: quantity },
+          onHand: { decrement: quantity },
+        },
+      });
+      await tx.inventoryMovement.create({
+        data: {
+          skuId,
+          warehouseId: reservations[0].warehouseId,
+          movementType: 'SHIPMENT',
+          quantity,
+          referenceType: 'ORDER',
+          referenceId: orderId,
+        },
+      });
+
+      // Walk reservations oldest-first; fully covered ones become CONSUMED, a
+      // partially covered one keeps the remainder ACTIVE.
+      let remaining = quantity;
+      for (const reservation of reservations) {
+        if (remaining <= 0) break;
+        const consume = Math.min(reservation.quantity, remaining);
+        remaining -= consume;
+        if (consume === reservation.quantity) {
+          await tx.inventoryReservation.update({
+            where: { id: reservation.id },
+            data: { status: 'CONSUMED' },
+          });
+        } else {
+          await tx.inventoryReservation.update({
+            where: { id: reservation.id },
+            data: { quantity: reservation.quantity - consume },
+          });
+        }
+      }
+    }
+  }
+
+  /**
    * Manual stock adjustment (DATABASE.md §33 MANUAL_ADJUSTMENT). A negative
    * quantity reduces on-hand; on-hand may not go below zero.
    */

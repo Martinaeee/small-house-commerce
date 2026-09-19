@@ -67,6 +67,11 @@ enum ReservationStatus {
   CONSUMED
 }
 
+enum ShipmentStatus {
+  SHIPPING
+  SIGNED
+}
+
 enum MovementType {
   PURCHASE_RECEIPT
   ORDER_RESERVED
@@ -97,6 +102,7 @@ model Warehouse {
   inventory          Inventory[]
   inventoryMovements InventoryMovement[]
   reservations       InventoryReservation[]
+  shipments          Shipment[]
 
   @@map("warehouses")
 }
@@ -198,6 +204,7 @@ model Order {
   attribution     OrderAttribution?
   payments        Payment[]
   reservations    InventoryReservation[]
+  shipments       Shipment[]
 
   @@index([customerId])
   @@index([orderStatus])
@@ -255,6 +262,46 @@ model OrderMergeRecord {
   @@map("order_merge_records")
 }
 
+/// §61-62 shipments. One Order may contain multiple shipments — never assume
+/// 1 order = 1 tracking number (§61). A partial shipment ships a subset of
+/// the order's line quantities; the order stays SHIPPING until every shipment
+/// is SIGNED (§69, DATABASE.md §2177-2205).
+model Shipment {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  orderId        String         @map("order_id") @db.Uuid
+  warehouseId    String         @map("warehouse_id") @db.Uuid
+  carrier        String
+  trackingNumber String?        @map("tracking_number")
+  status         ShipmentStatus @default(SHIPPING)
+  shippingCost   Decimal?       @map("shipping_cost") @db.Decimal(10, 2)
+  shippedAt      DateTime       @map("shipped_at") @db.Timestamptz(3)
+  signedAt       DateTime?      @map("signed_at") @db.Timestamptz(3)
+  createdBy      String?        @map("created_by") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items     ShipmentItem[]
+
+  @@index([orderId])
+  @@map("shipments")
+}
+
+/// §63 shipment items — which order lines (and how much) went in each box.
+model ShipmentItem {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  shipmentId  String    @map("shipment_id") @db.Uuid
+  orderItemId String    @map("order_item_id") @db.Uuid
+  quantity    Int
+
+  shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  @@index([shipmentId])
+  @@map("shipment_items")
+}
+
 /// §43 order items with historical snapshots (DB-003): catalog changes never
 /// alter past orders.
 model OrderItem {
@@ -275,6 +322,8 @@ model OrderItem {
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku   Sku   @relation(fields: [skuId], references: [id], onDelete: Restrict)
+
+  shipmentItems ShipmentItem[]
 
   @@index([orderId])
   @@map("order_items")

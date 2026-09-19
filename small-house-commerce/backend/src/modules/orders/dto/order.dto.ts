@@ -166,3 +166,17 @@ export const mergeOrdersSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 export type MergeOrdersInput = z.infer<typeof mergeOrdersSchema>;
+
+export const shipOrderSchema = z.object({
+  carrier: z.string().trim().min(1).max(60),
+  trackingNumber: z.string().trim().max(120).nullable().optional(),
+  items: z
+    .array(
+      z.object({
+        orderItemId: z.string().uuid(),
+        quantity: z.number().int().min(1),
+      }),
+    )
+    .min(1),
+});
+export type ShipOrderInput = z.infer<typeof shipOrderSchema>;

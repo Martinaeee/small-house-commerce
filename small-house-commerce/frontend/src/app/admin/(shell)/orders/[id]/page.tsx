@@ -243,6 +243,17 @@ function OrderDetailPage(): ReactNode {
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
   const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([]);
 
+  // --- ship flow -------------------------------------------------------------
+  const [shipOpen, setShipOpen] = useState(false);
+  // Per line: quantity to ship (default = remaining unshipped quantity).
+  const [shipQty, setShipQty] = useState<Record<string, number>>({});
+  const [shipCarrier, setShipCarrier] = useState("");
+  const [shipTracking, setShipTracking] = useState("");
+  const [shipError, setShipError] = useState<string | null>(null);
+  const [shipBusy, setShipBusy] = useState(false);
+  const [signingShipmentId, setShiptSigningId] = useState<string | null>(null);
+  const canShipPerm = hasPermission("SHIPMENT_CREATE");
+
   useEffect(() => {
     let active = true;
     adminApi
@@ -283,7 +294,94 @@ function OrderDetailPage(): ReactNode {
     setNoteInput("");
     setCustomerNoteInput("");
     setWorkbenchError(null);
+    setShipOpen(false);
+    setShipQty({});
+    setShipCarrier("");
+    setShipTracking("");
+    setShipError(null);
   }
+
+  // --- ship dialog helpers ---------------------------------------------------
+
+  // Remaining unshipped quantity per order line (line qty minus what previous
+  // shipments already boxed). Used to prefill the ship dialog steppers and to
+  // decide whether any line can still be shipped.
+  const unshippedByLine = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of order?.items ?? []) {
+      map.set(item.id, item.quantity);
+    }
+    for (const shipment of order?.shipments ?? []) {
+      for (const s of shipment.items) {
+        map.set(s.orderItemId, (map.get(s.orderItemId) ?? 0) - s.quantity);
+      }
+    }
+    return map;
+  }, [order]);
+
+  const openShipDialog = useCallback(() => {
+    setShipError(null);
+    // Prefill each line with the full remaining quantity.
+    const initial: Record<string, number> = {};
+    for (const item of order?.items ?? []) {
+      const remaining = unshippedByLine.get(item.id) ?? item.quantity;
+      if (remaining > 0) initial[item.id] = remaining;
+    }
+    setShipQty(initial);
+    setShipCarrier("");
+    setShipTracking("");
+    setShipOpen(true);
+  }, [order, unshippedByLine]);
+
+  const submitShip = useCallback(async () => {
+    if (!order) return;
+    const items = (order?.items ?? [])
+      .map((item) => ({
+        orderItemId: item.id,
+        quantity: shipQty[item.id] ?? 0,
+      }))
+      .filter((i) => i.quantity > 0);
+    if (items.length === 0) {
+      setShipError("Select at least one item to ship.");
+      return;
+    }
+    if (!shipCarrier.trim()) {
+      setShipError("Carrier is required.");
+      return;
+    }
+    setShipBusy(true);
+    setShipError(null);
+    try {
+      await adminApi.shipOrder(order.id, {
+        carrier: shipCarrier.trim(),
+        trackingNumber: shipTracking.trim() || undefined,
+        items,
+      });
+      setShipOpen(false);
+      setShipError(null);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      if (!mounted.current) return;
+      setShipError(err instanceof Error ? err.message : "Ship failed.");
+    } finally {
+      if (mounted.current) setShipBusy(false);
+    }
+  }, [order, shipQty, shipCarrier, shipTracking, mounted]);
+
+  const signShipment = useCallback(async (shipmentId: string) => {
+    if (!order) return;
+    setShiptSigningId(shipmentId);
+    setShipError(null);
+    try {
+      await adminApi.signShipment(order.id, shipmentId);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      if (!mounted.current) return;
+      setShipError(err instanceof Error ? err.message : "Sign failed.");
+    } finally {
+      if (mounted.current) setShiptSigningId(null);
+    }
+  }, [order, mounted]);
 
   const openDialog = useCallback((kind: "confirm" | "cancel") => {
     setActionError(null);
@@ -587,6 +685,13 @@ function OrderDetailPage(): ReactNode {
     !CONFIRM_BLOCKED.has(order.orderStatus) &&
     order.confirmationStatus !== "CONFIRMED";
   const canCancel = canCancelPerm && !CANCEL_BLOCKED.has(order.orderStatus);
+  // Ship is available on confirmed/shipping orders that are confirmation-clear
+  // and still have unshipped lines (ship flow).
+  const canShip =
+    canShipPerm &&
+    (order.orderStatus === "CONFIRMED" || order.orderStatus === "SHIPPING") &&
+    order.confirmationStatus === "CONFIRMED" &&
+    [...unshippedByLine.values()].some((qty) => qty > 0);
   const currency = order.currency;
   const attribution = order.attribution;
 
@@ -638,7 +743,7 @@ function OrderDetailPage(): ReactNode {
         <PageHeader
           title={order.orderNumber}
           actions={
-            canConfirm || canCancel ? (
+            canConfirm || canCancel || canShip ? (
               <div className="flex flex-wrap items-center gap-3">
                 {canCancel ? (
                   <button
@@ -660,6 +765,16 @@ function OrderDetailPage(): ReactNode {
                     aria-busy={dialog === "confirm" && actionPending}
                   >
                     Confirm
+                  </Button>
+                ) : null}
+                {canShip ? (
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    onClick={openShipDialog}
+                    disabled={shipBusy}
+                  >
+                    Ship
                   </Button>
                 ) : null}
                 <Button variant="secondary" size="md" onClick={openEdit}>
@@ -997,6 +1112,96 @@ function OrderDetailPage(): ReactNode {
             )}
           </div>
         </Card>
+
+        {/* Attribution — M3: order-level snapshots vs attribution relation. */}
+        {/* Shipments — one order may have multiple boxes (§61); each is signed
+            independently, and the order turns SIGNED once every box is signed. */}
+        {order.shipments.length > 0 ? (
+          <Card title={`Shipments (${order.shipments.length})`}>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <caption className="sr-only">Order shipments</caption>
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                    <th scope="col" className="px-3 py-2">
+                      Carrier
+                    </th>
+                    <th scope="col" className="px-3 py-2">
+                      Tracking
+                    </th>
+                    <th scope="col" className="px-3 py-2">
+                      Items
+                    </th>
+                    <th scope="col" className="px-3 py-2">
+                      Status
+                    </th>
+                    <th scope="col" className="px-3 py-2">
+                      Shipped at
+                    </th>
+                    <th scope="col" className="px-3 py-2">
+                      Signed at
+                    </th>
+                    <th scope="col" className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.shipments.map((sh) => (
+                    <tr
+                      key={sh.id}
+                      className="border-b border-border last:border-0"
+                    >
+                      <td className="px-3 py-2 text-ink">
+                        {textOrDash(sh.carrier)}
+                      </td>
+                      <td className="px-3 py-2 text-ink-secondary">
+                        {textOrDash(sh.trackingNumber)}
+                      </td>
+                      <td className="px-3 py-2 text-ink-secondary">
+                        {sh.items
+                          .map(
+                            (s) =>
+                              `${s.quantity}× ${s.orderItem.productNameSnapshot}`,
+                          )
+                          .join(", ") || "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge value={sh.status} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-ink-secondary">
+                        {formatDateTime(sh.shippedAt)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-ink-secondary">
+                        {sh.signedAt ? formatDateTime(sh.signedAt) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {sh.status === "SHIPPING" && canShipPerm ? (
+                          <Button
+                            variant="text"
+                            onClick={() => void signShipment(sh.id)}
+                            disabled={signingShipmentId === sh.id}
+                            aria-busy={signingShipmentId === sh.id}
+                          >
+                            {signingShipmentId === sh.id
+                              ? "Signing…"
+                              : "Mark signed"}
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {shipError && !shipOpen ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
+              >
+                {shipError}
+              </p>
+            ) : null}
+          </Card>
+        ) : null}
 
         {/* Attribution — M3: order-level snapshots vs attribution relation. */}
         <Card title="Attribution">
@@ -1450,6 +1655,153 @@ function OrderDetailPage(): ReactNode {
                 : dialog === "cancel"
                   ? "Cancel order"
                   : "Confirm"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Ship order — partial shipments allowed; lines prefill with remaining
+          unshipped quantity. */}
+      <Dialog
+        open={shipOpen}
+        onClose={() => setShipOpen(false)}
+        title={`Ship ${order.orderNumber}`}
+        width="md"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitShip();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Carrier" htmlFor="ship-carrier">
+              <input
+                id="ship-carrier"
+                list="ship-carriers"
+                type="text"
+                value={shipCarrier}
+                onChange={(e) => setShipCarrier(e.target.value)}
+                placeholder="e.g. J&T"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+              <datalist id="ship-carriers">
+                {[
+                  "J&T Express",
+                  "Ninja Van",
+                  "Flash Express",
+                  "LBC",
+                  "JRS Express",
+                  "GoGo Xpress",
+                  "GrabExpress",
+                  "2GO",
+                ].map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="Tracking number" htmlFor="ship-tracking">
+              <input
+                id="ship-tracking"
+                type="text"
+                value={shipTracking}
+                onChange={(e) => setShipTracking(e.target.value)}
+                placeholder="Optional"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+              />
+            </Field>
+          </div>
+
+          <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Items to ship
+          </h3>
+          <ul className="mt-2 space-y-2">
+            {(order?.items ?? []).map((item) => {
+              const remaining = unshippedByLine.get(item.id) ?? 0;
+              if (remaining <= 0) return null;
+              const value = Math.min(shipQty[item.id] ?? 0, remaining);
+              return (
+                <li
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">
+                      {item.productNameSnapshot}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      {item.skuCodeSnapshot}
+                      {item.variantSnapshot ? ` · ${item.variantSnapshot}` : ""} —
+                      {remaining} remaining
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Decrease quantity"
+                      onClick={() =>
+                        setShipQty((q) => ({
+                          ...q,
+                          [item.id]: Math.max(0, (q[item.id] ?? 0) - 1),
+                        }))
+                      }
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-lg text-ink hover:bg-primary-light/40"
+                    >
+                      −
+                    </button>
+                    <span className="w-10 text-center text-sm font-semibold text-ink">
+                      {value}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Increase quantity"
+                      onClick={() =>
+                        setShipQty((q) => ({
+                          ...q,
+                          [item.id]: Math.min(remaining, (q[item.id] ?? 0) + 1),
+                        }))
+                      }
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-lg text-ink hover:bg-primary-light/40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {order?.items.every((i) => (unshippedByLine.get(i.id) ?? 0) <= 0) ? (
+            <p className="mt-3 text-sm text-ink-muted">
+              All items are already shipped.
+            </p>
+          ) : null}
+
+          {shipError ? (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
+            >
+              {shipError}
+            </p>
+          ) : null}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setShipOpen(false)}
+              disabled={shipBusy}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={shipBusy}
+              aria-busy={shipBusy}
+            >
+              {shipBusy ? "Shipping…" : "Ship"}
             </Button>
           </div>
         </form>

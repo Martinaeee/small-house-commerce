@@ -13,7 +13,7 @@
 - **订单编辑**：收货信息、备注、商品行（增删改数量）、金额重算；所有编辑留痕（DB-004）。
 - **客服分配**：手动分配/改派（列表页下拉 + 详情页），记录操作人。
 - **订单合并**：合并未发货订单，保留历史（DATABASE §48 + CUSTOMER_RISK_SPEC §15，用户明确本轮做）。
-- **发货流程**：`POST /orders/{id}/ship`（API_SPEC §839）**本轮不做**，留待物流对接。
+- **发货流程**：`POST /orders/{id}/ship`（API_SPEC §839）**本轮不做**，留待物流对接。*（2026-09-19 已完成，见下述 §9 增补）*
 - **后台中英文切换，默认中文**：整个 admin 区域支持 i18n，订单模块先行。
 
 ## 2. 全局约束
@@ -308,3 +308,23 @@ ELSE                                          → NEW
 4. 合并：两单（同客户/同号/同地址/未发货）合并后 primary 含全部商品、merged 置 CANCELLED 且历史保留。
 5. 中英文切换：默认中文，顶栏切换，订单模块全部文案双语完整。
 6. 生产部署后门店下单/查单不受影响（回归）。
+
+---
+
+## 12. 增补（2026-09-19）：发货流程 ship 已完成
+
+**决策（用户拍板）**：
+- 支持**分批发货**（DATABASE §61：一单多货件，一次可发部分商品行）。
+- 发货区块**英文 UI**（跟随订单详情页现状，未接 i18n）。
+
+**后端**：
+- `POST /admin/orders/:id/ship`（权限 `SHIPMENT_CREATE`；body `{ carrier, trackingNumber?, items:[{orderItemId,quantity}] }`）：建 Shipment+ShipmentItem、消耗预留（§32 一次扣：`onHand↓`+`reserved↓`，SHIPMENT movement，恰好扣完置 CONSUMED、部分扣保持 ACTIVE）、首批发货 CONFIRMED→SHIPPING 写历史+WAREHOUSE note；补发保持 SHIPPING。
+- **发货卡点（§17 + §6.1 原文落地）**：`orderStatus ∈ {CONFIRMED, SHIPPING}`、`confirmationStatus=CONFIRMED`、无未解决 `CUSTOMER_RECHECK`/`POSSIBLE_DUPLICATE` flag、每行发货量 ≤ 剩余量。
+- `POST /admin/orders/:id/shipments/:shipmentId/sign`（§69）：货件置 SIGNED；**全部货件 signed → 订单 SIGNED**，否则保持 SHIPPING。
+- 新表 `shipments`/`shipment_items`（migration `20260918152648_add_shipments`）；`get()` 详情返回 `shipments`（含 orderItem 快照）。
+
+**前端**：
+- `admin-api.ts`：`shipOrder`/`signShipment` + `AdminShipment` 类型 + 详情 `shipments[]`。
+- 详情页 PageHeader 加 **Ship** 按钮（canShip 判定）；**Ship dialog**：carrier（datalist 常见承运商）+ tracking（可选）+ 分项数量步进器（预填剩余可发数）；Items/Attribution 之间加 **Shipments** 卡（承运商/单号/货件行/状态/时间 + **Mark signed** 按钮）。
+
+**测试**：单测 208 全绿（新增 ship/sign 卡点+主路径+多次签收用例）；HTTP E2E 用临时实例验证分批发货→部分签收→全部 SIGNED、RECHECK 未复核被拒、finance 无权限 403、库存一次扣减、数据清理还原。
