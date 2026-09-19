@@ -83,28 +83,42 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
     return () => clearTimeout(t);
   }, [index]);
 
-  // Column mode: scroll the clicked image into view after the overlay mounts
-  // and every time the index moves (the keyboard/arrows are desktop-only, but
-  // Pinch/zoom-free navigation or future hooks can still drive this).
-  const scrollToIndex = useCallback(
-    (target: number) => {
-      const el = scrollRef.current?.querySelector<HTMLElement>(
-        `[data-image-index="${target}"]`,
-      );
-      if (el) el.scrollIntoView({ block: "start" });
-    },
-    [scrollRef],
-  );
+  // Column mode: scroll the clicked image into view after the overlay mounts.
+  // Butt-joined tiles have natural heights, so the anchor only settles once
+  // every photo has sized in: scroll immediately (fast feedback), then
+  // re-anchor as each pending image loads. Once the user scrolls by hand the
+  // re-anchoring stops — it must never fight the user for scroll position.
   useEffect(() => {
     if (mode !== "column") return;
-    // Double rAF: first after the DOM slot renders, second after lazy images
-    // have had a chance to resize their containers — otherwise scrollIntoView
-    // can land mid-band and drift.
+    const root = scrollRef.current;
+    if (!root) return;
+    let userTookOver = false;
+    const anchor = () => {
+      if (userTookOver) return;
+      const el = root.querySelector<HTMLElement>(
+        `[data-image-index="${index}"]`,
+      );
+      el?.scrollIntoView({ block: "start" });
+    };
+    const onUserScroll = () => {
+      userTookOver = true;
+    };
     const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => scrollToIndex(index));
+      requestAnimationFrame(anchor);
     });
-    return () => cancelAnimationFrame(raf1);
-  }, [index, mode, scrollToIndex]);
+    const pending = Array.from(root.querySelectorAll("img")).filter(
+      (im) => !im.complete,
+    );
+    pending.forEach((im) => im.addEventListener("load", anchor));
+    root.addEventListener("wheel", onUserScroll, { passive: true, once: true });
+    root.addEventListener("touchstart", onUserScroll, { passive: true, once: true });
+    return () => {
+      cancelAnimationFrame(raf1);
+      pending.forEach((im) => im.removeEventListener("load", anchor));
+      root.removeEventListener("wheel", onUserScroll);
+      root.removeEventListener("touchstart", onUserScroll);
+    };
+  }, [index, mode]);
 
   // Column mode: keep the counter in step with the most-visible photo while
   // the user scrolls the band. Root margin biases to the center band so the
@@ -232,24 +246,24 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
           </div>
         </div>
       ) : (
-        /* ---- Mobile column: stacked photos in one continuous band ---- */
+        /* ---- Mobile column: photos butt-joined into one continuous strip ---- */
         <div ref={scrollRef} className="h-full min-h-0 overflow-y-auto overscroll-contain">
-          <div className="mx-auto w-full max-w-2xl">
+          <div className="w-full">
             {images.map((image, i) => (
               <div
                 key={image.id}
                 data-image-index={i}
-                className="relative flex min-h-[70dvh] items-center justify-center px-3 py-2"
+                className="w-full"
               >
                 {image.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={image.url}
                     alt={image.altText ?? `Product image ${i + 1}`}
-                    className="max-h-[85dvh] w-full object-contain"
+                    className="block h-auto w-full"
                   />
                 ) : (
-                  <PlaceholderImage label="" className="aspect-square w-full max-w-md rounded-md" />
+                  <PlaceholderImage label="" className="aspect-square w-full" />
                 )}
               </div>
             ))}
