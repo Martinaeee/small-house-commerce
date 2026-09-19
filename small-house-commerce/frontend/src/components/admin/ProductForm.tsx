@@ -334,6 +334,20 @@ type CreateSkuInput = NonNullable<
 >;
 
 /**
+ * Mirrors the backend siteMediaUrl() rule: an absolute http(s) URL or a
+ * site-relative path starting with a single "/" — the shape the local-disk
+ * upload endpoint returns (/uploads/catalog/2026/….jpg|mp4). The old
+ * `new URL(url)` check rejected those relative paths and blocked every
+ * locally-uploaded file from saving.
+ */
+function isValidMediaUrl(url: string): boolean {
+  return (
+    /^https?:\/\/.+/i.test(url) ||
+    (url.startsWith("/") && !url.startsWith("//") && url.length > 1)
+  );
+}
+
+/**
  * Pure create-semantics serializer + client validation (spec §9 parity with
  * the backend zod DTO; the server re-validates). Empty nullable strings
  * become null; optional SKU fields are omitted (undefined) when blank.
@@ -425,13 +439,8 @@ export function serializeFormValue(
         `images.${i}.url`,
         "Image URL must be 2,048 characters or fewer.",
       );
-    else {
-      try {
-        // Mirror z.string().url() (WHATWG URL parse).
-        new URL(url);
-      } catch {
-        addError(errors, `images.${i}.url`, "Image URL must be a valid URL.");
-      }
+    else if (!isValidMediaUrl(url)) {
+      addError(errors, `images.${i}.url`, "Image URL must be a valid URL.");
     }
     if (altText.length > 255)
       addError(
@@ -469,12 +478,8 @@ export function serializeFormValue(
         `detailBlocks.${i}.url`,
         "Media URL must be 2,048 characters or fewer.",
       );
-    else {
-      try {
-        new URL(url);
-      } catch {
-        addError(errors, `detailBlocks.${i}.url`, "Media URL must be a valid URL.");
-      }
+    else if (!isValidMediaUrl(url)) {
+      addError(errors, `detailBlocks.${i}.url`, "Media URL must be a valid URL.");
     }
     if (altText.length > 255)
       addError(
@@ -980,9 +985,15 @@ export function ProductForm({
     const result = serializeFormValue(target);
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
-      setFormError(result.error);
-      // Surface the failing tab — with panels hidden, an inline error alone
-      // would be invisible.
+      // Say WHICH tab holds the errors — with panels hidden, a generic
+      // "fix the highlighted fields" leaves the operator hunting.
+      const brokenTabs = [
+        ...new Set(Object.keys(result.fieldErrors).map(tabForErrorKey)),
+      ].map((key) => TABS.find((t) => t.key === key)?.label ?? key);
+      setFormError(
+        `Please fix the highlighted fields and try again.（出错位置：${brokenTabs.join("、")}）`,
+      );
+      // Jump straight to the first failing tab.
       const firstKey = Object.keys(result.fieldErrors)[0];
       if (firstKey) setActiveTab(tabForErrorKey(firstKey));
       return;
