@@ -18,6 +18,13 @@ import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
+/**
+ * Placeholder a surviving variant is parked under while the submitted names are
+ * reassigned, so swapping two names cannot collide on @@unique([productId, name]).
+ * Never observable: the whole reconcile runs inside one transaction.
+ */
+const PENDING_RENAME = '__pending_rename__';
+
 const ADMIN_PRODUCT_INCLUDE = {
   images: { orderBy: { sortOrder: 'asc' as const } },
   detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
@@ -314,6 +321,32 @@ export class ProductsService {
     incoming: UpdateProductInput['variants'],
   ): Promise<void> {
     const variants = incoming ?? [];
+
+    // Both columns are unique. Left to the database these surfaced as a bare
+    // 409, which the edit form renders as "A product with this slug already
+    // exists." — pointing the operator at a field they never touched. Catching
+    // them here names the actual conflict, and stops a duplicate name from
+    // silently resolving both entries to one row (the second write won).
+    const seenNames = new Set<string>();
+    const seenSkuCodes = new Set<string>();
+    for (const variant of variants) {
+      if (seenNames.has(variant.name)) {
+        throw new BadRequestException(
+          `Two variants cannot share the name "${variant.name}". Rename one of them.`,
+        );
+      }
+      seenNames.add(variant.name);
+
+      const skuCode = variant.sku?.skuCode;
+      if (!skuCode) continue;
+      if (seenSkuCodes.has(skuCode)) {
+        throw new BadRequestException(
+          `Two variants cannot share the SKU code "${skuCode}".`,
+        );
+      }
+      seenSkuCodes.add(skuCode);
+    }
+
     const existing = await tx.productVariant.findMany({
       where: { productId },
       include: { sku: true },
@@ -326,46 +359,80 @@ export class ProductsService {
       byName.set(variant.name, variant);
     }
 
-    const kept = new Set<string>();
-
-    for (const variant of variants) {
+    // Resolve every entry before writing anything: a rename must not claim a
+    // row that a later entry still needs to match against.
+    const plan = variants.map((variant) => {
       const incomingSku = variant.sku;
       const match =
         (incomingSku ? bySkuCode.get(incomingSku.skuCode) : undefined) ??
         byName.get(variant.name);
+      if (match) {
+        byName.delete(match.name);
+        if (incomingSku) bySkuCode.delete(incomingSku.skuCode);
+      }
+      return { variant, match };
+    });
+
+    // Phase 1: park every surviving row under a name no payload can claim, so
+    // swapping two names (A→B while B still holds it) cannot collide.
+    for (const { match } of plan) {
+      if (!match) continue;
+      try {
+        await tx.productVariant.update({
+          where: { id: match.id },
+          data: { name: `${PENDING_RENAME}${match.id}` },
+        });
+      } catch (error) {
+        this.rethrowVariantNameTaken(error, match.name);
+      }
+    }
+
+    const kept = new Set<string>();
+
+    // Phase 2: assign the final names and reconcile each SKU.
+    for (const { variant, match } of plan) {
+      const incomingSku = variant.sku;
 
       if (!match) {
         const created = await tx.productVariant.create({
           data: { productId, name: variant.name, position: variant.position },
         });
         if (incomingSku) {
-          await tx.sku.create({
-            data: { ...incomingSku, productId, variantId: created.id },
-          });
+          try {
+            await tx.sku.create({
+              data: { ...incomingSku, productId, variantId: created.id },
+            });
+          } catch (error) {
+            this.rethrowSkuCodeTaken(error, incomingSku.skuCode);
+          }
         }
         continue;
       }
 
       kept.add(match.id);
-      // A matched variant may still be renamed; release its old name so a
-      // later entry in the same payload can claim it.
-      byName.delete(match.name);
       await tx.productVariant.update({
         where: { id: match.id },
         data: { name: variant.name, position: variant.position },
       });
-      byName.set(variant.name, { ...match, name: variant.name });
 
       if (incomingSku && match.sku) {
         const { skuCode, ...rest } = incomingSku;
-        await tx.sku.update({
-          where: { id: match.sku.id },
-          data: { ...rest, skuCode, productId, variantId: match.id },
-        });
+        try {
+          await tx.sku.update({
+            where: { id: match.sku.id },
+            data: { ...rest, skuCode, productId, variantId: match.id },
+          });
+        } catch (error) {
+          this.rethrowSkuCodeTaken(error, skuCode);
+        }
       } else if (incomingSku && !match.sku) {
-        await tx.sku.create({
-          data: { ...incomingSku, productId, variantId: match.id },
-        });
+        try {
+          await tx.sku.create({
+            data: { ...incomingSku, productId, variantId: match.id },
+          });
+        } catch (error) {
+          this.rethrowSkuCodeTaken(error, incomingSku.skuCode);
+        }
       } else if (!incomingSku && match.sku) {
         try {
           await tx.sku.delete({ where: { id: match.sku.id } });
@@ -392,15 +459,38 @@ export class ProductsService {
    * generic P2003 mapping would produce.
    */
   private rethrowVariantInUse(error: unknown, variantName: string): never {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2003'
-    ) {
+    if (this.isPrismaCode(error, 'P2003')) {
       throw new BadRequestException(
         `Variant "${variantName}" has orders or stock history and cannot be removed. Disable it instead.`,
       );
     }
     throw error;
+  }
+
+  /** `skus.sku_code` is unique across the whole catalog, not per product. */
+  private rethrowSkuCodeTaken(error: unknown, skuCode: string): never {
+    if (this.isPrismaCode(error, 'P2002')) {
+      throw new ConflictException(
+        `SKU code "${skuCode}" is already used by another product.`,
+      );
+    }
+    throw error;
+  }
+
+  /** `product_variants` is unique on (product_id, name). */
+  private rethrowVariantNameTaken(error: unknown, variantName: string): never {
+    if (this.isPrismaCode(error, 'P2002')) {
+      throw new ConflictException(
+        `Two variants cannot share the name "${variantName}". Rename one of them.`,
+      );
+    }
+    throw error;
+  }
+
+  private isPrismaCode(error: unknown, code: string): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+    );
   }
 
   async remove(id: string) {

@@ -1147,15 +1147,22 @@ export const adminApi = {
     }),
 
   /**
-   * Local-disk image upload: the raw file bytes ARE the request body
-   * (Content-Type carries the image type; no multipart, no multer). The
-   * backend returns the site-relative URL, e.g. /uploads/catalog/2026/….jpg.
+   * Local-disk media upload: the raw file bytes ARE the request body
+   * (Content-Type carries the media type; no multipart, no multer). The
+   * backend returns the site-relative URL, e.g. /uploads/catalog/2026/….mp4.
    * Caller-supplied Content-Type overrides adminAuthedFetch's JSON default.
+   *
+   * `contentType` is resolved by the caller (resolveUploadType) because
+   * File.type is empty for files the OS has no extension mapping for — the
+   * backend keys the stored extension off this header.
    */
-  uploadImage: (file: File): Promise<{ url: string; key: string }> =>
+  uploadImage: (
+    file: File,
+    contentType: string,
+  ): Promise<{ url: string; key: string }> =>
     adminAuthedFetch<{ url: string; key: string }>("/api/v1/admin/uploads", {
       method: "POST",
-      headers: { "Content-Type": file.type },
+      headers: { "Content-Type": contentType },
       body: file,
     }),
 

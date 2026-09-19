@@ -39,9 +39,12 @@ import { errorStatus } from "@/lib/admin-auth";
  * once an order item/reservation references an SKU — spec §14 gap #5).
  */
 
-// POST/PATCH 409 from rethrowKnown (Prisma P2002); on this form the unique
-// column is the slug — same UI mapping as the create page (spec §8.7).
+// 409 from the backend. Only the product's own slug is a slug problem; every
+// other unique column (sku_code, variant name) carries a message that names
+// what actually collided, so it is shown verbatim instead of being rewritten
+// into a claim about a field the operator never touched.
 const SLUG_CONFLICT_UI = "A product with this slug already exists.";
+const GENERIC_CONFLICT_BACKEND = "same unique value";
 
 const SCALAR_KEYS = [
   "name",
@@ -431,14 +434,16 @@ export default function EditProductPage(): ReactNode {
           router.refresh();
         } catch (err: unknown) {
           if (!mounted.current) return;
-          // 409 → slug-specific wording. Everything else stays verbatim,
-          // including the §14-gap-#5 "Referenced record does not exist" 400.
+          // The backend's own message is already specific for a taken SKU code
+          // or a duplicated variant name; only its generic wording (or a bare
+          // 409) is the slug, which needs the friendly copy.
+          const backendMessage =
+            err instanceof Error ? err.message : "Failed to save product.";
           const message =
-            errorStatus(err) === 409
+            errorStatus(err) === 409 &&
+            backendMessage.includes(GENERIC_CONFLICT_BACKEND)
               ? SLUG_CONFLICT_UI
-              : err instanceof Error
-                ? err.message
-                : "Failed to save product.";
+              : backendMessage;
           setError(
             productSaved ? `Product saved, but the stock update failed: ${message}` : message,
           );

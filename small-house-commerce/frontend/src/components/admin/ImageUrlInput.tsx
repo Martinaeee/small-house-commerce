@@ -24,6 +24,34 @@ const ACCEPT_ATTRS = {
   video: "video/mp4,video/webm,video/quicktime",
 } as const;
 
+type Kind = keyof typeof ACCEPTED_TYPES;
+
+/**
+ * The MIME type to upload a picked file as, or null when the file is not one
+ * of the accepted types for this field.
+ *
+ * `File.type` cannot be trusted alone: browsers report "" for files whose
+ * extension the OS has no mapping for (videos copied off Android/SD cards are
+ * the common case) and application/octet-stream for others. Rejecting those
+ * before the upload made the picker look broken for perfectly good MP4s, so
+ * the extension is consulted as a fallback and the MIME is only honoured when
+ * it agrees with this field's kind.
+ */
+export function resolveUploadType(
+  fileName: string,
+  fileType: string,
+  kind: Kind,
+): string | null {
+  const accepted: Record<string, string> = ACCEPTED_TYPES[kind];
+  if (fileType in accepted) return fileType;
+
+  const ext = fileName.toLowerCase().split(".").pop() ?? "";
+  for (const [mime, knownExt] of Object.entries(accepted)) {
+    if (knownExt === ext) return mime;
+  }
+  return null;
+}
+
 /**
  * Media field for admin forms: paste a public URL, or pick a local file and
  * POST the bytes to the backend, which stores them on the upload volume and
@@ -59,7 +87,8 @@ export function ImageUrlInput({
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
-    if (!(file.type in ACCEPTED_TYPES[kind])) {
+    const contentType = resolveUploadType(file.name, file.type, kind);
+    if (!contentType) {
       setError(`仅支持 ${typeLabel}`);
       return;
     }
@@ -71,7 +100,7 @@ export function ImageUrlInput({
     try {
       // Lazy import keeps the admin API module out of any non-upload bundle path.
       const { adminApi } = await import("@/lib/admin-api");
-      const res = await adminApi.uploadImage(file);
+      const res = await adminApi.uploadImage(file, contentType);
       onChange(res.url);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "上传失败，请重试");

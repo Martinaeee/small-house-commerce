@@ -3,6 +3,7 @@
 import { Fragment, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/admin/Dialog";
+import { resolveUploadType } from "@/components/admin/ImageUrlInput";
 import { AdminApiError } from "@/lib/admin-auth";
 import {
   adminApi,
@@ -21,12 +22,6 @@ import { dateToLocalInput, nowLocalInput } from "@/lib/datetime-input";
 const MAX_ROWS = 100;
 const MAX_PHOTOS = 6;
 const MAX_BYTES = 5 * 1024 * 1024;
-
-const ACCEPTED_TYPES: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
 
 // Column order mirrors createAdminReviewSchema (review.dto.ts).
 const FORMAT_HINT =
@@ -485,7 +480,10 @@ export function BatchReviewsGridDialog({
     try {
       // Local-disk upload via the backend (was: R2 presigned PUT — R2 is not
       // configured on this deployment). Same site-relative /uploads URLs.
-      const res = await adminApi.uploadImage(file);
+      const res = await adminApi.uploadImage(
+        file,
+        resolveUploadType(file.name, file.type, "image") ?? "image/jpeg",
+      );
       markPhoto(rowKey, slotId, { state: "done", url: res.url, error: undefined });
       // A successful upload clears the transient file-pick rejection note.
       setClientErrors((prev) => {
@@ -514,7 +512,9 @@ export function BatchReviewsGridDialog({
     const accepted: File[] = [];
     const rejected: string[] = [];
     for (const file of files) {
-      if (!ACCEPTED_TYPES[file.type]) {
+      // Same tolerance as the media picker: File.type is empty for plenty of
+      // real images, so fall back to the extension.
+      if (!resolveUploadType(file.name, file.type, "image")) {
         rejected.push(`「${file.name || "文件"}」仅支持 JPG / PNG / WebP`);
         continue;
       }

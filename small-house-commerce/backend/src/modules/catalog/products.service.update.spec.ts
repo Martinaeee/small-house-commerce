@@ -25,6 +25,14 @@ function p2003() {
   );
 }
 
+/** Shaped like the real thing: Prisma reports the offending columns in meta.target. */
+function p2002(target: string[]) {
+  return new Prisma.PrismaClientKnownRequestError(
+    'Unique constraint failed',
+    { code: 'P2002', clientVersion: '7.10.0', meta: { modelName: 'Sku', target } },
+  );
+}
+
 interface HarnessOptions {
   existingVariants?: Array<{
     id: string;
@@ -35,6 +43,8 @@ interface HarnessOptions {
   stock?: Map<string, { onHand: number; reserved: number; available: number }>;
   deleteFails?: boolean;
   skuDeleteFails?: boolean;
+  variantCreateFails?: 'name' | 'sku_code';
+  nameSwapFails?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -43,6 +53,8 @@ function createHarness(options: HarnessOptions = {}) {
     stock = new Map(),
     deleteFails = false,
     skuDeleteFails = false,
+    variantCreateFails,
+    nameSwapFails = false,
   } = options;
 
   const updatedProduct = {
@@ -60,18 +72,24 @@ function createHarness(options: HarnessOptions = {}) {
     },
     productVariant: {
       findMany: vi.fn(async () => existingVariants),
-      create: vi.fn(async () => ({ id: 'v-new' })),
-      update: vi.fn(async () => ({ id: 'v1' })),
-      delete: vi.fn(async () => {
+      create: vi.fn(async (_arg: { data: { name: string } }) => ({ id: 'v-new' })),
+      update: vi.fn(async (_arg: { where: { id: string }; data: { name: string } }) => {
+        if (nameSwapFails) throw p2002(['product_id', 'name']);
+        return { id: 'v1' };
+      }),
+      delete: vi.fn(async (_arg: { where: { id: string } }) => {
         if (deleteFails) throw p2003();
         return { id: 'v1' };
       }),
       deleteMany: vi.fn(async () => ({ count: existingVariants.length })),
     },
     sku: {
-      create: vi.fn(async () => ({ id: 'sku-new' })),
-      update: vi.fn(async () => ({ id: 'sku1' })),
-      delete: vi.fn(async () => {
+      create: vi.fn(async (_arg: { data: Record<string, unknown> }) => {
+        if (variantCreateFails) throw p2002([variantCreateFails]);
+        return { id: 'sku-new' };
+      }),
+      update: vi.fn(async (_arg: { data: Record<string, unknown> }) => ({ id: 'sku1' })),
+      delete: vi.fn(async (_arg: { where: { id: string } }) => {
         if (skuDeleteFails) throw p2003();
         return { id: 'sku1' };
       }),
@@ -279,5 +297,81 @@ describe('ProductsService.update — variant reconcile', () => {
         variants: [{ name: 'Default', position: 0 }],
       } as UpdateProductInput),
     ).rejects.toThrow(/Default/);
+  });
+
+  it('rejects a payload that reuses a variant name instead of silently overwriting it', async () => {
+    // Two variants called "Default" both resolve to the same stored row, so
+    // the second write silently replaced the first: the operator saw "saved"
+    // while a variant and its stock had been swallowed. @@unique([productId,
+    // name]) forbids it, so say so.
+    const { service } = createHarness({ existingVariants: [REFERENCED_VARIANT] });
+
+    await expect(
+      service.update('p1', {
+        variants: [
+          { name: 'Default', position: 0, sku: { skuCode: 'CODE-1' } },
+          { name: 'Default', position: 1, sku: { skuCode: 'CODE-2' } },
+        ],
+      } as UpdateProductInput),
+    ).rejects.toThrow(/Default/);
+  });
+
+  it('reports a taken SKU code as a SKU problem, not a slug problem', async () => {
+    const { service } = createHarness({
+      existingVariants: [REFERENCED_VARIANT],
+      variantCreateFails: 'sku_code',
+    });
+
+    await expect(
+      service.update('p1', {
+        variants: [
+          { name: 'Default', position: 0, sku: { skuCode: 'CODE-1' } },
+          { name: 'Black', position: 1, sku: { skuCode: 'TAKEN' } },
+        ],
+      } as UpdateProductInput),
+    ).rejects.toThrow(/SKU code "TAKEN" is already used/);
+  });
+
+  it('renames every variant before assigning names, so a swap does not collide', async () => {
+    // Swapping two names wrote A->B while B still held it, tripping
+    // @@unique([productId, name]). Clearing the names first makes the order
+    // irrelevant.
+    const { service, tx } = createHarness({
+      existingVariants: [
+        { id: 'v1', name: 'Alpha', position: 0, sku: { id: 'sku1', skuCode: 'A' } },
+        { id: 'v2', name: 'Beta', position: 1, sku: { id: 'sku2', skuCode: 'B' } },
+      ],
+    });
+
+    await service.update('p1', {
+      variants: [
+        { name: 'Beta', position: 0, sku: { skuCode: 'A' } },
+        { name: 'Alpha', position: 1, sku: { skuCode: 'B' } },
+      ],
+    } as UpdateProductInput);
+
+    const nameWrites = tx.productVariant.update.mock.calls.map(
+      ([arg]) => (arg as { data: { name: string } }).data.name,
+    );
+    expect(nameWrites).toEqual(['__pending_rename__v1', '__pending_rename__v2', 'Beta', 'Alpha']);
+  });
+
+  it('surfaces a variant-name collision as a variant problem, not a slug problem', async () => {
+    const { service } = createHarness({
+      existingVariants: [
+        { id: 'v1', name: 'Alpha', position: 0, sku: { id: 'sku1', skuCode: 'A' } },
+        { id: 'v2', name: 'Beta', position: 1, sku: { id: 'sku2', skuCode: 'B' } },
+      ],
+      nameSwapFails: true,
+    });
+
+    await expect(
+      service.update('p1', {
+        variants: [
+          { name: 'Beta', position: 0, sku: { skuCode: 'A' } },
+          { name: 'Alpha', position: 1, sku: { skuCode: 'B' } },
+        ],
+      } as UpdateProductInput),
+    ).rejects.toThrow(/Two variants cannot share the name/);
   });
 });
