@@ -3,6 +3,12 @@ import type { Product } from "@/lib/api";
 
 /** PDP_SPEC §19 fit data, rendered inside the Product Details sheet. */
 
+/** Dimension fields only — the admin preview passes a plain object of these. */
+export type SpecDimensions = Pick<
+  Product,
+  "width" | "height" | "depth" | "foldedWidth" | "foldedHeight" | "foldedDepth"
+>;
+
 function Row({ label, value }: { label: string; value: string | null }) {
   if (value === null) return null;
   return (
@@ -17,7 +23,7 @@ function cm(value: number | null | undefined): string | null {
   return value === null || value === undefined ? null : `${value} cm`;
 }
 
-export function DimensionRows({ product }: { product: Product }) {
+export function DimensionRows({ product }: { product: SpecDimensions }) {
   const hasDimensions =
     product.width !== null || product.height !== null || product.depth !== null;
   const hasFolded =

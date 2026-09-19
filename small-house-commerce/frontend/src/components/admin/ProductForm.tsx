@@ -1,7 +1,8 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import Link from "next/link";
 import {
   Field,
   Select,
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { ImageUrlInput } from "./ImageUrlInput";
 import { LivePreview, StorefrontPreview } from "./PreviewPane";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
+import { ProductSpecs } from "@/components/product/ProductSpecs";
 import type {
   AdminCategoryNode,
   CreateProductInput,
@@ -30,6 +32,8 @@ export interface ProductFormValue {
   name: string;
   slug: string;
   description: string;
+  /** First-screen one-line selling point under the H1. Empty hides the row. */
+  tagline: string;
   categoryId: string;
   status: ProductStatus;
   room: string;
@@ -41,6 +45,10 @@ export interface ProductFormValue {
   foldedWidth: string;
   foldedHeight: string;
   foldedDepth: string;
+  /** Structured specifications, edited outside the description. */
+  materials: string;
+  /** One feature per array slot (each becomes one line). */
+  features: string[];
   images: { url: string; altText: string; sortOrder: string }[];
   /** PDP description body. Media-only: the supplier detail decks are images
    *  and videos, and `description` already carries the short text intro. */
@@ -204,26 +212,14 @@ const SKU_FIELD_HINTS: Partial<Record<keyof SkuFormValue, ReactNode>> = {
 
 // How the numeric SKU fields are grouped in the form (serialization still
 // iterates the flat SKU_NUM_FIELDS list).
-const SKU_FIELD_GROUPS: {
-  title: string;
-  hint?: string;
-  keys: (keyof SkuFormValue)[];
-}[] = [
-  { title: "零售价（前台展示）", keys: ["price", "compareAtPrice"] },
-  { title: "内部成本（前台不显示）", keys: ["supplierCost", "landedCost"] },
-  {
-    title: "物流与包装",
-    hint: "仅用于发货/运费核算，不在前台展示；可先留空，发货前补齐。",
-    keys: [
-      "productWeight",
-      "packageWidth",
-      "packageHeight",
-      "packageDepth",
-      "packageWeight",
-      "volumetricWeight",
-    ],
-  },
-];
+
+/** Parses a form number string for the live spec preview; invalid → null. */
+function previewNumber(raw: string): number | null {
+  const s = raw.trim();
+  if (!s || !NUM_RE.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 export function emptySkuFormValue(): SkuFormValue {
   return {
@@ -252,6 +248,7 @@ export function emptyProductFormValue(): ProductFormValue {
     name: "",
     slug: "",
     description: "",
+    tagline: "",
     categoryId: "",
     status: "DRAFT",
     room: "",
@@ -263,6 +260,8 @@ export function emptyProductFormValue(): ProductFormValue {
     foldedWidth: "",
     foldedHeight: "",
     foldedDepth: "",
+    materials: "",
+    features: [],
     images: [],
     detailBlocks: [],
     variants: [],
@@ -380,6 +379,22 @@ export function serializeFormValue(
       "description",
       "Description must be 5,000 characters or fewer.",
     );
+
+  const tagline = v.tagline.trim();
+  if (tagline.length > 200)
+    addError(errors, "tagline", "Tagline must be 200 characters or fewer.");
+
+  const materials = v.materials.trim();
+  if (materials.length > 1000)
+    addError(errors, "materials", "Materials must be 1,000 characters or fewer.");
+
+  const features = v.features
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (features.some((line) => line.length > 200))
+    addError(errors, "features", "Each feature must be 200 characters or fewer.");
+  if (features.join("\n").length > 2000)
+    addError(errors, "features", "Features must be 2,000 characters or fewer.");
 
   if (!v.categoryId) addError(errors, "categoryId", "Category is required.");
   else if (!UUID_RE.test(v.categoryId))
@@ -572,6 +587,7 @@ export function serializeFormValue(
     name,
     slug,
     description: description || null,
+    tagline: tagline || null,
     categoryId: v.categoryId,
     status: v.status,
     room: v.room || null,
@@ -580,6 +596,8 @@ export function serializeFormValue(
       (SOLUTIONS as readonly string[]).includes(s),
     ),
     ...dimensions,
+    materials: materials || null,
+    features: features.join("\n") || null,
     images,
     detailBlocks,
     variants,
@@ -607,6 +625,11 @@ function flattenCategories(
 
 // --- presentational helpers --------------------------------------------------
 
+/**
+ * Panel section header + body. Light visual hierarchy on purpose: no bordered
+ * white cards — sections are separated by spacing and heading size alone, so
+ * the page reads as one form, not a stack of boxes.
+ */
 function Section({
   title,
   hint,
@@ -617,7 +640,7 @@ function Section({
   children: ReactNode;
 }): ReactNode {
   return (
-    <section className="mt-4 rounded-xl border border-border bg-card p-5">
+    <section>
       <h2 className="text-base font-semibold text-ink">{title}</h2>
       {hint ? (
         <p className="mt-1 text-xs leading-relaxed text-ink-muted">{hint}</p>
@@ -631,6 +654,45 @@ const removeBtnCls =
   "self-end text-sm font-semibold text-red-700 hover:underline disabled:text-ink-muted disabled:no-underline";
 
 // --- the form ----------------------------------------------------------------
+
+/** Editor tabs; the single form state object spans all of them. */
+const TABS = [
+  { key: "basic", label: "Basic Info" },
+  { key: "media", label: "Media" },
+  { key: "variants", label: "Variants & Pricing" },
+  { key: "specs", label: "Specifications" },
+  { key: "shipping", label: "Shipping" },
+  { key: "seo", label: "SEO" },
+  { key: "preview", label: "Preview" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+
+const SHIPPING_SKU_KEYS = [
+  "productWeight",
+  "packageWidth",
+  "packageHeight",
+  "packageDepth",
+  "packageWeight",
+  "volumetricWeight",
+] as const;
+
+/** Maps a flat validation-error key (`variants.0.sku.price`) to its tab. */
+function tabForErrorKey(key: string): TabKey {
+  if (key.startsWith("variants.")) {
+    return SHIPPING_SKU_KEYS.some((k) => key.includes(`.sku.${k}`))
+      ? "shipping"
+      : "variants";
+  }
+  if (key.startsWith("images.") || key.startsWith("detailBlocks.")) return "media";
+  if (key === "slug") return "seo";
+  if (
+    DIMENSION_FIELDS.some((f) => f.key === key) ||
+    key === "materials" ||
+    key === "features"
+  )
+    return "specs";
+  return "basic";
+}
 
 export interface ProductFormProps {
   initial: ProductFormValue;
@@ -661,6 +723,11 @@ export function ProductForm({
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // Which editor tab is open. Panels are conditionally rendered but all state
+  // lives in `value` above, so switching tabs never loses edits.
+  const [activeTab, setActiveTab] = useState<TabKey>("basic");
+  // Index of the image card currently being HTML5-dragged.
+  const dragFrom = useRef<number | null>(null);
 
   const flatCategories = flattenCategories(categories);
   const err = (key: string): string | undefined => fieldErrors[key];
@@ -698,6 +765,70 @@ export function ProductForm({
       ...prev,
       images: prev.images.filter((_, j) => j !== i),
     }));
+    clearValidation();
+  };
+  /**
+   * Swaps two image cards and renumbers every sortOrder, so the visual order
+   * and the stored order cannot drift apart (cover = lowest sortOrder).
+   */
+  const moveImage = (i: number, delta: -1 | 1): void => {
+    setValue((prev) => {
+      const j = i + delta;
+      if (j < 0 || j >= prev.images.length) return prev;
+      const next = [...prev.images];
+      [next[i], next[j]] = [next[j], next[i]];
+      return {
+        ...prev,
+        images: next.map((img, k) => ({ ...img, sortOrder: String(k) })),
+      };
+    });
+    clearValidation();
+  };
+  /** Drag-and-drop reorder for image cards: move `from` to `to`. */
+  const moveImageTo = (from: number, to: number): void => {
+    setValue((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.images.length || to >= prev.images.length)
+        return prev;
+      const next = [...prev.images];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return {
+        ...prev,
+        images: next.map((img, k) => ({ ...img, sortOrder: String(k) })),
+      };
+    });
+    clearValidation();
+  };
+  /** "Set as cover" = move the card to the front (sortOrder 0). */
+  const setCoverImage = (i: number): void => moveImageTo(i, 0);
+
+  // --- features (spec bullets, one line each) -------------------------------
+  const setFeatureLine = (i: number, line: string): void => {
+    setValue((prev) => ({
+      ...prev,
+      features: prev.features.map((l, j) => (j === i ? line : l)),
+    }));
+    clearValidation();
+  };
+  const addFeatureLine = (): void => {
+    setValue((prev) => ({ ...prev, features: [...prev.features, ""] }));
+    clearValidation();
+  };
+  const removeFeatureLine = (i: number): void => {
+    setValue((prev) => ({
+      ...prev,
+      features: prev.features.filter((_, j) => j !== i),
+    }));
+    clearValidation();
+  };
+  const moveFeatureLine = (i: number, delta: -1 | 1): void => {
+    setValue((prev) => {
+      const j = i + delta;
+      if (j < 0 || j >= prev.features.length) return prev;
+      const next = [...prev.features];
+      [next[i], next[j]] = [next[j], next[i]];
+      return { ...prev, features: next };
+    });
     clearValidation();
   };
 
@@ -832,25 +963,108 @@ export function ProductForm({
     );
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    const result = serializeFormValue(value);
+  /**
+   * Serializes + submits the single form value. `statusOverride` lets the
+   * action bar's "Save Draft" store the current edits as a DRAFT in one click
+   * without mutating the visible status select first.
+   */
+  const submitForm = (statusOverride?: ProductStatus): void => {
+    const target = statusOverride ? { ...value, status: statusOverride } : value;
+    const result = serializeFormValue(target);
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
       setFormError(result.error);
+      // Surface the failing tab — with panels hidden, an inline error alone
+      // would be invisible.
+      const firstKey = Object.keys(result.fieldErrors)[0];
+      if (firstKey) setActiveTab(tabForErrorKey(firstKey));
       return;
     }
     setFieldErrors({});
     setFormError(null);
-    onSubmit(value);
+    onSubmit(target);
   };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    submitForm();
+  };
+
+  const tabHasError = (tab: TabKey): boolean =>
+    Object.keys(fieldErrors).some((k) => tabForErrorKey(k) === tab);
+  const coverSortOrder =
+    value.images.length > 0
+      ? Math.min(...value.images.map((img) => Number(img.sortOrder.trim() || "0") || 0))
+      : 0;
 
   return (
     <form onSubmit={handleSubmit} noValidate>
+      {/* Sticky action bar. top-14 clears the shell's h-14 top bar; z-10 sits
+          under its z-20 (and the sidebar's z-30). Kept inside the single
+          <form> so both save buttons submit it — no nested forms. */}
+      <div className="sticky top-14 z-10 -mx-4 mb-6 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Link
+            href="/admin/products"
+            className="text-sm font-semibold text-cta hover:underline"
+          >
+            ← Back to Products
+          </Link>
+          <div className="flex items-center gap-2">
+            <label htmlFor="pf-status" className="text-xs font-semibold text-ink-secondary">
+              Status
+            </label>
+            <select
+              id="pf-status"
+              value={value.status}
+              onChange={(e) => patch({ status: e.target.value as ProductStatus })}
+              className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm font-semibold text-ink focus:border-cta focus:outline-none"
+            >
+              {PRODUCT_STATUSES.map((s) => (
+                <option key={s} value={s} title={STATUS_LABELS[s]}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => submitForm("DRAFT")}
+              disabled={pending}
+              className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-ink hover:border-primary disabled:text-ink-muted"
+            >
+              Save Draft
+            </button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              className="h-9 min-w-0 px-5 text-sm"
+              disabled={pending}
+              aria-busy={pending}
+            >
+              {pending ? "Saving…" : submitLabel}
+            </Button>
+            {value.slug.trim() ? (
+              <Link
+                href={`/products/${value.slug.trim()}`}
+                target="_blank"
+                className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-semibold leading-9 text-cta hover:border-primary"
+              >
+                Preview Product
+              </Link>
+            ) : (
+              <span className="text-xs text-ink-muted">填好 Slug 并保存后可预览</span>
+            )}
+          </div>
+        </div>
+      </div>
+
       {formError ? (
         <div
           role="alert"
-          className="mt-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+          className="mb-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
         >
           {formError}
         </div>
@@ -862,22 +1076,25 @@ export function ProductForm({
       {error && !formError && Object.keys(fieldErrors).length === 0 ? (
         <div
           role="alert"
-          className="mt-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+          className="mb-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
         >
           {error}
         </div>
       ) : null}
 
       {/* Operator workflow guide (internal back office; never storefront). */}
-      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
-        <p className="text-sm font-semibold text-ink">上架流程（新商品按此顺序操作）</p>
+      <details className="group mb-6 rounded-lg bg-primary-light/30 px-4 py-3 text-xs leading-relaxed text-ink-secondary">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+          上架流程（新商品按此顺序操作）
+          <span className="ml-2 font-normal text-ink-muted group-open:hidden">展开</span>
+        </summary>
         <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>
             在本页填写商品信息、图片、款式与价格，先以
             <span className="font-semibold"> DRAFT 草稿</span>保存。
           </li>
           <li>
-            到 Products 列表确认无误后，用 Edit 把 Status 改为
+            确认无误后把右上 Status 改为
             <span className="font-semibold"> ACTIVE 上架</span>（DRAFT 在前台完全不可见）。
           </li>
           <li>
@@ -893,302 +1110,406 @@ export function ProductForm({
         <p className="mt-2">
           出厂价、物流尺寸等成本字段仅后台可见；前台只显示售价和商品描述。
         </p>
+      </details>
+
+      {/* Editor tabs. Panels are conditionally rendered; all form state lives
+          in the single `value` object, so switching tabs never loses edits. */}
+      <div
+        role="tablist"
+        aria-label="Product form sections"
+        className="mb-8 flex flex-wrap gap-2 border-b border-border pb-3"
+      >
+        {TABS.map((tab) => {
+          const selected = activeTab === tab.key;
+          const hasError = tabHasError(tab.key);
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              id={`pf-tab-${tab.key}`}
+              aria-selected={selected}
+              aria-controls={`pf-panel-${tab.key}`}
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+                selected
+                  ? "bg-cta text-white"
+                  : "border border-border bg-card text-ink-secondary hover:text-cta"
+              }`}
+            >
+              {tab.label}
+              {hasError ? (
+                <span
+                  aria-label="(有错误)"
+                  className="ml-1.5 inline-block h-2 w-2 rounded-full bg-sale align-middle"
+                />
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ---------------- Basics ---------------- */}
-      <Section
-        title="Basics"
-        hint="商品的基本信息与运营属性。带 * 为必填。"
+      <div
+        role="tabpanel"
+        id={`pf-panel-${activeTab}`}
+        aria-labelledby={`pf-tab-${activeTab}`}
+        className="flex flex-col gap-8"
       >
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Name *"
-            htmlFor="pf-name"
-            error={err("name")}
-            hint="前台展示的英文商品名。建议：品类 + 核心特征 + 规格/层数，如 Foldable Shoe Cabinet 3-Tier with Clear Doors。"
-          >
-            <TextInput
-              id="pf-name"
-              value={value.name}
-              maxLength={255}
-              onChange={(e) => patch({ name: e.target.value })}
-              autoComplete="off"
-            />
-          </Field>
 
-          <Field label="Slug *" htmlFor="pf-slug" error={err("slug")}>
-            <TextInput
-              id="pf-slug"
-              value={value.slug}
-              maxLength={120}
-              placeholder="folding-chair"
-              onChange={(e) => patch({ slug: e.target.value })}
-              autoComplete="off"
-            />
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <p className="text-xs text-ink-muted">{SLUG_HINT}</p>
-              <button
-                type="button"
-                onClick={autoSlug}
-                className="text-xs font-semibold text-cta hover:underline"
-              >
-                根据名称自动生成
-              </button>
-            </div>
-            <p className="text-xs text-ink-muted">
-              商品网页地址（/products/ 后面那段），只能用小写字母、数字和连字符；保存后不要随意修改，避免旧链接失效。
-            </p>
-          </Field>
-
-          <div className="md:col-span-2">
-            <Field
-              label="Description"
-              htmlFor="pf-description"
-              error={err("description")}
-              hint="英文详情描述（顾客可见），支持换行。材质、颜色、承重、安装方式、核心卖点都写在这里——这些规格前台没有单独的字段。最多 5,000 字符。"
+        {activeTab === "basic" && (
+          <>
+            <Section
+              title="Basic Info"
+              hint="带 * 为必填。前台首屏依次展示：商品名 → Tagline → 评分 → 价格。"
             >
-              <Textarea
-                id="pf-description"
-                rows={6}
-                value={value.description}
-                onChange={(e) => patch({ description: e.target.value })}
-              />
-            </Field>
-          </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field
+                  label="Name *"
+                  htmlFor="pf-name"
+                  error={err("name")}
+                  hint={
+                    <span title="前台展示的英文商品名，也是唯一 H1。建议：品类 + 核心特征 + 规格/层数，如 Foldable Shoe Cabinet 3-Tier with Clear Doors。">
+                      英文商品名（前台唯一 H1）
+                    </span>
+                  }
+                >
+                  <TextInput
+                    id="pf-name"
+                    value={value.name}
+                    maxLength={255}
+                    onChange={(e) => patch({ name: e.target.value })}
+                    autoComplete="off"
+                  />
+                </Field>
 
-          <Field
-            label="Category *"
-            htmlFor="pf-category"
-            error={err("categoryId")}
-            hint="商品的固定归属，决定它出现在哪个分类页。一个商品只能选一个分类；营销分组（新品/热销）在 Collections 页管理。"
-          >
-            <Select
-              id="pf-category"
-              value={value.categoryId}
-              onChange={(e) => patch({ categoryId: e.target.value })}
-            >
-              <option value="" disabled>
-                Select a category…
-              </option>
-              {flatCategories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {"  ".repeat(cat.depth)}
-                  {cat.depth > 0 ? "– " : ""}
-                  {cat.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+                <Field
+                  label="Tagline / Subtitle"
+                  htmlFor="pf-tagline"
+                  error={err("tagline")}
+                  hint={
+                    <span title="一句话卖点，显示在商品名下方。留空则前台不显示这一行。最多 200 字符。">
+                      商品名下的一句话卖点，留空则不显示
+                    </span>
+                  }
+                >
+                  <TextInput
+                    id="pf-tagline"
+                    value={value.tagline}
+                    maxLength={200}
+                    placeholder="Space-saving 3-tier cabinet with clear doors"
+                    onChange={(e) => patch({ tagline: e.target.value })}
+                    autoComplete="off"
+                  />
+                </Field>
 
-          <Field
-            label="Status"
-            htmlFor="pf-status"
-            error={err("status")}
-            hint="DRAFT 草稿只在后台可见；ACTIVE 后前台才能搜到和购买；DISABLED 是临时下架，数据保留。"
-          >
-            <Select
-              id="pf-status"
-              value={value.status}
-              onChange={(e) =>
-                patch({ status: e.target.value as ProductStatus })
+                <div className="md:col-span-2">
+                  <Field
+                    label="Description"
+                    htmlFor="pf-description"
+                    error={err("description")}
+                    hint={
+                      <span title="英文详情描述（顾客可见），支持换行，最多 5,000 字符。只显示在下方 Product Details 区——材质、功能等规格请填到 Specifications 页，不要写在这里。">
+                        详情区开头的短文字；规格请用 Specifications 页
+                      </span>
+                    }
+                  >
+                    <Textarea
+                      id="pf-description"
+                      rows={6}
+                      value={value.description}
+                      onChange={(e) => patch({ description: e.target.value })}
+                    />
+                  </Field>
+                </div>
+
+                <Field
+                  label="Category *"
+                  htmlFor="pf-category"
+                  error={err("categoryId")}
+                  hint={
+                    <span title="商品的固定归属，决定它出现在哪个分类页与面包屑。一个商品只能选一个分类；营销分组（新品/热销）在 Collections 页管理。">
+                      归属分类，决定分类页与面包屑
+                    </span>
+                  }
+                >
+                  <Select
+                    id="pf-category"
+                    value={value.categoryId}
+                    onChange={(e) => patch({ categoryId: e.target.value })}
+                  >
+                    <option value="" disabled>
+                      Select a category…
+                    </option>
+                    {flatCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {"  ".repeat(cat.depth)}
+                        {cat.depth > 0 ? "– " : ""}
+                        {cat.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="Room"
+                  htmlFor="pf-room"
+                  error={err("room")}
+                  hint={
+                    <span title="主要使用空间（单选），用于前台分类页的 Room 筛选；不确定可留空。">
+                      前台 Room 筛选用
+                    </span>
+                  }
+                >
+                  <Select
+                    id="pf-room"
+                    value={value.room}
+                    onChange={(e) => patch({ room: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    {ROOMS.map((r) => (
+                      <option key={r} value={r}>
+                        {ROOM_LABELS[r] ?? r}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="Internal role"
+                  htmlFor="pf-internal-role"
+                  error={err("internalRole")}
+                  hint={
+                    <span title="内部运营定位，不展示给顾客，用于推荐排序：引流款低价拉新，利润款做高客单。">
+                      内部运营定位，前台不显示
+                    </span>
+                  }
+                >
+                  <Select
+                    id="pf-internal-role"
+                    value={value.internalRole}
+                    onChange={(e) => patch({ internalRole: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    {INTERNAL_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABELS[r] ?? r}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="text-sm font-medium text-ink">Solutions</legend>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    卖点标签（可多选），驱动前台 Solution 筛选；不符合的不要勾选。
+                  </p>
+                  <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {SOLUTIONS.map((s) => (
+                      <li key={s}>
+                        <label className="flex items-center gap-2 text-sm text-ink">
+                          <input
+                            type="checkbox"
+                            value={s}
+                            checked={value.solutions.includes(s)}
+                            onChange={(e) => toggleSolution(s, e.target.checked)}
+                            className="h-4 w-4 rounded border-border accent-cta"
+                          />
+                          {SOLUTION_LABELS[s] ?? s}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+              </div>
+            </Section>
+          </>
+        )}
+
+        {activeTab === "media" && (
+          <>
+            <Section
+              title="Product images"
+              hint={
+                <>
+                  卡片可拖动排序（也可用 ↑ ↓）。「设为封面」把图移到第一位 = 前台主图。
+                  建议每商品 4–6 张：白底主图、细节、尺寸图、生活场景图。URL
+                  与排序数字收在「Advanced」里。
+                </>
               }
             >
-              {PRODUCT_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field
-            label="Room"
-            htmlFor="pf-room"
-            error={err("room")}
-            hint="主要使用空间（单选），用于前台分类页的 Room 筛选；不确定可留空。"
-          >
-            <Select
-              id="pf-room"
-              value={value.room}
-              onChange={(e) => patch({ room: e.target.value })}
-            >
-              <option value="">—</option>
-              {ROOMS.map((r) => (
-                <option key={r} value={r}>
-                  {ROOM_LABELS[r] ?? r}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field
-            label="Internal role"
-            htmlFor="pf-internal-role"
-            error={err("internalRole")}
-            hint="内部运营定位，不直接展示给顾客，用于推荐排序：引流款低价拉新，利润款做高客单。"
-          >
-            <Select
-              id="pf-internal-role"
-              value={value.internalRole}
-              onChange={(e) => patch({ internalRole: e.target.value })}
-            >
-              <option value="">—</option>
-              {INTERNAL_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r] ?? r}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <fieldset className="md:col-span-2">
-            <legend className="text-sm font-medium text-ink">Solutions</legend>
-            <p className="mt-1 text-xs text-ink-muted">
-              卖点标签（可多选），驱动前台分类页的 Solution 筛选；不符合的不要勾选。
-            </p>
-            <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {SOLUTIONS.map((s) => (
-                <li key={s}>
-                  <label className="flex items-center gap-2 text-sm text-ink">
-                    <input
-                      type="checkbox"
-                      value={s}
-                      checked={value.solutions.includes(s)}
-                      onChange={(e) => toggleSolution(s, e.target.checked)}
-                      className="h-4 w-4 rounded border-border accent-cta"
-                    />
-                    {SOLUTION_LABELS[s] ?? s}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
-        </div>
-      </Section>
-
-      {/* ---------------- Dimensions ---------------- */}
-      <Section
-        title="Dimensions"
-        hint="商品尺寸，全部以厘米 cm 填写。填写后前台商品页自动出现 Size guide；不适用的项目留空即可。可折叠商品建议同时填折叠后尺寸（也是折叠结构的勾选依据）。"
-      >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {DIMENSION_FIELDS.map(({ key, label, hint }) => (
-            <Field
-              key={key}
-              label={label}
-              htmlFor={`pf-${key}`}
-              error={err(key)}
-              hint={hint}
-            >
-              <TextInput
-                id={`pf-${key}`}
-                inputMode="decimal"
-                placeholder="选填"
-                value={value[key]}
-                onChange={(e) => patch({ [key]: e.target.value })}
-                autoComplete="off"
-              />
-            </Field>
-          ))}
-        </div>
-      </Section>
-
-      {/* ---------------- Images ---------------- */}
-      <Section
-        title="Images"
-        hint={
-          <>
-            可直接粘贴图片网址，或点「上传图片」从电脑选图（JPG/PNG/WebP，单张不超过
-            5MB）。Sort 数字最小的是主图；建议 4–6
-            张：白底主图、细节、尺寸图、生活场景图，不要带中文水印。
-          </>
-        }
-      >
-        {value.images.length === 0 ? (
-          <p className="text-sm text-ink-muted">还没有图片，点下方按钮添加第一张（主图）。</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {value.images.map((img, i) => (
-              <li
-                key={i}
-                className="grid gap-3 md:grid-cols-[1fr_220px_110px_auto] md:items-end"
+              {value.images.length === 0 ? (
+                <p className="text-sm text-ink-muted">
+                  还没有图片，点下方按钮添加第一张（主图）。
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {value.images.map((img, i) => {
+                    const sortNum = Number(img.sortOrder.trim() || "0") || 0;
+                    const isCover = value.images.length > 0 && sortNum === coverSortOrder;
+                    return (
+                      <li
+                        key={i}
+                        draggable
+                        onDragStart={(e) => {
+                          dragFrom.current = i;
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragFrom.current !== null) moveImageTo(dragFrom.current, i);
+                          dragFrom.current = null;
+                        }}
+                        className={`rounded-lg bg-background p-3 ${
+                          isCover ? "ring-1 ring-cta" : ""
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {/* Thumbnail; empty until a URL is set. */}
+                          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-border bg-card">
+                            {img.url.trim() ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={img.url}
+                                alt=""
+                                className="h-full w-full object-cover"
+                                draggable={false}
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-ink-muted">
+                                无图
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isCover ? (
+                                <span className="rounded-full bg-cta px-2 py-0.5 text-xs font-semibold text-white">
+                                  封面
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setCoverImage(i)}
+                                  disabled={pending}
+                                  className="text-xs font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
+                                >
+                                  设为封面
+                                </button>
+                              )}
+                              <span className="text-xs text-ink-muted">
+                                拖动卡片或用 ↑ ↓ 排序
+                              </span>
+                            </div>
+                            <div className="mt-2">
+                              <Field
+                                label={i === 0 ? "Alt text" : ""}
+                                htmlFor={`pf-images-${i}-alt`}
+                                error={err(`images.${i}.altText`)}
+                                hint={
+                                  i === 0
+                                    ? "图片文字描述（英文即可），SEO 用。"
+                                    : undefined
+                                }
+                              >
+                                <TextInput
+                                  id={`pf-images-${i}-alt`}
+                                  aria-label={
+                                    i === 0 ? undefined : `Image ${i + 1} alt text`
+                                  }
+                                  value={img.altText}
+                                  onChange={(e) =>
+                                    setImage(i, { altText: e.target.value })
+                                  }
+                                  autoComplete="off"
+                                />
+                              </Field>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-3">
+                              <button
+                                type="button"
+                                className={removeBtnCls}
+                                onClick={() => moveImage(i, -1)}
+                                disabled={pending || i === 0}
+                                aria-label={`Move image ${i + 1} up`}
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                className={removeBtnCls}
+                                onClick={() => moveImage(i, 1)}
+                                disabled={pending || i === value.images.length - 1}
+                                aria-label={`Move image ${i + 1} down`}
+                              >
+                                ↓
+                              </button>
+                              <button
+                                type="button"
+                                className={removeBtnCls}
+                                onClick={() => removeImage(i)}
+                                disabled={pending}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            {/* URL + numeric sort live here, not in the
+                                main card — the card UI is the primary
+                                editing surface. */}
+                            <details className="mt-2">
+                              <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
+                                Advanced（图片网址 / 排序数字）
+                              </summary>
+                              <div className="mt-2 grid gap-3 md:grid-cols-[1fr_110px] md:items-end">
+                                <Field
+                                  label="URL"
+                                  htmlFor={`pf-images-${i}-url`}
+                                  error={err(`images.${i}.url`)}
+                                >
+                                  <ImageUrlInput
+                                    id={`pf-images-${i}-url`}
+                                    ariaLabel={`Image ${i + 1} URL`}
+                                    value={img.url}
+                                    onChange={(url) => setImage(i, { url })}
+                                    disabled={pending}
+                                  />
+                                </Field>
+                                <Field
+                                  label="Sort"
+                                  htmlFor={`pf-images-${i}-sort`}
+                                  error={err(`images.${i}.sortOrder`)}
+                                >
+                                  <TextInput
+                                    id={`pf-images-${i}-sort`}
+                                    aria-label={`Image ${i + 1} sort order`}
+                                    inputMode="numeric"
+                                    value={img.sortOrder}
+                                    onChange={(e) =>
+                                      setImage(i, { sortOrder: e.target.value })
+                                    }
+                                    autoComplete="off"
+                                  />
+                                </Field>
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                className="mt-4"
+                onClick={addImage}
+                disabled={pending}
               >
-                <Field
-                  label={i === 0 ? "URL" : ""}
-                  htmlFor={`pf-images-${i}-url`}
-                  error={err(`images.${i}.url`)}
-                  hint={i === 0 ? "图片网址，必须是可直接打开的图片链接。" : undefined}
-                >
-                  <ImageUrlInput
-                    id={`pf-images-${i}-url`}
-                    // Row 0 has the visible Field label; later rows must
-                    // still expose an accessible name (spec §12) — Field's
-                    // label prop is string-only, so use aria-label (wins the
-                    // accessible-name computation over the empty wrapper).
-                    ariaLabel={i === 0 ? undefined : `Image ${i + 1} URL`}
-                    value={img.url}
-                    onChange={(url) => setImage(i, { url })}
-                    disabled={pending}
-                  />
-                </Field>
-                <Field
-                  label={i === 0 ? "Alt text" : ""}
-                  htmlFor={`pf-images-${i}-alt`}
-                  error={err(`images.${i}.altText`)}
-                  hint={i === 0 ? "图片文字描述（英文即可），SEO 用。" : undefined}
-                >
-                  <TextInput
-                    id={`pf-images-${i}-alt`}
-                    aria-label={
-                      i === 0 ? undefined : `Image ${i + 1} alt text`
-                    }
-                    value={img.altText}
-                    onChange={(e) => setImage(i, { altText: e.target.value })}
-                    autoComplete="off"
-                  />
-                </Field>
-                <Field
-                  label={i === 0 ? "Sort" : ""}
-                  htmlFor={`pf-images-${i}-sort`}
-                  error={err(`images.${i}.sortOrder`)}
-                  hint={i === 0 ? "0 为主图" : undefined}
-                >
-                  <TextInput
-                    id={`pf-images-${i}-sort`}
-                    aria-label={
-                      i === 0 ? undefined : `Image ${i + 1} sort order`
-                    }
-                    inputMode="numeric"
-                    value={img.sortOrder}
-                    onChange={(e) =>
-                      setImage(i, { sortOrder: e.target.value })
-                    }
-                    autoComplete="off"
-                  />
-                </Field>
-                <button
-                  type="button"
-                  className={removeBtnCls}
-                  onClick={() => removeImage(i)}
-                  disabled={pending}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <Button
-          type="button"
-          variant="secondary"
-          size="md"
-          className="mt-4"
-          onClick={addImage}
-          disabled={pending}
-        >
-          Add image
-        </Button>
-      </Section>
+                Add image
+              </Button>
+            </Section>
 
       {/* ---------------- Detail blocks (description body) ---------------- */}
       <Section
@@ -1331,199 +1652,233 @@ export function ProductForm({
           </Button>
         </div>
 
-        {/* Preview: the same component the storefront PDP renders, fed with the
-            blocks currently in this form. */}
-        <div className="mt-6 border-t border-border pt-4">
-          <h3 className="text-sm font-semibold text-ink">预览</h3>
-          <div className="mt-3 flex flex-col gap-5">
-            <LivePreview>
-              <ProductDetailBody
-                description={value.description}
-                blocks={value.detailBlocks.map((block) => ({
-                  type: block.type,
-                  url: block.url,
-                  altText: block.altText,
-                }))}
-              />
-            </LivePreview>
-            {value.slug.trim() ? (
-              <div className="border-t border-border pt-4">
-                <h4 className="text-xs font-semibold text-ink-secondary">
-                  整页预览（已保存版本，商品详情页）
-                </h4>
-                <div className="mt-3">
-                  <StorefrontPreview path={`/products/${value.slug.trim()}`} />
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-ink-muted">
-                整页预览需要先保存：填好 Slug 并保存后，这里会显示商品详情页的真实效果。
-              </p>
-            )}
-          </div>
-        </div>
-      </Section>
+          </Section>
+            </>
+          )}
 
-      {/* ---------------- Variants & SKUs ---------------- */}
-      <Section
-        title="Variants & SKUs"
-        hint="款式 = 顾客可选择的颜色/规格。每个款式对应一个 SKU；一款商品至少要有 1 个勾选了 Has SKU 的款式，保存后才能到 Inventory 页入库并销售。即使只有一种颜色也建议建 1 个款式（名字可填 Default）。"
-      >
-        {value.variants.length === 0 ? (
-          <p className="text-sm text-ink-muted">
-            还没有款式。点下方 Add variant 添加；可销售商品至少需要 1 个带 SKU 的款式。
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-4">
-            {value.variants.map((vr, i) => (
-              <li
-                key={i}
-                className="rounded-lg border border-border p-4"
+          {activeTab === "specs" && (
+            <>
+              <Section
+                title="Dimensions"
+                hint="全部以厘米 cm 填写。填写后前台 Specifications 自动展示尺寸；可折叠商品建议同时填折叠后尺寸。"
               >
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-sm font-semibold text-ink">
-                    Variant {i + 1}
-                  </h3>
-                  <button
-                    type="button"
-                    className="text-sm font-semibold text-red-700 hover:underline disabled:text-ink-muted disabled:no-underline"
-                    onClick={() => removeVariant(i)}
-                    disabled={pending}
-                  >
-                    Remove
-                  </button>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {DIMENSION_FIELDS.map(({ key, label, hint }) => (
+                    <Field
+                      key={key}
+                      label={label}
+                      htmlFor={`pf-${key}`}
+                      error={err(key)}
+                      hint={hint}
+                    >
+                      <TextInput
+                        id={`pf-${key}`}
+                        inputMode="decimal"
+                        placeholder="选填"
+                        value={value[key]}
+                        onChange={(e) => patch({ [key]: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  ))}
                 </div>
+              </Section>
 
-                <div className="mt-3 grid gap-4 md:grid-cols-[1fr_140px]">
-                  <Field
-                    label="Variant name *"
-                    htmlFor={`pf-variants-${i}-name`}
-                    error={err(`variants.${i}.name`)}
-                    hint="款式名 = 前台商品卡上的款式按钮文字，通常填颜色，如 White / Black；只有一款可填 Default。"
-                  >
-                    <TextInput
-                      id={`pf-variants-${i}-name`}
-                      value={vr.name}
-                      placeholder="Default"
-                      onChange={(e) =>
-                        setVariant(i, { name: e.target.value })
-                      }
-                      autoComplete="off"
-                    />
-                  </Field>
-                  <Field
-                    label="Position"
-                    htmlFor={`pf-variants-${i}-position`}
-                    error={err(`variants.${i}.position`)}
-                    hint="显示顺序，0 起"
-                  >
-                    <TextInput
-                      id={`pf-variants-${i}-position`}
-                      inputMode="numeric"
-                      value={vr.position}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setVariant(i, { position: e.target.value })
-                      }
-                      autoComplete="off"
-                    />
-                  </Field>
-                </div>
-
-                <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink">
-                  <input
-                    type="checkbox"
-                    id={`pf-variants-${i}-has-sku`}
-                    checked={vr.sku !== null}
-                    onChange={(e) =>
-                      setVariant(i, {
-                        sku: e.target.checked ? emptySkuFormValue() : null,
-                      })
-                    }
-                    className="h-4 w-4 rounded border-border accent-cta"
-                    disabled={pending}
+              <Section
+                title="Materials"
+                hint="材质说明（如 Solid wood frame, MDF panels）。前台 Specifications 自动读取，不要写进 Description。留空则不显示。"
+              >
+                <Field label="Materials" htmlFor="pf-materials" error={err("materials")}>
+                  <Textarea
+                    id="pf-materials"
+                    rows={3}
+                    value={value.materials}
+                    maxLength={1000}
+                    onChange={(e) => patch({ materials: e.target.value })}
                   />
-                  <span>
-                    Has SKU
-                    <span className="font-normal text-ink-muted">
-                      {" "}
-                      — 勾选后才能填价格、入库销售；不勾选时该款式在前台只显示 View Details
-                    </span>
-                  </span>
-                </label>
+                </Field>
+              </Section>
 
-                {vr.sku ? (
-                  <div className="mt-4 border-t border-border pt-4">
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      <Field
-                        label="SKU code *"
-                        htmlFor={`pf-variants-${i}-sku-code`}
-                        error={err(`variants.${i}.sku.skuCode`)}
-                        hint="内部库存编码，全店唯一。建议规则：品牌-品类-款式，如 LWG-SHOE3-WHT。"
-                      >
+              <Section
+                title="Features"
+                hint="功能点列表，一行一条（前台显示为 ✓ 短句）。用 ↑ ↓ 调整顺序；留空则整块不显示。"
+              >
+                {value.features.length === 0 ? (
+                  <p className="text-sm text-ink-muted">
+                    还没有功能点，点下方按钮添加第一条。
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {value.features.map((line, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <span aria-hidden className="w-5 shrink-0 text-center text-sm font-semibold text-cta">
+                          ✓
+                        </span>
                         <TextInput
-                          id={`pf-variants-${i}-sku-code`}
-                          value={vr.sku.skuCode}
-                          onChange={(e) =>
-                            setSku(i, { skuCode: e.target.value })
-                          }
+                          aria-label={`Feature ${i + 1}`}
+                          value={line}
+                          maxLength={200}
+                          onChange={(e) => setFeatureLine(i, e.target.value)}
                           autoComplete="off"
                         />
-                      </Field>
-                      <Field
-                        label="SKU status"
-                        htmlFor={`pf-variants-${i}-sku-status`}
-                        error={err(`variants.${i}.sku.status`)}
-                        hint="ACTIVE 可售；DISABLED 停售（数据保留）。"
-                      >
-                        <Select
-                          id={`pf-variants-${i}-sku-status`}
-                          value={vr.sku.status}
-                          onChange={(e) =>
-                            setSku(i, {
-                              status: e.target.value as SkuFormValue["status"],
-                            })
-                          }
+                        <button
+                          type="button"
+                          className={removeBtnCls}
+                          onClick={() => moveFeatureLine(i, -1)}
+                          disabled={pending || i === 0}
+                          aria-label={`Move feature ${i + 1} up`}
                         >
-                          {SKU_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <Field
-                        label="Supplier SKU"
-                        htmlFor={`pf-variants-${i}-supplier-sku`}
-                        error={err(`variants.${i}.sku.supplierSku`)}
-                        hint="工厂货号/型号（如 2786-3），内部使用，前台不显示。"
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className={removeBtnCls}
+                          onClick={() => moveFeatureLine(i, 1)}
+                          disabled={pending || i === value.features.length - 1}
+                          aria-label={`Move feature ${i + 1} down`}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className={removeBtnCls}
+                          onClick={() => removeFeatureLine(i)}
+                          disabled={pending}
+                          aria-label={`Remove feature ${i + 1}`}
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="mt-3"
+                  onClick={addFeatureLine}
+                  disabled={pending}
+                >
+                  Add feature
+                </Button>
+              </Section>
+            </>
+          )}
+
+        {activeTab === "variants" && (
+          <Section
+            title="Variants & Pricing"
+            hint="款式 = 顾客可选择的颜色/规格。每个款式对应一个 SKU；至少 1 个勾选 Has SKU 的款式才能销售。包装/重量等物流字段在 Shipping 页统一填写。"
+          >
+            {value.variants.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                还没有款式。点下方 Add variant 添加；可销售商品至少需要 1 个带 SKU 的款式。
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {value.variants.map((vr, i) => (
+                  <li key={i} className="rounded-lg bg-background p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <h3 className="text-sm font-semibold text-ink">
+                        {vr.name.trim() || `Variant ${i + 1}`}
+                      </h3>
+                      <button
+                        type="button"
+                        className="text-sm font-semibold text-red-700 hover:underline disabled:text-ink-muted disabled:no-underline"
+                        onClick={() => removeVariant(i)}
+                        disabled={pending}
                       >
-                        <TextInput
-                          id={`pf-variants-${i}-supplier-sku`}
-                          value={vr.sku.supplierSku}
-                          onChange={(e) =>
-                            setSku(i, { supplierSku: e.target.value })
-                          }
-                          autoComplete="off"
-                        />
-                      </Field>
-                      <Field
-                        label="Cost currency"
-                        htmlFor={`pf-variants-${i}-cost-currency`}
-                        error={err(`variants.${i}.sku.costCurrency`)}
-                        hint="成本货币代码，如 CNY。不影响售价——售价固定为 PHP ₱。"
-                      >
-                        <TextInput
-                          id={`pf-variants-${i}-cost-currency`}
-                          value={vr.sku.costCurrency}
-                          placeholder="CNY"
-                          onChange={(e) =>
-                            setSku(i, { costCurrency: e.target.value })
-                          }
-                          autoComplete="off"
-                        />
-                      </Field>
+                        Remove
+                      </button>
                     </div>
+
+                    {/* Default-visible fields: name, price, compare-at. */}
+                    <div className="mt-3 grid gap-4 md:grid-cols-3">
+                      <Field
+                        label="Variant name *"
+                        htmlFor={`pf-variants-${i}-name`}
+                        error={err(`variants.${i}.name`)}
+                        hint="前台款式按钮文字，通常填颜色；只有一款可填 Default。"
+                      >
+                        <TextInput
+                          id={`pf-variants-${i}-name`}
+                          value={vr.name}
+                          placeholder="Default"
+                          onChange={(e) =>
+                            setVariant(i, { name: e.target.value })
+                          }
+                          autoComplete="off"
+                        />
+                      </Field>
+                      {vr.sku ? renderSkuField(i, "price") : null}
+                      {vr.sku ? renderSkuField(i, "compareAtPrice") : null}
+                    </div>
+
+                    <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink">
+                      <input
+                        type="checkbox"
+                        id={`pf-variants-${i}-has-sku`}
+                        checked={vr.sku !== null}
+                        onChange={(e) =>
+                          setVariant(i, {
+                            sku: e.target.checked ? emptySkuFormValue() : null,
+                          })
+                        }
+                        className="h-4 w-4 rounded border-border accent-cta"
+                        disabled={pending}
+                      />
+                      <span>
+                        Has SKU
+                        <span className="font-normal text-ink-muted">
+                          {" "}
+                          — 勾选后才能填价格、入库销售；不勾选时该款式在前台只显示 View Details
+                        </span>
+                      </span>
+                    </label>
+
+                    {vr.sku ? (
+                      <div className="mt-4 border-t border-border pt-4">
+                        {/* Default-visible: SKU code, status, stock. */}
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          <Field
+                            label="SKU code *"
+                            htmlFor={`pf-variants-${i}-sku-code`}
+                            error={err(`variants.${i}.sku.skuCode`)}
+                            hint="内部库存编码，全店唯一。"
+                          >
+                            <TextInput
+                              id={`pf-variants-${i}-sku-code`}
+                              value={vr.sku.skuCode}
+                              onChange={(e) =>
+                                setSku(i, { skuCode: e.target.value })
+                              }
+                              autoComplete="off"
+                            />
+                          </Field>
+                          <Field
+                            label="SKU status"
+                            htmlFor={`pf-variants-${i}-sku-status`}
+                            error={err(`variants.${i}.sku.status`)}
+                            hint="ACTIVE 可售；DISABLED 停售（数据保留）。"
+                          >
+                            <Select
+                              id={`pf-variants-${i}-sku-status`}
+                              value={vr.sku.status}
+                              onChange={(e) =>
+                                setSku(i, {
+                                  status: e.target.value as SkuFormValue["status"],
+                                })
+                              }
+                            >
+                              {SKU_STATUSES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </Select>
+                          </Field>
+                        </div>
 
                     {/* Stock lives in its own table, which is why the product
                         form could not see it before. The figure shown is what
@@ -1560,49 +1915,272 @@ export function ProductForm({
                       </div>
                     </div>
 
-                    {SKU_FIELD_GROUPS.map((group) => (
-                      <div key={group.title} className="mt-4">
-                        <p className="text-xs font-semibold text-ink-secondary">
-                          {group.title}
-                        </p>
-                        {group.hint ? (
-                          <p className="mt-0.5 text-xs text-ink-muted">
-                            {group.hint}
+                        {/* Advanced: position, supplier refs, internal costs.
+                            Logistics fields live on the Shipping tab. */}
+                        <details className="mt-4">
+                          <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
+                            Advanced inventory &amp; logistics
+                          </summary>
+                          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <Field
+                              label="Position"
+                              htmlFor={`pf-variants-${i}-position`}
+                              error={err(`variants.${i}.position`)}
+                              hint="显示顺序，0 起"
+                            >
+                              <TextInput
+                                id={`pf-variants-${i}-position`}
+                                inputMode="numeric"
+                                value={vr.position}
+                                placeholder="0"
+                                onChange={(e) =>
+                                  setVariant(i, { position: e.target.value })
+                                }
+                                autoComplete="off"
+                              />
+                            </Field>
+                            <Field
+                              label="Supplier SKU"
+                              htmlFor={`pf-variants-${i}-supplier-sku`}
+                              error={err(`variants.${i}.sku.supplierSku`)}
+                              hint="工厂货号/型号，内部使用，前台不显示。"
+                            >
+                              <TextInput
+                                id={`pf-variants-${i}-supplier-sku`}
+                                value={vr.sku.supplierSku}
+                                onChange={(e) =>
+                                  setSku(i, { supplierSku: e.target.value })
+                                }
+                                autoComplete="off"
+                              />
+                            </Field>
+                            <Field
+                              label="Cost currency"
+                              htmlFor={`pf-variants-${i}-cost-currency`}
+                              error={err(`variants.${i}.sku.costCurrency`)}
+                              hint="成本货币代码，如 CNY。售价固定为 PHP ₱。"
+                            >
+                              <TextInput
+                                id={`pf-variants-${i}-cost-currency`}
+                                value={vr.sku.costCurrency}
+                                placeholder="CNY"
+                                onChange={(e) =>
+                                  setSku(i, { costCurrency: e.target.value })
+                                }
+                                autoComplete="off"
+                              />
+                            </Field>
+                            {renderSkuField(i, "supplierCost")}
+                            {renderSkuField(i, "landedCost")}
+                          </div>
+                        </details>
+
+                        {/* Stock lives in its own table, which is why the product
+                            form could not see it before. The figure shown is what
+                            the form last read and it is saved back as an absolute
+                            value, so a stale copy cannot corrupt the count the way
+                            a client-computed delta would. */}
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold text-ink-secondary">
+                            Stock 库存
                           </p>
-                        ) : null}
-                        <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                          {group.keys.map((key) => renderSkuField(i, key))}
+                          <p className="mt-0.5 text-xs text-ink-muted">
+                            可售数量，保存商品时一并写入，后台保留库存流水。
+                          </p>
+                          <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <Field
+                              label="Stock 库存"
+                              htmlFor={`pf-variants-${i}-stock`}
+                              hint={
+                                !vr.sku.id
+                                  ? "SKU 尚未创建：保存后会按这里的数量写入库存。"
+                                  : vr.sku.reserved !== "0"
+                                    ? `已有 ${vr.sku.reserved} 件被未完成订单占用，库存不能低于该数。`
+                                    : "当前无订单占用。"
+                              }
+                            >
+                              <TextInput
+                                id={`pf-variants-${i}-stock`}
+                                inputMode="numeric"
+                                value={vr.sku.stock}
+                                onChange={(e) => setSku(i, { stock: e.target.value })}
+                                autoComplete="off"
+                              />
+                            </Field>
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              className="mt-4"
+              onClick={addVariant}
+              disabled={pending}
+            >
+              Add variant
+            </Button>
+          </Section>
         )}
-        <Button
-          type="button"
-          variant="secondary"
-          size="md"
-          className="mt-4"
-          onClick={addVariant}
-          disabled={pending}
-        >
-          Add variant
-        </Button>
-      </Section>
 
-      <div className="mt-6 flex items-center gap-3">
-        <Button
-          type="submit"
-          variant="primary"
-          size="md"
-          disabled={pending}
-          aria-busy={pending}
-        >
-          {pending ? "Saving…" : submitLabel}
-        </Button>
+        {activeTab === "shipping" && (
+          <Section
+            title="Shipping — 包装与重量"
+            hint="按 SKU 填写，仅用于发货/运费核算，前台不显示；可先留空，发货前补齐。与 Variants 页的 Advanced 存的是同一份数据。"
+          >
+            {value.variants.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                还没有款式——先到 Variants &amp; Pricing 页添加。
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {value.variants.map((vr, i) => (
+                  <li key={i} className="rounded-lg bg-background p-4">
+                    <p className="text-sm font-semibold text-ink">
+                      {vr.name.trim() || `Variant ${i + 1}`}
+                      {vr.sku?.skuCode.trim() ? (
+                        <span className="ml-2 font-normal text-ink-muted">
+                          {vr.sku.skuCode.trim()}
+                        </span>
+                      ) : null}
+                    </p>
+                    {vr.sku ? (
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {SHIPPING_SKU_KEYS.map((key) => renderSkuField(i, key))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-muted">
+                        该款式未启用 SKU，无物流字段。
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        )}
+
+        {activeTab === "seo" && (
+          <Section
+            title="SEO"
+            hint="商品网页地址与搜索结果预览。图片 Alt text 在 Media 页每张图上填写。"
+          >
+            <Field label="Slug *" htmlFor="pf-slug" error={err("slug")}>
+              <TextInput
+                id="pf-slug"
+                value={value.slug}
+                maxLength={120}
+                placeholder="folding-chair"
+                onChange={(e) => patch({ slug: e.target.value })}
+                autoComplete="off"
+              />
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="text-xs text-ink-muted">{SLUG_HINT}</p>
+                <button
+                  type="button"
+                  onClick={autoSlug}
+                  className="text-xs font-semibold text-cta hover:underline"
+                >
+                  根据名称自动生成
+                </button>
+              </div>
+              <p className="text-xs text-ink-muted">
+                保存后不要随意修改，避免旧链接失效。
+              </p>
+            </Field>
+
+            <div className="mt-6">
+              <p className="text-xs font-semibold text-ink-secondary">
+                搜索结果预览（示意）
+              </p>
+              <div className="mt-2 max-w-xl rounded-lg bg-background p-4">
+                <p className="truncate text-sm font-semibold text-[#1a0dab]">
+                  {value.name.trim() || "Product name"} | LUWAG Living
+                </p>
+                <p className="truncate text-xs text-[#006621]">
+                  luwag.ph/products/{value.slug.trim() || "your-slug"}
+                </p>
+                <p className="mt-1 line-clamp-2 text-xs text-ink-secondary">
+                  {(value.tagline.trim() || value.description.trim() || "暂无描述——填好 Tagline 或 Description 后这里显示摘要。").slice(0, 160)}
+                </p>
+              </div>
+            </div>
+
+            {value.images.some((img) => img.altText.trim()) ? (
+              <div className="mt-6">
+                <p className="text-xs font-semibold text-ink-secondary">
+                  图片 Alt text 概览
+                </p>
+                <ul className="mt-2 flex flex-col gap-1 text-xs text-ink-muted">
+                  {value.images.map((img, i) =>
+                    img.altText.trim() ? (
+                      <li key={i}>
+                        Image {i + 1}: {img.altText.trim()}
+                      </li>
+                    ) : null,
+                  )}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-6 text-xs text-ink-muted">
+                还没有填任何图片 Alt text——到 Media 页补齐，利于 SEO 与无障碍。
+              </p>
+            )}
+          </Section>
+        )}
+
+        {activeTab === "preview" && (
+          <Section
+            title="Preview"
+            hint="左边是本表单当前内容的实时预览；整页预览显示已保存版本，需先保存。"
+          >
+            <div className="flex flex-col gap-5">
+              <LivePreview>
+                <ProductDetailBody
+                  description={value.description}
+                  blocks={value.detailBlocks.map((block) => ({
+                    type: block.type,
+                    url: block.url,
+                    altText: block.altText,
+                  }))}
+                />
+                <ProductSpecs
+                  product={{
+                    width: previewNumber(value.width),
+                    height: previewNumber(value.height),
+                    depth: previewNumber(value.depth),
+                    foldedWidth: previewNumber(value.foldedWidth),
+                    foldedHeight: previewNumber(value.foldedHeight),
+                    foldedDepth: previewNumber(value.foldedDepth),
+                    materials: value.materials.trim() || null,
+                    features:
+                      value.features.map((l) => l.trim()).filter(Boolean).join("\n") ||
+                      null,
+                  }}
+                />
+              </LivePreview>
+              {value.slug.trim() ? (
+                <div className="border-t border-border pt-4">
+                  <h4 className="text-xs font-semibold text-ink-secondary">
+                    整页预览（已保存版本，商品详情页）
+                  </h4>
+                  <div className="mt-3">
+                    <StorefrontPreview path={`/products/${value.slug.trim()}`} />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  整页预览需要先保存：填好 Slug 并保存后，这里会显示商品详情页的真实效果。
+                </p>
+              )}
+            </div>
+          </Section>
+        )}
       </div>
     </form>
   );

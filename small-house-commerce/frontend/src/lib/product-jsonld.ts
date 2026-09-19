@@ -9,7 +9,8 @@ export function absoluteUrl(url: string): string {
 /** Product (+ BreadcrumbList) JSON-LD. Omit fields we cannot populate honestly. */
 export function buildProductJsonLd(
   product: Product,
-  category: { name: string; slug: string } | null,
+  /** Full root→leaf category chain (auto-generated from the tree, not hand-entered). */
+  categoryChain: { name: string; slug: string }[] | null,
 ): Record<string, unknown> {
   const pageUrl = `${SITE_URL}/products/${product.slug}`;
   const images = [...product.images]
@@ -59,14 +60,17 @@ export function buildProductJsonLd(
     image: images.length > 0 ? images : undefined,
     sku: sellableSkus[0]?.skuCode,
     brand: { "@type": "Brand", name: "LUWAG Living" },
-    category: category?.name,
+    category: categoryChain?.[categoryChain.length - 1]?.name,
     offers,
     aggregateRating,
   };
 
   const crumbs = [
     { name: "Home", url: SITE_URL },
-    ...(category ? [{ name: category.name, url: `${SITE_URL}/categories/${category.slug}` }] : []),
+    ...(categoryChain ?? []).map((crumb) => ({
+      name: crumb.name,
+      url: `${SITE_URL}/categories/${crumb.slug}`,
+    })),
     { name: product.name, url: pageUrl },
   ];
   const breadcrumbLd = {

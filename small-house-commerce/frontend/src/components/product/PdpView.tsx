@@ -2,12 +2,14 @@ import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
 import { PdpInfoSections } from "./PdpInfoSections";
 import { ProductDetailBody } from "./ProductDetailBody";
+import { ProductSpecs } from "./ProductSpecs";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { fetchSiteSettings } from "@/lib/site-settings";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import type { Product } from "@/lib/api";
+import type { CategoryCrumb } from "@/app/(storefront)/products/[slug]/page";
 
 /**
  * Shared PDP body for both /products/[slug] and /lp/[slug]. The LP route
@@ -24,7 +26,8 @@ export async function PdpView({
   productPath,
 }: {
   product: Product;
-  category: { name: string; slug: string } | null;
+  /** Full root→leaf breadcrumb chain, auto-generated from the category tree. */
+  category: CategoryCrumb[] | null;
   delivery: DeliveryWindows;
   related: Product[];
   jsonLd: unknown;
@@ -79,6 +82,7 @@ export async function PdpView({
           description={product.description}
           blocks={detailBlocks}
         />
+        <ProductSpecs product={product} />
         <PdpInfoSections
           supportEmail={settings.supportEmail}
           supportHours={settings.supportHours}

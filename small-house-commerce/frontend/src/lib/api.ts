@@ -116,6 +116,8 @@ export interface Product {
   name: string;
   slug: string;
   description: string | null;
+  /** First-screen one-line selling point under the H1; null/empty hides it. */
+  tagline: string | null;
   categoryId: string;
   ratingAverage: number | null;
   reviewCount: number;
@@ -130,6 +132,12 @@ export interface Product {
   foldedWidth: number | null;
   foldedHeight: number | null;
   foldedDepth: number | null;
+  /**
+   * Structured specifications; only the PDP endpoint selects them.
+   * `features` is one entry per line.
+   */
+  materials?: string | null;
+  features?: string | null;
   images: ProductImage[];
   /**
    * Description-body blocks. Only the PDP endpoint selects them (list routes

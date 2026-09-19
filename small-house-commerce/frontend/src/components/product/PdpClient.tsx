@@ -49,7 +49,8 @@ export function PdpClient({
   promoSlot,
 }: {
   product: Product;
-  category: { name: string; slug: string } | null;
+  /** Full root→leaf breadcrumb chain, auto-generated from the category tree. */
+  category: { name: string; slug: string }[] | null;
   delivery: DeliveryWindows;
   /** Base path for ?variant= sync; LP pages pass /lp/<slug>, PDP defaults to /products/<slug>. */
   productPath?: string;
@@ -206,6 +207,28 @@ export function PdpClient({
 
   return (
     <>
+      {/* Breadcrumb sits above the whole first screen, left-aligned with the
+          gallery (auto-generated from the category tree, never hand-entered).
+          On mobile it stacks above the gallery too. */}
+      <nav aria-label="Breadcrumb" className="mb-4 text-xs text-ink-muted">
+        <Link href="/" className="hover:text-cta">Home</Link>
+        {(category ?? []).map((crumb) => (
+          <span key={crumb.slug}>
+            {" › "}
+            <Link
+              href={`/categories/${crumb.slug}`}
+              className="text-ink-secondary hover:text-cta"
+            >
+              {crumb.name}
+            </Link>
+          </span>
+        ))}
+        {" › "}
+        <span className="text-ink-secondary">{product.name}</span>
+      </nav>
+
+      {promoSlot}
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <ProductGallery
           images={images}
@@ -215,29 +238,9 @@ export function PdpClient({
         />
 
         <div className="flex flex-col gap-4">
-          {/* Breadcrumb */}
-          <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
-            <Link href="/" className="hover:text-cta">Home</Link>
-            {category && (
-              <>
-                {" › "}
-                <Link
-                  href={`/categories/${category.slug}`}
-                  className="text-ink-secondary hover:text-cta"
-                >
-                  {category.name}
-                </Link>
-              </>
-            )}
-            {" › "}
-            <span className="text-ink-secondary">{product.name}</span>
-          </nav>
-
-          {promoSlot}
-
           {/* Name row; quick-add glyph replaces the wishlist heart on mobile */}
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-2xl font-semibold text-ink sm:text-3xl">{product.name}</h1>
+            <h1 className="text-product-title font-semibold text-ink lg:text-product-title-desktop">{product.name}</h1>
             <button
               type="button"
               onClick={() => addToCart(1)}
@@ -248,6 +251,13 @@ export function PdpClient({
               <CartGlyph />
             </button>
           </div>
+
+          {/* Subtitle (one-line selling point); hidden entirely when empty. */}
+          {product.tagline?.trim() && (
+            <p className="text-product-subtitle text-ink-secondary lg:text-product-subtitle-desktop">
+              {product.tagline}
+            </p>
+          )}
 
           {ratingRow}
 

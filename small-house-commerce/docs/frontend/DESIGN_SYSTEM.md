@@ -410,7 +410,7 @@ Desktop:
 
 
 
-40px
+40px (hero) / 34px (product title — tokens `text-product-title-desktop`)
 
 Weight:
 
@@ -423,7 +423,7 @@ Mobile:
 
 
 
-32px
+32px (hero) / 26px (product title — token `text-product-title`)
 
 Weight:
 

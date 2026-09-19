@@ -347,6 +347,8 @@ export interface AdminProduct {
   name: string;
   slug: string;
   description: string | null;
+  /** First-screen one-line selling point under the H1; null/empty hides it. */
+  tagline: string | null;
   categoryId: string;
   status: ProductStatus;
   room: string | null;
@@ -358,6 +360,9 @@ export interface AdminProduct {
   foldedWidth: number | null;
   foldedHeight: number | null;
   foldedDepth: number | null;
+  /** Structured specifications; features is one entry per line. */
+  materials: string | null;
+  features: string | null;
   createdAt: string;
   updatedAt: string;
   images: AdminProductImage[];
@@ -629,6 +634,7 @@ export interface CreateProductInput {
   name: string;
   slug: string;
   description: string | null;
+  tagline?: string | null;
   categoryId: string;
   status: ProductStatus;
   room: string | null;
@@ -640,6 +646,8 @@ export interface CreateProductInput {
   foldedWidth: number | null;
   foldedHeight: number | null;
   foldedDepth: number | null;
+  materials?: string | null;
+  features?: string | null;
   images: { url: string; altText?: string; sortOrder?: number }[];
   detailBlocks: {
     type: "IMAGE" | "VIDEO";

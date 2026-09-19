@@ -47,10 +47,13 @@ const SCALAR_KEYS = [
   "name",
   "slug",
   "description",
+  "tagline",
   "categoryId",
   "status",
   "room",
   "internalRole",
+  "materials",
+  "features",
 ] as const;
 
 const DIMENSION_KEYS = [
@@ -81,6 +84,7 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     name: p.name,
     slug: p.slug,
     description: p.description ?? "",
+    tagline: p.tagline ?? "",
     categoryId: p.categoryId,
     status: p.status,
     room: p.room ?? "",
@@ -93,6 +97,8 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     foldedWidth: toFormNumber(p.foldedWidth),
     foldedHeight: toFormNumber(p.foldedHeight),
     foldedDepth: toFormNumber(p.foldedDepth),
+    materials: p.materials ?? "",
+    features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
     images: p.images.map((image) => ({
       url: image.url,
       altText: image.altText ?? "",

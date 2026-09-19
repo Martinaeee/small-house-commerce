@@ -20,22 +20,38 @@ async function fetchProduct(slug: string): Promise<Product | null> {
   }
 }
 
+/** One breadcrumb level; ordered root → leaf for display. */
+export interface CategoryCrumb {
+  name: string;
+  slug: string;
+}
+
+/**
+ * Walks the storefront category tree and returns the full root→leaf chain for
+ * the product's category — the visible breadcrumb and the JSON-LD BreadcrumbList
+ * are both generated from it, never hand-entered.
+ */
 export async function fetchCategoryInfo(
   categoryId: string,
-): Promise<{ name: string; slug: string } | null> {
+): Promise<CategoryCrumb[] | null> {
   try {
     const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
       next: { revalidate: 300, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
     const tree = (await res.json()) as Category[];
-    const stack = [...tree];
-    while (stack.length) {
-      const node = stack.pop()!;
-      if (node.id === categoryId) return { name: node.name, slug: node.slug };
-      stack.push(...node.children);
-    }
-    return null;
+    const path: CategoryCrumb[] = [];
+    const dfs = (nodes: Category[]): CategoryCrumb[] | null => {
+      for (const node of nodes) {
+        path.push({ name: node.name, slug: node.slug });
+        if (node.id === categoryId) return [...path];
+        const found = dfs(node.children);
+        if (found) return found;
+        path.pop();
+      }
+      return null;
+    };
+    return dfs(tree);
   } catch {
     return null;
   }

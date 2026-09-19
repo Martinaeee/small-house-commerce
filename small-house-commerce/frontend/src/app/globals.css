@@ -39,6 +39,18 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
 
+  /* PDP first-screen type scale (DESIGN_SYSTEM §6.1 "Product title" tier):
+     H1 26px mobile / 34px desktop, subtitle 16/17px. Sizes live here so no
+     page invents arbitrary values (§4). */
+  --text-product-title: 1.625rem;
+  --text-product-title--line-height: 1.25;
+  --text-product-title-desktop: 2.125rem;
+  --text-product-title-desktop--line-height: 1.2;
+  --text-product-subtitle: 1rem;
+  --text-product-subtitle--line-height: 1.5;
+  --text-product-subtitle-desktop: 1.0625rem;
+  --text-product-subtitle-desktop--line-height: 1.5;
+
   /* §7 container width */
   --container-content: 1200px;
 }
