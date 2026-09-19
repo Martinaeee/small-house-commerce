@@ -371,6 +371,7 @@ export function PdpClient({
       {lightboxIndex !== null && images.length > 0 && (
         <ProductLightbox
           images={images}
+          productName={product.name}
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
