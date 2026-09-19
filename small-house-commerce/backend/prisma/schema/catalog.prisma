@@ -107,6 +107,8 @@ model Product {
   name           String
   slug           String              @unique
   description    String?
+  // First-screen one-line selling point under the H1; empty hides the row.
+  tagline        String?
   categoryId     String              @map("category_id") @db.Uuid
   status         ProductStatus       @default(DRAFT)
   room           Room?
@@ -119,6 +121,9 @@ model Product {
   foldedWidth    Float?              @map("folded_width") @db.DoublePrecision
   foldedHeight   Float?              @map("folded_height") @db.DoublePrecision
   foldedDepth    Float?              @map("folded_depth") @db.DoublePrecision
+  // Structured specifications rendered from columns, never from description.
+  materials      String?
+  features       String?
   createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 

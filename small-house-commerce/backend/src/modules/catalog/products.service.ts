@@ -33,6 +33,7 @@ const STOREFRONT_SELECT = {
   name: true,
   slug: true,
   description: true,
+  tagline: true,
   categoryId: true,
   room: true,
   internalRole: true,
@@ -77,6 +78,9 @@ const STOREFRONT_SELECT = {
  */
 const STOREFRONT_PDP_SELECT = {
   ...STOREFRONT_SELECT,
+  // Structured specifications are PDP-only (lists never need them).
+  materials: true,
+  features: true,
   detailBlocks: {
     select: { id: true, type: true, url: true, altText: true, sortOrder: true },
     orderBy: { sortOrder: 'asc' as const },
@@ -180,6 +184,7 @@ export class ProductsService {
             name: input.name,
             slug: input.slug,
             description: input.description ?? null,
+            tagline: input.tagline ?? null,
             categoryId: input.categoryId,
             status: input.status,
             room: input.room ?? null,
@@ -191,6 +196,8 @@ export class ProductsService {
             foldedWidth: input.foldedWidth ?? null,
             foldedHeight: input.foldedHeight ?? null,
             foldedDepth: input.foldedDepth ?? null,
+            materials: input.materials ?? null,
+            features: input.features ?? null,
             images: { create: input.images },
             detailBlocks: { create: input.detailBlocks },
           },
@@ -244,6 +251,7 @@ export class ProductsService {
         if (input.name !== undefined) data.name = input.name;
         if (input.slug !== undefined) data.slug = input.slug;
         if (input.description !== undefined) data.description = input.description;
+        if (input.tagline !== undefined) data.tagline = input.tagline;
         if (input.categoryId !== undefined) data.category = { connect: { id: input.categoryId } };
         if (input.status !== undefined) data.status = input.status;
         if (input.room !== undefined) data.room = input.room;
@@ -255,6 +263,8 @@ export class ProductsService {
         if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
         if (input.foldedHeight !== undefined) data.foldedHeight = input.foldedHeight;
         if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
+        if (input.materials !== undefined) data.materials = input.materials;
+        if (input.features !== undefined) data.features = input.features;
 
         // Images and variants are whole-list replacements on update.
         if (input.images !== undefined) {

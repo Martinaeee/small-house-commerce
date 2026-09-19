@@ -62,6 +62,8 @@ const productBaseSchema = z.object({
   name: z.string().min(1).max(255),
   slug: slugSchema,
   description: z.string().max(5000).nullable().optional(),
+  // First-screen one-line selling point under the H1; null/'' hides the row.
+  tagline: z.string().max(200).nullable().optional(),
   categoryId: z.string().uuid(),
   status: z.nativeEnum(ProductStatus).default('DRAFT'),
   room: z.nativeEnum(Room).nullable().optional(),
@@ -73,6 +75,9 @@ const productBaseSchema = z.object({
   foldedWidth: z.number().nonnegative().nullable().optional(),
   foldedHeight: z.number().nonnegative().nullable().optional(),
   foldedDepth: z.number().nonnegative().nullable().optional(),
+  // Structured specifications; features is one entry per line.
+  materials: z.string().max(1000).nullable().optional(),
+  features: z.string().max(2000).nullable().optional(),
   images: z.array(imageSchema).default([]),
   detailBlocks: z.array(detailBlockSchema).default([]),
   variants: z.array(variantSchema).default([]),
