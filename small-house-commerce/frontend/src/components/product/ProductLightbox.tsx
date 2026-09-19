@@ -198,15 +198,26 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
               </>
             )}
             {current.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={current.id}
-                src={current.url}
-                alt={current.altText ?? "Product image"}
-                className={`max-h-full max-w-full rounded-md object-contain transition-opacity duration-150 ${
-                  animating ? "opacity-0" : "opacity-100"
-                }`}
-              />
+              current.type === "VIDEO" ? (
+                <video
+                  key={current.id}
+                  src={current.url}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="max-h-full max-w-full rounded-md"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={current.id}
+                  src={current.url}
+                  alt={current.altText ?? "Product image"}
+                  className={`max-h-full max-w-full rounded-md object-contain transition-opacity duration-150 ${
+                    animating ? "opacity-0" : "opacity-100"
+                  }`}
+                />
+              )
             ) : (
               <PlaceholderImage label="" className="aspect-square w-full max-w-2xl rounded-md" />
             )}
@@ -256,12 +267,22 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                 className="w-full"
               >
                 {image.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={image.url}
-                    alt={image.altText ?? `Product image ${i + 1}`}
-                    className="block h-auto w-full"
-                  />
+                  image.type === "VIDEO" ? (
+                    <video
+                      src={image.url}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="block h-auto w-full bg-black"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={image.url}
+                      alt={image.altText ?? `Product image ${i + 1}`}
+                      className="block h-auto w-full"
+                    />
+                  )
                 ) : (
                   <PlaceholderImage label="" className="aspect-square w-full" />
                 )}

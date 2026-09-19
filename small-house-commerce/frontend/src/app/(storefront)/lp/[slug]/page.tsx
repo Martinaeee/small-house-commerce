@@ -38,6 +38,7 @@ function applyLandingOverrides(data: LandingPageComposite): Product {
       ? lp.imagesOverride.map((image, index) => ({
           id: `lp-${lp.id}-img-${index}`,
           url: image.url,
+          type: "IMAGE" as const,
           altText: image.altText ?? null,
           sortOrder: index,
         }))

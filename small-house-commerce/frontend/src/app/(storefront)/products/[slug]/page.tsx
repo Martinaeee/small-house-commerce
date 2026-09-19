@@ -67,7 +67,9 @@ export async function generateMetadata({
   if (!product) return { title: "Product not found" };
 
   const description = product.description ?? undefined;
+  // OG/Twitter previews need poster images, not video URLs.
   const images = [...product.images]
+    .filter((image) => image.type === "IMAGE")
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((image) => absoluteUrl(image.url));
 

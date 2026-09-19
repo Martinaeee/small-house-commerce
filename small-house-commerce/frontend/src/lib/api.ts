@@ -70,6 +70,8 @@ export interface ProductVariant {
 export interface ProductImage {
   id: string;
   url: string;
+  /** Gallery media kind: photos plus optional short product videos. */
+  type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
 }

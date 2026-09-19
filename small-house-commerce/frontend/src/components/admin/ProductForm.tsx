@@ -49,7 +49,7 @@ export interface ProductFormValue {
   materials: string;
   /** One feature per array slot (each becomes one line). */
   features: string[];
-  images: { url: string; altText: string; sortOrder: string }[];
+  images: { url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string }[];
   /** PDP description body. Media-only: the supplier detail decks are images
    *  and videos, and `description` already carries the short text intro. */
   detailBlocks: {
@@ -447,6 +447,7 @@ export function serializeFormValue(
     );
     images.push({
       url,
+      type: img.type,
       ...(altText ? { altText } : {}),
       sortOrder,
     });
@@ -746,6 +747,9 @@ export function ProductForm({
   // path as patch()); the parent server error is left untouched here — it
   // stays visible until the next submit attempt (see render below).
   // --- images ---------------------------------------------------------------
+  // Which media card is expanded for editing (Alt text / Advanced URL). One
+  // at a time keeps the grid scannable.
+  const [activeMedia, setActiveMedia] = useState<number | null>(null);
   const setImage = (i: number, p: Partial<ImageFormValue>): void => {
     setValue((prev) => ({
       ...prev,
@@ -753,10 +757,10 @@ export function ProductForm({
     }));
     clearValidation();
   };
-  const addImage = (): void => {
+  const addImage = (type: "IMAGE" | "VIDEO" = "IMAGE"): void => {
     setValue((prev) => ({
       ...prev,
-      images: [...prev.images, { url: "", altText: "", sortOrder: "" }],
+      images: [...prev.images, { url: "", type, altText: "", sortOrder: "" }],
     }));
     clearValidation();
   };
@@ -999,10 +1003,12 @@ export function ProductForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate>
-      {/* Sticky action bar. top-14 clears the shell's h-14 top bar; z-10 sits
-          under its z-20 (and the sidebar's z-30). Kept inside the single
-          <form> so both save buttons submit it — no nested forms. */}
-      <div className="sticky top-14 z-10 -mx-4 mb-6 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+      {/* Sticky action bar + tab row. top-14 clears the shell's h-14 top bar;
+          z-10 sits under its z-20 (and the sidebar's z-30). Kept inside the
+          single <form> so both save buttons submit it — no nested forms.
+          Tabs live here too, so a save at the bottom of any panel can jump
+          straight to another tab without scrolling back up. */}
+      <div className="sticky top-14 z-10 -mx-4 mb-6 border-b border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur md:-mx-8 md:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Link
             href="/admin/products"
@@ -1059,6 +1065,43 @@ export function ProductForm({
             )}
           </div>
         </div>
+
+        {/* Tab row lives inside the sticky block: switch sections from any
+            scroll position without climbing back to the top. */}
+        <div
+          role="tablist"
+          aria-label="Product form sections"
+          className="mt-3 flex flex-wrap gap-2"
+        >
+          {TABS.map((tab) => {
+            const selected = activeTab === tab.key;
+            const hasError = tabHasError(tab.key);
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                id={`pf-tab-${tab.key}`}
+                aria-selected={selected}
+                aria-controls={`pf-panel-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
+                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+                  selected
+                    ? "bg-cta text-white"
+                    : "border border-border bg-card text-ink-secondary hover:text-cta"
+                }`}
+              >
+                {tab.label}
+                {hasError ? (
+                  <span
+                    aria-label="(有错误)"
+                    className="ml-1.5 inline-block h-2 w-2 rounded-full bg-sale align-middle"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {formError ? (
@@ -1112,43 +1155,8 @@ export function ProductForm({
         </p>
       </details>
 
-      {/* Editor tabs. Panels are conditionally rendered; all form state lives
-          in the single `value` object, so switching tabs never loses edits. */}
-      <div
-        role="tablist"
-        aria-label="Product form sections"
-        className="mb-8 flex flex-wrap gap-2 border-b border-border pb-3"
-      >
-        {TABS.map((tab) => {
-          const selected = activeTab === tab.key;
-          const hasError = tabHasError(tab.key);
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              id={`pf-tab-${tab.key}`}
-              aria-selected={selected}
-              aria-controls={`pf-panel-${tab.key}`}
-              onClick={() => setActiveTab(tab.key)}
-              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
-                selected
-                  ? "bg-cta text-white"
-                  : "border border-border bg-card text-ink-secondary hover:text-cta"
-              }`}
-            >
-              {tab.label}
-              {hasError ? (
-                <span
-                  aria-label="(有错误)"
-                  className="ml-1.5 inline-block h-2 w-2 rounded-full bg-sale align-middle"
-                />
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
+      {/* Panels are conditionally rendered; all form state lives in the single
+          `value` object, so switching tabs never loses edits. */}
       <div
         role="tabpanel"
         id={`pf-panel-${activeTab}`}
@@ -1328,24 +1336,25 @@ export function ProductForm({
         {activeTab === "media" && (
           <>
             <Section
-              title="Product images"
+              title="Product media"
               hint={
                 <>
-                  卡片可拖动排序（也可用 ↑ ↓）。「设为封面」把图移到第一位 = 前台主图。
-                  建议每商品 4–6 张：白底主图、细节、尺寸图、生活场景图。URL
-                  与排序数字收在「Advanced」里。
+                  一格一张媒体，可拖动排序（也可用 ← → 微调）。「封面」= 前台主图。
+                  建议每商品 4–6 张：白底主图、细节、尺寸图、生活场景图；也可加短视频。
+                  点卡片展开填写 Alt text；URL 与排序数字收在「Advanced」里。
                 </>
               }
             >
               {value.images.length === 0 ? (
                 <p className="text-sm text-ink-muted">
-                  还没有图片，点下方按钮添加第一张（主图）。
+                  还没有媒体，点下方按钮添加第一张（主图）。
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                   {value.images.map((img, i) => {
                     const sortNum = Number(img.sortOrder.trim() || "0") || 0;
                     const isCover = value.images.length > 0 && sortNum === coverSortOrder;
+                    const expanded = activeMedia === i;
                     return (
                       <li
                         key={i}
@@ -1360,14 +1369,29 @@ export function ProductForm({
                           if (dragFrom.current !== null) moveImageTo(dragFrom.current, i);
                           dragFrom.current = null;
                         }}
-                        className={`rounded-lg bg-background p-3 ${
-                          isCover ? "ring-1 ring-cta" : ""
+                        className={`overflow-hidden rounded-lg bg-background ${
+                          isCover ? "ring-2 ring-cta" : "border border-border"
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          {/* Thumbnail; empty until a URL is set. */}
-                          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-border bg-card">
-                            {img.url.trim() ? (
+                        {/* Thumbnail cell: click to expand the editing row. */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveMedia(expanded ? null : i)}
+                          aria-expanded={expanded}
+                          aria-label={`Media ${i + 1}${isCover ? "（封面）" : ""}`}
+                          className="relative block aspect-square w-full cursor-grab active:cursor-grabbing"
+                        >
+                          {img.url.trim() ? (
+                            img.type === "VIDEO" ? (
+                              <video
+                                src={img.url}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="h-full w-full object-cover"
+                                draggable={false}
+                              />
+                            ) : (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={img.url}
@@ -1375,140 +1399,157 @@ export function ProductForm({
                                 className="h-full w-full object-cover"
                                 draggable={false}
                               />
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-xs text-ink-muted">
-                                无图
-                              </div>
-                            )}
+                            )
+                          ) : (
+                            <span className="flex h-full items-center justify-center text-xs text-ink-muted">
+                              {img.type === "VIDEO" ? "未填视频" : "未填图片"}
+                            </span>
+                          )}
+                          {(img.type === "VIDEO" || !img.url.trim()) && (
+                            <span
+                              aria-hidden
+                              className="absolute inset-0 flex items-center justify-center text-2xl text-white drop-shadow"
+                            >
+                              {img.type === "VIDEO" ? "▶" : ""}
+                            </span>
+                          )}
+                          {isCover ? (
+                            <span className="absolute left-1.5 top-1.5 rounded-full bg-cta px-2 py-0.5 text-xs font-semibold text-white">
+                              封面
+                            </span>
+                          ) : null}
+                        </button>
+
+                        {/* Quick actions under the thumbnail. */}
+                        <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              className={removeBtnCls}
+                              onClick={() => moveImage(i, -1)}
+                              disabled={pending || i === 0}
+                              aria-label={`Move media ${i + 1} left`}
+                            >
+                              ←
+                            </button>
+                            <button
+                              type="button"
+                              className={removeBtnCls}
+                              onClick={() => moveImage(i, 1)}
+                              disabled={pending || i === value.images.length - 1}
+                              aria-label={`Move media ${i + 1} right`}
+                            >
+                              →
+                            </button>
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {isCover ? (
-                                <span className="rounded-full bg-cta px-2 py-0.5 text-xs font-semibold text-white">
-                                  封面
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setCoverImage(i)}
-                                  disabled={pending}
-                                  className="text-xs font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
-                                >
-                                  设为封面
-                                </button>
-                              )}
-                              <span className="text-xs text-ink-muted">
-                                拖动卡片或用 ↑ ↓ 排序
-                              </span>
-                            </div>
-                            <div className="mt-2">
-                              <Field
-                                label={i === 0 ? "Alt text" : ""}
-                                htmlFor={`pf-images-${i}-alt`}
-                                error={err(`images.${i}.altText`)}
-                                hint={
-                                  i === 0
-                                    ? "图片文字描述（英文即可），SEO 用。"
-                                    : undefined
-                                }
-                              >
-                                <TextInput
-                                  id={`pf-images-${i}-alt`}
-                                  aria-label={
-                                    i === 0 ? undefined : `Image ${i + 1} alt text`
-                                  }
-                                  value={img.altText}
-                                  onChange={(e) =>
-                                    setImage(i, { altText: e.target.value })
-                                  }
-                                  autoComplete="off"
-                                />
-                              </Field>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            {!isCover ? (
                               <button
                                 type="button"
-                                className={removeBtnCls}
-                                onClick={() => moveImage(i, -1)}
-                                disabled={pending || i === 0}
-                                aria-label={`Move image ${i + 1} up`}
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                className={removeBtnCls}
-                                onClick={() => moveImage(i, 1)}
-                                disabled={pending || i === value.images.length - 1}
-                                aria-label={`Move image ${i + 1} down`}
-                              >
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                className={removeBtnCls}
-                                onClick={() => removeImage(i)}
+                                onClick={() => setCoverImage(i)}
                                 disabled={pending}
+                                className="text-xs font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
                               >
-                                Remove
+                                设为封面
                               </button>
-                            </div>
-                            {/* URL + numeric sort live here, not in the
-                                main card — the card UI is the primary
-                                editing surface. */}
-                            <details className="mt-2">
+                            ) : null}
+                            <button
+                              type="button"
+                              className={removeBtnCls}
+                              onClick={() => {
+                                removeImage(i);
+                                setActiveMedia(null);
+                              }}
+                              disabled={pending}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expanded editing row: Alt text + Advanced URL/Sort. */}
+                        {expanded ? (
+                          <div className="border-t border-border p-2">
+                            <Field
+                              label="Alt text"
+                              htmlFor={`pf-images-${i}-alt`}
+                              error={err(`images.${i}.altText`)}
+                            >
+                              <TextInput
+                                id={`pf-images-${i}-alt`}
+                                aria-label={`Media ${i + 1} alt text`}
+                                value={img.altText}
+                                onChange={(e) =>
+                                  setImage(i, { altText: e.target.value })
+                                }
+                                autoComplete="off"
+                              />
+                            </Field>
+                            <details className="mt-1">
                               <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
-                                Advanced（图片网址 / 排序数字）
+                                Advanced（网址 / 排序数字）
                               </summary>
-                              <div className="mt-2 grid gap-3 md:grid-cols-[1fr_110px] md:items-end">
+                              <div className="mt-2">
                                 <Field
-                                  label="URL"
+                                  label={img.type === "VIDEO" ? "Video URL" : "Image URL"}
                                   htmlFor={`pf-images-${i}-url`}
                                   error={err(`images.${i}.url`)}
                                 >
                                   <ImageUrlInput
                                     id={`pf-images-${i}-url`}
-                                    ariaLabel={`Image ${i + 1} URL`}
+                                    ariaLabel={`Media ${i + 1} URL`}
                                     value={img.url}
                                     onChange={(url) => setImage(i, { url })}
                                     disabled={pending}
                                   />
                                 </Field>
-                                <Field
-                                  label="Sort"
-                                  htmlFor={`pf-images-${i}-sort`}
-                                  error={err(`images.${i}.sortOrder`)}
-                                >
-                                  <TextInput
-                                    id={`pf-images-${i}-sort`}
-                                    aria-label={`Image ${i + 1} sort order`}
-                                    inputMode="numeric"
-                                    value={img.sortOrder}
-                                    onChange={(e) =>
-                                      setImage(i, { sortOrder: e.target.value })
-                                    }
-                                    autoComplete="off"
-                                  />
-                                </Field>
+                                <div className="mt-2">
+                                  <Field
+                                    label="Sort"
+                                    htmlFor={`pf-images-${i}-sort`}
+                                    error={err(`images.${i}.sortOrder`)}
+                                  >
+                                    <TextInput
+                                      id={`pf-images-${i}-sort`}
+                                      aria-label={`Media ${i + 1} sort order`}
+                                      inputMode="numeric"
+                                      value={img.sortOrder}
+                                      onChange={(e) =>
+                                        setImage(i, { sortOrder: e.target.value })
+                                      }
+                                      autoComplete="off"
+                                    />
+                                  </Field>
+                                </div>
                               </div>
                             </details>
                           </div>
-                        </div>
+                        ) : null}
                       </li>
                     );
                   })}
                 </ul>
               )}
-              <Button
-                type="button"
-                variant="secondary"
-                size="md"
-                className="mt-4"
-                onClick={addImage}
-                disabled={pending}
-              >
-                Add image
-              </Button>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  onClick={() => addImage("IMAGE")}
+                  disabled={pending}
+                >
+                  Add photo
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  onClick={() => addImage("VIDEO")}
+                  disabled={pending}
+                >
+                  Add video
+                </Button>
+              </div>
             </Section>
 
       {/* ---------------- Detail blocks (description body) ---------------- */}

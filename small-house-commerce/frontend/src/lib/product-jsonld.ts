@@ -13,7 +13,9 @@ export function buildProductJsonLd(
   categoryChain: { name: string; slug: string }[] | null,
 ): Record<string, unknown> {
   const pageUrl = `${SITE_URL}/products/${product.slug}`;
+  // schema.org `image` expects posters — video entries are excluded.
   const images = [...product.images]
+    .filter((image) => image.type === "IMAGE")
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((image) => absoluteUrl(image.url));
 

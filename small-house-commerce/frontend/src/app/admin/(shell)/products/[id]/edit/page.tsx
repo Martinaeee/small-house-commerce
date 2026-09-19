@@ -101,6 +101,7 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
     images: p.images.map((image) => ({
       url: image.url,
+      type: image.type ?? "IMAGE",
       altText: image.altText ?? "",
       sortOrder: String(image.sortOrder),
     })),

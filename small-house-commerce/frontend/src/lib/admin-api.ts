@@ -329,6 +329,7 @@ export interface AdminVariant {
 export interface AdminProductImage {
   id: string;
   url: string;
+  type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
 }
@@ -648,7 +649,7 @@ export interface CreateProductInput {
   foldedDepth: number | null;
   materials?: string | null;
   features?: string | null;
-  images: { url: string; altText?: string; sortOrder?: number }[];
+  images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number }[];
   detailBlocks: {
     type: "IMAGE" | "VIDEO";
     url: string;
