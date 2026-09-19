@@ -762,6 +762,9 @@ export function ProductForm({
       ...prev,
       images: [...prev.images, { url: "", type, altText: "", sortOrder: "" }],
     }));
+    // Expand the new card's editing row right away so the operator can pick
+    // a file (or paste a URL) without a second click to find it.
+    setActiveMedia(value.images.length);
     clearValidation();
   };
   const removeImage = (i: number): void => {
@@ -1467,7 +1470,9 @@ export function ProductForm({
                           </div>
                         </div>
 
-                        {/* Expanded editing row: Alt text + Advanced URL/Sort. */}
+                        {/* Expanded editing row: Alt text + URL/upload right
+                            away (that's the primary action), sort tucked into
+                            Advanced. */}
                         {expanded ? (
                           <div className="border-t border-border p-2">
                             <Field
@@ -1485,42 +1490,43 @@ export function ProductForm({
                                 autoComplete="off"
                               />
                             </Field>
+                            <div className="mt-2">
+                              <Field
+                                label={img.type === "VIDEO" ? "Video URL" : "Image URL"}
+                                htmlFor={`pf-images-${i}-url`}
+                                error={err(`images.${i}.url`)}
+                              >
+                                <ImageUrlInput
+                                  id={`pf-images-${i}-url`}
+                                  ariaLabel={`Media ${i + 1} URL`}
+                                  kind={img.type === "VIDEO" ? "video" : "image"}
+                                  value={img.url}
+                                  onChange={(url) => setImage(i, { url })}
+                                  disabled={pending}
+                                />
+                              </Field>
+                            </div>
                             <details className="mt-1">
                               <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
-                                Advanced（网址 / 排序数字）
+                                Advanced（排序数字）
                               </summary>
                               <div className="mt-2">
                                 <Field
-                                  label={img.type === "VIDEO" ? "Video URL" : "Image URL"}
-                                  htmlFor={`pf-images-${i}-url`}
-                                  error={err(`images.${i}.url`)}
+                                  label="Sort"
+                                  htmlFor={`pf-images-${i}-sort`}
+                                  error={err(`images.${i}.sortOrder`)}
                                 >
-                                  <ImageUrlInput
-                                    id={`pf-images-${i}-url`}
-                                    ariaLabel={`Media ${i + 1} URL`}
-                                    value={img.url}
-                                    onChange={(url) => setImage(i, { url })}
-                                    disabled={pending}
+                                  <TextInput
+                                    id={`pf-images-${i}-sort`}
+                                    aria-label={`Media ${i + 1} sort order`}
+                                    inputMode="numeric"
+                                    value={img.sortOrder}
+                                    onChange={(e) =>
+                                      setImage(i, { sortOrder: e.target.value })
+                                    }
+                                    autoComplete="off"
                                   />
                                 </Field>
-                                <div className="mt-2">
-                                  <Field
-                                    label="Sort"
-                                    htmlFor={`pf-images-${i}-sort`}
-                                    error={err(`images.${i}.sortOrder`)}
-                                  >
-                                    <TextInput
-                                      id={`pf-images-${i}-sort`}
-                                      aria-label={`Media ${i + 1} sort order`}
-                                      inputMode="numeric"
-                                      value={img.sortOrder}
-                                      onChange={(e) =>
-                                        setImage(i, { sortOrder: e.target.value })
-                                      }
-                                      autoComplete="off"
-                                    />
-                                  </Field>
-                                </div>
                               </div>
                             </details>
                           </div>
@@ -1616,13 +1622,14 @@ export function ProductForm({
                       disabled={pending}
                     />
                   ) : (
-                    <TextInput
+                    <ImageUrlInput
                       id={`pf-detail-${i}-url`}
-                      aria-label={i === 0 ? undefined : `Detail block ${i + 1} URL`}
-                      value={block.url}
+                      ariaLabel={i === 0 ? undefined : `Detail block ${i + 1} URL`}
+                      kind="video"
                       placeholder="https://…/product-demo.mp4"
-                      onChange={(e) => setDetailBlock(i, { url: e.target.value })}
-                      autoComplete="off"
+                      value={block.url}
+                      onChange={(url) => setDetailBlock(i, { url })}
+                      disabled={pending}
                     />
                   )}
                 </Field>

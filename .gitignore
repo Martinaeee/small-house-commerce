@@ -36,6 +36,6 @@ build/
 
 # linked git worktrees for parallel feature work
 .claude/worktrees/
-# uploaded images (local-disk upload volume)
+# uploaded images (local-disk upload volume) — anchored so the rule cannot
+# match the backend's src/modules/uploads SOURCE directory again
 backend/uploads/
-uploads/

@@ -6,14 +6,27 @@ import { join } from 'node:path';
 import type { PresignUploadInput } from './dto/upload.dto.js';
 import { buildR2PresignedPutUrl, type PresignResult, type R2Settings } from './r2-presign.js';
 
-const EXTENSION_BY_TYPE: Record<string, 'jpg' | 'png' | 'webp'> = {
+const EXTENSION_BY_TYPE: Record<string, 'jpg' | 'png' | 'webp' | 'mp4' | 'webm' | 'mov'> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
+  // Gallery entries can be short product videos, not just photos.
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
 };
 
 /** 5 MB per image — catalog photos and review photos are far below this. */
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+/** 100 MB per video — short product clips; still well under a small VPS's
+ * memory when buffered, and guarded against abuse by the throttle. */
+export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+
+const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+
+export function maxBytesFor(contentType: string): number {
+  return VIDEO_TYPES.has(contentType) ? VIDEO_MAX_BYTES : UPLOAD_MAX_BYTES;
+}
 
 @Injectable()
 export class UploadsService {
@@ -49,13 +62,18 @@ export class UploadsService {
   async saveLocal(buffer: Buffer, contentType: string): Promise<{ url: string; key: string }> {
     const ext = EXTENSION_BY_TYPE[contentType];
     if (!ext) {
-      throw new BadRequestException(`Unsupported image type: ${contentType}`);
+      throw new BadRequestException(`Unsupported media type: ${contentType}`);
     }
     if (buffer.length === 0) {
       throw new BadRequestException('Empty upload body');
     }
-    if (buffer.length > UPLOAD_MAX_BYTES) {
-      throw new BadRequestException('Image exceeds the 5 MB limit');
+    const maxBytes = maxBytesFor(contentType);
+    if (buffer.length > maxBytes) {
+      throw new BadRequestException(
+        VIDEO_TYPES.has(contentType)
+          ? '视频超过 100MB 限制'
+          : 'Image exceeds the 5 MB limit',
+      );
     }
 
     const dir = this.config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');

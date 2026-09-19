@@ -11,7 +11,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { Permissions } from '../../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
-import { UPLOAD_MAX_BYTES } from '../uploads.service.js';
+import { maxBytesFor } from '../uploads.service.js';
 import type { PresignUploadInput } from '../dto/upload.dto.js';
 import { presignUploadSchema } from '../dto/upload.dto.js';
 import { UploadsService } from '../uploads.service.js';
@@ -24,6 +24,7 @@ import { UploadsService } from '../uploads.service.js';
  * content types, so the stream is still unconsumed when this runs.
  */
 function readRawBody(req: Request, maxBytes: number): Promise<Buffer> {
+  const cap = maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))}MB` : `${maxBytes}B`;
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -31,7 +32,7 @@ function readRawBody(req: Request, maxBytes: number): Promise<Buffer> {
       size += chunk.length;
       if (size > maxBytes) {
         req.destroy();
-        reject(new BadRequestException('图片超过 5MB 限制'));
+        reject(new BadRequestException(`文件超过 ${cap} 限制`));
         return;
       }
       chunks.push(chunk);
@@ -54,14 +55,15 @@ export class AdminUploadsController {
 
   /**
    * Local-disk upload: the file bytes arrive as the raw request body
-   * (Content-Type: image/jpeg|png|webp).
+   * (Content-Type: image/jpeg|png|webp or video/mp4|webm|quicktime). The
+   * size cap follows the media kind — 5 MB images, 100 MB videos.
    */
   @Post()
   async upload(@Req() req: Request) {
     const contentType = req.headers['content-type']?.split(';')[0]?.trim() ?? '';
-    const body = await readRawBody(req, UPLOAD_MAX_BYTES);
+    const body = await readRawBody(req, maxBytesFor(contentType));
     if (body.length === 0) {
-      throw new BadRequestException('Upload body missing — send the image bytes directly');
+      throw new BadRequestException('Upload body missing — send the file bytes directly');
     }
     return this.uploads.saveLocal(body, contentType);
   }
