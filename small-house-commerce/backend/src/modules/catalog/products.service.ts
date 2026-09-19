@@ -45,7 +45,7 @@ const STOREFRONT_SELECT = {
   foldedHeight: true,
   foldedDepth: true,
   images: {
-    select: { id: true, url: true, altText: true, sortOrder: true },
+    select: { id: true, url: true, type: true, altText: true, sortOrder: true },
     orderBy: { sortOrder: 'asc' as const },
   },
   variants: {

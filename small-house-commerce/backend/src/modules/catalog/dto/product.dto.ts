@@ -37,6 +37,8 @@ const variantSchema = z.object({
 
 const imageSchema = z.object({
   url: siteMediaUrl(),
+  // Gallery entries may be short videos (PDP gallery renders them inline).
+  type: z.nativeEnum(DetailBlockType).default('IMAGE'),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
 });

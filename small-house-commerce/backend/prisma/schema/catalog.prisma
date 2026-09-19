@@ -142,14 +142,16 @@ model Product {
   @@map("products")
 }
 
-/// §20 "Media".
+/// §20 "Media". Gallery entries are media, not just photos: `type` lets the
+/// PDP gallery mix product shots with short videos (reuses DetailBlockType).
 model ProductImage {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  productId String   @map("product_id") @db.Uuid
+  id        String          @id @default(uuid(7)) @db.Uuid
+  productId String          @map("product_id") @db.Uuid
   url       String
-  altText   String?  @map("alt_text")
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  type      DetailBlockType @default(IMAGE)
+  altText   String?         @map("alt_text")
+  sortOrder Int             @default(0) @map("sort_order")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
