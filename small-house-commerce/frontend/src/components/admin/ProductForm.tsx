@@ -102,7 +102,24 @@ export function appendImage(
   images: ImageFormValue[],
   type: ImageFormValue["type"],
 ): ImageFormValue[] {
-  return [...images, { url: "", type, altText: "", sortOrder: String(images.length) }];
+  return [
+    ...images,
+    { url: "", type, altText: "", sortOrder: String(images.length) },
+  ];
+}
+
+/**
+ * Adds a detail block, numbered by position so a later ↑/↓ reorder stays
+ * consistent.
+ */
+export function appendDetailBlock(
+  blocks: DetailBlockFormValue[],
+  type: DetailBlockFormValue["type"],
+): DetailBlockFormValue[] {
+  return [
+    ...blocks,
+    { type, url: "", altText: "", sortOrder: String(blocks.length) },
+  ];
 }
 
 export type SerializeFormResult =
@@ -441,8 +458,10 @@ export function serializeFormValue(
     const url = img.url.trim();
     const altText = img.altText.trim();
     const sortRaw = img.sortOrder.trim();
-    // A fully blank row is dropped silently, not validated.
-    if (!url && !altText && !sortRaw) return;
+    // A row with no content is dropped silently, not validated — that is what
+    // lets an operator click "Add photo" and save without filling it in.
+    // sortOrder is positional, not content, so it does not count as filled in.
+    if (!url && !altText) return;
 
     if (!url) addError(errors, `images.${i}.url`, "Image URL is required.");
     else if (url.length > 2048)
@@ -479,9 +498,9 @@ export function serializeFormValue(
   v.detailBlocks.forEach((block, i) => {
     const url = block.url.trim();
     const altText = block.altText.trim();
-    const sortRaw = block.sortOrder.trim();
-    // A fully blank row is dropped silently, not validated.
-    if (!url && !altText && !sortRaw) return;
+    // Same rule as the gallery: sortOrder is positional, so only real content
+    // keeps a row alive.
+    if (!url && !altText) return;
 
     if (!url) addError(errors, `detailBlocks.${i}.url`, "Media URL is required.");
     else if (url.length > 2048)
@@ -500,7 +519,7 @@ export function serializeFormValue(
         "Alt text must be 255 characters or fewer.",
       );
     const sortOrder = parseNonNegativeInt(
-      sortRaw,
+      block.sortOrder,
       `detailBlocks.${i}.sortOrder`,
       "Sort order",
       errors,
@@ -864,11 +883,7 @@ export function ProductForm({
   const addDetailBlock = (type: DetailBlockFormValue["type"]): void => {
     setValue((prev) => ({
       ...prev,
-      detailBlocks: [
-        ...prev.detailBlocks,
-        // New blocks land last: sortOrder mirrors the list position.
-        { type, url: "", altText: "", sortOrder: String(prev.detailBlocks.length) },
-      ],
+      detailBlocks: appendDetailBlock(prev.detailBlocks, type),
     }));
     clearValidation();
   };

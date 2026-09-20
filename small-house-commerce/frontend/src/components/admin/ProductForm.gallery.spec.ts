@@ -72,6 +72,30 @@ describe("appendImage", () => {
     expect(next.map((image) => image.sortOrder)).toEqual(["0", "1", "2", "3"]);
   });
 
+  it("leaves an untouched new card droppable, so it cannot block the save", () => {
+    // The serializer skips a row whose url, altText AND sortOrder are all
+    // blank — that is what lets an operator click "Add photo" and then save
+    // without filling it in. Numbering the new card broke that skip: the
+    // sortOrder alone made the row "non-blank", so the save was rejected with
+    // "Image URL is required." for a card the operator never intended to keep.
+    const value = deserializeProduct(productWithImages([0, 1, 2]));
+    const withNew = appendImage(value.images, "IMAGE");
+    expect(withNew[withNew.length - 1].sortOrder).not.toBe("");
+
+    const result = serializeFormValue({
+      ...value,
+      name: "Chair",
+      slug: "chair",
+      categoryId: "01a09021-fef4-72ed-b62c-4081b27a6abf",
+      images: withNew,
+    } as ProductFormValue);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.images).toHaveLength(3);
+    expect(result.value.images.map((image) => image.sortOrder)).toEqual([0, 1, 2]);
+  });
+
   it("serializes to distinct sort orders that survive the save payload", () => {
     const value = deserializeProduct(productWithImages([0, 0]));
     const withNew = appendImage(appendImage(value.images, "IMAGE"), "VIDEO").map(
