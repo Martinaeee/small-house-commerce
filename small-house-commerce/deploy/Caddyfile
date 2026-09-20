@@ -4,6 +4,16 @@
 
 {$DOMAIN} {
 	encode gzip
+	# Buffer slow admin uploads before they enter the backend's five-minute window.
+	@admin_media_upload path /api/v1/admin/uploads
+	handle @admin_media_upload {
+		request_body {
+			max_size 100MiB
+		}
+		reverse_proxy backend:3000 {
+			request_buffers 100MiB
+		}
+	}
 	# API traffic goes straight to the backend. Next 16 bakes rewrites()
 	# destinations at build time, so the frontend's dev-only /api/v1
 	# rewrite cannot be retargeted at runtime and must not sit on this path.
