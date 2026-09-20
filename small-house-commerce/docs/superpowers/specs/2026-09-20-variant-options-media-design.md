@@ -1,7 +1,8 @@
 # 商品多维选项、变体素材与购买确认设计
 
 日期：2026-09-20
-状态：待用户审阅
+状态：已确认，待统一实施计划
+关联规格：`2026-09-20-pdp-inline-cod-order-design.md`、`2026-09-20-viewport-autoplay-media-design.md`
 范围：商品数据模型、后台商品编辑器、Storefront PDP/PLP/Quick Add、购物车与 Checkout、广告深链与追踪
 
 ## 1. 背景与现状
@@ -108,10 +109,11 @@ createdAt / updatedAt
 约束：
 
 - 每个商品最多两组 active options；
-- `productId + name` 唯一；
-- 每个商品最多一个 `isMediaDriver=true`；
-- 选项组位置唯一；
-- 有历史 SKU 关联时不得物理删除，只能停用或迁移。
+- 一个商品所有 active options 的笛卡尔候选组合最多 100 个；单组选项也最多 100 个 active values；
+- 数据库使用 partial unique indexes 保证 active `(product_id, position)`、active `(product_id, lower(name))` 以及 active media driver 唯一；不能用包含 `isActive/isMediaDriver` 布尔值的普通 Prisma unique 代替，否则历史 disabled rows 会阻止合法替换；
+- 每个商品最多一个 active `isMediaDriver=true`；
+- 有历史 SKU 关联时不得物理删除，只能停用或迁移；
+- 并发后台保存依靠 partial unique indexes 和 catalog revision 乐观锁，不只依赖应用层先查后写。
 
 ### 5.2 ProductOptionValue
 
@@ -160,7 +162,7 @@ optionValueId
 
 保留现有 ProductVariant 和一对一 SKU 关系，不更换现有主键。
 
-新增内部 `combinationKey`：由 option value IDs 按 option position 排序后生成，用于唯一性和稳定对账。`name` 不再由运营自由输入，而由选项值按 option position 自动生成：
+新增内部 `combinationKey`：把该 variant 的稳定 `optionId:valueId` 对按 ID 字典序排列后生成，与后台展示顺序无关，用于唯一性和稳定对账。调换 Color/Size 的 position 只能改变标签顺序，不能改变组合身份或 SKU ID。`name` 不再由运营自由输入，而由选项值按 option position 自动生成：
 
 ```text
 Yellow / 120 cm
@@ -193,7 +195,13 @@ variantId           精确组合覆盖套图
 - IMAGE 和 VIDEO 都遵守相同作用域；
 - sortOrder 在各自作用域内排序。
 
-后端必须在事务内校验归属，数据库增加“最多一个作用域”的 CHECK 约束。
+数据库约束：
+
+- CHECK 保证 optionValueId 和 variantId 最多一个非空；
+- ProductOptionValue 与 ProductVariant 都提供 `(id, productId)` 唯一键；
+- ProductImage 使用 `(optionValueId, productId)` 和 `(variantId, productId)` 复合外键，数据库直接保证媒体作用域与图片属于同一个 product；
+- 服务层仍校验 option value 来自 active media-driver option、variant 属于当前 catalog graph，并给出具名错误；
+- 任何 importer、batch editor 或未来写入路径都不得只依赖服务层约定。
 
 ### 5.6 Product 默认展示变体
 
@@ -274,6 +282,9 @@ Red      120 cm    —         —             —        —        —
 
 必须提供：
 
+- 候选组合超过 30 行时虚拟化或服务端分页，不能一次渲染全部 DOM；
+- 只提交 changed rows 和删除/停用意图，不随每次保存回传整个矩阵；
+- 达到 100 个候选组合时阻止继续添加 value，并指出造成膨胀的 option；
 - 批量设置 price；
 - 批量设置 compareAtPrice；
 - 批量启用/停用；
@@ -312,75 +323,107 @@ Media tab 分为：
 
 精确组合覆盖放在 Advanced 中，默认折叠。只有颜色和尺寸同时显著改变外观时才使用，避免为所有组合重复维护素材。
 
-### 7.3 保存原子性
+所有 scoped media 区块必须组合现有 `ImageUrlInput`、`resolveUploadType`、`appendImage` 和后端 `siteMediaUrl()`；不得另写上传器或 URL/MIME 校验，否则会重新引入空 MIME 视频、站内 `/uploads` URL 和大小限制不一致的问题。
 
-后台仍提供一次 Save，但 payload 中的新增实体使用稳定 ID 或客户端临时 key。后端在一个事务中：
+### 7.3 两阶段保存与事务边界
 
-1. 对账 option groups；
-2. 对账 option values；
-3. 解析临时 key；
-4. 对账 variants 和 SKUs；
-5. 更新库存；
-6. 对账媒体作用域和顺序；
-7. 更新 defaultDisplayVariantId；
-8. 提交后触发 storefront revalidation。
+后台仍提供一次 Save，但 catalog graph 与 inventory ledger 是明确的两阶段操作，不能同时声称全局原子又允许库存部分失败。
 
-任何一步失败，整次商品结构更新回滚。库存若继续通过独立 ledger API 写入，则商品结构先提交、库存失败时必须沿用现有“商品已保存但库存失败”的明确提示和服务器重读；实施计划阶段应评估是否将库存绝对值写入纳入同一服务事务。
+#### Phase A：Catalog graph
+
+后端先在事务外完成 payload 解析、归属校验、combination diff 和批次计划；进入短事务后使用批量 INSERT/UPDATE、现有 `reconcileVariants` 的 ID 保留语义和必要的临时名称停放完成：
+
+1. option groups / values；
+2. variants / SKUs / option assignments；
+3. scoped media / defaultDisplayVariant；
+4. catalog revision 乐观锁；
+5. storefront revalidation 只在 commit 后触发。
+
+禁止把数百次串行 Prisma round trips 放在持锁事务内；changed rows 使用 createMany、`UPDATE ... FROM VALUES` 或等价批处理。Phase A 任一步失败则整个 catalog graph 回滚。
+
+#### Phase B：Inventory ledger
+
+库存继续通过现有绝对值 inventory API 逐个或批量对账，并保持 ledger/reserved guard。Phase B 失败时：
+
+- 不回滚已提交的 catalog graph；
+- UI 明确显示 `Product saved, but stock update failed` 和失败 SKU；
+- 服务器重读已保存 graph 与库存；
+- retry 只重试失败库存写入，不重放 Phase A；
+- 实施阶段优先新增 bounded batch inventory endpoint，避免多 SKU 串行长事务，但不得绕过流水。
 
 ## 8. Storefront 选择状态机
 
-### 8.1 状态分离
+### 8.1 单一选择意图与派生状态
 
-前端不得只维护一个 `selectedVariantId`。需要至少区分：
+前端使用一个 reducer，唯一可写真相为：
 
 ```text
-displayVariantId       当前页面展示素材/价格参考的 variant
-selectedValueIds       用户或深链当前填入的 option values
-touchedOptionIds       用户本次亲自操作过的 option groups
-resolvedVariantId      完整组合对应的 variant；不完整/不存在则 null
-confirmedVariantId     已允许执行购买动作的 variant；否则 null
-selectionSource        DEFAULT | DEEP_LINK | USER | CONFIRM_DIALOG
+selectedValueIds           当前填入的 option values
+explicitlyTouchedOptionIds 用户本次亲自操作过的 option groups
+selectionSource            DEFAULT | DEEP_LINK | USER | CONFIRM_DIALOG
+quantity
+selectionRevision          任一选项变化即递增
+confirmedCombinationKey    已确认的 combinationKey；否则 null
+confirmedRevision          确认时的 revision；否则 null
 ```
 
-`displayVariantId` 与 `confirmedVariantId` 永远不能互相推导。
+以下全部通过纯 selector 派生，禁止用 effect 同步成第二份 peer state：
+
+```text
+resolvedVariant            selectedValueIds 完整且存在时解析
+resolvedCombinationKey
+displayVariant             resolvedVariant，否则 defaultDisplayVariant
+purchaseConfirmed          confirmed key/revision 与当前解析结果完全一致
+price / inventory / gallery / URL
+```
+
+第一订单行由关联 Inline COD 规格定义为同一 reducer 的 canonical state，不得再复制 `primaryLine.selectedValueIds/quantity`。任何选项变化都会让 revision 改变，旧确认自动失效，不依赖每个调用点记得清空某个 ID。
 
 ### 8.2 普通 PDP 初始状态
 
-多 SKU 商品：
+多 selectable SKU 商品：
 
-- 使用 defaultDisplayVariant 展示素材；
+- defaultDisplayVariant 只用于派生展示素材；
 - option buttons 不标记为用户已选择；
 - selectedValueIds 为空；
-- confirmedVariantId 为空；
+- confirmedCombinationKey 为空；
 - 价格显示 `From ₱X` 或 `₱X–₱Y`；
 - CTA 显示 `CHOOSE OPTIONS`。
 
-一个可售 SKU 的商品：
+只有一个 selectable SKU 的商品：
 
-- 自动解析并允许直接加购/结账；
-- 不显示无意义的选择步骤。
+- 自动解析该组合；
+- 有库存时 Order Now 可直接进入 Inline Order、Add to Cart 可直接执行；
+- 售罄时保留现有 Save in Cart/Contact Restock 能力，不显示可下单状态；
+- 不显示无意义的多组选项步骤。
 
 ### 8.3 用户手动选择
 
-- 每次点击记录对应 option 为 touched；
+- 每次点击记录对应 option 为 explicitly touched；
 - 组合不完整：提示缺少的选项；
 - 组合不存在：不自动替换其他 value；
-- 改变某个 value 后，若另一个已选 value 与其无任何有效组合，清除不再有效的 value并提示重新选择；
-- 组合完整且两个 option 都由用户本次明确操作：confirmedVariantId 可设为 resolvedVariantId；
-- 任一 value 再次变化，旧确认立即失效。
+- 改变某个 value 后，若另一个已选 value 与其无任何有效组合，清除不再有效的 value 并递增 revision；
+- resolved 组合且**每个 active option group**都由用户本次明确触碰时，记录当前 combinationKey/revision 为 confirmed；适用于 0、1 或 2 组选项，不能写死“两组”；
+- Confirm dialog 可以一次确认未逐组触碰的 deep-link 组合；
+- 任一 value 再次变化，revision 变化使旧确认自然失效。
 
-### 8.4 广告/分享深链
+### 8.4 广告/分享深链与 CTA
 
 有效 `?variant=<id>`：
 
 - 回填该 variant 的全部 option values；
 - 展示对应套图、价格、库存；
-- URL 与当前 display variant 保持同步；
 - selectionSource=DEEP_LINK；
-- touchedOptionIds 为空；
-- confirmedVariantId 为空。
+- explicitlyTouchedOptionIds 为空；
+- confirmedCombinationKey 为空；
+- URL 只反映展示/选择，不代表购买授权。
 
-第一次 Add to Cart 或 Order Now：打开预填确认面板。顾客点击 Confirm 后，设置 confirmedVariantId，并在同一动作中完成加购或跳转 Checkout。
+入口行为按 surface 明确区分：
+
+- `ADD TO CART`：打开预填确认面板；确认后允许把该 SKU 加入购物车；
+- inline-enabled PDP/LP 的顶部或 sticky `ORDER NOW`：滚动并聚焦 `#quick-order`，把当前组合带入第一订单行但保持待确认；绝不跳传统 Checkout；
+- Quick Add：在 picker 内确认后加购；
+- 传统购物车 Checkout：使用购物车已有明确 SKU，不重新解释 PDP deep link。
 
 无效 `?variant=`：移除无效参数，回到普通初始状态，不选择第一条 SKU。
 
@@ -392,15 +435,25 @@ selectionSource        DEFAULT | DEEP_LINK | USER | CONFIRM_DIALOG
 - `purchasableVariant`：selectable 且 availableInventory>0；
 - SKU DISABLED、无价格或无 SKU 的组合不属于 selectable。
 
-所有入口共用同一判断：
+购买守卫按动作区分，不能用一个 `purchasableVariant` 规则覆盖现有 Save-in-cart 行为：
 
 ```text
-selectable 数量 = 0               → View Details / Unavailable
-selectable 数量 = 1 且有库存       → 可直接执行
-selectable 数量 = 1 且售罄         → 展示 Out of Stock，不发购买请求
-selectable 数量 > 1，且 confirmedVariantId 匹配 resolvedVariantId，
-同时 resolved variant 有库存       → 执行
-其他                               → 打开/聚焦选项选择器，不调用购物车或订单接口
+selectable 数量 = 0
+  → View Details / Unavailable
+
+ADD TO CART
+  selectable 数量 = 1
+    → 可直接加入；即使售罄也允许保存到购物车，由购物车标记 unavailable 并阻止 Checkout
+  selectable 数量 > 1 且 purchaseConfirmed
+    → 加入 resolved SKU；售罄 SKU仍可保存但明确提示
+  其他
+    → 打开 picker，不调用 cart API
+
+ORDER NOW / INLINE ORDER
+  resolved variant 必须 purchasable 且 purchaseConfirmed
+    → 滚动到 Inline Order/允许订单行
+  其他
+    → 打开/聚焦选项选择器，不调用订单 API
 ```
 
 后端仍只信任最终 SKU ID，并重新验证 SKU ACTIVE、商品 ACTIVE、库存和价格；前端确认不是安全边界。
@@ -424,9 +477,9 @@ IMAGE 按钮必须同时显示文字。SWATCH 必须有可访问名称。TEXT �
 桌面与移动端统一：
 
 - 未完成：`CHOOSE OPTIONS`；
-- 深链预选未确认：点击打开 `Confirm your options`；
-- 已由用户完成：`ADD TO CART` / `ORDER NOW`；
-- 售罄：`OUT OF STOCK`，允许继续浏览素材；
+- 深链预选未确认：Add to Cart 打开 `Confirm your options`；Order Now 滚动到 Quick COD Order；
+- 已由用户完成：`ADD TO CART` 直接执行；`ORDER NOW` 把已确认组合带到 Quick COD Order；
+- 售罄：保留 `ADD TO CART` 作为 save-for-later，显示 `OUT OF STOCK` 并隐藏/禁用下单；
 - 无效组合：`UNAVAILABLE`，提示更换选项。
 
 移动端 sticky CTA 打开 Bottom Sheet，展示完整选项、当前缩略图、价格、库存和最终动作。
@@ -465,8 +518,8 @@ Checkout 确认页再次显示 option labels、缩略图、SKU、数量和价格
 
 ### 9.5 订单与后台
 
-- 新订单继续保存 product、SKU 和 variant name 快照；
-- 可追加结构化 option snapshot JSON，避免未来改名后客服看不到下单时 Color/Size 标签；
+- 所有新订单由 OrdersService 的单一 snapshot builder 同时写 product/SKU/variant 文本快照和结构化 option snapshot JSON；结构化快照是新订单的权威选项表示；
+- `variantSnapshot` 仅作为历史订单和人工阅读的兼容文本，不允许新订单有时写 JSON、有时只写扁平字符串；
 - 后台订单、库存和发货 UI 显示结构化选项；
 - 历史订单无 option snapshot 时回退现有 variantSnapshot；
 - 评论显示 `Color: Yellow · Size: 120 cm`，Verified Purchase 规则不变。
@@ -498,9 +551,9 @@ Checkout 确认页再次显示 option labels、缩略图、SKU、数量和价格
 
 ## 11. API 合约
 
-### 11.1 Storefront Product
+### 11.1 Storefront common/list contract
 
-Storefront product payload 增加：
+列表与 PDP 共用的最小商品字段增加：
 
 ```text
 options[]
@@ -509,32 +562,59 @@ options[]
     id, label, position, swatchHex, thumbnailUrl, thumbnailAlt
 
 variants[]
-  id, name, position
-  optionValueIds[]
-  sku
-
-images[]
-  id, url, type, altText, sortOrder
-  optionValueId?
-  variantId?
+  id, name, position, optionValueIds[]
+  sku { id, skuCode, status, price, compareAtPrice, availableInventory, ... }
 
 defaultDisplayVariantId?
+effectiveCoverMedia { id, url, type, posterUrl?, altText }?
+images[]             legacy/shared-only media，绝不混入 scoped rows
+catalogGraphVersion
 ```
 
-禁止向 storefront 暴露 supplier cost 等内部字段，现有约束不变。
+SKU status 必须显式返回，或后端把 DISABLED SKU 序列化为 `sku:null` 并另给 display-only status；实现计划选一种并全站统一，不能让浏览器把 disabled priced SKU 当 selectable。
 
-### 11.2 Admin Product
+PLP/Home/Search/Related 只使用 `effectiveCoverMedia` 和 option thumbnails，不返回完整 scoped galleries。
+
+### 11.2 PDP media contract
+
+PDP 初始响应额外返回：
+
+```text
+initialMediaSet {
+  resolvedScope: SHARED | OPTION_VALUE | VARIANT
+  scopeId?
+  media[]
+}
+availableMediaScopes {
+  optionValueIds[]
+  variantIds[]
+}
+```
+
+其他套图按需读取：
+
+```text
+GET /storefront/products/:slug/media?variantId=<id>
+GET /storefront/products/:slug/media?optionValueId=<id>
+```
+
+后端执行 exact → media-driver value → shared resolver，验证归属并按 product revision/scope 缓存。前端选择新 scope 时按 key 缓存结果，不做 N+1 商品详情请求，也不初始下载所有 scoped media metadata。
+
+### 11.3 Admin Product
 
 Admin payload 除 storefront 字段外包含：
 
 - option/value active 状态；
-- 组合矩阵所需 stable IDs/client keys；
+- 组合矩阵 stable IDs/client keys；
 - SKU 内部字段；
 - 库存数据；
-- 媒体作用域；
-- 历史引用导致的可删除性提示。
+- 完整 scoped media graph；
+- 历史引用导致的可删除性提示；
+- `catalogGraphVersion`/revision，保存使用乐观锁。
 
-### 11.3 Cart
+当产品已有 graphVersion>legacy 时，后端拒绝缺少 graph revision 的旧 Admin whole-list payload，返回具名 409，防止回滚旧编辑器在修改无关字段时抹掉 option/media scopes。
+
+### 11.4 Cart
 
 新增或扩展 cart item SKU 替换能力：
 
@@ -626,7 +706,8 @@ variant_unavailable
 - 一个 ACTIVE、priced SKU；
 - defaultDisplayVariant 属于该商品，并关联 ACTIVE、priced SKU；库存可以暂时为 0，但后台必须警告运营优先选择有库存的默认展示款；
 - 每个 IMAGE presentation 的 active value 有有效缩略图回退；
-- 每个主视觉 active value 有 option 套图、精确组合套图或明确可用的公共图回退；
+- 至少一张 shared IMAGE 作为 legacy/加载失败/回滚的安全封面；
+- 每个主视觉 active value 有 option 套图、精确组合套图或明确可用的 shared 回退；
 - 所有在售 variants 有完整 option assignments。
 
 素材缺失先作为具名错误定位到具体 option value，不能笼统报 Product invalid。
@@ -642,17 +723,19 @@ variant_unavailable
 
 ## 14. 性能与存储
 
-- Storefront payload 可以包含全部媒体元数据，但浏览器只请求当前套图文件；
+- 列表接口只返回 `effectiveCoverMedia`、option thumbnails 和最小 SKU/option 数据；
+- PDP 初始只返回 shared/default/current media set，其他 scope 通过专用 media endpoint 按需读取并缓存；
+- 不把 variants×media 的全部元数据塞进初始 JSON/RSC/hydration；
 - Next Image/图片 CDN 生成小尺寸 option thumbnails，不能在 64px 控件中下载原始大图；
 - variant 视频只对当前套图加载 metadata；
-- PLP 不返回完整 variant galleries，只返回 effective thumbnail 和最小 option/SKU 数据；
-- PDP 详情接口返回完整作用域映射；
+- Admin 矩阵超过 30 行虚拟化/分页，保存只发 changed rows；
+- 后端在事务外计算 diff，事务内批量写，避免按 variant 串行持锁；
 - R2/CDN 直传与对象存储是后续上传性能优化，数据模型使用 URL，不与具体存储厂商耦合；
 - 删除数据库媒体行不自动删除共享对象，清理由独立 orphan job 或显式引用检查处理。
 
 ## 15. 数据迁移
 
-迁移必须加性执行，不重建现有 variants/SKUs。
+迁移必须加性执行，不重建现有 variants/SKUs。Backfill 使用 `INSERT ... SELECT`、`UPDATE ... FROM` 或按主键范围的可恢复批次，不以每条 variant 一次应用请求的方式执行；索引/约束先建立 nullable/未验证阶段，backfill 审计后再收紧。当前生产数据量虽小，脚本仍须满足重复运行安全或具备清晰 migration state，不能依赖永远只有少量商品。
 
 对每个存在 variants 的商品：
 
@@ -690,15 +773,18 @@ variant_unavailable
 
 ### 17.1 数据与服务测试
 
-- 一组/两组选项组合生成；
-- combinationKey 唯一性；
+- 一组/两组选项组合生成，0/1/2 active groups 的确认条件正确；
+- combinationKey 唯一且 option 展示顺序互换后保持不变；
+- 100 候选组合上限与矩阵虚拟化边界；
+- active partial unique indexes 在 disabled 历史行和并发保存下正确；
 - 保留既有 variant/SKU ID；
 - rename value 后更新当前 variant name，订单快照不变；
 - 新增/停用/删除组合；
 - 有历史组合拒绝物理删除；
 - option/value/product 归属校验；
-- media scope CHECK 和跨商品拒绝；
+- media scope CHECK、同 product 复合外键和跨商品拒绝；
 - defaultDisplayVariant 归属；
+- set-based/batched backfill 可审计；
 - 迁移前后 SKU、库存、订单引用一致。
 
 ### 17.2 Resolver 单元测试
@@ -717,10 +803,12 @@ variant_unavailable
 - IMAGE/SWATCH/TEXT 三种 presentation；
 - Color 与 Size 均可用 thumbnail；
 - 普通初始状态无 purchase confirmation；
-- deep link 预选但 confirmedVariantId 为空；
-- 用户手动完成所有选项后允许购买；
-- CTA 未确认时只开 picker，不发请求；
-- 选项变化使旧确认失效；
+- deep link 预选但 confirmedCombinationKey 为空；
+- 用户触碰每个 active option group 后允许购买，迁移的一组 Style 商品可正常确认；
+- selectionRevision 变化使旧 confirmed key 自动失效；
+- Add to Cart 仍可保存 OOS selectable SKU，而 Order Now/Inline 阻止下单；
+- ORDER NOW 在 PDP/LP 只滚动到 Quick COD Form，不跳传统 Checkout；
+- CTA 未确认时只开 picker/确认，不发购买请求；
 - 图集切换重置索引并关闭旧 Lightbox；
 - Quick Add 多 SKU 不默认选首项；
 - 单 SKU 直接加购回归；
@@ -765,20 +853,22 @@ variant_unavailable
 
 发布顺序：
 
-- 先部署可读取旧数据和新数据的后端；
-- 应用加性 migration；
-- 部署后台和 storefront；
-- 迁移旧商品；
-- 验证 SKU/库存/订单引用；
-- 再允许运营配置第二组选项和 scoped media。
+1. 生产备份并执行 additive expand migration；
+2. 构建前执行 Prisma generate，部署能读旧 flat data 与新 option graph 的 compatibility backend；新表/列已存在后该 build 才能接流量；
+3. 执行 set-based/batched backfill 与主键/库存/订单审计；
+4. 部署 Admin 与 Storefront；legacy `images` 仍只返回 shared，scoped media 走新 contract；
+5. 验证商品、SKU、库存、订单和默认封面；
+6. 再允许运营配置第二组选项和 scoped media；
+7. 稳定后才收紧非空/legacy 写入约束。
 
 回滚原则：
 
-- migration 第一阶段只新增表/列/关联，不删除旧字段；
-- ProductVariant.name 和 SKU 关系继续存在；
-- 若前端回滚，旧客户端仍可读取扁平 variants 和 shared images；
-- 新建两维商品在旧前端只能显示生成后的组合名，因此生产回滚前暂停新结构录入；
-- 稳定一个发布周期后再评估是否清理旧兼容字段，不能在本次一并删除。
+- migration 第一阶段只新增表/列/关联，不删除 ProductVariant.name 或 SKU 关系；
+- Storefront 回滚只会读取 shared-only legacy `images`，不会混入多颜色套图；
+- 已启用新 graph 的商品若 Admin 回滚，backend 通过 graph revision 拒绝旧 whole-list save；运营编辑暂停，不能允许旧表单抹掉 scopes；
+- 新建两维商品在旧 Storefront 只能显示生成后的组合名，因此回滚期间暂停新结构录入；
+- 一旦开始 scoped media 写入，不承诺旧 Admin 可编辑；恢复优先 forward fix/new Admin，而非破坏性降级；
+- 稳定一个发布周期后再评估清理 legacy contract，不能在本次一并删除。
 
 ## 19. 验收成功标准
 
