@@ -16,6 +16,7 @@ import { ReviewsService } from './reviews.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
+import { presentCatalogGraph } from './catalog-compat.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
 /**
@@ -26,7 +27,10 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 const PENDING_RENAME = '__pending_rename__';
 
 const ADMIN_PRODUCT_INCLUDE = {
-  images: { orderBy: { sortOrder: 'asc' as const } },
+  images: {
+    where: { optionValueId: null, variantId: null },
+    orderBy: { sortOrder: 'asc' as const },
+  },
   detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
   variants: { include: { sku: true }, orderBy: { position: 'asc' as const } },
 } satisfies Prisma.ProductInclude;
@@ -51,19 +55,61 @@ const STOREFRONT_SELECT = {
   foldedWidth: true,
   foldedHeight: true,
   foldedDepth: true,
+  catalogGraphVersion: true,
+  defaultDisplayVariantId: true,
   images: {
-    select: { id: true, url: true, type: true, altText: true, sortOrder: true },
+    where: { optionValueId: null, variantId: null },
+    select: {
+      id: true,
+      url: true,
+      type: true,
+      altText: true,
+      sortOrder: true,
+      optionValueId: true,
+      variantId: true,
+    },
     orderBy: { sortOrder: 'asc' as const },
+  },
+  options: {
+    where: { isActive: true },
+    select: {
+      id: true,
+      kind: true,
+      name: true,
+      position: true,
+      presentation: true,
+      isMediaDriver: true,
+      isActive: true,
+      values: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          label: true,
+          position: true,
+          swatchHex: true,
+          thumbnailUrl: true,
+          thumbnailAlt: true,
+          isActive: true,
+        },
+        orderBy: { position: 'asc' as const },
+      },
+    },
+    orderBy: { position: 'asc' as const },
   },
   variants: {
     select: {
       id: true,
       name: true,
       position: true,
+      combinationKey: true,
+      optionValues: {
+        select: { optionId: true, optionValueId: true },
+      },
       sku: {
         select: {
           id: true,
           skuCode: true,
+          status: true,
           price: true,
           compareAtPrice: true,
           productWeight: true,
@@ -600,9 +646,17 @@ export class ProductsService {
   private async presentStorefront(items: StorefrontProductRecord[]) {
     const enriched = await this.withAvailableInventory(items);
     const summary = await this.reviews.summaryForProducts(enriched.map((p) => p.id));
-    return enriched.map((p) => {
-      const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
-      return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
+    return enriched.map((product) => {
+      const reviewSummary = summary.get(product.id) ?? {
+        reviewCount: 0,
+        ratingAverage: null,
+      };
+      return {
+        ...product,
+        ...presentCatalogGraph(product),
+        reviewCount: reviewSummary.reviewCount,
+        ratingAverage: reviewSummary.ratingAverage,
+      };
     });
   }
 
@@ -709,7 +763,8 @@ export class ProductsService {
 
     // PDP needs availableInventory to render the stock state and to gate
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
-    const base = (await this.withAvailableInventory([product]))[0];
+    const enriched = (await this.withAvailableInventory([product]))[0];
+    const base = { ...enriched, ...presentCatalogGraph(enriched) };
     const reviewData = await this.reviews.storefrontForProduct(base.id);
     return { ...base, ...reviewData };
   }
