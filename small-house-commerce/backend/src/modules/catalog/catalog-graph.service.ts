@@ -60,6 +60,7 @@ const GRAPH_SNAPSHOT_INCLUDE = {
   images: {
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
+  detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
 } satisfies Prisma.ProductInclude;
 
 type GraphSnapshot = Prisma.ProductGetPayload<{
@@ -75,6 +76,17 @@ export type AdminProduct = Omit<GraphSnapshot, 'images'> & {
   /** Full admin media graph, including option-value and variant scopes. */
   media: GraphMedia[];
 };
+
+export class CatalogGraphMaterializationRequiredError extends Error {
+  readonly code = 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED';
+
+  constructor() {
+    super(
+      'A graph-v0 product must map every persisted legacy variant before catalog graph writes.',
+    );
+    this.name = 'CatalogGraphMaterializationRequiredError';
+  }
+}
 
 interface MutableOption {
   id: string;
@@ -181,6 +193,19 @@ export class CatalogGraphService {
     expectedVersion: number,
     patch: CatalogGraphPatch,
   ): Promise<AdminProduct> {
+    return this.applyPatchWithProductMutation(
+      productId,
+      expectedVersion,
+      patch,
+    );
+  }
+
+  async applyPatchWithProductMutation(
+    productId: string,
+    expectedVersion: number,
+    patch: CatalogGraphPatch,
+    mutateProduct?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<AdminProduct> {
     if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
       throw new CatalogGraphVersionRequiredError();
     }
@@ -191,7 +216,7 @@ export class CatalogGraphService {
       patch,
     );
     const saved = await this.prisma.$transaction((tx) =>
-      this.persistPlan(tx, productId, plan),
+      this.persistPlan(tx, productId, plan, mutateProduct),
     );
 
     await revalidateCache([CACHE_TAGS.STOREFRONT]);
@@ -365,6 +390,24 @@ export class CatalogGraphService {
       );
     const candidates = this.buildCandidates(activeOptions, valueList);
     const activeOptionIds = new Set(activeOptions.map((option) => option.id));
+    const requiresLegacyMaterialization =
+      snapshot.catalogGraphVersion === 0 &&
+      snapshot.options.length === 0 &&
+      snapshot.variants.length > 0;
+    if (requiresLegacyMaterialization) {
+      const mappedPersistedIds = new Set(
+        patch.variants.flatMap((variant) =>
+          variant.id === undefined ? [] : [variant.id],
+        ),
+      );
+      if (
+        mappedPersistedIds.size !== snapshot.variants.length ||
+        snapshot.variants.some(({ id }) => !mappedPersistedIds.has(id)) ||
+        [...mappedPersistedIds].some((id) => !existingVariants.has(id))
+      ) {
+        throw new CatalogGraphMaterializationRequiredError();
+      }
+    }
 
     const incomingVariants = patch.variants.map((write) => {
       let requestedId: string;
@@ -383,21 +426,39 @@ export class CatalogGraphService {
       }
 
       const pairs = write.optionValueRefs.map((ref) => {
-        const valueId = this.resolveRef(
-          ref,
-          existingValues,
-          valueClientIds,
-          'option value',
-        );
+        let valueId: string;
+        try {
+          valueId = this.resolveRef(
+            ref,
+            existingValues,
+            valueClientIds,
+            'option value',
+          );
+        } catch (error) {
+          if (requiresLegacyMaterialization && write.id !== undefined) {
+            throw new CatalogGraphMaterializationRequiredError();
+          }
+          throw error;
+        }
         const value = values.get(valueId);
         if (!value || !value.isActive || !activeOptionIds.has(value.optionId)) {
+          if (requiresLegacyMaterialization && write.id !== undefined) {
+            throw new CatalogGraphMaterializationRequiredError();
+          }
           throw new BadRequestException(
             `Option value ${valueId} is not active for product ${productId}.`,
           );
         }
         return { optionId: value.optionId, valueId };
       });
-      this.assertCompleteVariantSelection(pairs, activeOptions, requestedId);
+      try {
+        this.assertCompleteVariantSelection(pairs, activeOptions, requestedId);
+      } catch (error) {
+        if (requiresLegacyMaterialization && write.id !== undefined) {
+          throw new CatalogGraphMaterializationRequiredError();
+        }
+        throw error;
+      }
       return {
         write,
         requestedId,
@@ -410,6 +471,9 @@ export class CatalogGraphService {
     const incomingByKey = new Map<string, IncomingVariant>();
     for (const incoming of incomingVariants) {
       if (incomingByKey.has(incoming.combinationKey)) {
+        if (requiresLegacyMaterialization) {
+          throw new CatalogGraphMaterializationRequiredError();
+        }
         throw new BadRequestException(
           `Two variant rows resolve to combination ${incoming.combinationKey}.`,
         );
@@ -589,6 +653,7 @@ export class CatalogGraphService {
     tx: Prisma.TransactionClient,
     productId: string,
     plan: PersistencePlan,
+    mutateProduct?: (tx: Prisma.TransactionClient) => Promise<void>,
   ): Promise<GraphSnapshot> {
     const revision = await tx.product.updateMany({
       where: { id: productId, catalogGraphVersion: plan.expectedVersion },
@@ -605,6 +670,8 @@ export class CatalogGraphService {
         current.catalogGraphVersion,
       );
     }
+
+    if (mutateProduct) await mutateProduct(tx);
 
     const changedExistingOptionIds = plan.options
       .filter(({ id, isNew }) => !isNew && plan.changedOptionIds.has(id))

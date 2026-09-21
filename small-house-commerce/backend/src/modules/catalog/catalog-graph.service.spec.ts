@@ -2,7 +2,10 @@ import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import { canonicalCombinationKey } from './catalog-graph.js';
-import { CatalogGraphService } from './catalog-graph.service.js';
+import {
+  CatalogGraphMaterializationRequiredError,
+  CatalogGraphService,
+} from './catalog-graph.service.js';
 import { AdminProductsController } from './admin/products.controller.js';
 import {
   CatalogGraphVersionMismatchError,
@@ -111,10 +114,17 @@ interface HistoryCounts {
 interface GraphState {
   product: {
     id: string;
+    name: string;
     slug: string;
     catalogGraphVersion: number;
     defaultDisplayVariantId: string | null;
   };
+  detailBlocks: Array<{
+    type: 'IMAGE' | 'VIDEO';
+    url: string;
+    altText: string | null;
+    sortOrder: number;
+  }>;
   options: OptionRow[];
   values: ValueRow[];
   variants: VariantRow[];
@@ -149,10 +159,19 @@ function baseState(
   const state: GraphState = {
     product: {
       id: PRODUCT_ID,
+      name: 'Chair',
       slug: 'chair',
       catalogGraphVersion: options.version ?? 1,
       defaultDisplayVariantId: RED_VARIANT_ID,
     },
+    detailBlocks: [
+      {
+        type: 'IMAGE',
+        url: '/uploads/original-detail.webp',
+        altText: 'Original detail',
+        sortOrder: 0,
+      },
+    ],
     options: [
       {
         id: COLOR_ID,
@@ -317,6 +336,17 @@ function twoOptionState(): GraphState {
   return state;
 }
 
+function legacyState(includeBlue = true): GraphState {
+  const state = baseState({ version: 0, includeBlue });
+  state.options = [];
+  state.values = [];
+  state.assignments = [];
+  state.variants.forEach((variant) => {
+    variant.combinationKey = null;
+  });
+  return state;
+}
+
 function parsePatch(input: Record<string, unknown>): CatalogGraphPatch {
   return catalogGraphPatchSchema.parse(input);
 }
@@ -341,6 +371,7 @@ function colorWrite(
 function materialize(state: GraphState) {
   return {
     ...state.product,
+    detailBlocks: structuredClone(state.detailBlocks),
     options: [...state.options]
       .sort((left, right) => left.position - right.position)
       .map((option) => ({
@@ -483,6 +514,21 @@ function createGraphHarness(
             state.product.defaultDisplayVariantId =
               relation.connect.id ?? relation.connect.id_productId?.id ?? null;
           }
+        }
+        if (typeof data.name === 'string') state.product.name = data.name;
+        if (data.detailBlocks) {
+          const mutation = data.detailBlocks as {
+            create?: Array<{
+              type: 'IMAGE' | 'VIDEO';
+              url: string;
+              altText?: string | null;
+              sortOrder: number;
+            }>;
+          };
+          state.detailBlocks = (mutation.create ?? []).map((block) => ({
+            ...block,
+            altText: block.altText ?? null,
+          }));
         }
         return currentProduct();
       }),
@@ -826,6 +872,74 @@ function addBluePatch() {
   });
 }
 
+function materializeLegacyPatch(
+  options: {
+    includeBlue?: boolean;
+    includeGreen?: boolean;
+  } = {},
+) {
+  const includeBlue = options.includeBlue ?? true;
+  const includeGreen = options.includeGreen ?? false;
+  const values: Array<Record<string, unknown>> = [
+    {
+      clientKey: 'legacy-red-value',
+      label: 'Red',
+      position: 0,
+      swatchHex: '#ff0000',
+      isActive: true,
+    },
+  ];
+  if (includeBlue) {
+    values.push({
+      clientKey: 'legacy-blue-value',
+      label: 'Blue',
+      position: 1,
+      swatchHex: '#0000ff',
+      isActive: true,
+    });
+  }
+  if (includeGreen) {
+    values.push({
+      clientKey: 'legacy-green-value',
+      label: 'Green',
+      position: 2,
+      swatchHex: '#00aa00',
+      isActive: true,
+    });
+  }
+
+  return parsePatch({
+    options: [
+      {
+        clientKey: 'legacy-color-option',
+        kind: 'COLOR',
+        name: 'Color',
+        position: 0,
+        presentation: 'SWATCH',
+        isMediaDriver: true,
+        isActive: true,
+        values,
+      },
+    ],
+    variants: [
+      {
+        id: RED_VARIANT_ID,
+        position: 0,
+        optionValueRefs: [{ clientKey: 'legacy-red-value' }],
+      },
+      ...(includeBlue
+        ? [
+            {
+              id: BLUE_VARIANT_ID,
+              position: 1,
+              optionValueRefs: [{ clientKey: 'legacy-blue-value' }],
+            },
+          ]
+        : []),
+    ],
+  });
+}
+
 beforeEach(() => {
   vi.mocked(revalidateCache).mockReset();
   vi.mocked(revalidateCache).mockResolvedValue(undefined);
@@ -966,6 +1080,118 @@ describe('CatalogGraphService.applyPatch', () => {
         variantId: created?.id,
       }),
     );
+  });
+
+  it.each([
+    ['empty', () => parsePatch({})],
+    [
+      'shared-media-only',
+      () =>
+        parsePatch({
+          media: [
+            {
+              clientKey: 'new-shared-media',
+              url: '/uploads/new-shared.webp',
+              type: 'IMAGE',
+              sortOrder: 1,
+            },
+          ],
+        }),
+    ],
+  ])(
+    'rejects an incomplete %s graph-v0 materialization before mutation',
+    async (_label, patchFactory) => {
+      const harness = createGraphHarness(legacyState());
+      const before = structuredClone(harness.state);
+
+      await expect(
+        harness.service.applyPatch(PRODUCT_ID, 0, patchFactory()),
+      ).rejects.toMatchObject({
+        code: 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED',
+      });
+
+      expect(harness.transactionCalls).toBe(0);
+      expect(harness.state).toEqual(before);
+      expect(revalidateCache).not.toHaveBeenCalled();
+    },
+  );
+
+  it('uses the materialization error when a listed legacy variant does not resolve to a final candidate', async () => {
+    const harness = createGraphHarness(legacyState());
+    const patch = materializeLegacyPatch();
+    patch.variants[1].optionValueRefs = [];
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.service.applyPatch(PRODUCT_ID, 0, patch),
+    ).rejects.toMatchObject({
+      code: 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED',
+    });
+    expect(harness.transactionCalls).toBe(0);
+    expect(harness.state).toEqual(before);
+    expect(revalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('rejects synthetic read-projection value IDs with the materialization error', async () => {
+    const harness = createGraphHarness(legacyState());
+    const patch = materializeLegacyPatch();
+    patch.variants[0].optionValueRefs = [
+      { id: '90000000-0000-4000-8000-000000000009' },
+    ];
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.service.applyPatch(PRODUCT_ID, 0, patch),
+    ).rejects.toMatchObject({
+      code: 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED',
+    });
+    expect(harness.transactionCalls).toBe(0);
+    expect(harness.state).toEqual(before);
+    expect(revalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('fully materializes every legacy variant by persisted ID and creates only additional candidates', async () => {
+    const harness = createGraphHarness(legacyState());
+
+    const result = (await harness.service.applyPatch(
+      PRODUCT_ID,
+      0,
+      materializeLegacyPatch({ includeGreen: true }),
+    )) as ReturnType<typeof materialize>;
+
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({
+      id: RED_VARIANT_ID,
+      name: 'Red',
+      sku: { id: RED_SKU_ID },
+    });
+    expect(findVariant(result, BLUE_VARIANT_ID)).toMatchObject({
+      id: BLUE_VARIANT_ID,
+      name: 'Blue',
+      sku: { id: BLUE_SKU_ID },
+    });
+    const additional = result.variants.find(
+      (variant) =>
+        variant.id !== RED_VARIANT_ID && variant.id !== BLUE_VARIANT_ID,
+    );
+    expect(additional).toMatchObject({ name: 'Green', sku: null });
+    expect(result.catalogGraphVersion).toBe(1);
+  });
+
+  it('materializes a single legacy default into typed options without replacing its variant or SKU', async () => {
+    const harness = createGraphHarness(legacyState(false));
+
+    const result = await harness.service.applyPatch(
+      PRODUCT_ID,
+      0,
+      materializeLegacyPatch({ includeBlue: false }),
+    );
+
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({
+      id: RED_VARIANT_ID,
+      name: 'Red',
+      sku: { id: RED_SKU_ID },
+    });
+    expect((result as ReturnType<typeof materialize>).variants).toHaveLength(1);
   });
 
   it('preserves and disables an existing SKU when a retained combination clears it', async () => {
@@ -1141,11 +1367,23 @@ function createProductsHarness(catalogGraphVersion: number) {
   };
   const reviews = { summaryForProducts: vi.fn(async () => new Map()) };
   const inventory = { stockBySku: vi.fn(async () => new Map()) };
+  const graphResult = {
+    ...saved,
+    catalogGraphVersion: catalogGraphVersion + 1,
+  };
   const graph = {
-    applyPatch: vi.fn(async () => ({
-      ...saved,
-      catalogGraphVersion: catalogGraphVersion + 1,
-    })),
+    applyPatch: vi.fn(async () => graphResult),
+    applyPatchWithProductMutation: vi.fn(
+      async (
+        _id: string,
+        _version: number,
+        _patch: CatalogGraphPatch,
+        mutate: (client: typeof tx) => Promise<void>,
+      ) => {
+        await mutate(tx);
+        return graphResult;
+      },
+    ),
   };
   const service = new ProductsService(
     prisma as never,
@@ -1154,6 +1392,30 @@ function createProductsHarness(catalogGraphVersion: number) {
     graph as never,
   );
   return { service, prisma, tx, graph };
+}
+
+function createMixedProductsHarness(
+  state: GraphState,
+  failAt?: 'media' | 'default',
+) {
+  const graphHarness = createGraphHarness(state, failAt);
+  const reviews = { summaryForProducts: vi.fn(async () => new Map()) };
+  const inventory = { stockBySku: vi.fn(async () => new Map()) };
+  const service = new ProductsService(
+    graphHarness.prisma as never,
+    reviews as never,
+    inventory as never,
+    graphHarness.service,
+  );
+  return {
+    products: service,
+    get state() {
+      return graphHarness.state;
+    },
+    get transactionCalls() {
+      return graphHarness.transactionCalls;
+    },
+  };
 }
 
 const legacyVariantInput = [
@@ -1165,6 +1427,94 @@ const legacyVariantInput = [
 ];
 
 describe('ProductsService catalog graph routing', () => {
+  it('rolls back mixed scalar and detail changes when the graph revision is stale', async () => {
+    const harness = createMixedProductsHarness(baseState({ version: 5 }));
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.products.update(PRODUCT_ID, {
+        name: 'Changed chair',
+        detailBlocks: [
+          {
+            type: 'VIDEO',
+            url: '/uploads/changed-detail.mp4',
+            altText: 'Changed detail',
+            sortOrder: 0,
+          },
+        ],
+        catalogGraph: renameRedPatch(),
+        catalogGraphVersion: 4,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CATALOG_GRAPH_VERSION_MISMATCH',
+      actualVersion: 5,
+    });
+
+    expect(harness.state).toEqual(before);
+    expect(revalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('rolls back mixed scalar and detail changes when a late graph write fails', async () => {
+    const harness = createMixedProductsHarness(
+      baseState({ includeBlue: false }),
+      'media',
+    );
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.products.update(PRODUCT_ID, {
+        name: 'Changed chair',
+        detailBlocks: [
+          {
+            type: 'VIDEO',
+            url: '/uploads/changed-detail.mp4',
+            altText: 'Changed detail',
+            sortOrder: 0,
+          },
+        ],
+        catalogGraph: addBluePatch(),
+        catalogGraphVersion: 1,
+      }),
+    ).rejects.toThrow('media write failed');
+
+    expect(harness.state).toEqual(before);
+    expect(revalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('commits a mixed scalar/detail graph save in one transaction and revalidates once', async () => {
+    const harness = createMixedProductsHarness(baseState());
+
+    const result = await harness.products.update(PRODUCT_ID, {
+      name: 'Changed chair',
+      detailBlocks: [
+        {
+          type: 'VIDEO',
+          url: '/uploads/changed-detail.mp4',
+          altText: 'Changed detail',
+          sortOrder: 0,
+        },
+      ],
+      catalogGraph: renameRedPatch(),
+      catalogGraphVersion: 1,
+    });
+
+    expect(harness.transactionCalls).toBe(1);
+    expect(harness.state.product.name).toBe('Changed chair');
+    expect(harness.state.detailBlocks).toEqual([
+      {
+        type: 'VIDEO',
+        url: '/uploads/changed-detail.mp4',
+        altText: 'Changed detail',
+        sortOrder: 0,
+      },
+    ]);
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({
+      name: 'Crimson',
+      sku: { id: RED_SKU_ID },
+    });
+    expect(revalidateCache).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps graph-v0 products on the legacy reconcile path', async () => {
     const { service, tx, graph } = createProductsHarness(0);
 
@@ -1173,7 +1523,7 @@ describe('ProductsService catalog graph routing', () => {
     } as UpdateProductInput);
 
     expect(tx.productVariant.findMany).toHaveBeenCalledTimes(1);
-    expect(graph.applyPatch).not.toHaveBeenCalled();
+    expect(graph.applyPatchWithProductMutation).not.toHaveBeenCalled();
   });
 
   it('rejects an old-Admin whole-list payload for a graph-aware product', async () => {
@@ -1192,7 +1542,7 @@ describe('ProductsService catalog graph routing', () => {
       } as UpdateProductInput),
     ).rejects.toBeInstanceOf(CatalogGraphVersionRequiredError);
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(graph.applyPatch).not.toHaveBeenCalled();
+    expect(graph.applyPatchWithProductMutation).not.toHaveBeenCalled();
   });
 
   it('requires a revision whenever catalogGraph is supplied', async () => {
@@ -1204,7 +1554,7 @@ describe('ProductsService catalog graph routing', () => {
       } as UpdateProductInput),
     ).rejects.toBeInstanceOf(CatalogGraphVersionRequiredError);
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(graph.applyPatch).not.toHaveBeenCalled();
+    expect(graph.applyPatchWithProductMutation).not.toHaveBeenCalled();
   });
 
   it('routes graph writes without running legacy image or variant replacement', async () => {
@@ -1224,7 +1574,12 @@ describe('ProductsService catalog graph routing', () => {
       ],
     } as UpdateProductInput);
 
-    expect(graph.applyPatch).toHaveBeenCalledWith(PRODUCT_ID, 2, patch);
+    expect(graph.applyPatchWithProductMutation).toHaveBeenCalledWith(
+      PRODUCT_ID,
+      2,
+      patch,
+      expect.any(Function),
+    );
     expect(tx.productVariant.findMany).not.toHaveBeenCalled();
     expect(tx.product.update).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1239,7 +1594,7 @@ describe('ProductsService catalog graph routing', () => {
     await service.update(PRODUCT_ID, { description: 'edited' });
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(graph.applyPatch).not.toHaveBeenCalled();
+    expect(graph.applyPatchWithProductMutation).not.toHaveBeenCalled();
   });
 });
 
@@ -1247,6 +1602,7 @@ describe('AdminProductsController catalog revision conflicts', () => {
   it.each([
     new CatalogGraphVersionRequiredError(),
     new CatalogGraphVersionMismatchError(4, 5),
+    new CatalogGraphMaterializationRequiredError(),
   ])('maps %s to a named 409 response', async (domainError) => {
     const controller = new AdminProductsController({
       update: vi.fn(async () => {

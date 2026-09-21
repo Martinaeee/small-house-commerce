@@ -329,68 +329,62 @@ export class ProductsService {
       await this.ensureCategory(input.categoryId);
     }
 
+    const data: Prisma.ProductUpdateInput = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.slug !== undefined) data.slug = input.slug;
+    if (input.description !== undefined) data.description = input.description;
+    if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.categoryId !== undefined)
+      data.category = { connect: { id: input.categoryId } };
+    if (input.status !== undefined) data.status = input.status;
+    if (input.room !== undefined) data.room = input.room;
+    if (input.internalRole !== undefined)
+      data.internalRole = input.internalRole;
+    if (input.solutions !== undefined) data.solutions = input.solutions;
+    if (input.width !== undefined) data.width = input.width;
+    if (input.height !== undefined) data.height = input.height;
+    if (input.depth !== undefined) data.depth = input.depth;
+    if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
+    if (input.foldedHeight !== undefined)
+      data.foldedHeight = input.foldedHeight;
+    if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
+    if (input.materials !== undefined) data.materials = input.materials;
+    if (input.features !== undefined) data.features = input.features;
+    if (input.detailBlocks !== undefined) {
+      data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
+    }
+
     try {
+      if (input.catalogGraph !== undefined) {
+        if (!this.catalogGraph) {
+          throw new Error('CatalogGraphService is not configured');
+        }
+        const graphUpdated =
+          await this.catalogGraph.applyPatchWithProductMutation(
+            id,
+            input.catalogGraphVersion!,
+            input.catalogGraph,
+            async (tx) => {
+              await tx.product.update({ where: { id }, data });
+            },
+          );
+        const [enriched] = await this.withStock([graphUpdated]);
+        return enriched;
+      }
+
+      if (input.images !== undefined) {
+        data.images = { deleteMany: {}, create: input.images };
+      }
       const updated = await this.prisma.$transaction(async (tx) => {
-        const data: Prisma.ProductUpdateInput = {};
-
-        if (input.name !== undefined) data.name = input.name;
-        if (input.slug !== undefined) data.slug = input.slug;
-        if (input.description !== undefined)
-          data.description = input.description;
-        if (input.tagline !== undefined) data.tagline = input.tagline;
-        if (input.categoryId !== undefined)
-          data.category = { connect: { id: input.categoryId } };
-        if (input.status !== undefined) data.status = input.status;
-        if (input.room !== undefined) data.room = input.room;
-        if (input.internalRole !== undefined)
-          data.internalRole = input.internalRole;
-        if (input.solutions !== undefined) data.solutions = input.solutions;
-        if (input.width !== undefined) data.width = input.width;
-        if (input.height !== undefined) data.height = input.height;
-        if (input.depth !== undefined) data.depth = input.depth;
-        if (input.foldedWidth !== undefined)
-          data.foldedWidth = input.foldedWidth;
-        if (input.foldedHeight !== undefined)
-          data.foldedHeight = input.foldedHeight;
-        if (input.foldedDepth !== undefined)
-          data.foldedDepth = input.foldedDepth;
-        if (input.materials !== undefined) data.materials = input.materials;
-        if (input.features !== undefined) data.features = input.features;
-
-        // Legacy whole-list graph fields are accepted only while the product is
-        // still at graph version 0. Once a normalized graph exists, only the
-        // revisioned catalogGraph path may touch variants or media.
-        if (input.catalogGraph === undefined) {
-          if (input.images !== undefined) {
-            data.images = { deleteMany: {}, create: input.images };
-          }
-          if (input.variants !== undefined) {
-            await this.reconcileVariants(tx, id, input.variants);
-          }
+        if (input.variants !== undefined) {
+          await this.reconcileVariants(tx, id, input.variants);
         }
-        if (input.detailBlocks !== undefined) {
-          data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
-        }
-
         return tx.product.update({
           where: { id },
           data,
           include: ADMIN_PRODUCT_INCLUDE,
         });
       });
-
-      if (input.catalogGraph !== undefined) {
-        if (!this.catalogGraph) {
-          throw new Error('CatalogGraphService is not configured');
-        }
-        const graphUpdated = await this.catalogGraph.applyPatch(
-          id,
-          input.catalogGraphVersion!,
-          input.catalogGraph,
-        );
-        const [enriched] = await this.withStock([graphUpdated]);
-        return enriched;
-      }
 
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       // Same shape as get(): the edit form adopts this response as its new

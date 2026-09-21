@@ -26,6 +26,7 @@ import {
   CatalogGraphVersionMismatchError,
   CatalogGraphVersionRequiredError,
 } from '../dto/catalog-graph.dto.js';
+import { CatalogGraphMaterializationRequiredError } from '../catalog-graph.service.js';
 import { ProductsService } from '../products.service.js';
 
 @Controller('admin/products')
@@ -63,6 +64,14 @@ export class AdminProductsController {
       return await this.products.update(id, input);
     } catch (error) {
       if (error instanceof CatalogGraphVersionRequiredError) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          message: error.message,
+          code: error.code,
+        });
+      }
+      if (error instanceof CatalogGraphMaterializationRequiredError) {
         throw new ConflictException({
           statusCode: 409,
           error: 'Conflict',
