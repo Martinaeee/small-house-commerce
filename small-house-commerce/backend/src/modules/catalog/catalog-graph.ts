@@ -66,8 +66,12 @@ export function canonicalCombinationKey(
   pairs: readonly { optionId: string; valueId: string }[],
 ): string {
   return pairs
-    .map(({ optionId, valueId }) => `${optionId}:${valueId}`)
-    .sort((left, right) => left.localeCompare(right))
+    .map(({ optionId, valueId }) => ({
+      raw: `${optionId}:${valueId}`,
+      encoded: `${encodeURIComponent(optionId)}:${encodeURIComponent(valueId)}`,
+    }))
+    .sort((left, right) => left.raw.localeCompare(right.raw))
+    .map(({ encoded }) => encoded)
     .join("|");
 }
 

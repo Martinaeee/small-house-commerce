@@ -19,6 +19,19 @@ describe("catalog graph identity", () => {
     );
   });
 
+  it("does not alias delimiter-containing IDs", () => {
+    const embeddedDelimiter = canonicalCombinationKey([
+      { optionId: "a", valueId: "b|c:d" },
+    ]);
+    const separatePairs = canonicalCombinationKey([
+      { optionId: "a", valueId: "b" },
+      { optionId: "c", valueId: "d" },
+    ]);
+
+    expect(embeddedDelimiter).not.toBe(separatePairs);
+    expect(embeddedDelimiter).toBe("a:b%7Cc%3Ad");
+  });
+
   it("uses display position only for the generated name", () => {
     expect(
       deriveVariantName([
