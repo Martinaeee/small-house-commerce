@@ -12,7 +12,7 @@ import {
 } from '../catalog-graph.js';
 
 const uuidSchema = z.string().uuid();
-const clientKeySchema = z.string().trim().min(1).max(120);
+const clientKeySchema = z.string().min(1);
 
 /** A persisted row uses its UUID; a new row uses a request-local client key. */
 export const entityRefSchema = z.union([
@@ -127,14 +127,15 @@ function uniqueUuidArray(label: string) {
   return z.array(uuidSchema).superRefine((ids, ctx) => {
     const seen = new Set<string>();
     ids.forEach((id, index) => {
-      if (seen.has(id)) {
+      const identity = id.toLowerCase();
+      if (seen.has(identity)) {
         ctx.addIssue({
           code: 'custom',
           message: `Duplicate ${label} retirement id ${id}.`,
           path: [index],
         });
       }
-      seen.add(id);
+      seen.add(identity);
     });
   });
 }
@@ -146,18 +147,16 @@ export const catalogGraphRetirementsSchema = z.object({
   mediaIds: uniqueUuidArray('media').default([]),
 });
 
-const emptyRetirements = {
-  optionIds: [] as string[],
-  optionValueIds: [] as string[],
-  variantIds: [] as string[],
-  mediaIds: [] as string[],
-};
-
 const catalogGraphPatchShapeSchema = z.object({
   options: z.array(optionWriteSchema).default([]),
   variants: z.array(variantWriteSchema).max(100).default([]),
   media: z.array(mediaWriteSchema).default([]),
-  retirements: catalogGraphRetirementsSchema.default(emptyRetirements),
+  retirements: catalogGraphRetirementsSchema.default(() => ({
+    optionIds: [],
+    optionValueIds: [],
+    variantIds: [],
+    mediaIds: [],
+  })),
   // undefined = leave unchanged, EntityRef = set, null = clear.
   defaultDisplayVariant: entityRefSchema.nullable().optional(),
 });
@@ -165,6 +164,7 @@ const catalogGraphPatchShapeSchema = z.object({
 export const catalogGraphPatchSchema = catalogGraphPatchShapeSchema.superRefine(
   (patch, ctx) => {
     validateDefinedRowRefs(patch, ctx);
+    validateClientKeyReferences(patch, ctx);
     validateOptionGraph(patch.options, ctx);
     validateVariants(patch.variants, ctx);
   },
@@ -206,6 +206,80 @@ function validateDefinedRowRefs(
   }
 }
 
+function validateClientKeyReferences(
+  patch: z.infer<typeof catalogGraphPatchShapeSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  const optionValueClientKeys = new Set<string>();
+  patch.options.forEach((option) => {
+    option.values.forEach((optionValue) => {
+      if ('clientKey' in optionValue && optionValue.clientKey !== undefined) {
+        optionValueClientKeys.add(optionValue.clientKey);
+      }
+    });
+  });
+
+  const variantClientKeys = new Set<string>();
+  patch.variants.forEach((variant) => {
+    if ('clientKey' in variant && variant.clientKey !== undefined) {
+      variantClientKeys.add(variant.clientKey);
+    }
+  });
+
+  patch.variants.forEach((variant, variantIndex) => {
+    variant.optionValueRefs.forEach((ref, refIndex) => {
+      if (
+        'clientKey' in ref &&
+        ref.clientKey !== undefined &&
+        !optionValueClientKeys.has(ref.clientKey)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Unknown option value clientKey ${ref.clientKey}.`,
+          path: ['variants', variantIndex, 'optionValueRefs', refIndex],
+        });
+      }
+    });
+  });
+
+  patch.media.forEach((media, mediaIndex) => {
+    if (
+      media.optionValueClientKey !== undefined &&
+      !optionValueClientKeys.has(media.optionValueClientKey)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Unknown option value clientKey ${media.optionValueClientKey}.`,
+        path: ['media', mediaIndex, 'optionValueClientKey'],
+      });
+    }
+    if (
+      media.variantClientKey !== undefined &&
+      !variantClientKeys.has(media.variantClientKey)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Unknown variant clientKey ${media.variantClientKey}.`,
+        path: ['media', mediaIndex, 'variantClientKey'],
+      });
+    }
+  });
+
+  const defaultDisplayVariant = patch.defaultDisplayVariant;
+  if (
+    defaultDisplayVariant &&
+    'clientKey' in defaultDisplayVariant &&
+    defaultDisplayVariant.clientKey !== undefined &&
+    !variantClientKeys.has(defaultDisplayVariant.clientKey)
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `Unknown variant clientKey ${defaultDisplayVariant.clientKey}.`,
+      path: ['defaultDisplayVariant', 'clientKey'],
+    });
+  }
+}
+
 function validateOptionGraph(
   options: z.infer<typeof optionWriteSchema>[],
   ctx: z.RefinementCtx,
@@ -235,14 +309,30 @@ function validateOptionGraph(
   }
 
   options.forEach((option, optionIndex) => {
-    validateUniqueNumbers(
-      option.values
-        .filter(({ isActive }) => isActive)
-        .map(({ position }) => position),
-      `active value position in option ${option.name}`,
-      ['options', optionIndex, 'values'],
-      ctx,
-    );
+    const activePositions = new Set<number>();
+    const activeLabels = new Set<string>();
+    option.values.forEach((optionValue, valueIndex) => {
+      if (!optionValue.isActive) return;
+
+      if (activePositions.has(optionValue.position)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Duplicate active value position ${optionValue.position} in option ${option.name}.`,
+          path: ['options', optionIndex, 'values', valueIndex, 'position'],
+        });
+      }
+      activePositions.add(optionValue.position);
+
+      const label = optionValue.label.trim().toLowerCase();
+      if (activeLabels.has(label)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Duplicate active value label ${optionValue.label} in option ${option.name}.`,
+          path: ['options', optionIndex, 'values', valueIndex, 'label'],
+        });
+      }
+      activeLabels.add(label);
+    });
   });
 }
 
@@ -306,7 +396,7 @@ function validateUniqueNumbers(
 
 function entityRefKey(ref: EntityRef): string {
   return 'id' in ref && ref.id !== undefined
-    ? `id:${ref.id}`
+    ? `id:${ref.id.toLowerCase()}`
     : `clientKey:${ref.clientKey}`;
 }
 

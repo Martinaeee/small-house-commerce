@@ -12,6 +12,7 @@ const IDS = {
   option: '00000000-0000-4000-8000-000000000001',
   value: '00000000-0000-4000-8000-000000000003',
   variant: '00000000-0000-4000-8000-000000000005',
+  cased: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 } as const;
 
 interface ValueFixture {
@@ -75,16 +76,47 @@ function patch(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function expectIssuePath(
+  result: ReturnType<typeof catalogGraphPatchSchema.safeParse>,
+  expectedPath: (string | number)[],
+): void {
+  expect(result.success).toBe(false);
+  if (result.success) return;
+  expect(
+    result.error.issues.some(
+      ({ path }) =>
+        path.length === expectedPath.length &&
+        path.every((part, index) => part === expectedPath[index]),
+    ),
+  ).toBe(true);
+}
+
 describe('catalog graph write DTO', () => {
   it('requires exactly one stable reference form', () => {
-    expect(entityRefSchema.safeParse({ id: 'a', clientKey: 'b' }).success).toBe(
-      false,
-    );
+    const both = entityRefSchema.safeParse({
+      id: IDS.option,
+      clientKey: 'option-color',
+    });
+
+    expect(both.success).toBe(false);
+    if (!both.success) {
+      expect(both.error.format()).toHaveProperty('id');
+      expect(both.error.format()).toHaveProperty('clientKey');
+    }
     expect(entityRefSchema.safeParse({}).success).toBe(false);
     expect(entityRefSchema.safeParse({ id: IDS.option }).success).toBe(true);
     expect(
       entityRefSchema.safeParse({ clientKey: 'option-color' }).success,
     ).toBe(true);
+  });
+
+  it('accepts unbounded client keys without normalizing their identity', () => {
+    expect(
+      entityRefSchema.safeParse({ clientKey: 'k'.repeat(121) }).success,
+    ).toBe(true);
+    expect(entityRefSchema.parse({ clientKey: ' Key ' })).toEqual({
+      clientKey: ' Key ',
+    });
   });
 
   it('rejects media with two scopes', () => {
@@ -121,6 +153,102 @@ describe('catalog graph write DTO', () => {
     ).toBe(true);
   });
 
+  it('rejects a dangling variant option-value client key at its source path', () => {
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          variants: [
+            {
+              clientKey: 'variant-default',
+              position: 0,
+              optionValueRefs: [{ clientKey: 'missing-value' }],
+              sku: { skuCode: 'STYLE-DEFAULT', status: 'ACTIVE' as const },
+            },
+          ],
+        }),
+      ),
+      ['variants', 0, 'optionValueRefs', 0],
+    );
+  });
+
+  it('rejects dangling media client-key scopes at their source paths', () => {
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          media: [
+            {
+              clientKey: 'option-media',
+              url: '/uploads/option.webp',
+              optionValueClientKey: 'missing-value',
+            },
+          ],
+        }),
+      ),
+      ['media', 0, 'optionValueClientKey'],
+    );
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          media: [
+            {
+              clientKey: 'variant-media',
+              url: '/uploads/variant.webp',
+              variantClientKey: 'missing-variant',
+            },
+          ],
+        }),
+      ),
+      ['media', 0, 'variantClientKey'],
+    );
+  });
+
+  it('rejects a dangling default-display client key at its source path', () => {
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({ defaultDisplayVariant: { clientKey: 'missing-variant' } }),
+      ),
+      ['defaultDisplayVariant', 'clientKey'],
+    );
+  });
+
+  it('accepts defined client-key refs and leaves UUID refs to the service', () => {
+    expect(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          variants: [
+            {
+              clientKey: 'variant-default',
+              position: 0,
+              optionValueRefs: [
+                { clientKey: 'option-style-value' },
+                { id: IDS.value },
+              ],
+              sku: { skuCode: 'STYLE-DEFAULT', status: 'ACTIVE' as const },
+            },
+          ],
+          media: [
+            {
+              clientKey: 'option-media',
+              url: '/uploads/option.webp',
+              optionValueClientKey: 'option-style-value',
+            },
+            {
+              clientKey: 'variant-media',
+              url: '/uploads/variant.webp',
+              variantClientKey: 'variant-default',
+            },
+            {
+              clientKey: 'persisted-media',
+              url: '/uploads/persisted.webp',
+              variantId: IDS.variant,
+            },
+          ],
+          defaultDisplayVariant: { id: IDS.variant },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
   it('rejects duplicate row refs and client keys', () => {
     const duplicateIds = patch({
       options: [
@@ -149,6 +277,27 @@ describe('catalog graph write DTO', () => {
     expect(catalogGraphPatchSchema.safeParse(duplicateClientKeys).success).toBe(
       false,
     );
+  });
+
+  it('normalizes UUID casing when detecting duplicate changed rows', () => {
+    expect(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          options: [
+            {
+              ...option('first', 'Color', 0),
+              id: IDS.cased,
+              clientKey: undefined,
+            },
+            {
+              ...option('second', 'Size', 1),
+              id: IDS.cased.toUpperCase(),
+              clientKey: undefined,
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it('rejects duplicate active positions and labels', () => {
@@ -196,6 +345,40 @@ describe('catalog graph write DTO', () => {
         }),
       ).success,
     ).toBe(false);
+  });
+
+  it('reports duplicate active value positions at original array indices', () => {
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          options: [
+            option('color', 'Color', 0, [
+              value('red', 'Red', 0),
+              { ...value('retired', 'Retired', 9), isActive: false },
+              value('blue', 'Blue', 0),
+            ]),
+          ],
+        }),
+      ),
+      ['options', 0, 'values', 2, 'position'],
+    );
+  });
+
+  it('reports duplicate active value labels at original array indices', () => {
+    expectIssuePath(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          options: [
+            option('color', 'Color', 0, [
+              value('red', 'Red', 0),
+              { ...value('retired', 'Retired', 9), isActive: false },
+              value('red-duplicate', ' red ', 1),
+            ]),
+          ],
+        }),
+      ),
+      ['options', 0, 'values', 2, 'label'],
+    );
   });
 
   it('rejects duplicate variant positions', () => {
@@ -332,6 +515,45 @@ describe('catalog graph write DTO', () => {
         }),
       ).success,
     ).toBe(false);
+  });
+
+  it('normalizes UUID casing when detecting duplicate retirement ids', () => {
+    expect(
+      catalogGraphPatchSchema.safeParse(
+        patch({
+          retirements: {
+            optionIds: [IDS.cased, IDS.cased.toUpperCase()],
+            optionValueIds: [],
+            variantIds: [],
+            mediaIds: [],
+          },
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('creates fresh retirement defaults for every parse', () => {
+    const first = catalogGraphPatchSchema.parse({});
+    first.retirements.optionIds.push(IDS.option, IDS.option);
+
+    const second = catalogGraphPatchSchema.parse({});
+    expect(second.retirements).toEqual({
+      optionIds: [],
+      optionValueIds: [],
+      variantIds: [],
+      mediaIds: [],
+    });
+
+    const partialFirst = catalogGraphPatchSchema.parse({ retirements: {} });
+    partialFirst.retirements.mediaIds.push(IDS.option, IDS.option);
+
+    const partialSecond = catalogGraphPatchSchema.parse({ retirements: {} });
+    expect(partialSecond.retirements).toEqual({
+      optionIds: [],
+      optionValueIds: [],
+      variantIds: [],
+      mediaIds: [],
+    });
   });
 
   it('is retained by the product update DTO with an independent expected version', () => {
