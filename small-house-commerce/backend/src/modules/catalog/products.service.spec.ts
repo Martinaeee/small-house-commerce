@@ -143,9 +143,11 @@ describe('ProductsService.storefrontByIds', () => {
           defaultDisplayVariantId: true,
           images: expect.objectContaining({
             where: { optionValueId: null, variantId: null },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           }),
           options: expect.any(Object),
           variants: expect.objectContaining({
+            orderBy: [{ position: 'asc' }, { id: 'asc' }],
             select: expect.objectContaining({
               combinationKey: true,
               optionValues: expect.any(Object),
@@ -202,6 +204,7 @@ describe('ProductsService storefront image query contracts', () => {
         select: expect.objectContaining({
           images: expect.objectContaining({
             where: { optionValueId: null, variantId: null },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           }),
         }),
       }),
@@ -219,6 +222,10 @@ describe('ProductsService storefront image query contracts', () => {
         include: expect.objectContaining({
           images: expect.objectContaining({
             where: { optionValueId: null, variantId: null },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          }),
+          variants: expect.objectContaining({
+            orderBy: [{ position: 'asc' }, { id: 'asc' }],
           }),
         }),
       }),

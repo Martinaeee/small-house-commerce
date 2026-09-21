@@ -29,10 +29,13 @@ const PENDING_RENAME = '__pending_rename__';
 const ADMIN_PRODUCT_INCLUDE = {
   images: {
     where: { optionValueId: null, variantId: null },
-    orderBy: { sortOrder: 'asc' as const },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
   detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
-  variants: { include: { sku: true }, orderBy: { position: 'asc' as const } },
+  variants: {
+    include: { sku: true },
+    orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
+  },
 } satisfies Prisma.ProductInclude;
 
 /**
@@ -68,7 +71,7 @@ const STOREFRONT_SELECT = {
       optionValueId: true,
       variantId: true,
     },
-    orderBy: { sortOrder: 'asc' as const },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
   options: {
     where: { isActive: true },
@@ -120,7 +123,7 @@ const STOREFRONT_SELECT = {
         },
       },
     },
-    orderBy: { position: 'asc' as const },
+    orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
   },
 } satisfies Prisma.ProductSelect;
 

@@ -133,27 +133,51 @@ function namespacedMd5Uuid(namespace: string, sourceId: string): string {
   ].join('-');
 }
 
+function comparePositionThenId<T extends { id: string; position: number }>(
+  left: T,
+  right: T,
+): number {
+  return left.position - right.position || compareId(left.id, right.id);
+}
+
+function compareSortOrderThenId<T extends { id: string; sortOrder: number }>(
+  left: T,
+  right: T,
+): number {
+  return left.sortOrder - right.sortOrder || compareId(left.id, right.id);
+}
+
+function compareId(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function projectLegacyImages<
-  T extends { optionValueId: string | null; variantId: string | null },
+  T extends {
+    id: string;
+    sortOrder: number;
+    optionValueId: string | null;
+    variantId: string | null;
+  },
 >(product: { images: readonly T[] }): T[] {
-  return product.images.filter(
-    (image) => image.optionValueId === null && image.variantId === null,
-  );
+  return product.images
+    .filter((image) => image.optionValueId === null && image.variantId === null)
+    .sort(compareSortOrderThenId);
 }
 
 export function projectLegacyCatalogGraph(
   product: CatalogProductRow,
 ): PresentedCatalogGraph {
   const optionId = namespacedMd5Uuid(LEGACY_STYLE_OPTION_NAMESPACE, product.id);
+  const orderedVariants = [...product.variants].sort(comparePositionThenId);
   const valueIdByVariantId = new Map(
-    product.variants.map((variant) => [
+    orderedVariants.map((variant) => [
       variant.id,
       namespacedMd5Uuid(LEGACY_STYLE_VALUE_NAMESPACE, variant.id),
     ]),
   );
   const images = projectLegacyImages(product);
 
-  const variants = product.variants.map((variant) => {
+  const variants = orderedVariants.map((variant) => {
     const valueId = valueIdByVariantId.get(variant.id)!;
     return {
       id: variant.id,
@@ -166,12 +190,10 @@ export function projectLegacyCatalogGraph(
   });
 
   const defaultDisplayVariantId =
-    [...product.variants]
-      .sort((left, right) => left.position - right.position)
-      .find(
-        (variant) =>
-          variant.sku?.status === 'ACTIVE' && variant.sku.price != null,
-      )?.id ?? null;
+    orderedVariants.find(
+      (variant) =>
+        variant.sku?.status === 'ACTIVE' && variant.sku.price != null,
+    )?.id ?? null;
 
   return {
     catalogGraphVersion: product.catalogGraphVersion,
@@ -183,16 +205,14 @@ export function projectLegacyCatalogGraph(
         position: 0,
         presentation: 'TEXT',
         isMediaDriver: false,
-        values: [...product.variants]
-          .sort((left, right) => left.position - right.position)
-          .map((variant) => ({
-            id: valueIdByVariantId.get(variant.id)!,
-            label: variant.name,
-            position: variant.position,
-            swatchHex: null,
-            thumbnailUrl: null,
-            thumbnailAlt: null,
-          })),
+        values: orderedVariants.map((variant) => ({
+          id: valueIdByVariantId.get(variant.id)!,
+          label: variant.name,
+          position: variant.position,
+          swatchHex: null,
+          thumbnailUrl: null,
+          thumbnailAlt: null,
+        })),
       },
     ],
     variants,

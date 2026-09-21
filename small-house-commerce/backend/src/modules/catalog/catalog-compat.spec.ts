@@ -127,6 +127,35 @@ describe('legacy catalog compatibility projection', () => {
     });
   });
 
+  it('breaks tied variant positions by stable variant ID', () => {
+    const higherIdVariant = {
+      ...legacyProductFixture.variants[2],
+      position: 0,
+    };
+    const lowerIdVariant = {
+      ...legacyProductFixture.variants[1],
+      position: 0,
+      sku: {
+        ...legacyProductFixture.variants[1].sku,
+        price: 799,
+      },
+    };
+    const graph = projectLegacyCatalogGraph({
+      ...legacyProductFixture,
+      variants: [higherIdVariant, lowerIdVariant],
+    });
+
+    expect(graph.defaultDisplayVariantId).toBe(lowerIdVariant.id);
+    expect(graph.options[0]?.values.map((value) => value.id)).toEqual([
+      'b9670246-7918-0f70-fc51-066b33c81423',
+      '4302abb4-d78f-17b6-485d-de9bb5df96f8',
+    ]);
+    expect(graph.variants.map((variant) => variant.id)).toEqual([
+      lowerIdVariant.id,
+      higherIdVariant.id,
+    ]);
+  });
+
   it('keeps scoped rows out of legacy images and derives the shared cover', () => {
     const productWithScopedMedia = {
       ...legacyProductFixture,
@@ -156,6 +185,31 @@ describe('legacy catalog compatibility projection', () => {
     ).toBe(true);
     expect(graph.images).toEqual(images);
     expect(graph.effectiveCoverMedia?.id).toBe('shared-image');
+  });
+
+  it('breaks tied shared-media sort orders by stable media ID', () => {
+    const higherIdImage = {
+      ...legacyProductFixture.images[0],
+      id: 'z-shared-image',
+      sortOrder: 0,
+    };
+    const lowerIdImage = {
+      ...legacyProductFixture.images[0],
+      id: 'a-shared-image',
+      sortOrder: 0,
+    };
+    const product = {
+      ...legacyProductFixture,
+      images: [higherIdImage, lowerIdImage],
+    } satisfies CatalogProductRow;
+
+    expect(projectLegacyImages(product).map((image) => image.id)).toEqual([
+      lowerIdImage.id,
+      higherIdImage.id,
+    ]);
+    expect(projectLegacyCatalogGraph(product).effectiveCoverMedia?.id).toBe(
+      lowerIdImage.id,
+    );
   });
 
   it('presents a persisted graph for graph-version-positive products', () => {
