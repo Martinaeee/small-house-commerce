@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import {
   legacyStyleOptionId,
   legacyStyleValueId,
   parseAuditArgs,
+  REVIEWED_BACKFILL_MIGRATION_SHA256,
   stableSerialize,
   validateCatalogSnapshot,
   type CatalogAuditSnapshot,
@@ -752,11 +754,38 @@ function swapSqlStatements(
   return `${sql.slice(0, firstStart)}${second}${between}${first}${sql.slice(secondEnd)}`;
 }
 
+function injectNoOpPredicate(
+  sql: string,
+  phaseMarker: string,
+  predicate: string,
+): string {
+  const phaseStart = sql.indexOf(phaseMarker);
+  if (phaseStart < 0) throw new Error(`missing test phase: ${phaseMarker}`);
+  const where = sql.indexOf('WHERE ', phaseStart);
+  const end = sql.indexOf(';', phaseStart);
+  if (end < 0) throw new Error(`unterminated test phase: ${phaseMarker}`);
+  if (where >= 0 && where < end) {
+    return `${sql.slice(0, where)}WHERE ${predicate} AND ${sql.slice(where + 'WHERE '.length)}`;
+  }
+  const conflict = sql.indexOf('ON CONFLICT', phaseStart);
+  if (conflict < 0 || conflict > end) {
+    throw new Error(`missing phase predicate insertion point: ${phaseMarker}`);
+  }
+  return `${sql.slice(0, conflict)}WHERE ${predicate}\n${sql.slice(conflict)}`;
+}
+
+function appendBeforeCommit(sql: string, statement: string): string {
+  return sql.replace('COMMIT;', `${statement};\nCOMMIT;`);
+}
+
 describe('Task 7 migration SQL contract', () => {
   it('loads and accepts the actual migration artifact', async () => {
     const sql = await readFile(migrationUrl, 'utf8');
 
     expect(sql.trim().length).toBeGreaterThan(0);
+    expect(createHash('sha256').update(sql).digest('hex')).toBe(
+      REVIEWED_BACKFILL_MIGRATION_SHA256,
+    );
     expect(analyzeBackfillMigrationSql(sql)).toEqual([]);
   });
 
@@ -900,7 +929,182 @@ describe('Task 7 migration SQL contract', () => {
     async (code, mutate) => {
       const sql = await readFile(migrationUrl, 'utf8');
 
-      expect(analyzeBackfillMigrationSql(mutate(sql))).toContain(code);
+      expect(
+        analyzeBackfillMigrationSql(mutate(sql), { expectedChecksum: null }),
+      ).toContain(code);
     },
   );
+
+  const phaseNoOps = [
+    ['OPTION_PHASE_NO_OP', 'INSERT INTO "product_options"'],
+    ['VALUE_PHASE_NO_OP', 'INSERT INTO "product_option_values"'],
+    ['ASSIGNMENT_PHASE_NO_OP', 'INSERT INTO "product_variant_option_values"'],
+    ['CANONICAL_KEY_PHASE_NO_OP', 'UPDATE "product_variants" pv'],
+    ['PUBLICATION_PHASE_NO_OP', 'WITH candidate_products AS'],
+  ] as const;
+  const falsePredicates = [
+    'FALSE',
+    '/* hidden */ FALSE',
+    '1 = 0',
+    '0=1',
+    '(\n  1 /* hidden */ =\n  0\n)',
+  ] as const;
+
+  it.each(
+    phaseNoOps.flatMap(([code, marker]) =>
+      falsePredicates.map((predicate) => [code, marker, predicate] as const),
+    ),
+  )(
+    'detects %s for %s with constant-false predicate %s',
+    async (code, marker, predicate) => {
+      const sql = await readFile(migrationUrl, 'utf8');
+      const mutated = injectNoOpPredicate(sql, marker, predicate);
+
+      expect(
+        analyzeBackfillMigrationSql(mutated, { expectedChecksum: null }),
+      ).toContain(code);
+    },
+  );
+
+  const protectedTables = [
+    'skus',
+    'inventory',
+    'inventory_reservations',
+    'inventory_movements',
+    'carts',
+    'cart_items',
+    'orders',
+    'order_items',
+    'product_images',
+    'customers',
+    'warehouses',
+    'categories',
+    'suppliers',
+    'product_detail_blocks',
+    'collections',
+    'product_options',
+    'product_option_values',
+    'product_variant_option_values',
+  ] as const;
+  const forbiddenWrites = [
+    ['INSERT', (table: string) => `INSERT INTO "${table}" DEFAULT VALUES`],
+    ['UPDATE', (table: string) => `UPDATE "${table}" SET "id" = "id"`],
+    ['DELETE', (table: string) => `DELETE FROM "${table}"`],
+    ['TRUNCATE', (table: string) => `TRUNCATE TABLE "${table}"`],
+    [
+      'ALTER',
+      (table: string) =>
+        `ALTER TABLE "${table}" ADD COLUMN "task7_forbidden" TEXT`,
+    ],
+    ['DROP', (table: string) => `DROP TABLE "${table}"`],
+  ] as const;
+
+  it.each(
+    protectedTables.flatMap((table) =>
+      forbiddenWrites.map(
+        ([operation, statement]) =>
+          [table, operation, statement(table)] as const,
+      ),
+    ),
+  )(
+    'rejects appended %s %s outside the statement write allowlist',
+    async (table, operation, statement) => {
+      const sql = await readFile(migrationUrl, 'utf8');
+      const mutated = appendBeforeCommit(sql, statement);
+
+      expect(
+        analyzeBackfillMigrationSql(mutated, { expectedChecksum: null }),
+      ).toContain('WRITE_ALLOWLIST_VIOLATION');
+    },
+  );
+
+  it.each([
+    [
+      'PRODUCT_VARIANT_WRITE_FORBIDDEN',
+      'INSERT INTO "product_variants" DEFAULT VALUES',
+    ],
+    [
+      'PRODUCT_VARIANT_WRITE_FORBIDDEN',
+      'UPDATE "product_variants" SET "name" = "name"',
+    ],
+    [
+      'PRODUCT_VARIANT_WRITE_FORBIDDEN',
+      'UPDATE "product_variants" SET "combination_key" = NULL, "position" = 0',
+    ],
+    ['PRODUCT_VARIANT_WRITE_FORBIDDEN', 'DELETE FROM "product_variants"'],
+    ['PRODUCT_VARIANT_WRITE_FORBIDDEN', 'TRUNCATE TABLE "product_variants"'],
+    [
+      'PRODUCT_VARIANT_WRITE_FORBIDDEN',
+      'ALTER TABLE "product_variants" ADD COLUMN "task7_forbidden" TEXT',
+    ],
+    ['PRODUCT_VARIANT_WRITE_FORBIDDEN', 'DROP TABLE "product_variants"'],
+    ['PRODUCT_WRITE_FORBIDDEN', 'INSERT INTO "products" DEFAULT VALUES'],
+    ['PRODUCT_WRITE_FORBIDDEN', 'UPDATE "products" SET "name" = "name"'],
+    [
+      'PRODUCT_WRITE_FORBIDDEN',
+      'UPDATE "products" SET "catalog_graph_version" = 1, "status" = "status"',
+    ],
+    ['PRODUCT_WRITE_FORBIDDEN', 'DELETE FROM "products"'],
+    ['PRODUCT_WRITE_FORBIDDEN', 'TRUNCATE TABLE "products"'],
+    [
+      'PRODUCT_WRITE_FORBIDDEN',
+      'ALTER TABLE "products" ADD COLUMN "task7_forbidden" TEXT',
+    ],
+    ['PRODUCT_WRITE_FORBIDDEN', 'DROP TABLE "products"'],
+  ] as const)(
+    'detects %s for partially allowlisted table writes',
+    async (code, statement) => {
+      const sql = await readFile(migrationUrl, 'utf8');
+      const mutated = appendBeforeCommit(sql, statement);
+
+      expect(
+        analyzeBackfillMigrationSql(mutated, { expectedChecksum: null }),
+      ).toEqual(expect.arrayContaining([code, 'WRITE_ALLOWLIST_VIOLATION']));
+    },
+  );
+
+  it.each([
+    'SELECT 1',
+    "DO $$ BEGIN EXECUTE 'UPDATE inventory SET on_hand = 0'; END $$",
+  ])('rejects an appended non-allowlisted statement: %s', async (statement) => {
+    const sql = await readFile(migrationUrl, 'utf8');
+
+    expect(
+      analyzeBackfillMigrationSql(appendBeforeCommit(sql, statement), {
+        expectedChecksum: null,
+      }),
+    ).toContain('STATEMENT_ALLOWLIST_VIOLATION');
+  });
+
+  it('ignores write and false-predicate tokens inside comments and strings', async () => {
+    const sql = await readFile(migrationUrl, 'utf8');
+    const mutated = sql
+      .replace(
+        'BEGIN;',
+        'BEGIN;\n-- UPDATE inventory SET on_hand = 0; DROP TABLE orders;',
+      )
+      .replace(
+        'WHERE p."catalog_graph_version" = 0',
+        "WHERE 'UPDATE inventory SET on_hand = 0 WHERE FALSE; DELETE FROM orders' <> ''\n  AND p.\"catalog_graph_version\" = 0",
+      );
+
+    expect(
+      analyzeBackfillMigrationSql(mutated, { expectedChecksum: null }),
+    ).toEqual([]);
+  });
+
+  it('pins the reviewed migration bytes and fails closed on unreviewed text', async () => {
+    const sql = await readFile(migrationUrl, 'utf8');
+    const mutated = `${sql}\n-- unreviewed text mutation\n`;
+
+    expect(analyzeBackfillMigrationSql(mutated)).toContain(
+      'MIGRATION_CHECKSUM_MISMATCH',
+    );
+    expect(
+      analyzeBackfillMigrationSql(mutated, { expectedChecksum: null }),
+    ).not.toContain('MIGRATION_CHECKSUM_MISMATCH');
+    expect(
+      analyzeBackfillMigrationSql(sql, { expectedChecksum: '0'.repeat(64) }),
+    ).toContain('MIGRATION_CHECKSUM_MISMATCH');
+  });
 });

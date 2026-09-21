@@ -124,10 +124,164 @@ export function legacyStyleValueId(variantId: string): string {
   return namespacedMd5Uuid(LEGACY_STYLE_VALUE_NAMESPACE, variantId);
 }
 
-export function analyzeBackfillMigrationSql(sql: string): string[] {
+export const REVIEWED_BACKFILL_MIGRATION_SHA256 =
+  '1b10ff6c6ccf3c0c63b1f4226b128a008ba56d0615145e9c6d9824e885d67394';
+
+export interface BackfillMigrationAnalysisOptions {
+  /** null is reserved for phase-specific mutation tests. */
+  expectedChecksum?: string | null;
+}
+
+function maskSqlCommentsAndStrings(sql: string): string {
+  const output = [...sql];
+  const mask = (start: number, end: number): void => {
+    for (let index = start; index < end; index += 1) {
+      if (output[index] !== '\n' && output[index] !== '\r') output[index] = ' ';
+    }
+  };
+
+  for (let index = 0; index < sql.length;) {
+    if (sql.startsWith('--', index)) {
+      const end = sql.indexOf('\n', index + 2);
+      const boundary = end < 0 ? sql.length : end;
+      mask(index, boundary);
+      index = boundary;
+      continue;
+    }
+    if (sql.startsWith('/*', index)) {
+      const start = index;
+      let depth = 1;
+      index += 2;
+      while (index < sql.length && depth > 0) {
+        if (sql.startsWith('/*', index)) {
+          depth += 1;
+          index += 2;
+        } else if (sql.startsWith('*/', index)) {
+          depth -= 1;
+          index += 2;
+        } else {
+          index += 1;
+        }
+      }
+      mask(start, index);
+      continue;
+    }
+    if (sql[index] === "'") {
+      const start = index;
+      index += 1;
+      while (index < sql.length) {
+        if (sql[index] === "'" && sql[index + 1] === "'") {
+          index += 2;
+        } else if (sql[index] === "'") {
+          index += 1;
+          break;
+        } else {
+          index += 1;
+        }
+      }
+      mask(start, index);
+      continue;
+    }
+    if (sql[index] === '$') {
+      const delimiter = sql
+        .slice(index)
+        .match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/)?.[0];
+      if (delimiter !== undefined) {
+        const start = index;
+        const closing = sql.indexOf(delimiter, index + delimiter.length);
+        index = closing < 0 ? sql.length : closing + delimiter.length;
+        mask(start, index);
+        continue;
+      }
+    }
+    if (sql[index] === '"') {
+      index += 1;
+      while (index < sql.length) {
+        if (sql[index] === '"' && sql[index + 1] === '"') {
+          index += 2;
+        } else if (sql[index] === '"') {
+          index += 1;
+          break;
+        } else {
+          index += 1;
+        }
+      }
+      continue;
+    }
+    index += 1;
+  }
+  return output.join('');
+}
+
+function hasConstantFalsePredicate(statement: string): boolean {
+  const masked = maskSqlCommentsAndStrings(statement);
+  return /\b(?:WHERE|AND)\s*(?:\(\s*)*(?:FALSE\b|1\s*=\s*0\b|0\s*=\s*1\b)/i.test(
+    masked,
+  );
+}
+
+interface SqlWrite {
+  verb: string;
+  table: string;
+  statement: string;
+}
+
+function splitMaskedSqlStatements(maskedSql: string): string[] {
+  return maskedSql
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+}
+
+function extractSqlWrites(maskedSql: string): SqlWrite[] {
+  const statements = splitMaskedSqlStatements(maskedSql);
+  const writes: SqlWrite[] = [];
+  const writePattern =
+    /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|ALTER\s+TABLE|DROP\s+TABLE)\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi;
+  for (const statement of statements) {
+    for (const match of statement.matchAll(writePattern)) {
+      writes.push({
+        verb: match[1]!.toUpperCase().replace(/\s+/g, ' '),
+        table: match[2]!.toLowerCase(),
+        statement,
+      });
+    }
+  }
+  return writes;
+}
+
+function updateSetColumns(statement: string): string[] {
+  const setStart = statement.search(/\bSET\b/i);
+  if (setStart < 0) return [];
+  const afterSet = statement.slice(setStart + 3);
+  const terminator = afterSet.search(/\b(?:FROM|WHERE|RETURNING)\b/i);
+  const setClause = terminator < 0 ? afterSet : afterSet.slice(0, terminator);
+  return [...setClause.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"\s*=/g)]
+    .map((match) => match[1]!)
+    .sort();
+}
+
+export function analyzeBackfillMigrationSql(
+  sql: string,
+  options: BackfillMigrationAnalysisOptions = {},
+): string[] {
   const violations = new Set<string>();
-  const normalized = sql.trim();
-  if (normalized.length === 0) return ['MIGRATION_EMPTY'];
+  const maskedSql = maskSqlCommentsAndStrings(sql);
+  const normalized = maskedSql.trim();
+  const expectedChecksum =
+    options.expectedChecksum === undefined
+      ? REVIEWED_BACKFILL_MIGRATION_SHA256
+      : options.expectedChecksum;
+  if (
+    expectedChecksum !== null &&
+    createHash('sha256').update(sql).digest('hex') !== expectedChecksum
+  ) {
+    violations.add('MIGRATION_CHECKSUM_MISMATCH');
+  }
+  if (normalized.length === 0) {
+    violations.add('MIGRATION_EMPTY');
+    return [...violations].sort();
+  }
 
   const markers = {
     option: 'INSERT INTO "product_options"',
@@ -139,7 +293,7 @@ export function analyzeBackfillMigrationSql(sql: string): string[] {
   const indexes = Object.fromEntries(
     Object.entries(markers).map(([name, marker]) => [
       name,
-      sql.indexOf(marker),
+      maskedSql.indexOf(marker),
     ]),
   ) as Record<keyof typeof markers, number>;
   const missingCodes: Record<keyof typeof markers, string> = {
@@ -175,7 +329,7 @@ export function analyzeBackfillMigrationSql(sql: string): string[] {
 
   const statementAt = (index: number): string => {
     if (index < 0) return '';
-    const end = sql.indexOf(';', index);
+    const end = maskedSql.indexOf(';', index);
     return end < 0 ? sql.slice(index) : sql.slice(index, end + 1);
   };
   const optionStatement = statementAt(indexes.option);
@@ -184,6 +338,18 @@ export function analyzeBackfillMigrationSql(sql: string): string[] {
   const keyStatement = statementAt(indexes.key);
   const publishStatement = statementAt(indexes.publish);
   const inserts = [optionStatement, valueStatement, assignmentStatement];
+  const noOpChecks = [
+    ['OPTION_PHASE_NO_OP', optionStatement],
+    ['VALUE_PHASE_NO_OP', valueStatement],
+    ['ASSIGNMENT_PHASE_NO_OP', assignmentStatement],
+    ['CANONICAL_KEY_PHASE_NO_OP', keyStatement],
+    ['PUBLICATION_PHASE_NO_OP', publishStatement],
+  ] as const;
+  for (const [code, statement] of noOpChecks) {
+    if (statement.length > 0 && hasConstantFalsePredicate(statement)) {
+      violations.add(code);
+    }
+  }
 
   if (
     !sql.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
@@ -285,29 +451,88 @@ export function analyzeBackfillMigrationSql(sql: string): string[] {
     violations.add('DEFAULT_SELECTION_INVALID');
   }
 
-  if (
-    /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"skus"/i.test(
-      sql,
-    ) ||
-    /(?:INSERT\s+INTO|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"product_variants"/i.test(
-      sql,
-    )
-  ) {
-    violations.add('IDENTITY_REWRITE_FORBIDDEN');
-  }
-  const variantUpdates = [
-    ...sql.matchAll(/UPDATE\s+"product_variants"[\s\S]*?;/gi),
+  const statements = splitMaskedSqlStatements(maskedSql);
+  const statementKinds = statements.map((statement) => {
+    if (/^BEGIN$/i.test(statement)) return 'BEGIN';
+    if (/^INSERT\s+INTO\s+"product_options"/i.test(statement)) {
+      return 'INSERT:product_options';
+    }
+    if (/^INSERT\s+INTO\s+"product_option_values"/i.test(statement)) {
+      return 'INSERT:product_option_values';
+    }
+    if (/^INSERT\s+INTO\s+"product_variant_option_values"/i.test(statement)) {
+      return 'INSERT:product_variant_option_values';
+    }
+    if (/^UPDATE\s+"product_variants"/i.test(statement)) {
+      return 'UPDATE:product_variants';
+    }
+    if (/^WITH\s+candidate_products\s+AS/i.test(statement)) {
+      return 'UPDATE:products';
+    }
+    if (/^COMMIT$/i.test(statement)) return 'COMMIT';
+    return 'UNRECOGNIZED';
+  });
+  const expectedStatementKinds = [
+    'BEGIN',
+    'INSERT:product_options',
+    'INSERT:product_option_values',
+    'INSERT:product_variant_option_values',
+    'UPDATE:product_variants',
+    'UPDATE:products',
+    'COMMIT',
   ];
   if (
-    variantUpdates.some(([statement]) => {
-      const setClause = statement.match(/SET([\s\S]*?)FROM/i)?.[1] ?? '';
-      return (
-        !/^\s*"combination_key"\s*=/i.test(setClause) ||
-        /"(?:id|product_id)"\s*=/i.test(setClause)
-      );
-    })
+    stableSerialize(statementKinds) !== stableSerialize(expectedStatementKinds)
   ) {
-    violations.add('IDENTITY_REWRITE_FORBIDDEN');
+    violations.add('STATEMENT_ALLOWLIST_VIOLATION');
+  }
+
+  const writes = extractSqlWrites(maskedSql);
+  const expectedWrites = [
+    'INSERT INTO:product_options',
+    'INSERT INTO:product_option_values',
+    'INSERT INTO:product_variant_option_values',
+    'UPDATE:product_variants',
+    'UPDATE:products',
+  ];
+  const actualWrites = writes.map(({ verb, table }) => `${verb}:${table}`);
+  if (stableSerialize(actualWrites) !== stableSerialize(expectedWrites)) {
+    violations.add('WRITE_ALLOWLIST_VIOLATION');
+  }
+
+  for (const write of writes) {
+    if (write.table === 'skus') {
+      violations.add('IDENTITY_REWRITE_FORBIDDEN');
+    }
+    if (write.table === 'product_variants') {
+      const columns =
+        write.verb === 'UPDATE' ? updateSetColumns(write.statement) : [];
+      if (
+        write.verb !== 'UPDATE' ||
+        stableSerialize(columns) !== stableSerialize(['combination_key'])
+      ) {
+        violations.add('PRODUCT_VARIANT_WRITE_FORBIDDEN');
+      }
+      if (
+        columns.some((column) => column === 'id' || column === 'product_id')
+      ) {
+        violations.add('IDENTITY_REWRITE_FORBIDDEN');
+      }
+    }
+    if (write.table === 'products') {
+      const columns =
+        write.verb === 'UPDATE' ? updateSetColumns(write.statement) : [];
+      if (
+        write.verb !== 'UPDATE' ||
+        stableSerialize(columns) !==
+          stableSerialize([
+            'catalog_graph_version',
+            'default_display_variant_id',
+          ])
+      ) {
+        violations.add('PRODUCT_WRITE_FORBIDDEN');
+      }
+    }
   }
 
   return [...violations].sort();
