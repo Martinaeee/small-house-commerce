@@ -4,6 +4,7 @@ import type { Product, StorefrontProductVariant } from "@/lib/api";
 import {
   PdpPurchaseProvider,
   createInitialPurchaseLines,
+  pdpPurchaseProviderInstanceKey,
   reducePurchaseLines,
   usePdpPurchase,
 } from "./PdpPurchaseProvider";
@@ -263,6 +264,33 @@ describe("purchase line state", () => {
         clientLineId: initial[0].clientLineId,
       }),
     ).toBe(initial);
+  });
+});
+
+describe("provider instance identity", () => {
+  it("keeps the same key for ordinary rerenders with the same initialization identity", () => {
+    const key = pdpPurchaseProviderInstanceKey(product.id, blueLarge.id);
+
+    expect(pdpPurchaseProviderInstanceKey(product.id, blueLarge.id)).toBe(key);
+    expect(pdpPurchaseProviderInstanceKey(product.id, blueLarge.id)).toBe(key);
+  });
+
+  it("changes the key when either the product or initial variant changes", () => {
+    const key = pdpPurchaseProviderInstanceKey(product.id, redSmall.id);
+
+    expect(pdpPurchaseProviderInstanceKey("product-2", redSmall.id)).not.toBe(
+      key,
+    );
+    expect(pdpPurchaseProviderInstanceKey(product.id, blueLarge.id)).not.toBe(
+      key,
+    );
+    expect(pdpPurchaseProviderInstanceKey(product.id)).not.toBe(key);
+  });
+
+  it("does not alias delimiter-containing initialization identities", () => {
+    expect(pdpPurchaseProviderInstanceKey("a:b", "c")).not.toBe(
+      pdpPurchaseProviderInstanceKey("a", "b:c"),
+    );
   });
 });
 

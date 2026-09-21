@@ -1,7 +1,4 @@
 import { describe, expect, it } from "vitest";
-// Task 11 owns widening Vitest's include glob to .spec.tsx. Until then, import
-// this owned provider suite so the mandated Task 12 command executes it.
-import "@/components/product/PdpPurchaseProvider.spec";
 import type {
   Product,
   StorefrontProductOption,
@@ -347,6 +344,43 @@ describe("selection reducer and selectors", () => {
     };
 
     expect(resolveSelection(product, stale).purchaseConfirmed).toBe(false);
+  });
+
+  it.each([
+    Number.MAX_SAFE_INTEGER,
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+  ])(
+    "wraps revision %s deterministically when a real option mutation occurs",
+    (selectionRevision) => {
+      const product = productFixture();
+      const state: ProductSelectionState = {
+        ...createInitialSelection(product, redSmall.id),
+        selectionRevision,
+        confirmedCombinationKey: redSmall.combinationKey,
+        confirmedRevision: selectionRevision,
+      };
+      const changed = select(product, state, "size", "large");
+
+      expect(changed.selectionRevision).toBe(0);
+      expect(changed.selectionRevision).not.toBe(selectionRevision);
+      expect(changed.confirmedCombinationKey).toBeNull();
+      expect(changed.confirmedRevision).toBeNull();
+      expect(resolveSelection(product, changed).purchaseConfirmed).toBe(false);
+    },
+  );
+
+  it("does not advance an unsafe revision for a no-op same-value selection", () => {
+    const product = productFixture();
+    const selectionRevision = Number.MAX_SAFE_INTEGER + 1;
+    const state: ProductSelectionState = {
+      ...createInitialSelection(product, redSmall.id),
+      selectionRevision,
+    };
+    const unchangedSelection = select(product, state, "size", "small");
+
+    expect(unchangedSelection.selectionRevision).toBe(selectionRevision);
   });
 
   it("increments revision and invalidates confirmation after an option mutation", () => {

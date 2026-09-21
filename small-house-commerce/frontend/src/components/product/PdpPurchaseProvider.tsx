@@ -50,6 +50,19 @@ export type PurchaseLinesAction =
 
 const PRIMARY_LINE_ID = "primary";
 
+export interface PdpPurchaseProviderProps {
+  product: Product;
+  initialVariantId?: string | null;
+  children: ReactNode;
+}
+
+export function pdpPurchaseProviderInstanceKey(
+  productId: string,
+  initialVariantId?: string | null,
+): string {
+  return JSON.stringify([productId, initialVariantId ?? null]);
+}
+
 function createPurchaseLine(
   product: Product,
   clientLineId: string,
@@ -145,15 +158,11 @@ export function reducePurchaseLines(
 
 const PdpPurchaseContext = createContext<PdpPurchaseContextValue | null>(null);
 
-export function PdpPurchaseProvider({
+function StatefulPdpPurchaseProvider({
   product,
   initialVariantId,
   children,
-}: {
-  product: Product;
-  initialVariantId?: string | null;
-  children: ReactNode;
-}) {
+}: PdpPurchaseProviderProps) {
   const [orderLines, setOrderLines] = useState<PurchaseLineState[]>(() =>
     createInitialPurchaseLines(product, initialVariantId),
   );
@@ -238,6 +247,20 @@ export function PdpPurchaseProvider({
     <PdpPurchaseContext.Provider value={value}>
       {children}
     </PdpPurchaseContext.Provider>
+  );
+}
+
+/**
+ * Stateless boundary: initialization identity changes remount the stateful
+ * provider, while ordinary rerenders preserve its reducer state.
+ */
+export function PdpPurchaseProvider(props: PdpPurchaseProviderProps) {
+  const { product, initialVariantId } = props;
+  return (
+    <StatefulPdpPurchaseProvider
+      key={pdpPurchaseProviderInstanceKey(product.id, initialVariantId)}
+      {...props}
+    />
   );
 }
 

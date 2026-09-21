@@ -43,6 +43,17 @@ export type ProductSelectionAction =
 const MIN_QUANTITY = 1;
 const MAX_QUANTITY = 99;
 
+export function nextSelectionRevision(current: number): number {
+  if (
+    !Number.isSafeInteger(current) ||
+    current < 0 ||
+    current >= Number.MAX_SAFE_INTEGER
+  ) {
+    return 0;
+  }
+  return current + 1;
+}
+
 function comparePositionThenId(
   left: { id: string; position: number },
   right: { id: string; position: number },
@@ -323,8 +334,9 @@ export function reduceProductSelection(
         state.selectedValueIds,
         selectedValueIds,
       );
-      const selectionRevision =
-        state.selectionRevision + (selectionChanged ? 1 : 0);
+      const selectionRevision = selectionChanged
+        ? nextSelectionRevision(state.selectionRevision)
+        : state.selectionRevision;
       const explicitlyTouchedOptionIds =
         state.explicitlyTouchedOptionIds.includes(action.optionId)
           ? state.explicitlyTouchedOptionIds
