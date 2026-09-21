@@ -15,6 +15,7 @@ DO $contract$
 DECLARE
   kind_values text[];
   presentation_values text[];
+  invalid_constraints text[];
 BEGIN
   IF to_regclass('public.product_options') IS NULL THEN
     RAISE EXCEPTION 'catalog graph contract: product_options does not exist';
@@ -52,9 +53,9 @@ BEGIN
     WHERE table_schema = 'public'
       AND table_name = 'product_variants'
       AND column_name = 'combination_key'
-      AND is_nullable = 'YES'
+      AND is_nullable = 'NO'
   ) THEN
-    RAISE EXCEPTION 'catalog graph contract: product_variants.combination_key is missing or required';
+    RAISE EXCEPTION 'catalog graph contract: product_variants.combination_key is missing or nullable';
   END IF;
   IF NOT EXISTS (
     SELECT 1
@@ -130,13 +131,46 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'product_images_exclusive_scope_check'
-      AND conrelid = 'public.product_images'::regclass
-      AND contype = 'c'
-      AND NOT convalidated
+    FROM pg_class AS index_relation
+    JOIN pg_namespace AS index_namespace
+      ON index_namespace.oid = index_relation.relnamespace
+    JOIN pg_index AS index_metadata
+      ON index_metadata.indexrelid = index_relation.oid
+    WHERE index_namespace.nspname = 'public'
+      AND index_relation.relname = 'product_variants_product_id_combination_key_key'
+      AND index_metadata.indrelid = 'public.product_variants'::regclass
+      AND index_metadata.indisunique
+      AND index_metadata.indisvalid
+      AND index_metadata.indisready
+      AND index_metadata.indpred IS NULL
+      AND pg_get_indexdef(index_relation.oid) =
+        'CREATE UNIQUE INDEX product_variants_product_id_combination_key_key ON public.product_variants USING btree (product_id, combination_key)'
   ) THEN
-    RAISE EXCEPTION 'catalog graph contract: media exclusive-scope CHECK must exist as NOT VALID';
+    RAISE EXCEPTION 'catalog graph contract: canonical product/combination unique index is missing or invalid';
+  END IF;
+
+  SELECT array_agg(required.conname ORDER BY required.conname)
+  INTO invalid_constraints
+  FROM (
+    VALUES
+      ('product_images_exclusive_scope_check', 'public.product_images'::regclass, 'c'::"char"),
+      ('products_default_display_variant_id_id_fkey', 'public.products'::regclass, 'f'::"char"),
+      ('product_images_option_value_id_product_id_fkey', 'public.product_images'::regclass, 'f'::"char"),
+      ('product_images_variant_id_product_id_fkey', 'public.product_images'::regclass, 'f'::"char"),
+      ('product_option_values_option_id_product_id_fkey', 'public.product_option_values'::regclass, 'f'::"char"),
+      ('product_variant_option_values_variant_id_product_id_fkey', 'public.product_variant_option_values'::regclass, 'f'::"char"),
+      ('product_variant_option_values_option_id_product_id_fkey', 'public.product_variant_option_values'::regclass, 'f'::"char"),
+      ('product_variant_option_values_option_value_id_option_id_pr_fkey', 'public.product_variant_option_values'::regclass, 'f'::"char"),
+      ('product_variant_option_values_pkey', 'public.product_variant_option_values'::regclass, 'p'::"char")
+  ) AS required(conname, conrelid, contype)
+  LEFT JOIN pg_constraint AS actual
+    ON actual.conname = required.conname
+   AND actual.conrelid = required.conrelid
+   AND actual.contype = required.contype
+  WHERE actual.oid IS NULL OR NOT actual.convalidated;
+
+  IF invalid_constraints IS NOT NULL THEN
+    RAISE EXCEPTION 'catalog graph contract: required constraints are missing or unvalidated: %', invalid_constraints;
   END IF;
 END
 $contract$;
@@ -155,7 +189,7 @@ INSERT INTO product_variants (id, product_id, name, position, combination_key, u
 VALUES
   ('00000000-0000-7000-8000-000000000401', '00000000-0000-7000-8000-000000000301', 'Yellow', 0, '00000000-0000-7000-8000-000000000501:00000000-0000-7000-8000-000000000601', now()),
   ('00000000-0000-7000-8000-000000000402', '00000000-0000-7000-8000-000000000302', 'Blue', 0, '00000000-0000-7000-8000-000000000502:00000000-0000-7000-8000-000000000602', now()),
-  ('00000000-0000-7000-8000-000000000403', '00000000-0000-7000-8000-000000000301', 'Unassigned', 1, NULL, now());
+  ('00000000-0000-7000-8000-000000000403', '00000000-0000-7000-8000-000000000301', 'Unassigned', 1, '__legacy_unmapped__:00000000-0000-7000-8000-000000000403', now());
 
 INSERT INTO product_options (
   id,
@@ -183,6 +217,7 @@ INSERT INTO product_option_values (
 )
 VALUES
   ('00000000-0000-7000-8000-000000000601', '00000000-0000-7000-8000-000000000301', '00000000-0000-7000-8000-000000000501', 'Yellow', 0, true, now()),
+  ('00000000-0000-7000-8000-000000000603', '00000000-0000-7000-8000-000000000301', '00000000-0000-7000-8000-000000000501', 'Gold', 1, true, now()),
   ('00000000-0000-7000-8000-000000000602', '00000000-0000-7000-8000-000000000302', '00000000-0000-7000-8000-000000000502', 'Blue', 0, true, now());
 
 INSERT INTO product_variant_option_values (
@@ -320,6 +355,27 @@ ROLLBACK TO SAVEPOINT duplicate_active_media_driver;
   \quit 1
 \endif
 
+SAVEPOINT null_combination_key;
+\set ON_ERROR_STOP off
+INSERT INTO product_variants (id, product_id, name, position, combination_key, updated_at)
+VALUES (
+  '00000000-0000-7000-8000-000000000410',
+  '00000000-0000-7000-8000-000000000301',
+  'Missing combination',
+  2,
+  NULL,
+  now()
+);
+\set null_combination_key_failed :ERROR
+ROLLBACK TO SAVEPOINT null_combination_key;
+\set ON_ERROR_STOP on
+\if :null_combination_key_failed
+  \echo 'ok - null combination key rejected'
+\else
+  \echo 'not ok - null combination key was accepted'
+  \quit 1
+\endif
+
 SAVEPOINT duplicate_combination_key;
 \set ON_ERROR_STOP off
 INSERT INTO product_variants (id, product_id, name, position, combination_key, updated_at)
@@ -341,6 +397,27 @@ ROLLBACK TO SAVEPOINT duplicate_combination_key;
   \quit 1
 \endif
 
+SAVEPOINT duplicate_option_assignment;
+\set ON_ERROR_STOP off
+INSERT INTO product_variant_option_values (
+  variant_id, product_id, option_id, option_value_id
+)
+VALUES (
+  '00000000-0000-7000-8000-000000000401',
+  '00000000-0000-7000-8000-000000000301',
+  '00000000-0000-7000-8000-000000000501',
+  '00000000-0000-7000-8000-000000000603'
+);
+\set duplicate_option_assignment_failed :ERROR
+ROLLBACK TO SAVEPOINT duplicate_option_assignment;
+\set ON_ERROR_STOP on
+\if :duplicate_option_assignment_failed
+  \echo 'ok - second value for one variant option rejected'
+\else
+  \echo 'not ok - second value for one variant option was accepted'
+  \quit 1
+\endif
+
 SAVEPOINT cross_product_assignment;
 \set ON_ERROR_STOP off
 INSERT INTO product_variant_option_values (
@@ -356,9 +433,51 @@ VALUES (
 ROLLBACK TO SAVEPOINT cross_product_assignment;
 \set ON_ERROR_STOP on
 \if :cross_product_assignment_failed
-  \echo 'ok - cross-product variant option assignment rejected'
+  \echo 'ok - cross-product option-value assignment rejected'
 \else
-  \echo 'not ok - cross-product variant option assignment was accepted'
+  \echo 'not ok - cross-product option-value assignment was accepted'
+  \quit 1
+\endif
+
+SAVEPOINT cross_product_variant_ownership;
+\set ON_ERROR_STOP off
+INSERT INTO product_variant_option_values (
+  variant_id, product_id, option_id, option_value_id
+)
+VALUES (
+  '00000000-0000-7000-8000-000000000403',
+  '00000000-0000-7000-8000-000000000302',
+  '00000000-0000-7000-8000-000000000502',
+  '00000000-0000-7000-8000-000000000602'
+);
+\set cross_product_variant_ownership_failed :ERROR
+ROLLBACK TO SAVEPOINT cross_product_variant_ownership;
+\set ON_ERROR_STOP on
+\if :cross_product_variant_ownership_failed
+  \echo 'ok - cross-product variant ownership rejected'
+\else
+  \echo 'not ok - cross-product variant ownership was accepted'
+  \quit 1
+\endif
+
+SAVEPOINT cross_product_option_ownership;
+\set ON_ERROR_STOP off
+INSERT INTO product_variant_option_values (
+  variant_id, product_id, option_id, option_value_id
+)
+VALUES (
+  '00000000-0000-7000-8000-000000000403',
+  '00000000-0000-7000-8000-000000000301',
+  '00000000-0000-7000-8000-000000000502',
+  '00000000-0000-7000-8000-000000000602'
+);
+\set cross_product_option_ownership_failed :ERROR
+ROLLBACK TO SAVEPOINT cross_product_option_ownership;
+\set ON_ERROR_STOP on
+\if :cross_product_option_ownership_failed
+  \echo 'ok - cross-product option ownership rejected'
+\else
+  \echo 'not ok - cross-product option ownership was accepted'
   \quit 1
 \endif
 

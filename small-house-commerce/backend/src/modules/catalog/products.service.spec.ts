@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
+import { legacyUnmappedCombinationKey } from './catalog-graph.js';
 import type {
   AdminProductQuery,
   StorefrontProductQuery,
 } from './dto/product.dto.js';
 import { ProductsService } from './products.service.js';
+
+vi.mock('../../common/revalidation.js', () => ({
+  CACHE_TAGS: { STOREFRONT: 'storefront' },
+  revalidateCache: vi.fn(async () => undefined),
+}));
 
 type MockProductRow = { id: string; [key: string]: unknown };
 
@@ -271,5 +277,187 @@ describe('ProductsService.storefrontList ids branch', () => {
       reviewCount: 0,
       ratingAverage: null,
     });
+  });
+});
+
+const LEGACY_PRODUCT_ID = '00000000-0000-4000-8000-000000000701';
+const EXISTING_VARIANT_ID = '00000000-0000-4000-8000-000000000702';
+const EXISTING_SKU_ID = '00000000-0000-4000-8000-000000000703';
+
+interface LegacyVariantRow {
+  id: string;
+  productId: string;
+  name: string;
+  position: number;
+  combinationKey: string;
+  sku: {
+    id: string;
+    skuCode: string;
+    status: 'ACTIVE' | 'DISABLED';
+  } | null;
+}
+
+function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
+  const variants = structuredClone(initialVariants);
+  const productVariantCreate = vi.fn(
+    async ({ data }: { data: Omit<LegacyVariantRow, 'sku'> }) => {
+      const row = { ...data, sku: null };
+      variants.push(row);
+      return structuredClone(row);
+    },
+  );
+  const productVariantUpdate = vi.fn(
+    async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: Partial<LegacyVariantRow>;
+    }) => {
+      const row = variants.find(({ id }) => id === where.id);
+      if (!row) throw new Error(`missing variant ${where.id}`);
+      Object.assign(row, structuredClone(data));
+      return structuredClone(row);
+    },
+  );
+  const skuCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
+    structuredClone(data),
+  );
+  const skuUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
+    structuredClone(data),
+  );
+  const tx = {
+    product: {
+      create: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID })),
+      update: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID, variants: [] })),
+      findUniqueOrThrow: vi.fn(async () => ({
+        id: LEGACY_PRODUCT_ID,
+        variants: [],
+      })),
+    },
+    productVariant: {
+      create: productVariantCreate,
+      findMany: vi.fn(async () => structuredClone(variants)),
+      update: productVariantUpdate,
+      delete: vi.fn(async () => undefined),
+    },
+    sku: {
+      create: skuCreate,
+      update: skuUpdate,
+      delete: vi.fn(async () => undefined),
+    },
+  };
+  const prisma = {
+    category: {
+      findUnique: vi.fn(async () => ({ id: 'category-id' })),
+    },
+    product: {
+      findUnique: vi.fn(async () => ({
+        id: LEGACY_PRODUCT_ID,
+        catalogGraphVersion: 0,
+      })),
+    },
+    $transaction: vi.fn(
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    ),
+  };
+  return {
+    service: new ProductsService(prisma as never, reviewsStub, inventoryStub),
+    tx,
+    variants,
+  };
+}
+
+describe('ProductsService graph-v0 variant compatibility', () => {
+  it.each([1, 2])(
+    'preallocates exact unique sentinels when legacy create writes %s variant(s)',
+    async (variantCount) => {
+      const harness = createLegacyWriteHarness();
+      const inputVariants = Array.from(
+        { length: variantCount },
+        (_, index) => ({
+          name: `Legacy ${index}`,
+          position: index,
+          sku: null,
+        }),
+      );
+
+      await harness.service.create({
+        name: 'Legacy product',
+        slug: `legacy-product-${variantCount}`,
+        categoryId: 'category-id',
+        status: 'DRAFT',
+        solutions: [],
+        images: [],
+        detailBlocks: [],
+        variants: inputVariants,
+      } as never);
+
+      const created = harness.tx.productVariant.create.mock.calls.map(
+        ([call]) => call.data,
+      );
+      expect(created).toHaveLength(variantCount);
+      expect(new Set(created.map(({ id }) => id)).size).toBe(variantCount);
+      for (const variant of created) {
+        expect(variant.id).toMatch(/^[0-9a-f-]{36}$/i);
+        expect(variant.combinationKey).toBe(
+          legacyUnmappedCombinationKey(variant.id),
+        );
+      }
+    },
+  );
+
+  it('adds a sentinel variant while preserving retained variant, SKU, and key identities', async () => {
+    const existingKey = legacyUnmappedCombinationKey(EXISTING_VARIANT_ID);
+    const harness = createLegacyWriteHarness([
+      {
+        id: EXISTING_VARIANT_ID,
+        productId: LEGACY_PRODUCT_ID,
+        name: 'Red',
+        position: 0,
+        combinationKey: existingKey,
+        sku: {
+          id: EXISTING_SKU_ID,
+          skuCode: 'LEGACY-RED',
+          status: 'ACTIVE',
+        },
+      },
+    ]);
+
+    await harness.service.update(LEGACY_PRODUCT_ID, {
+      variants: [
+        {
+          name: 'Red',
+          position: 0,
+          sku: { skuCode: 'LEGACY-RED', status: 'ACTIVE' },
+        },
+        { name: 'Blue', position: 1, sku: null },
+      ],
+    } as never);
+
+    const created = harness.tx.productVariant.create.mock.calls[0]?.[0].data;
+    expect(created?.id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(created?.combinationKey).toBe(
+      legacyUnmappedCombinationKey(created!.id),
+    );
+    expect(harness.variants).toContainEqual(
+      expect.objectContaining({
+        id: EXISTING_VARIANT_ID,
+        combinationKey: existingKey,
+      }),
+    );
+    expect(harness.tx.productVariant.update).toHaveBeenLastCalledWith({
+      where: { id: EXISTING_VARIANT_ID },
+      data: { name: 'Red', position: 0 },
+    });
+    expect(harness.tx.sku.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: EXISTING_SKU_ID },
+        data: expect.objectContaining({
+          variantId: EXISTING_VARIANT_ID,
+          skuCode: 'LEGACY-RED',
+        }),
+      }),
+    );
   });
 });

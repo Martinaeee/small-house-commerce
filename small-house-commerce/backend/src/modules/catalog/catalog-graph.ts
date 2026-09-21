@@ -55,6 +55,24 @@ export class CatalogGraphValidationError extends Error {
   }
 }
 
+const LEGACY_UNMAPPED_COMBINATION_PREFIX = '__legacy_unmapped__:';
+
+/**
+ * Temporary non-null identity for graph-v0 variants written by the legacy
+ * admin. It is replaced only when that same persisted variant is fully
+ * materialized into typed option assignments.
+ */
+export function legacyUnmappedCombinationKey(variantId: string): string {
+  return `${LEGACY_UNMAPPED_COMBINATION_PREFIX}${variantId}`;
+}
+
+export function isLegacyUnmappedCombinationKey(
+  combinationKey: string,
+  variantId: string,
+): boolean {
+  return combinationKey === legacyUnmappedCombinationKey(variantId);
+}
+
 /**
  * Returns a stable identity for a set of option/value pairs.
  *

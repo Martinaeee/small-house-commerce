@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +18,7 @@ import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 import { presentCatalogGraph } from './catalog-compat.js';
+import { legacyUnmappedCombinationKey } from './catalog-graph.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
@@ -293,15 +295,17 @@ export class ProductsService {
           },
         });
 
-        // Variants are created one at a time so each gets an id before its
-        // SKU row is inserted (Sku.productId is a separate required FK that
-        // Prisma cannot fill through the nested create path).
+        // Preallocate each legacy variant id so its graph-v0 combination
+        // sentinel and optional SKU reference the same stable identity.
         for (const variant of input.variants) {
+          const variantId = randomUUID();
           const created = await tx.productVariant.create({
             data: {
+              id: variantId,
               productId: product.id,
               name: variant.name,
               position: variant.position,
+              combinationKey: legacyUnmappedCombinationKey(variantId),
             },
           });
 
@@ -495,7 +499,11 @@ export class ProductsService {
         byName.delete(match.name);
         if (incomingSku) bySkuCode.delete(incomingSku.skuCode);
       }
-      return { variant, match };
+      return {
+        variant,
+        match,
+        newVariantId: match ? undefined : randomUUID(),
+      };
     });
 
     // Phase 1: park every surviving row under a name no payload can claim, so
@@ -515,17 +523,24 @@ export class ProductsService {
     const kept = new Set<string>();
 
     // Phase 2: assign the final names and reconcile each SKU.
-    for (const { variant, match } of plan) {
+    for (const { variant, match, newVariantId } of plan) {
       const incomingSku = variant.sku;
 
       if (!match) {
-        const created = await tx.productVariant.create({
-          data: { productId, name: variant.name, position: variant.position },
+        const id = newVariantId!;
+        await tx.productVariant.create({
+          data: {
+            id,
+            productId,
+            name: variant.name,
+            position: variant.position,
+            combinationKey: legacyUnmappedCombinationKey(id),
+          },
         });
         if (incomingSku) {
           try {
             await tx.sku.create({
-              data: { ...incomingSku, productId, variantId: created.id },
+              data: { ...incomingSku, productId, variantId: id },
             });
           } catch (error) {
             this.rethrowSkuCodeTaken(error, incomingSku.skuCode);

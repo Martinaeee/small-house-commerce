@@ -320,7 +320,7 @@ model ProductVariant {
   productId      String   @map("product_id") @db.Uuid
   name           String
   position       Int      @default(0)
-  combinationKey String?  @map("combination_key")
+  combinationKey String   @map("combination_key")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

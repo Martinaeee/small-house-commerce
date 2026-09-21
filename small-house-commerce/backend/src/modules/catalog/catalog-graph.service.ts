@@ -10,6 +10,7 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import {
   canonicalCombinationKey,
   deriveVariantName,
+  isLegacyUnmappedCombinationKey,
   planVariantReconciliation,
   validateCatalogGraph,
 } from './catalog-graph.js';
@@ -498,27 +499,21 @@ export class CatalogGraphService {
     const effectiveExisting = snapshot.variants.map((variant) => {
       const incoming = incomingByPersistedId.get(variant.id);
       let combinationKey = variant.combinationKey;
-      if (
-        combinationKey &&
-        incoming &&
-        incoming.combinationKey !== combinationKey
-      ) {
-        throw new BadRequestException(
-          `Variant ${variant.id} cannot be reassigned to a different combination.`,
-        );
-      }
-      if (!combinationKey && incoming) combinationKey = incoming.combinationKey;
-      if (!combinationKey && variant.optionValues.length > 0) {
-        combinationKey = canonicalCombinationKey(
-          variant.optionValues.map(({ optionId, optionValueId }) => ({
-            optionId,
-            valueId: optionValueId,
-          })),
-        );
+      if (incoming && incoming.combinationKey !== combinationKey) {
+        if (
+          requiresLegacyMaterialization &&
+          isLegacyUnmappedCombinationKey(combinationKey, variant.id)
+        ) {
+          combinationKey = incoming.combinationKey;
+        } else {
+          throw new BadRequestException(
+            `Variant ${variant.id} cannot be reassigned to a different combination.`,
+          );
+        }
       }
       return {
         id: variant.id,
-        combinationKey: combinationKey ?? `__legacy_unmapped__:${variant.id}`,
+        combinationKey,
         hasHistory: this.variantHasReferences(variant),
       };
     });

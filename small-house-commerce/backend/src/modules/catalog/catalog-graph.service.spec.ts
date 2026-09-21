@@ -1,7 +1,10 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
-import { canonicalCombinationKey } from './catalog-graph.js';
+import {
+  canonicalCombinationKey,
+  legacyUnmappedCombinationKey,
+} from './catalog-graph.js';
 import {
   CatalogGraphMaterializationRequiredError,
   CatalogGraphService,
@@ -63,7 +66,7 @@ interface VariantRow {
   productId: string;
   name: string;
   position: number;
-  combinationKey: string | null;
+  combinationKey: string;
 }
 
 interface SkuRow {
@@ -344,7 +347,7 @@ function legacyState(includeBlue = true): GraphState {
   state.values = [];
   state.assignments = [];
   state.variants.forEach((variant) => {
-    variant.combinationKey = null;
+    variant.combinationKey = legacyUnmappedCombinationKey(variant.id);
   });
   return state;
 }
@@ -1233,8 +1236,13 @@ describe('CatalogGraphService.applyPatch', () => {
       patch,
     )) as ReturnType<typeof materialize> & { media: MediaRow[] };
 
+    const materializedOption = result.options[0];
+    const materializedRed = materializedOption.values.find(
+      ({ label }) => label === 'Red',
+    )!;
     expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({
       id: RED_VARIANT_ID,
+      combinationKey: combination([materializedOption.id, materializedRed.id]),
       sku: { id: RED_SKU_ID },
     });
     expect(result.defaultDisplayVariantId).toBe(RED_VARIANT_ID);
@@ -1244,6 +1252,48 @@ describe('CatalogGraphService.applyPatch', () => {
         variantId: RED_VARIANT_ID,
       }),
     );
+  });
+
+  it.each([
+    [
+      'malformed sentinel',
+      `${legacyUnmappedCombinationKey(RED_VARIANT_ID)}:suffix`,
+    ],
+    ['another variant sentinel', legacyUnmappedCombinationKey(BLUE_VARIANT_ID)],
+  ])('rejects reassignment from a %s', async (_label, persistedKey) => {
+    const state = legacyState(false);
+    state.variants[0].combinationKey = persistedKey;
+    const harness = createGraphHarness(state);
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.service.applyPatch(
+        PRODUCT_ID,
+        0,
+        materializeLegacyPatch({ includeBlue: false }),
+      ),
+    ).rejects.toThrow(/cannot be reassigned to a different combination/i);
+
+    expect(harness.transactionCalls).toBe(0);
+    expect(harness.state).toEqual(before);
+  });
+
+  it('keeps canonical keys immutable after graph materialization', async () => {
+    const harness = createGraphHarness();
+    const patch = parsePatch({
+      variants: [
+        {
+          id: RED_VARIANT_ID,
+          position: 0,
+          optionValueRefs: [{ id: BLUE_ID }],
+        },
+      ],
+    });
+
+    await expect(
+      harness.service.applyPatch(PRODUCT_ID, 1, patch),
+    ).rejects.toThrow(/cannot be reassigned to a different combination/i);
+    expect(harness.transactionCalls).toBe(0);
   });
 
   it('fully materializes every legacy variant by persisted ID and creates only additional candidates', async () => {

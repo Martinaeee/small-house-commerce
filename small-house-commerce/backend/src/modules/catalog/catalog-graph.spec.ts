@@ -3,9 +3,11 @@ import {
   canonicalCombinationKey,
   countCandidateCombinations,
   deriveVariantName,
+  isLegacyUnmappedCombinationKey,
+  legacyUnmappedCombinationKey,
   planVariantReconciliation,
   validateCatalogGraph,
-} from "./catalog-graph.js";
+} from './catalog-graph.js';
 
 describe("catalog graph identity", () => {
   it("keeps identity when option display order changes", () => {
@@ -40,6 +42,33 @@ describe("catalog graph identity", () => {
 
     expect(canonicalCombinationKey(pairs)).toBe(
       canonicalCombinationKey([...pairs].reverse()),
+    );
+  });
+
+  it('recognizes only the exact self-ID graph-v0 sentinel', () => {
+    expect(legacyUnmappedCombinationKey('variant-a')).toBe(
+      '__legacy_unmapped__:variant-a',
+    );
+    expect(
+      isLegacyUnmappedCombinationKey(
+        '__legacy_unmapped__:variant-a',
+        'variant-a',
+      ),
+    ).toBe(true);
+    expect(
+      isLegacyUnmappedCombinationKey(
+        '__legacy_unmapped__:variant-b',
+        'variant-a',
+      ),
+    ).toBe(false);
+    expect(
+      isLegacyUnmappedCombinationKey(
+        '__legacy_unmapped__:variant-a:suffix',
+        'variant-a',
+      ),
+    ).toBe(false);
+    expect(isLegacyUnmappedCombinationKey('color:red', 'variant-a')).toBe(
+      false,
     );
   });
 
