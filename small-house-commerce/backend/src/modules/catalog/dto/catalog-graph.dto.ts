@@ -236,7 +236,13 @@ function validateClientKeyReferences(
         ctx.addIssue({
           code: 'custom',
           message: `Unknown option value clientKey ${ref.clientKey}.`,
-          path: ['variants', variantIndex, 'optionValueRefs', refIndex],
+          path: [
+            'variants',
+            variantIndex,
+            'optionValueRefs',
+            refIndex,
+            'clientKey',
+          ],
         });
       }
     });

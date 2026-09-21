@@ -167,7 +167,7 @@ describe('catalog graph write DTO', () => {
           ],
         }),
       ),
-      ['variants', 0, 'optionValueRefs', 0],
+      ['variants', 0, 'optionValueRefs', 0, 'clientKey'],
     );
   });
 
@@ -280,24 +280,30 @@ describe('catalog graph write DTO', () => {
   });
 
   it('normalizes UUID casing when detecting duplicate changed rows', () => {
-    expect(
-      catalogGraphPatchSchema.safeParse(
-        patch({
-          options: [
-            {
-              ...option('first', 'Color', 0),
-              id: IDS.cased,
-              clientKey: undefined,
-            },
-            {
-              ...option('second', 'Size', 1),
-              id: IDS.cased.toUpperCase(),
-              clientKey: undefined,
-            },
-          ],
-        }),
-      ).success,
-    ).toBe(false);
+    const result = catalogGraphPatchSchema.safeParse(
+      patch({
+        options: [
+          {
+            ...option('first', 'Color', 0),
+            id: IDS.cased,
+            clientKey: undefined,
+          },
+          {
+            ...option('second', 'Size', 1),
+            id: IDS.cased.toUpperCase(),
+            clientKey: undefined,
+          },
+        ],
+        variants: [],
+      }),
+    );
+
+    expectIssuePath(result, ['options', 1]);
+    if (!result.success) {
+      expect(
+        result.error.issues.every(({ message }) => /duplicate/i.test(message)),
+      ).toBe(true);
+    }
   });
 
   it('rejects duplicate active positions and labels', () => {
