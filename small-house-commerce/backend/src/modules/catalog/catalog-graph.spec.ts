@@ -32,6 +32,17 @@ describe("catalog graph identity", () => {
     expect(embeddedDelimiter).toBe("a:b%7Cc%3Ad");
   });
 
+  it("keeps encoded identities stable when raw pair keys tie", () => {
+    const pairs = [
+      { optionId: "a:b", valueId: "c" },
+      { optionId: "a", valueId: "b:c" },
+    ];
+
+    expect(canonicalCombinationKey(pairs)).toBe(
+      canonicalCombinationKey([...pairs].reverse()),
+    );
+  });
+
   it("uses display position only for the generated name", () => {
     expect(
       deriveVariantName([

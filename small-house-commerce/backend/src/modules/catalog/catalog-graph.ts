@@ -70,7 +70,11 @@ export function canonicalCombinationKey(
       raw: `${optionId}:${valueId}`,
       encoded: `${encodeURIComponent(optionId)}:${encodeURIComponent(valueId)}`,
     }))
-    .sort((left, right) => left.raw.localeCompare(right.raw))
+    .sort(
+      (left, right) =>
+        left.raw.localeCompare(right.raw) ||
+        left.encoded.localeCompare(right.encoded),
+    )
     .map(({ encoded }) => encoded)
     .join("|");
 }
