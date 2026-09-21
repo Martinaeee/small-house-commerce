@@ -32,6 +32,8 @@ const BLUE_VARIANT_ID = '30000000-0000-4000-8000-000000000002';
 const RED_SKU_ID = '40000000-0000-4000-8000-000000000001';
 const BLUE_SKU_ID = '40000000-0000-4000-8000-000000000002';
 const SHARED_MEDIA_ID = '50000000-0000-4000-8000-000000000001';
+const SYNTHETIC_OPTION_ID = '90000000-0000-4000-8000-000000000008';
+const SYNTHETIC_VALUE_ID = '90000000-0000-4000-8000-000000000009';
 
 interface OptionRow {
   id: string;
@@ -777,6 +779,16 @@ function createGraphHarness(
     product: {
       findUnique: vi.fn(async () => currentProduct()),
     },
+    productOption: {
+      findMany: vi.fn(
+        async () => [] as Array<{ id: string; productId: string }>,
+      ),
+    },
+    productOptionValue: {
+      findMany: vi.fn(
+        async () => [] as Array<{ id: string; productId: string }>,
+      ),
+    },
     $transaction: vi.fn(
       async (callback: (client: typeof tx) => Promise<unknown>) => {
         transactionCalls += 1;
@@ -938,6 +950,36 @@ function materializeLegacyPatch(
         : []),
     ],
   });
+}
+
+function materializationPatchWithSyntheticId(
+  entryPoint: 'option' | 'value' | 'variant-value-ref' | 'media-value-scope',
+): CatalogGraphPatch {
+  const patch = materializeLegacyPatch();
+  if (entryPoint === 'option') {
+    const option = patch.options[0] as unknown as Record<string, unknown>;
+    delete option.clientKey;
+    option.id = SYNTHETIC_OPTION_ID;
+  } else if (entryPoint === 'value') {
+    const value = patch.options[0].values[0] as unknown as Record<
+      string,
+      unknown
+    >;
+    delete value.clientKey;
+    value.id = SYNTHETIC_VALUE_ID;
+  } else if (entryPoint === 'variant-value-ref') {
+    patch.variants[0].optionValueRefs = [{ id: SYNTHETIC_VALUE_ID }];
+  } else {
+    patch.media.push({
+      clientKey: 'synthetic-value-media',
+      url: '/uploads/synthetic-value.webp',
+      type: 'IMAGE',
+      altText: null,
+      sortOrder: 0,
+      optionValueId: SYNTHETIC_VALUE_ID,
+    });
+  }
+  return patch;
 }
 
 beforeEach(() => {
@@ -1132,22 +1174,76 @@ describe('CatalogGraphService.applyPatch', () => {
     expect(revalidateCache).not.toHaveBeenCalled();
   });
 
-  it('rejects synthetic read-projection value IDs with the materialization error', async () => {
+  it.each([
+    'option',
+    'value',
+    'variant-value-ref',
+    'media-value-scope',
+  ] as const)(
+    'rejects synthetic read-projection IDs at the %s entry point with the materialization error',
+    async (entryPoint) => {
+      const harness = createGraphHarness(legacyState());
+      const patch = materializationPatchWithSyntheticId(entryPoint);
+      const before = structuredClone(harness.state);
+
+      await expect(
+        harness.service.applyPatch(PRODUCT_ID, 0, patch),
+      ).rejects.toMatchObject({
+        code: 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED',
+      });
+      expect(harness.transactionCalls).toBe(0);
+      expect(harness.state).toEqual(before);
+      expect(revalidateCache).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps cross-product persisted option identities as generic ownership errors', async () => {
     const harness = createGraphHarness(legacyState());
-    const patch = materializeLegacyPatch();
-    patch.variants[0].optionValueRefs = [
-      { id: '90000000-0000-4000-8000-000000000009' },
-    ];
-    const before = structuredClone(harness.state);
+    harness.prisma.productOption.findMany.mockResolvedValue([
+      {
+        id: SYNTHETIC_OPTION_ID,
+        productId: '00000000-0000-4000-8000-000000000099',
+      },
+    ]);
+    const patch = materializationPatchWithSyntheticId('option');
 
     await expect(
       harness.service.applyPatch(PRODUCT_ID, 0, patch),
-    ).rejects.toMatchObject({
-      code: 'CATALOG_GRAPH_MATERIALIZATION_REQUIRED',
-    });
+    ).rejects.toMatchObject({ status: 400 });
     expect(harness.transactionCalls).toBe(0);
-    expect(harness.state).toEqual(before);
     expect(revalidateCache).not.toHaveBeenCalled();
+  });
+
+  it('allows persisted variant IDs for complete mappings, media, and default display', async () => {
+    const harness = createGraphHarness(legacyState());
+    const patch = materializeLegacyPatch();
+    patch.media.push({
+      clientKey: 'legacy-red-variant-media',
+      url: '/uploads/legacy-red.webp',
+      type: 'IMAGE',
+      altText: null,
+      sortOrder: 0,
+      variantId: RED_VARIANT_ID,
+    });
+    patch.defaultDisplayVariant = { id: RED_VARIANT_ID };
+
+    const result = (await harness.service.applyPatch(
+      PRODUCT_ID,
+      0,
+      patch,
+    )) as ReturnType<typeof materialize> & { media: MediaRow[] };
+
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({
+      id: RED_VARIANT_ID,
+      sku: { id: RED_SKU_ID },
+    });
+    expect(result.defaultDisplayVariantId).toBe(RED_VARIANT_ID);
+    expect(result.media).toContainEqual(
+      expect.objectContaining({
+        url: '/uploads/legacy-red.webp',
+        variantId: RED_VARIANT_ID,
+      }),
+    );
   });
 
   it('fully materializes every legacy variant by persisted ID and creates only additional candidates', async () => {

@@ -243,6 +243,11 @@ export class CatalogGraphService {
     });
     if (!snapshot) throw new NotFoundException('Product not found');
 
+    const requiresLegacyMaterialization =
+      snapshot.catalogGraphVersion === 0 &&
+      snapshot.options.length === 0 &&
+      snapshot.variants.length > 0;
+
     const existingOptions = new Map(
       snapshot.options.map((option) => [option.id, option]),
     );
@@ -256,6 +261,14 @@ export class CatalogGraphService {
     );
     const existingMedia = new Map(
       snapshot.images.map((media) => [media.id, media]),
+    );
+
+    await this.assertMaterializationOptionValueIdentities(
+      productId,
+      patch,
+      requiresLegacyMaterialization,
+      existingOptions,
+      existingValues,
     );
 
     this.assertOwnedRetirements(
@@ -390,10 +403,6 @@ export class CatalogGraphService {
       );
     const candidates = this.buildCandidates(activeOptions, valueList);
     const activeOptionIds = new Set(activeOptions.map((option) => option.id));
-    const requiresLegacyMaterialization =
-      snapshot.catalogGraphVersion === 0 &&
-      snapshot.options.length === 0 &&
-      snapshot.variants.length > 0;
     if (requiresLegacyMaterialization) {
       const mappedPersistedIds = new Set(
         patch.variants.flatMap((variant) =>
@@ -1038,6 +1047,93 @@ export class CatalogGraphService {
       );
     }
     return variantId;
+  }
+
+  private async assertMaterializationOptionValueIdentities(
+    productId: string,
+    patch: CatalogGraphPatch,
+    requiresLegacyMaterialization: boolean,
+    existingOptions: ReadonlyMap<string, unknown>,
+    existingValues: ReadonlyMap<string, unknown>,
+  ): Promise<void> {
+    if (!requiresLegacyMaterialization) return;
+
+    const optionIds = new Set<string>();
+    const valueIds = new Set<string>();
+    for (const option of patch.options) {
+      if (option.id !== undefined && !existingOptions.has(option.id)) {
+        optionIds.add(option.id);
+      }
+      for (const value of option.values) {
+        if (value.id !== undefined && !existingValues.has(value.id)) {
+          valueIds.add(value.id);
+        }
+      }
+    }
+    for (const optionId of patch.retirements.optionIds) {
+      if (!existingOptions.has(optionId)) optionIds.add(optionId);
+    }
+    for (const valueId of patch.retirements.optionValueIds) {
+      if (!existingValues.has(valueId)) valueIds.add(valueId);
+    }
+    for (const variant of patch.variants) {
+      for (const ref of variant.optionValueRefs) {
+        if (ref.id !== undefined && !existingValues.has(ref.id)) {
+          valueIds.add(ref.id);
+        }
+      }
+    }
+    for (const media of patch.media) {
+      if (
+        media.optionValueId !== undefined &&
+        !existingValues.has(media.optionValueId)
+      ) {
+        valueIds.add(media.optionValueId);
+      }
+    }
+
+    if (optionIds.size === 0 && valueIds.size === 0) return;
+
+    const [persistedOptions, persistedValues] = await Promise.all([
+      optionIds.size === 0
+        ? []
+        : this.prisma.productOption.findMany({
+            where: { id: { in: [...optionIds] } },
+            select: { id: true, productId: true },
+          }),
+      valueIds.size === 0
+        ? []
+        : this.prisma.productOptionValue.findMany({
+            where: { id: { in: [...valueIds] } },
+            select: { id: true, productId: true },
+          }),
+    ]);
+
+    const foreignOption = persistedOptions.find(
+      ({ productId: ownerId }) => ownerId !== productId,
+    );
+    if (foreignOption) {
+      throw new BadRequestException(
+        `option ${foreignOption.id} does not belong to this product.`,
+      );
+    }
+    const foreignValue = persistedValues.find(
+      ({ productId: ownerId }) => ownerId !== productId,
+    );
+    if (foreignValue) {
+      throw new BadRequestException(
+        `option value ${foreignValue.id} does not belong to this product.`,
+      );
+    }
+
+    const persistedOptionIds = new Set(persistedOptions.map(({ id }) => id));
+    const persistedValueIds = new Set(persistedValues.map(({ id }) => id));
+    if (
+      [...optionIds].some((id) => !persistedOptionIds.has(id)) ||
+      [...valueIds].some((id) => !persistedValueIds.has(id))
+    ) {
+      throw new CatalogGraphMaterializationRequiredError();
+    }
   }
 
   private resolveChangedRowId<T extends { id: string }>(
