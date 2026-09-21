@@ -17,6 +17,8 @@ import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 import { presentCatalogGraph } from './catalog-compat.js';
+import { CatalogGraphService } from './catalog-graph.service.js';
+import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 
 /**
@@ -153,6 +155,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly reviews: ReviewsService,
     private readonly inventory: InventoryService,
+    private readonly catalogGraph?: CatalogGraphService,
   ) {}
 
   // --- admin ---------------------------------------------------------------
@@ -164,9 +167,9 @@ export class ProductsService {
    * withAvailableInventory, which converts them for the storefront): the admin
    * form round-trips prices as decimal strings.
    */
-  private async withStock<T extends { variants: { sku: { id: string } | null }[] }>(
-    products: T[],
-  ): Promise<T[]> {
+  private async withStock<
+    T extends { variants: { sku: { id: string } | null }[] },
+  >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
         products.flatMap((p) =>
@@ -264,12 +267,20 @@ export class ProductsService {
         // Prisma cannot fill through the nested create path).
         for (const variant of input.variants) {
           const created = await tx.productVariant.create({
-            data: { productId: product.id, name: variant.name, position: variant.position },
+            data: {
+              productId: product.id,
+              name: variant.name,
+              position: variant.position,
+            },
           });
 
           if (variant.sku) {
             await tx.sku.create({
-              data: { ...variant.sku, productId: product.id, variantId: created.id },
+              data: {
+                ...variant.sku,
+                productId: product.id,
+                variantId: created.id,
+              },
             });
           }
         }
@@ -290,11 +301,28 @@ export class ProductsService {
   async update(id: string, input: UpdateProductInput) {
     const existing = await this.prisma.product.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, catalogGraphVersion: true },
     });
 
     if (!existing) {
       throw new NotFoundException('Product not found');
+    }
+
+    const currentGraphVersion = existing.catalogGraphVersion ?? 0;
+    const writesLegacyGraph =
+      input.variants !== undefined || input.images !== undefined;
+    if (
+      input.catalogGraph === undefined &&
+      currentGraphVersion > 0 &&
+      writesLegacyGraph
+    ) {
+      throw new CatalogGraphVersionRequiredError();
+    }
+    if (
+      input.catalogGraph !== undefined &&
+      input.catalogGraphVersion === undefined
+    ) {
+      throw new CatalogGraphVersionRequiredError();
     }
 
     if (input.categoryId) {
@@ -307,32 +335,41 @@ export class ProductsService {
 
         if (input.name !== undefined) data.name = input.name;
         if (input.slug !== undefined) data.slug = input.slug;
-        if (input.description !== undefined) data.description = input.description;
+        if (input.description !== undefined)
+          data.description = input.description;
         if (input.tagline !== undefined) data.tagline = input.tagline;
-        if (input.categoryId !== undefined) data.category = { connect: { id: input.categoryId } };
+        if (input.categoryId !== undefined)
+          data.category = { connect: { id: input.categoryId } };
         if (input.status !== undefined) data.status = input.status;
         if (input.room !== undefined) data.room = input.room;
-        if (input.internalRole !== undefined) data.internalRole = input.internalRole;
+        if (input.internalRole !== undefined)
+          data.internalRole = input.internalRole;
         if (input.solutions !== undefined) data.solutions = input.solutions;
         if (input.width !== undefined) data.width = input.width;
         if (input.height !== undefined) data.height = input.height;
         if (input.depth !== undefined) data.depth = input.depth;
-        if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
-        if (input.foldedHeight !== undefined) data.foldedHeight = input.foldedHeight;
-        if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
+        if (input.foldedWidth !== undefined)
+          data.foldedWidth = input.foldedWidth;
+        if (input.foldedHeight !== undefined)
+          data.foldedHeight = input.foldedHeight;
+        if (input.foldedDepth !== undefined)
+          data.foldedDepth = input.foldedDepth;
         if (input.materials !== undefined) data.materials = input.materials;
         if (input.features !== undefined) data.features = input.features;
 
-        // Images and variants are whole-list replacements on update.
-        if (input.images !== undefined) {
-          data.images = { deleteMany: {}, create: input.images };
+        // Legacy whole-list graph fields are accepted only while the product is
+        // still at graph version 0. Once a normalized graph exists, only the
+        // revisioned catalogGraph path may touch variants or media.
+        if (input.catalogGraph === undefined) {
+          if (input.images !== undefined) {
+            data.images = { deleteMany: {}, create: input.images };
+          }
+          if (input.variants !== undefined) {
+            await this.reconcileVariants(tx, id, input.variants);
+          }
         }
         if (input.detailBlocks !== undefined) {
           data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
-        }
-
-        if (input.variants !== undefined) {
-          await this.reconcileVariants(tx, id, input.variants);
         }
 
         return tx.product.update({
@@ -341,6 +378,20 @@ export class ProductsService {
           include: ADMIN_PRODUCT_INCLUDE,
         });
       });
+
+      if (input.catalogGraph !== undefined) {
+        if (!this.catalogGraph) {
+          throw new Error('CatalogGraphService is not configured');
+        }
+        const graphUpdated = await this.catalogGraph.applyPatch(
+          id,
+          input.catalogGraphVersion!,
+          input.catalogGraph,
+        );
+        const [enriched] = await this.withStock([graphUpdated]);
+        return enriched;
+      }
+
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       // Same shape as get(): the edit form adopts this response as its new
       // server truth, so a missing onHand would re-render the stock box as
@@ -538,7 +589,8 @@ export class ProductsService {
 
   private isPrismaCode(error: unknown, code: string): boolean {
     return (
-      error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === code
     );
   }
 
@@ -582,7 +634,9 @@ export class ProductsService {
         where: { status: 'ACTIVE' },
         select: { id: true, parentId: true },
       });
-      where.categoryId = { in: expandCategoryIds(activeCategories, query.categoryId) };
+      where.categoryId = {
+        in: expandCategoryIds(activeCategories, query.categoryId),
+      };
     }
     if (query.room) where.room = query.room;
     if (query.solution) where.solutions = { has: query.solution };
@@ -648,7 +702,9 @@ export class ProductsService {
    */
   private async presentStorefront(items: StorefrontProductRecord[]) {
     const enriched = await this.withAvailableInventory(items);
-    const summary = await this.reviews.summaryForProducts(enriched.map((p) => p.id));
+    const summary = await this.reviews.summaryForProducts(
+      enriched.map((p) => p.id),
+    );
     return enriched.map((product) => {
       const reviewSummary = summary.get(product.id) ?? {
         reviewCount: 0,
@@ -672,13 +728,17 @@ export class ProductsService {
 
     if (query.categoryId) {
       // UUIDs come from our own category table; bind them as a uuid array.
-      filters.push(Prisma.sql`products.category_id = ANY(${categoryIds}::uuid[])`);
+      filters.push(
+        Prisma.sql`products.category_id = ANY(${categoryIds}::uuid[])`,
+      );
     }
     if (query.room) {
       filters.push(Prisma.sql`products.room = ${query.room}::"Room"`);
     }
     if (query.solution) {
-      filters.push(Prisma.sql`${query.solution}::"Solution" = ANY(products.solutions)`);
+      filters.push(
+        Prisma.sql`${query.solution}::"Solution" = ANY(products.solutions)`,
+      );
     }
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
       const price =
@@ -698,7 +758,10 @@ export class ProductsService {
     return filters;
   }
 
-  private async storefrontFuzzyList(query: StorefrontProductQuery, tokens: string[]) {
+  private async storefrontFuzzyList(
+    query: StorefrontProductQuery,
+    tokens: string[],
+  ) {
     // Subtree expansion is reused for categoryId (same helper as the Prisma path).
     let categoryIds: string[] = [];
     if (query.categoryId) {
@@ -744,7 +807,9 @@ export class ProductsService {
     const byId = new Map(products.map((product) => [product.id, product]));
     const ordered = rows
       .map((row) => byId.get(row.id))
-      .filter((product): product is StorefrontProductRecord => product !== undefined);
+      .filter(
+        (product): product is StorefrontProductRecord => product !== undefined,
+      );
 
     return {
       items: await this.presentStorefront(ordered),
@@ -785,7 +850,9 @@ export class ProductsService {
   >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
-        products.flatMap((p) => p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id)),
+        products.flatMap((p) =>
+          p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id),
+        ),
       ),
     ];
 
@@ -797,7 +864,10 @@ export class ProductsService {
         _sum: { onHand: true, reserved: true },
       });
       for (const row of grouped) {
-        availableBySku.set(row.skuId, (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0));
+        availableBySku.set(
+          row.skuId,
+          (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0),
+        );
       }
     }
 
@@ -810,9 +880,12 @@ export class ProductsService {
         sku: variant.sku
           ? {
               ...variant.sku,
-              price: variant.sku.price === null ? null : Number(variant.sku.price),
+              price:
+                variant.sku.price === null ? null : Number(variant.sku.price),
               compareAtPrice:
-                variant.sku.compareAtPrice === null ? null : Number(variant.sku.compareAtPrice),
+                variant.sku.compareAtPrice === null
+                  ? null
+                  : Number(variant.sku.compareAtPrice),
               availableInventory: availableBySku.get(variant.sku.id) ?? 0,
             }
           : null,
@@ -851,7 +924,9 @@ export class ProductsService {
   private rethrowKnown(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
-        throw new ConflictException('A record with the same unique value already exists');
+        throw new ConflictException(
+          'A record with the same unique value already exists',
+        );
       }
       if (error.code === 'P2003') {
         throw new BadRequestException('Referenced record does not exist');

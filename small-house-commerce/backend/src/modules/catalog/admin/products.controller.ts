@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -21,6 +22,10 @@ import {
   type CreateProductInput,
   type UpdateProductInput,
 } from '../dto/product.dto.js';
+import {
+  CatalogGraphVersionMismatchError,
+  CatalogGraphVersionRequiredError,
+} from '../dto/catalog-graph.dto.js';
 import { ProductsService } from '../products.service.js';
 
 @Controller('admin/products')
@@ -30,7 +35,10 @@ export class AdminProductsController {
   constructor(private readonly products: ProductsService) {}
 
   @Get()
-  list(@Query(new ZodValidationPipe(adminProductQuerySchema)) query: AdminProductQuery) {
+  list(
+    @Query(new ZodValidationPipe(adminProductQuerySchema))
+    query: AdminProductQuery,
+  ) {
     return this.products.list(query);
   }
 
@@ -40,16 +48,40 @@ export class AdminProductsController {
   }
 
   @Post()
-  create(@Body(new ZodValidationPipe(createProductSchema)) input: CreateProductInput) {
+  create(
+    @Body(new ZodValidationPipe(createProductSchema)) input: CreateProductInput,
+  ) {
     return this.products.create(input);
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateProductSchema)) input: UpdateProductInput,
   ) {
-    return this.products.update(id, input);
+    try {
+      return await this.products.update(id, input);
+    } catch (error) {
+      if (error instanceof CatalogGraphVersionRequiredError) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          message: error.message,
+          code: error.code,
+        });
+      }
+      if (error instanceof CatalogGraphVersionMismatchError) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          message: error.message,
+          code: error.code,
+          expectedVersion: error.expectedVersion,
+          actualVersion: error.actualVersion,
+        });
+      }
+      throw error;
+    }
   }
 
   @Delete(':id')

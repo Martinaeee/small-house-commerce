@@ -14,6 +14,7 @@ import {
 import { LandingPagesService } from './landing/landing-pages.service.js';
 import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
 import { CategoriesService } from './categories.service.js';
+import { CatalogGraphService } from './catalog-graph.service.js';
 import { ProductsService } from './products.service.js';
 import { ReviewsService } from './reviews.service.js';
 import { StorefrontCategoriesController } from './storefront/categories.controller.js';
@@ -40,6 +41,7 @@ import { SuppliersService } from './suppliers.service.js';
   ],
   providers: [
     CategoriesService,
+    CatalogGraphService,
     ProductsService,
     ReviewsService,
     SuppliersService,
