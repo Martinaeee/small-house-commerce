@@ -20,6 +20,11 @@ import { presentCatalogGraph } from './catalog-compat.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
+import {
+  ProductMediaResolver,
+  type MediaScopeRequest,
+  type ProductMediaItem,
+} from './product-media.resolver.js';
 
 /**
  * Placeholder a surviving variant is parked under while the submitted names are
@@ -151,12 +156,16 @@ type StorefrontProductRecord = Prisma.ProductGetPayload<{
 
 @Injectable()
 export class ProductsService {
+  private readonly productMedia: ProductMediaResolver;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly reviews: ReviewsService,
     private readonly inventory: InventoryService,
     private readonly catalogGraph?: CatalogGraphService,
-  ) {}
+  ) {
+    this.productMedia = new ProductMediaResolver(prisma as never);
+  }
 
   // --- admin ---------------------------------------------------------------
 
@@ -696,6 +705,7 @@ export class ProductsService {
    */
   private async presentStorefront(items: StorefrontProductRecord[]) {
     const enriched = await this.withAvailableInventory(items);
+    const mediaPresentation = await this.storefrontMediaPresentation(enriched);
     const summary = await this.reviews.summaryForProducts(
       enriched.map((p) => p.id),
     );
@@ -704,13 +714,155 @@ export class ProductsService {
         reviewCount: 0,
         ratingAverage: null,
       };
+      const presentation = mediaPresentation.get(product.id);
+      const productWithThumbnails = {
+        ...product,
+        options: product.options.map((option) => ({
+          ...option,
+          values: option.values.map((value) => {
+            const thumbnail = presentation?.thumbnails.get(value.id);
+            return thumbnail
+              ? {
+                  ...value,
+                  thumbnailUrl: thumbnail.url,
+                  thumbnailAlt: thumbnail.altText ?? value.label,
+                }
+              : {
+                  ...value,
+                  thumbnailAlt: value.thumbnailUrl
+                    ? (value.thumbnailAlt ?? value.label)
+                    : value.thumbnailAlt,
+                };
+          }),
+        })),
+      };
+      const graph = presentCatalogGraph(productWithThumbnails);
       return {
         ...product,
-        ...presentCatalogGraph(product),
+        ...graph,
+        effectiveCoverMedia:
+          presentation?.effectiveCoverMedia ?? graph.effectiveCoverMedia,
         reviewCount: reviewSummary.reviewCount,
         ratingAverage: reviewSummary.ratingAverage,
       };
     });
+  }
+
+  private async storefrontMediaPresentation(items: StorefrontProductRecord[]) {
+    const result = new Map<
+      string,
+      {
+        effectiveCoverMedia: ProductMediaItem | null;
+        thumbnails: Map<string, ProductMediaItem>;
+      }
+    >();
+    if (items.length === 0) return result;
+
+    const optionValueIds = items.flatMap((product) =>
+      product.options.flatMap((option) =>
+        option.values.map((value) => value.id),
+      ),
+    );
+    const defaultVariantIds = items
+      .map((product) => product.defaultDisplayVariantId)
+      .filter((id): id is string => id !== null);
+
+    const scopedMedia =
+      optionValueIds.length === 0 && defaultVariantIds.length === 0
+        ? []
+        : await this.prisma.productImage.findMany({
+            where: {
+              productId: { in: items.map((product) => product.id) },
+              OR: [
+                { optionValueId: { in: optionValueIds } },
+                { variantId: { in: defaultVariantIds } },
+              ],
+            },
+            select: {
+              id: true,
+              productId: true,
+              url: true,
+              type: true,
+              altText: true,
+              sortOrder: true,
+              optionValueId: true,
+              variantId: true,
+            },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          });
+
+    for (const product of items) {
+      const productScopedMedia = scopedMedia.filter(
+        (item) => item.productId === product.id,
+      );
+      const sharedCover = product.images[0] ?? null;
+      const sharedThumbnail =
+        product.images.find((item) => item.type === 'IMAGE') ?? null;
+      const defaultVariant = product.variants.find(
+        (variant) => variant.id === product.defaultDisplayVariantId,
+      );
+      const driverOptionIds = new Set(
+        product.options
+          .filter((option) => option.isActive && option.isMediaDriver)
+          .map((option) => option.id),
+      );
+      const driverValueId = defaultVariant?.optionValues.find((assignment) =>
+        driverOptionIds.has(assignment.optionId),
+      )?.optionValueId;
+      const variantCover = defaultVariant
+        ? productScopedMedia.find(
+            (item) =>
+              item.variantId === defaultVariant.id &&
+              item.optionValueId === null,
+          )
+        : undefined;
+      const optionCover = driverValueId
+        ? productScopedMedia.find(
+            (item) =>
+              item.optionValueId === driverValueId && item.variantId === null,
+          )
+        : undefined;
+      const thumbnails = new Map<string, ProductMediaItem>();
+
+      for (const option of product.options) {
+        for (const value of option.values) {
+          if (value.thumbnailUrl) {
+            thumbnails.set(value.id, {
+              id: `thumbnail:${value.id}`,
+              url: value.thumbnailUrl,
+              type: 'IMAGE',
+              altText: value.thumbnailAlt ?? value.label,
+              sortOrder: 0,
+            });
+            continue;
+          }
+          const fallback =
+            productScopedMedia.find(
+              (item) =>
+                item.optionValueId === value.id &&
+                item.variantId === null &&
+                item.type === 'IMAGE',
+            ) ?? sharedThumbnail;
+          if (fallback) thumbnails.set(value.id, fallback);
+        }
+      }
+
+      const cover = variantCover ?? optionCover ?? sharedCover;
+      result.set(product.id, {
+        effectiveCoverMedia: cover
+          ? {
+              id: cover.id,
+              url: cover.url,
+              type: cover.type,
+              altText: cover.altText,
+              sortOrder: cover.sortOrder,
+            }
+          : null,
+        thumbnails,
+      });
+    }
+
+    return result;
   }
 
   /** Non-search SQL filters shared by the fuzzy id/count queries. */
@@ -813,7 +965,7 @@ export class ProductsService {
     };
   }
 
-  async storefrontGetBySlug(slug: string) {
+  async storefrontGetBySlug(slug: string, requestedScope?: MediaScopeRequest) {
     const product = await this.prisma.product.findFirst({
       where: { slug, status: 'ACTIVE' },
       select: STOREFRONT_PDP_SELECT,
@@ -827,8 +979,39 @@ export class ProductsService {
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
     const enriched = (await this.withAvailableInventory([product]))[0];
     const base = { ...enriched, ...presentCatalogGraph(enriched) };
+    const defaultScope =
+      base.defaultDisplayVariantId &&
+      base.variants.some(
+        (variant) => variant.id === base.defaultDisplayVariantId,
+      )
+        ? { variantId: base.defaultDisplayVariantId }
+        : undefined;
+    const media = await this.productMedia.resolveInitialProductMedia(
+      base.id,
+      base.catalogGraphVersion,
+      requestedScope ?? defaultScope,
+    );
     const reviewData = await this.reviews.storefrontForProduct(base.id);
-    return { ...base, ...reviewData };
+    return {
+      ...base,
+      ...media,
+      effectiveCoverMedia: media.initialMediaSet.media[0] ?? null,
+      ...reviewData,
+    };
+  }
+
+  async storefrontMediaBySlug(slug: string, request: MediaScopeRequest) {
+    const product = await this.prisma.product.findFirst({
+      where: { slug, status: 'ACTIVE' },
+      select: { id: true, catalogGraphVersion: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    return this.productMedia.resolveProductMedia(
+      product.id,
+      product.catalogGraphVersion,
+      request,
+    );
   }
 
   /**

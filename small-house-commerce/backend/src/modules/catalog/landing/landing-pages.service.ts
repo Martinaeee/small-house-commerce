@@ -1,16 +1,24 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.js';
 import type { LandingPageStatus } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { CACHE_TAGS, revalidateCache } from '../../../common/revalidation.js';
 import { ProductsService } from '../products.service.js';
+import type { MediaScopeRequest } from '../product-media.resolver.js';
 import type {
   AdminLandingPageQuery,
   CreateLandingPageInput,
   LandingImageOverrideInput,
   UpdateLandingPageInput,
 } from './dto/landing-page.dto.js';
-import { effectiveStatus, type LandingEffectiveStatus } from './landing-page.util.js';
+import {
+  effectiveStatus,
+  type LandingEffectiveStatus,
+} from './landing-page.util.js';
 
 export interface AdminLandingPageRow {
   id: string;
@@ -37,7 +45,11 @@ export interface AdminLandingPageRow {
 
 // Inclusive date filter upper bound: the day after a YYYY-MM-DD date, at 00:00 UTC.
 function nextUtcDay(date: string): Date {
-  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  const [year, month, day] = date.split('-').map(Number) as [
+    number,
+    number,
+    number,
+  ];
   return new Date(Date.UTC(year, month - 1, day + 1));
 }
 
@@ -46,14 +58,18 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 // Only accept an actual non-empty array of objects from the Json column.
-function toImageOverrides(value: Prisma.JsonValue | null): LandingImageOverrideInput[] | null {
+function toImageOverrides(
+  value: Prisma.JsonValue | null,
+): LandingImageOverrideInput[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   return value as LandingImageOverrideInput[];
 }
 
 // '' from a trimmed optional string is normalized to NULL; undefined stays
 // undefined so PATCH only touches the fields the client sent.
-function optionalText(value: string | null | undefined): string | null | undefined {
+function optionalText(
+  value: string | null | undefined,
+): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
   return value.length > 0 ? value : null;
@@ -87,16 +103,20 @@ export class LandingPagesService {
         { name: { contains: search, mode: 'insensitive' } },
         { titleOverride: { contains: search, mode: 'insensitive' } },
         { adCode: { contains: search, mode: 'insensitive' } },
-        { product: { is: { name: { contains: search, mode: 'insensitive' } } } },
+        {
+          product: { is: { name: { contains: search, mode: 'insensitive' } } },
+        },
       ];
     }
     if (query.dateFrom || query.dateTo) {
       const updatedAt: Prisma.DateTimeFilter = {};
-      if (query.dateFrom) updatedAt.gte = new Date(`${query.dateFrom}T00:00:00.000Z`);
+      if (query.dateFrom)
+        updatedAt.gte = new Date(`${query.dateFrom}T00:00:00.000Z`);
       if (query.dateTo) updatedAt.lt = nextUtcDay(query.dateTo);
       where.updatedAt = updatedAt;
     }
-    if (query.effectiveStatus) this.applyEffectiveStatus(where, query.effectiveStatus);
+    if (query.effectiveStatus)
+      this.applyEffectiveStatus(where, query.effectiveStatus);
 
     const orderBy: Prisma.ProductLandingPageOrderByWithRelationInput[] =
       query.sortBy === 'title'
@@ -147,8 +167,12 @@ export class LandingPagesService {
         _count: { _all: true },
       }),
     ]);
-    const viewCount = new Map(visitGroups.map((g) => [g.landingPageId, g._count._all]));
-    const orderCount = new Map(orderGroups.map((g) => [g.landingPageId, g._count._all]));
+    const viewCount = new Map(
+      visitGroups.map((g) => [g.landingPageId, g._count._all]),
+    );
+    const orderCount = new Map(
+      orderGroups.map((g) => [g.landingPageId, g._count._all]),
+    );
 
     const items: AdminLandingPageRow[] = rows.map(({ product, ...row }) => {
       const views = viewCount.get(row.id) ?? 0;
@@ -158,7 +182,8 @@ export class LandingPagesService {
         productName: product.name,
         views,
         orders,
-        conversionRate: views === 0 ? 0 : Math.round((orders / views) * 10000) / 10000,
+        conversionRate:
+          views === 0 ? 0 : Math.round((orders / views) * 10000) / 10000,
         effectiveStatus: effectiveStatus(row),
       };
     });
@@ -167,7 +192,10 @@ export class LandingPagesService {
   }
 
   // One statement for the bulk "retitle selected pages" action.
-  async bulkRetitle(ids: string[], titleOverride: string): Promise<{ updated: number }> {
+  async bulkRetitle(
+    ids: string[],
+    titleOverride: string,
+  ): Promise<{ updated: number }> {
     const result = await this.prisma.productLandingPage.updateMany({
       where: { id: { in: ids } },
       data: { titleOverride },
@@ -193,7 +221,9 @@ export class LandingPagesService {
       return this.serialize(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(`链接标识 ${input.slug} 已被使用，请换一个`);
+        throw new ConflictException(
+          `链接标识 ${input.slug} 已被使用，请换一个`,
+        );
       }
       throw error;
     }
@@ -206,8 +236,17 @@ export class LandingPagesService {
       data: {
         ...this.scalarWritableData(input),
         startAt:
-          input.startAt === undefined ? undefined : input.startAt === null ? null : new Date(input.startAt),
-        endAt: input.endAt === undefined ? undefined : input.endAt === null ? null : new Date(input.endAt),
+          input.startAt === undefined
+            ? undefined
+            : input.startAt === null
+              ? null
+              : new Date(input.startAt),
+        endAt:
+          input.endAt === undefined
+            ? undefined
+            : input.endAt === null
+              ? null
+              : new Date(input.endAt),
       },
     });
     await revalidateCache([CACHE_TAGS.STOREFRONT]);
@@ -224,22 +263,33 @@ export class LandingPagesService {
   // Public composite for /lp/:slug: whitelisted LP fields + the same storefront
   // product payload the PDP uses. Every non-public state collapses to 404 so
   // scheduled/disabled/ended pages are not disclosed.
-  async storefrontGetComposite(slug: string) {
+  async storefrontGetComposite(
+    slug: string,
+    selectedScope?: MediaScopeRequest,
+  ) {
     const lp = await this.prisma.productLandingPage.findUnique({
       where: { slug },
       include: { product: { select: { slug: true, status: true } } },
     });
-    if (!lp || lp.product.status !== 'ACTIVE' || effectiveStatus(lp) !== 'LIVE') {
+    if (
+      !lp ||
+      lp.product.status !== 'ACTIVE' ||
+      effectiveStatus(lp) !== 'LIVE'
+    ) {
       throw new NotFoundException(`Landing page #${slug} not found`);
     }
-    const product = await this.products.storefrontGetBySlug(lp.product.slug);
+    const product = selectedScope
+      ? await this.products.storefrontGetBySlug(lp.product.slug, selectedScope)
+      : await this.products.storefrontGetBySlug(lp.product.slug);
     return {
       landingPage: {
         id: lp.id,
         name: lp.name,
         slug: lp.slug,
         titleOverride: lp.titleOverride,
-        imagesOverride: toImageOverrides(lp.imagesOverride),
+        imagesOverride: selectedScope
+          ? null
+          : toImageOverrides(lp.imagesOverride),
         seoTitle: lp.seoTitle,
         seoDescription: lp.seoDescription,
         promoEnabled: lp.promoEnabled,
@@ -263,7 +313,8 @@ export class LandingPagesService {
         product: { select: { status: true } },
       },
     });
-    if (!lp || lp.product.status !== 'ACTIVE' || effectiveStatus(lp) !== 'LIVE') return;
+    if (!lp || lp.product.status !== 'ACTIVE' || effectiveStatus(lp) !== 'LIVE')
+      return;
     try {
       await this.prisma.landingPageVisit.upsert({
         where: { landingPageId_visitKey: { landingPageId: lp.id, visitKey } },
@@ -278,12 +329,18 @@ export class LandingPagesService {
   }
 
   private async ensureProduct(productId: string) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
-    if (!product) throw new NotFoundException(`Product #${productId} not found`);
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true },
+    });
+    if (!product)
+      throw new NotFoundException(`Product #${productId} not found`);
   }
 
   private async ensureLandingPage(id: string) {
-    const row = await this.prisma.productLandingPage.findUnique({ where: { id } });
+    const row = await this.prisma.productLandingPage.findUnique({
+      where: { id },
+    });
     if (!row) throw new NotFoundException(`Landing page #${id} not found`);
     return row;
   }
@@ -312,7 +369,9 @@ export class LandingPagesService {
     }
   }
 
-  private scalarWritableData(input: CreateLandingPageInput | UpdateLandingPageInput) {
+  private scalarWritableData(
+    input: CreateLandingPageInput | UpdateLandingPageInput,
+  ) {
     return {
       name: input.name,
       adCode: optionalText(input.adCode),
@@ -333,9 +392,13 @@ export class LandingPagesService {
     };
   }
 
-  private serialize<T extends { status: LandingPageStatus; startAt: Date | null; endAt: Date | null }>(
-    row: T,
-  ): T & { effectiveStatus: LandingEffectiveStatus } {
+  private serialize<
+    T extends {
+      status: LandingPageStatus;
+      startAt: Date | null;
+      endAt: Date | null;
+    },
+  >(row: T): T & { effectiveStatus: LandingEffectiveStatus } {
     return { ...row, effectiveStatus: effectiveStatus(row) };
   }
 }
