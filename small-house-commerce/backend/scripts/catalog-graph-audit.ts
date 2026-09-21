@@ -86,6 +86,7 @@ export interface CatalogAuditSnapshot {
   inventory: AuditRecord[];
   reservations: AuditRecord[];
   movements: AuditRecord[];
+  carts: AuditRecord[];
   cartItems: AuditRecord[];
   orders: AuditRecord[];
   orderItems: AuditRecord[];
@@ -121,6 +122,195 @@ export function legacyStyleOptionId(productId: string): string {
 
 export function legacyStyleValueId(variantId: string): string {
   return namespacedMd5Uuid(LEGACY_STYLE_VALUE_NAMESPACE, variantId);
+}
+
+export function analyzeBackfillMigrationSql(sql: string): string[] {
+  const violations = new Set<string>();
+  const normalized = sql.trim();
+  if (normalized.length === 0) return ['MIGRATION_EMPTY'];
+
+  const markers = {
+    option: 'INSERT INTO "product_options"',
+    value: 'INSERT INTO "product_option_values"',
+    assignment: 'INSERT INTO "product_variant_option_values"',
+    key: 'UPDATE "product_variants" pv',
+    publish: 'WITH candidate_products AS',
+  } as const;
+  const indexes = Object.fromEntries(
+    Object.entries(markers).map(([name, marker]) => [
+      name,
+      sql.indexOf(marker),
+    ]),
+  ) as Record<keyof typeof markers, number>;
+  const missingCodes: Record<keyof typeof markers, string> = {
+    option: 'OPTION_INSERT_MISSING',
+    value: 'VALUE_INSERT_MISSING',
+    assignment: 'ASSIGNMENT_INSERT_MISSING',
+    key: 'CANONICAL_KEY_UPDATE_MISSING',
+    publish: 'PRODUCT_PUBLISH_UPDATE_MISSING',
+  };
+  for (const name of Object.keys(markers) as (keyof typeof markers)[]) {
+    if (indexes[name] < 0) violations.add(missingCodes[name]);
+  }
+
+  if (!/^BEGIN\s*;/i.test(normalized) || !/COMMIT\s*;$/i.test(normalized)) {
+    violations.add('TRANSACTION_BOUNDARY_INVALID');
+  }
+  const orderedIndexes = [
+    indexes.option,
+    indexes.value,
+    indexes.assignment,
+    indexes.key,
+    indexes.publish,
+  ];
+  if (
+    orderedIndexes.some((index) => index < 0) ||
+    orderedIndexes.some(
+      (index, position) =>
+        position > 0 && index <= orderedIndexes[position - 1]!,
+    )
+  ) {
+    violations.add('STATEMENT_ORDER_INVALID');
+  }
+
+  const statementAt = (index: number): string => {
+    if (index < 0) return '';
+    const end = sql.indexOf(';', index);
+    return end < 0 ? sql.slice(index) : sql.slice(index, end + 1);
+  };
+  const optionStatement = statementAt(indexes.option);
+  const valueStatement = statementAt(indexes.value);
+  const assignmentStatement = statementAt(indexes.assignment);
+  const keyStatement = statementAt(indexes.key);
+  const publishStatement = statementAt(indexes.publish);
+  const inserts = [optionStatement, valueStatement, assignmentStatement];
+
+  if (
+    !sql.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
+    !sql.includes(LEGACY_STYLE_VALUE_NAMESPACE) ||
+    !optionStatement.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
+    !valueStatement.includes(LEGACY_STYLE_VALUE_NAMESPACE) ||
+    !assignmentStatement.includes(LEGACY_STYLE_VALUE_NAMESPACE)
+  ) {
+    violations.add('DETERMINISTIC_NAMESPACE_MISSING');
+  }
+  if (
+    inserts.some(
+      (statement) =>
+        !/INSERT INTO[\s\S]+SELECT[\s\S]+ON CONFLICT DO NOTHING\s*;/i.test(
+          statement,
+        ),
+    )
+  ) {
+    violations.add('REPLAY_SAFETY_MISSING');
+  }
+  if (
+    optionStatement.length > 0 &&
+    (!optionStatement.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
+      !/'STYLE'::"ProductOptionKind"/.test(optionStatement) ||
+      !/\n\s*'Style',\s*\n\s*0,/.test(optionStatement) ||
+      !/'TEXT'::"ProductOptionPresentation"/.test(optionStatement) ||
+      !/\n\s*false,\s*\n\s*true,/.test(optionStatement))
+  ) {
+    violations.add('OPTION_INSERT_INVALID');
+  }
+  if (
+    valueStatement.length > 0 &&
+    (!valueStatement.includes(LEGACY_STYLE_VALUE_NAMESPACE) ||
+      !valueStatement.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
+      !/pv\."name",\s*\n\s*pv\."position",/.test(valueStatement) ||
+      !/\n\s*NULL,\s*\n\s*NULL,\s*\n\s*NULL,\s*\n\s*true,/.test(valueStatement))
+  ) {
+    violations.add('VALUE_INSERT_INVALID');
+  }
+  if (
+    assignmentStatement.length > 0 &&
+    !/SELECT\s+pv\."id",\s*pv\."product_id",\s*po\."id",\s*pov\."id"/i.test(
+      assignmentStatement,
+    )
+  ) {
+    violations.add('ASSIGNMENT_INSERT_INVALID');
+  }
+  if (
+    [
+      optionStatement,
+      valueStatement,
+      assignmentStatement,
+      keyStatement,
+      publishStatement,
+    ].some(
+      (statement) =>
+        statement.length > 0 &&
+        !/"catalog_graph_version"\s*=\s*0/i.test(statement),
+    )
+  ) {
+    violations.add('GRAPH_V0_SCOPE_MISSING');
+  }
+  if (
+    keyStatement.length > 0 &&
+    (!/SET\s+"combination_key"\s*=/i.test(keyStatement) ||
+      !keyStatement.includes(LEGACY_STYLE_OPTION_NAMESPACE) ||
+      !keyStatement.includes(LEGACY_STYLE_VALUE_NAMESPACE) ||
+      !/\|\|\s*':'\s*\|\|/.test(keyStatement))
+  ) {
+    violations.add('CANONICAL_KEY_UPDATE_INVALID');
+  }
+  if (
+    publishStatement.length > 0 &&
+    (!/UPDATE\s+"products"\s+p/i.test(publishStatement) ||
+      !/SET\s+"default_display_variant_id"\s*=\s*cp\."expected_default_variant_id",/i.test(
+        publishStatement,
+      ) ||
+      !/"catalog_graph_version"\s*=\s*1/i.test(publishStatement))
+  ) {
+    violations.add('PRODUCT_PUBLISH_UPDATE_INVALID');
+  }
+  if (
+    publishStatement.length > 0 &&
+    (!/FROM\s+complete_products\s+cp/i.test(publishStatement) ||
+      !/complete_products\s+AS/i.test(publishStatement) ||
+      !/count\(\*\)/i.test(publishStatement) ||
+      !/NOT EXISTS/i.test(publishStatement))
+  ) {
+    violations.add('PUBLICATION_GUARD_MISSING');
+  }
+  if (
+    publishStatement.length > 0 &&
+    (!/s\."status"\s*=\s*'ACTIVE'::"SkuStatus"/i.test(publishStatement) ||
+      !/s\."price"\s+IS NOT NULL/i.test(publishStatement) ||
+      !/ORDER BY\s+pv\."position"\s+ASC,\s*pv\."id"\s+ASC/i.test(
+        publishStatement,
+      ))
+  ) {
+    violations.add('DEFAULT_SELECTION_INVALID');
+  }
+
+  if (
+    /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"skus"/i.test(
+      sql,
+    ) ||
+    /(?:INSERT\s+INTO|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"product_variants"/i.test(
+      sql,
+    )
+  ) {
+    violations.add('IDENTITY_REWRITE_FORBIDDEN');
+  }
+  const variantUpdates = [
+    ...sql.matchAll(/UPDATE\s+"product_variants"[\s\S]*?;/gi),
+  ];
+  if (
+    variantUpdates.some(([statement]) => {
+      const setClause = statement.match(/SET([\s\S]*?)FROM/i)?.[1] ?? '';
+      return (
+        !/^\s*"combination_key"\s*=/i.test(setClause) ||
+        /"(?:id|product_id)"\s*=/i.test(setClause)
+      );
+    })
+  ) {
+    violations.add('IDENTITY_REWRITE_FORBIDDEN');
+  }
+
+  return [...violations].sort();
 }
 
 function normalizeForStableJson(value: unknown): unknown {
@@ -498,6 +688,29 @@ export function compareCatalogSnapshots(
     add('SKU_ID_SET_CHANGED');
   }
 
+  const productGraphKeys = new Set([
+    'catalogGraphVersion',
+    'defaultDisplayVariantId',
+  ]);
+  if (
+    !rowsEqual(
+      baseline.products.map((product) =>
+        withoutKeys(product, productGraphKeys),
+      ),
+      candidate.products.map((product) =>
+        withoutKeys(product, productGraphKeys),
+      ),
+    )
+  ) {
+    add('PRODUCT_DATA_CHANGED');
+  }
+  if (!rowsEqual(identitySet(baseline.carts), identitySet(candidate.carts))) {
+    add('CART_ID_SET_CHANGED');
+  }
+  if (!rowsEqual(baseline.carts, candidate.carts)) {
+    add('CART_DATA_CHANGED');
+  }
+
   const legacyProductIds = new Set(
     baseline.products
       .filter(
@@ -652,6 +865,7 @@ export async function captureCatalogSnapshot(
         inventory,
         reservations,
         movements,
+        carts,
         cartItems,
         orders,
         orderItems,
@@ -666,6 +880,7 @@ export async function captureCatalogSnapshot(
         tx.inventory.findMany({ orderBy: { id: 'asc' } }),
         tx.inventoryReservation.findMany({ orderBy: { id: 'asc' } }),
         tx.inventoryMovement.findMany({ orderBy: { id: 'asc' } }),
+        tx.cart.findMany({ orderBy: { id: 'asc' } }),
         tx.cartItem.findMany({ orderBy: { id: 'asc' } }),
         tx.order.findMany({ orderBy: { id: 'asc' } }),
         tx.orderItem.findMany({ orderBy: { id: 'asc' } }),
@@ -685,6 +900,7 @@ export async function captureCatalogSnapshot(
         inventory,
         reservations,
         movements,
+        carts,
         cartItems,
         orders,
         orderItems,
@@ -698,33 +914,272 @@ export async function captureCatalogSnapshot(
   );
 }
 
-function assertSnapshot(value: unknown): asserts value is CatalogAuditSnapshot {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    (value as { formatVersion?: unknown }).formatVersion !== 1
-  ) {
+type FieldValidator = (value: unknown) => boolean;
+type RowContract = Readonly<Record<string, FieldValidator>>;
+
+const isString: FieldValidator = (value) => typeof value === 'string';
+const isNumber: FieldValidator = (value) =>
+  typeof value === 'number' && Number.isFinite(value);
+const isInteger: FieldValidator = (value) =>
+  typeof value === 'number' && Number.isInteger(value);
+const isBoolean: FieldValidator = (value) => typeof value === 'boolean';
+const isStringArray: FieldValidator = (value) =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+const nullable =
+  (validator: FieldValidator): FieldValidator =>
+  (value) =>
+    value === null || validator(value);
+const isTaggedString =
+  (tag: '$date' | '$decimal'): FieldValidator =>
+  (value) =>
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    typeof (value as Record<string, unknown>)[tag] === 'string';
+const isDate = isTaggedString('$date');
+const isDecimal = isTaggedString('$decimal');
+const isJson: FieldValidator = () => true;
+
+const snapshotRowContracts = {
+  products: {
+    id: isString,
+    name: isString,
+    slug: isString,
+    description: nullable(isString),
+    tagline: nullable(isString),
+    categoryId: isString,
+    status: isString,
+    room: nullable(isString),
+    internalRole: nullable(isString),
+    solutions: isStringArray,
+    width: nullable(isNumber),
+    height: nullable(isNumber),
+    depth: nullable(isNumber),
+    foldedWidth: nullable(isNumber),
+    foldedHeight: nullable(isNumber),
+    foldedDepth: nullable(isNumber),
+    materials: nullable(isString),
+    features: nullable(isString),
+    catalogGraphVersion: isInteger,
+    defaultDisplayVariantId: nullable(isString),
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  variants: {
+    id: isString,
+    productId: isString,
+    name: isString,
+    position: isInteger,
+    combinationKey: nullable(isString),
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  skus: {
+    id: isString,
+    productId: isString,
+    variantId: isString,
+    skuCode: isString,
+    status: isString,
+    supplierId: nullable(isString),
+    supplierSku: nullable(isString),
+    supplierCost: nullable(isDecimal),
+    costCurrency: nullable(isString),
+    landedCost: nullable(isDecimal),
+    price: nullable(isDecimal),
+    compareAtPrice: nullable(isDecimal),
+    productWeight: nullable(isNumber),
+    packageWidth: nullable(isNumber),
+    packageHeight: nullable(isNumber),
+    packageDepth: nullable(isNumber),
+    packageWeight: nullable(isNumber),
+    volumetricWeight: nullable(isNumber),
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  inventory: {
+    id: isString,
+    skuId: isString,
+    warehouseId: isString,
+    onHand: isInteger,
+    reserved: isInteger,
+    updatedAt: isDate,
+  },
+  reservations: {
+    id: isString,
+    orderId: isString,
+    skuId: isString,
+    warehouseId: isString,
+    quantity: isInteger,
+    status: isString,
+    createdAt: isDate,
+  },
+  movements: {
+    id: isString,
+    skuId: isString,
+    warehouseId: isString,
+    movementType: isString,
+    quantity: isInteger,
+    referenceType: nullable(isString),
+    referenceId: nullable(isString),
+    operatorId: nullable(isString),
+    reason: nullable(isString),
+    createdAt: isDate,
+  },
+  carts: {
+    id: isString,
+    expiresAt: isDate,
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  cartItems: {
+    id: isString,
+    cartId: isString,
+    skuId: isString,
+    quantity: isInteger,
+    createdAt: isDate,
+  },
+  orders: {
+    id: isString,
+    orderNumber: isString,
+    customerId: isString,
+    orderStatus: isString,
+    confirmationStatus: isString,
+    paymentStatus: isString,
+    currency: isString,
+    subtotal: isDecimal,
+    discountTotal: isDecimal,
+    shippingTotal: isDecimal,
+    grandTotal: isDecimal,
+    optimizerId: nullable(isString),
+    optimizerAidSnapshot: nullable(isString),
+    optimizerNameSnapshot: nullable(isString),
+    customerClassification: nullable(isString),
+    confirmedBy: nullable(isString),
+    confirmedAt: nullable(isDate),
+    confirmationNote: nullable(isString),
+    assignedToId: nullable(isString),
+    assignedBy: nullable(isString),
+    assignedAt: nullable(isDate),
+    createdAt: isDate,
+    updatedAt: isDate,
+    preferredDeliveryDate: nullable(isDate),
+  },
+  orderItems: {
+    id: isString,
+    orderId: isString,
+    productId: nullable(isString),
+    variantId: nullable(isString),
+    skuId: isString,
+    productNameSnapshot: isString,
+    skuCodeSnapshot: isString,
+    variantSnapshot: isString,
+    optionSnapshot: isJson,
+    quantity: isInteger,
+    unitPrice: isDecimal,
+    unitDiscount: isDecimal,
+    unitCostSnapshot: nullable(isDecimal),
+    lineTotal: isDecimal,
+    createdAt: isDate,
+  },
+  media: {
+    id: isString,
+    productId: isString,
+    optionValueId: nullable(isString),
+    variantId: nullable(isString),
+    url: isString,
+    type: isString,
+    altText: nullable(isString),
+    sortOrder: isInteger,
+    createdAt: isDate,
+  },
+  options: {
+    id: isString,
+    productId: isString,
+    kind: isString,
+    name: isString,
+    position: isInteger,
+    presentation: isString,
+    isMediaDriver: isBoolean,
+    isActive: isBoolean,
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  optionValues: {
+    id: isString,
+    productId: isString,
+    optionId: isString,
+    label: isString,
+    position: isInteger,
+    swatchHex: nullable(isString),
+    thumbnailUrl: nullable(isString),
+    thumbnailAlt: nullable(isString),
+    isActive: isBoolean,
+    createdAt: isDate,
+    updatedAt: isDate,
+  },
+  assignments: {
+    variantId: isString,
+    productId: isString,
+    optionId: isString,
+    optionValueId: isString,
+  },
+} as const satisfies Record<string, RowContract>;
+
+function validateRow(
+  value: unknown,
+  contract: RowContract,
+  path: string,
+): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${path} must be an object`);
+  }
+  const row = value as Record<string, unknown>;
+  const expectedKeys = Object.keys(contract).sort();
+  const actualKeys = Object.keys(row).sort();
+  if (stableSerialize(actualKeys) !== stableSerialize(expectedKeys)) {
+    const missing = expectedKeys.find(
+      (key) => !Object.prototype.hasOwnProperty.call(row, key),
+    );
+    throw new Error(
+      missing === undefined
+        ? `${path} has unexpected fields`
+        : `${path}.${missing} is required`,
+    );
+  }
+  for (const [field, validator] of Object.entries(contract)) {
+    if (!validator(row[field])) {
+      throw new Error(`${path}.${field} has an invalid type`);
+    }
+  }
+}
+
+export function validateCatalogSnapshot(
+  value: unknown,
+): asserts value is CatalogAuditSnapshot {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('snapshot must be an object');
+  }
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot['formatVersion'] !== 1) {
     throw new Error('snapshot has an unsupported or missing formatVersion');
   }
-  const requiredArrays = [
-    'products',
-    'variants',
-    'skus',
-    'inventory',
-    'reservations',
-    'movements',
-    'cartItems',
-    'orders',
-    'orderItems',
-    'media',
-    'options',
-    'optionValues',
-    'assignments',
-  ] as const;
-  for (const key of requiredArrays) {
-    if (!Array.isArray((value as Record<string, unknown>)[key])) {
-      throw new Error(`snapshot field ${key} must be an array`);
+  const expectedKeys = [
+    'formatVersion',
+    ...Object.keys(snapshotRowContracts),
+  ].sort();
+  const actualKeys = Object.keys(snapshot).sort();
+  if (stableSerialize(actualKeys) !== stableSerialize(expectedKeys)) {
+    throw new Error('snapshot has missing or unexpected top-level fields');
+  }
+  for (const [table, contract] of Object.entries(snapshotRowContracts)) {
+    const rows = snapshot[table];
+    if (!Array.isArray(rows)) {
+      throw new Error(`snapshot field ${table} must be an array`);
     }
+    rows.forEach((row, index) =>
+      validateRow(row, contract, `snapshot.${table}[${index}]`),
+    );
   }
 }
 
@@ -753,7 +1208,7 @@ async function runCli(argv: readonly string[]): Promise<number> {
     }
 
     const parsed = JSON.parse(await readFile(args.path, 'utf8')) as unknown;
-    assertSnapshot(parsed);
+    validateCatalogSnapshot(parsed);
     const current = await captureCatalogSnapshot(prisma);
     const violations = compareCatalogSnapshots(parsed, current);
     if (violations.length > 0) {

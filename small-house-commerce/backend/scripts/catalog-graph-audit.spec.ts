@@ -1,12 +1,15 @@
+import { readFile } from 'node:fs/promises';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
 import {
+  analyzeBackfillMigrationSql,
   catalogSnapshotFingerprint,
   compareCatalogSnapshots,
   legacyStyleOptionId,
   legacyStyleValueId,
   parseAuditArgs,
   stableSerialize,
+  validateCatalogSnapshot,
   type CatalogAuditSnapshot,
 } from './catalog-graph-audit.js';
 
@@ -24,8 +27,27 @@ const before: CatalogAuditSnapshot = {
   products: [
     {
       id: PRODUCT_ID,
+      name: 'Legacy chair',
+      slug: 'legacy-chair',
+      description: 'Legacy description',
+      tagline: 'Small-space comfort',
+      categoryId: 'category-1',
+      status: 'ACTIVE',
+      room: 'DINING_LIVING',
+      internalRole: 'CORE',
+      solutions: ['NARROW_SPACE'],
+      width: 80,
+      height: 90,
+      depth: 70,
+      foldedWidth: null,
+      foldedHeight: null,
+      foldedDepth: null,
+      materials: 'Oak',
+      features: 'Foldable',
       catalogGraphVersion: 0,
       defaultDisplayVariantId: null,
+      createdAt: '2026-09-20T00:00:00.000Z',
+      updatedAt: '2026-09-21T00:00:00.000Z',
     },
   ],
   variants: [
@@ -99,6 +121,20 @@ const before: CatalogAuditSnapshot = {
       createdAt: '2026-09-21T00:02:00.000Z',
     },
   ],
+  carts: [
+    {
+      id: 'cart-1',
+      expiresAt: '2026-10-21T00:00:00.000Z',
+      createdAt: '2026-09-21T00:03:00.000Z',
+      updatedAt: '2026-09-21T00:03:00.000Z',
+    },
+    {
+      id: 'empty-cart',
+      expiresAt: '2026-10-22T00:00:00.000Z',
+      createdAt: '2026-09-21T00:03:00.000Z',
+      updatedAt: '2026-09-21T00:03:00.000Z',
+    },
+  ],
   cartItems: [
     {
       id: 'cart-item-1',
@@ -156,7 +192,7 @@ const after: CatalogAuditSnapshot = {
   ...structuredClone(before),
   products: [
     {
-      id: PRODUCT_ID,
+      ...before.products[0]!,
       catalogGraphVersion: 1,
       defaultDisplayVariantId: FIRST_VARIANT_ID,
     },
@@ -260,6 +296,60 @@ describe('catalog graph audit', () => {
     expect(catalogSnapshotFingerprint(afterSecondRun)).toBe(
       catalogSnapshotFingerprint(after),
     );
+  });
+
+  it.each([
+    ['name', 'Rewritten chair'],
+    ['slug', 'rewritten-chair'],
+    ['description', 'Rewritten description'],
+    ['tagline', 'Rewritten tagline'],
+    ['categoryId', 'category-2'],
+    ['status', 'DISABLED'],
+    ['room', 'BEDROOM'],
+    ['internalRole', 'PREMIUM'],
+    ['solutions', ['FOLDABLE']],
+    ['width', 81],
+    ['height', 91],
+    ['depth', 71],
+    ['foldedWidth', 40],
+    ['foldedHeight', 45],
+    ['foldedDepth', 35],
+    ['materials', 'Steel'],
+    ['features', 'Rewritten features'],
+    ['createdAt', '2026-09-19T00:00:00.000Z'],
+    ['updatedAt', '2026-09-22T00:00:00.000Z'],
+  ] as const)('detects changed non-graph product field %s', (field, value) => {
+    const changedProduct = changed((snapshot) => {
+      snapshot.products[0]![field] = value;
+    });
+
+    expect(violationCodes(before, changedProduct)).toContain(
+      'PRODUCT_DATA_CHANGED',
+    );
+  });
+
+  it('detects a deleted empty cart by identity', () => {
+    const changedCarts = changed((snapshot) => {
+      snapshot.carts = snapshot.carts.filter(
+        (cart) => cart.id !== 'empty-cart',
+      );
+    });
+
+    expect(violationCodes(before, changedCarts)).toEqual(
+      expect.arrayContaining(['CART_ID_SET_CHANGED', 'CART_DATA_CHANGED']),
+    );
+  });
+
+  it.each([
+    ['expiresAt', '2026-11-21T00:00:00.000Z'],
+    ['createdAt', '2026-09-20T00:00:00.000Z'],
+    ['updatedAt', '2026-09-22T00:00:00.000Z'],
+  ] as const)('detects changed cart field %s', (field, value) => {
+    const changedCarts = changed((snapshot) => {
+      snapshot.carts[0]![field] = value;
+    });
+
+    expect(violationCodes(before, changedCarts)).toContain('CART_DATA_CHANGED');
   });
 
   it('detects changed variant and SKU identity sets', () => {
@@ -476,6 +566,133 @@ describe('catalog graph audit', () => {
     );
   });
 
+  it('accepts a well-formed empty serialized snapshot', () => {
+    const snapshot = {
+      formatVersion: 1,
+      products: [],
+      variants: [],
+      skus: [],
+      inventory: [],
+      reservations: [],
+      movements: [],
+      carts: [],
+      cartItems: [],
+      orders: [],
+      orderItems: [],
+      media: [],
+      options: [],
+      optionValues: [],
+      assignments: [],
+    };
+
+    expect(() => validateCatalogSnapshot(snapshot)).not.toThrow();
+  });
+
+  it.each([
+    'products',
+    'variants',
+    'skus',
+    'inventory',
+    'reservations',
+    'movements',
+    'carts',
+    'cartItems',
+    'orders',
+    'orderItems',
+    'media',
+    'options',
+    'optionValues',
+    'assignments',
+  ] as const)(
+    'rejects malformed %s rows instead of trusting evidence',
+    (table) => {
+      const malformed: Record<string, unknown> = {
+        formatVersion: 1,
+        products: [],
+        variants: [],
+        skus: [],
+        inventory: [],
+        reservations: [],
+        movements: [],
+        carts: [],
+        cartItems: [],
+        orders: [],
+        orderItems: [],
+        media: [],
+        options: [],
+        optionValues: [],
+        assignments: [],
+      };
+      malformed[table] = [{}];
+
+      expect(() => validateCatalogSnapshot(malformed)).toThrow(
+        new RegExp(`snapshot\\.${table}\\[0\\]`),
+      );
+    },
+  );
+
+  it('rejects missing and wrong-typed required product evidence', () => {
+    const serializedProduct = {
+      ...structuredClone(before.products[0]!),
+      createdAt: { $date: '2026-09-20T00:00:00.000Z' },
+      updatedAt: { $date: '2026-09-21T00:00:00.000Z' },
+    };
+    const valid = {
+      formatVersion: 1,
+      products: [serializedProduct],
+      variants: [],
+      skus: [],
+      inventory: [],
+      reservations: [],
+      movements: [],
+      carts: [],
+      cartItems: [],
+      orders: [],
+      orderItems: [],
+      media: [],
+      options: [],
+      optionValues: [],
+      assignments: [],
+    };
+    expect(() => validateCatalogSnapshot(valid)).not.toThrow();
+
+    const missingName = structuredClone(valid) as Record<string, unknown>;
+    delete (missingName['products'] as Record<string, unknown>[])[0]!.name;
+    expect(() => validateCatalogSnapshot(missingName)).toThrow(
+      /snapshot\.products\[0\]\.name/,
+    );
+
+    const wrongVersion = structuredClone(valid) as Record<string, unknown>;
+    (wrongVersion['products'] as Record<string, unknown>[])[0]![
+      'catalogGraphVersion'
+    ] = '1';
+    expect(() => validateCatalogSnapshot(wrongVersion)).toThrow(
+      /snapshot\.products\[0\]\.catalogGraphVersion/,
+    );
+  });
+
+  it('rejects missing top-level arrays and unexpected evidence keys', () => {
+    const malformed = {
+      formatVersion: 1,
+      products: [],
+      variants: [],
+      skus: [],
+      inventory: [],
+      reservations: [],
+      movements: [],
+      cartItems: [],
+      orders: [],
+      orderItems: [],
+      media: [],
+      options: [],
+      optionValues: [],
+      assignments: [],
+      unexpected: [],
+    };
+
+    expect(() => validateCatalogSnapshot(malformed)).toThrow(/snapshot/);
+  });
+
   it('validates snapshot and verify CLI arguments', () => {
     expect(parseAuditArgs(['snapshot', '--out', '/tmp/before.json'])).toEqual({
       command: 'snapshot',
@@ -496,4 +713,194 @@ describe('catalog graph audit', () => {
     ).toThrow(/unexpected/i);
     expect(() => parseAuditArgs(['unknown'])).toThrow(/snapshot|verify/);
   });
+});
+
+const migrationUrl = new URL(
+  '../prisma/migrations/20260921100000_backfill_variant_options/migration.sql',
+  import.meta.url,
+);
+
+function removeSqlStatement(sql: string, marker: string): string {
+  const start = sql.indexOf(marker);
+  if (start < 0) throw new Error(`missing test marker: ${marker}`);
+  const end = sql.indexOf(';', start);
+  if (end < 0) throw new Error(`unterminated test statement: ${marker}`);
+  return `${sql.slice(0, start)}${sql.slice(end + 1)}`;
+}
+
+function swapSqlStatements(
+  sql: string,
+  firstMarker: string,
+  secondMarker: string,
+): string {
+  const firstStart = sql.indexOf(firstMarker);
+  const firstEnd = sql.indexOf(';', firstStart) + 1;
+  const secondStart = sql.indexOf(secondMarker);
+  const secondEnd = sql.indexOf(';', secondStart) + 1;
+  if (
+    firstStart < 0 ||
+    secondStart < 0 ||
+    firstEnd === 0 ||
+    secondEnd === 0 ||
+    firstEnd > secondStart
+  ) {
+    throw new Error('invalid test statement ordering');
+  }
+  const first = sql.slice(firstStart, firstEnd);
+  const between = sql.slice(firstEnd, secondStart);
+  const second = sql.slice(secondStart, secondEnd);
+  return `${sql.slice(0, firstStart)}${second}${between}${first}${sql.slice(secondEnd)}`;
+}
+
+describe('Task 7 migration SQL contract', () => {
+  it('loads and accepts the actual migration artifact', async () => {
+    const sql = await readFile(migrationUrl, 'utf8');
+
+    expect(sql.trim().length).toBeGreaterThan(0);
+    expect(analyzeBackfillMigrationSql(sql)).toEqual([]);
+  });
+
+  it.each([
+    ['MIGRATION_EMPTY', () => '   '],
+    [
+      'OPTION_INSERT_MISSING',
+      (sql: string) => removeSqlStatement(sql, 'INSERT INTO "product_options"'),
+    ],
+    [
+      'VALUE_INSERT_MISSING',
+      (sql: string) =>
+        removeSqlStatement(sql, 'INSERT INTO "product_option_values"'),
+    ],
+    [
+      'ASSIGNMENT_INSERT_MISSING',
+      (sql: string) =>
+        removeSqlStatement(sql, 'INSERT INTO "product_variant_option_values"'),
+    ],
+    [
+      'OPTION_INSERT_INVALID',
+      (sql: string) =>
+        sql.replace(
+          '\'STYLE\'::"ProductOptionKind"',
+          '\'COLOR\'::"ProductOptionKind"',
+        ),
+    ],
+    [
+      'VALUE_INSERT_INVALID',
+      (sql: string) =>
+        sql.replace(
+          '    pv."name",\n    pv."position",',
+          "    'Wrong label',\n    99,",
+        ),
+    ],
+    [
+      'ASSIGNMENT_INSERT_INVALID',
+      (sql: string) =>
+        sql.replace(
+          '    po."id",\n    pov."id"\nFROM "product_variants"',
+          '    po."id",\n    po."id"\nFROM "product_variants"',
+        ),
+    ],
+    [
+      'CANONICAL_KEY_UPDATE_MISSING',
+      (sql: string) => removeSqlStatement(sql, 'UPDATE "product_variants" pv'),
+    ],
+    [
+      'PRODUCT_PUBLISH_UPDATE_MISSING',
+      (sql: string) => removeSqlStatement(sql, 'WITH candidate_products AS'),
+    ],
+    [
+      'PRODUCT_PUBLISH_UPDATE_INVALID',
+      (sql: string) =>
+        sql.replace(
+          'SET "default_display_variant_id" = cp."expected_default_variant_id",',
+          'SET "default_display_variant_id" = NULL,',
+        ),
+    ],
+    [
+      'PRODUCT_PUBLISH_UPDATE_INVALID',
+      (sql: string) =>
+        sql.replace(
+          '"catalog_graph_version" = 1',
+          '"catalog_graph_version" = 2',
+        ),
+    ],
+    [
+      'GRAPH_V0_SCOPE_MISSING',
+      (sql: string) =>
+        sql.replaceAll(
+          '"catalog_graph_version" = 0',
+          '"catalog_graph_version" = 9',
+        ),
+    ],
+    [
+      'DETERMINISTIC_NAMESPACE_MISSING',
+      (sql: string) =>
+        sql.replaceAll(
+          'small-house/catalog/legacy-style-option/v1',
+          'broken-option-namespace',
+        ),
+    ],
+    [
+      'DETERMINISTIC_NAMESPACE_MISSING',
+      (sql: string) =>
+        sql.replaceAll(
+          'small-house/catalog/legacy-style-value/v1',
+          'broken-value-namespace',
+        ),
+    ],
+    [
+      'REPLAY_SAFETY_MISSING',
+      (sql: string) => sql.replaceAll('ON CONFLICT DO NOTHING', ''),
+    ],
+    [
+      'IDENTITY_REWRITE_FORBIDDEN',
+      (sql: string) =>
+        sql.replace('COMMIT;', 'UPDATE "skus" SET "id" = "id";\nCOMMIT;'),
+    ],
+    [
+      'IDENTITY_REWRITE_FORBIDDEN',
+      (sql: string) =>
+        sql.replace(
+          'COMMIT;',
+          'UPDATE "product_variants" SET "id" = "id";\nCOMMIT;',
+        ),
+    ],
+    [
+      'STATEMENT_ORDER_INVALID',
+      (sql: string) =>
+        swapSqlStatements(
+          sql,
+          'INSERT INTO "product_options"',
+          'INSERT INTO "product_option_values"',
+        ),
+    ],
+    [
+      'TRANSACTION_BOUNDARY_INVALID',
+      (sql: string) => sql.replace('BEGIN;', ''),
+    ],
+    [
+      'CANONICAL_KEY_UPDATE_INVALID',
+      (sql: string) => sql.replaceAll("|| ':' ||", '||'),
+    ],
+    [
+      'PUBLICATION_GUARD_MISSING',
+      (sql: string) =>
+        sql.replace('FROM complete_products cp', 'FROM candidate_products cp'),
+    ],
+    [
+      'DEFAULT_SELECTION_INVALID',
+      (sql: string) =>
+        sql.replace(
+          'ORDER BY pv."position" ASC, pv."id" ASC',
+          'ORDER BY pv."id" DESC',
+        ),
+    ],
+  ])(
+    'detects %s when the migration contract is mutated',
+    async (code, mutate) => {
+      const sql = await readFile(migrationUrl, 'utf8');
+
+      expect(analyzeBackfillMigrationSql(mutate(sql))).toContain(code);
+    },
+  );
 });
