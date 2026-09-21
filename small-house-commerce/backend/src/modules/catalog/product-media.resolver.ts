@@ -34,6 +34,7 @@ export interface ProductMediaGraph {
   }>;
   variants: Array<{
     id: string;
+    sku: { status: 'ACTIVE' | 'DISABLED' } | null;
     optionValues: Array<{ optionId: string; optionValueId: string }>;
   }>;
   images: Array<
@@ -61,7 +62,7 @@ const DEFAULT_CACHE_CAPACITY = 128;
 
 interface ProductMediaReader {
   product: {
-    findFirst(args: unknown): Promise<ProductMediaGraph | null>;
+    findFirst(args: unknown): Promise<unknown>;
   };
 }
 
@@ -132,6 +133,12 @@ function activeMediaDriverValues(graph: ProductMediaGraph) {
   return values;
 }
 
+export function isMediaEligibleVariant(variant: {
+  sku: { status: 'ACTIVE' | 'DISABLED' } | null;
+}): boolean {
+  return variant.sku?.status === 'ACTIVE';
+}
+
 function optionValueMedia(
   graph: ProductMediaGraph,
   optionValueId: string,
@@ -170,7 +177,8 @@ export function resolveProductMedia(
 
   if (request.variantId !== undefined) {
     const variant = graph.variants.find(
-      (candidate) => candidate.id === request.variantId,
+      (candidate) =>
+        candidate.id === request.variantId && isMediaEligibleVariant(candidate),
     );
     if (!variant) throw new BadRequestException(VARIANT_SCOPE_ERROR);
 
@@ -215,7 +223,9 @@ export function availableMediaScopes(
       )
       .map((item) => item.optionValueId as string),
   );
-  const variantIds = new Set(graph.variants.map((variant) => variant.id));
+  const variantIds = new Set(
+    graph.variants.filter(isMediaEligibleVariant).map((variant) => variant.id),
+  );
   const variantIdsWithMedia = new Set(
     graph.images
       .filter(
@@ -290,6 +300,7 @@ export class ProductMediaResolver {
     const key = scopeCacheKey(productId, graphVersion, normalized);
     const cached = this.cache.get(key);
     if (cached) {
+      await this.assertCurrentGraph(productId, graphVersion);
       this.cache.delete(key);
       this.cache.set(key, cached);
       return cloneMediaSet(cached);
@@ -322,11 +333,33 @@ export class ProductMediaResolver {
     };
   }
 
+  private async assertCurrentGraph(
+    productId: string,
+    graphVersion: number,
+  ): Promise<void> {
+    const product = (await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        status: 'ACTIVE',
+        catalogGraphVersion: graphVersion,
+      },
+      select: { id: true, catalogGraphVersion: true },
+    })) as { id: string; catalogGraphVersion: number } | null;
+
+    if (
+      !product ||
+      product.id !== productId ||
+      product.catalogGraphVersion !== graphVersion
+    ) {
+      throw new BadRequestException(GRAPH_VERSION_ERROR);
+    }
+  }
+
   private async loadGraph(
     productId: string,
     graphVersion: number,
   ): Promise<ProductMediaGraph> {
-    const graph = await this.prisma.product.findFirst({
+    const graph = (await this.prisma.product.findFirst({
       where: {
         id: productId,
         status: 'ACTIVE',
@@ -350,6 +383,7 @@ export class ProductMediaResolver {
         variants: {
           select: {
             id: true,
+            sku: { select: { status: true } },
             optionValues: {
               select: { optionId: true, optionValueId: true },
             },
@@ -369,7 +403,7 @@ export class ProductMediaResolver {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         },
       },
-    });
+    })) as ProductMediaGraph | null;
 
     if (
       !graph ||

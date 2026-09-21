@@ -5,6 +5,7 @@ import { StorefrontLandingPagesController } from './landing/storefront/landing-p
 import {
   MEDIA_SCOPE_QUERY_ERROR,
   ProductMediaResolver,
+  availableMediaScopes,
   resolveProductMedia,
   type ProductMediaGraph,
 } from './product-media.resolver.js';
@@ -71,6 +72,7 @@ function graph(version = 3): ProductMediaGraph {
     variants: [
       {
         id: RED_LARGE_VARIANT_ID,
+        sku: { status: 'ACTIVE' },
         optionValues: [
           { optionId: COLOR_OPTION_ID, optionValueId: RED_VALUE_ID },
           { optionId: SIZE_OPTION_ID, optionValueId: LARGE_VALUE_ID },
@@ -78,6 +80,7 @@ function graph(version = 3): ProductMediaGraph {
       },
       {
         id: BLUE_LARGE_VARIANT_ID,
+        sku: { status: 'ACTIVE' },
         optionValues: [
           { optionId: COLOR_OPTION_ID, optionValueId: BLUE_VALUE_ID },
           { optionId: SIZE_OPTION_ID, optionValueId: LARGE_VALUE_ID },
@@ -192,6 +195,29 @@ function productRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function storefrontVariant(
+  id: string,
+  optionValueId: string,
+  status: 'ACTIVE' | 'DISABLED',
+  position: number,
+) {
+  const template = productRow().variants[0]!;
+  return {
+    ...template,
+    id,
+    name: id === RED_LARGE_VARIANT_ID ? 'Red / Large' : 'Blue / Large',
+    position,
+    combinationKey: `${COLOR_OPTION_ID}:${optionValueId}`,
+    optionValues: [{ optionId: COLOR_OPTION_ID, optionValueId }],
+    sku: {
+      ...template.sku,
+      id: `${id}-sku`,
+      skuCode: id === RED_LARGE_VARIANT_ID ? 'RED' : 'BLUE',
+      status,
+    },
+  };
+}
+
 function createProductsHarness() {
   const row = productRow();
   const mediaGraph = graph();
@@ -253,6 +279,59 @@ function createProductsHarness() {
     inventory as never,
   );
   return { prisma, service };
+}
+
+function createDisabledDefaultHarness(activeVariantHasExactMedia: boolean) {
+  const harness = createProductsHarness();
+  const row = productRow({
+    defaultDisplayVariantId: RED_LARGE_VARIANT_ID,
+    variants: [
+      storefrontVariant(RED_LARGE_VARIANT_ID, RED_VALUE_ID, 'DISABLED', 0),
+      storefrontVariant(BLUE_LARGE_VARIANT_ID, BLUE_VALUE_ID, 'ACTIVE', 1),
+    ],
+  });
+  const mediaGraph = graph();
+  mediaGraph.variants[0]!.sku = { status: 'DISABLED' };
+  mediaGraph.variants[1]!.sku = { status: 'ACTIVE' };
+  if (activeVariantHasExactMedia) {
+    mediaGraph.images.push(
+      media('exact-blue', '/exact-blue.jpg', 0, {
+        variantId: BLUE_LARGE_VARIANT_ID,
+      }),
+    );
+  }
+
+  harness.prisma.product.findMany.mockResolvedValue([row] as never);
+  harness.prisma.product.findFirst.mockImplementation(
+    async (args: { select?: Record<string, unknown> }) => {
+      if (args.select?.name === true) return row as never;
+      if (args.select?.images) return mediaGraph as never;
+      return {
+        id: PRODUCT_ID,
+        catalogGraphVersion: 3,
+      } as never;
+    },
+  );
+  harness.prisma.productImage.findMany.mockResolvedValue([
+    {
+      ...media('disabled-red-cover', '/disabled-red.jpg', 0, {
+        variantId: RED_LARGE_VARIANT_ID,
+      }),
+      productId: PRODUCT_ID,
+    },
+    ...(activeVariantHasExactMedia
+      ? [
+          {
+            ...media('active-blue-cover', '/active-blue.jpg', 0, {
+              variantId: BLUE_LARGE_VARIANT_ID,
+            }),
+            productId: PRODUCT_ID,
+          },
+        ]
+      : []),
+  ] as never);
+
+  return harness;
 }
 
 describe('resolveProductMedia', () => {
@@ -350,6 +429,52 @@ describe('resolveProductMedia', () => {
       "Variant does not belong to this product's current catalog graph",
     );
   });
+
+  it('rejects a retained DISABLED variant with the stable foreign/current-graph 400', () => {
+    const disabled = graph();
+    disabled.variants[0]!.sku = { status: 'DISABLED' };
+
+    expect(() =>
+      resolveProductMedia(disabled, { variantId: RED_LARGE_VARIANT_ID }),
+    ).toThrowError(
+      "Variant does not belong to this product's current catalog graph",
+    );
+  });
+
+  it('keeps ACTIVE stock-zero variants media-eligible', () => {
+    const outOfStock = graph();
+    outOfStock.variants[0]!.sku = {
+      status: 'ACTIVE',
+      availableInventory: 0,
+    } as never;
+
+    expect(
+      resolveProductMedia(outOfStock, {
+        variantId: RED_LARGE_VARIANT_ID,
+      }),
+    ).toMatchObject({
+      resolvedScope: 'VARIANT',
+      scopeId: RED_LARGE_VARIANT_ID,
+    });
+  });
+
+  it('omits DISABLED and null-SKU variants from available exact scopes', () => {
+    const current = graph();
+    current.variants[0]!.sku = { status: 'DISABLED' };
+    current.variants[1]!.sku = { status: 'ACTIVE' };
+    current.images.push(
+      media('exact-blue', '/exact-blue.jpg', 0, {
+        variantId: BLUE_LARGE_VARIANT_ID,
+      }),
+    );
+
+    expect(availableMediaScopes(current).variantIds).toEqual([
+      BLUE_LARGE_VARIANT_ID,
+    ]);
+
+    current.variants[1]!.sku = null;
+    expect(availableMediaScopes(current).variantIds).toEqual([]);
+  });
 });
 
 describe('ProductMediaResolver bounded versioned cache', () => {
@@ -366,24 +491,81 @@ describe('ProductMediaResolver bounded versioned cache', () => {
     await resolver.resolveProductMedia(PRODUCT_ID, 3, {
       optionValueId: RED_VALUE_ID,
     });
-    expect(prisma.product.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.product.findFirst).toHaveBeenCalledTimes(2);
 
     currentGraph = graph(4);
     await resolver.resolveProductMedia(PRODUCT_ID, 4, {
       optionValueId: RED_VALUE_ID,
     });
-    expect(prisma.product.findFirst).toHaveBeenCalledTimes(2);
+    expect(prisma.product.findFirst).toHaveBeenCalledTimes(3);
 
     currentGraph = { ...graph(4), id: FOREIGN_PRODUCT_ID };
     await resolver.resolveProductMedia(FOREIGN_PRODUCT_ID, 4, {
       optionValueId: RED_VALUE_ID,
     });
-    expect(prisma.product.findFirst).toHaveBeenCalledTimes(3);
+    expect(prisma.product.findFirst).toHaveBeenCalledTimes(4);
 
     await resolver.resolveProductMedia(FOREIGN_PRODUCT_ID, 4, {
       variantId: RED_LARGE_VARIANT_ID,
     });
-    expect(prisma.product.findFirst).toHaveBeenCalledTimes(4);
+    expect(prisma.product.findFirst).toHaveBeenCalledTimes(5);
+  });
+
+  it('never serves or refreshes a warmed stale-version entry after a newer graph is durable', async () => {
+    let currentGraph = graph(3);
+    const prisma = {
+      product: {
+        findFirst: vi.fn(
+          async (args: {
+            where: { id: string; catalogGraphVersion: number };
+            select: { images?: unknown };
+          }) => {
+            if (
+              args.where.id !== currentGraph.id ||
+              args.where.catalogGraphVersion !==
+                currentGraph.catalogGraphVersion
+            ) {
+              return null;
+            }
+            return args.select.images
+              ? currentGraph
+              : {
+                  id: currentGraph.id,
+                  catalogGraphVersion: currentGraph.catalogGraphVersion,
+                };
+          },
+        ),
+      },
+    };
+    const resolver = new ProductMediaResolver(prisma as never, 2);
+
+    await resolver.resolveProductMedia(PRODUCT_ID, 3, {
+      optionValueId: RED_VALUE_ID,
+    });
+    await resolver.resolveProductMedia(PRODUCT_ID, 3, {
+      variantId: RED_LARGE_VARIANT_ID,
+    });
+    const cache = (resolver as unknown as { cache: Map<string, unknown> })
+      .cache;
+    const keysBeforeStaleRequest = [...cache.keys()];
+
+    currentGraph = graph(4);
+    await expect(
+      resolver.resolveProductMedia(PRODUCT_ID, 3, {
+        optionValueId: RED_VALUE_ID,
+      }),
+    ).rejects.toThrowError('Product catalog graph changed; refresh and retry');
+    expect([...cache.keys()]).toEqual(keysBeforeStaleRequest);
+
+    await expect(
+      resolver.resolveProductMedia(PRODUCT_ID, 4, {
+        optionValueId: RED_VALUE_ID,
+      }),
+    ).resolves.toMatchObject({ catalogGraphVersion: 4 });
+    expect([...cache.keys()]).toEqual([
+      keysBeforeStaleRequest[1],
+      `${PRODUCT_ID}:4:option-value:${RED_VALUE_ID}`,
+    ]);
   });
 
   it('evicts the least-recently-used entry when capacity is reached', async () => {
@@ -430,11 +612,19 @@ describe('ProductsService scoped storefront payloads', () => {
 
     const result = await service.storefrontGetBySlug('chair');
 
-    expect(result.initialMediaSet).toMatchObject({
+    expect(result.initialMediaSet).toEqual({
       resolvedScope: 'VARIANT',
       scopeId: RED_LARGE_VARIANT_ID,
       catalogGraphVersion: 3,
-      media: [{ id: 'exact-red', type: 'VIDEO' }],
+      media: [
+        {
+          id: 'exact-red',
+          url: '/exact-red.jpg',
+          type: 'VIDEO',
+          altText: 'exact-red alt',
+          sortOrder: 0,
+        },
+      ],
     });
     expect(result.effectiveCoverMedia).toEqual({
       id: 'exact-red',
@@ -452,8 +642,82 @@ describe('ProductsService scoped storefront payloads', () => {
     expect(result.options[0]).not.toHaveProperty('images');
     expect(result.variants[0]).not.toHaveProperty('images');
     expect(result.images).toEqual([
-      expect.objectContaining({ id: 'shared-image' }),
+      {
+        id: 'shared-image',
+        url: '/shared.jpg',
+        type: 'IMAGE',
+        altText: 'shared-image alt',
+        sortOrder: 0,
+      },
     ]);
+  });
+
+  it('ignores a DISABLED persisted default and uses the next ACTIVE variant scope for PDP and list cover', async () => {
+    const { service } = createDisabledDefaultHarness(true);
+
+    const detail = await service.storefrontGetBySlug('chair');
+    const [card] = await service.storefrontByIds([PRODUCT_ID]);
+
+    expect(detail.initialMediaSet).toEqual({
+      resolvedScope: 'VARIANT',
+      scopeId: BLUE_LARGE_VARIANT_ID,
+      media: [
+        {
+          id: 'exact-blue',
+          url: '/exact-blue.jpg',
+          type: 'IMAGE',
+          altText: 'exact-blue alt',
+          sortOrder: 0,
+        },
+      ],
+      catalogGraphVersion: 3,
+    });
+    expect(detail.availableMediaScopes.variantIds).toEqual([
+      BLUE_LARGE_VARIANT_ID,
+    ]);
+    expect(card.effectiveCoverMedia).toEqual({
+      id: 'active-blue-cover',
+      url: '/active-blue.jpg',
+      type: 'IMAGE',
+      altText: 'active-blue-cover alt',
+      sortOrder: 0,
+    });
+  });
+
+  it('falls from a DISABLED persisted default through the next ACTIVE variant to shared media', async () => {
+    const { service } = createDisabledDefaultHarness(false);
+
+    const detail = await service.storefrontGetBySlug('chair');
+    const [card] = await service.storefrontByIds([PRODUCT_ID]);
+
+    expect(detail.initialMediaSet).toEqual({
+      resolvedScope: 'SHARED',
+      media: [
+        {
+          id: 'shared-a',
+          url: '/shared-a.jpg',
+          type: 'VIDEO',
+          altText: 'shared-a alt',
+          sortOrder: 1,
+        },
+        {
+          id: 'shared-b',
+          url: '/shared-b.jpg',
+          type: 'IMAGE',
+          altText: 'shared-b alt',
+          sortOrder: 1,
+        },
+      ],
+      catalogGraphVersion: 3,
+    });
+    expect(detail.availableMediaScopes.variantIds).toEqual([]);
+    expect(card.effectiveCoverMedia).toEqual({
+      id: 'shared-image',
+      url: '/shared.jpg',
+      type: 'IMAGE',
+      altText: 'shared-image alt',
+      sortOrder: 0,
+    });
   });
 
   it('honors a current requested scope over the default initial variant', async () => {
@@ -494,7 +758,13 @@ describe('ProductsService scoped storefront payloads', () => {
       }),
     ]);
     expect(result.images).toEqual([
-      expect.objectContaining({ id: 'shared-image' }),
+      {
+        id: 'shared-image',
+        url: '/shared.jpg',
+        type: 'IMAGE',
+        altText: 'shared-image alt',
+        sortOrder: 0,
+      },
     ]);
     expect(result).not.toHaveProperty('initialMediaSet');
     expect(result).not.toHaveProperty('availableMediaScopes');
@@ -588,6 +858,53 @@ describe('StorefrontProductsController media query contract', () => {
     expect(products.storefrontMediaBySlug).toHaveBeenCalledWith('chair', {
       variantId: RED_LARGE_VARIANT_ID,
     });
+  });
+
+  it('rejects a retained DISABLED variant through the public media controller', async () => {
+    const { service } = createDisabledDefaultHarness(true);
+    const controller = new StorefrontProductsController(service);
+
+    await expect(
+      controller.media('chair', RED_LARGE_VARIANT_ID, undefined),
+    ).rejects.toMatchObject({
+      status: 400,
+      message:
+        "Variant does not belong to this product's current catalog graph",
+    });
+  });
+
+  it('returns public-only legacy, cover, and initial media shapes through the PDP controller', async () => {
+    const { service } = createProductsHarness();
+    const controller = new StorefrontProductsController(service);
+
+    const response = await controller.getBySlug('chair', undefined, undefined);
+
+    expect(response.images).toEqual([
+      {
+        id: 'shared-image',
+        url: '/shared.jpg',
+        type: 'IMAGE',
+        altText: 'shared-image alt',
+        sortOrder: 0,
+      },
+    ]);
+    expect(response.effectiveCoverMedia).toEqual(
+      response.initialMediaSet.media[0],
+    );
+    expect(Object.keys(response.effectiveCoverMedia!).sort()).toEqual([
+      'altText',
+      'id',
+      'sortOrder',
+      'type',
+      'url',
+    ]);
+    expect(Object.keys(response.initialMediaSet.media[0]!).sort()).toEqual([
+      'altText',
+      'id',
+      'sortOrder',
+      'type',
+      'url',
+    ]);
   });
 });
 

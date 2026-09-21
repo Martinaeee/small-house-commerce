@@ -22,6 +22,7 @@ import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import {
   ProductMediaResolver,
+  isMediaEligibleVariant,
   type MediaScopeRequest,
   type ProductMediaItem,
 } from './product-media.resolver.js';
@@ -153,6 +154,27 @@ const STOREFRONT_PDP_SELECT = {
 type StorefrontProductRecord = Prisma.ProductGetPayload<{
   select: typeof STOREFRONT_SELECT;
 }>;
+
+function publicStorefrontMedia(media: ProductMediaItem): ProductMediaItem {
+  return {
+    id: media.id,
+    url: media.url,
+    type: media.type,
+    altText: media.altText,
+    sortOrder: media.sortOrder,
+  };
+}
+
+function mediaDisplayVariant<
+  T extends { id: string; sku: { status: 'ACTIVE' | 'DISABLED' } | null },
+>(variants: T[], persistedDefaultId: string | null): T | undefined {
+  return (
+    variants.find(
+      (variant) =>
+        variant.id === persistedDefaultId && isMediaEligibleVariant(variant),
+    ) ?? variants.find(isMediaEligibleVariant)
+  );
+}
 
 @Injectable()
 export class ProductsService {
@@ -740,6 +762,7 @@ export class ProductsService {
       return {
         ...product,
         ...graph,
+        images: graph.images.map(publicStorefrontMedia),
         effectiveCoverMedia:
           presentation?.effectiveCoverMedia ?? graph.effectiveCoverMedia,
         reviewCount: reviewSummary.reviewCount,
@@ -763,9 +786,20 @@ export class ProductsService {
         option.values.map((value) => value.id),
       ),
     );
-    const defaultVariantIds = items
-      .map((product) => product.defaultDisplayVariantId)
-      .filter((id): id is string => id !== null);
+    const mediaVariantByProductId = new Map(
+      items.map((product) => [
+        product.id,
+        product.catalogGraphVersion > 0
+          ? mediaDisplayVariant(
+              product.variants,
+              product.defaultDisplayVariantId,
+            )
+          : undefined,
+      ]),
+    );
+    const defaultVariantIds = [...mediaVariantByProductId.values()]
+      .filter((variant) => variant !== undefined)
+      .map((variant) => variant.id);
 
     const scopedMedia =
       optionValueIds.length === 0 && defaultVariantIds.length === 0
@@ -798,9 +832,7 @@ export class ProductsService {
       const sharedCover = product.images[0] ?? null;
       const sharedThumbnail =
         product.images.find((item) => item.type === 'IMAGE') ?? null;
-      const defaultVariant = product.variants.find(
-        (variant) => variant.id === product.defaultDisplayVariantId,
-      );
+      const defaultVariant = mediaVariantByProductId.get(product.id);
       const driverOptionIds = new Set(
         product.options
           .filter((option) => option.isActive && option.isMediaDriver)
@@ -849,15 +881,7 @@ export class ProductsService {
 
       const cover = variantCover ?? optionCover ?? sharedCover;
       result.set(product.id, {
-        effectiveCoverMedia: cover
-          ? {
-              id: cover.id,
-              url: cover.url,
-              type: cover.type,
-              altText: cover.altText,
-              sortOrder: cover.sortOrder,
-            }
-          : null,
+        effectiveCoverMedia: cover ? publicStorefrontMedia(cover) : null,
         thumbnails,
       });
     }
@@ -978,14 +1002,19 @@ export class ProductsService {
     // PDP needs availableInventory to render the stock state and to gate
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
     const enriched = (await this.withAvailableInventory([product]))[0];
-    const base = { ...enriched, ...presentCatalogGraph(enriched) };
-    const defaultScope =
-      base.defaultDisplayVariantId &&
-      base.variants.some(
-        (variant) => variant.id === base.defaultDisplayVariantId,
-      )
-        ? { variantId: base.defaultDisplayVariantId }
-        : undefined;
+    const presented = presentCatalogGraph(enriched);
+    const base = {
+      ...enriched,
+      ...presented,
+      images: presented.images.map(publicStorefrontMedia),
+    };
+    const mediaVariant = mediaDisplayVariant(
+      base.variants,
+      base.defaultDisplayVariantId,
+    );
+    const defaultScope = mediaVariant
+      ? { variantId: mediaVariant.id }
+      : undefined;
     const media = await this.productMedia.resolveInitialProductMedia(
       base.id,
       base.catalogGraphVersion,
