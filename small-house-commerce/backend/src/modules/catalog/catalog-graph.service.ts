@@ -11,6 +11,7 @@ import {
   canonicalCombinationKey,
   deriveVariantName,
   isLegacyUnmappedCombinationKey,
+  legacyUnmappedCombinationKey,
   planVariantReconciliation,
   validateCatalogGraph,
 } from './catalog-graph.js';
@@ -502,6 +503,7 @@ export class CatalogGraphService {
       if (incoming && incoming.combinationKey !== combinationKey) {
         if (
           requiresLegacyMaterialization &&
+          combinationKey !== null &&
           isLegacyUnmappedCombinationKey(combinationKey, variant.id)
         ) {
           combinationKey = incoming.combinationKey;
@@ -513,7 +515,8 @@ export class CatalogGraphService {
       }
       return {
         id: variant.id,
-        combinationKey,
+        combinationKey:
+          combinationKey ?? legacyUnmappedCombinationKey(variant.id),
         hasHistory: this.variantHasReferences(variant),
       };
     });

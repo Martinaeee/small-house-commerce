@@ -1278,6 +1278,24 @@ describe('CatalogGraphService.applyPatch', () => {
     expect(harness.state).toEqual(before);
   });
 
+  it('does not treat a null persisted key as a replaceable sentinel', async () => {
+    const state = legacyState(false);
+    state.variants[0].combinationKey = null as unknown as string;
+    const harness = createGraphHarness(state);
+    const before = structuredClone(harness.state);
+
+    await expect(
+      harness.service.applyPatch(
+        PRODUCT_ID,
+        0,
+        materializeLegacyPatch({ includeBlue: false }),
+      ),
+    ).rejects.toThrow(/cannot be reassigned to a different combination/i);
+
+    expect(harness.transactionCalls).toBe(0);
+    expect(harness.state).toEqual(before);
+  });
+
   it('keeps canonical keys immutable after graph materialization', async () => {
     const harness = createGraphHarness();
     const patch = parsePatch({
