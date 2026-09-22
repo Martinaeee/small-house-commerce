@@ -13,6 +13,8 @@ import {
   collectStockBatch,
   deserializeAdminProduct,
   graphFromAdminProduct,
+  resolveStockBatchWrites,
+  stripUnsavableMedia,
   syncSharedMediaDraft,
   toWireCatalogGraphPatch,
   validateAdminCatalogGraph,
@@ -930,5 +932,166 @@ describe("graphFromAdminProduct", () => {
     expect(graphFromAdminProduct(product).options[0]!.id).toBe(
       `legacy-option-${PRODUCT_ID}`,
     );
+  });
+});
+
+// --- Task 11 two-phase save helpers -------------------------------------------
+
+describe("resolveStockBatchWrites", () => {
+  it("maps client-key writes to real SKU ids via the save response's SKU codes", () => {
+    const product = productFor(serverGraph());
+    const baseline = deserializeAdminProduct(product);
+    const draft = structuredClone(baseline);
+    // A browser-created candidate row: client key + SKU code, no ids.
+    draft.variants.push({
+      clientKey: "variant-new-1",
+      name: "Green",
+      position: 5,
+      combinationKey: "green-combo",
+      optionValueRefs: [],
+      sku: {
+        skuCode: "SH-GREEN",
+        status: "ACTIVE",
+        supplierSku: null,
+        supplierCost: null,
+        costCurrency: null,
+        landedCost: null,
+        price: 1599,
+        compareAtPrice: null,
+        productWeight: null,
+        packageWidth: null,
+        packageHeight: null,
+        packageDepth: null,
+        packageWeight: null,
+        volumetricWeight: null,
+        onHand: 7,
+      },
+    });
+
+    const { ready, unresolved } = resolveStockBatchWrites(
+      collectStockBatch(draft, baseline),
+      draft,
+      // The graph PATCH response: the created variant carries a REAL sku id.
+      productFor(
+        serverGraph({
+          variants: [
+            variantRow(VARIANT_RED_ID, RED_VALUE_ID, 0, skuRow(SKU_RED_ID, "CHAIR-RED", "1299.00", 4)),
+            variantRow(VARIANT_BLUE_ID, BLUE_VALUE_ID, 1, skuRow(SKU_BLUE_ID, "CHAIR-BLUE", "1499.00", 2)),
+            {
+              id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              name: "Green",
+              position: 5,
+              combinationKey: "green-combo",
+              optionValues: [],
+              sku: skuRow(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "SH-GREEN",
+                "1599.00",
+                0,
+              ),
+              hasReferences: false,
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(unresolved).toEqual([]);
+    // The persisted rows' stock was untouched, so only the new row ships —
+    // resolved to a REAL sku id by matching the save response's SKU code.
+    expect(ready).toEqual([
+      {
+        skuId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        onHand: 7,
+        label: "Green",
+      },
+    ]);
+  });
+
+  it("keeps untouched persisted rows out and reports unresolvable rows", () => {
+    const product = productFor(serverGraph());
+    const baseline = deserializeAdminProduct(product);
+    const draft = structuredClone(baseline);
+    draft.variants[0]!.sku!.onHand = 10; // persisted row, real id
+    draft.variants.push({
+      clientKey: "variant-ghost",
+      name: "Ghost",
+      position: 9,
+      combinationKey: "ghost",
+      optionValueRefs: [],
+      sku: {
+        skuCode: "",
+        status: "ACTIVE",
+        supplierSku: null,
+        supplierCost: null,
+        costCurrency: null,
+        landedCost: null,
+        price: null,
+        compareAtPrice: null,
+        productWeight: null,
+        packageWidth: null,
+        packageHeight: null,
+        packageDepth: null,
+        packageWeight: null,
+        volumetricWeight: null,
+        onHand: 3,
+      },
+    });
+
+    const { ready, unresolved } = resolveStockBatchWrites(
+      collectStockBatch(draft, baseline),
+      draft,
+      product,
+    );
+
+    expect(ready).toEqual([
+      { skuId: SKU_RED_ID, onHand: 10, label: "Red" },
+    ]);
+    expect(unresolved).toHaveLength(1);
+    expect(unresolved[0].label).toBe("Ghost");
+    expect(unresolved[0].error).toMatch(/resolve/i);
+  });
+});
+
+describe("stripUnsavableMedia", () => {
+  it("drops URL-less rows and client-key scopes that no longer resolve", () => {
+    const draft = draftFor();
+    draft.media.push(
+      {
+        clientKey: "media-blank",
+        url: "   ",
+        type: "IMAGE",
+        altText: null,
+        sortOrder: 9,
+        optionValueRef: { id: RED_VALUE_ID },
+        variantRef: null,
+      },
+      {
+        clientKey: "media-dangling",
+        url: "/uploads/x.jpg",
+        type: "IMAGE",
+        altText: null,
+        sortOrder: 10,
+        optionValueRef: null,
+        variantRef: { clientKey: "variant-removed-elsewhere" },
+      },
+      {
+        clientKey: "media-ok",
+        url: "/uploads/ok.jpg",
+        type: "IMAGE",
+        altText: null,
+        sortOrder: 11,
+        optionValueRef: { id: RED_VALUE_ID },
+        variantRef: null,
+      },
+    );
+
+    stripUnsavableMedia(draft);
+
+    expect(draft.media.map(({ id, clientKey }) => id ?? clientKey)).toEqual([
+      MEDIA_1_ID,
+      MEDIA_2_ID,
+      "media-ok",
+    ]);
   });
 });

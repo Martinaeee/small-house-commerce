@@ -1,7 +1,6 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Field,
@@ -19,7 +18,14 @@ import type {
   CreateProductInput,
   ProductStatus,
 } from "@/lib/admin-api";
-import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import {
+  buildVariantCandidates,
+  validateAdminCatalogGraph,
+  type AdminCatalogGraphDraft,
+} from "@/lib/admin-product-graph";
+import { ProductOptionsEditor } from "./ProductOptionsEditor";
+import { VariantMatrix } from "./VariantMatrix";
+import { ProductMediaScopesEditor } from "./ProductMediaScopesEditor";
 
 /**
  * Shared product form for /admin/products/new (Task 9) and
@@ -87,11 +93,20 @@ export interface ProductFormValue {
   }[];
   /**
    * Typed catalog option graph draft (Task 10), hydrated by the edit page's
-   * deserializeProduct and diffed against server truth on save. The variant
-   * tabs here still edit the legacy free-form list; the options/matrix UI
-   * that mutates this draft is Task 11. serializeFormValue ignores it.
+   * deserializeProduct and diffed against server truth on save; the Task 11
+   * editors below mutate it. serializeFormValue ignores it.
    */
   graph?: AdminCatalogGraphDraft;
+  /**
+   * True when the server payload actually CARRIED the typed graph
+   * (options/media on the wire). Those products get the Task 11
+   * options/matrix editors instead of the legacy free-form list. A draft
+   * whose catalogGraphVersion > 0 without graphTyped is a graph product the
+   * admin GET cannot yet hydrate: the legacy whole-list variants/images
+   * editors are locked client-side (the backend 409s such writes) until the
+   * typed payload ships — this is the 409-trap guard.
+   */
+  graphTyped?: boolean;
 }
 
 export type SkuFormValue = NonNullable<
@@ -302,6 +317,14 @@ export function emptyProductFormValue(): ProductFormValue {
     images: [],
     detailBlocks: [],
     variants: [],
+    graph: {
+      catalogGraphVersion: 0,
+      defaultDisplayVariantRef: null,
+      options: [],
+      variants: [],
+      media: [],
+    },
+    graphTyped: true,
   };
 }
 
@@ -774,6 +797,67 @@ export function ProductForm({
   // Index of the image card currently being HTML5-dragged.
   const dragFrom = useRef<number | null>(null);
 
+  // --- Task 11: typed catalog graph mode ------------------------------------
+  // Typed = the server payload carried options/media, so the options/matrix
+  // editors own variant+pricing editing. Locked = catalogGraphVersion > 0 but
+  // no typed payload (admin GET gap): the backend 409s legacy whole-list
+  // writes for graph products, so the UI pauses those editors explicitly
+  // instead of letting a doomed PATCH surface as a raw 409.
+  const typed = value.graphTyped === true && value.graph !== undefined;
+  const graphLocked = !typed && (value.graph?.catalogGraphVersion ?? 0) > 0;
+  const graphDraft = typed && value.graph ? value.graph : null;
+
+  const updateGraph = (mutate: (draft: AdminCatalogGraphDraft) => void): void => {
+    setValue((prev) => {
+      if (!prev.graph) return prev;
+      const draft = structuredClone(prev.graph);
+      mutate(draft);
+      return { ...prev, graph: draft };
+    });
+    clearValidation();
+  };
+
+  // Candidates recompute whenever the graph changes; buildVariantCandidates
+  // throws past the global constraints (0-value groups / >2 groups / >100
+  // candidates), which the editors surface instead of a table.
+  const { candidates, candidatesError } = useMemo(() => {
+    if (!graphDraft) return { candidates: [], candidatesError: null };
+    try {
+      return {
+        candidates: buildVariantCandidates(graphDraft),
+        candidatesError: null,
+      };
+    } catch (error) {
+      return {
+        candidates: [],
+        candidatesError:
+          error instanceof Error ? error.message : "Invalid option graph.",
+      };
+    }
+  }, [graphDraft]);
+
+  // Shipping tab on typed products: numeric SKU fields commit only valid
+  // values (blank → null clears); invalid keystrokes are ignored rather than
+  // fighting the controlled input.
+  const setDraftSkuField = (
+    combinationKey: string,
+    key: (typeof SHIPPING_SKU_KEYS)[number],
+    raw: string,
+  ): void => {
+    const trimmed = raw.trim();
+    if (trimmed !== "" && !/^\d+(\.\d*)?$/.test(trimmed)) return;
+    updateGraph((draft) => {
+      const variant = draft.variants.find(
+        (item) => item.combinationKey === combinationKey,
+      );
+      if (!variant?.sku) return;
+      variant.sku = {
+        ...variant.sku,
+        [key]: trimmed === "" ? null : Number(trimmed),
+      };
+    });
+  };
+
   const flatCategories = flattenCategories(categories);
   const err = (key: string): string | undefined => fieldErrors[key];
 
@@ -1014,6 +1098,68 @@ export function ProductForm({
    */
   const submitForm = (statusOverride?: ProductStatus): void => {
     const target = statusOverride ? { ...value, status: statusOverride } : value;
+    // Task 11: typed-graph validation runs BEFORE the legacy serializer so a
+    // graph problem jumps straight to the editors even when basics are fine.
+    if (typed && target.graph) {
+      const graph = target.graph;
+      const graphErrors = [...validateAdminCatalogGraph(graph).errors];
+      if (candidatesError) graphErrors.push(candidatesError);
+      const seenCodes = new Set<string>();
+      for (const variant of graph.variants) {
+        if (!variant.sku) continue;
+        const code = variant.sku.skuCode.trim();
+        if (!code) {
+          graphErrors.push(`“${variant.name}” 需要填写 SKU code 才能保存。`);
+        } else {
+          const normalized = code.toLowerCase();
+          if (seenCodes.has(normalized)) {
+            graphErrors.push(`Duplicate SKU code ${code}（两个款式用了同一个编码）。`);
+          }
+          seenCodes.add(normalized);
+        }
+      }
+      // Graph media rows and option value visuals carry site URLs / strict
+      // formats; invalid values would 400 the entire patch at the backend.
+      if (
+        graph.options.some((option) =>
+          option.values.some(
+            (candidate) =>
+              candidate.swatchHex !== null &&
+              candidate.swatchHex.trim() !== "" &&
+              !/^#[0-9a-fA-F]{6}$/.test(candidate.swatchHex.trim()),
+          ),
+        )
+      ) {
+        graphErrors.push("Swatch hex must be a #rrggbb color.");
+      }
+      if (
+        graph.options.some((option) =>
+          option.values.some(
+            (candidate) =>
+              candidate.thumbnailUrl !== null &&
+              candidate.thumbnailUrl.trim() !== "" &&
+              !isValidMediaUrl(candidate.thumbnailUrl.trim()),
+          ),
+        )
+      ) {
+        graphErrors.push("Option thumbnail must be a valid image URL.");
+      }
+      if (
+        graph.media.some(
+          (media) =>
+            media.url.trim() !== "" && !isValidMediaUrl(media.url.trim()),
+        )
+      ) {
+        graphErrors.push(
+          "Scoped media URL must be a valid http(s) or /uploads/… URL.",
+        );
+      }
+      if (graphErrors.length > 0) {
+        setFormError(graphErrors.join(" "));
+        setActiveTab("variants");
+        return;
+      }
+    }
     const result = serializeFormValue(target);
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
@@ -1137,7 +1283,9 @@ export function ProductForm({
                     : "border border-border bg-card text-ink-secondary hover:text-cta"
                 }`}
               >
-                {tab.label}
+                {tab.key === "variants" && typed
+                  ? "Options & Variants 选项与款式"
+                  : tab.label}
                 {hasError ? (
                   <span
                     aria-label="(有错误)"
@@ -1381,6 +1529,16 @@ export function ProductForm({
 
         {activeTab === "media" && (
           <>
+            {graphLocked ? (
+              <div
+                role="alert"
+                className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+              >
+                该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），
+                共享媒体列表编辑已暂停（整表替换会抹掉选项值/款式作用域媒体）。
+              </div>
+            ) : null}
+            <fieldset disabled={graphLocked} className="min-w-0">
             <Section
               title="Product media"
               hint={
@@ -1600,6 +1758,23 @@ export function ProductForm({
                 </Button>
               </div>
             </Section>
+            </fieldset>
+
+            {/* Task 11: scoped media editing lives next to the gallery it
+                extends. Shared rows stay gallery-owned; the editor manages
+                option-value and variant scopes on the typed draft. */}
+            {typed && graphDraft ? (
+              <Section
+                title="Scoped media 作用域媒体"
+                hint="按选项值/款式挂媒体：前台选择对应作用域时整体替换，不与共享媒体合并。"
+              >
+                <ProductMediaScopesEditor
+                  draft={graphDraft}
+                  onChange={updateGraph}
+                  pending={pending}
+                />
+              </Section>
+            ) : null}
 
       {/* ---------------- Detail blocks (description body) ---------------- */}
       <Section
@@ -1857,7 +2032,46 @@ export function ProductForm({
             </>
           )}
 
-        {activeTab === "variants" && (
+        {activeTab === "variants" && typed && graphDraft ? (
+          /* Task 11: typed option graph products edit variants through the
+             options editor + candidate matrix — the legacy free-form list is
+             gone (a legacy whole-list write on a graph product would 409). */
+          <Section
+            title="Options & Variants 选项与款式"
+            hint="最多两个启用的选项组；矩阵列出全部组合，保存只提交修改过的行，库存随保存一并写入。"
+          >
+            <ProductOptionsEditor
+              draft={graphDraft}
+              onChange={updateGraph}
+              pending={pending}
+            />
+            <div className="mt-8">
+              <VariantMatrix
+                candidates={candidates}
+                draft={graphDraft}
+                onChange={updateGraph}
+                pending={pending}
+              />
+            </div>
+          </Section>
+        ) : activeTab === "variants" && graphLocked ? (
+          /* 409-trap guard: graph product without a typed payload (admin GET
+             gap). The backend rejects legacy whole-list variants/images
+             writes with a named 409, so editing pauses here explicitly. */
+          <Section
+            title="Variants & Pricing"
+            hint="该商品使用类型化选项图，整表编辑已暂停。"
+          >
+            <div
+              role="alert"
+              className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+            >
+              该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），但当前后台接口未返回选项图数据，
+              款式、图片列表与物流字段编辑已暂停，避免旧表单抹掉选项与媒体作用域。
+              基础信息、规格与详情内容仍可正常编辑保存。
+            </div>
+          </Section>
+        ) : activeTab === "variants" && (
           <Section
             title="Variants & Pricing"
             hint="款式 = 顾客可选择的颜色/规格。每个款式对应一个 SKU；至少 1 个勾选 Has SKU 的款式才能销售。包装/重量等物流字段在 Shipping 页统一填写。"
@@ -2119,7 +2333,94 @@ export function ProductForm({
           </Section>
         )}
 
-        {activeTab === "shipping" && (
+        {activeTab === "shipping" && typed && graphDraft ? (
+          /* Task 11: on typed products the SKU rows live in the graph draft,
+             so shipping fields write there (the legacy list rows would be
+             dropped from the PATCH and the edits silently lost). */
+          <Section
+            title="Shipping — 包装与重量"
+            hint="按 SKU 填写，仅用于发货/运费核算，前台不显示；可先留空，发货前补齐。数据存于选项图的 SKU 行。"
+          >
+            {graphDraft.variants.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                还没有款式——先到 Options &amp; Variants 页填写候选款式。
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {graphDraft.variants.map((variant) => (
+                  <li
+                    key={variant.id ?? variant.clientKey}
+                    className="rounded-lg bg-background p-4"
+                  >
+                    <p className="text-sm font-semibold text-ink">
+                      {variant.name.trim() || "（未命名款式）"}
+                      {variant.sku?.skuCode.trim() ? (
+                        <span className="ml-2 font-normal text-ink-muted">
+                          {variant.sku.skuCode.trim()}
+                        </span>
+                      ) : null}
+                    </p>
+                    {variant.sku ? (
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {SHIPPING_SKU_KEYS.map((key) => (
+                          <Field
+                            key={key}
+                            label={SKU_LABELS[key] ?? String(key)}
+                          >
+                            <TextInput
+                              aria-label={`${String(key)} for ${variant.name || "variant"}`}
+                              inputMode="decimal"
+                              value={
+                                variant.sku && variant.sku[key] !== null
+                                  ? String(variant.sku[key])
+                                  : ""
+                              }
+                              onChange={(e) =>
+                                setDraftSkuField(
+                                  variant.combinationKey,
+                                  key,
+                                  e.target.value,
+                                )
+                              }
+                              autoComplete="off"
+                            />
+                          </Field>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-muted">
+                        该款式还没有 SKU——在矩阵里填写 SKU code 后再填物流字段。
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        ) : activeTab === "shipping" && graphLocked ? (
+          <Section
+            title="Shipping — 包装与重量"
+            hint="该商品使用类型化选项图，整表编辑已暂停。"
+          >
+            <div
+              role="alert"
+              className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+            >
+              该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），
+              物流字段编辑已暂停（SKU 数据随选项图保存，当前接口未返回图数据）。
+            </div>
+            {value.variants.length > 0 ? (
+              <ul className="mt-4 flex flex-col gap-1 text-xs text-ink-muted">
+                {value.variants.map((vr, i) => (
+                  <li key={i}>
+                    {vr.name.trim() || `Variant ${i + 1}`}
+                    {vr.sku?.skuCode.trim() ? ` — ${vr.sku.skuCode.trim()}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Section>
+        ) : activeTab === "shipping" && (
           <Section
             title="Shipping — 包装与重量"
             hint="按 SKU 填写，仅用于发货/运费核算，前台不显示；可先留空，发货前补齐。与 Variants 页的 Advanced 存的是同一份数据。"

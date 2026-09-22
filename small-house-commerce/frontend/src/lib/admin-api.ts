@@ -441,6 +441,14 @@ export interface AdminGraphMedia {
 }
 
 /**
+ * One settled entry of PUT /admin/inventory/stock/batch (input order). A
+ * failing row carries the backend message but never aborts the batch.
+ */
+export type AdminStockBatchResult =
+  | { skuId: string; ok: true; onHand: number; reserved: number; available: number }
+  | { skuId: string; ok: false; error: string };
+
+/**
  * The typed option graph embedded in graph-aware admin product payloads.
  * Mirrors the backend's CatalogGraphService snapshot (options/values include
  * inactive rows; media includes every scope).
@@ -1187,6 +1195,25 @@ export const adminApi = {
   }): Promise<{ onHand: number; reserved: number; available: number }> =>
     adminAuthedFetch<{ onHand: number; reserved: number; available: number }>(
       "/api/v1/admin/inventory/stock",
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+
+  /**
+   * Bounded batch of absolute sets (Phase B of the product form's two-phase
+   * save). Results come back in input order with a per-SKU settled outcome: a
+   * failing row carries its message but never aborts the batch, so callers
+   * resubmit only the failed rows. Ids must be REAL SKU ids — client keys
+   * from the graph patch are resolved before this call.
+   */
+  setStockBatch: (
+    input: {
+      skuId: string;
+      onHand: number;
+      reason?: string | null;
+    }[],
+  ): Promise<AdminStockBatchResult[]> =>
+    adminAuthedFetch<AdminStockBatchResult[]>(
+      "/api/v1/admin/inventory/stock/batch",
       { method: "PUT", body: JSON.stringify(input) },
     ),
 

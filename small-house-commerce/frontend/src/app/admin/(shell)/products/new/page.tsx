@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { PageHeader } from "@/components/admin/PageHeader";
 import {
@@ -12,9 +12,60 @@ import {
   validateStockEntry,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
+import {
+  StockRetryPanel,
+  type StockFailureRow,
+} from "@/components/admin/StockRetryPanel";
 import { Button } from "@/components/ui/Button";
-import { adminApi, type AdminCategoryNode } from "@/lib/admin-api";
+import {
+  adminApi,
+  type AdminCatalogGraph,
+  type AdminCategoryNode,
+} from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import {
+  buildCatalogGraphPatch,
+  collectStockBatch,
+  resolveStockBatchWrites,
+  stripUnsavableMedia,
+  syncSharedMediaDraft,
+  toWireCatalogGraphPatch,
+  type AdminCatalogGraphDraft,
+  type StockBatchWrite,
+} from "@/lib/admin-product-graph";
+
+/**
+ * New product (/admin/products/new) — Task 11 two-phase save.
+ *
+ * The create endpoint predates the catalog graph, so a typed draft (the
+ * options/matrix editors ran) saves in two phases: POST /admin/products with
+ * legacy scalars only (variants/images deliberately EMPTY so the graph patch
+ * is the single writer and cannot duplicate rows), then PATCH the graph with
+ * the created product's version 0 baseline. Stock is Phase B: the graph PATCH
+ * response carries the created SKU ids, which the client-key stock writes are
+ * resolved against before the bounded batch call.
+ *
+ * Products that never touch the typed editors keep the plain legacy create:
+ * no draft rows exist, so nothing graph-shaped is sent and the product stays
+ * on catalogGraphVersion 0.
+ */
+
+const EMPTY_GRAPH_BASELINE: AdminCatalogGraph = {
+  catalogGraphVersion: 0,
+  defaultDisplayVariantId: null,
+  options: [],
+  variants: [],
+  media: [],
+};
+
+/** Stock baseline for the created product: nothing persisted yet. */
+const EMPTY_DRAFT_BASELINE: AdminCatalogGraphDraft = {
+  catalogGraphVersion: 0,
+  defaultDisplayVariantRef: null,
+  options: [],
+  variants: [],
+  media: [],
+};
 
 export default function NewProductPage(): ReactNode {
   const router = useRouter();
@@ -30,6 +81,18 @@ export default function NewProductPage(): ReactNode {
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase B rows the batch settled as failed (failed-row-only retry).
+  const [stockFailures, setStockFailures] = useState<StockFailureRow[]>([]);
+  // Created-product id held so the retry panel can refetch/navigate.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -63,6 +126,52 @@ export default function NewProductPage(): ReactNode {
     setNonce((n) => n + 1);
   };
 
+  /**
+   * Failed-row-only retry (Phase B): resubmits exactly the failed rows. On
+   * success the operator finally lands on the edit page (the product row and
+   * its graph already exist since Phase A).
+   */
+  const retryStockFailures = useCallback(async (): Promise<void> => {
+    if (stockFailures.length === 0) return;
+    const retryable = stockFailures.filter((failure) => failure.skuId !== "");
+    if (retryable.length === 0) {
+      setError("Nothing to retry — save the product again.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      const results = await adminApi.setStockBatch(
+        retryable.map((failure) => ({
+          skuId: failure.skuId,
+          onHand: failure.onHand,
+          reason: "New product",
+        })),
+      );
+      const stillFailed: StockFailureRow[] = [];
+      results.forEach((entry, index) => {
+        const attempt = retryable[index];
+        if (!entry.ok && attempt) {
+          stillFailed.push({ ...attempt, error: entry.error });
+        }
+      });
+      if (!mounted.current) return;
+      setStockFailures(stillFailed);
+      if (stillFailed.length === 0) {
+        if (createdId) router.push(`/admin/products/${createdId}/edit`);
+      } else {
+        setError(`${stillFailed.length} stock update(s) still failed.`);
+      }
+    } catch (err: unknown) {
+      if (!mounted.current) return;
+      setError(
+        err instanceof Error ? err.message : "Failed to retry stock updates.",
+      );
+    } finally {
+      if (mounted.current) setPending(false);
+    }
+  }, [stockFailures, createdId, router]);
+
   const handleSubmit = (v: ProductFormValue): void => {
     const stockError = validateStockEntry(v);
     if (stockError) {
@@ -73,31 +182,103 @@ export default function NewProductPage(): ReactNode {
     // cannot fail — it yields the CreateProductInput payload.
     const result = serializeFormValue(v);
     if (!result.ok) return;
+
+    // Typed rows = the operator used the options/matrix editors. A gallery
+    // only (no options/variants/scoped rows) stays on the plain legacy
+    // create: the graph patch would otherwise re-create the same shared
+    // media rows the create call just wrote.
+    let phaseDraft: AdminCatalogGraphDraft | null = null;
+    let createPayload = result.value;
+    if (v.graphTyped && v.graph) {
+      const draft = structuredClone(v.graph);
+      stripUnsavableMedia(draft);
+      syncSharedMediaDraft(draft, v.images);
+      const hasTypedRows =
+        draft.options.length > 0 ||
+        draft.variants.length > 0 ||
+        draft.media.some(
+          (row) => row.optionValueRef !== null || row.variantRef !== null,
+        );
+      if (hasTypedRows) {
+        phaseDraft = draft;
+        // The graph patch owns shared media and variants for this save;
+        // sending them through the legacy create as well would duplicate rows.
+        createPayload = { ...result.value, images: [], variants: [] };
+      }
+    }
+
     setPending(true);
     setError(null);
+    setStockFailures([]);
+    setCreatedId(null);
     void (async () => {
       try {
-        const created = await adminApi.createProduct(result.value);
-        // Stock cannot exist before the SKUs do, so it is written now that the
-        // created product carries their ids (matched back by SKU code).
-        const writes: { skuId: string; onHand: number }[] = [];
-        for (const variant of v.variants) {
-          const sku = variant.sku;
-          if (!sku) continue;
-          const raw = sku.stock.trim();
-          if (raw === "") continue;
-          const match = created.variants.find(
-            (cv) => cv.sku?.skuCode === sku.skuCode.trim(),
+        const created = await adminApi.createProduct(createPayload);
+        if (!mounted.current) return;
+        let stockWrites: StockBatchWrite[] = [];
+        let saved = created;
+        if (phaseDraft) {
+          // Phase A — the created product's graph is empty; diff the draft
+          // against that baseline and adopt the graph snapshot response.
+          const graphPatch = buildCatalogGraphPatch(EMPTY_GRAPH_BASELINE, phaseDraft);
+          saved = await adminApi.updateProduct(created.id, {
+            ...toWireCatalogGraphPatch(graphPatch, created.catalogGraphVersion),
+          });
+          if (!mounted.current) return;
+          stockWrites = collectStockBatch(phaseDraft, EMPTY_DRAFT_BASELINE);
+        }
+
+        // Phase B — bounded stock batch with real SKU ids resolved from the
+        // save response. Failures settle per row; only they are retried.
+        const failures: StockFailureRow[] = [];
+        if (phaseDraft) {
+          const resolved = resolveStockBatchWrites(stockWrites, phaseDraft, saved);
+          for (const row of resolved.unresolved) {
+            failures.push({
+              skuId: "",
+              onHand: row.onHand,
+              label: row.label,
+              error: row.error,
+            });
+          }
+          if (resolved.ready.length > 0) {
+            const results = await adminApi.setStockBatch(
+              resolved.ready.map((row) => ({
+                skuId: row.skuId,
+                onHand: row.onHand,
+                reason: "New product",
+              })),
+            );
+            results.forEach((entry, index) => {
+              const attempt = resolved.ready[index];
+              if (!entry.ok && attempt) {
+                failures.push({
+                  skuId: entry.skuId,
+                  onHand: attempt.onHand,
+                  label: attempt.label,
+                  error: entry.error,
+                });
+              }
+            });
+          }
+        }
+        if (!mounted.current) return;
+
+        if (failures.length > 0) {
+          // Keep the operator here: the product + graph exist, only stock
+          // rows failed. The panel retries exactly those rows.
+          setCreatedId(created.id);
+          setStockFailures(failures);
+          setError(
+            `Product created, but ${failures.length} stock update(s) failed — fix the values and retry below (only failed rows are sent again).`,
           );
-          if (match?.sku) writes.push({ skuId: match.sku.id, onHand: Number(raw) });
+          setPending(false);
+          return;
         }
-        for (const write of writes) {
-          await adminApi.setStock({ ...write, reason: "New product" });
-        }
-        // Task 9 lands on the edit route (ships Task 10); today that 404s,
-        // which is expected — the product row already exists server-side.
+
         router.push(`/admin/products/${created.id}/edit`);
       } catch (err: unknown) {
+        if (!mounted.current) return;
         // POST /admin/products 409s (products.service rethrowKnown, Prisma
         // P2002): the unique violation here is the typed slug, so spec §8.7
         // maps 409 to the slug-specific alert; other messages stay verbatim.
@@ -166,14 +347,27 @@ export default function NewProductPage(): ReactNode {
           />
         </div>
       ) : (
-        <ProductForm
-          initial={initial}
-          categories={categories}
-          onSubmit={handleSubmit}
-          submitLabel="Create product"
-          pending={pending}
-          error={error}
-        />
+        <>
+          {stockFailures.length > 0 ? (
+            <div className="mt-4">
+              <StockRetryPanel
+                failures={stockFailures}
+                onRetry={() => {
+                  void retryStockFailures();
+                }}
+                pending={pending}
+              />
+            </div>
+          ) : null}
+          <ProductForm
+            initial={initial}
+            categories={categories}
+            onSubmit={handleSubmit}
+            submitLabel="Create product"
+            pending={pending}
+            error={error}
+          />
+        </>
       )}
     </div>
   );

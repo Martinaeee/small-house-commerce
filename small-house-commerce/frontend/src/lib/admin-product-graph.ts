@@ -78,6 +78,12 @@ export interface AdminVariantDraft extends EntityRef {
   combinationKey: string;
   optionValueRefs: EntityRef[];
   sku: AdminSkuDraft | null;
+  /**
+   * True when carts/orders/reservations/scoped media reference the row
+   * (graph payloads carry the hint). Task 11's matrix surfaces it as the
+   * protected-disable affordance; the patch never sends it.
+   */
+  hasReferences?: boolean;
 }
 
 export interface AdminMediaDraft extends EntityRef {
@@ -272,6 +278,7 @@ export function deserializeAdminProduct(
           ),
         optionValueRefs: refs,
         sku: variant.sku ? skuDraftFromGraph(variant.sku) : null,
+        hasReferences: variant.hasReferences ?? false,
       };
     });
     const mediaRows = product.media ?? product.images ?? [];
@@ -342,6 +349,7 @@ export function deserializeAdminProduct(
           { optionId: optionClientKey, valueId: valueClientKey },
         ]),
         optionValueRefs: [{ clientKey: valueClientKey }],
+        hasReferences: false,
         sku: variant.sku
           ? {
               id: variant.sku.id,
@@ -1150,4 +1158,118 @@ export function toWireCatalogGraphPatch(
         : wireRef(patch.defaultDisplayVariant);
   }
   return { catalogGraph, catalogGraphVersion };
+}
+
+// --- Phase B helpers (Task 11 two-phase save) -----------------------------------
+
+export interface ResolvedStockWrite {
+  skuId: string;
+  onHand: number;
+  /** Row label for the failure/retry UI. */
+  label: string;
+}
+
+export interface UnresolvedStockWrite {
+  onHand: number;
+  label: string;
+  error: string;
+}
+
+/**
+ * Maps Phase B stock writes onto real SKU ids. Persisted rows already carry
+ * `skuId`; browser-created rows only have a client key, and the batch endpoint
+ * predates client keys — so the client key is resolved through the draft row's
+ * SKU code against the graph PATCH response, which contains every variant of
+ * the new snapshot WITH its SKU id. Unresolvable rows are reported instead of
+ * guessed (the retry UI keeps them visible).
+ */
+export function resolveStockBatchWrites(
+  writes: readonly StockBatchWrite[],
+  draft: AdminCatalogGraphDraft,
+  saved: AdminProduct,
+): { ready: ResolvedStockWrite[]; unresolved: UnresolvedStockWrite[] } {
+  // Labels are keyed by BOTH the variant row key and the SKU id: persisted
+  // stock writes arrive addressed by skuId, client-key writes by variant key.
+  const labelOf = new Map<string, string>();
+  for (const variant of draft.variants) {
+    const label = variant.name || variant.combinationKey;
+    if (variant.id !== undefined) labelOf.set(variant.id, label);
+    if (variant.sku?.id) labelOf.set(variant.sku.id, label);
+    if (variant.clientKey !== undefined) labelOf.set(variant.clientKey, label);
+  }
+  const savedSkuIdByCode = new Map<string, string>();
+  for (const variant of saved.variants) {
+    const code = variant.sku?.skuCode.trim().toLowerCase();
+    if (code && variant.sku && !savedSkuIdByCode.has(code)) {
+      savedSkuIdByCode.set(code, variant.sku.id);
+    }
+  }
+
+  const ready: ResolvedStockWrite[] = [];
+  const unresolved: UnresolvedStockWrite[] = [];
+  for (const write of writes) {
+    if (write.skuId !== undefined) {
+      ready.push({
+        skuId: write.skuId,
+        onHand: write.onHand,
+        label: labelOf.get(write.skuId) ?? write.skuId,
+      });
+      continue;
+    }
+    const variant = draft.variants.find(
+      (candidate) => candidate.clientKey === write.skuClientKey,
+    );
+    const code = variant?.sku?.skuCode.trim().toLowerCase() ?? "";
+    const skuId = code ? savedSkuIdByCode.get(code) : undefined;
+    const label =
+      (variant && labelOf.get(rowKey(variant))) || write.skuClientKey || "";
+    if (!variant) {
+      unresolved.push({
+        onHand: write.onHand,
+        label,
+        error: "The variant row is no longer in the draft.",
+      });
+    } else if (!skuId) {
+      unresolved.push({
+        onHand: write.onHand,
+        label,
+        error:
+          "Could not resolve the new SKU id from the save response (check the SKU code).",
+      });
+    } else {
+      ready.push({ skuId, onHand: write.onHand, label });
+    }
+  }
+  return { ready, unresolved };
+}
+
+/**
+ * Drops media rows a graph save cannot express: blanks (the editor keeps an
+ * in-progress row until it has a URL — persisted blanks become retirements)
+ * and rows scoped to a client key that no longer matches any draft row (the
+ * backend rejects unknown client keys rather than ignoring them).
+ */
+export function stripUnsavableMedia(draft: AdminCatalogGraphDraft): void {
+  const optionValueKeys = new Set(
+    draft.options.flatMap((option) => option.values.map(rowKey)),
+  );
+  const variantKeys = new Set(draft.variants.map(rowKey));
+  draft.media = draft.media.filter((row) => {
+    if (!row.url.trim()) return false;
+    if (
+      row.optionValueRef &&
+      row.optionValueRef.id === undefined &&
+      !optionValueKeys.has(row.optionValueRef.clientKey ?? "")
+    ) {
+      return false;
+    }
+    if (
+      row.variantRef &&
+      row.variantRef.id === undefined &&
+      !variantKeys.has(row.variantRef.clientKey ?? "")
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
