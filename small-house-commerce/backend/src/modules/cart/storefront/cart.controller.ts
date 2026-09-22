@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
 } from '@nestjs/common';
@@ -11,8 +12,10 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js'
 import { CartService } from '../cart.service.js';
 import {
   addItemSchema,
+  replaceItemSchema,
   updateItemQuantitySchema,
   type AddItemInput,
+  type ReplaceItemInput,
   type UpdateItemQuantityInput,
 } from '../dto/cart.dto.js';
 
@@ -36,6 +39,16 @@ export class StorefrontCartController {
     @Body(new ZodValidationPipe(updateItemQuantitySchema)) input: UpdateItemQuantityInput,
   ) {
     return this.cart.updateQuantity(cartId, itemId, input.quantity);
+  }
+
+  /** "Change options": replace a line's SKU, merging into an existing row. */
+  @Patch(':cartId/items/:itemId')
+  replaceItemSku(
+    @Param('cartId') cartId: string,
+    @Param('itemId') itemId: string,
+    @Body(new ZodValidationPipe(replaceItemSchema)) input: ReplaceItemInput,
+  ) {
+    return this.cart.replaceItemSku(cartId, itemId, input);
   }
 
   @Delete(':cartId/items/:itemId')
