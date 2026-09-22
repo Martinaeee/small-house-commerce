@@ -116,9 +116,15 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
       selectedItems.some((item) => item.unavailable));
 
   // Buy Now is only submittable once the product resolved AND the requested
-  // skuId exists on one of its variants. A hand-edited ?skuId is a dead end.
+  // skuId belongs to an ACTIVE SKU of one of its variants. A hand-edited or
+  // DISABLED deep link (?skuId=) is a dead end here instead of failing at
+  // backend order submit.
   const buyNowMatchedSku =
-    !isBuyNow || (product !== null && product.variants.some((v) => v.sku?.id === skuId));
+    !isBuyNow ||
+    (product !== null &&
+      product.variants.some(
+        (v) => v.sku?.id === skuId && v.sku?.status === "ACTIVE",
+      ));
 
   const ready = isBuyNow
     ? product !== null && !productError && buyNowMatchedSku

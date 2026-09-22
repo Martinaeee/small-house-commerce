@@ -241,6 +241,35 @@ describe("buildProductJsonLd per-SKU offers", () => {
     expect(node.offers).toBeUndefined();
   });
 
+  it("names the Product-level sku from the first ACTIVE priced SKU", () => {
+    const product = productFixture({
+      variants: [
+        // Disabled: must not name the Product-level sku…
+        variant("variant-x", "X", ["value-red", "value-small"], {
+          ...skuFixture({ status: "DISABLED" }),
+          id: "sku-x",
+          skuCode: "RC-X",
+        }),
+        // …nor an unpriced one…
+        variant("variant-y", "Y", ["value-blue", "value-small"], {
+          ...skuFixture({ status: "ACTIVE" }),
+          id: "sku-y",
+          skuCode: "RC-Y",
+          price: null,
+        }),
+        // …only the first ACTIVE, priced SKU (the same rule as the Offers).
+        variant("variant-z", "Z", ["value-blue", "value-large"], {
+          ...skuFixture({ status: "ACTIVE" }),
+          id: "sku-z",
+          skuCode: "RC-Z",
+        }),
+      ],
+    });
+
+    const node = findProductNode(buildProductJsonLd(product, null));
+    expect(node.sku).toBe("RC-Z");
+  });
+
   it("keeps the breadcrumb graph alongside the product node", () => {
     const product = productFixture({
       variants: [

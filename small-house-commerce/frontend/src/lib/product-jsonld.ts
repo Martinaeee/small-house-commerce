@@ -65,7 +65,14 @@ export function buildProductJsonLd(
     name: product.name,
     description: product.description ?? undefined,
     image: images.length > 0 ? images : undefined,
-    sku: product.variants.find((variant) => variant.sku)?.sku?.skuCode,
+    // Same rule as the Offers above: the first ACTIVE, priced SKU — never a
+    // disabled or unpriced skuCode that the per-SKU Offers would exclude.
+    sku: product.variants.find(
+      (variant) =>
+        variant.sku &&
+        variant.sku.status === "ACTIVE" &&
+        variant.sku.price !== null,
+    )?.sku?.skuCode,
     brand: { "@type": "Brand", name: "LUWAG Living" },
     category: categoryChain?.[categoryChain.length - 1]?.name,
     url: pageUrl,

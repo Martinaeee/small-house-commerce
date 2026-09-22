@@ -405,6 +405,11 @@ export function PdpClient({
       setNotice("Added to cart");
       // The add succeeded: exactly one variant_confirm + AddToCart pair,
       // both keyed by the final SKU. A failed add emits nothing.
+      // Out-of-stock save-for-later adds intentionally keep firing this
+      // pair (ACCEPT decision, final review): the cart mutation is real,
+      // and the add is strong purchase intent for retargeting. Purchase can
+      // never result (checkout blocks unavailable items), so no revenue is
+      // mis-attributed.
       emitCommerceEvent(
         variantConfirmEvent({
           productId: product.id,

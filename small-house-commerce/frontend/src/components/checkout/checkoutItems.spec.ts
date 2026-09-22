@@ -261,4 +261,30 @@ describe("useCheckoutLines", () => {
       { skuId: "sku-red-small", quantity: 2 },
     ]);
   });
+
+  it("a DISABLED-sku deep link dead-ends instead of failing at backend submit", async () => {
+    const disabledSkuProduct: Product = {
+      ...product,
+      variants: [
+        {
+          ...product.variants[0],
+          sku: {
+            id: "sku-red-small",
+            skuCode: "RED-SMALL",
+            status: "DISABLED",
+            price: 100,
+            compareAtPrice: 130,
+            availableInventory: 4,
+          },
+        },
+      ],
+    };
+    apiMock.getProductBySlug.mockResolvedValue(disabledSkuProduct);
+    const { result } = renderHook(() =>
+      useCheckoutLines({ skuId: "sku-red-small", qty: "1", slug: "chair" }),
+    );
+    await waitFor(() => expect(result.current.product).not.toBeNull());
+    expect(result.current.buyNowMatchedSku).toBe(false);
+    expect(result.current.ready).toBe(false);
+  });
 });

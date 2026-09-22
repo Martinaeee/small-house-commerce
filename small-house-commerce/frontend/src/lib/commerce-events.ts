@@ -238,3 +238,39 @@ export function consumePurchasePayload(orderId: string): CommerceEvent | null {
     return null;
   }
 }
+
+/** sessionStorage key prefix of the once-per-tab Purchase marker (§12). */
+export const PURCHASE_FIRED_STORAGE_PREFIX = "luwag_purchase_fired:";
+
+/**
+ * Whether this tab already fired Purchase for the order number. The payload
+ * above is consumed exactly once, so a refreshed success page re-enters the
+ * fail-open path — without this marker every refresh would re-fire a
+ * valueless Purchase. Fails open (false) when storage is unavailable,
+ * matching the fail-open emit it guards.
+ */
+export function purchaseAlreadyFired(orderId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      window.sessionStorage.getItem(
+        PURCHASE_FIRED_STORAGE_PREFIX + orderId,
+      ) !== null
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Marks the order number Purchase-fired for this tab. Best effort: a lost
+ * marker can only re-fire a valueless Purchase, never suppress a real one.
+ */
+export function markPurchaseFired(orderId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(PURCHASE_FIRED_STORAGE_PREFIX + orderId, "1");
+  } catch {
+    // Marker loss is acceptable: the next load re-fires valueless at worst.
+  }
+}

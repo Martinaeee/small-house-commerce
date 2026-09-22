@@ -144,6 +144,12 @@ BEGIN
                                     WHERE po."is_active" = true
                                       AND pov."is_active" = true
                                 ) AS "active_assignments",
+                                -- COLLATE "C" orders byte-wise; this only agrees with the
+                                -- JS-side localeCompare() key build because option and
+                                -- option_value ids are UUIDs (ASCII hex + dashes sort
+                                -- identically under both collations). If those ids ever
+                                -- become human-readable text, re-derive this expected key
+                                -- before trusting the preflight.
                                 COALESCE(
                                     string_agg(
                                         pvov."option_id"::text || ':' || pvov."option_value_id"::text,

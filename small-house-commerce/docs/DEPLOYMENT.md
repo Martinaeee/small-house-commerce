@@ -267,6 +267,10 @@ the backfill are **not executed until the database risk gate is approved**.
   the legacy form until backfilled.
 - Storefront: PDP/LP option selectors, scoped media resolver + `/media`
   endpoint, enriched cart lines, order option snapshots, per-SKU tracking/SEO.
+- Structured data: run Google rich-result / JSON-LD validation (Rich Results
+  Test or the Schema Markup Validator) on a typed PDP before AND after the
+  Release D deploy — the `AggregateOffer` → per-SKU `Offer[]` change alters
+  rich-result rendering.
 - `pnpm generate` reminder: the Prisma client is NOT rebuilt by
   `pnpm --dir backend build` — run `pnpm --dir backend exec prisma generate`
   before any backend build/test in a fresh checkout or CI, or the generated
