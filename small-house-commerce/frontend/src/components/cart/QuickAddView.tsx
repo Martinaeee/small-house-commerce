@@ -2,12 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { Product } from "@/lib/api";
+import type { Product, ProductMedia } from "@/lib/api";
 import { useCart } from "./CartContext";
 import { track } from "@/lib/tracking";
-import { PriceBox } from "@/components/ui/PriceBox";
+import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
-import { sellableVariants, variantImage } from "@/lib/variantImages";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  PdpPurchaseProvider,
+  usePdpPurchase,
+} from "@/components/product/PdpPurchaseProvider";
+import { ProductOptionSelector } from "@/components/product/ProductOptionSelector";
 
 interface QuickAddViewProps {
   product: Product;
@@ -17,17 +22,64 @@ interface QuickAddViewProps {
   onClose: () => void;
 }
 
-function clampQty(qty: number, available: number): number {
-  const max = Math.max(1, available);
-  return Math.min(Math.max(1, qty), max);
+/**
+ * The cart drawer's variant picker. It rides the same shared contracts as the
+ * PDP purchase island: PdpPurchaseProvider owns selection/quantity (a
+ * multi-SKU product starts with nothing selected — never "the first SKU"),
+ * ProductOptionSelector renders the IMAGE/SWATCH/TEXT controls, and media
+ * resolves through the active media-driver option value's thumbnail down to
+ * the product's effective cover. List payloads carry no scoped galleries, so
+ * no positional variant→image mapping exists here. The Confirm click is the
+ * explicit purchase confirmation; only a successful add fires AddToCart.
+ */
+export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
+  return (
+    <PdpPurchaseProvider product={product} initialVariantId={null}>
+      <QuickAddPicker product={product} onAdded={onAdded} onClose={onClose} />
+    </PdpPurchaseProvider>
+  );
 }
 
-export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
-  const { addItem } = useCart();
-  const [selectedId, setSelectedId] = useState<string>(
-    () => sellableVariants(product)[0]?.id ?? product.variants[0]?.id ?? "",
+/**
+ * The picker header image follows the shared media resolution — exact variant
+ * media is not part of list payloads, so the active media-driver option
+ * value's thumbnail stands in until it exists, falling back to the product's
+ * effective cover (shared media).
+ */
+function activeDriverMedia(
+  product: Product,
+  selectedValueIds: Readonly<Record<string, string>>,
+): ProductMedia | null {
+  const options = [...product.options].sort(
+    (left, right) =>
+      left.position - right.position || left.id.localeCompare(right.id),
   );
-  const [qty, setQty] = useState(1);
+  for (const option of options) {
+    if (!option.isMediaDriver) continue;
+    const valueId = selectedValueIds[option.id];
+    if (!valueId) continue;
+    const value = option.values.find((candidate) => candidate.id === valueId);
+    if (value?.thumbnailUrl) {
+      return {
+        id: `${option.id}:${value.id}`,
+        url: value.thumbnailUrl,
+        type: "IMAGE",
+        altText: value.thumbnailAlt ?? value.label,
+        sortOrder: 0,
+      };
+    }
+  }
+  return null;
+}
+
+function QuickAddPicker({
+  product,
+  onAdded,
+  onClose,
+}: QuickAddViewProps) {
+  const { addItem } = useCart();
+  const { primaryLine, primaryDerived, confirmLine, setQuantity } =
+    usePdpPurchase();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const aliveRef = useRef(true);
@@ -38,14 +90,16 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
     };
   }, []);
 
-  const selectedIndex = product.variants.findIndex((v) => v.id === selectedId);
-  const variant = selectedIndex >= 0 ? product.variants[selectedIndex] : null;
-  const sku = variant?.sku ?? null;
-  const available = sku?.availableInventory ?? 0;
-  const outOfStock = sku === null || sku.price === null || available <= 0;
-  const image = selectedIndex >= 0 ? variantImage(product, selectedIndex) : null;
+  const sku = primaryDerived.resolvedVariant?.sku ?? null;
+  const available = primaryDerived.availableInventory;
+  const resolved = primaryDerived.resolvedVariant !== null;
+  const outOfStock = resolved && available <= 0;
+  const cover = product.effectiveCoverMedia;
+  const media =
+    activeDriverMedia(product, primaryLine.selectedValueIds) ?? cover;
+  const price = cardPricePresentation(primaryDerived);
   const stockLabel =
-    sku === null || sku.price === null
+    !resolved || sku === null || sku.price === null
       ? null
       : available <= 0
         ? "Out of Stock"
@@ -53,24 +107,24 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
           ? `Only ${available} left`
           : null;
 
-  function selectVariant(id: string, index: number, variantAvailable: number) {
-    setSelectedId(id);
-    setQty((current) => clampQty(current, Math.max(1, variantAvailable)));
-    setError(null);
-  }
-
   async function confirmAdd() {
-    if (!sku || sku.price === null || busy || available <= 0) return;
+    if (!sku || sku.price === null || busy || !resolved) return;
     setBusy(true);
     setError(null);
+    // The Confirm click is the explicit confirmation for the chosen
+    // combination (single-SKU products resolve and confirm automatically).
+    confirmLine(primaryLine.clientLineId);
     try {
-      await addItem({ skuId: sku.id, quantity: qty }, { openDrawer: false });
+      await addItem(
+        { skuId: sku.id, quantity: primaryLine.quantity },
+        { openDrawer: false },
+      );
       track("AddToCart", {
         content_ids: [sku.id],
         content_name: product.name,
         content_type: "product",
-        contents: [{ id: sku.id, quantity: qty }],
-        value: sku.price,
+        contents: [{ id: sku.id, quantity: primaryLine.quantity }],
+        value: sku.price * primaryLine.quantity,
         currency: "PHP",
       });
       if (!aliveRef.current) return;
@@ -91,11 +145,12 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
             onClick={onClose}
             className="h-32 w-28 shrink-0 overflow-hidden rounded-lg border border-border"
           >
-            {image ? (
+            {media ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={image.url}
-                alt={image.altText ?? product.name}
+                data-testid={`picker-media-${product.slug}`}
+                src={media.url}
+                alt={media.altText ?? product.name}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -110,11 +165,25 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
             >
               {product.name}
             </Link>
-            {variant && (
-              <p className="mt-0.5 text-xs text-ink-muted">{variant.name}</p>
+            {primaryDerived.resolvedVariant && (
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {primaryDerived.resolvedVariant.name}
+                {outOfStock ? " · Out of stock" : ""}
+              </p>
             )}
             <div className="mt-1.5">
-              <PriceBox price={sku?.price ?? null} compareAtPrice={sku?.compareAtPrice ?? null} />
+              {price ? (
+                price.kind === "exact" ? (
+                  <PriceBox
+                    price={price.price}
+                    compareAtPrice={price.compareAtPrice}
+                  />
+                ) : (
+                  <p className="text-lg font-bold text-ink" data-testid="price">
+                    From {formatPrice(price.price)}
+                  </p>
+                )
+              ) : null}
             </div>
             {stockLabel && (
               <p
@@ -128,62 +197,10 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
         </div>
 
         <div className="border-t border-border px-4 py-3">
-          <span
-            id={`picker-style-label-${product.slug}`}
-            className="text-sm font-medium text-ink-secondary"
-          >
-            Color/Style
-          </span>
-          <div
-            role="group"
-            aria-labelledby={`picker-style-label-${product.slug}`}
-            className="mt-2 flex flex-wrap gap-2.5"
-          >
-            {product.variants.map((v, i) => {
-              const thumb = variantImage(product, i);
-              const disabled = v.sku === null;
-              const active = v.id === selectedId;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  disabled={disabled}
-                  aria-pressed={active}
-                  data-testid={`picker-variant-${product.slug}-${i}`}
-                  onClick={() =>
-                    selectVariant(v.id, i, v.sku?.availableInventory ?? 1)
-                  }
-                  className="flex w-16 flex-col items-center gap-1"
-                >
-                  <span
-                    className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-card transition-colors ${
-                      active
-                        ? "border-cta"
-                        : "border-border hover:border-primary"
-                    } ${disabled ? "opacity-40" : ""}`}
-                  >
-                    {thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={thumb.url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <PlaceholderImage label="" className="h-full w-full" />
-                    )}
-                  </span>
-                  <span
-                    className={`w-full truncate text-center text-[11px] leading-tight ${
-                      active ? "font-semibold text-cta" : "text-ink-secondary"
-                    } ${disabled ? "opacity-40" : ""}`}
-                  >
-                    {v.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <ProductOptionSelector
+            lineId={primaryLine.clientLineId}
+            instanceId="quick-add"
+          />
         </div>
 
         <div className="border-t border-border px-4 py-3">
@@ -193,24 +210,41 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
               <button
                 type="button"
                 aria-label="Decrease quantity"
-                disabled={outOfStock || qty <= 1}
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                disabled={busy || primaryLine.quantity <= 1}
+                onClick={() =>
+                  setQuantity(primaryLine.clientLineId, primaryLine.quantity - 1)
+                }
                 className="flex h-8 w-8 items-center justify-center text-ink-secondary hover:text-cta disabled:opacity-40"
               >
                 −
               </button>
-              <span className="w-9 text-center text-sm text-ink">{qty}</span>
+              <span
+                data-testid={`picker-qty-${product.slug}`}
+                className="w-9 text-center text-sm text-ink"
+              >
+                {primaryLine.quantity}
+              </span>
               <button
                 type="button"
                 aria-label="Increase quantity"
-                disabled={outOfStock || qty >= available}
-                onClick={() => setQty((q) => clampQty(q + 1, available))}
+                disabled={
+                  busy ||
+                  (sku !== null && available > 0 && primaryLine.quantity >= available)
+                }
+                onClick={() =>
+                  setQuantity(primaryLine.clientLineId, primaryLine.quantity + 1)
+                }
                 className="flex h-8 w-8 items-center justify-center text-ink-secondary hover:text-cta disabled:opacity-40"
               >
                 +
               </button>
             </span>
           </div>
+          {outOfStock && (
+            <p className="mt-2 text-xs text-ink-secondary">
+              Out of stock — you can still save it to your cart for later.
+            </p>
+          )}
           {error && (
             <p role="alert" data-testid={`picker-error-${product.slug}`} className="mt-2 text-xs text-sale">
               {error}
@@ -223,7 +257,7 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
         <button
           type="button"
           onClick={confirmAdd}
-          disabled={outOfStock || busy}
+          disabled={busy || !resolved}
           data-testid={`picker-confirm-${product.slug}`}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2.5 text-sm font-semibold text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
         >
@@ -232,8 +266,6 @@ export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               Adding…
             </>
-          ) : outOfStock ? (
-            "Out of Stock"
           ) : (
             "Confirm"
           )}
