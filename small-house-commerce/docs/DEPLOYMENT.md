@@ -198,3 +198,96 @@ Only the `sh-smoke` project's volumes are removed; dev databases and any real `s
 - **Pages render but with fetch-failed/ISR errors in the frontend log (stale or empty catalog data):** that is the runtime `API_TARGET` ENV, used directly by Server Components (not the rewrite). Confirm the frontend service has `API_TARGET=http://backend:3000` and that the backend is healthy on the compose network.
 - **Category detail pages 404 right after first boot:** the frontend's fetch data-cache (`revalidate: 300`) can prime on the pre-seed empty categories list; run the §4 seeds — pages self-heal within 5 minutes. The §10 smoke avoids the race by starting frontend/Caddy only after seeding.
 - Behind Caddy the app trusts exactly one proxy hop (`trust proxy = 1` in `main.ts`); do not add a second proxy without adjusting it.
+
+## 12. Staged rollout — typed catalog graph (variant options & scoped media)
+
+Phase 1 of the variant-options plan ships as four independent release stages.
+Every stage leaves the previous one fully functional — the **catalog
+compatibility backend is the rollback floor** for the whole program: the
+storefront's `presentCatalogGraph` projection renders typed products and
+legacy graph-v0 products through the same payload shape, so code from any
+stage can serve a database from any earlier stage. Production migrations and
+the backfill are **not executed until the database risk gate is approved**.
+
+### Release A — expand schema + compatibility bridge (already in the tree)
+
+- Migration `20260921090000_expand_variant_options_media`: additive tables
+  (`product_options`, `product_option_values`, `product_variant_option_values`),
+  nullable columns (`product_variants.combination_key`,
+  `product_images.option_value_id/variant_id`, `order_items.option_snapshot`),
+  partial unique indexes, composite same-product FKs. The dual-scope media
+  CHECK is added `NOT VALID` — no existing row can violate it and validation
+  is deferred to Release C.
+- Graph-v0 creates keep working: every legacy variant gets a deterministic
+  `__legacy_unmapped__:<variantId>` combination sentinel
+  (`catalog-graph.ts`), so the tightened `combination_key NOT NULL` of
+  Release C has nothing to break during the compatibility window.
+- Frontend reads/writes are unchanged (legacy admin payloads, legacy
+  storefront). Deploy is boring: build + `up -d`, entrypoint applies the
+  migration.
+
+### Release B — backfill + audit
+
+- Migration `20260921100000_backfill_variant_options`: set-based
+  `INSERT ... SELECT` / `UPDATE ... FROM` with deterministic UUIDs. Every
+  legacy variant product gets one Style option/value per variant, the
+  assignments, the one-pair canonical keys, a default display variant, and
+  `catalog_graph_version = 1`. Variant/SKU/inventory/media/order **ids and
+  references never change**; image scopes and historical snapshots are
+  untouched.
+- Audit before and after (`backend/package.json`):
+
+  ```bash
+  DATABASE_URL=... pnpm --dir backend run catalog:audit:snapshot -- --out /tmp/catalog-before.json
+  # (deploy Release B, then:)
+  DATABASE_URL=... pnpm --dir backend run catalog:audit:verify -- --snapshot /tmp/catalog-before.json
+  ```
+
+  The verifier compares SKU/variant identities, inventory values,
+  reservations, movements, order references, and media ids/order; the gate
+  passes only with zero identity/reference drift. Take the §7 backup first
+  and keep the snapshot with it.
+
+### Release C — validate and tighten constraints
+
+- Migration `20260921110000_validate_variant_options`:
+  `combination_key SET NOT NULL`, the `(product_id, combination_key)` unique
+  index, and `VALIDATE CONSTRAINT` on the deferred composite FKs / media
+  scope CHECK. Release B must have completed everywhere first — a graph-v0
+  row that is not an exact self-ID sentinel fails the validation closed.
+- Constraints are validated, not re-created: no table rewrite, but run it in
+  a low-traffic window anyway.
+
+### Release D — Admin & Storefront typed surfaces
+
+- Admin: the product GET (and every update response) carries the typed graph
+  (`options`/`media`/variant assignments) via
+  `CatalogGraphService.adminSnapshot`, so the edit form's options editor,
+  variant matrix, and scoped-media editor are live; graph-v0 products keep
+  the legacy form until backfilled.
+- Storefront: PDP/LP option selectors, scoped media resolver + `/media`
+  endpoint, enriched cart lines, order option snapshots, per-SKU tracking/SEO.
+- `pnpm generate` reminder: the Prisma client is NOT rebuilt by
+  `pnpm --dir backend build` — run `pnpm --dir backend exec prisma generate`
+  before any backend build/test in a fresh checkout or CI, or the generated
+  client in `src/generated/prisma` will not know the new tables.
+
+### Sequencing, backups, rollback
+
+1. Approve the database risk gate (explicit user sign-off; §7 backup taken
+   immediately before, plus the pre-deploy dump convention
+   `~/deploy-backups/pre-<tag>.sql.gz` on the host).
+2. Release A deploy (code + additive migration). Verify legacy editing and
+   legacy storefront.
+3. Snapshot → Release B deploy (backfill migration) → audit verify →
+   smoke a few products in the admin edit page. Rollback floor: the
+   compatibility backend renders both shapes, so code rollback to
+   pre-Release-D commits is safe after the backfill; a database rollback
+   past Release B requires the §7 clean restore.
+4. Release C deploy (validation migration) after the audit is clean.
+5. Release D deploy (typed Admin/Storefront). Rollback of Release D alone is
+   a code rollback — all schema objects stay valid for the legacy paths.
+6. Run the browser acceptance gate
+   (`pnpm --dir frontend exec playwright test e2e/variant-options-media.spec.ts`)
+   against a staging copy (see `frontend/playwright.config.ts` +
+   `backend/prisma/seed-e2e.ts`) before promoting to production.
