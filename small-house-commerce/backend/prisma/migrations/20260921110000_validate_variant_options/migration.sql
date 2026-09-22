@@ -1,14 +1,18 @@
 BEGIN;
 
--- Refuse to tighten the catalog graph if Release B left any variant without a
--- canonical identity, or if persisted assignments do not form a complete,
--- canonical graph. This migration reports corruption but never repairs it.
+-- Refuse to tighten the catalog graph unless every product is in one of the
+-- two rollout-safe states:
+--   1. graph-v0 compatibility: no normalized graph rows and every persisted
+--      variant carries its exact self-ID legacy sentinel; or
+--   2. materialized graph: every variant has one active value per active
+--      option and its key is the canonical assignment-derived identity.
+-- This migration reports corruption but never repairs it.
 DO $preflight$
 DECLARE
     null_key_count bigint;
     null_key_examples text[];
-    incomplete_graph_count bigint;
-    incomplete_graph_examples text[];
+    invalid_product_count bigint;
+    invalid_product_examples text[];
 BEGIN
     SELECT
         count(*),
@@ -23,91 +27,177 @@ BEGIN
     FROM "product_variants" pv
     WHERE pv."combination_key" IS NULL;
 
-    WITH graph_state AS (
+    WITH product_state AS (
         SELECT
-            pv."id" AS "variant_id",
-            pv."product_id",
-            pv."combination_key",
+            p."id" AS "product_id",
             p."catalog_graph_version",
-            COALESCE(
-                (
-                    SELECT string_agg(
-                        pvov."option_id"::text || ':' || pvov."option_value_id"::text,
-                        '|' ORDER BY
-                            (pvov."option_id"::text || ':' || pvov."option_value_id"::text) COLLATE "C"
-                    )
-                    FROM "product_variant_option_values" pvov
-                    WHERE pvov."variant_id" = pv."id"
-                      AND pvov."product_id" = pv."product_id"
-                ),
-                ''
-            ) AS "expected_combination_key",
+            p."default_display_variant_id",
+            (
+                SELECT count(*)
+                FROM "product_variants" pv
+                WHERE pv."product_id" = p."id"
+            ) AS "variant_count",
+            (
+                SELECT count(*)
+                FROM "product_options" po
+                WHERE po."product_id" = p."id"
+            ) AS "option_count",
+            (
+                SELECT count(*)
+                FROM "product_option_values" pov
+                WHERE pov."product_id" = p."id"
+            ) AS "value_count",
+            (
+                SELECT count(*)
+                FROM "product_variant_option_values" pvov
+                WHERE pvov."product_id" = p."id"
+            ) AS "assignment_count",
+            (
+                SELECT count(*)
+                FROM "product_options" po
+                WHERE po."product_id" = p."id"
+                  AND po."is_active" = true
+            ) AS "active_option_count",
+            (
+                SELECT CASE count(*)
+                    WHEN 0 THEN 1::bigint
+                    WHEN 1 THEN max(option_values."active_value_count")
+                    WHEN 2 THEN
+                        max(option_values."active_value_count")
+                        * min(option_values."active_value_count")
+                    ELSE -1::bigint
+                END
+                FROM (
+                    SELECT
+                        po."id",
+                        count(pov."id") AS "active_value_count"
+                    FROM "product_options" po
+                    LEFT JOIN "product_option_values" pov
+                      ON pov."option_id" = po."id"
+                     AND pov."product_id" = po."product_id"
+                     AND pov."is_active" = true
+                    WHERE po."product_id" = p."id"
+                      AND po."is_active" = true
+                    GROUP BY po."id"
+                ) option_values
+            ) AS "expected_variant_count",
             EXISTS (
                 SELECT 1
                 FROM "product_options" po
-                WHERE po."product_id" = pv."product_id"
+                WHERE po."product_id" = p."id"
                   AND po."is_active" = true
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM "product_variant_option_values" pvov
-                      JOIN "product_option_values" pov
-                        ON pov."id" = pvov."option_value_id"
-                       AND pov."option_id" = pvov."option_id"
-                       AND pov."product_id" = pvov."product_id"
-                      WHERE pvov."variant_id" = pv."id"
-                        AND pvov."product_id" = pv."product_id"
-                        AND pvov."option_id" = po."id"
+                      FROM "product_option_values" pov
+                      WHERE pov."product_id" = p."id"
+                        AND pov."option_id" = po."id"
                         AND pov."is_active" = true
                   )
-            ) AS "missing_active_assignment",
-            EXISTS (
-                SELECT 1
-                FROM "product_variant_option_values" pvov
-                JOIN "product_options" po
-                  ON po."id" = pvov."option_id"
-                 AND po."product_id" = pvov."product_id"
-                JOIN "product_option_values" pov
-                  ON pov."id" = pvov."option_value_id"
-                 AND pov."option_id" = pvov."option_id"
-                 AND pov."product_id" = pvov."product_id"
-                WHERE pvov."variant_id" = pv."id"
-                  AND pvov."product_id" = pv."product_id"
-                  AND (po."is_active" = false OR pov."is_active" = false)
-            ) AS "has_inactive_assignment"
-        FROM "product_variants" pv
-        JOIN "products" p ON p."id" = pv."product_id"
+            ) AS "active_option_without_value"
+        FROM "products" p
     ),
-    incomplete_graph AS (
-        SELECT *
-        FROM graph_state
-        WHERE "combination_key" IS NOT NULL
-          AND (
-              "catalog_graph_version" < 1
-              OR "combination_key" IS DISTINCT FROM "expected_combination_key"
-              OR "missing_active_assignment"
-              OR "has_inactive_assignment"
-          )
+    invalid_products AS (
+        SELECT ps."product_id"
+        FROM product_state ps
+        WHERE ps."catalog_graph_version" < 0
+           OR (
+                ps."default_display_variant_id" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM "product_variants" default_variant
+                    WHERE default_variant."id" = ps."default_display_variant_id"
+                      AND default_variant."product_id" = ps."product_id"
+                )
+           )
+           OR (
+                ps."catalog_graph_version" = 0
+                AND (
+                    ps."option_count" <> 0
+                    OR ps."value_count" <> 0
+                    OR ps."assignment_count" <> 0
+                    OR (
+                        ps."variant_count" > 0
+                        AND EXISTS (
+                            SELECT 1
+                            FROM "product_variants" legacy_variant
+                            WHERE legacy_variant."product_id" = ps."product_id"
+                              AND legacy_variant."combination_key" IS DISTINCT FROM
+                                  '__legacy_unmapped__:' || legacy_variant."id"::text
+                        )
+                    )
+                )
+           )
+           OR (
+                ps."catalog_graph_version" >= 1
+                AND (
+                    ps."variant_count" = 0
+                    OR ps."variant_count" <> ps."expected_variant_count"
+                    OR ps."active_option_count" > 2
+                    OR ps."active_option_without_value"
+                    OR EXISTS (
+                        SELECT 1
+                        FROM "product_variants" materialized_variant
+                        CROSS JOIN LATERAL (
+                            SELECT
+                                count(*) AS "total_assignments",
+                                count(*) FILTER (
+                                    WHERE po."is_active" = true
+                                      AND pov."is_active" = true
+                                ) AS "active_assignments",
+                                COALESCE(
+                                    string_agg(
+                                        pvov."option_id"::text || ':' || pvov."option_value_id"::text,
+                                        '|' ORDER BY
+                                            (pvov."option_id"::text || ':' || pvov."option_value_id"::text) COLLATE "C"
+                                    ),
+                                    ''
+                                ) AS "expected_combination_key"
+                            FROM "product_variant_option_values" pvov
+                            JOIN "product_options" po
+                              ON po."id" = pvov."option_id"
+                             AND po."product_id" = pvov."product_id"
+                            JOIN "product_option_values" pov
+                              ON pov."id" = pvov."option_value_id"
+                             AND pov."option_id" = pvov."option_id"
+                             AND pov."product_id" = pvov."product_id"
+                            WHERE pvov."variant_id" = materialized_variant."id"
+                              AND pvov."product_id" = materialized_variant."product_id"
+                        ) assignment_state
+                        WHERE materialized_variant."product_id" = ps."product_id"
+                          AND (
+                              assignment_state."total_assignments" <> ps."active_option_count"
+                              OR assignment_state."active_assignments" <> ps."active_option_count"
+                              OR materialized_variant."combination_key" IS DISTINCT FROM
+                                  assignment_state."expected_combination_key"
+                              OR left(
+                                  materialized_variant."combination_key",
+                                  length('__legacy_unmapped__:')
+                              ) = '__legacy_unmapped__:'
+                          )
+                    )
+                )
+           )
     )
     SELECT
         count(*),
         COALESCE(
             (array_agg(
-                format('product=%s variant=%s', "product_id", "variant_id")
-                ORDER BY "product_id", "variant_id"
+                format('product=%s', "product_id")
+                ORDER BY "product_id"
             ))[1:10],
             ARRAY[]::text[]
         )
-    INTO incomplete_graph_count, incomplete_graph_examples
-    FROM incomplete_graph;
+    INTO invalid_product_count, invalid_product_examples
+    FROM invalid_products;
 
-    IF null_key_count > 0 OR incomplete_graph_count > 0 THEN
+    IF null_key_count > 0 OR invalid_product_count > 0 THEN
         RAISE EXCEPTION USING
             MESSAGE = format(
-                'catalog graph tightening preflight failed: null combination keys=%s examples=%s; incomplete/noncanonical variants=%s examples=%s',
+                'catalog graph tightening preflight failed: null combination keys=%s examples=%s; invalid product graphs=%s examples=%s',
                 null_key_count,
                 null_key_examples,
-                incomplete_graph_count,
-                incomplete_graph_examples
+                invalid_product_count,
+                invalid_product_examples
             ),
             HINT = 'Repair and re-audit the catalog graph before retrying this migration; no rows were changed.';
     END IF;
