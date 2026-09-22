@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CartItem } from "@/lib/api";
 import { useCart } from "./CartContext";
 import { CartRecommendations } from "./CartRecommendations";
+import {
+  CartLineThumbnail,
+  lineOptionsLabel,
+} from "./CartOptionPicker";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
-import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
-import { useProductImages } from "@/lib/productImages";
 
 /**
  * Cart page — Shopee/Taobao selection model (FRONTEND_SPEC §13):
@@ -19,6 +21,9 @@ import { useProductImages } from "@/lib/productImages";
  *   show "Out of Stock" / "Only N available", and can only be removed;
  * - quantities support − / + plus manual entry clamped to available stock;
  * - the summary and the checkout CTA count selected lines only.
+ * - every line shows its structured option values / SKU / enriched thumbnail
+ *   (IMAGE or VIDEO) and an accessible Change Options entry that opens the
+ *   shared picker inside the cart drawer (CartOptionPicker).
  *
  * Selection persists per cart id in localStorage and defaults to "all
  * checkable selected". The backend checkout accepts an explicit item subset,
@@ -181,22 +186,16 @@ function QtyControl({
   );
 }
 
-function ItemThumb({ item, imageUrl }: { item: CartItem; imageUrl: string | null | undefined }) {
+function ItemThumb({ item }: { item: CartItem }) {
   const oos = item.availableInventory <= 0;
   return (
     <Link
       href={`/products/${item.productSlug}`}
-      className={`block h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border sm:h-20 sm:w-20 ${
-        oos ? "opacity-60 grayscale" : ""
-      }`}
+      className={`block shrink-0 ${oos ? "opacity-60 grayscale" : ""}`}
       aria-label={item.productName}
     >
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <PlaceholderImage label="" className="h-full w-full" />
-      )}
+      {/* Enriched summary thumbnail (IMAGE or VIDEO) — never a product fetch. */}
+      <CartLineThumbnail item={item} className="h-16 w-16 sm:h-20 sm:w-20" />
     </Link>
   );
 }
@@ -214,7 +213,7 @@ function totalsFor(items: CartItem[]) {
 
 export function CartView() {
   const router = useRouter();
-  const { cart, loading, updateItem, removeItem } = useCart();
+  const { cart, loading, updateItem, removeItem, openChangeOptions } = useCart();
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -284,9 +283,6 @@ export function CartView() {
       return changed ? next : prev;
     });
   }, [cart]);
-
-  const slugs = useMemo(() => cart?.items.map((item) => item.productSlug) ?? [], [cart]);
-  const images = useProductImages(slugs);
 
   if (loading) {
     return <p className="py-16 text-center text-ink-secondary">Loading your cart…</p>;
@@ -421,7 +417,7 @@ export function CartView() {
                     />
                   </div>
 
-                  <ItemThumb item={item} imageUrl={images.get(item.productSlug)} />
+                  <ItemThumb item={item} />
 
                   <div className="flex min-w-0 flex-1 flex-col">
                     <Link
@@ -430,8 +426,11 @@ export function CartView() {
                     >
                       {item.productName}
                     </Link>
-                    <span className="mt-0.5 truncate text-xs text-ink-muted">
-                      {item.variantName} · {item.skuCode}
+                    <span
+                      className="mt-0.5 truncate text-xs text-ink-muted"
+                      data-testid={`line-options-${item.itemId}`}
+                    >
+                      {lineOptionsLabel(item)} · SKU: {item.skuCode}
                     </span>
                     {oos ? (
                       <span
@@ -462,6 +461,15 @@ export function CartView() {
                           className="text-sm text-ink-muted hover:text-sale disabled:opacity-50"
                         >
                           Remove
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openChangeOptions(item)}
+                          disabled={busyId === item.itemId}
+                          aria-label={`Change options for ${item.productName}`}
+                          className="text-sm text-ink-muted hover:text-cta disabled:opacity-50"
+                        >
+                          Change options
                         </button>
                       </div>
                       <div className="text-right">

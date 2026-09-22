@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useCart } from "./CartContext";
 import { QuickAddView } from "./QuickAddView";
-import { useProductImages } from "@/lib/productImages";
+import {
+  CartLineThumbnail,
+  CartOptionPicker,
+  lineOptionsLabel,
+} from "./CartOptionPicker";
 import {
   firstSku,
   useCartRecommendations,
@@ -18,7 +22,10 @@ import type { CartItem, Product } from "@/lib/api";
  * Slide-in "Your Cart" drawer after every add-to-cart (spec §4.4). Right-side
  * panel, backdrop click-to-close, scroll lock, Escape and a focus trap mirror
  * the mobile nav drawer (components/layout/MainNav.tsx). The drawer fires no
- * pixel events itself: AddToCart stays at the PDP/card call sites.
+ * pixel events itself: AddToCart stays at the PDP/card call sites. Lines
+ * render the enriched summary's structured option values, SKU, and effective
+ * thumbnail (IMAGE or VIDEO), and expose the Change Options entry, which
+ * swaps the panel body to CartOptionPicker.
  */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled])';
 
@@ -34,12 +41,14 @@ export function CartDrawer() {
     isOpen,
     view,
     pickerProduct,
+    changeTarget,
     closeCart,
     updateItem,
     removeItem,
     reload,
     addItem,
     takeDrawerOpener,
+    openChangeOptions,
     goToCartView,
   } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -60,11 +69,6 @@ export function CartDrawer() {
   }, [closeCart]);
 
   const recommendations = useCartRecommendations(cart);
-  const slugs = useMemo(
-    () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
-    [cart],
-  );
-  const images = useProductImages(slugs);
   const unitCount = (cart?.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
 
   // Scroll lock, initial focus, focus trap, Escape, and focus restoration.
@@ -115,6 +119,13 @@ export function CartDrawer() {
       openerRef.current?.focus();
     };
   }, [isOpen, handleClose, takeDrawerOpener]);
+
+  // Swapping the body to the Change Options picker unmounts the line trigger
+  // that opened it, dropping focus to <body>; pull focus into the panel's
+  // chrome. Fresh opens are covered by the effect above.
+  useEffect(() => {
+    if (isOpen && view === "change") closeButtonRef.current?.focus();
+  }, [isOpen, view]);
 
   async function changeQty(item: CartItem, quantity: number) {
     if (busyId) return;
@@ -172,7 +183,13 @@ export function CartDrawer() {
       className="fixed inset-0 z-50"
       role="dialog"
       aria-modal="true"
-      aria-label={view === "picker" ? "Add to cart" : "Your cart"}
+      aria-label={
+        view === "picker"
+          ? "Add to cart"
+          : view === "change"
+            ? "Change options"
+            : "Your cart"
+      }
     >
       <button
         type="button"
@@ -186,7 +203,11 @@ export function CartDrawer() {
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-base font-bold uppercase tracking-wide text-ink">
-            {view === "picker" ? "Add to Cart" : `Your Cart (${unitCount})`}
+            {view === "picker"
+              ? "Add to Cart"
+              : view === "change"
+                ? "Change Options"
+                : `Your Cart (${unitCount})`}
           </h2>
           <button
             ref={closeButtonRef}
@@ -209,6 +230,15 @@ export function CartDrawer() {
               goToCartView();
               // The close button is chrome that survives the view swap;
               // move focus before the Confirm button unmounts.
+              closeButtonRef.current?.focus();
+            }}
+          />
+        ) : view === "change" && changeTarget ? (
+          <CartOptionPicker
+            item={changeTarget}
+            onDone={() => {
+              goToCartView();
+              // Same as above: focus chrome that survives the view swap.
               closeButtonRef.current?.focus();
             }}
           />
@@ -237,14 +267,7 @@ export function CartDrawer() {
               <ul className="divide-y divide-border px-4">
                 {items.map((item) => (
                   <li key={item.itemId} className="flex gap-3 py-3">
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border">
-                      {images.get(item.productSlug) ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={images.get(item.productSlug) ?? ""} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <PlaceholderImage label="" className="h-full w-full" />
-                      )}
-                    </div>
+                    <CartLineThumbnail item={item} />
                     <div className="min-w-0 flex-1">
                       <Link
                         href={`/products/${item.productSlug}`}
@@ -253,7 +276,9 @@ export function CartDrawer() {
                       >
                         {item.productName}
                       </Link>
-                      <p className="mt-0.5 text-xs text-ink-muted">{item.variantName}</p>
+                      <p className="mt-0.5 text-xs text-ink-muted">
+                        {lineOptionsLabel(item)} · {item.skuCode}
+                      </p>
                       {item.unavailable && (
                         <p role="alert" className="mt-1 text-xs text-sale">Out of stock</p>
                       )}
@@ -321,6 +346,15 @@ export function CartDrawer() {
                           className="text-xs text-ink-muted hover:text-sale"
                         >
                           Remove
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Change options for ${item.productName}`}
+                          disabled={busyId === item.itemId}
+                          onClick={() => openChangeOptions(item)}
+                          className="text-xs text-ink-muted hover:text-cta disabled:opacity-40"
+                        >
+                          Change
                         </button>
                       </div>
                     </div>

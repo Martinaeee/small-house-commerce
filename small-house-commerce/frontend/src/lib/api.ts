@@ -287,6 +287,30 @@ export interface CollectionSection {
   sortOrder: number;
 }
 
+/**
+ * One typed option assignment on a cart line, ordered by option position
+ * (the backend's canonical order). Empty for legacy variant rows created
+ * before typed options — clients fall back to `variantName`.
+ */
+export interface CartItemOptionValue {
+  optionId: string;
+  optionName: string;
+  optionValueId: string;
+  label: string;
+}
+
+/**
+ * The line's effective thumbnail, resolved by the backend with the same
+ * precedence as the PDP gallery (exact variant → active media-driver value →
+ * shared). May be a VIDEO url; render accordingly.
+ */
+export interface CartItemThumbnail {
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  resolvedScope: "VARIANT" | "OPTION_VALUE" | "SHARED";
+}
+
 export interface CartItem {
   itemId: string;
   skuId: string;
@@ -300,6 +324,8 @@ export interface CartItem {
   lineTotal: number;
   availableInventory: number;
   unavailable: boolean;
+  optionValues: CartItemOptionValue[];
+  thumbnail: CartItemThumbnail | null;
 }
 
 export interface CartSummary {
@@ -445,6 +471,17 @@ export const api = {
     request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
       method: "PUT",
       body: JSON.stringify({ quantity }),
+    }),
+  /**
+   * Atomically replaces a line's SKU (the Change Options flow). If the target
+   * SKU already sits on another row of the same cart the backend merges the
+   * quantities and deletes the source row; otherwise the row is updated in
+   * place. The returned summary is the merged state to adopt as-is.
+   */
+  replaceCartItem: (cartId: string, itemId: string, input: { skuId: string; quantity: number }) =>
+    request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
     }),
   removeCartItem: (cartId: string, itemId: string) =>
     request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
