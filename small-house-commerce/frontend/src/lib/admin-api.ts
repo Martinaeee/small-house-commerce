@@ -14,6 +14,7 @@
 
 import { adminAuthedFetch } from "./admin-auth";
 import { formatPrice } from "@/components/ui/PriceBox";
+import type { OrderOptionSnapshotV1 } from "./order-options";
 
 // --- enums -------------------------------------------------------------------
 
@@ -187,6 +188,8 @@ export interface AdminOrderItem {
   productNameSnapshot: string;
   skuCodeSnapshot: string;
   variantSnapshot: string;
+  /** Stored order-time structured snapshot; null on pre-typed-options lines. */
+  optionSnapshot: OrderOptionSnapshotV1 | null;
   quantity: number;
   unitPrice: string;
   unitDiscount: string;

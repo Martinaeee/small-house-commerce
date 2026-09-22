@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type CartItem, type Product } from "@/lib/api";
 import { useCart } from "@/components/cart/CartContext";
-import { clampQty, parseItemsParam, totalsFor, type CheckoutLine, type CheckoutTotals } from "./checkoutItems";
+import { clampQty, parseItemsParam, totalsFor, buyNowLineOptions, buyNowThumbnail, cartLineOptions, type CheckoutLine, type CheckoutTotals } from "./checkoutItems";
 
 export interface CheckoutLineInput {
   skuId?: string;
@@ -69,6 +69,8 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
           slug: product.slug,
           name: product.name,
           variant: variant?.name ?? "Default",
+          options: buyNowLineOptions(product, skuId),
+          thumbnail: buyNowThumbnail(product),
           quantity: buyNowQty,
           unitPrice: sku?.price ?? null,
           compareAtPrice: sku?.compareAtPrice ?? null,
@@ -80,6 +82,14 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
       slug: item.productSlug,
       name: item.productName,
       variant: item.variantName,
+      options: cartLineOptions(item),
+      thumbnail: item.thumbnail
+        ? {
+            url: item.thumbnail.url,
+            type: item.thumbnail.type,
+            altText: item.thumbnail.altText,
+          }
+        : null,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       compareAtPrice: item.compareAtPrice,

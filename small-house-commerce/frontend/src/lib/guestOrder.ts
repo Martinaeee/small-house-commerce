@@ -11,6 +11,8 @@
  * Number()-coerces before passing to formatPrice (which takes a number).
  */
 
+import type { OrderOptionSnapshotV1 } from "./order-options";
+
 // --- enums (mirror backend/prisma/schema/order.prisma) -----------------------
 
 export type OrderStatus =
@@ -61,6 +63,8 @@ export interface GuestOrderItem {
   productNameSnapshot: string;
   skuCodeSnapshot: string;
   variantSnapshot: string;
+  /** Stored order-time structured snapshot; null on pre-typed-options lines. */
+  optionSnapshot: OrderOptionSnapshotV1 | null;
   quantity: number;
   unitPrice: string;
   unitDiscount: string;

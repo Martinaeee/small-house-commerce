@@ -1,11 +1,87 @@
+import type { CartItem, Product } from "@/lib/api";
+
+/** One structured display pair on a checkout line ("Color" → "Red"). */
+export interface CheckoutLineOption {
+  label: string;
+  value: string;
+}
+
+/**
+ * The line's effective thumbnail (IMAGE or VIDEO); null renders the
+ * placeholder. Cart lines carry the backend-enriched summary thumbnail;
+ * the Buy Now line resolves from the product payload's effective cover.
+ */
+export interface CheckoutLineThumbnail {
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+}
+
 export interface CheckoutLine {
   key: string;
   slug: string;
   name: string;
+  /** Legacy variant text — the display fallback when `options` is empty. */
   variant: string;
+  /** Structured option pairs in option-position order; empty for legacy lines. */
+  options: CheckoutLineOption[];
+  thumbnail: CheckoutLineThumbnail | null;
   quantity: number;
   unitPrice: number | null;
   compareAtPrice: number | null;
+}
+
+/** Option display order mirrors the backend: position, stable id tie-break. */
+function byOptionPosition(
+  left: { id: string; position: number },
+  right: { id: string; position: number },
+): number {
+  return (
+    left.position - right.position ||
+    (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+  );
+}
+
+/** Cart path: pairs from the enriched summary's optionValues, already in the backend's canonical order. */
+export function cartLineOptions(item: CartItem): CheckoutLineOption[] {
+  return item.optionValues.map((value) => ({
+    label: value.optionName,
+    value: value.label,
+  }));
+}
+
+/**
+ * Buy Now path: pairs resolved from the product's option graph for the
+ * requested SKU, ordered by option position. Empty when the SKU matches no
+ * variant or the product has no typed options — the line then falls back to
+ * its variant text, exactly like a legacy cart row.
+ */
+export function buyNowLineOptions(
+  product: Product,
+  skuId: string,
+): CheckoutLineOption[] {
+  const variant = product.variants.find((v) => v.sku?.id === skuId);
+  if (!variant) return [];
+  const pairs: CheckoutLineOption[] = [];
+  for (const option of [...product.options].sort(byOptionPosition)) {
+    const value = option.values.find((candidate) =>
+      variant.optionValueIds.includes(candidate.id),
+    );
+    if (value) pairs.push({ label: option.name, value: value.label });
+  }
+  return pairs;
+}
+
+/**
+ * Buy Now thumbnail from the product payload's effective cover (the same
+ * source product cards use) — no extra fetch; the cart path instead carries
+ * the backend-enriched per-line thumbnail.
+ */
+export function buyNowThumbnail(product: Product): CheckoutLineThumbnail | null {
+  const cover = product.effectiveCoverMedia;
+  return cover
+    ? { url: cover.url, type: cover.type, altText: cover.altText }
+    : null;
 }
 
 export function clampQty(qty?: string): number {

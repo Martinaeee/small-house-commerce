@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { customerApi, type AccountOrder } from "@/lib/auth";
+import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 
 const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
@@ -107,6 +108,24 @@ function OrdersPanel() {
                   {" · "}
                   {STATUS_LABELS[order.orderStatus] ?? order.orderStatus}
                 </p>
+                {/* The order-time option snapshot is what the shopper actually
+                    bought — shown verbatim; the legacy variant text covers
+                    lines created before typed options. */}
+                {order.items.map((item, index) => {
+                  const optionsText = formatOrderOptionsFromSnapshot(
+                    item.optionSnapshot,
+                    item.variantSnapshot,
+                  );
+                  return (
+                    <p
+                      key={index}
+                      className="mt-1 truncate text-xs text-ink-muted"
+                    >
+                      {item.quantity} × {item.productNameSnapshot}
+                      {optionsText ? ` — ${optionsText}` : ""}
+                    </p>
+                  );
+                })}
               </div>
               <span className="font-semibold text-ink">{formatPrice(order.grandTotal)}</span>
             </Link>

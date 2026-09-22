@@ -27,6 +27,10 @@ import {
   type SourceType,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import {
+  formatOrderOptionsFromSnapshot,
+  type OrderOptionSnapshotV1,
+} from "@/lib/order-options";
 
 // Eligibility sets mirrored verbatim from the Task 5 orders list page.
 const CONFIRM_BLOCKED = new Set<OrderStatus>([
@@ -80,6 +84,18 @@ function formatPreferredDate(value: string | null): string {
 
 function textOrDash(value: string | null | undefined): string {
   return value === null || value === undefined || value === "" ? "—" : value;
+}
+
+/**
+ * Options text for one order line: the authoritative order-time snapshot
+ * ("Color: Red · Size: Small"), falling back to the legacy variant text for
+ * lines created before the typed option graph.
+ */
+function orderItemOptionsText(item: {
+  optionSnapshot: OrderOptionSnapshotV1 | null;
+  variantSnapshot: string;
+}): string {
+  return formatOrderOptionsFromSnapshot(item.optionSnapshot, item.variantSnapshot);
 }
 
 // Customer classification badge (CUSTOMER_RISK_SPEC §16 display rules).
@@ -989,7 +1005,7 @@ function OrderDetailPage(): ReactNode {
                         {textOrDash(item.productNameSnapshot)}
                       </td>
                       <td className="px-3 py-2 text-ink-secondary">
-                        {textOrDash(item.variantSnapshot)}
+                        {textOrDash(orderItemOptionsText(item))}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-ink-secondary">
                         {textOrDash(item.skuCodeSnapshot)}
@@ -1719,6 +1735,7 @@ function OrderDetailPage(): ReactNode {
             {(order?.items ?? []).map((item) => {
               const remaining = unshippedByLine.get(item.id) ?? 0;
               if (remaining <= 0) return null;
+              const optionsText = orderItemOptionsText(item);
               const value = Math.min(shipQty[item.id] ?? 0, remaining);
               return (
                 <li
@@ -1731,7 +1748,8 @@ function OrderDetailPage(): ReactNode {
                     </p>
                     <p className="text-xs text-ink-muted">
                       {item.skuCodeSnapshot}
-                      {item.variantSnapshot ? ` · ${item.variantSnapshot}` : ""} —
+                      {optionsText ? ` · ${optionsText}` : ""}
+                      {" — "}
                       {remaining} remaining
                     </p>
                   </div>

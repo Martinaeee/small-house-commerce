@@ -13,7 +13,6 @@ import {
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { useProductImages } from "@/lib/productImages";
 import { track } from "@/lib/tracking";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { lookupPostalCode } from "@/lib/postalCodes";
@@ -137,9 +136,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     totals,
     total,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
-
-  const slugs = useMemo(() => lines.map((line) => line.slug), [lines]);
-  const images = useProductImages(slugs);
+  // Checkout lines carry their own enriched thumbnails (cart summary data /
+  // Buy Now product cover), so no product-by-slug image recovery is needed.
 
   // Restore a draft left by an earlier REVIEW ORDER (back-button / re-entry).
   useEffect(() => {
@@ -491,7 +489,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             ) : lines.length === 0 ? (
               <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
             ) : (
-              <OrderPreview lines={lines} images={images} />
+              <OrderPreview lines={lines} />
             )}
           </div>
         </div>
