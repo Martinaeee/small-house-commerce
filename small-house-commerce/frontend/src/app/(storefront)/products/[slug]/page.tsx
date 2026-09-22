@@ -8,11 +8,20 @@ import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 
 export const revalidate = 120;
 
-async function fetchProduct(slug: string): Promise<Product | null> {
+async function fetchProduct(
+  slug: string,
+  variantId?: string | null,
+): Promise<Product | null> {
   try {
-    const res = await fetch(serverApiUrl(`/api/v1/storefront/products/${slug}`), {
-      next: { revalidate, tags: STOREFRONT_TAGS },
-    });
+    const query = variantId
+      ? `?variantId=${encodeURIComponent(variantId)}`
+      : "";
+    const res = await fetch(
+      serverApiUrl(`/api/v1/storefront/products/${slug}${query}`),
+      {
+        next: { revalidate, tags: STOREFRONT_TAGS },
+      },
+    );
     if (!res.ok) return null;
     return (await res.json()) as Product;
   } catch {
@@ -95,12 +104,25 @@ export async function generateMetadata({
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ variant?: string | string[] }>;
 }) {
-  const { slug } = await params;
-  const product = await fetchProduct(slug);
-  if (!product) notFound();
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
+  const initialVariantId =
+    typeof query.variant === "string" ? query.variant : null;
+  const baseProduct = await fetchProduct(slug);
+  if (!baseProduct) notFound();
+  const initialVariantIsSelectable = baseProduct.variants.some(
+    (variant) =>
+      variant.id === initialVariantId &&
+      variant.sku?.status === "ACTIVE" &&
+      variant.sku.price !== null,
+  );
+  const product = initialVariantIsSelectable
+    ? ((await fetchProduct(slug, initialVariantId)) ?? baseProduct)
+    : baseProduct;
 
   const [category, relatedRes] = await Promise.all([
     fetchCategoryInfo(product.categoryId),
@@ -128,6 +150,7 @@ export default async function ProductDetailPage({
       delivery={deliveryWindows()}
       related={related}
       jsonLd={buildProductJsonLd(product, category)}
+      initialVariantId={initialVariantId}
     />
   );
 }
