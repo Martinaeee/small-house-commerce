@@ -40,7 +40,7 @@ const navigation = vi.hoisted(() => {
   };
 });
 const cart = vi.hoisted(() => ({ addItem: vi.fn() }));
-const tracking = vi.hoisted(() => ({ track: vi.fn() }));
+const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 
 vi.mock("next/navigation", async () => {
   const { useSyncExternalStore } = await import("react");
@@ -59,7 +59,10 @@ vi.mock("@/components/site/SiteSettingsProvider", () => ({
     supportHours: "Daily",
   }),
 }));
-vi.mock("@/lib/tracking", () => ({ track: tracking.track }));
+vi.mock("@/lib/tracking", () => ({
+  track: tracking.track,
+  trackCustom: tracking.trackCustom,
+}));
 vi.mock("@/lib/recently-viewed", () => ({ recordProductView: vi.fn() }));
 
 const sharedMedia: ProductMediaSet = {
@@ -306,6 +309,7 @@ beforeEach(() => {
   navigation.replace.mockReset();
   cart.addItem.mockReset().mockResolvedValue(undefined);
   tracking.track.mockReset();
+  tracking.trackCustom.mockReset();
   vi.restoreAllMocks();
 
   // Mirror Next: the search-param store updates after native history mutations.
@@ -950,5 +954,138 @@ describe("browser history navigation", () => {
         "/products/chair?variant=red-small",
       ),
     );
+  });
+
+  it("fires ViewContent once for the displayed SKU and option_select on changes", async () => {
+    const user = userEvent.setup();
+    renderPdp();
+
+    // The displayed SKU at mount is the default display variant.
+    await waitFor(() =>
+      expect(tracking.track).toHaveBeenCalledWith(
+        "ViewContent",
+        expect.objectContaining({
+          content_ids: ["sku-red-small"],
+          content_type: "product",
+          value: 100,
+          currency: "PHP",
+        }),
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "option_select",
+      expect.objectContaining({
+        product_id: "product-1",
+        option_kind: "COLOR",
+        option_value_id: "blue",
+        selection_source: "USER",
+      }),
+    );
+
+    // Re-selecting the selected value is a no-op, not another option_select,
+    // and an option change never re-fires ViewContent.
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
+      "ViewContent",
+    ]);
+    expect(tracking.trackCustom).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits variant_confirm and AddToCart exactly once after a confirmed add", async () => {
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp({ variantId: "blue-large" });
+
+    await user.click(screen.getByTestId("add-to-cart"));
+    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
+    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
+      "ViewContent",
+      "AddToCart",
+    ]);
+    expect(tracking.track).toHaveBeenCalledWith(
+      "AddToCart",
+      expect.objectContaining({
+        content_ids: ["sku-blue-large"],
+        contents: [{ id: "sku-blue-large", quantity: 1 }],
+        value: 120,
+        currency: "PHP",
+      }),
+    );
+    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
+      "variant_confirm",
+    ]);
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "variant_confirm",
+      expect.objectContaining({
+        product_id: "product-1",
+        variant_id: "blue-large",
+        sku_id: "sku-blue-large",
+        source: "PDP",
+      }),
+    );
+  });
+
+  it("emits variant_confirm before Order Now navigates to the final SKU", async () => {
+    installMediaFetch();
+    navigation.search = new URLSearchParams("variant=blue-large");
+    const user = userEvent.setup();
+    renderPdp({ variantId: "blue-large" });
+
+    await user.click(screen.getByTestId("order-now"));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(navigation.push).toHaveBeenCalledWith(
+      "/checkout?skuId=sku-blue-large&qty=1&slug=chair",
+    );
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "variant_confirm",
+      expect.objectContaining({
+        variant_id: "blue-large",
+        sku_id: "sku-blue-large",
+        source: "PDP",
+      }),
+    );
+    // No conversion event on the PDP for an Order Now; checkout owns those.
+    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
+      "ViewContent",
+    ]);
+  });
+
+  it("fires variant_unavailable and no conversion when a dialog pick turns the Order Now combination sold out", async () => {
+    const user = userEvent.setup();
+    renderPdp();
+
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await user.click(screen.getByTestId("order-now"));
+    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
+    // Red/Large is ACTIVE and priced but sold out — switching to it inside
+    // the dialog makes the confirm attempt a diagnostic event, never a
+    // conversion.
+    await user.click(within(dialog).getByRole("button", { name: "Large" }));
+    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "variant_unavailable",
+      expect.objectContaining({
+        product_id: "product-1",
+        selected_value_ids: { color: "red", size: "large" },
+        missing_or_oos: "OOS",
+      }),
+    );
+    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
+      "ViewContent",
+    ]);
+    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
+      "option_select",
+      "option_select",
+      "variant_unavailable",
+    ]);
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(cart.addItem).not.toHaveBeenCalled();
   });
 });

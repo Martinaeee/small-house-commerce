@@ -18,7 +18,13 @@ import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
-import { track } from "@/lib/tracking";
+import {
+  addToCartEvent,
+  emitCommerceEvent,
+  variantConfirmEvent,
+  variantUnavailableEvent,
+  viewContentEvent,
+} from "@/lib/commerce-events";
 import { recordProductView } from "@/lib/recently-viewed";
 
 import { RatingStars } from "./RatingStars";
@@ -363,14 +369,18 @@ export function PdpClient({
   }, []);
 
   useEffect(() => {
-    track("ViewContent", {
-      content_ids: [product.id],
-      content_name: product.name,
-      content_type: "product",
-      value: price ?? undefined,
-      currency: "PHP",
-    });
-    // ViewContent is once per product view, not once per option change.
+    // ViewContent is once per product view, not once per option change: the
+    // SKU captured here is what the page FIRST displays — the deep-linked
+    // variant or the default display variant (design spec §12.3). Later
+    // option changes are covered by option_select, never a second ViewContent.
+    emitCommerceEvent(
+      viewContentEvent({
+        productId: product.id,
+        productName: product.name,
+        skuId: displayVariant?.sku?.id ?? null,
+        price: displayVariant?.sku?.price ?? null,
+      }),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.id]);
 
@@ -387,36 +397,73 @@ export function PdpClient({
   }, [restoreIntentFocus]);
 
   const executeAddToCart = useCallback(async () => {
-    if (!sku) return;
+    if (!sku || !resolvedVariant) return;
     setBusy(true);
     setNotice(null);
     try {
       await addItem({ skuId: sku.id, quantity: primaryLine.quantity });
       setNotice("Added to cart");
-      track("AddToCart", {
-        content_ids: [sku.id],
-        content_name: product.name,
-        content_type: "product",
-        contents: [{ id: sku.id, quantity: primaryLine.quantity }],
-        value: sku.price ? sku.price * primaryLine.quantity : undefined,
-        currency: "PHP",
-      });
+      // The add succeeded: exactly one variant_confirm + AddToCart pair,
+      // both keyed by the final SKU. A failed add emits nothing.
+      emitCommerceEvent(
+        variantConfirmEvent({
+          productId: product.id,
+          variantId: resolvedVariant.id,
+          skuId: sku.id,
+          source: "PDP",
+        }),
+      );
+      emitCommerceEvent(
+        addToCartEvent({
+          productId: product.id,
+          productName: product.name,
+          skuId: sku.id,
+          quantity: primaryLine.quantity,
+          price: sku.price,
+        }),
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not add to cart");
     } finally {
       setBusy(false);
     }
-  }, [addItem, primaryLine.quantity, product.name, sku]);
+  }, [addItem, primaryLine.quantity, product.id, product.name, resolvedVariant, sku]);
 
   const executeOrderNow = useCallback(() => {
     if (!sku || sku.availableInventory <= 0) {
       setNotice("This item is out of stock");
+      // A purchase attempt hit an unavailable combination: diagnostic only,
+      // never a conversion event.
+      emitCommerceEvent(
+        variantUnavailableEvent({
+          productId: product.id,
+          selectedValueIds: primaryLine.selectedValueIds,
+          reason: sku ? "OOS" : "MISSING",
+        }),
+      );
       return;
     }
+    // Order Now requires a confirmed combination; name it before navigating.
+    emitCommerceEvent(
+      variantConfirmEvent({
+        productId: product.id,
+        variantId: resolvedVariant?.id ?? null,
+        skuId: sku.id,
+        source: "PDP",
+      }),
+    );
     router.push(
       `/checkout?skuId=${sku.id}&qty=${primaryLine.quantity}&slug=${encodeURIComponent(product.slug)}`,
     );
-  }, [primaryLine.quantity, product.slug, router, sku]);
+  }, [
+    primaryLine.quantity,
+    primaryLine.selectedValueIds,
+    product.id,
+    product.slug,
+    resolvedVariant,
+    router,
+    sku,
+  ]);
 
   const requestIntent = useCallback(
     (intent: PurchaseIntent, trigger: HTMLElement) => {
@@ -447,6 +494,15 @@ export function PdpClient({
     if (intentExecutingRef.current || !pendingIntent || !resolvedVariant) return;
     if (pendingIntent === "ORDER_NOW" && !primaryDerived.purchasableVariant) {
       setNotice("This item is out of stock");
+      // The shopper confirmed a sold-out combination for immediate order:
+      // diagnostic event only, no conversion.
+      emitCommerceEvent(
+        variantUnavailableEvent({
+          productId: product.id,
+          selectedValueIds: primaryLine.selectedValueIds,
+          reason: "OOS",
+        }),
+      );
       return;
     }
     intentExecutingRef.current = true;
@@ -463,6 +519,8 @@ export function PdpClient({
     pendingIntent,
     primaryDerived.purchasableVariant,
     primaryLine.clientLineId,
+    primaryLine.selectedValueIds,
+    product.id,
     resolvedVariant,
     restoreIntentFocus,
   ]);

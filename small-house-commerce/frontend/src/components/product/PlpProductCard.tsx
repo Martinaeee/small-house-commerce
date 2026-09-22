@@ -10,7 +10,7 @@ import {
   resolveSelection,
 } from "@/lib/product-selection";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
-import { track } from "@/lib/tracking";
+import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { RatingStars } from "./RatingStars";
@@ -52,14 +52,16 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
     setBusy(true);
     try {
       await addItem({ skuId: directSku.id, quantity: 1 });
-      track("AddToCart", {
-        content_ids: [directSku.id],
-        content_name: product.name,
-        content_type: "product",
-        contents: [{ id: directSku.id, quantity: 1 }],
-        value: directSku.price,
-        currency: "PHP",
-      });
+      // Only a successful add fires AddToCart, keyed by the final SKU.
+      emitCommerceEvent(
+        addToCartEvent({
+          productId: product.id,
+          productName: product.name,
+          skuId: directSku.id,
+          quantity: 1,
+          price: directSku.price,
+        }),
+      );
       setAdded(true);
       setTimeout(() => {
         setAdded((current) => (current ? false : current));

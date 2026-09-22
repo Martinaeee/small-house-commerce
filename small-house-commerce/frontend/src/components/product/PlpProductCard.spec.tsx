@@ -17,7 +17,7 @@ import { PlpProductCard } from "./PlpProductCard";
  */
 
 const cart = vi.hoisted(() => ({ addItem: vi.fn(), openPicker: vi.fn() }));
-const tracking = vi.hoisted(() => ({ track: vi.fn() }));
+const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -31,7 +31,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/categories/dining-living",
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/lib/tracking", () => ({ track: tracking.track }));
+vi.mock("@/lib/tracking", () => ({
+  track: tracking.track,
+  trackCustom: tracking.trackCustom,
+}));
 vi.mock("@/components/cart/CartContext", () => ({
   useCart: () => ({ addItem: cart.addItem, openPicker: cart.openPicker }),
 }));

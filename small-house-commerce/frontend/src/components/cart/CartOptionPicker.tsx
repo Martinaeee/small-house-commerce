@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CartItem, Product } from "@/lib/api";
 import { fetchProduct } from "@/lib/productCache";
+import { emitCommerceEvent, variantConfirmEvent } from "@/lib/commerce-events";
 import { useCart } from "./CartContext";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -163,7 +164,8 @@ function CartOptionPickerForm({
   onDone: () => void;
 }) {
   const { replaceItem } = useCart();
-  const { primaryLine, primaryDerived, confirmLine } = usePdpPurchase();
+  const { product, primaryLine, primaryDerived, confirmLine } =
+    usePdpPurchase();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const aliveRef = useRef(true);
@@ -175,8 +177,9 @@ function CartOptionPickerForm({
     };
   }, []);
 
-  const sku = primaryDerived.resolvedVariant?.sku ?? null;
-  const resolved = primaryDerived.resolvedVariant !== null;
+  const resolvedVariant = primaryDerived.resolvedVariant;
+  const sku = resolvedVariant?.sku ?? null;
+  const resolved = resolvedVariant !== null;
   const available = primaryDerived.availableInventory;
   const outOfStock = resolved && available <= 0;
   const stockLabel =
@@ -189,7 +192,7 @@ function CartOptionPickerForm({
           : null;
 
   async function confirmChange() {
-    if (!sku || !resolved || busy) return;
+    if (!sku || !resolvedVariant || busy) return;
     setBusy(true);
     setError(null);
     // The Confirm click is the explicit confirmation for the chosen
@@ -202,6 +205,16 @@ function CartOptionPickerForm({
         quantity: item.quantity,
       });
       if (!aliveRef.current) return;
+      // A successful replace names the newly confirmed SKU. This is a swap,
+      // not an add, so no AddToCart fires here.
+      emitCommerceEvent(
+        variantConfirmEvent({
+          productId: product.id,
+          variantId: resolvedVariant.id,
+          skuId: sku.id,
+          source: "CART_CHANGE",
+        }),
+      );
       onDone();
     } catch (err) {
       if (!aliveRef.current) return;

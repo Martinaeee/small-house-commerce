@@ -17,7 +17,7 @@ import { QuickAddView } from "./QuickAddView";
  */
 
 const cart = vi.hoisted(() => ({ addItem: vi.fn() }));
-const tracking = vi.hoisted(() => ({ track: vi.fn() }));
+const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -31,7 +31,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/products/chair",
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/lib/tracking", () => ({ track: tracking.track }));
+vi.mock("@/lib/tracking", () => ({
+  track: tracking.track,
+  trackCustom: tracking.trackCustom,
+}));
 vi.mock("@/components/cart/CartContext", () => ({
   useCart: () => ({ addItem: cart.addItem }),
 }));
@@ -391,6 +394,53 @@ describe("QuickAddView", () => {
       "Sorry, we couldn't add that right now. Please try again.",
     );
     expect(tracking.track).not.toHaveBeenCalled();
+    // A failed add never emits a conversion — only the earlier picks fired.
+    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
+      "option_select",
+      "option_select",
+    ]);
     expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it("emits option_select while picking and variant_confirm once after success", async () => {
+    const user = userEvent.setup();
+    const onAdded = vi.fn();
+    render(
+      <QuickAddView product={swatchProduct} onAdded={onAdded} onClose={vi.fn()} />,
+    );
+
+    await selectOptions(user, ["Red", "Small"]);
+    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
+      "option_select",
+      "option_select",
+    ]);
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "option_select",
+      expect.objectContaining({
+        product_id: "product-1",
+        option_kind: "COLOR",
+        option_value_id: "red",
+        selection_source: "USER",
+      }),
+    );
+
+    await user.click(screen.getByTestId("picker-confirm-chair"));
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    // Exactly one variant_confirm keyed by the final SKU, then one AddToCart.
+    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
+      "option_select",
+      "option_select",
+      "variant_confirm",
+    ]);
+    expect(tracking.trackCustom).toHaveBeenLastCalledWith(
+      "variant_confirm",
+      expect.objectContaining({ sku_id: "sku-red-small", source: "QUICK_ADD" }),
+    );
+    expect(tracking.track).toHaveBeenCalledTimes(1);
+    expect(tracking.track).toHaveBeenCalledWith(
+      "AddToCart",
+      expect.objectContaining({ content_ids: ["sku-red-small"] }),
+    );
+    expect(onAdded).toHaveBeenCalledTimes(1);
   });
 });

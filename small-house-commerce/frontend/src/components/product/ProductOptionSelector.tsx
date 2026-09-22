@@ -5,6 +5,7 @@ import type {
   StorefrontOptionValue,
   StorefrontProductVariant,
 } from "@/lib/api";
+import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 function isSelectable(variant: StorefrontProductVariant): boolean {
@@ -170,6 +171,19 @@ export function ProductOptionSelector({
                       key={value.id}
                       type="button"
                       onClick={() => {
+                        // option_select is the engagement event for an actual
+                        // option change on the shared purchase island (PDP,
+                        // Quick Add, cart Change Options) — never a conversion.
+                        if (selectedValueId !== value.id) {
+                          emitCommerceEvent(
+                            optionSelectEvent({
+                              productId: product.id,
+                              optionKind: option.kind,
+                              optionValueId: value.id,
+                              selectionSource: "USER",
+                            }),
+                          );
+                        }
                         const invalidatesConfirmedPrimary =
                           line === orderLines[0] &&
                           primaryDerived.purchaseConfirmed &&

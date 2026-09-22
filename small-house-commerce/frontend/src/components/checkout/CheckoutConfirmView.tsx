@@ -10,6 +10,7 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { readAttribution } from "@/lib/tracking";
+import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
 import {
   readCheckoutDraft,
@@ -143,7 +144,16 @@ export function CheckoutConfirmView({
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
       try {
-        if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
+        // The success page only receives the order number, so the full
+        // Purchase event (final SKU list + value) is stashed tab-scoped
+        // BEFORE navigation; PurchaseTracking consumes it exactly once.
+        storePurchasePayload(
+          purchaseEvent({
+            orderId: order.orderNumber,
+            items: checkout.orderItems,
+            value: checkout.total,
+          }),
+        );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
         // Carried to /track-order so the shopper does not retype the number they
         // just entered. Tab-scoped, cleared when the tab closes, never logged

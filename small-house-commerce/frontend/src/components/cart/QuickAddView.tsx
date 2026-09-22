@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Product, ProductMedia } from "@/lib/api";
 import { useCart } from "./CartContext";
-import { track } from "@/lib/tracking";
+import {
+  addToCartEvent,
+  emitCommerceEvent,
+  variantConfirmEvent,
+} from "@/lib/commerce-events";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
@@ -108,7 +112,10 @@ function QuickAddPicker({
           : null;
 
   async function confirmAdd() {
-    if (!sku || sku.price === null || busy || !resolved) return;
+    if (!sku || sku.price === null || busy || !primaryDerived.resolvedVariant) {
+      return;
+    }
+    const resolvedVariant = primaryDerived.resolvedVariant;
     setBusy(true);
     setError(null);
     // The Confirm click is the explicit confirmation for the chosen
@@ -119,14 +126,25 @@ function QuickAddPicker({
         { skuId: sku.id, quantity: primaryLine.quantity },
         { openDrawer: false },
       );
-      track("AddToCart", {
-        content_ids: [sku.id],
-        content_name: product.name,
-        content_type: "product",
-        contents: [{ id: sku.id, quantity: primaryLine.quantity }],
-        value: sku.price * primaryLine.quantity,
-        currency: "PHP",
-      });
+      // The add succeeded: exactly one variant_confirm + AddToCart pair,
+      // both keyed by the final SKU. A failed add emits nothing.
+      emitCommerceEvent(
+        variantConfirmEvent({
+          productId: product.id,
+          variantId: resolvedVariant.id,
+          skuId: sku.id,
+          source: "QUICK_ADD",
+        }),
+      );
+      emitCommerceEvent(
+        addToCartEvent({
+          productId: product.id,
+          productName: product.name,
+          skuId: sku.id,
+          quantity: primaryLine.quantity,
+          price: sku.price,
+        }),
+      );
       if (!aliveRef.current) return;
       onAdded();
     } catch {

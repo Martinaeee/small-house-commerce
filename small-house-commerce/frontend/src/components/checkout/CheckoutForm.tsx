@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { track } from "@/lib/tracking";
+import { emitCommerceEvent, initiateCheckoutEvent } from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
@@ -173,11 +173,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     } catch {
       // Storage unavailable: proceed and fire.
     }
-    track("InitiateCheckout", {
-      contents: orderItems.map((item) => ({ id: item.skuId, quantity: item.quantity })),
-      value: total ?? undefined,
-      currency: "PHP",
-    });
+    // Final SKU list (cart or Buy Now), at most once per checkout session.
+    emitCommerceEvent(initiateCheckoutEvent({ items: orderItems, value: total }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuyNow, orderItems.length, buyNowMatchedSku]);
 
