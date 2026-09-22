@@ -686,6 +686,46 @@ function rowKey(ref: EntityRef): string {
   return ref.id ?? ref.clientKey ?? "";
 }
 
+/**
+ * Shared row-identity key for UI code: rows are addressed by `id ?? clientKey`,
+ * so client code must key maps/lookups across BOTH spaces. Exported so the
+ * admin editors cannot drift from the adapter's addressing.
+ */
+export function entityRowKey(ref: EntityRef): string {
+  return rowKey(ref);
+}
+
+/**
+ * Mints a request-local unique client key for a browser-created row. Uniqueness
+ * spans the id space TOO (rows are addressed by `id ?? clientKey`), so a fresh
+ * key must dodge every id as well — not just the other client keys.
+ */
+export function freshClientKey(
+  prefix: string,
+  draft: AdminCatalogGraphDraft,
+): string {
+  const used = new Set<string>();
+  for (const option of draft.options) {
+    if (option.id) used.add(option.id);
+    if (option.clientKey) used.add(option.clientKey);
+    for (const value of option.values) {
+      if (value.id) used.add(value.id);
+      if (value.clientKey) used.add(value.clientKey);
+    }
+  }
+  for (const variant of draft.variants) {
+    if (variant.id) used.add(variant.id);
+    if (variant.clientKey) used.add(variant.clientKey);
+  }
+  for (const media of draft.media) {
+    if (media.id) used.add(media.id);
+    if (media.clientKey) used.add(media.clientKey);
+  }
+  let index = used.size + 1;
+  while (used.has(`${prefix}-${index}`)) index += 1;
+  return `${prefix}-${index}`;
+}
+
 function optionScalarChanged(
   original: AdminOption,
   draft: AdminOptionDraft,

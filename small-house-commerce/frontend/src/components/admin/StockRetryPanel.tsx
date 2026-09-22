@@ -34,7 +34,7 @@ export function StockRetryPanel({
         {failures.length} 项库存写入失败（其余已保存）
       </p>
       <p className="mt-1 text-xs text-ink-muted">
-        修正数量后点下方按钮，只会重试失败的行；已成功的行不会再次写入。
+        确认目标数量无误后点下方按钮，只会重试失败的行；已成功的行不会再次写入。
       </p>
       <ul className="mt-3 flex flex-col gap-2">
         {failures.map((failure) => (

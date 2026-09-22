@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "./ImageUrlInput";
 import {
+  entityRowKey as rowKey,
+  freshClientKey,
   type AdminCatalogGraphDraft,
   type AdminMediaDraft,
 } from "@/lib/admin-product-graph";
@@ -24,36 +26,6 @@ import {
  * typed; the save boundary drops URL-less rows (persisted blanks become
  * retirements).
  */
-
-function rowKey(ref: { id?: string; clientKey?: string }): string {
-  return ref.id ?? ref.clientKey ?? "";
-}
-
-function freshKey(prefix: string, draft: AdminCatalogGraphDraft): string {
-  // Row identity spans BOTH id and clientKey spaces (rows are addressed by
-  // `id ?? clientKey`), so a fresh key must dodge every id too — not just the
-  // other client keys.
-  const used = new Set<string>();
-  for (const option of draft.options) {
-    if (option.id) used.add(option.id);
-    if (option.clientKey) used.add(option.clientKey);
-    for (const value of option.values) {
-      if (value.id) used.add(value.id);
-      if (value.clientKey) used.add(value.clientKey);
-    }
-  }
-  for (const variant of draft.variants) {
-    if (variant.id) used.add(variant.id);
-    if (variant.clientKey) used.add(variant.clientKey);
-  }
-  for (const media of draft.media) {
-    if (media.id) used.add(media.id);
-    if (media.clientKey) used.add(media.clientKey);
-  }
-  let index = used.size + 1;
-  while (used.has(`${prefix}-${index}`)) index += 1;
-  return `${prefix}-${index}`;
-}
 
 /** Renumbers every scoped set's sortOrder from its list order (0-based). */
 function renumberScopes(draft: AdminCatalogGraphDraft): void {
@@ -116,7 +88,7 @@ export function ProductMediaScopesEditor({
         ?.values[valueIndex];
       if (!value) return;
       draft.media.push({
-        clientKey: freshKey("media", draft),
+        clientKey: freshClientKey("media", draft),
         url: "",
         type: "IMAGE",
         altText: null,
@@ -137,7 +109,7 @@ export function ProductMediaScopesEditor({
       );
       if (!variant) return;
       draft.media.push({
-        clientKey: freshKey("media", draft),
+        clientKey: freshClientKey("media", draft),
         url: "",
         type: "IMAGE",
         altText: null,

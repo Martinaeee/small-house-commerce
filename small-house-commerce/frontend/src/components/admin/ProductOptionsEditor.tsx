@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "./ImageUrlInput";
 import {
+  freshClientKey,
   validateAdminCatalogGraph,
   type AdminCatalogGraphDraft,
   type AdminOptionDraft,
@@ -51,33 +52,6 @@ const PRESENTATION_LABELS: Record<AdminOptionDraft["presentation"], string> = {
   SWATCH: "SWATCH — 色块",
   IMAGE: "IMAGE — 缩略图",
 };
-
-/** A request-local unique client key for a browser-created row. */
-function freshKey(prefix: string, draft: AdminCatalogGraphDraft): string {
-  // Row identity spans BOTH id and clientKey spaces (rows are addressed by
-  // `id ?? clientKey`), so a fresh key must dodge every id too — not just the
-  // other client keys.
-  const used = new Set<string>();
-  for (const option of draft.options) {
-    if (option.id) used.add(option.id);
-    if (option.clientKey) used.add(option.clientKey);
-    for (const value of option.values) {
-      if (value.id) used.add(value.id);
-      if (value.clientKey) used.add(value.clientKey);
-    }
-  }
-  for (const variant of draft.variants) {
-    if (variant.id) used.add(variant.id);
-    if (variant.clientKey) used.add(variant.clientKey);
-  }
-  for (const media of draft.media) {
-    if (media.id) used.add(media.id);
-    if (media.clientKey) used.add(media.clientKey);
-  }
-  let index = used.size + 1;
-  while (used.has(`${prefix}-${index}`)) index += 1;
-  return `${prefix}-${index}`;
-}
 
 function renumberOptions(draft: AdminCatalogGraphDraft): void {
   draft.options.forEach((option, index) => {
@@ -159,7 +133,7 @@ export function ProductOptionsEditor({
   const addOption = (): void =>
     mutate((draft) => {
       draft.options.push({
-        clientKey: freshKey("option", draft),
+        clientKey: freshClientKey("option", draft),
         kind: "COLOR",
         name: "",
         position: draft.options.length,
@@ -186,7 +160,7 @@ export function ProductOptionsEditor({
     mutate((draft) => {
       const option = draft.options[optionIndex]!;
       option.values.push({
-        clientKey: freshKey("value", draft),
+        clientKey: freshClientKey("value", draft),
         label: "",
         position: option.values.length,
         swatchHex: null,

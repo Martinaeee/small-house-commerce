@@ -525,17 +525,21 @@ export default function EditProductPage(): ReactNode {
                   reason: "Product form",
                 })),
               );
-              results.forEach((entry, index) => {
-                const attempt = resolved.ready[index];
-                if (!entry.ok && attempt) {
-                  failures.push({
-                    skuId: entry.skuId,
-                    onHand: attempt.onHand,
-                    label: attempt.label,
-                    error: entry.error,
-                  });
-                }
-              });
+              // Match settled results back by skuId, not array position, so
+              // an unexpected ordering can never drop or mislabel a failure.
+              const attemptBySkuId = new Map(
+                resolved.ready.map((row) => [row.skuId, row]),
+              );
+              for (const entry of results) {
+                if (entry.ok) continue;
+                const attempt = attemptBySkuId.get(entry.skuId);
+                failures.push({
+                  skuId: entry.skuId,
+                  onHand: attempt?.onHand ?? 0,
+                  label: attempt?.label ?? entry.skuId,
+                  error: entry.error,
+                });
+              }
               wroteStock = true;
             }
           } else {
@@ -568,7 +572,7 @@ export default function EditProductPage(): ReactNode {
             setStockFailures(failures);
             setError(
               productSaved
-                ? `Product saved, but ${failures.length} stock update(s) failed — fix the values and retry below (only failed rows are sent again).`
+                ? `Product saved, but ${failures.length} stock update(s) failed — retry below (only failed rows are sent again).`
                 : `${failures.length} stock update(s) failed — retry below.`,
             );
             return;
@@ -629,13 +633,20 @@ export default function EditProductPage(): ReactNode {
           reason: "Product form",
         })),
       );
+      const attemptBySkuId = new Map(
+        retryable.map((failure) => [failure.skuId, failure]),
+      );
       const stillFailed: StockFailureRow[] = [];
-      results.forEach((entry, index) => {
-        const attempt = retryable[index];
-        if (!entry.ok && attempt) {
-          stillFailed.push({ ...attempt, error: entry.error });
-        }
-      });
+      for (const entry of results) {
+        if (entry.ok) continue;
+        const attempt = attemptBySkuId.get(entry.skuId);
+        stillFailed.push({
+          skuId: entry.skuId,
+          onHand: attempt?.onHand ?? 0,
+          label: attempt?.label ?? entry.skuId,
+          error: entry.error,
+        });
+      }
       // Adopt server truth either way: the refetched figures show what
       // actually settled (and refresh the reserved context).
       const fresh = await adminApi.getProduct(product.id);

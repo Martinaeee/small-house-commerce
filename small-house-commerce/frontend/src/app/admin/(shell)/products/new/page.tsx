@@ -21,6 +21,7 @@ import {
   adminApi,
   type AdminCatalogGraph,
   type AdminCategoryNode,
+  type AdminProduct,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 import {
@@ -135,7 +136,9 @@ export default function NewProductPage(): ReactNode {
     if (stockFailures.length === 0) return;
     const retryable = stockFailures.filter((failure) => failure.skuId !== "");
     if (retryable.length === 0) {
-      setError("Nothing to retry — save the product again.");
+      setError(
+        "No rows can be retried — continue on the edit page and save there.",
+      );
       return;
     }
     setPending(true);
@@ -148,13 +151,20 @@ export default function NewProductPage(): ReactNode {
           reason: "New product",
         })),
       );
+      const attemptBySkuId = new Map(
+        retryable.map((failure) => [failure.skuId, failure]),
+      );
       const stillFailed: StockFailureRow[] = [];
-      results.forEach((entry, index) => {
-        const attempt = retryable[index];
-        if (!entry.ok && attempt) {
-          stillFailed.push({ ...attempt, error: entry.error });
-        }
-      });
+      for (const entry of results) {
+        if (entry.ok) continue;
+        const attempt = attemptBySkuId.get(entry.skuId);
+        stillFailed.push({
+          skuId: entry.skuId,
+          onHand: attempt?.onHand ?? 0,
+          label: attempt?.label ?? entry.skuId,
+          error: entry.error,
+        });
+      }
       if (!mounted.current) return;
       setStockFailures(stillFailed);
       if (stillFailed.length === 0) {
@@ -212,9 +222,17 @@ export default function NewProductPage(): ReactNode {
     setStockFailures([]);
     setCreatedId(null);
     void (async () => {
+      // Null until createProduct resolves: the catch uses it to tell a
+      // create-time slug conflict apart from a post-create phase failure.
+      let created: AdminProduct | null = null;
       try {
-        const created = await adminApi.createProduct(createPayload);
+        created = await adminApi.createProduct(createPayload);
         if (!mounted.current) return;
+        // The product row EXISTS from here on (with empty images/variants
+        // when the typed flow runs). Point at it immediately so ANY later
+        // failure — Phase A graph PATCH included — leaves the operator a
+        // continue-on-edit escape instead of a re-submit that 409s on slug.
+        setCreatedId(created.id);
         let stockWrites: StockBatchWrite[] = [];
         let saved = created;
         if (phaseDraft) {
@@ -230,6 +248,8 @@ export default function NewProductPage(): ReactNode {
 
         // Phase B — bounded stock batch with real SKU ids resolved from the
         // save response. Failures settle per row; only they are retried.
+        // Results are matched back by skuId, not position, so an unexpected
+        // ordering can never drop or mislabel a failure.
         const failures: StockFailureRow[] = [];
         if (phaseDraft) {
           const resolved = resolveStockBatchWrites(stockWrites, phaseDraft, saved);
@@ -249,17 +269,19 @@ export default function NewProductPage(): ReactNode {
                 reason: "New product",
               })),
             );
-            results.forEach((entry, index) => {
-              const attempt = resolved.ready[index];
-              if (!entry.ok && attempt) {
-                failures.push({
-                  skuId: entry.skuId,
-                  onHand: attempt.onHand,
-                  label: attempt.label,
-                  error: entry.error,
-                });
-              }
-            });
+            const attemptBySkuId = new Map(
+              resolved.ready.map((row) => [row.skuId, row]),
+            );
+            for (const entry of results) {
+              if (entry.ok) continue;
+              const attempt = attemptBySkuId.get(entry.skuId);
+              failures.push({
+                skuId: entry.skuId,
+                onHand: attempt?.onHand ?? 0,
+                label: attempt?.label ?? entry.skuId,
+                error: entry.error,
+              });
+            }
           }
         }
         if (!mounted.current) return;
@@ -267,10 +289,9 @@ export default function NewProductPage(): ReactNode {
         if (failures.length > 0) {
           // Keep the operator here: the product + graph exist, only stock
           // rows failed. The panel retries exactly those rows.
-          setCreatedId(created.id);
           setStockFailures(failures);
           setError(
-            `Product created, but ${failures.length} stock update(s) failed — fix the values and retry below (only failed rows are sent again).`,
+            `Product created, but ${failures.length} stock update(s) failed — retry below (only failed rows are sent again).`,
           );
           setPending(false);
           return;
@@ -279,15 +300,23 @@ export default function NewProductPage(): ReactNode {
         router.push(`/admin/products/${created.id}/edit`);
       } catch (err: unknown) {
         if (!mounted.current) return;
+        const message =
+          err instanceof Error ? err.message : "Failed to create product.";
+        if (created) {
+          // Post-create failure (Phase A graph PATCH / batch transport): the
+          // product exists — surface the backend message verbatim; the
+          // continue-on-edit link below is the way forward.
+          setError(`Product created, but a later save step failed: ${message}`);
+          setPending(false);
+          return;
+        }
         // POST /admin/products 409s (products.service rethrowKnown, Prisma
         // P2002): the unique violation here is the typed slug, so spec §8.7
         // maps 409 to the slug-specific alert; other messages stay verbatim.
         setError(
           errorStatus(err) === 409
             ? "A product with this slug already exists."
-            : err instanceof Error
-              ? err.message
-              : "Failed to create product.",
+            : message,
         );
         setPending(false);
       }
@@ -348,6 +377,23 @@ export default function NewProductPage(): ReactNode {
         </div>
       ) : (
         <>
+          {/* The created product exists even when a later phase failed —
+              always offer the way to it, so a partial save can never strand
+              the operator into re-submitting this form (slug 409). */}
+          {createdId ? (
+            <div
+              role="status"
+              className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            >
+              商品已创建（部分步骤可能未完成）。Continue on the edit page:{" "}
+              <Link
+                href={`/admin/products/${createdId}/edit`}
+                className="font-semibold underline"
+              >
+                继续编辑该商品（edit page）
+              </Link>
+            </div>
+          ) : null}
           {stockFailures.length > 0 ? (
             <div className="mt-4">
               <StockRetryPanel
