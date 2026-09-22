@@ -11,7 +11,9 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 export function ProductStorySection({ section }: { section: HomepageSection }) {
   const p = section.payload ?? {};
   const product = (p.product ?? null) as Product | null;
-  const image = str(p.imageUrl) || product?.images[0]?.url || "";
+  // Effective cover media from the backend contract — never images[0].
+  const image =
+    str(p.imageUrl) || product?.effectiveCoverMedia?.url || "";
   const heading = str(p.heading) || section.title || "";
   const body = str(p.body);
   const ctaLink = str(p.ctaLink) || (product ? `/products/${product.slug}` : "");

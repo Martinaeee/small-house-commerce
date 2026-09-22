@@ -6,16 +6,21 @@ import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { useCart } from "./CartContext";
 import {
+  directAddSku,
   discountPct,
-  firstSku,
   useCartRecommendations,
 } from "@/lib/useCartRecommendations";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
 
 /** Compact "You May Also Like" strip; pool fetch and ranking live in useCartRecommendations. */
 export function CartRecommendations() {
-  const { cart, addItem } = useCart();
+  const { cart, addItem, openPicker } = useCart();
   const recommendations = useCartRecommendations(cart);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [addedSlug, setAddedSlug] = useState<string | null>(null);
@@ -23,8 +28,14 @@ export function CartRecommendations() {
   if (recommendations.length === 0) return null;
 
   async function quickAdd(product: Product) {
-    const sku = firstSku(product);
-    if (!sku || busySlug) return;
+    if (busySlug) return;
+    const sku = directAddSku(product);
+    if (!sku) {
+      // Multi-SKU: no honest direct-add SKU — the visitor picks the
+      // combination through the drawer picker instead of "the first SKU".
+      openPicker(product);
+      return;
+    }
     setBusySlug(product.slug);
     try {
       await addItem({ skuId: sku.id, quantity: 1 });
@@ -44,9 +55,16 @@ export function CartRecommendations() {
       <h2 className="mb-3 text-base font-semibold text-ink">You May Also Like</h2>
       <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-0">
         {recommendations.map((product) => {
-          const sku = firstSku(product)!;
-          const pct = discountPct(sku);
-          const image = product.images[0];
+          // Shared contracts only: effective cover media, and price/stock
+          // derived from the selection state — never images[0]/variants[0].
+          const derived = resolveSelection(
+            product,
+            createInitialSelection(product, null),
+          );
+          const directSku = directAddSku(product);
+          const pct = directSku ? discountPct(directSku) : 0;
+          const price = cardPricePresentation(derived);
+          const image = product.effectiveCoverMedia;
           const busy = busySlug === product.slug;
           const added = addedSlug === product.slug;
           return (
@@ -83,12 +101,24 @@ export function CartRecommendations() {
 
                 <div className="mt-auto flex items-end justify-between gap-1 pt-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-ink">{formatPrice(sku.price!)}</p>
-                    {pct > 0 && (
-                      <p className="text-[11px] leading-tight text-ink-muted line-through">
-                        {formatPrice(sku.compareAtPrice!)}
-                      </p>
-                    )}
+                    {price ? (
+                      price.kind === "exact" ? (
+                        <>
+                          <p className="text-sm font-semibold text-ink">
+                            {formatPrice(price.price)}
+                          </p>
+                          {pct > 0 && price.compareAtPrice !== null && (
+                            <p className="text-[11px] leading-tight text-ink-muted line-through">
+                              {formatPrice(price.compareAtPrice)}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm font-semibold text-ink">
+                          From {formatPrice(price.price)}
+                        </p>
+                      )
+                    ) : null}
                   </div>
                   <button
                     type="button"

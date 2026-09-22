@@ -1,6 +1,6 @@
 import type { Category, Product } from "./api";
 import { SITE_URL, absoluteUrl } from "./product-jsonld";
-import { isInStock, representativeSku } from "./plp";
+import { isInStock, productCardPrice } from "./plp";
 
 /**
  * Storefront category structured data (spec §4.2 P1): BreadcrumbList,
@@ -51,23 +51,24 @@ export function buildCategoryJsonLd(
       "@type": "ItemList",
       numberOfItems: products.length,
       itemListElement: products.map((product, index) => {
-        const image = [...product.images]
-          .sort((a, b) => a.sortOrder - b.sortOrder)[0];
-        const sku = representativeSku(product);
+        // The backend-computed effective cover and the shared selection
+        // contract — never a positional images[0]/variants[0] pick.
+        const cover = product.effectiveCoverMedia;
+        const price = productCardPrice(product);
         return {
           "@type": "ListItem",
           position: index + 1,
           item: {
             "@type": "Product",
             name: product.name,
-            image: image ? absoluteUrl(image.url) : undefined,
+            image: cover ? absoluteUrl(cover.url) : undefined,
             url: `${SITE_URL}/products/${product.slug}`,
             offers:
-              sku !== null
+              price !== null
                 ? {
                     "@type": "Offer",
                     priceCurrency: "PHP",
-                    price: sku.price,
+                    price: price.price,
                     availability: isInStock(product)
                       ? "https://schema.org/InStock"
                       : "https://schema.org/OutOfStock",

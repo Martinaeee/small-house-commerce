@@ -6,7 +6,12 @@ import Link from "next/link";
 import type { HomepageSection, HydratedRoomScene } from "@/lib/api";
 import { trackAttrs } from "@/lib/home-tracking";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
-import { PriceBox } from "@/components/ui/PriceBox";
+import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 
 /**
@@ -171,6 +176,18 @@ export function RoomSceneGallery({
         .find((s) => s.id === openCard.sceneId)
         ?.hotspots[openCard.index]
     : undefined;
+  // Shared contracts for the hotspot card: effective cover media and
+  // selection-derived price — never images[0]/variants[0] picks. Only
+  // computed when a hotspot card is actually open.
+  const hotspotCover = openHotspotData?.product.effectiveCoverMedia ?? null;
+  const hotspotPrice = openHotspotData
+    ? (cardPricePresentation(
+        resolveSelection(
+          openHotspotData.product,
+          createInitialSelection(openHotspotData.product, null),
+        ),
+      ) ?? null)
+    : null;
 
   return (
     <div>
@@ -333,10 +350,10 @@ export function RoomSceneGallery({
                 style={{ top: cardPos.top, left: cardPos.left }}
               >
                 <span className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-primary-light/30">
-                  {openHotspotData.product.images[0]?.url ? (
+                  {hotspotCover ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={openHotspotData.product.images[0].url}
+                      src={hotspotCover.url}
                       alt=""
                       className="h-full w-full object-cover"
                     />
@@ -348,12 +365,16 @@ export function RoomSceneGallery({
                   <span className="line-clamp-2 block text-sm font-medium text-ink">
                     {openHotspotData.product.name}
                   </span>
-                  <PriceBox
-                    price={openHotspotData.product.variants[0]?.sku?.price ?? null}
-                    compareAtPrice={
-                      openHotspotData.product.variants[0]?.sku?.compareAtPrice ?? null
-                    }
-                  />
+                  {hotspotPrice?.kind === "from" ? (
+                    <span className="text-base font-bold text-ink">
+                      From {formatPrice(hotspotPrice.price)}
+                    </span>
+                  ) : (
+                    <PriceBox
+                      price={hotspotPrice?.price ?? null}
+                      compareAtPrice={hotspotPrice?.compareAtPrice ?? null}
+                    />
+                  )}
                 </span>
                 <span aria-hidden className="self-center text-lg text-cta">
                   ›

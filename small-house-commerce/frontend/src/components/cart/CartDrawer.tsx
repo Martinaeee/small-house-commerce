@@ -10,12 +10,17 @@ import {
   lineOptionsLabel,
 } from "./CartOptionPicker";
 import {
-  firstSku,
+  directAddSku,
   useCartRecommendations,
 } from "@/lib/useCartRecommendations";
 import { ButtonLink } from "@/components/ui/Button";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
 import type { CartItem, Product } from "@/lib/api";
 
 /**
@@ -49,6 +54,7 @@ export function CartDrawer() {
     addItem,
     takeDrawerOpener,
     openChangeOptions,
+    openPicker,
     goToCartView,
   } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -157,8 +163,14 @@ export function CartDrawer() {
   }
 
   async function quickAdd(product: Product) {
-    const sku = firstSku(product);
-    if (!sku || busySlug) return;
+    if (busySlug) return;
+    const sku = directAddSku(product);
+    if (!sku) {
+      // Multi-SKU: no honest direct-add SKU — swap the drawer to the shared
+      // picker instead of adding "the first SKU" on the visitor's behalf.
+      openPicker(product);
+      return;
+    }
     setBusySlug(product.slug);
     try {
       await addItem({ skuId: sku.id, quantity: 1 }, { openDrawer: false });
@@ -374,8 +386,14 @@ export function CartDrawer() {
                   <h3 className="mb-2 text-sm font-semibold text-ink">You May Also Like</h3>
                   <ul className="flex flex-col gap-3">
                     {recommendations.map((product) => {
-                      const sku = firstSku(product)!;
-                      const image = product.images[0];
+                      // Shared contracts only: effective cover media and
+                      // selection-derived price — never images[0]/variants[0].
+                      const derived = resolveSelection(
+                        product,
+                        createInitialSelection(product, null),
+                      );
+                      const price = cardPricePresentation(derived);
+                      const image = product.effectiveCoverMedia;
                       const busy = busySlug === product.slug;
                       const added = addedSlug === product.slug;
                       return (
@@ -400,7 +418,17 @@ export function CartDrawer() {
                             >
                               {product.name}
                             </Link>
-                            <p className="text-sm font-semibold text-ink">{formatPrice(sku.price!)}</p>
+                            {price ? (
+                              price.kind === "from" ? (
+                                <p className="text-sm font-semibold text-ink">
+                                  From {formatPrice(price.price)}
+                                </p>
+                              ) : (
+                                <p className="text-sm font-semibold text-ink">
+                                  {formatPrice(price.price)}
+                                </p>
+                              )
+                            ) : null}
                           </div>
                           <button
                             type="button"
