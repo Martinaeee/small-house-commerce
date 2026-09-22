@@ -190,6 +190,31 @@ interface PersistencePlan {
 export class CatalogGraphService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Read-only admin snapshot (admin product GET + scalar-only PATCH
+   * responses): the same shape applyPatch responds with — options/values
+   * including inactive rows, variant option assignments, and the full media
+   * set under `media` while the legacy gallery contract keeps only shared
+   * media under `images`. Graph-v0 products snapshot as an empty graph, so
+   * callers gate on catalogGraphVersion before adopting the typed shape.
+   */
+  async adminSnapshot(productId: string): Promise<AdminProduct | null> {
+    const snapshot = await this.prisma.product.findUnique({
+      where: { id: productId },
+      include: GRAPH_SNAPSHOT_INCLUDE,
+    });
+    if (!snapshot) return null;
+    const media = snapshot.images;
+    return {
+      ...snapshot,
+      images: media.filter(
+        ({ optionValueId, variantId }) =>
+          optionValueId === null && variantId === null,
+      ),
+      media,
+    };
+  }
+
   async applyPatch(
     productId: string,
     expectedVersion: number,

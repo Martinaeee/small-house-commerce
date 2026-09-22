@@ -1537,6 +1537,10 @@ function createProductsHarness(catalogGraphVersion: number) {
   };
   const graph = {
     applyPatch: vi.fn(async () => graphResult),
+    // Task 20: scalar-only updates on graph products re-present through the
+    // typed snapshot; the stub answers "unavailable" so responses keep the
+    // legacy shape and the routing assertions above stay focused.
+    adminSnapshot: vi.fn(async () => null),
     applyPatchWithProductMutation: vi.fn(
       async (
         _id: string,

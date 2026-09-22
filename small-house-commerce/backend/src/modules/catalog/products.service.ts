@@ -20,6 +20,7 @@ import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
 import { presentCatalogGraph } from './catalog-compat.js';
 import { legacyUnmappedCombinationKey } from './catalog-graph.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
+import type { AdminProduct } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import {
@@ -262,8 +263,27 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    const [enriched] = await this.withStock([product]);
+    const [enriched] = await this.withStock([
+      await this.withTypedGraph(product),
+    ]);
     return enriched;
+  }
+
+  /**
+   * Re-loads a graph product (catalogGraphVersion > 0) through the typed
+   * graph snapshot — options/values, variant option assignments, and the
+   * full scoped media set — so the edit form's typed editors hydrate from
+   * server truth (the standing T10/T11 admin-GET gap). Graph-v0 legacy
+   * products return unchanged: their variants still edit through the legacy
+   * form until a backfill materializes their graph.
+   */
+  private async withTypedGraph<
+    T extends { id: string; catalogGraphVersion: number | null },
+  >(product: T): Promise<T | AdminProduct> {
+    if ((product.catalogGraphVersion ?? 0) <= 0 || !this.catalogGraph) {
+      return product;
+    }
+    return (await this.catalogGraph.adminSnapshot(product.id)) ?? product;
   }
 
   async create(input: CreateProductInput) {
@@ -424,8 +444,13 @@ export class ProductsService {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       // Same shape as get(): the edit form adopts this response as its new
       // server truth, so a missing onHand would re-render the stock box as
-      // "undefined" and block the next save client-side.
-      const [enriched] = await this.withStock([updated]);
+      // "undefined" and block the next save client-side. A scalar-only save
+      // of a graph product must also adopt the typed graph — a legacy-shaped
+      // response would flip the form's typed editors back to their locked
+      // "graph without typed data" state.
+      const [enriched] = await this.withStock([
+        await this.withTypedGraph(updated),
+      ]);
       return enriched;
     } catch (error) {
       this.rethrowKnown(error);
