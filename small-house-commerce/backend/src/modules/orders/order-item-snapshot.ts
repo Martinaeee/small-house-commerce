@@ -13,8 +13,8 @@
  * the shapes assignable to Prisma's `InputJsonValue` at the write sites.
  */
 
-/** One typed option of an order line, frozen at order time. */
-export type OrderOptionSnapshotV1 = {
+/** One typed option entry of an order line, frozen at order time. */
+export type OrderOptionEntryV1 = {
   /** Stable option identity — survives renames and display reordering. */
   optionId: string;
   /** Stable option-value identity — survives renames. */
@@ -25,10 +25,14 @@ export type OrderOptionSnapshotV1 = {
   value: string;
 };
 
-/** Versioned structured snapshot stored in `OrderItem.optionSnapshot`. */
-export type OrderItemSnapshotV1 = {
+/**
+ * Versioned structured snapshot stored in `OrderItem.optionSnapshot` — the
+ * whole JSON document, named to match the plan contract (Task 18 consumes
+ * `OrderOptionSnapshotV1 | null` directly).
+ */
+export type OrderOptionSnapshotV1 = {
   version: 1;
-  options: OrderOptionSnapshotV1[];
+  options: OrderOptionEntryV1[];
 };
 
 /** The write shape applied to every new `OrderItem` row. */
@@ -39,7 +43,7 @@ export type OrderItemSnapshotWrite = {
    * Structured order-time snapshot; null when the variant has no typed
    * option graph (legacy products) — readers fall back to `variantSnapshot`.
    */
-  optionSnapshot: OrderItemSnapshotV1 | null;
+  optionSnapshot: OrderOptionSnapshotV1 | null;
 };
 
 /** Minimal structural shape of a SKU loaded with variant + option graph. */
@@ -66,7 +70,7 @@ export function buildOrderItemSnapshot(
   sku: SkuWithVariantProductAndOptionAssignments,
 ): OrderItemSnapshotWrite {
   const assignments = sku.variant.optionValues ?? [];
-  const options: OrderOptionSnapshotV1[] = assignments
+  const options: OrderOptionEntryV1[] = assignments
     .map((assignment, index) => ({
       assignment,
       index,
@@ -75,7 +79,7 @@ export function buildOrderItemSnapshot(
       (left, right) =>
         // Option display position governs; the stable id (then the original
         // array order) keeps the sort total and deterministic on ties.
-        (left.assignment.option.position ?? 0) - (right.assignment.option.position ?? 0) ||
+        left.assignment.option.position - right.assignment.option.position ||
         left.assignment.optionId.localeCompare(right.assignment.optionId) ||
         left.index - right.index,
     )

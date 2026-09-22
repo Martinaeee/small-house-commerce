@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import type { MsDuration } from '../auth/auth.module.js';
 // Type-only: the stored snapshot is surfaced verbatim, never rebuilt here.
-import type { OrderItemSnapshotV1 } from '../orders/order-item-snapshot.js';
+import type { OrderOptionSnapshotV1 } from '../orders/order-item-snapshot.js';
 import type {
   CustomerOrdersQuery,
   LoginInput,
@@ -73,7 +73,7 @@ export interface StorefrontOrderSummary {
   items: {
     productNameSnapshot: string;
     variantSnapshot: string;
-    optionSnapshot: OrderItemSnapshotV1 | null;
+    optionSnapshot: OrderOptionSnapshotV1 | null;
     quantity: number;
     lineTotal: number;
   }[];
@@ -347,7 +347,7 @@ export class StorefrontCustomerAuthService {
         variantSnapshot: item.variantSnapshot,
         // Stored order-time snapshot passed through verbatim (null for lines
         // created before the typed graph) — renaming options never rewrites it.
-        optionSnapshot: (item.optionSnapshot as OrderItemSnapshotV1 | null) ?? null,
+        optionSnapshot: (item.optionSnapshot as OrderOptionSnapshotV1 | null) ?? null,
         quantity: item.quantity,
         lineTotal: Number(item.lineTotal),
       })),
