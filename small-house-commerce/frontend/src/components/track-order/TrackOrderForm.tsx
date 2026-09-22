@@ -6,11 +6,7 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { validatePhone } from "@/lib/checkoutValidation";
 import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
-import {
-  lookupOrder,
-  type GuestOrderItem,
-  type GuestOrderResult,
-} from "@/lib/guestOrder";
+import { lookupOrder, type GuestOrderResult } from "@/lib/guestOrder";
 
 /**
  * Guest order tracking (guest-order-tracking spec §3.2). Order number +
@@ -66,11 +62,6 @@ const manilaDate = new Intl.DateTimeFormat("en-US", {
 
 function formatDate(value: string): string {
   return manilaDate.format(new Date(value));
-}
-
-/** Options text for one order line — structured snapshot first, legacy variant text fallback. */
-function orderItemOptionsText(item: GuestOrderItem): string {
-  return formatOrderOptionsFromSnapshot(item.optionSnapshot, item.variantSnapshot);
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -372,7 +363,12 @@ function ResultCard({ result }: { result: GuestOrderResult }) {
         <h2 className="text-sm font-semibold text-ink">Items</h2>
         <ul data-testid="track-items" className="mt-1 divide-y divide-border">
           {result.items.map((item) => {
-            const optionsText = orderItemOptionsText(item);
+            // Order-time snapshot first; the legacy variant text covers
+            // lines created before the typed option graph.
+            const optionsText = formatOrderOptionsFromSnapshot(
+              item.optionSnapshot,
+              item.variantSnapshot,
+            );
             return (
               <li key={item.id} className="flex gap-3 py-3">
                 <div className="min-w-0 flex-1">

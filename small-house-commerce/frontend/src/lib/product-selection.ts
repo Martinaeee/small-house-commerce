@@ -55,7 +55,8 @@ export function nextSelectionRevision(current: number): number {
   return current + 1;
 }
 
-function comparePositionThenId(
+/** Option display order everywhere: position, stable id tie-break. */
+export function comparePositionThenId(
   left: { id: string; position: number },
   right: { id: string; position: number },
 ): number {

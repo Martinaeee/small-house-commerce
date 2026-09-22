@@ -1,4 +1,5 @@
 import type { CartItem, Product } from "@/lib/api";
+import { comparePositionThenId } from "@/lib/product-selection";
 
 /** One structured display pair on a checkout line ("Color" → "Red"). */
 export interface CheckoutLineOption {
@@ -31,17 +32,6 @@ export interface CheckoutLine {
   compareAtPrice: number | null;
 }
 
-/** Option display order mirrors the backend: position, stable id tie-break. */
-function byOptionPosition(
-  left: { id: string; position: number },
-  right: { id: string; position: number },
-): number {
-  return (
-    left.position - right.position ||
-    (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
-  );
-}
-
 /** Cart path: pairs from the enriched summary's optionValues, already in the backend's canonical order. */
 export function cartLineOptions(item: CartItem): CheckoutLineOption[] {
   return item.optionValues.map((value) => ({
@@ -63,7 +53,7 @@ export function buyNowLineOptions(
   const variant = product.variants.find((v) => v.sku?.id === skuId);
   if (!variant) return [];
   const pairs: CheckoutLineOption[] = [];
-  for (const option of [...product.options].sort(byOptionPosition)) {
+  for (const option of [...product.options].sort(comparePositionThenId)) {
     const value = option.values.find((candidate) =>
       variant.optionValueIds.includes(candidate.id),
     );
