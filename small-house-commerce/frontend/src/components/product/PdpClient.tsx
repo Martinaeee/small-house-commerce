@@ -187,7 +187,6 @@ export function PdpClient({
   const intentTriggerRef = useRef<HTMLElement | null>(null);
   const intentExecutingRef = useRef(false);
   const mediaRequestRef = useRef(0);
-  const suppressUrlSyncRef = useRef(false);
 
   const resolvedVariant = primaryDerived.resolvedVariant;
   const displayVariant = primaryDerived.displayVariant;
@@ -242,24 +241,26 @@ export function PdpClient({
       const params = new URLSearchParams(window.location.search);
       const variantValues = params.getAll("variant");
       const candidate = variantValues.length === 1 ? variantValues[0] : null;
-      const nextVariantId =
+      const poppedVariantId =
         candidate !== null && isSelectableVariant(product, candidate)
           ? candidate
           : null;
-      // Reconcile canonical state to the popped URL; suppress the USER-source
-      // URL effect below so it does not push the popped URL straight back.
-      suppressUrlSyncRef.current = true;
-      syncLineFromUrl(primaryLine.clientLineId, nextVariantId);
+      // A fragment-only navigation (in-page anchor) and any pop whose variant
+      // is already canonical must not reconcile or invalidate a confirmed
+      // combination. Compare the search portion; the hash is irrelevant.
+      if (poppedVariantId === (resolvedVariant?.id ?? null)) return;
+      syncLineFromUrl(primaryLine.clientLineId, poppedVariantId);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [primaryLine.clientLineId, product, syncLineFromUrl]);
+  }, [
+    primaryLine.clientLineId,
+    product,
+    resolvedVariant,
+    syncLineFromUrl,
+  ]);
 
   useEffect(() => {
-    if (suppressUrlSyncRef.current) {
-      suppressUrlSyncRef.current = false;
-      return;
-    }
     if (primaryLine.selectionSource !== "USER") return;
     const params = new URLSearchParams(window.location.search);
     if (!resolvedVariant) {
@@ -277,13 +278,7 @@ export function PdpClient({
     params.set("variant", resolvedVariant.id);
     const query = params.toString();
     window.history.pushState(null, "", `${basePath}?${query}`);
-  }, [
-    basePath,
-    primaryLine.selectionRevision,
-    primaryLine.selectionSource,
-    resolvedVariant,
-    urlVariant,
-  ]);
+  }, [basePath, primaryLine.selectionSource, resolvedVariant, urlVariant]);
 
   const initialMediaMatches =
     requestedMediaScope !== null &&

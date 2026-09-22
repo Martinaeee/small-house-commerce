@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import { clearProductMediaCacheForTests } from "@/lib/product-media";
@@ -851,5 +851,104 @@ describe("browser history navigation", () => {
       screen.getByRole("dialog", { name: "Confirm your options" }),
     ).toBeVisible();
     expect(cart.addItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps a confirmed USER selection confirmed after a fragment-only popstate", async () => {
+    installMediaFetch();
+    navigation.search = new URLSearchParams("campaign=spring");
+    window.history.replaceState({}, "", "/products/chair?campaign=spring");
+    const pushState = vi.spyOn(window.history, "pushState");
+    function Probe() {
+      const { primaryLine } = usePdpPurchase();
+      return (
+        <output data-testid="source">
+          {primaryLine.selectionSource}:
+          {primaryLine.confirmedCombinationKey ?? "none"}
+        </output>
+      );
+    }
+    const user = userEvent.setup();
+    render(
+      <PdpPurchaseProvider product={product}>
+        <PdpClient
+          product={product}
+          category={null}
+          delivery={delivery}
+        />
+        <Probe />
+      </PdpPurchaseProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await user.click(screen.getByRole("button", { name: "Small" }));
+    await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("source")).toHaveTextContent(
+      "USER:color:red|size:small",
+    );
+
+    // Same-page anchor (e.g. #reviews): search unchanged, hash changes, and
+    // the browser fires popstate for the fragment navigation.
+    await act(async () => {
+      window.history.pushState(
+        null,
+        "",
+        "/products/chair?campaign=spring&variant=red-small#reviews",
+      );
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.hash).toBe("#reviews");
+
+    expect(screen.getByTestId("source")).toHaveTextContent(
+      "USER:color:red|size:small",
+    );
+    await user.click(screen.getByTestId("add-to-cart"));
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm your options" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still reconciles the URL after a no-op fragment pop from DEEP_LINK state", async () => {
+    installMediaFetch();
+    navigation.search = new URLSearchParams("variant=blue-large");
+    window.history.replaceState(
+      {},
+      "",
+      "/products/chair?variant=blue-large",
+    );
+    const pushState = vi.spyOn(window.history, "pushState");
+    const user = userEvent.setup();
+    renderPdp({ variantId: "blue-large" });
+
+    // Fragment-only pop while DEEP_LINK state already matches the variant:
+    // a stuck suppression must not swallow the next selection's URL effect.
+    await act(async () => {
+      window.history.pushState(
+        null,
+        "",
+        "/products/chair?variant=blue-large#details",
+      );
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.hash).toBe("#details");
+
+    // Blue/Large -> Red keeps the compatible Large (red-large exists).
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await waitFor(() =>
+      expect(pushState).toHaveBeenCalledWith(
+        null,
+        "",
+        "/products/chair?variant=red-large",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Small" }));
+    await waitFor(() =>
+      expect(pushState).toHaveBeenCalledWith(
+        null,
+        "",
+        "/products/chair?variant=red-small",
+      ),
+    );
   });
 });
