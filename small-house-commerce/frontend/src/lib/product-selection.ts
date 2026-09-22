@@ -38,7 +38,8 @@ export type ProductSelectionAction =
   | { type: "SELECT_OPTION"; optionId: string; valueId: string }
   | { type: "CONFIRM" }
   | { type: "SET_QUANTITY"; quantity: number }
-  | { type: "CHANGE_VARIANT" };
+  | { type: "CHANGE_VARIANT" }
+  | { type: "SYNC_FROM_URL"; variantId: string | null };
 
 const MIN_QUANTITY = 1;
 const MAX_QUANTITY = 99;
@@ -396,5 +397,56 @@ export function reduceProductSelection(
         confirmedCombinationKey: null,
         confirmedRevision: null,
       };
+
+    /*
+     * Reconciles canonical selection to a URL delivered by browser
+     * Back/Forward. A named selectable variant becomes an unconfirmed
+     * DEEP_LINK-style selection; an absent or invalid variant resets to
+     * exactly what a fresh load of the clean URL would initialize.
+     */
+    case "SYNC_FROM_URL": {
+      let nextValueIds: SelectedValueIds | null = null;
+      if (action.variantId !== null) {
+        const variant = selectableVariants(product).find(
+          ({ id }) => id === action.variantId,
+        );
+        if (variant) {
+          nextValueIds = selectionForVariant(product, variant);
+        }
+      }
+
+      if (nextValueIds === null) {
+        const canonical = createInitialSelection(product, null);
+        if (
+          state.selectionSource === canonical.selectionSource &&
+          sameSelection(state.selectedValueIds, canonical.selectedValueIds) &&
+          state.confirmedCombinationKey === null &&
+          state.explicitlyTouchedOptionIds.length === 0
+        ) {
+          return state;
+        }
+        return {
+          ...canonical,
+          quantity: state.quantity,
+          selectionRevision: nextSelectionRevision(state.selectionRevision),
+        };
+      }
+
+      if (
+        state.selectionSource === "DEEP_LINK" &&
+        sameSelection(state.selectedValueIds, nextValueIds)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        selectedValueIds: nextValueIds,
+        explicitlyTouchedOptionIds: [],
+        selectionSource: "DEEP_LINK",
+        selectionRevision: nextSelectionRevision(state.selectionRevision),
+        confirmedCombinationKey: null,
+        confirmedRevision: null,
+      };
+    }
   }
 }

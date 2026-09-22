@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,18 +8,48 @@ import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpClient } from "./PdpClient";
 
-const navigation = vi.hoisted(() => ({
-  push: vi.fn(),
-  replace: vi.fn(),
-  search: new URLSearchParams(),
-}));
+/**
+ * Minimal Next navigation stand-in. Like Next's shallow History integration,
+ * useSearchParams is an external store that updates after native
+ * pushState/replaceState and after browser Back/Forward (popstate).
+ */
+const navigation = vi.hoisted(() => {
+  let snapshot = new URLSearchParams();
+  const subscribers = new Set<() => void>();
+  const notify = () => {
+    subscribers.forEach((subscriber) => subscriber());
+  };
+  return {
+    push: vi.fn(),
+    replace: vi.fn(),
+    get search(): URLSearchParams {
+      return snapshot;
+    },
+    set search(next: URLSearchParams) {
+      snapshot = next;
+      notify();
+    },
+    syncFromLocation() {
+      snapshot = new URLSearchParams(window.location.search);
+      notify();
+    },
+    subscribe(subscriber: () => void): () => void {
+      subscribers.add(subscriber);
+      return () => subscribers.delete(subscriber);
+    },
+  };
+});
 const cart = vi.hoisted(() => ({ addItem: vi.fn() }));
 const tracking = vi.hoisted(() => ({ track: vi.fn() }));
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: navigation.push, replace: navigation.replace }),
-  useSearchParams: () => navigation.search,
-}));
+vi.mock("next/navigation", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useRouter: () => ({ push: navigation.push, replace: navigation.replace }),
+    useSearchParams: () =>
+      useSyncExternalStore(navigation.subscribe, () => navigation.search),
+  };
+});
 vi.mock("@/components/cart/CartContext", () => ({
   useCart: () => ({ addItem: cart.addItem }),
 }));
@@ -268,15 +298,45 @@ function renderPdp({
   );
 }
 
+let popStateSync: (() => void) | null = null;
+
 beforeEach(() => {
   clearProductMediaCacheForTests();
   navigation.push.mockReset();
   navigation.replace.mockReset();
-  navigation.search = new URLSearchParams();
   cart.addItem.mockReset().mockResolvedValue(undefined);
   tracking.track.mockReset();
   vi.restoreAllMocks();
+
+  // Mirror Next: the search-param store updates after native history mutations.
+  vi.spyOn(window.history, "pushState").mockImplementation(
+    function pushState(
+      this: History,
+      ...args: Parameters<History["pushState"]>
+    ) {
+      History.prototype.pushState.apply(this, args);
+      navigation.syncFromLocation();
+    },
+  );
+  vi.spyOn(window.history, "replaceState").mockImplementation(
+    function replaceState(
+      this: History,
+      ...args: Parameters<History["replaceState"]>
+    ) {
+      History.prototype.replaceState.apply(this, args);
+      navigation.syncFromLocation();
+    },
+  );
+  popStateSync = () => navigation.syncFromLocation();
+  window.addEventListener("popstate", popStateSync);
+
+  navigation.search = new URLSearchParams();
   window.history.replaceState({}, "", "/products/chair");
+});
+
+afterEach(() => {
+  if (popStateSync) window.removeEventListener("popstate", popStateSync);
+  popStateSync = null;
 });
 
 describe("ProductOptionSelector", () => {
@@ -701,5 +761,95 @@ describe("scoped gallery integration", () => {
         call.some((value) => /hydration|did not match|uncaught/i.test(String(value))),
       ),
     ).toBe(false);
+  });
+});
+
+describe("browser history navigation", () => {
+  it("does not re-push after browser Back and resets to the clean-URL default", async () => {
+    installMediaFetch();
+    navigation.search = new URLSearchParams("campaign=spring");
+    window.history.replaceState({}, "", "/products/chair?campaign=spring");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const user = userEvent.setup();
+    renderPdp();
+
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    await user.click(screen.getByRole("button", { name: "Large" }));
+    await waitFor(() =>
+      expect(pushState).toHaveBeenCalledWith(
+        null,
+        "",
+        "/products/chair?campaign=spring&variant=blue-large",
+      ),
+    );
+    pushState.mockClear();
+
+    window.history.back();
+    await waitFor(() =>
+      expect(window.location.search).toBe("?campaign=spring"),
+    );
+
+    expect(pushState).not.toHaveBeenCalled();
+    expect(screen.getByTestId("add-to-cart")).toHaveTextContent(
+      "CHOOSE OPTIONS",
+    );
+    expect(screen.getAllByText("₱100.00")[0]).toBeVisible();
+
+    // A genuine later selection still pushes; suppression must not stick.
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    await user.click(screen.getByRole("button", { name: "Large" }));
+    await waitFor(() =>
+      expect(pushState).toHaveBeenCalledWith(
+        null,
+        "",
+        "/products/chair?campaign=spring&variant=blue-large",
+      ),
+    );
+  });
+
+  it("reconciles browser Forward to the popped variant without re-pushing and keeps it unconfirmed", async () => {
+    installMediaFetch();
+    navigation.search = new URLSearchParams("campaign=spring");
+    window.history.replaceState({}, "", "/products/chair?campaign=spring");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const user = userEvent.setup();
+    renderPdp();
+
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    await user.click(screen.getByRole("button", { name: "Large" }));
+    await waitFor(() =>
+      expect(pushState).toHaveBeenCalledWith(
+        null,
+        "",
+        "/products/chair?campaign=spring&variant=blue-large",
+      ),
+    );
+    pushState.mockClear();
+
+    window.history.back();
+    await waitFor(() =>
+      expect(window.location.search).toBe("?campaign=spring"),
+    );
+    expect(pushState).not.toHaveBeenCalled();
+
+    window.history.forward();
+    await waitFor(() =>
+      expect(window.location.search).toBe(
+        "?campaign=spring&variant=blue-large",
+      ),
+    );
+
+    expect(pushState).not.toHaveBeenCalled();
+    expect(screen.getAllByText("₱120.00")[0]).toBeVisible();
+    expect(screen.getByTestId("add-to-cart")).toHaveTextContent(
+      "ADD TO CART",
+    );
+
+    // A URL-restored selection stays unconfirmed, exactly like a deep link.
+    await user.click(screen.getByTestId("add-to-cart"));
+    expect(
+      screen.getByRole("dialog", { name: "Confirm your options" }),
+    ).toBeVisible();
+    expect(cart.addItem).not.toHaveBeenCalled();
   });
 });

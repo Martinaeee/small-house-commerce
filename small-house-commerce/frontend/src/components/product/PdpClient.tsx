@@ -164,6 +164,7 @@ export function PdpClient({
     primaryDerived,
     confirmLine,
     setQuantity,
+    syncLineFromUrl,
   } = usePdpPurchase();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -186,6 +187,7 @@ export function PdpClient({
   const intentTriggerRef = useRef<HTMLElement | null>(null);
   const intentExecutingRef = useRef(false);
   const mediaRequestRef = useRef(0);
+  const suppressUrlSyncRef = useRef(false);
 
   const resolvedVariant = primaryDerived.resolvedVariant;
   const displayVariant = primaryDerived.displayVariant;
@@ -236,6 +238,28 @@ export function PdpClient({
   }, [basePath, hasVariantParam, product, urlVariant]);
 
   useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const variantValues = params.getAll("variant");
+      const candidate = variantValues.length === 1 ? variantValues[0] : null;
+      const nextVariantId =
+        candidate !== null && isSelectableVariant(product, candidate)
+          ? candidate
+          : null;
+      // Reconcile canonical state to the popped URL; suppress the USER-source
+      // URL effect below so it does not push the popped URL straight back.
+      suppressUrlSyncRef.current = true;
+      syncLineFromUrl(primaryLine.clientLineId, nextVariantId);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [primaryLine.clientLineId, product, syncLineFromUrl]);
+
+  useEffect(() => {
+    if (suppressUrlSyncRef.current) {
+      suppressUrlSyncRef.current = false;
+      return;
+    }
     if (primaryLine.selectionSource !== "USER") return;
     const params = new URLSearchParams(window.location.search);
     if (!resolvedVariant) {
@@ -253,7 +277,13 @@ export function PdpClient({
     params.set("variant", resolvedVariant.id);
     const query = params.toString();
     window.history.pushState(null, "", `${basePath}?${query}`);
-  }, [basePath, primaryLine.selectionSource, resolvedVariant, urlVariant]);
+  }, [
+    basePath,
+    primaryLine.selectionRevision,
+    primaryLine.selectionSource,
+    resolvedVariant,
+    urlVariant,
+  ]);
 
   const initialMediaMatches =
     requestedMediaScope !== null &&

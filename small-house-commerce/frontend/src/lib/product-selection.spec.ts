@@ -481,3 +481,101 @@ describe("selection reducer and selectors", () => {
     expect(select(product, initial, "color", "unknown")).toBe(initial);
   });
 });
+
+describe("URL history reconciliation", () => {
+  it("resets a completed user selection to clean-URL DEFAULT state and clears confirmation", () => {
+    const product = productFixture();
+    let state = createInitialSelection(product);
+    state = select(product, state, "color", "red");
+    state = select(product, state, "size", "small");
+    const synced = reduceProductSelection(product, state, {
+      type: "SYNC_FROM_URL",
+      variantId: null,
+    });
+
+    expect(synced.selectionSource).toBe("DEFAULT");
+    expect(synced.selectedValueIds).toEqual({});
+    expect(synced.explicitlyTouchedOptionIds).toEqual([]);
+    expect(synced.confirmedCombinationKey).toBeNull();
+    expect(synced.confirmedRevision).toBeNull();
+    expect(synced.selectionRevision).toBe(3);
+    expect(synced.quantity).toBe(state.quantity);
+    const derived = resolveSelection(product, synced);
+    expect(derived.resolvedVariant).toBeNull();
+    expect(derived.displayVariant?.id).toBe(redSmall.id);
+  });
+
+  it("selects a valid popped variant as an unconfirmed DEEP_LINK selection", () => {
+    const product = productFixture();
+    const synced = reduceProductSelection(
+      product,
+      createInitialSelection(product),
+      { type: "SYNC_FROM_URL", variantId: blueLarge.id },
+    );
+
+    expect(synced.selectionSource).toBe("DEEP_LINK");
+    expect(synced.selectedValueIds).toEqual({ color: "blue", size: "large" });
+    expect(synced.explicitlyTouchedOptionIds).toEqual([]);
+    expect(synced.confirmedCombinationKey).toBeNull();
+    expect(synced.confirmedRevision).toBeNull();
+    expect(synced.selectionRevision).toBe(1);
+    expect(resolveSelection(product, synced).purchaseConfirmed).toBe(false);
+  });
+
+  it.each([
+    ["unknown variant", "missing"],
+    ["disabled variant", disabledBlueSmall.id],
+    ["unpriced variant", unpricedBlueSmall.id],
+  ])("treats a popped %s like an absent variant", (_label, variantId) => {
+    const product = productFixture();
+    let state = createInitialSelection(product, blueLarge.id);
+    state = reduceProductSelection(product, state, { type: "CONFIRM" });
+    const synced = reduceProductSelection(product, state, {
+      type: "SYNC_FROM_URL",
+      variantId,
+    });
+
+    expect(synced.selectionSource).toBe("DEFAULT");
+    expect(synced.selectedValueIds).toEqual({});
+    expect(synced.confirmedCombinationKey).toBeNull();
+    expect(resolveSelection(product, synced).resolvedVariant).toBeNull();
+  });
+
+  it("replaces a confirmed combination when the popped URL names another variant", () => {
+    const product = productFixture();
+    const confirmed = reduceProductSelection(
+      product,
+      createInitialSelection(product, redSmall.id),
+      { type: "CONFIRM" },
+    );
+    const synced = reduceProductSelection(product, confirmed, {
+      type: "SYNC_FROM_URL",
+      variantId: blueLarge.id,
+    });
+
+    expect(synced.selectionSource).toBe("DEEP_LINK");
+    expect(synced.selectedValueIds).toEqual({ color: "blue", size: "large" });
+    expect(synced.confirmedCombinationKey).toBeNull();
+    expect(synced.confirmedRevision).toBeNull();
+    expect(resolveSelection(product, synced).purchaseConfirmed).toBe(false);
+  });
+
+  it("returns the same reference for no-op reconciliation", () => {
+    const product = productFixture();
+    const initial = createInitialSelection(product);
+    const deepLinked = createInitialSelection(product, blueLarge.id);
+
+    expect(
+      reduceProductSelection(product, initial, {
+        type: "SYNC_FROM_URL",
+        variantId: null,
+      }),
+    ).toBe(initial);
+    expect(
+      reduceProductSelection(product, deepLinked, {
+        type: "SYNC_FROM_URL",
+        variantId: blueLarge.id,
+      }),
+    ).toBe(deepLinked);
+  });
+});

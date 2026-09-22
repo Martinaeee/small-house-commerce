@@ -33,6 +33,7 @@ export interface PdpPurchaseContextValue {
   addLine(): string;
   removeLine(lineId: string): void;
   changeLineVariant(lineId: string): void;
+  syncLineFromUrl(lineId: string, variantId: string | null): void;
 }
 
 export type PurchaseLinesAction =
@@ -46,7 +47,8 @@ export type PurchaseLinesAction =
   | { type: "SET_QUANTITY"; lineId: string; quantity: number }
   | { type: "ADD_LINE"; clientLineId: string }
   | { type: "REMOVE_LINE"; lineId: string }
-  | { type: "CHANGE_LINE_VARIANT"; lineId: string };
+  | { type: "CHANGE_LINE_VARIANT"; lineId: string }
+  | { type: "SYNC_LINE_FROM_URL"; lineId: string; variantId: string | null };
 
 const PRIMARY_LINE_ID = "primary";
 
@@ -89,7 +91,8 @@ function updateLine(
     | { type: "SELECT_OPTION"; optionId: string; valueId: string }
     | { type: "CONFIRM" }
     | { type: "SET_QUANTITY"; quantity: number }
-    | { type: "CHANGE_VARIANT" },
+    | { type: "CHANGE_VARIANT" }
+    | { type: "SYNC_FROM_URL"; variantId: string | null },
 ): PurchaseLineState[] | readonly PurchaseLineState[] {
   const index = lines.findIndex(({ clientLineId }) => clientLineId === lineId);
   if (index < 0) return lines;
@@ -128,6 +131,12 @@ export function reducePurchaseLines(
     case "CHANGE_LINE_VARIANT":
       return updateLine(product, lines, action.lineId, {
         type: "CHANGE_VARIANT",
+      });
+
+    case "SYNC_LINE_FROM_URL":
+      return updateLine(product, lines, action.lineId, {
+        type: "SYNC_FROM_URL",
+        variantId: action.variantId,
       });
 
     case "ADD_LINE":
@@ -210,6 +219,12 @@ function StatefulPdpPurchaseProvider({
     (lineId: string) => dispatch({ type: "CHANGE_LINE_VARIANT", lineId }),
     [dispatch],
   );
+  const syncLineFromUrl = useCallback(
+    (lineId: string, variantId: string | null) => {
+      dispatch({ type: "SYNC_LINE_FROM_URL", lineId, variantId });
+    },
+    [dispatch],
+  );
 
   const primaryLine = orderLines[0];
   const primaryDerived = useMemo(
@@ -228,11 +243,13 @@ function StatefulPdpPurchaseProvider({
       addLine,
       removeLine,
       changeLineVariant,
+      syncLineFromUrl,
     }),
     [
       addLine,
       changeLineVariant,
       confirmLine,
+      syncLineFromUrl,
       orderLines,
       primaryDerived,
       primaryLine,
