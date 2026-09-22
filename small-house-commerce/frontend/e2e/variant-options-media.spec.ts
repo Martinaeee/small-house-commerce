@@ -137,7 +137,12 @@ function trackBrowserErrors(page: Page): () => void {
   };
 }
 
-/** Audits every scoped media request (`/storefront/products/:slug/media`). */
+/**
+ * Audits every scoped media request (`/storefront/products/:slug/media`).
+ * The URL check matches any "/media" occurrence (including harmless
+ * `/_next/static/media/*` chunk names); the assertions below filter on the
+ * variantId/optionValueId query params, so the noise can never match.
+ */
 function auditMediaRequests(page: Page): {
   marker: () => number;
   scopedSince: (
@@ -388,6 +393,7 @@ test.describe("Color x Size end-to-end purchase", () => {
     const redMedium = product.variants.find((variant) => variant.name === "Red / Medium");
     expect(redMedium).toBeTruthy();
 
+    // Valid deep link: the named combination preselects both options.
     await gotoPdp(page, SLUGS.colorSize, `?variant=${redMedium!.id}`);
     await expect(
       page
@@ -399,6 +405,23 @@ test.describe("Color x Size end-to-end purchase", () => {
         .getByRole("group", { name: "Size", exact: true })
         .getByRole("button", { name: "Medium", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
+
+    // Unknown variant: the param is stripped and the selection resets to
+    // exactly what a fresh load of the clean URL initializes (nothing
+    // selected — the price falls back to the "from" floor).
+    await gotoPdp(page, SLUGS.colorSize, "?variant=not-a-real-variant-id");
+    await expect(page).toHaveURL(new RegExp(`/products/${SLUGS.colorSize}$`));
+    await expect(
+      page
+        .getByRole("group", { name: "Color", exact: true })
+        .getByRole("button", { name: "Red", exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await expect(
+      page
+        .getByRole("group", { name: "Size", exact: true })
+        .getByRole("button", { name: "Medium", exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByText("From").first()).toBeVisible();
     await stopErrors();
   });
 
@@ -493,6 +516,8 @@ test.describe("Color x Size end-to-end purchase", () => {
 });
 
 // --- Exact scoped-media override ---------------------------------------------
+// Viewport note: tests that do not call setViewportSize run at the Desktop
+// Chrome default 1280x720, which is the gate's desktop leg.
 
 test.describe("Exact scoped-media override", () => {
   test("deep-linked variant shows exact media and switching scopes cleanly", async ({ page }) => {
