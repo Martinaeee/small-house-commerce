@@ -287,7 +287,7 @@ the backfill are **not executed until the database risk gate is approved**.
 4. Release C deploy (validation migration) after the audit is clean.
 5. Release D deploy (typed Admin/Storefront). Rollback of Release D alone is
    a code rollback — all schema objects stay valid for the legacy paths.
-6. Run the browser acceptance gate
-   (`pnpm --dir frontend exec playwright test e2e/variant-options-media.spec.ts`)
-   against a staging copy (see `frontend/playwright.config.ts` +
+6. Run the browser acceptance gate (`pnpm --dir frontend e2e`, i.e.
+   `playwright test e2e/variant-options-media.spec.ts`) against a staging
+   copy (see `frontend/playwright.config.ts` +
    `backend/prisma/seed-e2e.ts`) before promoting to production.
