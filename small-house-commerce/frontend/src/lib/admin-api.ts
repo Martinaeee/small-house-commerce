@@ -800,6 +800,26 @@ export interface WireSkuWrite {
   volumetricWeight?: number | null;
 }
 
+export interface WireOptionValueWrite extends WireEntityRef {
+  label: string;
+  position: number;
+  swatchHex?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailAlt?: string | null;
+  isActive: boolean;
+}
+
+/** Full option object per backend optionWriteSchema (entityRef + fields). */
+export interface WireOptionWrite extends WireEntityRef {
+  kind: AdminOptionKind;
+  name: string;
+  position: number;
+  presentation: AdminOptionPresentation;
+  isMediaDriver: boolean;
+  isActive: boolean;
+  values: WireOptionValueWrite[];
+}
+
 export interface WireVariantWrite extends WireEntityRef {
   position: number;
   optionValueRefs: WireEntityRef[];
@@ -818,7 +838,7 @@ export interface WireMediaWrite extends WireEntityRef {
 }
 
 export interface WireCatalogGraphPatch {
-  options: WireEntityRef[];
+  options: WireOptionWrite[];
   variants: WireVariantWrite[];
   media: WireMediaWrite[];
   retirements: {

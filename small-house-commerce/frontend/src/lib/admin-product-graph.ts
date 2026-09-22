@@ -31,10 +31,6 @@ export interface EntityRef {
   clientKey?: string;
 }
 
-export function refKey(ref: EntityRef): string {
-  return ref.id !== undefined ? `id:${ref.id}` : `clientKey:${ref.clientKey}`;
-}
-
 // --- draft shapes -------------------------------------------------------------
 
 export interface AdminOptionValueDraft extends EntityRef {
@@ -813,11 +809,9 @@ export function buildCatalogGraphPatch(
       continue;
     }
     const valueRows: CatalogOptionValueUpsert[] = [];
-    const draftValueKeys = new Set<string>();
 
     for (const draftValue of draftOption.values) {
       const valueKey = rowKey(draftValue);
-      draftValueKeys.add(valueKey);
       if (draftValue.id === undefined && draftValue.clientKey === undefined) {
         continue; // unaddressable new row (see variant guard below)
       }
@@ -892,9 +886,13 @@ export function buildCatalogGraphPatch(
       id: source.id,
       position: draftVariant.position,
       optionValueRefs: draftVariant.optionValueRefs,
+      // sku omitted entirely when neither side has one; `null` only as an
+      // explicit disable of a SKU the server still holds.
       ...(draftVariant.sku
         ? { sku: skuWritePayload(draftVariant.sku) }
-        : { sku: source.sku ? null : undefined }),
+        : source.sku
+          ? { sku: null }
+          : {}),
     });
   }
 
@@ -1111,17 +1109,14 @@ export function toWireCatalogGraphPatch(
         isActive: value.isActive,
       })),
     })),
-    variants: patch.variantUpserts.map((variant) => {
-      const isNew = variant.id === undefined;
-      return {
-        ...wireRef(variant),
-        position: variant.position,
-        optionValueRefs: variant.optionValueRefs.map(wireRef),
-        ...(variant.sku !== undefined || !isNew
-          ? { sku: variant.sku ?? null }
-          : {}),
-      };
-    }),
+    variants: patch.variantUpserts.map((variant) => ({
+      ...wireRef(variant),
+      position: variant.position,
+      optionValueRefs: variant.optionValueRefs.map(wireRef),
+      // Emit the sku key only when the patch carries SKU information
+      // (payload or explicit null-disable); absent = leave untouched.
+      ...(variant.sku !== undefined ? { sku: variant.sku ?? null } : {}),
+    })),
     media: patch.mediaUpserts.map((media) => {
       const wire: WireCatalogGraphPatch["media"][number] = {
         ...wireRef(media),

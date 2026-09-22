@@ -9,8 +9,12 @@ import type {
 import {
   buildCatalogGraphPatch,
   buildVariantCandidates,
+  canonicalCombinationKey,
   collectStockBatch,
   deserializeAdminProduct,
+  graphFromAdminProduct,
+  syncSharedMediaDraft,
+  toWireCatalogGraphPatch,
   validateAdminCatalogGraph,
   type AdminCatalogGraphDraft,
 } from "@/lib/admin-product-graph";
@@ -706,5 +710,225 @@ describe("collectStockBatch", () => {
     expect(collectStockBatch(draft, baseline)).toEqual([
       { skuClientKey: "variant-green", onHand: 5 },
     ]);
+  });
+});
+
+describe("canonicalCombinationKey", () => {
+  it("is order-insensitive and percent-encodes pair delimiters", () => {
+    const pairs = [
+      { optionId: "size-opt", valueId: "large" },
+      { optionId: "color:opt", valueId: "red|x" },
+    ];
+    expect(canonicalCombinationKey(pairs)).toBe(
+      canonicalCombinationKey([...pairs].reverse()),
+    );
+    // Delimiters inside ids/values never merge pairs.
+    expect(canonicalCombinationKey(pairs)).not.toContain("red|x");
+    expect(canonicalCombinationKey(pairs)).toBe(
+      canonicalCombinationKey([
+        { optionId: "color:opt", valueId: "red|x" },
+        { optionId: "size-opt", valueId: "large" },
+      ]),
+    );
+  });
+
+  it("yields the single empty key for the zero-group candidate", () => {
+    expect(canonicalCombinationKey([])).toBe("");
+  });
+});
+
+describe("toWireCatalogGraphPatch", () => {
+  it("emits full option writes and flattens media scope refs to the zod field names", () => {
+    const draft = draftFor();
+    draft.options[0].values[0].label = "Crimson";
+    draft.media[0].optionValueRef = { id: RED_VALUE_ID };
+
+    const wire = toWireCatalogGraphPatch(
+      buildCatalogGraphPatch(serverGraph(), draft),
+      7,
+    );
+
+    expect(wire.catalogGraphVersion).toBe(7);
+    const optionWrite = wire.catalogGraph.options[0]!;
+    // Full option object per optionWriteSchema, not a bare entity ref.
+    expect(optionWrite).toMatchObject({
+      id: COLOR_OPTION_ID,
+      kind: "COLOR",
+      name: "Color",
+      position: 0,
+      presentation: "SWATCH",
+      isMediaDriver: true,
+      isActive: true,
+    });
+    expect(optionWrite.values).toEqual([
+      expect.objectContaining({ id: RED_VALUE_ID, label: "Crimson", isActive: true }),
+    ]);
+
+    const mediaWrite = wire.catalogGraph.media[0]!;
+    expect(mediaWrite.optionValueId).toBe(RED_VALUE_ID);
+    expect(mediaWrite.optionValueClientKey).toBeUndefined();
+    expect(mediaWrite.variantId).toBeUndefined();
+  });
+
+  it("uses clientKey fields for request-created rows", () => {
+    const draft = draftFor();
+    draft.options[0].values.push({
+      clientKey: "value-green",
+      label: "Green",
+      position: 2,
+      swatchHex: null,
+      thumbnailUrl: null,
+      thumbnailAlt: null,
+      isActive: true,
+    });
+
+    const wire = toWireCatalogGraphPatch(
+      buildCatalogGraphPatch(serverGraph(), draft),
+      3,
+    );
+
+    const valueWrite = wire.catalogGraph.options[0]!.values[0]!;
+    expect(valueWrite.clientKey).toBe("value-green");
+    expect(valueWrite.id).toBeUndefined();
+  });
+
+  it("omits defaultDisplayVariant when unchanged and sends null when cleared", () => {
+    const unchanged = toWireCatalogGraphPatch(
+      buildCatalogGraphPatch(serverGraph(), draftFor()),
+      3,
+    );
+    expect("defaultDisplayVariant" in unchanged.catalogGraph).toBe(false);
+
+    const cleared = draftFor();
+    cleared.defaultDisplayVariantRef = null;
+    const wire = toWireCatalogGraphPatch(
+      buildCatalogGraphPatch(serverGraph(), cleared),
+      3,
+    );
+    expect(wire.catalogGraph.defaultDisplayVariant).toBeNull();
+  });
+
+  it("never emits sku for sku-less rows without disable intent", () => {
+    const graph = serverGraph();
+    graph.variants[0] = { ...graph.variants[0], sku: null };
+    const draft = draftFor(graph);
+    // Only the position changes; neither side ever had a SKU.
+    draft.variants[0].position = 5;
+
+    const patch = buildCatalogGraphPatch(graph, draft);
+    const upsert = patch.variantUpserts[0]!;
+    expect(upsert.id).toBe(VARIANT_RED_ID);
+    expect(upsert.position).toBe(5);
+    expect("sku" in upsert).toBe(false);
+
+    const wire = toWireCatalogGraphPatch(patch, graph.catalogGraphVersion);
+    expect("sku" in wire.catalogGraph.variants[0]!).toBe(false);
+  });
+
+  it("emits sku null only as explicit disable intent", () => {
+    const graph = serverGraph();
+    const draft = draftFor(graph);
+    // SKU removed from a variant that has one server-side: disable it.
+    draft.variants[0].sku = null;
+    draft.variants[0].position = 5;
+
+    const patch = buildCatalogGraphPatch(graph, draft);
+    expect(patch.variantUpserts[0]!.sku).toBeNull();
+    const wire = toWireCatalogGraphPatch(patch, graph.catalogGraphVersion);
+    expect(wire.catalogGraph.variants[0]!.sku).toBeNull();
+  });
+});
+
+describe("syncSharedMediaDraft", () => {
+  function sharedForm(draft: AdminCatalogGraphDraft) {
+    return draft.media
+      .filter(
+        (row) => row.optionValueRef === null && row.variantRef === null,
+      )
+      .map((row, index) => ({
+        url: row.url,
+        type: row.type,
+        altText: row.altText ?? "",
+        sortOrder: String(index),
+      }));
+  }
+
+  it("leaves the draft byte-identical when the gallery already matches", () => {
+    const draft = draftFor();
+    const before = structuredClone(draft);
+
+    syncSharedMediaDraft(draft, sharedForm(draft));
+
+    expect(draft).toEqual(before);
+  });
+
+  it("overlays edits positionally, keeps persisted ids and mints client keys for net-new rows", () => {
+    const draft = draftFor();
+    const images = [
+      ...sharedForm(draft).map((row) => ({ ...row })),
+      { url: "/uploads/catalog/2026/new.jpg", type: "IMAGE" as const, altText: "", sortOrder: "2" },
+    ];
+    images[0]!.url = "/uploads/catalog/2026/edited.jpg";
+
+    syncSharedMediaDraft(draft, images);
+
+    expect(draft.media[0]).toMatchObject({
+      id: MEDIA_1_ID,
+      url: "/uploads/catalog/2026/edited.jpg",
+      sortOrder: 0,
+    });
+    const added = draft.media[2]!;
+    expect(added.id).toBeUndefined();
+    expect(added.clientKey).toBeDefined();
+    expect(added.url).toBe("/uploads/catalog/2026/new.jpg");
+    expect(added.sortOrder).toBe(2);
+    // Scoped rows are untouched.
+    expect(draft.media).toHaveLength(3);
+  });
+
+  it("drops removed rows so the patch retires their server ids", () => {
+    const draft = draftFor();
+    syncSharedMediaDraft(draft, sharedForm(draft).slice(0, 1));
+
+    expect(draft.media.map(({ id }) => id)).toEqual([MEDIA_1_ID]);
+    const patch = buildCatalogGraphPatch(serverGraph(), draft);
+    expect(patch.retirements.mediaIds).toEqual([MEDIA_2_ID]);
+  });
+});
+
+describe("graphFromAdminProduct", () => {
+  it("yields a baseline that an untouched typed draft diffs to an empty patch", () => {
+    const product = productFor(serverGraph());
+    const patch = buildCatalogGraphPatch(
+      graphFromAdminProduct(product),
+      deserializeAdminProduct(product),
+    );
+
+    expect(patch.optionUpserts).toEqual([]);
+    expect(patch.variantUpserts).toEqual([]);
+    expect(patch.mediaUpserts).toEqual([]);
+    expect(patch.retirements).toEqual({
+      optionIds: [],
+      optionValueIds: [],
+      variantIds: [],
+      mediaIds: [],
+    });
+    expect(patch.defaultDisplayVariant).toBeUndefined();
+  });
+
+  it("surfaces legacy client keys as ids so the same draft also diffs empty", () => {
+    const product = productFor(serverGraph());
+    delete product.options;
+    delete product.media;
+
+    const draft = deserializeAdminProduct(product);
+    const patch = buildCatalogGraphPatch(graphFromAdminProduct(product), draft);
+
+    expect(patch.optionUpserts).toEqual([]);
+    expect(patch.variantUpserts).toEqual([]);
+    expect(patch.mediaUpserts).toEqual([]);
+    expect(graphFromAdminProduct(product).options[0]!.id).toBe(
+      `legacy-option-${PRODUCT_ID}`,
+    );
   });
 });
