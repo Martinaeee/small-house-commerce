@@ -211,8 +211,8 @@ function productSpecs(): ProductSpec[] {
       name: 'E2E Legacy Style Shelf',
       typed: false,
       variants: [
-        { name: 'Walnut', skuCode: 'E2E-LEGACY-WALNUT', price: 1499, onHand: 10 },
-        { name: 'Oak', skuCode: 'E2E-LEGACY-OAK', price: 1699, onHand: 6 },
+        { name: 'Walnut', skuCode: 'E2E-LEGACY-WALNUT', price: 1499, onHand: 1000 },
+        { name: 'Oak', skuCode: 'E2E-LEGACY-OAK', price: 1699, onHand: 1000 },
       ],
       sharedMedia: [{ name: 'legacy-shared-1', label: 'Legacy 1', fill: '#8d6e63' }],
     },
@@ -238,10 +238,10 @@ function productSpecs(): ProductSpec[] {
           skuCode: 'E2E-COLOR-RED',
           price: 1299,
           compareAtPrice: 1599,
-          onHand: 12,
+          onHand: 1000,
           values: ['Red'],
         },
-        { name: 'Blue', skuCode: 'E2E-COLOR-BLUE', price: 1199, onHand: 9, values: ['Blue'] },
+        { name: 'Blue', skuCode: 'E2E-COLOR-BLUE', price: 1199, onHand: 1000, values: ['Blue'] },
       ],
       sharedMedia: [{ name: 'color-only-shared-1', label: 'Shared', fill: '#8d6e63' }],
     },
@@ -261,7 +261,7 @@ function productSpecs(): ProductSpec[] {
       variants: [
         // Small is out of stock on purpose: the OOS save-for-later scenario.
         { name: 'Small', skuCode: 'E2E-SIZE-S', price: 999, onHand: 0, values: ['Small'] },
-        { name: 'Medium', skuCode: 'E2E-SIZE-M', price: 999, onHand: 8, values: ['Medium'] },
+        { name: 'Medium', skuCode: 'E2E-SIZE-M', price: 999, onHand: 1000, values: ['Medium'] },
       ],
       sharedMedia: [{ name: 'size-only-shared-1', label: 'Shared', fill: '#8d6e63' }],
     },
@@ -289,11 +289,11 @@ function productSpecs(): ProductSpec[] {
         },
       ],
       variants: [
-        { name: 'Red / Small', skuCode: 'E2E-CS-RED-S', price: 1299, onHand: 10, values: ['Red', 'Small'] },
-        { name: 'Red / Medium', skuCode: 'E2E-CS-RED-M', price: 1299, onHand: 10, values: ['Red', 'Medium'] },
+        { name: 'Red / Small', skuCode: 'E2E-CS-RED-S', price: 1299, onHand: 1000, values: ['Red', 'Small'] },
+        { name: 'Red / Medium', skuCode: 'E2E-CS-RED-M', price: 1299, onHand: 1000, values: ['Red', 'Medium'] },
         // One OOS combination inside the matrix.
         { name: 'Blue / Small', skuCode: 'E2E-CS-BLUE-S', price: 1199, onHand: 0, values: ['Blue', 'Small'] },
-        { name: 'Blue / Medium', skuCode: 'E2E-CS-BLUE-M', price: 1199, onHand: 6, values: ['Blue', 'Medium'] },
+        { name: 'Blue / Medium', skuCode: 'E2E-CS-BLUE-M', price: 1199, onHand: 1000, values: ['Blue', 'Medium'] },
       ],
       sharedMedia: [{ name: 'color-size-shared-1', label: 'Shared', fill: '#8d6e63' }],
     },
@@ -320,11 +320,11 @@ function productSpecs(): ProductSpec[] {
           name: 'Red',
           skuCode: 'E2E-OVR-RED',
           price: 2199,
-          onHand: 4,
+          onHand: 1000,
           values: ['Red'],
           exactMedia: { name: 'exact-override-red', label: 'Exact Red', fill: '#96281b' },
         },
-        { name: 'Blue', skuCode: 'E2E-OVR-BLUE', price: 2199, onHand: 4, values: ['Blue'] },
+        { name: 'Blue', skuCode: 'E2E-OVR-BLUE', price: 2199, onHand: 1000, values: ['Blue'] },
       ],
       sharedMedia: [{ name: 'exact-override-shared-1', label: 'Shared', fill: '#8d6e63' }],
     },
@@ -532,13 +532,25 @@ async function main(): Promise<void> {
     const categoryId = await ensureCategory(ctx);
     const warehouseId = await ensureWarehouse(ctx);
 
-    // Idempotent re-seed: drop this seed's own products first (cascades
-    // variants/SKUs/media/options). FK-restricted deletes (real orders) mean
-    // the database should be recreated instead of force-wiped here.
+    // Idempotent: when the scenario products already exist, KEEP them.
+    // Recreating changes every variant/SKU id between runs, which fights the
+    // `next dev` fetch cache (Next 16 dev caches are sticky — a reused dev
+    // server would serve the previous generation's ids and the deep-link
+    // scenarios would break). Recreate the database for fully fresh data.
     const existing = await prisma.product.count({
       where: { slug: { startsWith: 'e2e-' } },
     });
+    if (existing >= productSpecs().length) {
+      console.log(
+        `seed-e2e: ${existing} scenario products already present — skipping recreation.`,
+      );
+      console.log('seed-e2e: done.');
+      return;
+    }
     if (existing > 0) {
+      // Partial leftovers from an interrupted seed: recreate them. If real
+      // orders already reference the SKUs the delete is FK-restricted —
+      // recreate the database instead of force-wiping.
       try {
         await prisma.product.deleteMany({ where: { slug: { startsWith: 'e2e-' } } });
       } catch {

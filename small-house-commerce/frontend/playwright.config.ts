@@ -26,6 +26,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 const FRONTEND_PORT = 3211;
 const BACKEND_PORT = 3210;
+// The storefront must be reached through `localhost` (never 127.0.0.1):
+// Next 16 dev treats non-localhost origins as cross-origin, blocks /_next/hmr
+// for them, and the HMR client then full-reloads in a loop — hydration never
+// completes and every click lands on an un-hydrated tree.
+const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;
 
 const TEST_DB = process.env.E2E_TEST_DB ?? "small_house_variant_test";
 const PG_USER = process.env.E2E_PG_USER ?? "postgres";
@@ -55,7 +60,7 @@ export default defineConfig({
   reporter: [["list"]],
   globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: `http://127.0.0.1:${FRONTEND_PORT}`,
+    baseURL: FRONTEND_ORIGIN,
     // `next dev` compiles each route on first visit.
     navigationTimeout: 60_000,
     actionTimeout: 15_000,
@@ -72,7 +77,7 @@ export default defineConfig({
     },
     {
       command: `pnpm exec next dev -p ${FRONTEND_PORT}`,
-      url: `http://127.0.0.1:${FRONTEND_PORT}`,
+      url: FRONTEND_ORIGIN,
       timeout: 300_000,
       reuseExistingServer: !process.env.CI,
       env: {

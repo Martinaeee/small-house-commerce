@@ -611,7 +611,10 @@ function OrdersPageContent() {
             <Field label="Status" htmlFor="orders-status">
               <Select
                 id="orders-status"
-                value={status}
+                // status is the parsed array (multi-status URL support); the
+                // select needs the scalar joined key or React logs a
+                // non-scalar-value console error (caught by the T20 gate).
+                value={statusKey}
                 onChange={(e) =>
                   patchParams({ status: e.target.value || null, page: null })
                 }

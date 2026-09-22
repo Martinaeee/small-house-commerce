@@ -31,7 +31,13 @@ const DISABLED_GRAPH_NAME = '__disabled_catalog_graph__';
 
 const GRAPH_SNAPSHOT_INCLUDE = {
   options: {
-    include: { values: true },
+    include: {
+      // Deterministic value order: the admin options editor renders rows in
+      // payload order, so an unordered include would scramble the editor.
+      values: {
+        orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
+      },
+    },
     orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
   },
   variants: {
