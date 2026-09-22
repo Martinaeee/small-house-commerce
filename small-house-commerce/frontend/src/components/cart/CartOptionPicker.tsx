@@ -271,7 +271,8 @@ function CartOptionPickerForm({
           )}
           {outOfStock && (
             <p className="mt-1 text-xs text-ink-secondary">
-              Out of stock — you can still save it to your cart for later.
+              Out of stock — you can still keep this item in your cart for
+              later.
             </p>
           )}
           {error && (

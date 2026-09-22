@@ -29,6 +29,7 @@ const cartStorageMock = vi.hoisted(() => ({
   get: vi.fn(() => "cart-1"),
   set: vi.fn(),
 }));
+const productCacheMock = vi.hoisted(() => ({ fetchProduct: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -45,6 +46,15 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   api: apiMock,
   cartStorage: cartStorageMock,
+}));
+// The module-level productCache would otherwise leak warm entries between
+// tests (the recommendations hook legitimately fetches line products for
+// categoryId ranking), making the "no product fetch" assertion
+// order-dependent. Mocking the cache isolates every test: fetchProduct
+// resolves here without touching the API client, so the
+// getProductBySlug assertion measures cart rendering deterministically.
+vi.mock("@/lib/productCache", () => ({
+  fetchProduct: productCacheMock.fetchProduct,
 }));
 
 const cover = {
@@ -229,6 +239,8 @@ beforeEach(() => {
     pageSize: 24,
   });
   apiMock.getProductBySlug.mockResolvedValue(product);
+  // The Change Options picker loads its product through the cache layer.
+  productCacheMock.fetchProduct.mockResolvedValue(product);
 });
 
 describe("CartView structured lines", () => {

@@ -277,7 +277,7 @@ export function CartDrawer() {
                         {item.productName}
                       </Link>
                       <p className="mt-0.5 text-xs text-ink-muted">
-                        {lineOptionsLabel(item)} · {item.skuCode}
+                        {lineOptionsLabel(item)} · SKU: {item.skuCode}
                       </p>
                       {item.unavailable && (
                         <p role="alert" className="mt-1 text-xs text-sale">Out of stock</p>
