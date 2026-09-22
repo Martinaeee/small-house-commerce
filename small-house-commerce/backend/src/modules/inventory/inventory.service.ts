@@ -15,6 +15,24 @@ export interface SkuStock {
   available: number;
 }
 
+/** One absolute stock-set request inside a batch. */
+export interface SetOnHandBatchInput {
+  skuId: string;
+  onHand: number;
+  reason?: string | null;
+}
+
+/**
+ * Settled outcome for one batch entry. A failure carries a message but never
+ * aborts the batch or rolls back other entries' ledger writes.
+ */
+export type SetOnHandBatchResult =
+  | { skuId: string; ok: true; onHand: number; reserved: number; available: number }
+  | { skuId: string; ok: false; error: string };
+
+/** Ledger writes per chunk; chunks run sequentially. */
+const BATCH_CHUNK_SIZE = 10;
+
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -301,6 +319,61 @@ export class InventoryService {
       return { onHand: current, reserved, available: current - reserved };
     }
     return this.adjust(skuId, delta, reason ?? 'Stock set from product form', operatorId);
+  }
+
+  /**
+   * Settles one chunk of a batch, one SKU at a time. Every entry goes through
+   * setOnHand() — the only MANUAL_ADJUSTMENT write path — and a per-SKU throw
+   * is caught into an `{ ok: false }` result so a failing SKU never rolls back
+   * (or blocks) the others. Kept as its own method so chunk boundaries are
+   * observable in tests.
+   */
+  async settleChunk(
+    chunk: readonly SetOnHandBatchInput[],
+    operatorId: string | undefined,
+  ): Promise<SetOnHandBatchResult[]> {
+    const results: SetOnHandBatchResult[] = [];
+    for (const input of chunk) {
+      try {
+        const stock = await this.setOnHand(
+          input.skuId,
+          input.onHand,
+          input.reason ?? undefined,
+          operatorId,
+        );
+        results.push({ skuId: input.skuId, ok: true, ...stock });
+      } catch (error) {
+        results.push({
+          skuId: input.skuId,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Batch absolute stock set for the product form's two-phase save (graph
+   * first, stock second). Entries are processed through setOnHand() in chunks
+   * of ten, strictly sequentially; there is deliberately no all-SKU
+   * transaction — successful ledger writes stay committed when another SKU
+   * fails, and the caller resubmits only the failed rows. Results are returned
+   * in input order. The request size is bounded by the DTO (max 100).
+   */
+  async setOnHandBatch(
+    inputs: readonly SetOnHandBatchInput[],
+    operatorId: string | undefined,
+  ): Promise<SetOnHandBatchResult[]> {
+    const results: SetOnHandBatchResult[] = [];
+    for (let start = 0; start < inputs.length; start += BATCH_CHUNK_SIZE) {
+      const chunkResults = await this.settleChunk(
+        inputs.slice(start, start + BATCH_CHUNK_SIZE),
+        operatorId,
+      );
+      results.push(...chunkResults);
+    }
+    return results;
   }
 
   async defaultWarehouse() {
