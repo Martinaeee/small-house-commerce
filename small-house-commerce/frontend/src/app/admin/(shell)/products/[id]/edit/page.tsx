@@ -27,6 +27,14 @@ import {
   type CreateProductInput,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import {
+  buildCatalogGraphPatch,
+  deserializeAdminProduct,
+  graphFromAdminProduct,
+  syncSharedMediaDraft,
+  toWireCatalogGraphPatch,
+  type CatalogGraphPatch,
+} from "@/lib/admin-product-graph";
 
 /**
  * Task 10: product edit (/admin/products/:id/edit).
@@ -146,6 +154,9 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
           }
         : null,
     })),
+    // Typed option graph draft (Task 10). Legacy payloads project to the
+    // synthetic STYLE bridge; graph-aware payloads keep the server rows.
+    graph: deserializeAdminProduct(p),
   };
 }
 
@@ -177,6 +188,19 @@ function collectStockChanges(
 function sameSolutionSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   return [...a].sort().join("|") === [...b].sort().join("|");
+}
+
+/** True when the adapter diff carries at least one changed row. */
+function hasGraphRows(patch: CatalogGraphPatch): boolean {
+  return (
+    patch.optionUpserts.length > 0 ||
+    patch.variantUpserts.length > 0 ||
+    patch.mediaUpserts.length > 0 ||
+    patch.retirements.optionIds.length > 0 ||
+    patch.retirements.optionValueIds.length > 0 ||
+    patch.retirements.mediaIds.length > 0 ||
+    patch.defaultDisplayVariant !== undefined
+  );
 }
 
 /**
@@ -381,7 +405,40 @@ export default function EditProductPage(): ReactNode {
 
       const patch = buildProductPatch(result.value, initialResult.value);
       const stockChanges = collectStockChanges(value, initial);
-      if (Object.keys(patch).length === 0 && stockChanges.length === 0) {
+
+      // Typed catalog graph write (Task 10): diff the hydrated draft against
+      // server truth and, when rows changed, attach the patch plus the
+      // optimistic revision. Only payloads that actually carried the typed
+      // graph may write it — a synthesized legacy projection references
+      // server rows by nothing, so sending one would fabricate a second
+      // option graph server-side.
+      let graphBody: ReturnType<typeof toWireCatalogGraphPatch> | Record<string, never> = {};
+      const hasTypedGraph = product.options !== undefined;
+      if (hasTypedGraph && value.graph) {
+        const draft = structuredClone(value.graph);
+        syncSharedMediaDraft(draft, value.images);
+        const graphPatch = buildCatalogGraphPatch(
+          graphFromAdminProduct(product),
+          draft,
+        );
+        if (hasGraphRows(graphPatch)) {
+          graphBody = toWireCatalogGraphPatch(
+            graphPatch,
+            product.catalogGraphVersion,
+          );
+          // Legacy variants/images keys are whole-list replacements that
+          // delete scoped rows and duplicate the graph write; the graph patch
+          // is authoritative for both once the typed payload is in play.
+          delete patch.variants;
+          delete patch.images;
+        }
+      }
+
+      if (
+        Object.keys(patch).length === 0 &&
+        stockChanges.length === 0 &&
+        Object.keys(graphBody).length === 0
+      ) {
         // Nothing changed: do not PATCH (an empty body is a no-op server-side
         // anyway, but skipping keeps the audit/ledger clean).
         setError(null);
@@ -396,8 +453,9 @@ export default function EditProductPage(): ReactNode {
         let productSaved = false;
         try {
           let saved = product;
-          if (Object.keys(patch).length > 0) {
-            saved = await adminApi.updateProduct(product.id, patch);
+          const body = { ...patch, ...graphBody };
+          if (Object.keys(body).length > 0) {
+            saved = await adminApi.updateProduct(product.id, body);
             productSaved = true;
             if (!mounted.current) return;
             // Adopt the new server truth (trimmed values, recreated SKU ids):

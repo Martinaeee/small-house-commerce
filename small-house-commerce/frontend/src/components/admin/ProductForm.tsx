@@ -19,6 +19,7 @@ import type {
   CreateProductInput,
   ProductStatus,
 } from "@/lib/admin-api";
+import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 
 /**
  * Shared product form for /admin/products/new (Task 9) and
@@ -84,6 +85,13 @@ export interface ProductFormValue {
       reserved: string;
     } | null;
   }[];
+  /**
+   * Typed catalog option graph draft (Task 10), hydrated by the edit page's
+   * deserializeProduct and diffed against server truth on save. The variant
+   * tabs here still edit the legacy free-form list; the options/matrix UI
+   * that mutates this draft is Task 11. serializeFormValue ignores it.
+   */
+  graph?: AdminCatalogGraphDraft;
 }
 
 export type SkuFormValue = NonNullable<
