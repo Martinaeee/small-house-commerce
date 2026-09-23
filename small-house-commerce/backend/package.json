@@ -12,6 +12,8 @@
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "build": "nest build",
+    "catalog:audit:snapshot": "tsx scripts/catalog-graph-audit.ts snapshot",
+    "catalog:audit:verify": "tsx scripts/catalog-graph-audit.ts verify",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

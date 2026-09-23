@@ -9,6 +9,7 @@ import {
   Solution,
 } from '../../../generated/prisma/client.js';
 import { slugSchema } from './category.dto.js';
+import { catalogGraphPatchSchema } from './catalog-graph.dto.js';
 
 const skuSchema = z.object({
   skuCode: z.string().min(1).max(64),
@@ -105,6 +106,8 @@ export const updateProductSchema = productBaseSchema
     detailBlocks: z.array(detailBlockSchema).optional(),
     status: z.nativeEnum(ProductStatus).optional(),
     solutions: z.array(z.nativeEnum(Solution)).optional(),
+    catalogGraph: catalogGraphPatchSchema.optional(),
+    catalogGraphVersion: z.number().int().nonnegative().optional(),
   });
 
 export const adminProductQuerySchema = z.object({

@@ -55,7 +55,7 @@ export function RoomInspirationSection({ section }: SectionProps) {
               Shop this room
             </h3>
             {products.map((product, index) => {
-              const thumb = product.images[0]?.url;
+              const thumb = product.effectiveCoverMedia?.url;
               return (
                 <Link
                   key={product.id}

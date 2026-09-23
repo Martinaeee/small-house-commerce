@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { validatePhone } from "@/lib/checkoutValidation";
+import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 import { lookupOrder, type GuestOrderResult } from "@/lib/guestOrder";
 
 /**
@@ -361,29 +362,37 @@ function ResultCard({ result }: { result: GuestOrderResult }) {
       <div className="py-4">
         <h2 className="text-sm font-semibold text-ink">Items</h2>
         <ul data-testid="track-items" className="mt-1 divide-y divide-border">
-          {result.items.map((item) => (
-            <li key={item.id} className="flex gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink">
-                  {item.productNameSnapshot}
-                </p>
-                <p className="mt-0.5 text-xs text-ink-muted">
-                  {item.variantSnapshot ? `${item.variantSnapshot} · ` : ""}
-                  Qty {item.quantity}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-sm font-semibold text-ink">
-                  {formatPrice(Number(item.unitPrice) * item.quantity)}
-                </p>
-                {item.quantity > 1 && (
-                  <p className="text-xs text-ink-muted">
-                    {formatPrice(Number(item.unitPrice))} each
+          {result.items.map((item) => {
+            // Order-time snapshot first; the legacy variant text covers
+            // lines created before the typed option graph.
+            const optionsText = formatOrderOptionsFromSnapshot(
+              item.optionSnapshot,
+              item.variantSnapshot,
+            );
+            return (
+              <li key={item.id} className="flex gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink">
+                    {item.productNameSnapshot}
                   </p>
-                )}
-              </div>
-            </li>
-          ))}
+                  <p className="mt-0.5 text-xs text-ink-muted">
+                    {optionsText ? `${optionsText} · ` : ""}
+                    Qty {item.quantity}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-ink">
+                    {formatPrice(Number(item.unitPrice) * item.quantity)}
+                  </p>
+                  {item.quantity > 1 && (
+                    <p className="text-xs text-ink-muted">
+                      {formatPrice(Number(item.unitPrice))} each
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
 

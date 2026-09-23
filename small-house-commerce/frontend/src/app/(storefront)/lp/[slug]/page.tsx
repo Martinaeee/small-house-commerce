@@ -17,9 +17,15 @@ import { fetchCategoryInfo } from "../../products/[slug]/page";
 
 export const revalidate = 120;
 
-async function fetchLandingPage(slug: string): Promise<LandingPageComposite | null> {
+async function fetchLandingPage(
+  slug: string,
+  variantId?: string | null,
+): Promise<LandingPageComposite | null> {
   try {
-    const res = await fetch(serverApiUrl(`/api/v1/storefront/lp/${slug}`), {
+    const query = variantId
+      ? `?variantId=${encodeURIComponent(variantId)}`
+      : "";
+    const res = await fetch(serverApiUrl(`/api/v1/storefront/lp/${slug}${query}`), {
       next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
@@ -86,12 +92,25 @@ export async function generateMetadata({
 
 export default async function LandingPageRoute({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ variant?: string | string[] }>;
 }) {
-  const { slug } = await params;
-  const data = await fetchLandingPage(slug);
-  if (!data) notFound();
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
+  const initialVariantId =
+    typeof query.variant === "string" ? query.variant : null;
+  const baseData = await fetchLandingPage(slug);
+  if (!baseData) notFound();
+  const initialVariantIsSelectable = baseData.product.variants.some(
+    (variant) =>
+      variant.id === initialVariantId &&
+      variant.sku?.status === "ACTIVE" &&
+      variant.sku.price !== null,
+  );
+  const data = initialVariantIsSelectable
+    ? ((await fetchLandingPage(slug, initialVariantId)) ?? baseData)
+    : baseData;
 
   const product = applyLandingOverrides(data);
   const lp = data.landingPage;
@@ -135,6 +154,7 @@ export default async function LandingPageRoute({
         jsonLd={buildProductJsonLd(data.product, category)}
         promoSlot={promoSlot}
         productPath={`/lp/${lp.slug}`}
+        initialVariantId={initialVariantId}
       />
     </>
   );

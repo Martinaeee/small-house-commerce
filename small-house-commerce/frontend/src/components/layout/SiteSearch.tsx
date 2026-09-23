@@ -16,6 +16,11 @@ import {
 import { api, type Product } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
 
 /**
  * IKEA-style header search (spec §4). Desktop: rounded pill in the header.
@@ -351,8 +356,15 @@ export function SiteSearch() {
               ) : (
                 <ul className="max-h-[360px] overflow-y-auto py-1">
                   {results.map((product, index) => {
-                    const firstImage = product.images[0]?.url;
-                    const price = product.variants[0]?.sku?.price ?? null;
+                    // Shared contracts: effective cover media and
+                    // selection-derived price — never images[0]/variants[0].
+                    const cover = product.effectiveCoverMedia;
+                    const price = cardPricePresentation(
+                      resolveSelection(
+                        product,
+                        createInitialSelection(product, null),
+                      ),
+                    );
                     return (
                       <li key={product.id}>
                         <Link
@@ -366,10 +378,10 @@ export function SiteSearch() {
                           }`}
                         >
                           <span className="h-12 w-12 shrink-0 overflow-hidden rounded-md">
-                            {firstImage ? (
+                            {cover ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                src={firstImage}
+                                src={cover.url}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />
@@ -382,7 +394,11 @@ export function SiteSearch() {
                               {product.name}
                             </span>
                             <span className="text-sm font-semibold text-ink">
-                              {price !== null ? formatPrice(price) : ""}
+                              {price !== null
+                                ? price.kind === "from"
+                                  ? `From ${formatPrice(price.price)}`
+                                  : formatPrice(price.price)
+                                : ""}
                             </span>
                           </span>
                         </Link>

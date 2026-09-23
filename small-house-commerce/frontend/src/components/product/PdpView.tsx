@@ -1,5 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
+import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpInfoSections } from "./PdpInfoSections";
 import { ProductDetailBody } from "./ProductDetailBody";
 import { ProductSpecs } from "./ProductSpecs";
@@ -24,6 +25,7 @@ export async function PdpView({
   jsonLd,
   promoSlot,
   productPath,
+  initialVariantId,
 }: {
   product: Product;
   /** Full root→leaf breadcrumb chain, auto-generated from the category tree. */
@@ -33,6 +35,7 @@ export async function PdpView({
   jsonLd: unknown;
   promoSlot?: ReactNode;
   productPath?: string;
+  initialVariantId?: string | null;
 }): Promise<ReactNode> {
   // Request-deduped with the layout's identical fetch (same URL + ISR tag).
   const settings = await fetchSiteSettings();
@@ -53,16 +56,18 @@ export async function PdpView({
         }}
       />
       <Suspense fallback={null}>
-        {/* key remounts the island per product so in-app PDP→PDP navigation
-            cannot carry the previous product selected variant into state/URL. */}
-        <PdpClient
-          key={product.id}
+        <PdpPurchaseProvider
           product={product}
-          category={category}
-          delivery={delivery}
-          productPath={productPath}
-          promoSlot={promoSlot}
-        />
+          initialVariantId={initialVariantId}
+        >
+          <PdpClient
+            product={product}
+            category={category}
+            delivery={delivery}
+            productPath={productPath}
+            promoSlot={promoSlot}
+          />
+        </PdpPurchaseProvider>
       </Suspense>
 
       {/* Desktop section anchors; the 64px offset clears the sticky header. */}

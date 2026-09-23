@@ -7,8 +7,10 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js'
 import { InventoryService } from '../inventory.service.js';
 import {
   inventoryAdjustSchema,
+  inventoryBatchSetStockSchema,
   inventorySetStockSchema,
   type InventoryAdjustInput,
+  type InventoryBatchSetStockInput,
   type InventorySetStockInput,
 } from '../dto/inventory.dto.js';
 
@@ -37,5 +39,19 @@ export class AdminInventoryController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.inventoryService.setOnHand(body.skuId, body.onHand, body.reason ?? undefined, user.userId);
+  }
+
+  /**
+   * Bounded batch of absolute sets (max 100 SKUs). Per-SKU settled results:
+   * a failing row never rolls back the rows that already settled.
+   */
+  @Put('stock/batch')
+  @Permissions('INVENTORY_ADJUST')
+  setStockBatch(
+    @Body(new ZodValidationPipe(inventoryBatchSetStockSchema))
+    body: InventoryBatchSetStockInput,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.inventoryService.setOnHandBatch(body, user.userId);
   }
 }

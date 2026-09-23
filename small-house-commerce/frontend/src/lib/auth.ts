@@ -13,6 +13,8 @@
  * resurrect one that was signed out.
  */
 
+import type { OrderOptionSnapshotV1 } from "./order-options";
+
 const REFRESH_KEY = "sh_refresh";
 
 export interface CustomerAccount {
@@ -25,6 +27,8 @@ export interface CustomerAccount {
 export interface AccountOrderItem {
   productNameSnapshot: string;
   variantSnapshot: string;
+  /** Stored order-time structured snapshot; null on pre-typed-options lines. */
+  optionSnapshot: OrderOptionSnapshotV1 | null;
   quantity: number;
   lineTotal: number;
 }

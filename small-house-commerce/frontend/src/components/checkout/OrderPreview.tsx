@@ -2,21 +2,35 @@
 import Link from "next/link";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { formatOrderOptionsText } from "@/lib/order-options";
 import type { CheckoutLine } from "./checkoutItems";
 
-function PreviewRow({
-  line,
-  imageUrl,
-}: {
-  line: CheckoutLine;
-  imageUrl: string | null | undefined;
-}) {
+function PreviewRow({ line }: { line: CheckoutLine }) {
+  // Structured option pairs are authoritative on the checkout line; the
+  // legacy variant text is the fallback (legacy cart rows, optionless SKUs).
+  const optionsText =
+    line.options.length > 0 ? formatOrderOptionsText(line.options) : line.variant;
   return (
     <li className="flex gap-3 py-2">
       <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border">
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+        {line.thumbnail ? (
+          line.thumbnail.type === "VIDEO" ? (
+            <video
+              src={line.thumbnail.url}
+              muted
+              playsInline
+              preload="metadata"
+              aria-label={line.thumbnail.altText ?? line.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={line.thumbnail.url}
+              alt={line.thumbnail.altText ?? ""}
+              className="h-full w-full object-cover"
+            />
+          )
         ) : (
           <PlaceholderImage label="" className="h-full w-full" />
         )}
@@ -29,7 +43,7 @@ function PreviewRow({
           {line.name}
         </Link>
         <p className="mt-0.5 text-xs text-ink-muted">
-          {line.variant} · Qty {line.quantity}
+          {optionsText ? `${optionsText} · ` : ""}Qty {line.quantity}
         </p>
       </div>
       <div className="shrink-0 text-right">
@@ -55,17 +69,11 @@ function PreviewRow({
   );
 }
 
-export function OrderPreview({
-  lines,
-  images,
-}: {
-  lines: CheckoutLine[];
-  images: ReadonlyMap<string, string | null | undefined>;
-}) {
+export function OrderPreview({ lines }: { lines: CheckoutLine[] }) {
   return (
     <ul className="divide-y divide-border">
       {lines.map((line) => (
-        <PreviewRow key={line.key} line={line} imageUrl={images.get(line.slug)} />
+        <PreviewRow key={line.key} line={line} />
       ))}
     </ul>
   );

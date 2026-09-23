@@ -47,9 +47,22 @@ export interface Category {
   children: Category[];
 }
 
-export interface Sku {
+export type ProductOptionKind = "COLOR" | "SIZE" | "MATERIAL" | "STYLE";
+export type ProductOptionPresentation = "IMAGE" | "SWATCH" | "TEXT";
+
+/** Public media fields only; scope foreign keys never leave the backend. */
+export interface ProductMedia {
+  id: string;
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  sortOrder: number;
+}
+
+export interface StorefrontSku {
   id: string;
   skuCode: string;
+  status: "ACTIVE" | "DISABLED";
   price: number | null;
   compareAtPrice: number | null;
   availableInventory: number;
@@ -60,20 +73,50 @@ export interface Sku {
   packageWeight?: number | null;
 }
 
-export interface ProductVariant {
+export type Sku = StorefrontSku;
+
+export interface StorefrontOptionValue {
+  id: string;
+  label: string;
+  position: number;
+  swatchHex: string | null;
+  thumbnailUrl: string | null;
+  thumbnailAlt: string | null;
+}
+
+export interface StorefrontProductOption {
+  id: string;
+  kind: ProductOptionKind;
+  name: string;
+  position: number;
+  presentation: ProductOptionPresentation;
+  isMediaDriver: boolean;
+  values: StorefrontOptionValue[];
+}
+
+export interface StorefrontProductVariant {
   id: string;
   name: string;
   position: number;
-  sku: Sku | null;
+  combinationKey: string;
+  optionValueIds: string[];
+  sku: StorefrontSku | null;
 }
 
-export interface ProductImage {
-  id: string;
-  url: string;
-  /** Gallery media kind: photos plus optional short product videos. */
-  type: "IMAGE" | "VIDEO";
-  altText: string | null;
-  sortOrder: number;
+export type ProductVariant = StorefrontProductVariant;
+export type ProductImage = ProductMedia;
+
+export interface ProductMediaSet {
+  resolvedScope: "SHARED" | "OPTION_VALUE" | "VARIANT";
+  /** Omitted, rather than null, for shared media. */
+  scopeId?: string;
+  media: ProductMedia[];
+  catalogGraphVersion: number;
+}
+
+export interface AvailableMediaScopes {
+  optionValueIds: string[];
+  variantIds: string[];
 }
 
 /**
@@ -140,13 +183,21 @@ export interface Product {
    */
   materials?: string | null;
   features?: string | null;
+  catalogGraphVersion: number;
+  options: StorefrontProductOption[];
+  defaultDisplayVariantId: string | null;
+  effectiveCoverMedia: ProductMedia | null;
   images: ProductImage[];
+  /** Present only on the single-product detail response. */
+  initialMediaSet?: ProductMediaSet;
+  /** Present only on the single-product detail response. */
+  availableMediaScopes?: AvailableMediaScopes;
   /**
    * Description-body blocks. Only the PDP endpoint selects them (list routes
    * skip the media deck), so they are absent everywhere else.
    */
   detailBlocks?: ProductDetailBlock[];
-  variants: ProductVariant[];
+  variants: StorefrontProductVariant[];
 }
 
 // --- homepage CMS (storefront composition) ----------------------------------
@@ -236,6 +287,30 @@ export interface CollectionSection {
   sortOrder: number;
 }
 
+/**
+ * One typed option assignment on a cart line, ordered by option position
+ * (the backend's canonical order). Empty for legacy variant rows created
+ * before typed options — clients fall back to `variantName`.
+ */
+export interface CartItemOptionValue {
+  optionId: string;
+  optionName: string;
+  optionValueId: string;
+  label: string;
+}
+
+/**
+ * The line's effective thumbnail, resolved by the backend with the same
+ * precedence as the PDP gallery (exact variant → active media-driver value →
+ * shared). May be a VIDEO url; render accordingly.
+ */
+export interface CartItemThumbnail {
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  resolvedScope: "VARIANT" | "OPTION_VALUE" | "SHARED";
+}
+
 export interface CartItem {
   itemId: string;
   skuId: string;
@@ -249,6 +324,8 @@ export interface CartItem {
   lineTotal: number;
   availableInventory: number;
   unavailable: boolean;
+  optionValues: CartItemOptionValue[];
+  thumbnail: CartItemThumbnail | null;
 }
 
 export interface CartSummary {
@@ -394,6 +471,17 @@ export const api = {
     request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
       method: "PUT",
       body: JSON.stringify({ quantity }),
+    }),
+  /**
+   * Atomically replaces a line's SKU (the Change Options flow). If the target
+   * SKU already sits on another row of the same cart the backend merges the
+   * quantities and deletes the source row; otherwise the row is updated in
+   * place. The returned summary is the merged state to adopt as-is.
+   */
+  replaceCartItem: (cartId: string, itemId: string, input: { skuId: string; quantity: number }) =>
+    request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
     }),
   removeCartItem: (cartId: string, itemId: string) =>
     request<CartSummary>(`/api/v1/storefront/cart/${cartId}/items/${itemId}`, {

@@ -1,13 +1,20 @@
 import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { ButtonLink } from "@/components/ui/Button";
-import { PriceBox } from "@/components/ui/PriceBox";
+import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
 
 /**
  * DESIGN_SYSTEM §12 Product Card — the core reusable component.
  * Structure: image (4:5) → badge → name → price → CTA.
  * Used on Homepage, Collection and Related Products.
+ * Media and price come from the backend's effective cover and the shared
+ * selection contract — never from positional images[0]/variants[0] picks.
  */
 
 interface ProductCardProps {
@@ -17,15 +24,25 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, badge }: ProductCardProps) {
-  const firstImage = product.images[0]?.url;
-  const firstSku = product.variants[0]?.sku ?? null;
-  const outOfStock = firstSku !== null && firstSku.availableInventory <= 0;
+  const cover = product.effectiveCoverMedia;
+  const derived = resolveSelection(
+    product,
+    createInitialSelection(product, null),
+  );
+  const sellable = derived.selectableVariants;
+  const directSku = sellable.length === 1 ? (sellable[0].sku ?? null) : null;
+  // Only a single-SKU product (or one with nothing sellable at all) owns a
+  // whole-card stock verdict; multi-SKU products decide stock on the PDP.
+  const outOfStock =
+    sellable.length === 0 ||
+    (directSku !== null && directSku.availableInventory <= 0);
+  const price = cardPricePresentation(derived);
 
-  const image = firstImage ? (
+  const image = cover ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={firstImage}
-      alt={product.images[0]?.altText ?? product.name}
+      src={cover.url}
+      alt={cover.altText ?? product.name}
       className="aspect-[4/5] w-full object-cover"
       loading="lazy"
     />
@@ -56,7 +73,15 @@ export function ProductCard({ product, badge }: ProductCardProps) {
           </Link>
         </h3>
 
-        <PriceBox price={firstSku?.price ?? null} compareAtPrice={firstSku?.compareAtPrice ?? null} />
+        {price ? (
+          price.kind === "exact" ? (
+            <PriceBox price={price.price} compareAtPrice={price.compareAtPrice} />
+          ) : (
+            <p className="text-lg font-bold text-ink" data-testid="price">
+              From {formatPrice(price.price)}
+            </p>
+          )
+        ) : null}
 
         <div className="mt-auto pt-2">
           <ButtonLink

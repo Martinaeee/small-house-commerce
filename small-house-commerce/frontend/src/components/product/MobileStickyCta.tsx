@@ -1,6 +1,7 @@
 // src/components/product/MobileStickyCta.tsx
 "use client";
 
+import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { PriceBox } from "@/components/ui/PriceBox";
 
@@ -14,6 +15,8 @@ export function MobileStickyCta({
   outOfStock,
   busy,
   contactHref,
+  orderLabel = "ORDER NOW",
+  addLabel = "ADD TO CART",
   onOrderNow,
   onAddToCart,
 }: {
@@ -23,8 +26,10 @@ export function MobileStickyCta({
   outOfStock: boolean;
   busy: boolean;
   contactHref?: string | null;
-  onOrderNow: () => void;
-  onAddToCart: () => void;
+  orderLabel?: string;
+  addLabel?: string;
+  onOrderNow: (event: MouseEvent<HTMLButtonElement>) => void;
+  onAddToCart: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden">
@@ -51,7 +56,7 @@ export function MobileStickyCta({
               className="shrink-0"
               data-testid="sticky-add-to-cart"
             >
-              ADD TO CART
+              {addLabel}
             </Button>
           </div>
         ) : (
@@ -62,7 +67,7 @@ export function MobileStickyCta({
             className="shrink-0"
             data-testid="sticky-order-now"
           >
-            ORDER NOW
+            {orderLabel}
           </Button>
         )}
       </div>

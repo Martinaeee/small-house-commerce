@@ -9,6 +9,7 @@ import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
+import { buildOrderItemSnapshot, type OrderItemSnapshotWrite } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 
 const ORDER_DETAIL_INCLUDE = {
@@ -67,7 +68,7 @@ export class OrdersService {
       productName: string;
       productId: string;
       variantId: string;
-      variantName: string;
+      snapshot: OrderItemSnapshotWrite;
       unitPrice: Prisma.Decimal;
       unitCost: Prisma.Decimal | null;
     }[] = [];
@@ -75,7 +76,14 @@ export class OrdersService {
     for (const item of input.items) {
       const sku = await this.prisma.sku.findUnique({
         where: { id: item.skuId },
-        include: { variant: { include: { product: true } } },
+        include: {
+          variant: {
+            include: {
+              product: true,
+              optionValues: { include: { option: true, optionValue: true } },
+            },
+          },
+        },
       });
 
       if (!sku || sku.status !== 'ACTIVE' || sku.variant.product.status !== 'ACTIVE') {
@@ -92,7 +100,7 @@ export class OrdersService {
         productName: sku.variant.product.name,
         productId: sku.variant.productId,
         variantId: sku.variant.id,
-        variantName: sku.variant.name,
+        snapshot: buildOrderItemSnapshot(sku),
         unitPrice: sku.price,
         unitCost: sku.landedCost,
       });
@@ -152,7 +160,13 @@ export class OrdersService {
               variantId: line.variantId,
               productNameSnapshot: line.productName,
               skuCodeSnapshot: line.skuCode,
-              variantSnapshot: line.variantName,
+              variantSnapshot: line.snapshot.variantSnapshot,
+              // Option snapshots are written once here (rename immutability);
+              // legacy variants leave the column at DB NULL. Prisma's JSON
+              // input cannot express JS null, so the key is omitted instead.
+              ...(line.snapshot.optionSnapshot
+                ? { optionSnapshot: line.snapshot.optionSnapshot }
+                : {}),
               quantity: line.quantity,
               unitPrice: line.unitPrice,
               unitDiscount: new Prisma.Decimal(0),
@@ -554,7 +568,14 @@ export class OrdersService {
         const skuIds = [...new Set([...current.keys(), ...next.keys()])];
         const skus = await tx.sku.findMany({
           where: { id: { in: skuIds } },
-          include: { variant: { include: { product: true } } },
+          include: {
+            variant: {
+              include: {
+                product: true,
+                optionValues: { include: { option: true, optionValue: true } },
+              },
+            },
+          },
         });
         const skuById = new Map(skus.map((s) => [s.id, s]));
 
@@ -576,6 +597,7 @@ export class OrdersService {
             if (sku.price === null) {
               throw new BadRequestException(`SKU ${sku.skuCode} is not priced`);
             }
+            const snapshot = buildOrderItemSnapshot(sku);
             await tx.orderItem.create({
               data: {
                 orderId,
@@ -584,7 +606,10 @@ export class OrdersService {
                 variantId: sku.variant.id,
                 productNameSnapshot: sku.variant.product.name,
                 skuCodeSnapshot: sku.skuCode,
-                variantSnapshot: sku.variant.name,
+                variantSnapshot: snapshot.variantSnapshot,
+                ...(snapshot.optionSnapshot
+                  ? { optionSnapshot: snapshot.optionSnapshot }
+                  : {}),
                 quantity: qty,
                 unitPrice: sku.price,
                 unitDiscount: new Prisma.Decimal(0),

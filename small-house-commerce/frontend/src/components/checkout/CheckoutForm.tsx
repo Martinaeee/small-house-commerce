@@ -13,8 +13,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { useProductImages } from "@/lib/productImages";
-import { track } from "@/lib/tracking";
+import { emitCommerceEvent, initiateCheckoutEvent } from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
@@ -137,9 +136,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     totals,
     total,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
-
-  const slugs = useMemo(() => lines.map((line) => line.slug), [lines]);
-  const images = useProductImages(slugs);
+  // Checkout lines carry their own enriched thumbnails (cart summary data /
+  // Buy Now product cover), so no product-by-slug image recovery is needed.
 
   // Restore a draft left by an earlier REVIEW ORDER (back-button / re-entry).
   useEffect(() => {
@@ -175,11 +173,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     } catch {
       // Storage unavailable: proceed and fire.
     }
-    track("InitiateCheckout", {
-      contents: orderItems.map((item) => ({ id: item.skuId, quantity: item.quantity })),
-      value: total ?? undefined,
-      currency: "PHP",
-    });
+    // Final SKU list (cart or Buy Now), at most once per checkout session.
+    emitCommerceEvent(initiateCheckoutEvent({ items: orderItems, value: total }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuyNow, orderItems.length, buyNowMatchedSku]);
 
@@ -491,7 +486,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             ) : lines.length === 0 ? (
               <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
             ) : (
-              <OrderPreview lines={lines} images={images} />
+              <OrderPreview lines={lines} />
             )}
           </div>
         </div>

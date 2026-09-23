@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -16,7 +17,18 @@ import { ReviewsService } from './reviews.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
+import { presentCatalogGraph } from './catalog-compat.js';
+import { legacyUnmappedCombinationKey } from './catalog-graph.js';
+import { CatalogGraphService } from './catalog-graph.service.js';
+import type { AdminProduct } from './catalog-graph.service.js';
+import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
+import {
+  ProductMediaResolver,
+  isMediaEligibleVariant,
+  type MediaScopeRequest,
+  type ProductMediaItem,
+} from './product-media.resolver.js';
 
 /**
  * Placeholder a surviving variant is parked under while the submitted names are
@@ -26,9 +38,15 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 const PENDING_RENAME = '__pending_rename__';
 
 const ADMIN_PRODUCT_INCLUDE = {
-  images: { orderBy: { sortOrder: 'asc' as const } },
+  images: {
+    where: { optionValueId: null, variantId: null },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+  },
   detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
-  variants: { include: { sku: true }, orderBy: { position: 'asc' as const } },
+  variants: {
+    include: { sku: true },
+    orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
+  },
 } satisfies Prisma.ProductInclude;
 
 /**
@@ -51,19 +69,61 @@ const STOREFRONT_SELECT = {
   foldedWidth: true,
   foldedHeight: true,
   foldedDepth: true,
+  catalogGraphVersion: true,
+  defaultDisplayVariantId: true,
   images: {
-    select: { id: true, url: true, type: true, altText: true, sortOrder: true },
-    orderBy: { sortOrder: 'asc' as const },
+    where: { optionValueId: null, variantId: null },
+    select: {
+      id: true,
+      url: true,
+      type: true,
+      altText: true,
+      sortOrder: true,
+      optionValueId: true,
+      variantId: true,
+    },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+  },
+  options: {
+    where: { isActive: true },
+    select: {
+      id: true,
+      kind: true,
+      name: true,
+      position: true,
+      presentation: true,
+      isMediaDriver: true,
+      isActive: true,
+      values: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          label: true,
+          position: true,
+          swatchHex: true,
+          thumbnailUrl: true,
+          thumbnailAlt: true,
+          isActive: true,
+        },
+        orderBy: { position: 'asc' as const },
+      },
+    },
+    orderBy: { position: 'asc' as const },
   },
   variants: {
     select: {
       id: true,
       name: true,
       position: true,
+      combinationKey: true,
+      optionValues: {
+        select: { optionId: true, optionValueId: true },
+      },
       sku: {
         select: {
           id: true,
           skuCode: true,
+          status: true,
           price: true,
           compareAtPrice: true,
           productWeight: true,
@@ -74,7 +134,7 @@ const STOREFRONT_SELECT = {
         },
       },
     },
-    orderBy: { position: 'asc' as const },
+    orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
   },
 } satisfies Prisma.ProductSelect;
 
@@ -98,13 +158,39 @@ type StorefrontProductRecord = Prisma.ProductGetPayload<{
   select: typeof STOREFRONT_SELECT;
 }>;
 
+function publicStorefrontMedia(media: ProductMediaItem): ProductMediaItem {
+  return {
+    id: media.id,
+    url: media.url,
+    type: media.type,
+    altText: media.altText,
+    sortOrder: media.sortOrder,
+  };
+}
+
+function mediaDisplayVariant<
+  T extends { id: string; sku: { status: 'ACTIVE' | 'DISABLED' } | null },
+>(variants: T[], persistedDefaultId: string | null): T | undefined {
+  return (
+    variants.find(
+      (variant) =>
+        variant.id === persistedDefaultId && isMediaEligibleVariant(variant),
+    ) ?? variants.find(isMediaEligibleVariant)
+  );
+}
+
 @Injectable()
 export class ProductsService {
+  private readonly productMedia: ProductMediaResolver;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly reviews: ReviewsService,
     private readonly inventory: InventoryService,
-  ) {}
+    private readonly catalogGraph?: CatalogGraphService,
+  ) {
+    this.productMedia = new ProductMediaResolver(prisma as never);
+  }
 
   // --- admin ---------------------------------------------------------------
 
@@ -115,9 +201,9 @@ export class ProductsService {
    * withAvailableInventory, which converts them for the storefront): the admin
    * form round-trips prices as decimal strings.
    */
-  private async withStock<T extends { variants: { sku: { id: string } | null }[] }>(
-    products: T[],
-  ): Promise<T[]> {
+  private async withStock<
+    T extends { variants: { sku: { id: string } | null }[] },
+  >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
         products.flatMap((p) =>
@@ -177,8 +263,27 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    const [enriched] = await this.withStock([product]);
+    const [enriched] = await this.withStock([
+      await this.withTypedGraph(product),
+    ]);
     return enriched;
+  }
+
+  /**
+   * Re-loads a graph product (catalogGraphVersion > 0) through the typed
+   * graph snapshot — options/values, variant option assignments, and the
+   * full scoped media set — so the edit form's typed editors hydrate from
+   * server truth (the standing T10/T11 admin-GET gap). Graph-v0 legacy
+   * products return unchanged: their variants still edit through the legacy
+   * form until a backfill materializes their graph.
+   */
+  private async withTypedGraph<
+    T extends { id: string; catalogGraphVersion: number | null },
+  >(product: T): Promise<T | AdminProduct> {
+    if ((product.catalogGraphVersion ?? 0) <= 0 || !this.catalogGraph) {
+      return product;
+    }
+    return (await this.catalogGraph.adminSnapshot(product.id)) ?? product;
   }
 
   async create(input: CreateProductInput) {
@@ -210,17 +315,27 @@ export class ProductsService {
           },
         });
 
-        // Variants are created one at a time so each gets an id before its
-        // SKU row is inserted (Sku.productId is a separate required FK that
-        // Prisma cannot fill through the nested create path).
+        // Preallocate each legacy variant id so its graph-v0 combination
+        // sentinel and optional SKU reference the same stable identity.
         for (const variant of input.variants) {
+          const variantId = randomUUID();
           const created = await tx.productVariant.create({
-            data: { productId: product.id, name: variant.name, position: variant.position },
+            data: {
+              id: variantId,
+              productId: product.id,
+              name: variant.name,
+              position: variant.position,
+              combinationKey: legacyUnmappedCombinationKey(variantId),
+            },
           });
 
           if (variant.sku) {
             await tx.sku.create({
-              data: { ...variant.sku, productId: product.id, variantId: created.id },
+              data: {
+                ...variant.sku,
+                productId: product.id,
+                variantId: created.id,
+              },
             });
           }
         }
@@ -241,62 +356,101 @@ export class ProductsService {
   async update(id: string, input: UpdateProductInput) {
     const existing = await this.prisma.product.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, catalogGraphVersion: true },
     });
 
     if (!existing) {
       throw new NotFoundException('Product not found');
     }
 
+    const currentGraphVersion = existing.catalogGraphVersion ?? 0;
+    const writesLegacyGraph =
+      input.variants !== undefined || input.images !== undefined;
+    if (
+      input.catalogGraph === undefined &&
+      currentGraphVersion > 0 &&
+      writesLegacyGraph
+    ) {
+      throw new CatalogGraphVersionRequiredError();
+    }
+    if (
+      input.catalogGraph !== undefined &&
+      input.catalogGraphVersion === undefined
+    ) {
+      throw new CatalogGraphVersionRequiredError();
+    }
+
     if (input.categoryId) {
       await this.ensureCategory(input.categoryId);
     }
 
+    const data: Prisma.ProductUpdateInput = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.slug !== undefined) data.slug = input.slug;
+    if (input.description !== undefined) data.description = input.description;
+    if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.categoryId !== undefined)
+      data.category = { connect: { id: input.categoryId } };
+    if (input.status !== undefined) data.status = input.status;
+    if (input.room !== undefined) data.room = input.room;
+    if (input.internalRole !== undefined)
+      data.internalRole = input.internalRole;
+    if (input.solutions !== undefined) data.solutions = input.solutions;
+    if (input.width !== undefined) data.width = input.width;
+    if (input.height !== undefined) data.height = input.height;
+    if (input.depth !== undefined) data.depth = input.depth;
+    if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
+    if (input.foldedHeight !== undefined)
+      data.foldedHeight = input.foldedHeight;
+    if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
+    if (input.materials !== undefined) data.materials = input.materials;
+    if (input.features !== undefined) data.features = input.features;
+    if (input.detailBlocks !== undefined) {
+      data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
+    }
+
     try {
+      if (input.catalogGraph !== undefined) {
+        if (!this.catalogGraph) {
+          throw new Error('CatalogGraphService is not configured');
+        }
+        const graphUpdated =
+          await this.catalogGraph.applyPatchWithProductMutation(
+            id,
+            input.catalogGraphVersion!,
+            input.catalogGraph,
+            async (tx) => {
+              await tx.product.update({ where: { id }, data });
+            },
+          );
+        const [enriched] = await this.withStock([graphUpdated]);
+        return enriched;
+      }
+
+      if (input.images !== undefined) {
+        data.images = { deleteMany: {}, create: input.images };
+      }
       const updated = await this.prisma.$transaction(async (tx) => {
-        const data: Prisma.ProductUpdateInput = {};
-
-        if (input.name !== undefined) data.name = input.name;
-        if (input.slug !== undefined) data.slug = input.slug;
-        if (input.description !== undefined) data.description = input.description;
-        if (input.tagline !== undefined) data.tagline = input.tagline;
-        if (input.categoryId !== undefined) data.category = { connect: { id: input.categoryId } };
-        if (input.status !== undefined) data.status = input.status;
-        if (input.room !== undefined) data.room = input.room;
-        if (input.internalRole !== undefined) data.internalRole = input.internalRole;
-        if (input.solutions !== undefined) data.solutions = input.solutions;
-        if (input.width !== undefined) data.width = input.width;
-        if (input.height !== undefined) data.height = input.height;
-        if (input.depth !== undefined) data.depth = input.depth;
-        if (input.foldedWidth !== undefined) data.foldedWidth = input.foldedWidth;
-        if (input.foldedHeight !== undefined) data.foldedHeight = input.foldedHeight;
-        if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
-        if (input.materials !== undefined) data.materials = input.materials;
-        if (input.features !== undefined) data.features = input.features;
-
-        // Images and variants are whole-list replacements on update.
-        if (input.images !== undefined) {
-          data.images = { deleteMany: {}, create: input.images };
-        }
-        if (input.detailBlocks !== undefined) {
-          data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
-        }
-
         if (input.variants !== undefined) {
           await this.reconcileVariants(tx, id, input.variants);
         }
-
         return tx.product.update({
           where: { id },
           data,
           include: ADMIN_PRODUCT_INCLUDE,
         });
       });
+
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       // Same shape as get(): the edit form adopts this response as its new
       // server truth, so a missing onHand would re-render the stock box as
-      // "undefined" and block the next save client-side.
-      const [enriched] = await this.withStock([updated]);
+      // "undefined" and block the next save client-side. A scalar-only save
+      // of a graph product must also adopt the typed graph — a legacy-shaped
+      // response would flip the form's typed editors back to their locked
+      // "graph without typed data" state.
+      const [enriched] = await this.withStock([
+        await this.withTypedGraph(updated),
+      ]);
       return enriched;
     } catch (error) {
       this.rethrowKnown(error);
@@ -370,7 +524,11 @@ export class ProductsService {
         byName.delete(match.name);
         if (incomingSku) bySkuCode.delete(incomingSku.skuCode);
       }
-      return { variant, match };
+      return {
+        variant,
+        match,
+        newVariantId: match ? undefined : randomUUID(),
+      };
     });
 
     // Phase 1: park every surviving row under a name no payload can claim, so
@@ -390,17 +548,24 @@ export class ProductsService {
     const kept = new Set<string>();
 
     // Phase 2: assign the final names and reconcile each SKU.
-    for (const { variant, match } of plan) {
+    for (const { variant, match, newVariantId } of plan) {
       const incomingSku = variant.sku;
 
       if (!match) {
-        const created = await tx.productVariant.create({
-          data: { productId, name: variant.name, position: variant.position },
+        const id = newVariantId!;
+        await tx.productVariant.create({
+          data: {
+            id,
+            productId,
+            name: variant.name,
+            position: variant.position,
+            combinationKey: legacyUnmappedCombinationKey(id),
+          },
         });
         if (incomingSku) {
           try {
             await tx.sku.create({
-              data: { ...incomingSku, productId, variantId: created.id },
+              data: { ...incomingSku, productId, variantId: id },
             });
           } catch (error) {
             this.rethrowSkuCodeTaken(error, incomingSku.skuCode);
@@ -489,7 +654,8 @@ export class ProductsService {
 
   private isPrismaCode(error: unknown, code: string): boolean {
     return (
-      error instanceof Prisma.PrismaClientKnownRequestError && error.code === code
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === code
     );
   }
 
@@ -533,7 +699,9 @@ export class ProductsService {
         where: { status: 'ACTIVE' },
         select: { id: true, parentId: true },
       });
-      where.categoryId = { in: expandCategoryIds(activeCategories, query.categoryId) };
+      where.categoryId = {
+        in: expandCategoryIds(activeCategories, query.categoryId),
+      };
     }
     if (query.room) where.room = query.room;
     if (query.solution) where.solutions = { has: query.solution };
@@ -599,11 +767,166 @@ export class ProductsService {
    */
   private async presentStorefront(items: StorefrontProductRecord[]) {
     const enriched = await this.withAvailableInventory(items);
-    const summary = await this.reviews.summaryForProducts(enriched.map((p) => p.id));
-    return enriched.map((p) => {
-      const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
-      return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
+    const mediaPresentation = await this.storefrontMediaPresentation(enriched);
+    const summary = await this.reviews.summaryForProducts(
+      enriched.map((p) => p.id),
+    );
+    return enriched.map((product) => {
+      const reviewSummary = summary.get(product.id) ?? {
+        reviewCount: 0,
+        ratingAverage: null,
+      };
+      const presentation = mediaPresentation.get(product.id);
+      const productWithThumbnails = {
+        ...product,
+        options: product.options.map((option) => ({
+          ...option,
+          values: option.values.map((value) => {
+            const thumbnail = presentation?.thumbnails.get(value.id);
+            return thumbnail
+              ? {
+                  ...value,
+                  thumbnailUrl: thumbnail.url,
+                  thumbnailAlt: thumbnail.altText ?? value.label,
+                }
+              : {
+                  ...value,
+                  thumbnailAlt: value.thumbnailUrl
+                    ? (value.thumbnailAlt ?? value.label)
+                    : value.thumbnailAlt,
+                };
+          }),
+        })),
+      };
+      const graph = presentCatalogGraph(productWithThumbnails);
+      return {
+        ...product,
+        ...graph,
+        images: graph.images.map(publicStorefrontMedia),
+        effectiveCoverMedia:
+          presentation?.effectiveCoverMedia ?? graph.effectiveCoverMedia,
+        reviewCount: reviewSummary.reviewCount,
+        ratingAverage: reviewSummary.ratingAverage,
+      };
     });
+  }
+
+  private async storefrontMediaPresentation(items: StorefrontProductRecord[]) {
+    const result = new Map<
+      string,
+      {
+        effectiveCoverMedia: ProductMediaItem | null;
+        thumbnails: Map<string, ProductMediaItem>;
+      }
+    >();
+    if (items.length === 0) return result;
+
+    const optionValueIds = items.flatMap((product) =>
+      product.options.flatMap((option) =>
+        option.values.map((value) => value.id),
+      ),
+    );
+    const mediaVariantByProductId = new Map(
+      items.map((product) => [
+        product.id,
+        product.catalogGraphVersion > 0
+          ? mediaDisplayVariant(
+              product.variants,
+              product.defaultDisplayVariantId,
+            )
+          : undefined,
+      ]),
+    );
+    const defaultVariantIds = [...mediaVariantByProductId.values()]
+      .filter((variant) => variant !== undefined)
+      .map((variant) => variant.id);
+
+    const scopedMedia =
+      optionValueIds.length === 0 && defaultVariantIds.length === 0
+        ? []
+        : await this.prisma.productImage.findMany({
+            where: {
+              productId: { in: items.map((product) => product.id) },
+              OR: [
+                { optionValueId: { in: optionValueIds } },
+                { variantId: { in: defaultVariantIds } },
+              ],
+            },
+            select: {
+              id: true,
+              productId: true,
+              url: true,
+              type: true,
+              altText: true,
+              sortOrder: true,
+              optionValueId: true,
+              variantId: true,
+            },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          });
+
+    for (const product of items) {
+      const productScopedMedia = scopedMedia.filter(
+        (item) => item.productId === product.id,
+      );
+      const sharedCover = product.images[0] ?? null;
+      const sharedThumbnail =
+        product.images.find((item) => item.type === 'IMAGE') ?? null;
+      const defaultVariant = mediaVariantByProductId.get(product.id);
+      const driverOptionIds = new Set(
+        product.options
+          .filter((option) => option.isActive && option.isMediaDriver)
+          .map((option) => option.id),
+      );
+      const driverValueId = defaultVariant?.optionValues.find((assignment) =>
+        driverOptionIds.has(assignment.optionId),
+      )?.optionValueId;
+      const variantCover = defaultVariant
+        ? productScopedMedia.find(
+            (item) =>
+              item.variantId === defaultVariant.id &&
+              item.optionValueId === null,
+          )
+        : undefined;
+      const optionCover = driverValueId
+        ? productScopedMedia.find(
+            (item) =>
+              item.optionValueId === driverValueId && item.variantId === null,
+          )
+        : undefined;
+      const thumbnails = new Map<string, ProductMediaItem>();
+
+      for (const option of product.options) {
+        for (const value of option.values) {
+          if (value.thumbnailUrl) {
+            thumbnails.set(value.id, {
+              id: `thumbnail:${value.id}`,
+              url: value.thumbnailUrl,
+              type: 'IMAGE',
+              altText: value.thumbnailAlt ?? value.label,
+              sortOrder: 0,
+            });
+            continue;
+          }
+          const fallback =
+            productScopedMedia.find(
+              (item) =>
+                item.optionValueId === value.id &&
+                item.variantId === null &&
+                item.type === 'IMAGE',
+            ) ?? sharedThumbnail;
+          if (fallback) thumbnails.set(value.id, fallback);
+        }
+      }
+
+      const cover = variantCover ?? optionCover ?? sharedCover;
+      result.set(product.id, {
+        effectiveCoverMedia: cover ? publicStorefrontMedia(cover) : null,
+        thumbnails,
+      });
+    }
+
+    return result;
   }
 
   /** Non-search SQL filters shared by the fuzzy id/count queries. */
@@ -615,13 +938,17 @@ export class ProductsService {
 
     if (query.categoryId) {
       // UUIDs come from our own category table; bind them as a uuid array.
-      filters.push(Prisma.sql`products.category_id = ANY(${categoryIds}::uuid[])`);
+      filters.push(
+        Prisma.sql`products.category_id = ANY(${categoryIds}::uuid[])`,
+      );
     }
     if (query.room) {
       filters.push(Prisma.sql`products.room = ${query.room}::"Room"`);
     }
     if (query.solution) {
-      filters.push(Prisma.sql`${query.solution}::"Solution" = ANY(products.solutions)`);
+      filters.push(
+        Prisma.sql`${query.solution}::"Solution" = ANY(products.solutions)`,
+      );
     }
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
       const price =
@@ -641,7 +968,10 @@ export class ProductsService {
     return filters;
   }
 
-  private async storefrontFuzzyList(query: StorefrontProductQuery, tokens: string[]) {
+  private async storefrontFuzzyList(
+    query: StorefrontProductQuery,
+    tokens: string[],
+  ) {
     // Subtree expansion is reused for categoryId (same helper as the Prisma path).
     let categoryIds: string[] = [];
     if (query.categoryId) {
@@ -687,7 +1017,9 @@ export class ProductsService {
     const byId = new Map(products.map((product) => [product.id, product]));
     const ordered = rows
       .map((row) => byId.get(row.id))
-      .filter((product): product is StorefrontProductRecord => product !== undefined);
+      .filter(
+        (product): product is StorefrontProductRecord => product !== undefined,
+      );
 
     return {
       items: await this.presentStorefront(ordered),
@@ -697,7 +1029,7 @@ export class ProductsService {
     };
   }
 
-  async storefrontGetBySlug(slug: string) {
+  async storefrontGetBySlug(slug: string, requestedScope?: MediaScopeRequest) {
     const product = await this.prisma.product.findFirst({
       where: { slug, status: 'ACTIVE' },
       select: STOREFRONT_PDP_SELECT,
@@ -709,9 +1041,46 @@ export class ProductsService {
 
     // PDP needs availableInventory to render the stock state and to gate
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
-    const base = (await this.withAvailableInventory([product]))[0];
+    const enriched = (await this.withAvailableInventory([product]))[0];
+    const presented = presentCatalogGraph(enriched);
+    const base = {
+      ...enriched,
+      ...presented,
+      images: presented.images.map(publicStorefrontMedia),
+    };
+    const mediaVariant = mediaDisplayVariant(
+      base.variants,
+      base.defaultDisplayVariantId,
+    );
+    const defaultScope = mediaVariant
+      ? { variantId: mediaVariant.id }
+      : undefined;
+    const media = await this.productMedia.resolveInitialProductMedia(
+      base.id,
+      base.catalogGraphVersion,
+      requestedScope ?? defaultScope,
+    );
     const reviewData = await this.reviews.storefrontForProduct(base.id);
-    return { ...base, ...reviewData };
+    return {
+      ...base,
+      ...media,
+      effectiveCoverMedia: media.initialMediaSet.media[0] ?? null,
+      ...reviewData,
+    };
+  }
+
+  async storefrontMediaBySlug(slug: string, request: MediaScopeRequest) {
+    const product = await this.prisma.product.findFirst({
+      where: { slug, status: 'ACTIVE' },
+      select: { id: true, catalogGraphVersion: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    return this.productMedia.resolveProductMedia(
+      product.id,
+      product.catalogGraphVersion,
+      request,
+    );
   }
 
   /**
@@ -727,7 +1096,9 @@ export class ProductsService {
   >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
-        products.flatMap((p) => p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id)),
+        products.flatMap((p) =>
+          p.variants.map((v) => v.sku?.id).filter((id): id is string => !!id),
+        ),
       ),
     ];
 
@@ -739,7 +1110,10 @@ export class ProductsService {
         _sum: { onHand: true, reserved: true },
       });
       for (const row of grouped) {
-        availableBySku.set(row.skuId, (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0));
+        availableBySku.set(
+          row.skuId,
+          (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0),
+        );
       }
     }
 
@@ -752,9 +1126,12 @@ export class ProductsService {
         sku: variant.sku
           ? {
               ...variant.sku,
-              price: variant.sku.price === null ? null : Number(variant.sku.price),
+              price:
+                variant.sku.price === null ? null : Number(variant.sku.price),
               compareAtPrice:
-                variant.sku.compareAtPrice === null ? null : Number(variant.sku.compareAtPrice),
+                variant.sku.compareAtPrice === null
+                  ? null
+                  : Number(variant.sku.compareAtPrice),
               availableInventory: availableBySku.get(variant.sku.id) ?? 0,
             }
           : null,
@@ -793,7 +1170,9 @@ export class ProductsService {
   private rethrowKnown(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
-        throw new ConflictException('A record with the same unique value already exists');
+        throw new ConflictException(
+          'A record with the same unique value already exists',
+        );
       }
       if (error.code === 'P2003') {
         throw new BadRequestException('Referenced record does not exist');

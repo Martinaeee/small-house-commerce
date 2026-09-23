@@ -464,6 +464,145 @@ describe('OrdersService.ship (§22.3, gates from workbench §6.1)', () => {
   });
 });
 
+describe('OrdersService order-item option snapshots (Task 17)', () => {
+  // Stable graph identities for a Size(0)/Color(1) product graph.
+  const COLOR_OPTION_ID = '10000000-0000-4000-8000-0000000000c1';
+  const RED_VALUE_ID = '20000000-0000-4000-8000-0000000000c1';
+  const SIZE_OPTION_ID = '30000000-0000-4000-8000-0000000000c1';
+  const LARGE_VALUE_ID = '40000000-0000-4000-8000-0000000000c1';
+
+  /** SKU of a variant fully materialized into the typed option graph. */
+  function skuWithOptionsRecord() {
+    const base = skuRecord();
+    return {
+      ...base,
+      variant: {
+        ...base.variant,
+        name: 'Red / Large',
+        // Deliberately out of positional order (color pos 1 before size pos 0).
+        optionValues: [
+          {
+            optionId: COLOR_OPTION_ID,
+            optionValueId: RED_VALUE_ID,
+            option: { id: COLOR_OPTION_ID, name: 'Color', position: 1 },
+            optionValue: { id: RED_VALUE_ID, label: 'Red' },
+          },
+          {
+            optionId: SIZE_OPTION_ID,
+            optionValueId: LARGE_VALUE_ID,
+            option: { id: SIZE_OPTION_ID, name: 'Size', position: 0 },
+            optionValue: { id: LARGE_VALUE_ID, label: 'Large' },
+          },
+        ],
+      },
+    };
+  }
+
+  function orderDetailRow() {
+    return {
+      id: 'order-1',
+      customer: { notes: [], riskLogs: [] },
+      statusHistory: [],
+      notes: [],
+    };
+  }
+
+  it('storefront/admin checkout snapshots options sorted by position with stable ids', async () => {
+    // The checkout request is SKU-only ({skuId, quantity}) — both the guest
+    // storefront controller and the admin manual-entry controller route here,
+    // and the structured snapshot is derived from the SKU's variant graph.
+    const { service, prisma, tx } = createHarness();
+    prisma.sku.findUnique.mockResolvedValue(skuWithOptionsRecord());
+
+    await service.checkout(
+      checkoutOverrides({
+        attribution: {},
+        items: [{ skuId: SKU_ID, quantity: 2 }],
+      }),
+    );
+
+    const item = tx.order.create.mock.calls[0]![0].data.items.create[0] as Record<string, unknown>;
+    expect(item.optionSnapshot).toEqual({
+      version: 1,
+      options: [
+        { optionId: SIZE_OPTION_ID, optionValueId: LARGE_VALUE_ID, label: 'Size', value: 'Large' },
+        { optionId: COLOR_OPTION_ID, optionValueId: RED_VALUE_ID, label: 'Color', value: 'Red' },
+      ],
+    });
+    // The legacy variant text stays populated as the historical fallback.
+    expect(item.variantSnapshot).toBe('Red / Large');
+  });
+
+  it('checkout of a legacy variant writes the variant text and leaves optionSnapshot null', async () => {
+    // skuRecord() predates the typed graph (no optionValues): the column must
+    // stay DB NULL (key omitted) rather than a rebuilt empty snapshot.
+    const { service, prisma, tx } = createHarness();
+    prisma.sku.findUnique.mockResolvedValue(skuRecord());
+
+    await service.checkout(checkoutOverrides({ attribution: {} }));
+
+    const item = tx.order.create.mock.calls[0]![0].data.items.create[0] as Record<string, unknown>;
+    expect(item).not.toHaveProperty('optionSnapshot');
+    expect(item.variantSnapshot).toBe('Single');
+  });
+
+  it('admin edit that adds a line snapshots its options too', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderStatus: 'NEW',
+        items: [],
+        discountTotal: new Prisma.Decimal('0'),
+        shippingTotal: new Prisma.Decimal('0'),
+      })
+      .mockResolvedValueOnce(orderDetailRow());
+    tx.sku.findMany.mockResolvedValue([skuWithOptionsRecord()]);
+
+    await service.edit('order-1', { items: [{ skuId: SKU_ID, quantity: 1 }] }, 'op-1');
+
+    const created = tx.orderItem.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(created.optionSnapshot).toEqual({
+      version: 1,
+      options: [
+        { optionId: SIZE_OPTION_ID, optionValueId: LARGE_VALUE_ID, label: 'Size', value: 'Large' },
+        { optionId: COLOR_OPTION_ID, optionValueId: RED_VALUE_ID, label: 'Color', value: 'Red' },
+      ],
+    });
+    expect(created.variantSnapshot).toBe('Red / Large');
+  });
+
+  it('quantity-only edits never rebuild the stored option snapshot', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        orderStatus: 'NEW',
+        items: [
+          {
+            id: 'line-1',
+            orderId: 'order-1',
+            skuId: SKU_ID,
+            quantity: 1,
+            unitPrice: new Prisma.Decimal('199'),
+            lineTotal: new Prisma.Decimal('199'),
+            optionSnapshot: { version: 1, options: [] },
+          },
+        ],
+        discountTotal: new Prisma.Decimal('0'),
+        shippingTotal: new Prisma.Decimal('0'),
+      })
+      .mockResolvedValueOnce(orderDetailRow());
+
+    await service.edit('order-1', { items: [{ skuId: SKU_ID, quantity: 3 }] }, 'op-1');
+
+    // Historical snapshots are written once at creation and never rewritten.
+    const data = tx.orderItem.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(Object.keys(data).sort()).toEqual(['lineTotal', 'quantity']);
+    expect(data.quantity).toBe(3);
+  });
+});
+
 describe('OrdersService.sign (§69)', () => {
   it('rejects a shipment that does not belong to the order', async () => {
     const { service, prisma } = createHarness();

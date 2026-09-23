@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
  * Success-page preferred-date line (spec §3.5). The success page is a server
  * component keyed only on the order-number URL segment and never refetches the
  * order, so the picked date is carried over from the confirm step via
- * sessionStorage — the same fault-tolerant pattern as lastOrderTotal. Renders
+ * sessionStorage — the same fault-tolerant pattern as the tab-scoped
+ * purchase payload. Renders
  * nothing when no date was chosen or storage is unavailable (spec §5.3).
  *
  * The sessionStorage read happens in a deferred effect, never during render:

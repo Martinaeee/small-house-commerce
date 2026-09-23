@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { useProductImages } from "@/lib/productImages";
 import { readAttribution } from "@/lib/tracking";
+import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
 import {
   readCheckoutDraft,
@@ -62,7 +62,8 @@ export function CheckoutConfirmView({
   const checkout = useCheckoutLines({ skuId, qty, itemsParam, slug });
   const { removeItems } = useCart();
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
-  const images = useProductImages(checkout.lines.map((l) => l.slug));
+  // Checkout lines carry their own enriched thumbnails (cart summary data /
+  // Buy Now product cover) — no product-by-slug image recovery here either.
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CheckoutDraft | null>(null);
@@ -99,10 +100,30 @@ export function CheckoutConfirmView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Same dead ends the form page enforces, mirrored at the confirmation
+  // step: a Buy Now skuId that matches no variant of its product (or failed
+  // to load), and a cart selection that is incomplete or unavailable. Such
+  // selections are blocked from confirmation entirely.
+  const unresolvedSelection =
+    checkout.isBuyNow &&
+    (checkout.productError ||
+      (checkout.product !== null && !checkout.buyNowMatchedSku)) ||
+    (!checkout.isBuyNow &&
+      !checkout.cartLoading &&
+      (checkout.cartBlocked || checkout.orderItems.length === 0));
+
+  // Buy Now cannot be confirmed before its product resolved — the preview
+  // would show no line at all (error/mismatch are the dead end above).
+  const awaitingBuyNowResolution =
+    checkout.isBuyNow && checkout.product === null && !checkout.productError;
+
   async function placeOrder() {
     if (!draft) return;
     setError(null);
     if (submitting) return;
+    // Selections that never resolved to real, available SKUs can never be
+    // confirmed — the backend re-validates, but a known-dead end stops here.
+    if (unresolvedSelection || awaitingBuyNowResolution) return;
     if (checkout.orderItems.length === 0) {
       setError("No items to check out.");
       return;
@@ -123,7 +144,16 @@ export function CheckoutConfirmView({
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
       try {
-        if (checkout.total !== null) sessionStorage.setItem("lastOrderTotal", String(checkout.total));
+        // The success page only receives the order number, so the full
+        // Purchase event (final SKU list + value) is stashed tab-scoped
+        // BEFORE navigation; PurchaseTracking consumes it exactly once.
+        storePurchasePayload(
+          purchaseEvent({
+            orderId: order.orderNumber,
+            items: checkout.orderItems,
+            value: checkout.total,
+          }),
+        );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
         // Carried to /track-order so the shopper does not retype the number they
         // just entered. Tab-scoped, cleared when the tab closes, never logged
@@ -156,6 +186,31 @@ export function CheckoutConfirmView({
     return <p className="py-16 text-center text-ink-secondary">Loading…</p>;
   }
 
+  if (unresolvedSelection) {
+    return (
+      <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
+        <h1 className="mb-3 text-2xl font-semibold text-ink">
+          We couldn&apos;t confirm this order.
+        </h1>
+        <p className="mb-6 text-ink-secondary">
+          Some items may be out of stock or no longer available. Please review
+          your selection and try again.
+        </p>
+        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Link
+            href={`/checkout${checkoutQueryString({ skuId, qty, itemsParam, slug })}`}
+            className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+          >
+            Back to checkout
+          </Link>
+          <Link href="/collections" className="text-sm text-cta hover:underline">
+            Continue shopping
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const area = [draft.customer.barangay, draft.customer.city].filter(Boolean).join(", ");
 
   return (
@@ -180,7 +235,7 @@ export function CheckoutConfirmView({
                 Edit
               </Link>
             </div>
-            <OrderPreview lines={checkout.lines} images={images} />
+            <OrderPreview lines={checkout.lines} />
           </div>
 
           {/* Payment + totals */}
@@ -306,7 +361,7 @@ export function CheckoutConfirmView({
 
             <Button
               onClick={placeOrder}
-              disabled={submitting}
+              disabled={submitting || awaitingBuyNowResolution}
               className="w-full"
               data-testid="confirm-place-order"
             >

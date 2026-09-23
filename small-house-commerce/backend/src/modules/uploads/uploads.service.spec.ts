@@ -53,7 +53,7 @@ describe('UploadsService.saveLocal', () => {
   });
 
   it('rejects unsupported types and empty bodies', async () => {
-    await expect(service.saveLocal(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported image type/);
+    await expect(service.saveLocal(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported media type/);
     await expect(service.saveLocal(Buffer.alloc(0), 'image/jpeg')).rejects.toThrow(/Empty upload/);
   });
 });

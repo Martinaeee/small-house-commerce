@@ -313,6 +313,7 @@ model OrderItem {
   productNameSnapshot String  @map("product_name_snapshot")
   skuCodeSnapshot     String  @map("sku_code_snapshot")
   variantSnapshot     String  @map("variant_snapshot")
+  optionSnapshot      Json?   @map("option_snapshot")
   quantity            Int
   unitPrice           Decimal @map("unit_price") @db.Decimal(10, 2)
   unitDiscount        Decimal @map("unit_discount") @db.Decimal(10, 2)

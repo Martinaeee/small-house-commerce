@@ -27,6 +27,7 @@ import {
   type SourceType,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 
 // Eligibility sets mirrored verbatim from the Task 5 orders list page.
 const CONFIRM_BLOCKED = new Set<OrderStatus>([
@@ -989,7 +990,14 @@ function OrderDetailPage(): ReactNode {
                         {textOrDash(item.productNameSnapshot)}
                       </td>
                       <td className="px-3 py-2 text-ink-secondary">
-                        {textOrDash(item.variantSnapshot)}
+                        {/* Order-time snapshot ("Color: Red · Size: Small"),
+                            legacy variant text for pre-typed-options lines. */}
+                        {textOrDash(
+                          formatOrderOptionsFromSnapshot(
+                            item.optionSnapshot,
+                            item.variantSnapshot,
+                          ),
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-ink-secondary">
                         {textOrDash(item.skuCodeSnapshot)}
@@ -1719,6 +1727,10 @@ function OrderDetailPage(): ReactNode {
             {(order?.items ?? []).map((item) => {
               const remaining = unshippedByLine.get(item.id) ?? 0;
               if (remaining <= 0) return null;
+              const optionsText = formatOrderOptionsFromSnapshot(
+                item.optionSnapshot,
+                item.variantSnapshot,
+              );
               const value = Math.min(shipQty[item.id] ?? 0, remaining);
               return (
                 <li
@@ -1731,7 +1743,8 @@ function OrderDetailPage(): ReactNode {
                     </p>
                     <p className="text-xs text-ink-muted">
                       {item.skuCodeSnapshot}
-                      {item.variantSnapshot ? ` · ${item.variantSnapshot}` : ""} —
+                      {optionsText ? ` · ${optionsText}` : ""}
+                      {" — "}
                       {remaining} remaining
                     </p>
                   </div>

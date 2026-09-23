@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type CartSummary, type Product, type Sku } from "@/lib/api";
 import { fetchProduct } from "@/lib/productCache";
+import { createInitialSelection, resolveSelection } from "@/lib/product-selection";
 
 /**
  * "You May Also Like" data for the cart page strip and the add-to-cart
@@ -26,8 +27,37 @@ interface Pools {
   general: Product[];
 }
 
-export function firstSku(product: Product): Sku | null {
-  return product.variants.find((variant) => variant.sku)?.sku ?? null;
+/**
+ * The single sellable SKU for a direct quick-add, resolved through the shared
+ * selection contract — never a positional pick (Task 20 sweep of the former
+ * `firstSku`, which took variants[0]). A product with several sellable SKUs
+ * has no honest direct-add SKU: the combination must be chosen through the
+ * picker (or the PDP), so this returns null and the UI opens the picker.
+ */
+export function directAddSku(product: Product): Sku | null {
+  const { selectableVariants } = resolveSelection(
+    product,
+    createInitialSelection(product, null),
+  );
+  if (selectableVariants.length !== 1) return null;
+  return selectableVariants[0].sku ?? null;
+}
+
+/**
+ * Recommendable product: at least one sellable (ACTIVE, priced) SKU with
+ * inventory, regardless of its position in the payload.
+ */
+export function quickAddEligible(product: Product): boolean {
+  const { selectableVariants } = resolveSelection(
+    product,
+    createInitialSelection(product, null),
+  );
+  return selectableVariants.some(
+    (variant) =>
+      variant.sku !== null &&
+      variant.sku.price !== null &&
+      variant.sku.availableInventory > 0,
+  );
 }
 
 export function discountPct(sku: Sku): number {
@@ -83,14 +113,19 @@ export function useCartRecommendations(cart: CartSummary | null): Product[] {
 
     const eligible = (product: Product) => {
       if (inCart.has(product.slug)) return false;
-      const sku = firstSku(product);
-      return sku !== null && sku.price !== null && sku.availableInventory > 0;
+      return quickAddEligible(product);
     };
 
     const ranked = (list: Product[]) =>
       list
         .filter(eligible)
-        .map((product) => ({ product, pct: discountPct(firstSku(product)!) }))
+        .map((product) => {
+          // Discount ranking is only claimable for a direct-add SKU: a
+          // multi-SKU product has no one honest price/compare-at pair, so it
+          // ranks at 0 instead of borrowing the first SKU's discount.
+          const sku = directAddSku(product);
+          return { product, pct: sku ? discountPct(sku) : 0 };
+        })
         .sort((a, b) => b.pct - a.pct)
         .map((entry) => entry.product);
 

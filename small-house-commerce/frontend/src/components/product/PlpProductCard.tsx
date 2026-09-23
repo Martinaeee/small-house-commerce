@@ -5,9 +5,13 @@ import Link from "next/link";
 import type { Product } from "@/lib/api";
 import type { CardBadge } from "@/lib/plpBadges";
 import { useCart } from "@/components/cart/CartContext";
-import { sellableVariants, sortedProductImages } from "@/lib/variantImages";
-import { track } from "@/lib/tracking";
-import { PriceBox } from "@/components/ui/PriceBox";
+import {
+  createInitialSelection,
+  resolveSelection,
+} from "@/lib/product-selection";
+import { cardPricePresentation } from "@/lib/product-card-presentation";
+import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
+import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { RatingStars } from "./RatingStars";
 
@@ -16,9 +20,11 @@ import { RatingStars } from "./RatingStars";
  * still serves homepage/collections). Merchandise badges (Best Seller/New and
  * an optional promo chip) come from collection membership passed by the
  * parent — never invented.
- * Multi-style products open the quick-add variant picker; single-style
- * products add directly. The picker owns the positional variant→image mapping
- * until the backend links images to variants directly.
+ * Media and price come from the backend's effective cover and the shared
+ * selection contract — never from positional images[0]/variants[0] picks.
+ * Single-SKU products add directly (an out-of-stock SKU is saved for later,
+ * matching the PDP); multi-SKU products open the quick-add picker, which owns
+ * option selection and confirmation through the shared purchase provider.
  */
 
 interface PlpProductCardProps {
@@ -31,27 +37,31 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState(false);
 
-  const sellable = sellableVariants(product);
+  const cover = product.effectiveCoverMedia;
+  const selection = createInitialSelection(product, null);
+  const derived = resolveSelection(product, selection);
+  const sellable = derived.selectableVariants;
   const hasMultipleStyles = sellable.length > 1;
-  const sku = sellable[0]?.sku ?? null;
-  const inStock = sku !== null && sku.availableInventory > 0;
   const hasAnySellable = sellable.length > 0;
-
-  const image = sortedProductImages(product)[0] ?? null;
+  const directSku = sellable.length === 1 ? (sellable[0].sku ?? null) : null;
+  const directInStock = directSku !== null && directSku.availableInventory > 0;
+  const price = cardPricePresentation(derived);
 
   async function quickAdd() {
-    if (!sku || busy || !inStock) return;
+    if (!directSku || busy) return;
     setBusy(true);
     try {
-      await addItem({ skuId: sku.id, quantity: 1 });
-      track("AddToCart", {
-        content_ids: [sku.id],
-        content_name: product.name,
-        content_type: "product",
-        contents: [{ id: sku.id, quantity: 1 }],
-        value: sku.price,
-        currency: "PHP",
-      });
+      await addItem({ skuId: directSku.id, quantity: 1 });
+      // Only a successful add fires AddToCart, keyed by the final SKU.
+      emitCommerceEvent(
+        addToCartEvent({
+          productId: product.id,
+          productName: product.name,
+          skuId: directSku.id,
+          quantity: 1,
+          price: directSku.price,
+        }),
+      );
       setAdded(true);
       setTimeout(() => {
         setAdded((current) => (current ? false : current));
@@ -66,11 +76,11 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
   return (
     <article className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary focus-within:border-primary">
       <Link href={`/products/${product.slug}`} className="relative block">
-        {image ? (
+        {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={image.url}
-            alt={image.altText ?? product.name}
+            src={cover.url}
+            alt={cover.altText ?? product.name}
             className="aspect-[4/5] w-full object-cover"
             loading="lazy"
           />
@@ -81,7 +91,7 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
         {(() => {
           // An out-of-stock card replaces the merchandise badge; multi-style
           // cards keep product badges (the picker shows per-style stock).
-          const showOos = !hasAnySellable || (!hasMultipleStyles && !inStock);
+          const showOos = !hasAnySellable || (!hasMultipleStyles && !directInStock);
           if (showOos) {
             return (
               <span className="absolute left-3 top-3 rounded bg-ink/85 px-2 py-1 text-xs font-semibold text-white">
@@ -118,7 +128,15 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
           </Link>
         </h3>
 
-        <PriceBox price={sku?.price ?? null} compareAtPrice={sku?.compareAtPrice ?? null} />
+        {price ? (
+          price.kind === "exact" ? (
+            <PriceBox price={price.price} compareAtPrice={price.compareAtPrice} />
+          ) : (
+            <p className="text-lg font-bold text-ink" data-testid="price">
+              From {formatPrice(price.price)}
+            </p>
+          )
+        ) : null}
         {product.reviewCount > 0 && (
           <div className="flex items-center gap-1">
             <RatingStars value={product.ratingAverage ?? 0} className="text-xs" />
@@ -131,7 +149,7 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
             <button
               type="button"
               onClick={hasMultipleStyles ? () => openPicker(product) : quickAdd}
-              disabled={hasMultipleStyles ? false : !inStock || busy}
+              disabled={hasMultipleStyles ? false : busy}
               data-testid={`plp-add-${product.slug}`}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-cta py-2 text-sm font-medium text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
             >
@@ -155,10 +173,8 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
                     </svg>
                     Added
                   </>
-                ) : inStock ? (
-                  "Add to Cart"
                 ) : (
-                  "Out of Stock"
+                  "Add to Cart"
                 )}
             </button>
           ) : (

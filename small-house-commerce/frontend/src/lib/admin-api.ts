@@ -14,6 +14,7 @@
 
 import { adminAuthedFetch } from "./admin-auth";
 import { formatPrice } from "@/components/ui/PriceBox";
+import type { OrderOptionSnapshotV1 } from "./order-options";
 
 // --- enums -------------------------------------------------------------------
 
@@ -187,6 +188,8 @@ export interface AdminOrderItem {
   productNameSnapshot: string;
   skuCodeSnapshot: string;
   variantSnapshot: string;
+  /** Stored order-time structured snapshot; null on pre-typed-options lines. */
+  optionSnapshot: OrderOptionSnapshotV1 | null;
   quantity: number;
   unitPrice: string;
   unitDiscount: string;
@@ -301,6 +304,9 @@ export interface AdminSku {
   id: string;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
+  // Present on graph-aware payloads (the SKU write contract sends it); the
+  // legacy product list path does not rely on it.
+  supplierId?: string | null;
   price: string | null;
   compareAtPrice: string | null;
   supplierSku: string | null;
@@ -366,9 +372,96 @@ export interface AdminProduct {
   features: string | null;
   createdAt: string;
   updatedAt: string;
+  // Product scalar columns are always returned (findUnique/include), even
+  // though the legacy AdminVariant shape below does not expose the graph.
+  catalogGraphVersion: number;
+  defaultDisplayVariantId: string | null;
   images: AdminProductImage[];
   detailBlocks: AdminDetailBlock[];
-  variants: AdminVariant[];
+  // Legacy rows use the free-form AdminVariant; graph-aware payloads carry
+  // AdminGraphVariant (combinationKey + option-value assignments).
+  variants: (AdminVariant | AdminGraphVariant)[];
+  // Present only on graph-aware payloads: catalog-graph PATCH responses carry
+  // every option/value row (including inactive) and the full scoped media set.
+  options?: AdminOption[];
+  media?: AdminGraphMedia[];
+}
+
+// --- typed catalog graph (served by CatalogGraphService payloads) ------------
+
+export type AdminOptionKind = "COLOR" | "SIZE" | "MATERIAL" | "STYLE";
+export type AdminOptionPresentation = "IMAGE" | "SWATCH" | "TEXT";
+
+export interface AdminOptionValue {
+  id: string;
+  label: string;
+  position: number;
+  swatchHex: string | null;
+  thumbnailUrl: string | null;
+  thumbnailAlt: string | null;
+  isActive: boolean;
+}
+
+export interface AdminOption {
+  id: string;
+  kind: AdminOptionKind;
+  name: string;
+  position: number;
+  presentation: AdminOptionPresentation;
+  isMediaDriver: boolean;
+  isActive: boolean;
+  values: AdminOptionValue[];
+}
+
+export interface AdminVariantAssignment {
+  optionId: string;
+  optionValueId: string;
+}
+
+/** SKU inside the graph snapshot: same legacy fields plus its supplier ref. */
+export type AdminGraphSku = AdminSku & { supplierId: string | null };
+
+export interface AdminGraphVariant {
+  id: string;
+  /** Server-derived display name (rebuilt from value labels on every save). */
+  name: string;
+  position: number;
+  combinationKey: string | null;
+  optionValues: AdminVariantAssignment[];
+  sku: AdminGraphSku | null;
+  /** True when carts/orders/reservations/scoped media reference the variant. */
+  hasReferences?: boolean;
+}
+
+export interface AdminGraphMedia {
+  id: string;
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  sortOrder: number;
+  optionValueId: string | null;
+  variantId: string | null;
+}
+
+/**
+ * One settled entry of PUT /admin/inventory/stock/batch (input order). A
+ * failing row carries the backend message but never aborts the batch.
+ */
+export type AdminStockBatchResult =
+  | { skuId: string; ok: true; onHand: number; reserved: number; available: number }
+  | { skuId: string; ok: false; error: string };
+
+/**
+ * The typed option graph embedded in graph-aware admin product payloads.
+ * Mirrors the backend's CatalogGraphService snapshot (options/values include
+ * inactive rows; media includes every scope).
+ */
+export interface AdminCatalogGraph {
+  catalogGraphVersion: number;
+  defaultDisplayVariantId: string | null;
+  options: AdminOption[];
+  variants: AdminGraphVariant[];
+  media: AdminGraphMedia[];
 }
 
 /** Raw ProductReview row (admin endpoints return the unscoped Prisma row). */
@@ -688,6 +781,95 @@ export interface CreateCategoryInput {
   heroStyle?: HeroStyleInput | null;
 }
 
+// --- product update payload (PATCH /admin/products/:id) ----------------------
+
+/**
+ * Wire patch accepted by the backend catalogGraphPatchSchema
+ * (dto/catalog-graph.dto.ts). Row refs are `{id}` for persisted rows and
+ * `{clientKey}` for request-created rows.
+ */
+export interface WireEntityRef {
+  id?: string;
+  clientKey?: string;
+}
+
+export interface WireSkuWrite {
+  skuCode: string;
+  status: "ACTIVE" | "DISABLED";
+  supplierId?: string | null;
+  supplierSku?: string | null;
+  supplierCost?: number | null;
+  costCurrency?: string | null;
+  landedCost?: number | null;
+  price?: number | null;
+  compareAtPrice?: number | null;
+  productWeight?: number | null;
+  packageWidth?: number | null;
+  packageHeight?: number | null;
+  packageDepth?: number | null;
+  packageWeight?: number | null;
+  volumetricWeight?: number | null;
+}
+
+export interface WireOptionValueWrite extends WireEntityRef {
+  label: string;
+  position: number;
+  swatchHex?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailAlt?: string | null;
+  isActive: boolean;
+}
+
+/** Full option object per backend optionWriteSchema (entityRef + fields). */
+export interface WireOptionWrite extends WireEntityRef {
+  kind: AdminOptionKind;
+  name: string;
+  position: number;
+  presentation: AdminOptionPresentation;
+  isMediaDriver: boolean;
+  isActive: boolean;
+  values: WireOptionValueWrite[];
+}
+
+export interface WireVariantWrite extends WireEntityRef {
+  position: number;
+  optionValueRefs: WireEntityRef[];
+  sku?: WireSkuWrite | null;
+}
+
+export interface WireMediaWrite extends WireEntityRef {
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText?: string | null;
+  sortOrder: number;
+  optionValueId?: string;
+  optionValueClientKey?: string;
+  variantId?: string;
+  variantClientKey?: string;
+}
+
+export interface WireCatalogGraphPatch {
+  options: WireOptionWrite[];
+  variants: WireVariantWrite[];
+  media: WireMediaWrite[];
+  retirements: {
+    optionIds: string[];
+    optionValueIds: string[];
+    variantIds: string[];
+    mediaIds: string[];
+  };
+  defaultDisplayVariant?: WireEntityRef | null;
+}
+
+/**
+ * PATCH body: the legacy create-shaped fields plus the typed catalog graph
+ * patch and its optimistic revision (required whenever catalogGraph is sent).
+ */
+export type UpdateProductPayload = Partial<CreateProductInput> & {
+  catalogGraph?: WireCatalogGraphPatch;
+  catalogGraphVersion?: number;
+};
+
 /** Collection create/update payload. The admin UI only uses the hero fields
  *  today (the rest already exist server-side), so this stays minimal. */
 export interface CreateCollectionInput {
@@ -916,7 +1098,7 @@ export const adminApi = {
 
   updateProduct: (
     id: string,
-    input: Partial<CreateProductInput>,
+    input: UpdateProductPayload,
   ): Promise<AdminProduct> =>
     adminAuthedFetch<AdminProduct>(
       `/api/v1/admin/products/${encodeURIComponent(id)}`,
@@ -1016,6 +1198,25 @@ export const adminApi = {
   }): Promise<{ onHand: number; reserved: number; available: number }> =>
     adminAuthedFetch<{ onHand: number; reserved: number; available: number }>(
       "/api/v1/admin/inventory/stock",
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+
+  /**
+   * Bounded batch of absolute sets (Phase B of the product form's two-phase
+   * save). Results come back in input order with a per-SKU settled outcome: a
+   * failing row carries its message but never aborts the batch, so callers
+   * resubmit only the failed rows. Ids must be REAL SKU ids — client keys
+   * from the graph patch are resolved before this call.
+   */
+  setStockBatch: (
+    input: {
+      skuId: string;
+      onHand: number;
+      reason?: string | null;
+    }[],
+  ): Promise<AdminStockBatchResult[]> =>
+    adminAuthedFetch<AdminStockBatchResult[]>(
+      "/api/v1/admin/inventory/stock/batch",
       { method: "PUT", body: JSON.stringify(input) },
     ),
 

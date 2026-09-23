@@ -11,7 +11,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, cartStorage, type CartSummary, type Product } from "@/lib/api";
+import {
+  api,
+  cartStorage,
+  type CartItem,
+  type CartSummary,
+  type Product,
+} from "@/lib/api";
 
 /**
  * Single source of truth for the guest cart on the client (Shopee/Taobao
@@ -20,7 +26,7 @@ import { api, cartStorage, type CartSummary, type Product } from "@/lib/api";
  * with the summary the API returns, so the badge and pages never refetch.
  * Cross-tab changes to the cartId key trigger a reload.
  */
-export type DrawerView = "cart" | "picker";
+export type DrawerView = "cart" | "picker" | "change";
 
 interface CartContextValue {
   cart: CartSummary | null;
@@ -28,9 +34,16 @@ interface CartContextValue {
   isOpen: boolean;
   view: DrawerView;
   pickerProduct: Product | null;
+  /** The cart line whose options are being changed (view === "change"). */
+  changeTarget: CartItem | null;
   /** Open the drawer in the variant-picker view for the given product. */
   openPicker: (product: Product) => void;
-  /** Switch an open drawer from picker to cart view (after a successful add). */
+  /**
+   * Open the drawer in the Change Options view for the given cart line.
+   * Usable from the drawer's own cart view or from the cart page.
+   */
+  openChangeOptions: (item: CartItem) => void;
+  /** Switch an open drawer back to the cart view (after a picker resolves). */
   goToCartView: () => void;
   openCart: () => void;
   closeCart: () => void;
@@ -44,6 +57,16 @@ interface CartContextValue {
     opts?: { openDrawer?: boolean },
   ) => Promise<CartSummary>;
   updateItem: (itemId: string, quantity: number) => Promise<CartSummary>;
+  /**
+   * Atomically replace a line's SKU (Change Options confirm). Adopts the
+   * merged summary on success; on failure throws without touching state, so
+   * the cart is preserved for an error announcement + retry.
+   */
+  replaceItem: (input: {
+    itemId: string;
+    skuId: string;
+    quantity: number;
+  }) => Promise<CartSummary>;
   removeItem: (itemId: string) => Promise<CartSummary>;
   /** Delete the given lines one by one (partial checkout) then resync. */
   removeItems: (itemIds: readonly string[]) => Promise<void>;
@@ -59,6 +82,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<DrawerView>("cart");
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+  const [changeTarget, setChangeTarget] = useState<CartItem | null>(null);
   // Captured synchronously in the add-to-cart click task — before the busy
   // rerender disables the trigger and Chrome moves focus to <body> — and
   // consumed once by the drawer's open effect for focus restoration.
@@ -71,6 +95,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
   const openCart = useCallback(() => {
     captureOpener();
+    setPickerProduct(null);
+    setChangeTarget(null);
     setView("cart");
     setIsOpen(true);
   }, [captureOpener]);
@@ -78,15 +104,30 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (product: Product) => {
       captureOpener();
       setPickerProduct(product);
+      setChangeTarget(null);
       setView("picker");
       setIsOpen(true);
     },
     [captureOpener],
   );
-  const goToCartView = useCallback(() => setView("cart"), []);
+  const openChangeOptions = useCallback(
+    (item: CartItem) => {
+      captureOpener();
+      setPickerProduct(null);
+      setChangeTarget(item);
+      setView("change");
+      setIsOpen(true);
+    },
+    [captureOpener],
+  );
+  const goToCartView = useCallback(() => {
+    setChangeTarget(null);
+    setView("cart");
+  }, []);
   const closeCart = useCallback(() => {
     setIsOpen(false);
     setPickerProduct(null);
+    setChangeTarget(null);
     setView("cart");
   }, []);
   const takeDrawerOpener = useCallback(() => {
@@ -193,6 +234,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return summary;
   }, []);
 
+  const replaceItem = useCallback(
+    async ({
+      itemId,
+      skuId,
+      quantity,
+    }: {
+      itemId: string;
+      skuId: string;
+      quantity: number;
+    }) => {
+      const id = cartStorage.get();
+      if (!id) throw new Error("No active cart");
+      // Adopt only on success: a rejected replace throws before setCart, so
+      // the drawer/picker can announce the error over the preserved cart.
+      const summary = await api.replaceCartItem(id, itemId, { skuId, quantity });
+      setCart(summary);
+      return summary;
+    },
+    [],
+  );
+
   const removeItem = useCallback(
     async (itemId: string) => {
       const id = cartStorage.get();
@@ -228,7 +290,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     isOpen,
     view,
     pickerProduct,
+    changeTarget,
     openPicker,
+    openChangeOptions,
     goToCartView,
     openCart,
     closeCart,
@@ -237,6 +301,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     reload,
     addItem,
     updateItem,
+    replaceItem,
     removeItem,
     removeItems,
     itemKindCount,
