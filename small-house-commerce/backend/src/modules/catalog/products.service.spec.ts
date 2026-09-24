@@ -32,6 +32,9 @@ function createPrismaMock(rows: MockProductRow[]) {
       count: vi.fn(async () => rows.length),
       groupBy: vi.fn(async () => [] as unknown[]),
     },
+    productOption: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
     category: {
       findMany: vi.fn(async () => []),
     },
@@ -501,6 +504,38 @@ describe('ProductsService admin list filters and counters', () => {
         { productCode: { contains: 'P-000007', mode: 'insensitive' } },
       ]),
       AND: [{ images: { none: { optionValueId: null, variantId: null } } }],
+    });
+  });
+
+  it('attaches active option names from one page-wide query', async () => {
+    const prisma = createPrismaMock([{ id: 'p1' }, { id: 'p2' }]);
+    vi.mocked(prisma.productOption.findMany).mockResolvedValue([
+      { productId: 'p1', name: 'Color' },
+      { productId: 'p1', name: 'Size' },
+    ] as never);
+    const service = createService(prisma);
+
+    const page = await service.list({
+      page: 1,
+      pageSize: 20,
+    } as AdminProductQuery);
+
+    const byId = new Map(
+      page.items.map((item) => [item.id, item.activeOptionNames]),
+    );
+    expect(byId.get('p1')).toEqual(['Color', 'Size']);
+    // A product with no active option group reports an empty summary rather
+    // than an absent field, so the column can render the SKU count alone.
+    expect(byId.get('p2')).toEqual([]);
+    // One query for the whole page — never one per row.
+    expect(prisma.productOption.findMany).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(prisma.productOption.findMany).mock.calls[0]?.[0],
+    ).toMatchObject({
+      where: {
+        productId: { in: expect.arrayContaining(['p1', 'p2']) },
+        isActive: true,
+      },
     });
   });
 

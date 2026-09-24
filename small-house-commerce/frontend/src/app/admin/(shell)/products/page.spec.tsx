@@ -8,10 +8,12 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
  * row data stay wire values), and core actions/labels are localized.
  */
 
+const navState = vi.hoisted(() => ({ searchParams: "" }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/admin/products",
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => new URLSearchParams(navState.searchParams),
 }));
 
 const listProducts = vi.fn();
@@ -107,6 +109,7 @@ function renderListPage() {
 describe("AdminProductsPage localization", () => {
   beforeEach(() => {
     setAdminLang("zh");
+    navState.searchParams = "";
     listProducts.mockReset().mockResolvedValue({
       items: [ROW],
       total: 1,
@@ -146,6 +149,34 @@ describe("AdminProductsPage localization", () => {
       "href",
       "/admin/products/p1/edit",
     );
+  });
+
+  it("keeps an active attention filter visible with a one-click clear", async () => {
+    navState.searchParams = "attention=missing_media";
+    renderListPage();
+
+    expect(await screen.findByText("当前筛选")).toBeInTheDocument();
+    // The preset chip reads as pressed, and the removable tag names the same
+    // filter so a filtered list can never look like the whole catalogue.
+    expect(
+      screen.getByRole("button", { name: /^缺少共享图库/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "清除筛选：缺少共享图库" }),
+    ).toBeInTheDocument();
+  });
+
+  it("summarizes active option groups beside the SKU count", async () => {
+    listProducts.mockResolvedValue({
+      items: [{ ...ROW, activeOptionNames: ["Color", "Size"] }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    } satisfies Paged<AdminProduct>);
+    renderListPage();
+
+    expect(await screen.findByText("Color × Size")).toBeInTheDocument();
+    expect(screen.getAllByText("1 个 SKU").length).toBeGreaterThan(0);
   });
 
   it("renders a coherent English list through the same provider", async () => {

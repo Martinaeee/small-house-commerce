@@ -635,6 +635,9 @@ export const zh = {
   products_storefront_unpublished: "未上架",
   products_quick_view: "快速查看",
   products_more_actions: "更多操作",
+  products_skus_count: "{count} 个 SKU",
+  products_filter_active: "当前筛选",
+  products_filter_clear_one: "清除筛选：{label}",
 
   // --- Products list: quick view (read-only) ---
   products_qv_close: "关闭",

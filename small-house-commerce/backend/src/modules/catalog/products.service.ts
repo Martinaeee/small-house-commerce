@@ -263,12 +263,45 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
+    const enriched = await this.withStock(items);
+    const optionNames = await this.activeOptionNames(
+      enriched.map((item) => item.id),
+    );
+
     return {
-      items: await this.withStock(items),
+      items: enriched.map((item) => ({
+        ...item,
+        activeOptionNames: optionNames.get(item.id) ?? [],
+      })),
       total,
       page: query.page,
       pageSize: query.pageSize,
     };
+  }
+
+  /**
+   * Active option-group names per product, for the list's "Options / SKUs"
+   * column. ONE query for the whole page: the list deliberately never loads a
+   * product's full catalog graph (that stays a per-product call in `get`).
+   */
+  private async activeOptionNames(
+    productIds: string[],
+  ): Promise<Map<string, string[]>> {
+    if (productIds.length === 0) return new Map();
+
+    const rows = await this.prisma.productOption.findMany({
+      where: { productId: { in: productIds }, isActive: true },
+      select: { productId: true, name: true },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    });
+
+    const byProduct = new Map<string, string[]>();
+    for (const row of rows) {
+      const names = byProduct.get(row.productId) ?? [];
+      names.push(row.name);
+      byProduct.set(row.productId, names);
+    }
+    return byProduct;
   }
 
   async get(id: string) {

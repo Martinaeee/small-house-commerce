@@ -651,6 +651,9 @@ export const en: Record<ZhKey, string> = {
   products_storefront_unpublished: "Unpublished",
   products_quick_view: "Quick view",
   products_more_actions: "More actions",
+  products_skus_count: "{count} SKUs",
+  products_filter_active: "Active filters",
+  products_filter_clear_one: "Clear filter: {label}",
 
   // --- Products list: quick view (read-only) ---
   products_qv_close: "Close",

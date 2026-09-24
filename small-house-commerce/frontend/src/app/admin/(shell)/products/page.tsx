@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Badge } from "@/components/admin/Badge";
@@ -78,6 +79,31 @@ function activePrices(row: AdminProduct): number[] {
     if (Number.isFinite(price)) prices.add(price);
   }
   return [...prices].sort((left, right) => left - right);
+}
+
+/** Removable tag for one active list filter. */
+function FilterTag({
+  label,
+  clearLabel,
+  onClear,
+}: {
+  label: string;
+  clearLabel: string;
+  onClear: () => void;
+}): ReactNode {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-cta bg-primary-light/40 px-2.5 py-1 font-medium text-cta">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        className="flex h-4 w-4 items-center justify-center rounded-full text-cta hover:bg-cta hover:text-white"
+      >
+        ✕
+      </button>
+    </span>
+  );
 }
 
 /** One price, or a "from – to" range when the variants disagree. */
@@ -461,6 +487,48 @@ function ProductsPageContent() {
         </div>
       </div>
 
+      {/* Active filters stay visible with a one-click clear, so a filtered list
+          can never look like "the catalogue only has these rows". */}
+      {attention || status || categoryId ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-ink-secondary">{t("products_filter_active")}</span>
+          {attention ? (
+            <FilterTag
+              label={t(ATTENTION_LABEL_KEYS[attention])}
+              clearLabel={t("products_filter_clear_one", {
+                label: t(ATTENTION_LABEL_KEYS[attention]),
+              })}
+              onClear={() => patchParams({ attention: null, page: null })}
+            />
+          ) : null}
+          {status ? (
+            <FilterTag
+              label={t(STATUS_LABEL_KEYS[status])}
+              clearLabel={t("products_filter_clear_one", {
+                label: t(STATUS_LABEL_KEYS[status]),
+              })}
+              onClear={() => patchParams({ status: null, page: null })}
+            />
+          ) : null}
+          {categoryId ? (
+            <FilterTag
+              label={categoryNames.get(categoryId) ?? categoryId}
+              clearLabel={t("products_filter_clear_one", {
+                label: categoryNames.get(categoryId) ?? categoryId,
+              })}
+              onClear={() => patchParams({ categoryId: null, page: null })}
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="font-semibold text-cta hover:underline"
+          >
+            {t("products_clear_filters")}
+          </button>
+        </div>
+      ) : null}
+
       {/* Delete error (page-level alert; dialog closes on failure, §10/§14 #6) */}
       {deleteError && !loading && !error ? (
         <div
@@ -485,9 +553,12 @@ function ProductsPageContent() {
       ) : null}
 
       {/* Status counters and "needs attention" presets. Both are aggregated in
-          the database; clicking either applies the matching list filter. */}
-      {counts ? (
+          the database; clicking either applies the matching list filter. The
+          preset strip also renders when only the filter is known, so an active
+          preset is never hidden by a failed counter request. */}
+      {counts || attention ? (
         <div className="mt-4 flex flex-col gap-3">
+          {counts ? (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {(
               [
@@ -520,6 +591,7 @@ function ProductsPageContent() {
               );
             })}
           </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
             <span className="text-sm font-semibold text-ink">
@@ -542,9 +614,11 @@ function ProductsPageContent() {
                   }`}
                 >
                   {t(ATTENTION_LABEL_KEYS[key])}
-                  <span className="ml-1.5 font-semibold">
-                    {counts.attention[key]}
-                  </span>
+                  {counts ? (
+                    <span className="ml-1.5 font-semibold">
+                      {counts.attention[key]}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -668,7 +742,21 @@ function ProductsPageContent() {
                         {categoryNames.get(row.categoryId) ?? "—"}
                       </td>
                       <td className="px-4 py-3 text-ink-secondary">
-                        {row.variants.length}
+                        {row.activeOptionNames &&
+                        row.activeOptionNames.length > 0 ? (
+                          <>
+                            <span className="block text-ink">
+                              {row.activeOptionNames.join(" × ")}
+                            </span>
+                            <span className="block text-xs text-ink-muted">
+                              {t("products_skus_count", {
+                                count: row.variants.length,
+                              })}
+                            </span>
+                          </>
+                        ) : (
+                          t("products_skus_count", { count: row.variants.length })
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <Badge

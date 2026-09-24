@@ -370,6 +370,11 @@ export interface AdminProduct {
   slug: string;
   /** Internal, operator-facing product number ("P-000001"); never on the storefront. */
   productCode: string | null;
+  /**
+   * Active option-group names, list responses only. The list never carries a
+   * product's full catalog graph — that stays a per-product `getProduct` call.
+   */
+  activeOptionNames?: string[];
   description: string | null;
   /** First-screen one-line selling point under the H1; null/empty hides it. */
   tagline: string | null;

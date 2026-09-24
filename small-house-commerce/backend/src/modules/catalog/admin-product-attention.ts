@@ -5,7 +5,8 @@ import { Prisma } from '../../generated/prisma/client.js';
  *
  * Each preset is a narrow, named check the operator can click. One predicate
  * backs both the global count and the list filter, so a chip can never
- * disagree with the rows it reveals.
+ * disagree with the rows it reveals. The exact meaning of every preset is
+ * documented in docs/admin-product-attention.md — keep the two in step.
  */
 export const ATTENTION_FILTERS = [
   'missing_media',
