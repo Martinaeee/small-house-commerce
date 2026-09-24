@@ -43,6 +43,12 @@ export class AdminProductsController {
     return this.products.list(query);
   }
 
+  // Declared before ':id' so the literal path wins over the id route.
+  @Get('counts')
+  counts() {
+    return this.products.counts();
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.products.get(id);

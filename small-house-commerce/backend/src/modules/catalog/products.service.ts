@@ -17,6 +17,12 @@ import { ReviewsService } from './reviews.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
 import { buildTrgmSearch, tokenizeSearch } from './product-search.js';
+import {
+  ATTENTION_FILTERS,
+  attentionWhere,
+  type AdminProductCounts,
+  type AttentionFilter,
+} from './admin-product-attention.js';
 import { presentCatalogGraph } from './catalog-compat.js';
 import { legacyUnmappedCombinationKey } from './catalog-graph.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
@@ -1167,12 +1173,53 @@ export class ProductsService {
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
         { slug: { contains: query.search, mode: 'insensitive' } },
+        // The internal product number is searchable from the back office only.
+        { productCode: { contains: query.search, mode: 'insensitive' } },
       ];
     }
     if (query.status) where.status = query.status;
     if (query.categoryId) where.categoryId = query.categoryId;
+    if (query.attention) {
+      // ANDed so a preset that pins `status` cannot fight an explicit filter.
+      where.AND = [attentionWhere(query.attention)];
+    }
 
     return where;
+  }
+
+  /**
+   * Products-list counters. Both the status totals and every "needs attention"
+   * preset are aggregated in the database: the list itself is paginated, so a
+   * count derived from the visible page would be wrong.
+   */
+  async counts(): Promise<AdminProductCounts> {
+    const now = new Date();
+    const [statusRows, attentionCounts] = await Promise.all([
+      this.prisma.product.groupBy({ by: ['status'], _count: { _all: true } }),
+      Promise.all(
+        ATTENTION_FILTERS.map((filter) =>
+          this.prisma.product.count({ where: attentionWhere(filter, now) }),
+        ),
+      ),
+    ]);
+
+    const byStatus = new Map(
+      statusRows.map((row) => [row.status as string, row._count._all]),
+    );
+    return {
+      status: {
+        all: [...byStatus.values()].reduce((sum, count) => sum + count, 0),
+        active: byStatus.get('ACTIVE') ?? 0,
+        draft: byStatus.get('DRAFT') ?? 0,
+        disabled: byStatus.get('DISABLED') ?? 0,
+      },
+      attention: Object.fromEntries(
+        ATTENTION_FILTERS.map((filter, index) => [
+          filter,
+          attentionCounts[index] ?? 0,
+        ]),
+      ) as Record<AttentionFilter, number>,
+    };
   }
 
   private async ensureCategory(categoryId: string) {

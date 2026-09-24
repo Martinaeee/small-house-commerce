@@ -10,6 +10,7 @@ import {
 } from '../../../generated/prisma/client.js';
 import { slugSchema } from './category.dto.js';
 import { catalogGraphPatchSchema } from './catalog-graph.dto.js';
+import { ATTENTION_FILTERS } from '../admin-product-attention.js';
 
 const skuSchema = z.object({
   skuCode: z.string().min(1).max(64),
@@ -114,6 +115,8 @@ export const adminProductQuerySchema = z.object({
   search: z.string().max(255).optional(),
   status: z.nativeEnum(ProductStatus).optional(),
   categoryId: z.string().uuid().optional(),
+  // "Needs attention" preset; the same predicate backs its global count.
+  attention: z.enum(ATTENTION_FILTERS).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

@@ -61,19 +61,6 @@ describe('buildTrgmSearch', () => {
     expect(flatValues(result.match)).toContain('%tb%');
   });
 
-  it('matches the operator-facing product number in both branches', () => {
-    // Long tokens take the trgm branch, short ones the ILIKE-only branch; the
-    // product code has no trigram value, so both must compare it directly.
-    const long = buildTrgmSearch(['P-000007']);
-    expect(long.match.sql).toContain('products.product_code ILIKE');
-    expect(long.rank.sql).toContain('products.product_code ILIKE');
-    expect(flatValues(long.match)).toContain('%P-000007%');
-
-    const short = buildTrgmSearch(['p-7']);
-    expect(short.match.sql).toContain('products.product_code ILIKE');
-    expect(flatValues(short.match)).toContain('%p-7%');
-  });
-
   it('ranks by the weakest token (LEAST of per-token GREATEST scores)', () => {
     const result = buildTrgmSearch(['dining', 'chair']);
     expect(result.rank.sql).toContain('LEAST');
@@ -98,9 +85,9 @@ describe('buildTrgmSearch — LIKE wildcard escaping (M5)', () => {
     expect(likePatterns).not.toContain('%%');
     expect(likePatterns).toContain('%\\%%');
     // A 1-char token takes the ILIKE-only branch (<3 chars, no trgm binds):
-    // the raw token is never passed to word_similarity, so every bound LIKE
-    // value (name + slug + product code) is the escaped pattern.
-    expect(likePatterns.length).toBe(3);
+    // the raw token is never passed to word_similarity, so both bound LIKE
+    // values (name + slug) are the escaped pattern — observed ['%\\%%','%\\%%'].
+    expect(likePatterns.length).toBe(2);
     expect(likePatterns.every((value) => value === '%\\%%')).toBe(true);
   });
 

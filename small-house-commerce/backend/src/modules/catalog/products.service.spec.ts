@@ -30,6 +30,7 @@ function createPrismaMock(rows: MockProductRow[]) {
       findMany: vi.fn(async () => [...hydratedRows].reverse()),
       findFirst: vi.fn(async () => hydratedRows[0] ?? null),
       count: vi.fn(async () => rows.length),
+      groupBy: vi.fn(async () => [] as unknown[]),
     },
     category: {
       findMany: vi.fn(async () => []),
@@ -479,6 +480,56 @@ describe('ProductsService graph-v0 variant compatibility', () => {
         }),
       }),
     );
+  });
+});
+
+describe('ProductsService admin list filters and counters', () => {
+  it('searches the product code and ANDs the attention preset', async () => {
+    const prisma = createPrismaMock([]);
+    const service = createService(prisma);
+
+    await service.list({
+      search: 'P-000007',
+      attention: 'missing_media',
+      page: 1,
+      pageSize: 20,
+    } as AdminProductQuery);
+
+    const [call] = prisma.product.findMany.mock.calls;
+    expect(call?.[0].where).toMatchObject({
+      OR: expect.arrayContaining([
+        { productCode: { contains: 'P-000007', mode: 'insensitive' } },
+      ]),
+      AND: [{ images: { none: { optionValueId: null, variantId: null } } }],
+    });
+  });
+
+  it('aggregates the status totals and every attention preset in the database', async () => {
+    const prisma = createPrismaMock([]);
+    vi.mocked(prisma.product.groupBy).mockResolvedValue([
+      { status: 'ACTIVE', _count: { _all: 5 } },
+      { status: 'DRAFT', _count: { _all: 3 } },
+      { status: 'DISABLED', _count: { _all: 1 } },
+    ] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(2 as never);
+    const service = createService(prisma);
+
+    const counts = await service.counts();
+
+    expect(counts.status).toEqual({
+      all: 9,
+      active: 5,
+      draft: 3,
+      disabled: 1,
+    });
+    expect(counts.attention).toEqual({
+      missing_media: 2,
+      no_priced_sku: 2,
+      incomplete_shipping: 2,
+      stale_draft: 2,
+    });
+    // One query per preset — never a count over the visible page.
+    expect(prisma.product.count).toHaveBeenCalledTimes(4);
   });
 });
 

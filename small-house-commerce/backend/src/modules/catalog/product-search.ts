@@ -36,7 +36,6 @@ function tokenCondition(token: string): Prisma.Sql {
     return Prisma.sql`(
       products.name ILIKE ${pattern} ESCAPE '\\'
       OR products.slug ILIKE ${pattern} ESCAPE '\\'
-      OR products.product_code ILIKE ${pattern} ESCAPE '\\'
     )`;
   }
   return Prisma.sql`(
@@ -44,7 +43,6 @@ function tokenCondition(token: string): Prisma.Sql {
     OR word_similarity(${token}, products.slug) >= ${TRGM_MATCH_THRESHOLD}::double precision
     OR products.name ILIKE ${pattern} ESCAPE '\\'
     OR products.slug ILIKE ${pattern} ESCAPE '\\'
-    OR products.product_code ILIKE ${pattern} ESCAPE '\\'
   )`;
 }
 
@@ -54,7 +52,6 @@ function tokenScore(token: string): Prisma.Sql {
   const exact = Prisma.sql`CASE
       WHEN products.name ILIKE ${pattern} ESCAPE '\\'
         OR products.slug ILIKE ${pattern} ESCAPE '\\'
-        OR products.product_code ILIKE ${pattern} ESCAPE '\\'
       THEN 0.9 ELSE 0 END`;
   if (token.length < 3) {
     return exact;
