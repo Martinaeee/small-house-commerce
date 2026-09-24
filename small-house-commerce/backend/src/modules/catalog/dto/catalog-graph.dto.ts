@@ -11,7 +11,24 @@ import {
   validateCatalogGraph,
 } from '../catalog-graph.js';
 
-const uuidSchema = z.string().uuid();
+/**
+ * Row identity as the database holds it.
+ *
+ * The catalog graph mints its own ids for the legacy compat projection with
+ * `md5(namespace || ':' || source_id)::uuid` (see catalog-compat.ts and the
+ * 20260921100000_backfill_variant_options migration). PostgreSQL stores those
+ * happily, but the hash leaves the RFC 4122 version/variant bits at whatever
+ * the digest produced, so `z.string().uuid()` rejected roughly nineteen of
+ * every twenty graphs the backfill created — and the admin could no longer
+ * save those products. The shape check below accepts every id PostgreSQL
+ * accepts in its canonical text form while still rejecting client keys and
+ * other non-UUID strings.
+ */
+const uuidSchema = z
+  .string()
+  .regex(
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  );
 const clientKeySchema = z.string().min(1);
 
 /** A persisted row uses its UUID; a new row uses a request-local client key. */
