@@ -13,6 +13,8 @@ export interface ProductMediaPanelProps {
   onGraphChange: ((mutate: (draft: AdminCatalogGraphDraft) => void) => void) | null;
   sharedGallery: ReactNode;
   detailBlocks: ReactNode;
+  /** Row the problem rail asked to highlight (media row key). */
+  highlightKey?: string | null;
 }
 
 /**
@@ -29,6 +31,7 @@ export function ProductMediaPanel({
   onGraphChange,
   sharedGallery,
   detailBlocks,
+  highlightKey = null,
 }: ProductMediaPanelProps): ReactNode {
   const { t } = useAdminI18n();
   return (
@@ -53,6 +56,7 @@ export function ProductMediaPanel({
               draft={graphDraft}
               onChange={onGraphChange}
               pending={pending}
+              highlightKey={highlightKey}
             />
           </div>
         </section>

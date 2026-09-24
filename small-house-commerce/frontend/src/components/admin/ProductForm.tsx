@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   Field,
   Select,
@@ -11,6 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { ImageUrlInput } from "./ImageUrlInput";
 import { DecimalInput } from "./DecimalInput";
 import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
+import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
 import { ProductPreviewPanel } from "./product-form/ProductPreviewPanel";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
@@ -21,9 +29,15 @@ import type {
 } from "@/lib/admin-api";
 import {
   buildVariantCandidates,
-  validateAdminCatalogGraph,
+  entityRowKey,
   type AdminCatalogGraphDraft,
 } from "@/lib/admin-product-graph";
+import {
+  collectGraphIssues,
+  serverIssuesFromError,
+  type AdminProductIssue,
+  type AdminProductIssueAction,
+} from "@/lib/admin-product-issues";
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
@@ -710,6 +724,15 @@ const removeBtnCls =
 
 /** Editor tabs; the single form state object spans all of them. */
 const TABS = PRODUCT_FORM_TABS;
+
+/** Stand-in draft for server-error parsing when the product has no typed graph. */
+const EMPTY_GRAPH_DRAFT: AdminCatalogGraphDraft = {
+  catalogGraphVersion: 0,
+  defaultDisplayVariantRef: null,
+  options: [],
+  variants: [],
+  media: [],
+};
 type TabKey = ProductFormTabKey;
 
 const SHIPPING_SKU_KEYS = [
@@ -773,7 +796,15 @@ export function ProductForm({
   }
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  // Blocking problems in rail form: graph/serializer issues raised by the last
+  // submit attempt, each carrying the row it belongs to and its repairs.
+  const [issues, setIssues] = useState<AdminProductIssue[]>([]);
+  // Row to highlight after a jump or a one-click repair. The nonce re-arms the
+  // scroll/focus effect when the same row is targeted twice.
+  const [highlight, setHighlight] = useState<{
+    key: string;
+    nonce: number;
+  } | null>(null);
   // Which editor tab is open. Panels are conditionally rendered but all state
   // lives in `value` above, so switching tabs never loses edits.
   const [activeTab, setActiveTab] = useState<TabKey>("basic");
@@ -802,20 +833,14 @@ export function ProductForm({
 
   // Candidates recompute whenever the graph changes; buildVariantCandidates
   // throws past the global constraints (0-value groups / >2 groups / >100
-  // candidates), which the editors surface instead of a table.
-  const { candidates, candidatesError } = useMemo(() => {
-    if (!graphDraft) return { candidates: [], candidatesError: null };
+  // candidates) — the matrix then renders empty and the problem rail carries
+  // the structure error (collectGraphIssues re-runs the same builder).
+  const candidates = useMemo(() => {
+    if (!graphDraft) return [];
     try {
-      return {
-        candidates: buildVariantCandidates(graphDraft),
-        candidatesError: null,
-      };
-    } catch (error) {
-      return {
-        candidates: [],
-        candidatesError:
-          error instanceof Error ? error.message : "Invalid option graph.",
-      };
+      return buildVariantCandidates(graphDraft);
+    } catch {
+      return [];
     }
   }, [graphDraft]);
 
@@ -844,7 +869,7 @@ export function ProductForm({
 
   const clearValidation = (): void => {
     setFieldErrors({});
-    setFormError(null);
+    setIssues([]);
   };
 
   const patch = (p: Partial<ProductFormValue>): void => {
@@ -1080,70 +1105,11 @@ export function ProductForm({
     // Task 11: typed-graph validation runs BEFORE the legacy serializer so a
     // graph problem jumps straight to the editors even when basics are fine.
     if (typed && target.graph) {
-      const graph = target.graph;
-      const graphErrors = [...validateAdminCatalogGraph(graph, t).errors];
-      let mediaUrlError = false;
-      if (candidatesError && graphErrors.length === 0) {
-        graphErrors.push(t("product_graph_structure_invalid"));
-      }
-      const seenCodes = new Set<string>();
-      for (const variant of graph.variants) {
-        if (!variant.sku) continue;
-        const code = variant.sku.skuCode.trim();
-        if (!code) {
-          graphErrors.push(
-            t("product_graph_sku_code_required", { name: variant.name }),
-          );
-        } else {
-          const normalized = code.toLowerCase();
-          if (seenCodes.has(normalized)) {
-            graphErrors.push(
-              t("product_graph_sku_code_duplicate", { code }),
-            );
-          }
-          seenCodes.add(normalized);
-        }
-      }
-      // Graph media rows and option value visuals carry site URLs / strict
-      // formats; invalid values would 400 the entire patch at the backend.
-      if (
-        graph.options.some((option) =>
-          option.values.some(
-            (candidate) =>
-              candidate.swatchHex !== null &&
-              candidate.swatchHex.trim() !== "" &&
-              !/^#[0-9a-fA-F]{6}$/.test(candidate.swatchHex.trim()),
-          ),
-        )
-      ) {
-        graphErrors.push(t("product_graph_swatch_invalid"));
-      }
-      if (
-        graph.options.some((option) =>
-          option.values.some(
-            (candidate) =>
-              candidate.thumbnailUrl !== null &&
-              candidate.thumbnailUrl.trim() !== "" &&
-              !isValidMediaUrl(candidate.thumbnailUrl.trim()),
-          ),
-        )
-      ) {
-        graphErrors.push(t("product_graph_thumbnail_invalid"));
-      }
-      if (
-        graph.media.some(
-          (media) =>
-            media.url.trim() !== "" && !isValidMediaUrl(media.url.trim()),
-        )
-      ) {
-        mediaUrlError = true;
-        graphErrors.push(t("product_graph_media_url_invalid"));
-      }
-      if (graphErrors.length > 0) {
-        setFormError(graphErrors.join(" "));
-        // Jump straight to the failing section: a scoped-media URL problem
-        // belongs to the media tab, everything else to the editors.
-        setActiveTab(mediaUrlError ? "media" : "variants");
+      const graphIssues = collectGraphIssues(target.graph, t);
+      if (graphIssues.length > 0) {
+        setIssues(graphIssues);
+        // Jump straight to the first failing section.
+        setActiveTab(graphIssues[0].tab);
         return;
       }
     }
@@ -1160,18 +1126,24 @@ export function ProductForm({
         const tab = TABS.find((candidate) => candidate.key === key);
         return tab ? t(tab.labelKey) : key;
       });
-      setFormError(
-        t("product_form_validation_summary", {
-          tabs: brokenTabs.join(lang === "zh" ? "、" : ", "),
-        }),
-      );
-      // Jump straight to the first failing tab.
       const firstKey = Object.keys(result.fieldErrors)[0];
-      if (firstKey) setActiveTab(tabForErrorKey(firstKey));
+      const firstTab = firstKey ? tabForErrorKey(firstKey) : "basic";
+      setIssues([
+        {
+          id: "serializer",
+          message: t("product_form_validation_summary", {
+            tabs: brokenTabs.join(lang === "zh" ? "、" : ", "),
+          }),
+          tab: firstTab,
+          actions: [],
+        },
+      ]);
+      // Jump straight to the first failing tab.
+      setActiveTab(firstTab);
       return;
     }
     setFieldErrors({});
-    setFormError(null);
+    setIssues([]);
     onSubmit(target);
   };
 
@@ -1179,6 +1151,57 @@ export function ProductForm({
     event.preventDefault();
     submitForm();
   };
+
+  // --- persistent problem rail ---------------------------------------------
+  // The backend validates the PATCH as a self-contained graph, so a rejection
+  // arrives as raw English. Parsing it here turns it into the same card the
+  // client validation produces: what is wrong, where, and how to fix it.
+  const serverIssues =
+    error && issues.length === 0 && Object.keys(fieldErrors).length === 0
+      ? serverIssuesFromError(error, graphDraft ?? EMPTY_GRAPH_DRAFT, t)
+      : [];
+  const railIssues = issues.length > 0 ? issues : serverIssues;
+
+  const applyIssueAction = (action: AdminProductIssueAction): void => {
+    if (!action.optionKey || !graphDraft) return;
+    const optionKey = action.optionKey;
+    const draft = structuredClone(graphDraft);
+    const option = draft.options.find(
+      (candidate) => entityRowKey(candidate) === optionKey,
+    );
+    if (!option) return;
+    if (action.kind === "enable-values") {
+      option.values.forEach((value) => {
+        value.isActive = true;
+      });
+    } else if (action.kind === "disable-option") {
+      option.isActive = false;
+    } else {
+      return;
+    }
+    setValue((prev) => ({ ...prev, graph: draft }));
+    // Re-derive the remaining problems from the repaired draft so a fixed
+    // issue disappears while the rest stay listed.
+    setIssues(collectGraphIssues(draft, t));
+    setHighlight((prev) => ({ key: optionKey, nonce: (prev?.nonce ?? 0) + 1 }));
+    setActiveTab("variants");
+  };
+
+  const jumpToIssue = (issue: AdminProductIssue): void => {
+    setActiveTab(issue.tab);
+    if (issue.highlightKey) {
+      const key = issue.highlightKey;
+      setHighlight((prev) => ({ key, nonce: (prev?.nonce ?? 0) + 1 }));
+    }
+  };
+
+  useEffect(() => {
+    if (!highlight) return;
+    const row = document.getElementById(`pf-row-${highlight.key}`);
+    if (!row) return;
+    row.scrollIntoView?.({ block: "center" });
+    row.querySelector<HTMLElement>("select, input, button")?.focus();
+  }, [highlight, activeTab]);
 
   const tabHasError = (tab: TabKey): boolean =>
     Object.keys(fieldErrors).some((k) => tabForErrorKey(k) === tab);
@@ -1226,29 +1249,14 @@ export function ProductForm({
         onStatusChange={(status) => patch({ status })}
         onTabChange={setActiveTab}
         onSubmitIntent={() => undefined}
+        errorRail={
+          <ProductFormErrorRail
+            issues={railIssues}
+            onAction={applyIssueAction}
+            onJump={jumpToIssue}
+          />
+        }
       />
-
-
-      {formError ? (
-        <div
-          role="alert"
-          className="mb-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
-        >
-          {formError}
-        </div>
-      ) : null}
-      {/* Parent (server) error from the last submit attempt. A newer failed
-          CLIENT-side submit supersedes it: hide it while local validation
-          state exists (formError or any field error) so two alerts never
-          show together. Mere edits do not dismiss it — only a submit does. */}
-      {error && !formError && Object.keys(fieldErrors).length === 0 ? (
-        <div
-          role="alert"
-          className="mb-4 rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
-        >
-          {error}
-        </div>
-      ) : null}
 
       {/* Concise contextual workflow status: the long per-step guide lived
           here before; the controls below already explain themselves. */}
@@ -1440,6 +1448,7 @@ export function ProductForm({
             pending={pending}
             graphDraft={graphDraft}
             onGraphChange={typed && graphDraft ? updateGraph : null}
+            highlightKey={highlight?.key ?? null}
             sharedGallery={
               <Section
               title={t("product_media_shared_title")}
@@ -1933,6 +1942,7 @@ export function ProductForm({
               draft={graphDraft}
               onChange={updateGraph}
               pending={pending}
+              highlightKey={highlight?.key ?? null}
             />
             <div className="mt-8">
               <VariantMatrix
@@ -1940,6 +1950,7 @@ export function ProductForm({
                 draft={graphDraft}
                 onChange={updateGraph}
                 pending={pending}
+                highlightKey={highlight?.key ?? null}
               />
             </div>
           </Section>

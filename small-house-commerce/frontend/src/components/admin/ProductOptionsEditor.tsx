@@ -82,10 +82,13 @@ export function ProductOptionsEditor({
   draft,
   onChange,
   pending = false,
+  highlightKey = null,
 }: {
   draft: AdminCatalogGraphDraft;
   onChange: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
+  /** Row the problem rail asked to highlight (option or option-value key). */
+  highlightKey?: string | null;
 }): React.ReactNode {
   const { t } = useAdminI18n();
   const validation = validateAdminCatalogGraph(draft, t);
@@ -230,10 +233,16 @@ export function ProductOptionsEditor({
           const persisted = option.id !== undefined;
           const canActivate = option.isActive || !atGroupCap;
           const groupNumber = optionIndex + 1;
+          const optionKey = option.id ?? option.clientKey ?? "";
           return (
             <li
               key={option.id ?? option.clientKey}
-              className="rounded-lg bg-background p-4"
+              id={`pf-row-${optionKey}`}
+              className={`rounded-lg bg-background p-4 ${
+                highlightKey === optionKey
+                  ? "ring-2 ring-sale ring-offset-2"
+                  : ""
+              }`}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -372,10 +381,16 @@ export function ProductOptionsEditor({
                       showSwatch &&
                       !/^#[0-9a-fA-F]{6}$/.test(value.swatchHex?.trim() ?? "") &&
                       !value.thumbnailUrl?.trim();
+                    const valueKey = value.id ?? value.clientKey ?? "";
                     return (
                       <li
                         key={value.id ?? value.clientKey}
-                        className="rounded-lg border border-border bg-card p-3"
+                        id={`pf-row-${valueKey}`}
+                        className={`rounded-lg border border-border bg-card p-3 ${
+                          highlightKey === valueKey
+                            ? "ring-2 ring-sale ring-offset-2"
+                            : ""
+                        }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <button

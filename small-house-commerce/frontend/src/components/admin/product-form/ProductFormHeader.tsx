@@ -43,6 +43,8 @@ export interface ProductFormHeaderProps {
   onTabChange: (tab: ProductFormTabKey) => void;
   /** Emits the button's submit intent; the owning form still performs validation and submission. */
   onSubmitIntent?: () => void;
+  /** Persistent problem rail rendered inside the sticky chrome. */
+  errorRail?: ReactNode;
 }
 
 type SaveLabels = Pick<
@@ -71,6 +73,7 @@ export function ProductFormHeader({
   onStatusChange,
   onTabChange,
   onSubmitIntent,
+  errorRail,
 }: ProductFormHeaderProps): ReactNode {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const submitLabel = pending ? labels.saving : saveLabel(currentStatus, savedStatus, labels);
@@ -182,6 +185,10 @@ export function ProductFormHeader({
           );
         })}
       </div>
+
+      {/* The problem rail rides inside the sticky chrome so an error stays
+          visible no matter how far the form is scrolled. */}
+      {errorRail}
     </div>
   );
 }

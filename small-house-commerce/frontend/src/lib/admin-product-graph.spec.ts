@@ -382,7 +382,25 @@ describe("buildCatalogGraphPatch", () => {
     expect(patch.optionUpserts).toHaveLength(1);
     expect(patch.optionUpserts[0].id).toBe(COLOR_OPTION_ID);
     expect(patch.optionUpserts[0].position).toBe(1);
-    expect(patch.optionUpserts[0].values).toEqual([]);
+    // The backend validates every option upsert as a self-contained option, so
+    // an active option must carry an active value even when only scalars moved.
+    expect(
+      patch.optionUpserts[0].values.filter((value) => value.isActive),
+    ).toHaveLength(2);
+  });
+
+  it("keeps the payload valid when only the gallery-driver flag changes", () => {
+    const draft = draftFor();
+    draft.options[0].isMediaDriver = false;
+
+    const patch = buildCatalogGraphPatch(serverGraph(), draft);
+
+    expect(patch.optionUpserts).toHaveLength(1);
+    expect(patch.optionUpserts[0].isMediaDriver).toBe(false);
+    expect(patch.optionUpserts[0].isActive).toBe(true);
+    expect(
+      patch.optionUpserts[0].values.some((value) => value.isActive),
+    ).toBe(true);
   });
 
   it("renames a value through an option upsert without emitting variants", () => {

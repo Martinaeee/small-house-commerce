@@ -73,10 +73,13 @@ export function ProductMediaScopesEditor({
   draft,
   onChange,
   pending = false,
+  highlightKey = null,
 }: {
   draft: AdminCatalogGraphDraft;
   onChange: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
+  /** Media row the problem rail asked to highlight. */
+  highlightKey?: string | null;
 }): ReactNode {
   const { t } = useAdminI18n();
   const shared = draft.media.filter(
@@ -214,7 +217,13 @@ export function ProductMediaScopesEditor({
   ): ReactNode => {
     const key = rowKey(row);
     return (
-      <li key={key} className="rounded-lg border border-border bg-card p-3">
+      <li
+        key={key}
+        id={`pf-row-${key}`}
+        className={`rounded-lg border border-border bg-card p-3 ${
+          highlightKey === key ? "ring-2 ring-sale ring-offset-2" : ""
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
