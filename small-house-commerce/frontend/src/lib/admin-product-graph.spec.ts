@@ -896,6 +896,50 @@ describe("syncSharedMediaDraft", () => {
     const patch = buildCatalogGraphPatch(serverGraph(), draft);
     expect(patch.retirements.mediaIds).toEqual([MEDIA_2_ID]);
   });
+
+  it("keeps scoped rows intact when the shared gallery is replaced with fewer rows", () => {
+    const draft = draftFor();
+    draft.media.splice(1, 0, {
+      id: "value-scoped",
+      url: "/uploads/catalog/2026/red-detail.jpg",
+      type: "IMAGE",
+      altText: null,
+      sortOrder: 0,
+      optionValueRef: { id: RED_VALUE_ID },
+      variantRef: null,
+    });
+    draft.media.push({
+      id: "variant-scoped",
+      url: "/uploads/catalog/2026/red-variant.jpg",
+      type: "IMAGE",
+      altText: null,
+      sortOrder: 0,
+      optionValueRef: null,
+      variantRef: { id: VARIANT_RED_ID },
+    });
+
+    syncSharedMediaDraft(draft, [
+      {
+        url: "/uploads/catalog/2026/shared-replacement.jpg",
+        type: "IMAGE",
+        altText: "Shared replacement",
+        sortOrder: "0",
+      },
+    ]);
+
+    expect(draft.media).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "value-scoped", optionValueRef: { id: RED_VALUE_ID } }),
+        expect.objectContaining({ id: "variant-scoped", variantRef: { id: VARIANT_RED_ID } }),
+      ]),
+    );
+    expect(
+      draft.media.filter((row) => row.optionValueRef === null && row.variantRef === null),
+    ).toHaveLength(1);
+    expect(draft.media.find((row) => row.id === "value-scoped")?.url).toBe(
+      "/uploads/catalog/2026/red-detail.jpg",
+    );
+  });
 });
 
 describe("graphFromAdminProduct", () => {

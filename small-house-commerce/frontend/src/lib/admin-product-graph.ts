@@ -599,9 +599,37 @@ export function buildVariantCandidates(
 
 // --- validation ------------------------------------------------------------------
 
+export type AdminCatalogGraphIssueCode =
+  | "active_option_limit"
+  | "active_value_required"
+  | "duplicate_value_label"
+  | "duplicate_value_position"
+  | "value_label_required"
+  | "media_driver_limit"
+  | "candidate_limit";
+
+export interface AdminCatalogGraphIssue {
+  code: AdminCatalogGraphIssueCode;
+}
+
+export type AdminCatalogGraphValidationMessageKey =
+  | "product_graph_active_option_limit"
+  | "product_graph_active_value_required"
+  | "product_graph_duplicate_value_label"
+  | "product_graph_duplicate_value_position"
+  | "product_graph_value_label_required"
+  | "product_graph_media_driver_limit"
+  | "product_graph_candidate_limit";
+
+type AdminCatalogGraphTranslate = (
+  key: AdminCatalogGraphValidationMessageKey,
+  vars?: Record<string, string | number>,
+) => string;
+
 export interface AdminCatalogGraphValidation {
   ok: boolean;
   errors: string[];
+  issues: AdminCatalogGraphIssue[];
   activeOptionCount: number;
   candidateCount: number;
 }
@@ -613,13 +641,27 @@ export interface AdminCatalogGraphValidation {
  */
 export function validateAdminCatalogGraph(
   draft: AdminCatalogGraphDraft,
+  translate?: AdminCatalogGraphTranslate,
 ): AdminCatalogGraphValidation {
   const errors: string[] = [];
+  const issues: AdminCatalogGraphIssue[] = [];
+  const addError = (
+    code: AdminCatalogGraphIssueCode,
+    key: AdminCatalogGraphValidationMessageKey,
+    vars: Record<string, string | number>,
+    fallback: string,
+  ): void => {
+    issues.push({ code });
+    errors.push(translate ? translate(key, vars) : fallback);
+  };
   const options = activeOptionsSorted(draft);
   const activeOptionCount = options.length;
 
   if (activeOptionCount > 2) {
-    errors.push(
+    addError(
+      "active_option_limit",
+      "product_graph_active_option_limit",
+      { count: activeOptionCount },
       `A catalog graph may have at most two active option groups; received ${activeOptionCount}.`,
     );
   }
@@ -630,7 +672,10 @@ export function validateAdminCatalogGraph(
     if (option.isMediaDriver) mediaDriverCount += 1;
     const values = activeValues(option);
     if (values.length === 0) {
-      errors.push(
+      addError(
+        "active_value_required",
+        "product_graph_active_value_required",
+        { option: option.name },
         `Active option ${option.name} must have at least one active value.`,
       );
       continue;
@@ -640,32 +685,49 @@ export function validateAdminCatalogGraph(
     for (const value of values) {
       const label = value.label.trim().toLowerCase();
       if (seenLabels.has(label)) {
-        errors.push(
+        addError(
+          "duplicate_value_label",
+          "product_graph_duplicate_value_label",
+          { label: value.label, option: option.name },
           `Duplicate active value label ${value.label} in option ${option.name}.`,
         );
       }
       seenLabels.add(label);
       if (seenPositions.has(value.position)) {
-        errors.push(
+        addError(
+          "duplicate_value_position",
+          "product_graph_duplicate_value_position",
+          { position: value.position, option: option.name },
           `Duplicate active value position ${value.position} in option ${option.name}.`,
         );
       }
       seenPositions.add(value.position);
       if (!value.label.trim()) {
-        errors.push(`Value label in option ${option.name} must not be empty.`);
+        addError(
+          "value_label_required",
+          "product_graph_value_label_required",
+          { option: option.name },
+          `Value label in option ${option.name} must not be empty.`,
+        );
       }
     }
     candidateCount *= values.length;
   }
 
   if (mediaDriverCount > 1) {
-    errors.push(
+    addError(
+      "media_driver_limit",
+      "product_graph_media_driver_limit",
+      {},
       "A catalog graph may have at most one active media-driver option group.",
     );
   }
 
   if (candidateCount > MAX_CANDIDATES) {
-    errors.push(
+    addError(
+      "candidate_limit",
+      "product_graph_candidate_limit",
+      { count: candidateCount, limit: MAX_CANDIDATES },
       `Active option groups produce ${candidateCount} candidates; the limit is ${MAX_CANDIDATES}.`,
     );
   }
@@ -673,6 +735,7 @@ export function validateAdminCatalogGraph(
   return {
     ok: errors.length === 0,
     errors,
+    issues,
     activeOptionCount,
     candidateCount,
   };
@@ -1054,9 +1117,9 @@ export function collectStockBatch(
 
 interface SharedMediaInput {
   url: string;
-  type: "IMAGE" | "VIDEO";
-  altText: string;
-  sortOrder: string;
+  type?: "IMAGE" | "VIDEO";
+  altText?: string | null;
+  sortOrder?: string | number;
 }
 
 /**
@@ -1086,8 +1149,8 @@ export function syncSharedMediaDraft(
       const image = images[i]!;
       return (
         row.url === image.url &&
-        row.type === image.type &&
-        (row.altText ?? "") === image.altText
+        row.type === (image.type ?? "IMAGE") &&
+        (row.altText ?? "") === (image.altText ?? "")
       );
     })
   ) {
@@ -1099,7 +1162,7 @@ export function syncSharedMediaDraft(
     const row = draft.media[sharedIndexes[i]]!;
     const image = images[i]!;
     row.url = image.url;
-    row.type = image.type;
+    row.type = image.type ?? "IMAGE";
     row.altText = image.altText || null;
     row.sortOrder = i;
   }
@@ -1113,7 +1176,7 @@ export function syncSharedMediaDraft(
     draft.media.push({
       clientKey: `media-new-${draft.media.length}-${offset}`,
       url: image.url,
-      type: image.type,
+      type: image.type ?? "IMAGE",
       altText: image.altText || null,
       sortOrder: kept + offset,
       optionValueRef: null,

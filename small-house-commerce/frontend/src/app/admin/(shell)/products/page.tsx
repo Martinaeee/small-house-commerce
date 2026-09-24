@@ -28,9 +28,31 @@ import {
   type Paged,
   type ProductStatus,
 } from "@/lib/admin-api";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 
 // ProductStatus union, in declaration order (admin-api.ts).
 const PRODUCT_STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "DISABLED"];
+
+// Catalog statuses diverge from the bare statusTone map (spec §12): product
+// ACTIVE is GREEN, DRAFT amber, DISABLED red.
+function productBadgeTone(status: ProductStatus): "green" | "amber" | "red" {
+  if (status === "ACTIVE") return "green";
+  if (status === "DRAFT") return "amber";
+  return "red";
+}
+
+// Translated badge/filter labels; the wire values stay DRAFT/ACTIVE/DISABLED.
+const STATUS_LABEL_KEYS: Record<ProductStatus, TKey> = {
+  DRAFT: "product_form_status_draft",
+  ACTIVE: "product_form_status_active",
+  DISABLED: "product_form_status_disabled",
+};
+
+/**
+ * Sentinel for list rejections that carry no Error message: the visible copy
+ * resolves via t() at render, so no English fallback lives in state.
+ */
+const LOAD_ERROR_FALLBACK = Symbol("products-load-fallback");
 
 type FlatCategory = { id: string; name: string; depth: number };
 
@@ -50,15 +72,8 @@ function flattenCategories(
   return acc;
 }
 
-// Catalog statuses diverge from the bare statusTone map (spec §12): product
-// ACTIVE is GREEN, DRAFT amber, DISABLED red.
-function productBadgeTone(status: ProductStatus): "green" | "amber" | "red" {
-  if (status === "ACTIVE") return "green";
-  if (status === "DRAFT") return "amber";
-  return "red";
-}
-
 function ProductsPageContent() {
+  const { t } = useAdminI18n();
   const { hasPermission } = useAdminAuth();
   const canManage = hasPermission("PRODUCT_MANAGE");
 
@@ -159,7 +174,9 @@ function ProductsPageContent() {
   // --- list data ------------------------------------------------------------
 
   const [data, setData] = useState<Paged<AdminProduct> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<
+    string | typeof LOAD_ERROR_FALLBACK | null
+  >(null);
   // Bumped to force a re-run of the current query (Retry / post-delete truth).
   const queryKey = [
     status,
@@ -209,7 +226,7 @@ function ProductsPageContent() {
         // 403 for roles without PRODUCT_MANAGE lands here verbatim
         // ("Missing required permission") — surface as the page error.
         setError(
-          err instanceof Error ? err.message : "Failed to load products.",
+          err instanceof Error ? err.message : LOAD_ERROR_FALLBACK,
         );
         setFetchedKey(queryKey);
       });
@@ -217,7 +234,6 @@ function ProductsPageContent() {
       active = false;
     };
   }, [queryKey, status, search, categoryId, page, pathname, router, searchParams]);
-
   // --- delete ---------------------------------------------------------------
 
   // The row object is captured so the dialog can show its name even after the
@@ -284,7 +300,7 @@ function ProductsPageContent() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
-        title="Products"
+        title={t("products_title")}
         count={data?.total}
         actions={
           canManage ? (
@@ -292,28 +308,19 @@ function ProductsPageContent() {
               href="/admin/products/new"
               className="inline-flex h-12 min-w-[140px] items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
             >
-              New product
+              {t("products_new")}
             </Link>
           ) : null
         }
       />
 
-      {/* Chinese operator legend. */}
+      {/* Operator legend: statuses + where stock and badges actually live. */}
       <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
-        <p className="text-sm font-semibold text-ink">商品状态与上架要点</p>
+        <p className="text-sm font-semibold text-ink">{t("products_legend_title")}</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>
-            <span className="font-semibold">DRAFT</span> 草稿：前台完全看不到，可先保存预览链接检查；
-            <span className="font-semibold"> ACTIVE</span> 上架中：前台可搜索、可下单；
-            <span className="font-semibold"> DISABLED</span> 已下架：前台隐藏，数据保留。
-          </li>
-          <li>
-            商品本身不存库存：保存后需到 <span className="font-semibold">Inventory</span> 页给
-            SKU 入库，库存为 0 时前台显示 Out of Stock。
-          </li>
-          <li>
-            New / Bestseller 角标由 <span className="font-semibold">Collections</span> 页的集合归属控制，不是商品字段。
-          </li>
+          <li>{t("products_legend_status")}</li>
+          <li>{t("products_legend_inventory")}</li>
+          <li>{t("products_legend_collections")}</li>
         </ul>
       </div>
 
@@ -321,18 +328,18 @@ function ProductsPageContent() {
       <div className="mt-4 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
           <div className="md:min-w-[220px] md:flex-1">
-            <Field label="Search" htmlFor="products-search">
+            <Field label={t("products_search_label")} htmlFor="products-search">
               <TextInput
                 id="products-search"
                 type="search"
-                placeholder="Product name or slug"
+                placeholder={t("products_search_placeholder")}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
             </Field>
           </div>
           <div className="md:w-44">
-            <Field label="Status" htmlFor="products-status">
+            <Field label={t("products_status_label")} htmlFor="products-status">
               <Select
                 id="products-status"
                 value={status}
@@ -340,17 +347,17 @@ function ProductsPageContent() {
                   patchParams({ status: e.target.value || null, page: null })
                 }
               >
-                <option value="">All statuses</option>
+                <option value="">{t("products_status_all")}</option>
                 {PRODUCT_STATUSES.map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {t(STATUS_LABEL_KEYS[value])}
                   </option>
                 ))}
               </Select>
             </Field>
           </div>
           <div className="md:min-w-[220px] md:flex-1">
-            <Field label="Category" htmlFor="products-category">
+            <Field label={t("products_category_label")} htmlFor="products-category">
               <Select
                 id="products-category"
                 value={categoryId}
@@ -361,7 +368,7 @@ function ProductsPageContent() {
                   })
                 }
               >
-                <option value="">All categories</option>
+                <option value="">{t("products_category_all")}</option>
                 {flatCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {"  ".repeat(cat.depth)}
@@ -378,7 +385,7 @@ function ProductsPageContent() {
             onClick={clearFilters}
             disabled={!filtersActive && searchInput === ""}
           >
-            Clear filters
+            {t("products_clear_filters")}
           </Button>
         </div>
       </div>
@@ -391,13 +398,13 @@ function ProductsPageContent() {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="font-semibold">Product could not be deleted.</p>
+              <p className="font-semibold">{t("products_delete_error_title")}</p>
               <p className="mt-1">{deleteError}</p>
             </div>
             <button
               type="button"
               onClick={() => setDeleteError(null)}
-              aria-label="Dismiss error"
+              aria-label={t("products_dismiss_error")}
               className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-700 hover:bg-red-100"
             >
               ✕
@@ -416,39 +423,41 @@ function ProductsPageContent() {
             className="rounded-xl border border-border bg-card p-6"
           >
             <p className="text-sm font-semibold text-ink">
-              Couldn&apos;t load products.
+              {t("products_load_error_title")}
             </p>
-            <p className="mt-1 text-sm text-ink-muted">{error}</p>
+            <p className="mt-1 text-sm text-ink-muted">
+              {error === LOAD_ERROR_FALLBACK ? t("products_load_failed") : error}
+            </p>
             <Button
               variant="secondary"
               size="md"
               onClick={reload}
               className="mt-4"
             >
-              Retry
+              {t("common_retry")}
             </Button>
           </div>
         ) : data && data.items.length === 0 ? (
           filtersActive ? (
             <EmptyState
-              title="No products found."
-              hint="Try clearing the filters."
+              title={t("products_empty_filtered_title")}
+              hint={t("products_empty_filtered_hint")}
               action={
                 <Button variant="secondary" size="md" onClick={clearFilters}>
-                  Clear filters
+                  {t("products_clear_filters")}
                 </Button>
               }
             />
           ) : (
             <EmptyState
-              title="No products yet — create your first product."
+              title={t("products_empty_title")}
               action={
                 canManage ? (
                   <Link
                     href="/admin/products/new"
                     className="inline-flex h-12 min-w-[140px] items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
                   >
-                    New product
+                    {t("products_new")}
                   </Link>
                 ) : undefined
               }
@@ -457,17 +466,17 @@ function ProductsPageContent() {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[1000px] text-sm">
-              <caption className="sr-only">Products</caption>
+              <caption className="sr-only">{t("products_title")}</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th scope="col" className="px-4 py-3">Product</th>
-                  <th scope="col" className="px-4 py-3">Slug</th>
-                  <th scope="col" className="px-4 py-3">Category</th>
-                  <th scope="col" className="px-4 py-3">Status</th>
-                  <th scope="col" className="px-4 py-3">Price</th>
-                  <th scope="col" className="px-4 py-3">Variants</th>
-                  <th scope="col" className="px-4 py-3">Updated</th>
-                  <th scope="col" className="px-4 py-3">Actions</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_product")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_slug")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_category")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_status")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_price")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_variants")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_updated")}</th>
+                  <th scope="col" className="px-4 py-3">{t("common_actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -506,7 +515,7 @@ function ProductsPageContent() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge
-                          value={row.status}
+                          value={t(STATUS_LABEL_KEYS[row.status])}
                           tone={productBadgeTone(row.status)}
                         />
                       </td>
@@ -532,13 +541,13 @@ function ProductsPageContent() {
                               href={`/admin/products/${row.id}/edit`}
                               className="text-sm font-semibold text-cta hover:underline"
                             >
-                              Edit
+                              {t("common_edit")}
                             </Link>
                             <Link
                               href={`/admin/products/${row.id}/reviews`}
                               className="text-sm font-semibold text-cta hover:underline"
                             >
-                              Reviews
+                              {t("products_action_reviews")}
                             </Link>
                             <button
                               type="button"
@@ -546,7 +555,7 @@ function ProductsPageContent() {
                               disabled={rowBusy}
                               className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
                             >
-                              Delete
+                              {t("common_delete")}
                             </button>
                           </div>
                         ) : (
@@ -578,13 +587,13 @@ function ProductsPageContent() {
       <Dialog
         open={deleteTarget !== null}
         onClose={closeDelete}
-        title="Delete product"
+        title={t("products_delete_dialog_title")}
         width="sm"
       >
         {deleteTarget ? (
           <form onSubmit={onDeleteSubmit}>
             <p className="text-sm text-ink-secondary">
-              {`Delete ${deleteTarget.name}? Its variants, SKUs and images are removed. This fails if any order item or reservation references its SKUs.`}
+              {t("products_delete_dialog_body", { name: deleteTarget.name })}
             </p>
             <div className="mt-6 flex justify-end gap-3">
               <Button
@@ -594,7 +603,7 @@ function ProductsPageContent() {
                 onClick={closeDelete}
                 disabled={deletePending}
               >
-                Back
+                {t("common_back")}
               </Button>
               <Button
                 type="submit"
@@ -604,7 +613,7 @@ function ProductsPageContent() {
                 aria-busy={deletePending}
                 className="bg-red-600 hover:bg-red-700 active:bg-red-700"
               >
-                {deletePending ? "Working…" : "Delete"}
+                {deletePending ? t("products_working") : t("common_delete")}
               </Button>
             </div>
           </form>

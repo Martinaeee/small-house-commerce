@@ -31,6 +31,7 @@ import {
   type CreateProductInput,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   buildCatalogGraphPatch,
   collectStockBatch,
@@ -60,8 +61,15 @@ import {
 // other unique column (sku_code, variant name) carries a message that names
 // what actually collided, so it is shown verbatim instead of being rewritten
 // into a claim about a field the operator never touched.
-const SLUG_CONFLICT_UI = "A product with this slug already exists.";
 const GENERIC_CONFLICT_BACKEND = "same unique value";
+
+/**
+ * The stock batch settles one entry per requested SKU. An entry that never
+ * arrives means that write was never confirmed — it must stay in the failure
+ * panel rather than be read as success.
+ */
+const STOCK_OUTCOME_MISSING =
+  "The server did not report an outcome for this stock row.";
 
 const SCALAR_KEYS = [
   "name",
@@ -172,6 +180,12 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
   };
 }
 
+export function buildSavedPreview(
+  product: Pick<AdminProduct, "slug" | "status">,
+): { path: string; status: AdminProduct["status"] } {
+  return { path: `/products/${product.slug}`, status: product.status };
+}
+
 /**
  * SKUs whose on-hand figure the admin changed, matched by SKU id (not by
  * position — variants can be added or removed in the same save).
@@ -256,12 +270,13 @@ function buildProductPatch(
 }
 
 function BackLink(): ReactNode {
+  const { t } = useAdminI18n();
   return (
     <Link
       href="/admin/products"
       className="text-sm font-semibold text-cta hover:underline"
     >
-      Back to products
+      {t("product_form_back")}
     </Link>
   );
 }
@@ -270,13 +285,13 @@ export default function EditProductPage(): ReactNode {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
+  const { t } = useAdminI18n();
 
   const [product, setProduct] = useState<AdminProduct | null>(null);
   const [landingCount, setLandingCount] = useState<number | null>(null);
   const [categories, setCategories] = useState<AdminCategoryNode[] | null>(
     null,
   );
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [nonce, setNonce] = useState(0);
   // Last route id the rendered state belongs to (render-phase reset below).
@@ -290,6 +305,17 @@ export default function EditProductPage(): ReactNode {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Load failure state: an Error rejection carries its message verbatim; a
+  // non-Error rejection stores WHICH load failed so the copy resolves via
+  // t() at render (no hardcoded English in state).
+  const [loadError, setLoadError] = useState<
+    | { kind: "message"; text: string }
+    | {
+        kind: "fallback";
+        key: "product_edit_load_failed" | "product_edit_categories_failed";
+      }
+    | null
+  >(null);
   // Phase B rows the batch settled as failed (failed-row-only retry).
   const [stockFailures, setStockFailures] = useState<StockFailureRow[]>([]);
 
@@ -335,15 +361,15 @@ export default function EditProductPage(): ReactNode {
           } else {
             setLoadError(
               productResult.reason instanceof Error
-                ? productResult.reason.message
-                : "Failed to load product.",
+                ? { kind: "message", text: productResult.reason.message }
+                : { kind: "fallback", key: "product_edit_load_failed" },
             );
           }
         } else if (categoriesResult.status === "rejected") {
           setLoadError(
             categoriesResult.reason instanceof Error
-              ? categoriesResult.reason.message
-              : "Failed to load categories.",
+              ? { kind: "message", text: categoriesResult.reason.message }
+              : { kind: "fallback", key: "product_edit_categories_failed" },
           );
         } else {
           setProduct(productResult.value);
@@ -402,17 +428,17 @@ export default function EditProductPage(): ReactNode {
 
       // Client validation (ProductForm already ran it; re-run here for the
       // field-error contract and to get the canonical serialized payload).
-      const result = serializeFormValue(value);
+      const result = serializeFormValue(value, t);
       if (!result.ok) return;
-      const initialResult = serializeFormValue(initial);
+      const initialResult = serializeFormValue(initial, t);
       if (!initialResult.ok) {
         // Server truth should always serialize; refuse rather than send a
         // half-valid PATCH.
-        setError("This product has data the form cannot edit. Reload the page and try again.");
+        setError(t("product_edit_unserializable"));
         return;
       }
 
-      const stockError = validateStockEntry(value);
+      const stockError = validateStockEntry(value, t);
       if (stockError) {
         setError(stockError);
         return;
@@ -438,7 +464,7 @@ export default function EditProductPage(): ReactNode {
         // blanked persisted row becomes a retirement), and client-key scopes
         // whose draft row is gone this same save would 400 the patch.
         stripUnsavableMedia(draft);
-        syncSharedMediaDraft(draft, value.images);
+        syncSharedMediaDraft(draft, result.value.images);
         const graphPatch = buildCatalogGraphPatch(
           graphFromAdminProduct(product),
           draft,
@@ -477,7 +503,7 @@ export default function EditProductPage(): ReactNode {
         // Nothing changed: do not PATCH (an empty body is a no-op server-side
         // anyway, but skipping keeps the audit/ledger clean).
         setError(null);
-        setNotice("No changes to save.");
+        setNotice(t("product_edit_no_changes"));
         return;
       }
 
@@ -530,6 +556,9 @@ export default function EditProductPage(): ReactNode {
               const attemptBySkuId = new Map(
                 resolved.ready.map((row) => [row.skuId, row]),
               );
+              const settledSkuIds = new Set(
+                results.map((entry) => entry.skuId),
+              );
               for (const entry of results) {
                 if (entry.ok) continue;
                 const attempt = attemptBySkuId.get(entry.skuId);
@@ -538,6 +567,18 @@ export default function EditProductPage(): ReactNode {
                   onHand: attempt?.onHand ?? 0,
                   label: attempt?.label ?? entry.skuId,
                   error: entry.error,
+                });
+              }
+              // A requested row the response never settled is reconciled by
+              // skuId membership (not by array length), so a dropped or
+              // duplicated entry can never make an unwritten row read as saved.
+              for (const row of resolved.ready) {
+                if (settledSkuIds.has(row.skuId)) continue;
+                failures.push({
+                  skuId: row.skuId,
+                  onHand: row.onHand,
+                  label: row.label,
+                  error: STOCK_OUTCOME_MISSING,
                 });
               }
               wroteStock = true;
@@ -565,16 +606,16 @@ export default function EditProductPage(): ReactNode {
 
           if (!mounted.current) return;
           if (failures.length > 0) {
-            // Refetch server state so the form shows what actually settled,
-            // and retain ONLY the failed rows for the retry panel.
-            setProduct(await adminApi.getProduct(product.id));
-            if (!mounted.current) return;
+            // Commit the reconciled queue before refreshing server truth. A
+            // refresh transport failure must never hide newly failed rows.
             setStockFailures(failures);
             setError(
               productSaved
-                ? `Product saved, but ${failures.length} stock update(s) failed — retry below (only failed rows are sent again).`
-                : `${failures.length} stock update(s) failed — retry below.`,
+                ? t("product_edit_stock_partial_saved", { count: failures.length })
+                : t("product_edit_stock_partial", { count: failures.length }),
             );
+            setProduct(await adminApi.getProduct(product.id));
+            if (!mounted.current) return;
             return;
           }
           if (wroteStock) {
@@ -584,7 +625,7 @@ export default function EditProductPage(): ReactNode {
             if (!mounted.current) return;
           }
           setNotice(
-            wroteStock ? "Product saved, stock updated." : "Product saved.",
+            wroteStock ? t("product_edit_saved_stock") : t("product_edit_saved"),
           );
           router.refresh();
         } catch (err: unknown) {
@@ -593,21 +634,23 @@ export default function EditProductPage(): ReactNode {
           // or a duplicated variant name; only its generic wording (or a bare
           // 409) is the slug, which needs the friendly copy.
           const backendMessage =
-            err instanceof Error ? err.message : "Failed to save product.";
+            err instanceof Error ? err.message : t("product_edit_save_failed");
           const message =
             errorStatus(err) === 409 &&
             backendMessage.includes(GENERIC_CONFLICT_BACKEND)
-              ? SLUG_CONFLICT_UI
+              ? t("product_save_slug_conflict")
               : backendMessage;
           setError(
-            productSaved ? `Product saved, but the stock update failed: ${message}` : message,
+            productSaved
+              ? t("product_edit_stock_failed_suffix", { message })
+              : message,
           );
         } finally {
           if (mounted.current) setPending(false);
         }
       })();
     },
-    [product, initial, router],
+    [product, initial, router, t],
   );
 
   /**
@@ -618,8 +661,12 @@ export default function EditProductPage(): ReactNode {
   const retryStockFailures = useCallback(async (): Promise<void> => {
     if (stockFailures.length === 0 || !product) return;
     const retryable = stockFailures.filter((failure) => failure.skuId !== "");
+    // Rows the save could never address (no real SKU id) are not retryable —
+    // but they were never written either, so they must outlive the retry
+    // instead of vanishing behind a success notice.
+    const unresolved = stockFailures.filter((failure) => failure.skuId === "");
     if (retryable.length === 0) {
-      setError("Nothing to retry — save the product again.");
+      setError(t("product_edit_retry_none"));
       return;
     }
     setPending(true);
@@ -636,6 +683,7 @@ export default function EditProductPage(): ReactNode {
       const attemptBySkuId = new Map(
         retryable.map((failure) => [failure.skuId, failure]),
       );
+      const settledSkuIds = new Set(results.map((entry) => entry.skuId));
       const stillFailed: StockFailureRow[] = [];
       for (const entry of results) {
         if (entry.ok) continue;
@@ -647,27 +695,40 @@ export default function EditProductPage(): ReactNode {
           error: entry.error,
         });
       }
-      // Adopt server truth either way: the refetched figures show what
-      // actually settled (and refresh the reserved context).
+      // Same reconciliation as the save path: a row that was sent but never
+      // settled was not written, so it stays failed.
+      for (const row of retryable) {
+        if (settledSkuIds.has(row.skuId)) continue;
+        stillFailed.push({
+          skuId: row.skuId,
+          onHand: row.onHand,
+          label: row.label,
+          error: STOCK_OUTCOME_MISSING,
+        });
+      }
+      // Commit the reconciliation before refreshing. Successful absolute stock
+      // writes must leave the retry queue even when the follow-up read fails.
+      const remaining = [...unresolved, ...stillFailed];
+      if (!mounted.current) return;
+      setStockFailures(remaining);
       const fresh = await adminApi.getProduct(product.id);
       if (!mounted.current) return;
       setProduct(fresh);
-      setStockFailures(stillFailed);
-      if (stillFailed.length === 0) {
-        setNotice("Stock updated.");
+      if (remaining.length === 0) {
+        setNotice(t("product_edit_stock_updated"));
         router.refresh();
       } else {
-        setError(`${stillFailed.length} stock update(s) still failed.`);
+        setError(t("product_save_stock_still_failed", { count: remaining.length }));
       }
     } catch (err: unknown) {
       if (!mounted.current) return;
       setError(
-        err instanceof Error ? err.message : "Failed to retry stock updates.",
+        err instanceof Error ? err.message : t("product_save_retry_failed"),
       );
     } finally {
       if (mounted.current) setPending(false);
     }
-  }, [stockFailures, product, router]);
+  }, [stockFailures, product, router, t]);
 
   const initialLoading =
     loading && product === null && !loadError && !notFound;
@@ -689,14 +750,14 @@ export default function EditProductPage(): ReactNode {
         <BackLink />
         <div className="mt-4">
           <EmptyState
-            title="Product not found."
-            hint="It may have been deleted."
+            title={t("product_edit_not_found_title")}
+            hint={t("product_edit_not_found_hint")}
             action={
               <Link
                 href="/admin/products"
                 className="inline-flex h-12 items-center justify-center rounded-lg border border-cta/40 px-6 text-base font-semibold text-cta hover:bg-primary-light/40"
               >
-                Back to products
+                {t("product_form_back")}
               </Link>
             }
           />
@@ -714,10 +775,14 @@ export default function EditProductPage(): ReactNode {
           className="mt-4 rounded-xl border border-border bg-card p-6"
         >
           <p className="text-sm font-semibold text-ink">
-            Couldn&apos;t load product.
+            {t("product_edit_load_error_title")}
           </p>
           <p className="mt-1 text-sm text-ink-muted">
-            {loadError ?? "Unknown error."}
+            {loadError === null
+              ? t("product_unknown_error")
+              : loadError.kind === "message"
+                ? loadError.text
+                : t(loadError.key)}
           </p>
           <Button
             variant="secondary"
@@ -725,7 +790,7 @@ export default function EditProductPage(): ReactNode {
             onClick={retryLoad}
             className="mt-4"
           >
-            Retry
+            {t("common_retry")}
           </Button>
         </div>
       </div>
@@ -735,7 +800,7 @@ export default function EditProductPage(): ReactNode {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
-        title="Edit product"
+        title={t("product_edit_title")}
         actions={
           <span className="flex items-center gap-4">
             {product && landingCount !== null ? (
@@ -743,7 +808,7 @@ export default function EditProductPage(): ReactNode {
                 href={`/admin/single-pages?productId=${product.id}`}
                 className="text-sm font-semibold text-cta hover:underline"
               >
-                落地页 ({landingCount})
+                {t("product_edit_landing_link", { count: landingCount })}
               </Link>
             ) : null}
             <BackLink />
@@ -776,11 +841,12 @@ export default function EditProductPage(): ReactNode {
         submitLabel="Save changes"
         pending={pending}
         error={error}
+        savedPreview={buildSavedPreview(product)}
       />
 
       {/* Whole-list replacement warning, next to Save (spec §8.8 / gap #5). */}
       <p className="mt-3 text-sm text-ink-muted">
-        Variants and images are saved as a full replacement.
+        {t("product_edit_replacement_warning")}
       </p>
     </div>
   );

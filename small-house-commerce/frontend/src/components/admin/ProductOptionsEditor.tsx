@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "./ImageUrlInput";
 import {
@@ -9,25 +9,8 @@ import {
   type AdminCatalogGraphDraft,
   type AdminOptionDraft,
   type AdminOptionValueDraft,
+  type EntityRef,
 } from "@/lib/admin-product-graph";
-
-/**
- * Task 11 — typed option group editor (zero-to-two active groups).
- *
- * Global constraints are enforced in the UI, not just at save time:
- *  - third-option blocking: a third group cannot be activated (and none can
- *    be added) while two are active;
- *  - candidate cap: the live candidate count is shown and a >100 product of
- *    active values renders as a validation alert;
- *  - one media driver: other groups' media-driver switch locks while an
- *    active driver exists;
- *  - protected disable: persisted rows can only be deactivated (hard removal
- *    is the server's reconcile decision); draft-only rows remove outright.
- *
- * Positions are the array index within each list and are renumbered on every
- * structural change (add/remove/move), so display order and stored positions
- * cannot drift.
- */
 
 const OPTION_KINDS: AdminOptionDraft["kind"][] = [
   "COLOR",
@@ -41,17 +24,50 @@ const PRESENTATIONS: AdminOptionDraft["presentation"][] = [
   "IMAGE",
 ];
 
-const KIND_LABELS: Record<AdminOptionDraft["kind"], string> = {
-  COLOR: "COLOR — 颜色",
-  SIZE: "SIZE — 尺寸",
-  MATERIAL: "MATERIAL — 材质",
-  STYLE: "STYLE — 款式",
+const KIND_LABEL_KEYS: Record<AdminOptionDraft["kind"], TKey> = {
+  COLOR: "product_options_kind_COLOR",
+  SIZE: "product_options_kind_SIZE",
+  MATERIAL: "product_options_kind_MATERIAL",
+  STYLE: "product_options_kind_STYLE",
 };
-const PRESENTATION_LABELS: Record<AdminOptionDraft["presentation"], string> = {
-  TEXT: "TEXT — 文字按钮",
-  SWATCH: "SWATCH — 色块",
-  IMAGE: "IMAGE — 缩略图",
+const PRESENTATION_LABEL_KEYS: Record<AdminOptionDraft["presentation"], TKey> = {
+  TEXT: "product_options_presentation_TEXT",
+  SWATCH: "product_options_presentation_SWATCH",
+  IMAGE: "product_options_presentation_IMAGE",
 };
+
+function refKey(ref: EntityRef): string {
+  return ref.id ?? ref.clientKey ?? "";
+}
+
+function pruneRemovedValues(
+  draft: AdminCatalogGraphDraft,
+  values: AdminOptionValueDraft[],
+): void {
+  const valueKeys = new Set(values.map(refKey));
+  const removedVariantKeys = new Set(
+    draft.variants
+      .filter((variant) =>
+        variant.optionValueRefs.some((ref) => valueKeys.has(refKey(ref))),
+      )
+      .map(refKey),
+  );
+
+  draft.variants = draft.variants.filter(
+    (variant) => !removedVariantKeys.has(refKey(variant)),
+  );
+  draft.media = draft.media.filter(
+    (row) =>
+      !(row.optionValueRef && valueKeys.has(refKey(row.optionValueRef))) &&
+      !(row.variantRef && removedVariantKeys.has(refKey(row.variantRef))),
+  );
+  if (
+    draft.defaultDisplayVariantRef &&
+    removedVariantKeys.has(refKey(draft.defaultDisplayVariantRef))
+  ) {
+    draft.defaultDisplayVariantRef = null;
+  }
+}
 
 function renumberOptions(draft: AdminCatalogGraphDraft): void {
   draft.options.forEach((option, index) => {
@@ -70,31 +86,25 @@ export function ProductOptionsEditor({
   draft: AdminCatalogGraphDraft;
   onChange: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
-}): ReactNode {
-  const validation = validateAdminCatalogGraph(draft);
+}): React.ReactNode {
+  const { t } = useAdminI18n();
+  const validation = validateAdminCatalogGraph(draft, t);
   const activeCount = validation.activeOptionCount;
   const atGroupCap = activeCount >= 2;
-  const hasActiveDriver = draft.options.some(
-    (option) => option.isActive && option.isMediaDriver,
-  );
-  // Only the structural blockers render as live alerts; label noise is left
-  // to the save-time validation so half-typed rows don't scream.
-  const structuralErrors = validation.errors.filter(
-    (error) =>
-      error.includes("at most two active option groups") ||
-      error.includes("the limit is 100") ||
-      error.includes("produce"),
-  );
+  const structuralErrors = validation.errors.filter((_, index) => {
+    const code = validation.issues[index]?.code;
+    return code === "active_option_limit" || code === "candidate_limit";
+  });
 
   const mutate = (fn: (draft: AdminCatalogGraphDraft) => void): void =>
-    onChange((draft) => {
-      fn(draft);
-      renumberOptions(draft);
+    onChange((next) => {
+      fn(next);
+      renumberOptions(next);
     });
 
   const setOption = (index: number, patch: Partial<AdminOptionDraft>): void =>
-    mutate((draft) => {
-      draft.options[index] = { ...draft.options[index]!, ...patch };
+    mutate((next) => {
+      next.options[index] = { ...next.options[index]!, ...patch };
     });
 
   const setValue = (
@@ -102,41 +112,40 @@ export function ProductOptionsEditor({
     valueIndex: number,
     patch: Partial<AdminOptionValueDraft>,
   ): void =>
-    mutate((draft) => {
-      const value = draft.options[optionIndex]!.values[valueIndex]!;
-      draft.options[optionIndex]!.values[valueIndex] = { ...value, ...patch };
+    mutate((next) => {
+      const value = next.options[optionIndex]!.values[valueIndex]!;
+      next.options[optionIndex]!.values[valueIndex] = { ...value, ...patch };
     });
 
   const moveOption = (index: number, delta: -1 | 1): void =>
-    mutate((draft) => {
-      const j = index + delta;
-      if (j < 0 || j >= draft.options.length) return;
-      const next = [...draft.options];
-      [next[index], next[j]] = [next[j]!, next[index]!];
-      draft.options = next;
+    mutate((next) => {
+      const target = index + delta;
+      if (target < 0 || target >= next.options.length) return;
+      const options = [...next.options];
+      [options[index], options[target]] = [options[target]!, options[index]!];
+      next.options = options;
     });
 
-  const moveValue = (
-    optionIndex: number,
-    valueIndex: number,
-    delta: -1 | 1,
-  ): void =>
-    mutate((draft) => {
-      const values = draft.options[optionIndex]!.values;
-      const j = valueIndex + delta;
-      if (j < 0 || j >= values.length) return;
-      const next = [...values];
-      [next[valueIndex], next[j]] = [next[j]!, next[valueIndex]!];
-      draft.options[optionIndex]!.values = next;
+  const moveValue = (optionIndex: number, valueIndex: number, delta: -1 | 1): void =>
+    mutate((next) => {
+      const values = next.options[optionIndex]!.values;
+      const target = valueIndex + delta;
+      if (target < 0 || target >= values.length) return;
+      const reordered = [...values];
+      [reordered[valueIndex], reordered[target]] = [
+        reordered[target]!,
+        reordered[valueIndex]!,
+      ];
+      next.options[optionIndex]!.values = reordered;
     });
 
   const addOption = (): void =>
-    mutate((draft) => {
-      draft.options.push({
-        clientKey: freshClientKey("option", draft),
+    mutate((next) => {
+      next.options.push({
+        clientKey: freshClientKey("option", next),
         kind: "COLOR",
         name: "",
-        position: draft.options.length,
+        position: next.options.length,
         presentation: "TEXT",
         isMediaDriver: false,
         isActive: true,
@@ -145,22 +154,18 @@ export function ProductOptionsEditor({
     });
 
   const removeOption = (index: number): void =>
-    mutate((draft) => {
-      const option = draft.options[index]!;
-      if (option.id !== undefined) {
-        // Persisted group: never hard-removed from the client — deactivation
-        // is the reversible path (the server retires on the next diff).
-        option.isActive = false;
-        return;
-      }
-      draft.options.splice(index, 1);
+    mutate((next) => {
+      const option = next.options[index]!;
+      if (option.id !== undefined) return;
+      pruneRemovedValues(next, option.values);
+      next.options.splice(index, 1);
     });
 
   const addValue = (optionIndex: number): void =>
-    mutate((draft) => {
-      const option = draft.options[optionIndex]!;
+    mutate((next) => {
+      const option = next.options[optionIndex]!;
       option.values.push({
-        clientKey: freshClientKey("value", draft),
+        clientKey: freshClientKey("value", next),
         label: "",
         position: option.values.length,
         swatchHex: null,
@@ -171,24 +176,22 @@ export function ProductOptionsEditor({
     });
 
   const removeValue = (optionIndex: number, valueIndex: number): void =>
-    mutate((draft) => {
-      const value = draft.options[optionIndex]!.values[valueIndex]!;
-      if (value.id !== undefined) {
-        // Protected disable: a persisted value deactivates; only the server
-        // decides whether an unreferenced row is actually deleted.
-        value.isActive = false;
-        return;
-      }
-      draft.options[optionIndex]!.values.splice(valueIndex, 1);
+    mutate((next) => {
+      const value = next.options[optionIndex]!.values[valueIndex]!;
+      if (value.id !== undefined) return;
+      pruneRemovedValues(next, [value]);
+      next.options[optionIndex]!.values.splice(valueIndex, 1);
     });
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm font-semibold text-ink">
-          Option groups 选项组
+          {t("product_options_title")}
           <span className="ml-2 font-normal text-ink-muted">
-            候选款式：{validation.candidateCount}（最多 100，最多 2 个启用组）
+            {t("product_options_candidate_summary", {
+              count: validation.candidateCount,
+            })}
           </span>
         </p>
         <button
@@ -197,16 +200,19 @@ export function ProductOptionsEditor({
           onClick={addOption}
           disabled={pending || atGroupCap}
         >
-          Add option group
+          {t("product_options_add_group")}
         </button>
       </div>
       {atGroupCap ? (
         <p className="text-xs text-ink-muted" role="status">
-          最多同时启用两个选项组——先停用一个组才能启用第三个。
+          {t("product_options_active_cap_notice")}
         </p>
       ) : null}
       {structuralErrors.length > 0 ? (
-        <div role="alert" className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
+        >
           <ul className="list-disc space-y-1 pl-5">
             {structuralErrors.map((error) => (
               <li key={error}>{error}</li>
@@ -216,17 +222,14 @@ export function ProductOptionsEditor({
       ) : null}
 
       {draft.options.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          还没有选项组。无选项时商品只有一个「Default」候选款式；添加选项组可生成颜色/尺寸组合。
-        </p>
+        <p className="text-sm text-ink-muted">{t("product_options_no_groups")}</p>
       ) : null}
 
       <ul className="flex flex-col gap-3">
         {draft.options.map((option, optionIndex) => {
           const persisted = option.id !== undefined;
           const canActivate = option.isActive || !atGroupCap;
-          const driverLocked =
-            option.isActive && hasActiveDriver && !option.isMediaDriver;
+          const groupNumber = optionIndex + 1;
           return (
             <li
               key={option.id ?? option.clientKey}
@@ -238,7 +241,9 @@ export function ProductOptionsEditor({
                   className="text-sm font-semibold text-cta disabled:text-ink-muted"
                   onClick={() => moveOption(optionIndex, -1)}
                   disabled={pending || optionIndex === 0}
-                  aria-label={`Move option ${optionIndex + 1} up`}
+                  aria-label={t("product_options_move_group_up", {
+                    number: groupNumber,
+                  })}
                 >
                   ↑
                 </button>
@@ -247,128 +252,125 @@ export function ProductOptionsEditor({
                   className="text-sm font-semibold text-cta disabled:text-ink-muted"
                   onClick={() => moveOption(optionIndex, 1)}
                   disabled={pending || optionIndex === draft.options.length - 1}
-                  aria-label={`Move option ${optionIndex + 1} down`}
+                  aria-label={t("product_options_move_group_down", {
+                    number: groupNumber,
+                  })}
                 >
                   ↓
                 </button>
                 <span className="text-sm font-semibold text-ink">
-                  Group {optionIndex + 1}
-                  {persisted ? "" : "（新）"}
+                  {t("product_options_group", { number: groupNumber })}
+                  {persisted ? "" : ` ${t("product_options_new")}`}
                 </span>
                 <label className="ml-auto flex items-center gap-2 text-xs font-medium text-ink">
                   <input
                     type="checkbox"
-                    checked={option.isMediaDriver}
-                    disabled={pending || driverLocked}
-                    onChange={(e) =>
-                      setOption(optionIndex, { isMediaDriver: e.target.checked })
-                    }
-                    className="h-4 w-4 accent-cta"
-                    aria-label={`Option ${optionIndex + 1} media driver`}
-                  />
-                  媒体驱动（按值切换图片）
-                </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-ink">
-                  <input
-                    type="checkbox"
                     checked={option.isActive}
                     disabled={pending || !canActivate}
-                    title={
-                      !canActivate
-                        ? "最多同时启用两个选项组"
-                        : undefined
-                    }
-                    onChange={(e) =>
-                      setOption(optionIndex, { isActive: e.target.checked })
+                    title={!canActivate ? t("product_options_active_cap_notice") : undefined}
+                    onChange={(event) =>
+                      setOption(optionIndex, { isActive: event.target.checked })
                     }
                     className="h-4 w-4 accent-cta"
-                    aria-label={`Option ${optionIndex + 1} active`}
+                    aria-label={`${t("product_options_aria_option")} ${groupNumber} ${t(
+                      "product_options_aria_enabled",
+                    )}`}
                   />
-                  启用
+                  {t("product_options_enabled")}
                 </label>
-                <button
-                  type="button"
-                  className="text-sm font-semibold text-red-700 hover:underline"
-                  onClick={() => removeOption(optionIndex)}
-                  disabled={pending}
-                  title={
-                    persisted
-                      ? "已保存的选项组只能停用（数据保留，可重新启用）"
-                      : undefined
-                  }
-                >
-                  {persisted ? "Deactivate（停用）" : "Remove"}
-                </button>
+                {!persisted ? (
+                  <button
+                    type="button"
+                    className="text-sm font-semibold text-red-700 hover:underline"
+                    onClick={() => removeOption(optionIndex)}
+                    disabled={pending}
+                  >
+                    {t("product_options_remove_group")}
+                  </button>
+                ) : null}
               </div>
 
               <div className="mt-3 grid gap-4 md:grid-cols-4">
-                <Field label="Group name 名称" htmlFor={`pf-option-${optionIndex}-name`}>
+                <Field
+                  label={t("product_options_name")}
+                  htmlFor={`pf-option-${optionIndex}-name`}
+                >
                   <TextInput
                     id={`pf-option-${optionIndex}-name`}
                     value={option.name}
-                    aria-label={`Option ${optionIndex + 1} name`}
-                    onChange={(e) =>
-                      setOption(optionIndex, { name: e.target.value })
+                    aria-label={`${t("product_options_aria_option")} ${groupNumber} ${t(
+                      "product_options_aria_name",
+                    )}`}
+                    onChange={(event) =>
+                      setOption(optionIndex, { name: event.target.value })
                     }
                     autoComplete="off"
                   />
                 </Field>
-                <Field label="Kind 类型">
+                <Field label={t("product_options_type")}>
                   <Select
                     value={option.kind}
-                    aria-label={`Option ${optionIndex + 1} kind`}
-                    onChange={(e) =>
+                    aria-label={`${t("product_options_aria_option")} ${groupNumber} ${t(
+                      "product_options_aria_type",
+                    )}`}
+                    onChange={(event) =>
                       setOption(optionIndex, {
-                        kind: e.target.value as AdminOptionDraft["kind"],
+                        kind: event.target.value as AdminOptionDraft["kind"],
                       })
                     }
+                    disabled={pending}
                   >
                     {OPTION_KINDS.map((kind) => (
                       <option key={kind} value={kind}>
-                        {KIND_LABELS[kind]}
+                        {t(KIND_LABEL_KEYS[kind])}
                       </option>
                     ))}
                   </Select>
                 </Field>
-                <Field label="Presentation 展示">
+                <Field label={t("product_options_display_style")}>
                   <Select
                     value={option.presentation}
-                    aria-label={`Option ${optionIndex + 1} presentation`}
-                    onChange={(e) =>
+                    aria-label={`${t("product_options_aria_option")} ${groupNumber} ${t(
+                      "product_options_aria_display_style",
+                    )}`}
+                    onChange={(event) =>
                       setOption(optionIndex, {
-                        presentation: e.target
+                        presentation: event.target
                           .value as AdminOptionDraft["presentation"],
                       })
                     }
+                    disabled={pending}
                   >
                     {PRESENTATIONS.map((presentation) => (
                       <option key={presentation} value={presentation}>
-                        {PRESENTATION_LABELS[presentation]}
+                        {t(PRESENTATION_LABEL_KEYS[presentation])}
                       </option>
                     ))}
                   </Select>
                 </Field>
                 <div className="flex items-end pb-1 text-xs text-ink-muted">
                   {persisted
-                    ? "已保存组：停用后可重新启用；删除由系统在保存时处理。"
-                    : "新组：保存后创建。"}
+                    ? t("product_options_group_persisted_help")
+                    : t("product_options_group_new_help")}
                 </div>
               </div>
 
               <div className="mt-3">
                 <p className="text-xs font-semibold text-ink-secondary">
-                  Values 选项值（{option.values.filter((v) => v.isActive).length} 启用）
+                  {t("product_options_values")} ({t("product_options_values_enabled_count", {
+                    count: option.values.filter((value) => value.isActive).length,
+                  })})
                 </p>
                 <ul className="mt-2 flex flex-col gap-2">
                   {option.values.map((value, valueIndex) => {
                     const valuePersisted = value.id !== undefined;
                     const showSwatch = option.presentation === "SWATCH";
                     const showThumbnail = option.presentation === "IMAGE";
-                    const missingThumbnail =
-                      showThumbnail && !value.thumbnailUrl?.trim();
+                    const valueNumber = valueIndex + 1;
+                    const valueName = value.label || `${t("product_options_values")} ${valueNumber}`;
                     const missingSwatch =
                       showSwatch &&
-                      !value.swatchHex?.trim() &&
+                      !/^#[0-9a-fA-F]{6}$/.test(value.swatchHex?.trim() ?? "") &&
                       !value.thumbnailUrl?.trim();
                     return (
                       <li
@@ -381,7 +383,9 @@ export function ProductOptionsEditor({
                             className="text-sm font-semibold text-cta disabled:text-ink-muted"
                             onClick={() => moveValue(optionIndex, valueIndex, -1)}
                             disabled={pending || valueIndex === 0}
-                            aria-label={`Move value ${valueIndex + 1} up`}
+                            aria-label={t("product_options_move_value_up", {
+                              number: valueNumber,
+                            })}
                           >
                             ↑
                           </button>
@@ -390,18 +394,22 @@ export function ProductOptionsEditor({
                             className="text-sm font-semibold text-cta disabled:text-ink-muted"
                             onClick={() => moveValue(optionIndex, valueIndex, 1)}
                             disabled={pending || valueIndex === option.values.length - 1}
-                            aria-label={`Move value ${valueIndex + 1} down`}
+                            aria-label={t("product_options_move_value_down", {
+                              number: valueNumber,
+                            })}
                           >
                             ↓
                           </button>
                           <TextInput
                             style={{ width: "min(16rem, 100%)" }}
                             value={value.label}
-                            placeholder="如 Red / 3-Tier"
-                            aria-label={`Value ${valueIndex + 1} label`}
-                            onChange={(e) =>
+                            placeholder={t("product_options_value_label_placeholder")}
+                            aria-label={`${t("product_options_aria_value")} ${valueNumber} ${t(
+                              "product_options_aria_label",
+                            )}`}
+                            onChange={(event) =>
                               setValue(optionIndex, valueIndex, {
-                                label: e.target.value,
+                                label: event.target.value,
                               })
                             }
                             autoComplete="off"
@@ -411,33 +419,32 @@ export function ProductOptionsEditor({
                               type="checkbox"
                               checked={value.isActive}
                               disabled={pending}
-                              onChange={(e) =>
+                              onChange={(event) =>
                                 setValue(optionIndex, valueIndex, {
-                                  isActive: e.target.checked,
+                                  isActive: event.target.checked,
                                 })
                               }
                               className="h-4 w-4 accent-cta"
-                              aria-label={`Value ${valueIndex + 1} active`}
+                              aria-label={`${t("product_options_aria_value")} ${valueNumber} ${t(
+                                "product_options_aria_enabled",
+                              )}`}
                             />
-                            启用
+                            {t("product_options_value_enabled")}
                           </label>
-                          <button
-                            type="button"
-                            className="text-sm font-semibold text-red-700 hover:underline"
-                            onClick={() => removeValue(optionIndex, valueIndex)}
-                            disabled={pending}
-                            title={
-                              valuePersisted
-                                ? "已保存的选项值只能停用（历史引用的值由系统停用保留）"
-                                : undefined
-                            }
-                          >
-                            {valuePersisted ? "Deactivate（停用）" : "Remove"}
-                          </button>
+                          {!valuePersisted ? (
+                            <button
+                              type="button"
+                              className="text-sm font-semibold text-red-700 hover:underline"
+                              onClick={() => removeValue(optionIndex, valueIndex)}
+                              disabled={pending}
+                            >
+                              {t("product_options_remove_value")}
+                            </button>
+                          ) : null}
                         </div>
 
                         {showSwatch ? (
-                          <div className="mt-2 flex items-center gap-3">
+                          <div className="mt-2 flex flex-wrap items-center gap-3">
                             <input
                               type="color"
                               value={
@@ -445,10 +452,12 @@ export function ProductOptionsEditor({
                                   ? value.swatchHex!
                                   : "#ffffff"
                               }
-                              aria-label={`Value ${valueIndex + 1} swatch color`}
-                              onChange={(e) =>
+                              aria-label={`${t("product_options_aria_value")} ${valueNumber} ${t(
+                                "product_options_aria_swatch",
+                              )}`}
+                              onChange={(event) =>
                                 setValue(optionIndex, valueIndex, {
-                                  swatchHex: e.target.value,
+                                  swatchHex: event.target.value,
                                 })
                               }
                               className="h-9 w-12 cursor-pointer rounded border border-border"
@@ -457,17 +466,19 @@ export function ProductOptionsEditor({
                               style={{ width: "10rem" }}
                               value={value.swatchHex ?? ""}
                               placeholder="#ff0000"
-                              aria-label={`Value ${valueIndex + 1} swatch hex`}
-                              onChange={(e) =>
+                              aria-label={`${t("product_options_aria_value")} ${valueNumber} ${t(
+                                "product_options_aria_swatch",
+                              )}`}
+                              onChange={(event) =>
                                 setValue(optionIndex, valueIndex, {
-                                  swatchHex: e.target.value || null,
+                                  swatchHex: event.target.value || null,
                                 })
                               }
                               autoComplete="off"
                             />
                             {missingSwatch ? (
                               <p className="text-xs text-sale" role="status">
-                                SWATCH 值建议填写色块颜色或缩略图，否则前台回退为文字。
+                                {t("product_options_swatch_fallback")}
                               </p>
                             ) : null}
                           </div>
@@ -476,12 +487,15 @@ export function ProductOptionsEditor({
                         {showThumbnail ? (
                           <div className="mt-2">
                             <Field
-                              label="Thumbnail 缩略图"
+                              label={t("product_options_selector_thumbnail")}
                               htmlFor={`pf-option-${optionIndex}-value-${valueIndex}-thumb`}
+                              hint={t("product_options_thumbnail_fallback")}
                             >
                               <ImageUrlInput
                                 id={`pf-option-${optionIndex}-value-${valueIndex}-thumb`}
-                                ariaLabel={`Thumbnail for ${value.label || `Value ${valueIndex + 1}`}`}
+                                ariaLabel={`${t("product_options_aria_thumbnail")} ${value.label || `${t(
+                                  "product_options_aria_value",
+                                )} ${valueNumber}`}`}
                                 kind="image"
                                 value={value.thumbnailUrl ?? ""}
                                 onChange={(url) =>
@@ -495,21 +509,16 @@ export function ProductOptionsEditor({
                             <TextInput
                               className="mt-2"
                               value={value.thumbnailAlt ?? ""}
-                              placeholder="Thumbnail alt text（无障碍）"
-                              aria-label={`Thumbnail alt for ${value.label || `Value ${valueIndex + 1}`}`}
+                              placeholder={t("product_options_thumbnail_alt")}
+                              aria-label={`${valueName} ${t("product_options_thumbnail_alt")}`}
                               maxLength={255}
-                              onChange={(e) =>
+                              onChange={(event) =>
                                 setValue(optionIndex, valueIndex, {
-                                  thumbnailAlt: e.target.value || null,
+                                  thumbnailAlt: event.target.value || null,
                                 })
                               }
                               autoComplete="off"
                             />
-                            {missingThumbnail ? (
-                              <p className="mt-1 text-xs text-sale" role="status">
-                                IMAGE 展示的选项值建议上传缩略图，缺失时前台回退为文字。
-                              </p>
-                            ) : null}
                           </div>
                         ) : null}
                       </li>
@@ -522,7 +531,7 @@ export function ProductOptionsEditor({
                   onClick={() => addValue(optionIndex)}
                   disabled={pending}
                 >
-                  Add value
+                  {t("product_options_add_value")}
                 </button>
               </div>
             </li>

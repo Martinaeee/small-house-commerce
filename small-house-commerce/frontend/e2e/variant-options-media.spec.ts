@@ -85,9 +85,32 @@ async function adminProductIdFor(slug: string): Promise<string> {
   });
 }
 
-/** The admin product payload as the typed GET answers it. */
+/** The admin typed graph snapshot used by the mutation cleanup fallback. */
+interface AdminOptionValueJson {
+  id: string;
+  label: string;
+  position: number;
+  swatchHex: string | null;
+  thumbnailUrl: string | null;
+  thumbnailAlt: string | null;
+  isActive: boolean;
+}
+interface AdminOptionJson {
+  id: string;
+  kind: string;
+  name: string;
+  position: number;
+  presentation: string;
+  isMediaDriver: boolean;
+  isActive: boolean;
+  values: AdminOptionValueJson[];
+}
 interface AdminProductJson {
-  options: { name: string; values: { label: string; position: number }[] }[];
+  id: string;
+  slug: string;
+  tagline: string | null;
+  catalogGraphVersion: number;
+  options: AdminOptionJson[];
 }
 async function adminApiProduct(slug: string): Promise<AdminProductJson> {
   const id = await adminProductIdFor(slug);
@@ -99,6 +122,132 @@ async function adminApiProduct(slug: string): Promise<AdminProductJson> {
     return (await response.json()) as AdminProductJson;
   });
 }
+
+async function adminPatch(
+  productId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  return withAdminToken(async (token, context) => {
+    const response = await context.patch(`${API}/admin/products/${productId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: body,
+    });
+    expect(response.ok(), `admin product PATCH (${response.status()}): ${await response.text()}`).toBeTruthy();
+  });
+}
+
+async function restoreAdminColorSizeSnapshot(before: AdminProductJson): Promise<string[]> {
+  const failures: string[] = [];
+  let current: AdminProductJson;
+  try {
+    current = await adminApiProduct(SLUGS.colorSize);
+  } catch (error) {
+    failures.push(`read current typed product: ${error instanceof Error ? error.message : String(error)}`);
+    return failures;
+  }
+
+  const desired = before.options.find((option) => option.id === current.options[0]?.id) ?? before.options[0];
+  const target = current.options.find((option) => option.id === desired?.id) ?? current.options[0];
+  if (!desired || !target) {
+    failures.push("typed option snapshot has no recoverable option row");
+  } else {
+    const usedValueIds = new Set<string>();
+    const values = desired.values.map((desiredValue) => {
+      const targetValue =
+        target.values.find((value) => value.id === desiredValue.id && !usedValueIds.has(value.id)) ??
+        target.values.find((value) => value.position === desiredValue.position && !usedValueIds.has(value.id)) ??
+        target.values.find((value) => !usedValueIds.has(value.id));
+      if (targetValue) usedValueIds.add(targetValue.id);
+      return {
+        ...(targetValue ? { id: targetValue.id } : {}),
+        label: desiredValue.label,
+        position: desiredValue.position,
+        swatchHex: desiredValue.swatchHex,
+        thumbnailUrl: desiredValue.thumbnailUrl,
+        thumbnailAlt: desiredValue.thumbnailAlt,
+        isActive: desiredValue.isActive,
+      };
+    });
+    const retirements = target.values
+      .filter((value) => !usedValueIds.has(value.id))
+      .map((value) => value.id);
+    try {
+      await adminPatch(current.id, {
+        ...(current.tagline !== before.tagline ? { tagline: before.tagline } : {}),
+        catalogGraphVersion: current.catalogGraphVersion,
+        catalogGraph: {
+          options: [
+            {
+              id: target.id,
+              kind: desired.kind,
+              name: desired.name,
+              position: desired.position,
+              presentation: desired.presentation,
+              isMediaDriver: desired.isMediaDriver,
+              isActive: desired.isActive,
+              values,
+            },
+          ],
+          variants: [],
+          media: [],
+          retirements: {
+            optionIds: [],
+            optionValueIds: retirements,
+            variantIds: [],
+            mediaIds: [],
+          },
+        },
+      });
+    } catch (firstError) {
+      try {
+        await adminPatch(current.id, {
+          ...(current.tagline !== before.tagline ? { tagline: before.tagline } : {}),
+          catalogGraphVersion: current.catalogGraphVersion,
+          catalogGraph: {
+            options: [
+              {
+                id: target.id,
+                kind: desired.kind,
+                name: desired.name,
+                position: desired.position,
+                presentation: desired.presentation,
+                isMediaDriver: desired.isMediaDriver,
+                isActive: desired.isActive,
+                values,
+              },
+            ],
+            variants: [],
+            media: [],
+            retirements: { optionIds: [], optionValueIds: [], variantIds: [], mediaIds: [] },
+          },
+        });
+      } catch (secondError) {
+        failures.push(
+          `restore typed option: ${firstError instanceof Error ? firstError.message : String(firstError)}; fallback: ${secondError instanceof Error ? secondError.message : String(secondError)}`,
+        );
+      }
+    }
+  }
+
+  try {
+    const after = await adminApiProduct(SLUGS.colorSize);
+    const afterOption = after.options.find((option) => option.name === desired?.name);
+    const expectedOption = before.options.find((option) => option.name === desired?.name);
+    if (
+      after.tagline !== before.tagline ||
+      !afterOption ||
+      !expectedOption ||
+      afterOption.values.map((value) => value.label).join("|") !==
+        expectedOption.values.map((value) => value.label).join("|")
+    ) {
+      failures.push("post-cleanup existing admin fixture is not canonical");
+    }
+  } catch (error) {
+    failures.push(`verify canonical admin fixture: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return failures;
+}
+
 
 async function fetchProduct(slug: string): Promise<ProductJson> {
   const cached = productCache.get(slug);
@@ -480,7 +629,7 @@ test.describe("Color x Size end-to-end purchase", () => {
     const stopErrors = trackBrowserErrors(page);
     const email = `e2e-customer-${Date.now()}@smallhouse.test`;
     // Unique per run: a phone can belong to only one customer account.
-    const phone = `0917${Date.now() % 10000000}`;
+    const phone = `0917${String(Date.now() % 10000000).padStart(7, "0")}`;
 
     await goto(page, "/register");
     await page.getByLabel("Full name").fill("E2E Customer");
@@ -555,7 +704,9 @@ test.describe("Landing page", () => {
 
     await expect(page.getByText("E2E promo headline")).toBeVisible();
     await expect(page.getByRole("group", { name: "Color", exact: true })).toBeVisible();
-    await expect(page.getByText("1,199").first()).toBeVisible();
+    // The seed's default display variant is Red / Small at 1,299; Blue is
+    // selected explicitly in the Color-only coverage above.
+    await expect(page.getByText("1,299").first()).toBeVisible();
     await stopErrors();
   });
 });
@@ -565,58 +716,77 @@ test.describe("Landing page", () => {
 test.describe("Admin typed editors", () => {
   test("edit page hydrates the seeded typed graph and renames a value live", async ({ page }) => {
     const stopErrors = trackBrowserErrors(page);
+    const before = await adminApiProduct(SLUGS.colorSize);
+    let primaryError: unknown = null;
 
-    // UI login (the admin refresh-token flow), then resolve the product id
-    // through the admin API with the same credentials.
-    await goto(page, "/admin/login");
-    await page.locator("input[type=email]").fill(E2E_ADMIN_EMAIL);
-    await page.locator("input[type=password]").fill(E2E_ADMIN_PASSWORD);
-    await page.locator("button[type=submit]").click();
-    await expect(page).toHaveURL(/\/admin(?!\/login)/, { timeout: 30_000 });
+    try {
+      // UI login (the admin refresh-token flow), then resolve the product id
+      // through the admin API with the same credentials.
+      await goto(page, "/admin/login");
+      await page.locator("input[type=email]").fill(E2E_ADMIN_EMAIL);
+      await page.locator("input[type=password]").fill(E2E_ADMIN_PASSWORD);
+      await page.locator("button[type=submit]").click();
+      await expect(page).toHaveURL(/\/admin(?!\/login)/, { timeout: 30_000 });
 
-    const productId = await adminProductIdFor(SLUGS.colorSize);
-    await goto(page, `/admin/products/${productId}/edit`);
+      const productId = await adminProductIdFor(SLUGS.colorSize);
+      await goto(page, `/admin/products/${productId}/edit`);
 
-    // Variants & Pricing tab: the typed editors own variants on typed products.
-    await page
-      .getByRole("tab", { name: /Options & Variants|Variants & Pricing/i })
-      .click();
-    // Option 1 (Color) hydrates from the seeded typed graph. The name/label
-    // inputs repeat per option group, so scope by DOM order (option 1 first).
-    await expect(
-      page.getByRole("textbox", { name: "Option 1 name" }).first(),
-    ).toHaveValue("Color");
-    const initialLabel = await page
-      .getByRole("textbox", { name: "Value 1 label" })
-      .first()
-      .inputValue();
-    expect(initialLabel).toBeTruthy();
-    // The matrix shows all four persisted combinations.
-    for (const name of ["Red / Small", "Red / Medium", "Blue / Small", "Blue / Medium"]) {
-      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+      // Variants & Pricing tab: the typed editors own variants on typed products.
+      await page
+        .getByRole("tab", { name: /Options & Variants|Variants & Pricing|选项、价格与库存/i })
+        .click();
+      // Option 1 (Color) hydrates from the seeded typed graph. The name/label
+      // inputs repeat per option group, so scope by DOM order (option 1 first).
+      await expect(
+        page.getByRole("textbox", { name: /Option 1 name|选项 1 名称/i }).first(),
+      ).toHaveValue("Color");
+      const initialLabel = await page
+        .getByRole("textbox", { name: /Value 1 label|选项值 1 标签/i })
+        .first()
+        .inputValue();
+      expect(initialLabel).toBeTruthy();
+      // The matrix shows all four persisted combinations.
+      for (const name of ["Red / Small", "Red / Medium", "Blue / Small", "Blue / Medium"]) {
+        await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+      }
+
+      // Rename Red -> Crimson-<nonce> and save: the two-phase typed save
+      // round-trips. Verified through the admin API — the dev server's
+      // storefront fetch cache is sticky (Next 16 dev).
+      const renamed = `Crimson ${Date.now() % 100000}`;
+      expect(initialLabel).not.toBe(renamed);
+      await page.getByRole("textbox", { name: /Value 1 label|选项值 1 标签/i }).first().fill(renamed);
+      await page.getByRole("button", { name: /Save changes|保存更改/i }).click();
+      await expect(page.getByText(/Product saved\.|商品已保存。/i)).toBeVisible();
+      const renamedProduct = await adminApiProduct(SLUGS.colorSize);
+      const renamedColor = renamedProduct.options.find((option) => option.name === "Color");
+      expect(renamedColor?.values[0]?.label).toBe(renamed);
+
+      // Restore through the browser when possible; the finally fallback below
+      // also repairs the fixture if this UI save or any assertion fails.
+      await page.getByRole("textbox", { name: /Value 1 label|选项值 1 标签/i }).first().fill("Red");
+      await page.getByRole("button", { name: /Save changes|保存更改/i }).click();
+      await expect(page.getByText(/Product saved\.|商品已保存。/i)).toBeVisible();
+      const restored = await adminApiProduct(SLUGS.colorSize);
+      const restoredColor = restored.options.find((option) => option.name === "Color");
+      expect(restoredColor?.values[0]?.label).toBe("Red");
+      await stopErrors();
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      const cleanupFailures = await restoreAdminColorSizeSnapshot(before);
+      if (primaryError) {
+        if (cleanupFailures.length > 0) {
+          throw new AggregateError(
+            [primaryError, ...cleanupFailures.map((message) => new Error(message))],
+            "existing admin fixture assertion failed; cleanup also reported failures",
+          );
+        }
+        throw primaryError;
+      }
+      if (cleanupFailures.length > 0) {
+        throw new Error(`existing admin fixture cleanup failed: ${cleanupFailures.join("; ")}`);
+      }
     }
-
-    // Rename Red -> Crimson-<nonce> and save: the two-phase typed save
-    // round-trips. Verified through the admin API — the dev server's
-    // storefront fetch cache is sticky (Next 16 dev), so re-reading the PDP
-    // UI right after a save can lag one generation.
-    const renamed = `Crimson ${Date.now() % 100000}`;
-    expect(initialLabel).not.toBe(renamed);
-    await page.getByRole("textbox", { name: "Value 1 label" }).first().fill(renamed);
-    await page.getByRole("button", { name: /Save changes/i }).click();
-    // /saved/i alone also matches the static "saved as a full replacement"
-    // hint — pin the actual status notice so the API read sees the commit.
-    await expect(page.getByText("Product saved.")).toBeVisible();
-    const renamedProduct = await adminApiProduct(SLUGS.colorSize);
-    expect(renamedProduct.options[0].values[0].label).toBe(renamed);
-
-    // Restore the canonical fixture (a second full typed save) so later runs
-    // start from the seeded state.
-    await page.getByRole("textbox", { name: "Value 1 label" }).first().fill("Red");
-    await page.getByRole("button", { name: /Save changes/i }).click();
-    await expect(page.getByText("Product saved.")).toBeVisible();
-    const restored = await adminApiProduct(SLUGS.colorSize);
-    expect(restored.options[0].values[0].label).toBe("Red");
-    await stopErrors();
   });
 });

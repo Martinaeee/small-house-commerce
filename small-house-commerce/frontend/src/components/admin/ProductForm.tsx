@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import Link from "next/link";
 import {
   Field,
   Select,
@@ -10,7 +9,9 @@ import {
 } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
 import { ImageUrlInput } from "./ImageUrlInput";
-import { LivePreview, StorefrontPreview } from "./PreviewPane";
+import { DecimalInput } from "./DecimalInput";
+import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
+import { ProductPreviewPanel } from "./product-form/ProductPreviewPanel";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
 import type {
@@ -25,7 +26,9 @@ import {
 } from "@/lib/admin-product-graph";
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { VariantMatrix } from "./VariantMatrix";
-import { ProductMediaScopesEditor } from "./ProductMediaScopesEditor";
+import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { en } from "@/i18n/en";
 
 /**
  * Shared product form for /admin/products/new (Task 9) and
@@ -151,7 +154,6 @@ export type SerializeFormResult =
 
 // --- backend enum mirrors (src/lib/admin-api.ts + Prisma) --------------------
 
-const PRODUCT_STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "DISABLED"];
 const SKU_STATUSES: SkuFormValue["status"][] = ["ACTIVE", "DISABLED"];
 const ROOMS = ["BEDROOM", "STORAGE", "DINING_LIVING", "HOME_OFFICE"] as const;
 const INTERNAL_ROLES = [
@@ -170,34 +172,41 @@ const SOLUTIONS = [
   "RENTAL_FRIENDLY",
 ] as const;
 
-// Chinese operator labels for the enum-backed controls. The submitted value
-// stays the English enum code the API expects; only the back-office UI shows
-// the Chinese gloss. The storefront never renders these.
-const STATUS_LABELS: Record<ProductStatus, string> = {
-  DRAFT: "DRAFT — 草稿：前台完全看不到，先保存检查用",
-  ACTIVE: "ACTIVE — 上架：前台可搜索、可下单",
-  DISABLED: "DISABLED — 下架：前台隐藏，数据保留，可随时重新上架",
+const ROOM_LABEL_KEYS: Record<string, TKey> = {
+  BEDROOM: "product_room_BEDROOM",
+  STORAGE: "product_room_STORAGE",
+  DINING_LIVING: "product_room_DINING_LIVING",
+  HOME_OFFICE: "product_room_HOME_OFFICE",
 };
-const ROOM_LABELS: Record<string, string> = {
-  BEDROOM: "BEDROOM — 卧室",
-  STORAGE: "STORAGE — 收纳/储物空间",
-  DINING_LIVING: "DINING_LIVING — 餐厅/客厅",
-  HOME_OFFICE: "HOME_OFFICE — 书房/居家办公",
+const ROLE_LABEL_KEYS: Record<string, TKey> = {
+  HERO: "product_role_HERO",
+  CORE: "product_role_CORE",
+  ENTRY: "product_role_ENTRY",
+  PREMIUM: "product_role_PREMIUM",
+  PRE_ORDER: "product_role_PRE_ORDER",
 };
-const ROLE_LABELS: Record<string, string> = {
-  HERO: "HERO — 主推款",
-  CORE: "CORE — 常规款",
-  ENTRY: "ENTRY — 引流款（低价）",
-  PREMIUM: "PREMIUM — 利润款（高客单）",
-  PRE_ORDER: "PRE_ORDER — 预售款",
+const SOLUTION_LABEL_KEYS: Record<string, TKey> = {
+  FOLDABLE: "product_solution_FOLDABLE",
+  NARROW_SPACE: "product_solution_NARROW_SPACE",
+  MOBILE: "product_solution_MOBILE",
+  MULTIFUNCTIONAL: "product_solution_MULTIFUNCTIONAL",
+  HIDDEN_STORAGE: "product_solution_HIDDEN_STORAGE",
+  RENTAL_FRIENDLY: "product_solution_RENTAL_FRIENDLY",
 };
-const SOLUTION_LABELS: Record<string, string> = {
-  FOLDABLE: "FOLDABLE — 可折叠",
-  NARROW_SPACE: "NARROW_SPACE — 窄缝/小空间适用",
-  MOBILE: "MOBILE — 带轮可移动",
-  MULTIFUNCTIONAL: "MULTIFUNCTIONAL — 多功能/可组合",
-  HIDDEN_STORAGE: "HIDDEN_STORAGE — 封闭/隐藏收纳",
-  RENTAL_FRIENDLY: "RENTAL_FRIENDLY — 租房友好、搬家可带走",
+
+/**
+ * Message translator used by the pure serializer/validation helpers. The form
+ * passes the active admin dictionary so field-level errors follow the UI
+ * language; the English dictionary below is the interpolation-capable fallback
+ * for payload-only callers, so a raw "{label}" template can never leak.
+ */
+export type ProductFormTranslate = (key: TKey, vars?: Record<string, string | number>) => string;
+const defaultTranslate: ProductFormTranslate = (key, vars) => {
+  const template = en[key];
+  if (!vars) return template;
+  return template.replace(/\{(\w+)\}/g, (_, k: string) =>
+    vars[k] !== undefined ? String(vars[k]) : `{${k}}`,
+  );
 };
 
 // Backend DTO bounds (product.dto.ts / category.dto.ts slugSchema).
@@ -206,8 +215,6 @@ const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // any version nibble, so do not constrain version/variant digits).
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SLUG_HINT =
-  "slug must be lowercase kebab-case (e.g. folding-chair)";
 // Standard finite decimal forms incl. scientific notation (Number()-parsable).
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
@@ -219,47 +226,46 @@ const DIMENSION_FIELDS: {
     | "foldedWidth"
     | "foldedHeight"
     | "foldedDepth";
-  label: string;
-  hint: string;
+  labelKey: TKey;
+  hintKey: TKey;
 }[] = [
-  { key: "width", label: "Width", hint: "展开宽度，单位 cm" },
-  { key: "height", label: "Height", hint: "展开总高，单位 cm" },
-  { key: "depth", label: "Depth", hint: "展开深度，单位 cm" },
-  { key: "foldedWidth", label: "Folded width", hint: "折叠后宽度 cm，不可折叠留空" },
-  { key: "foldedHeight", label: "Folded height", hint: "折叠后高度/厚度 cm，不可折叠留空" },
-  { key: "foldedDepth", label: "Folded depth", hint: "折叠后深度 cm，不可折叠留空" },
+  { key: "width", labelKey: "product_dim_width", hintKey: "product_dim_width_hint" },
+  { key: "height", labelKey: "product_dim_height", hintKey: "product_dim_height_hint" },
+  { key: "depth", labelKey: "product_dim_depth", hintKey: "product_dim_depth_hint" },
+  { key: "foldedWidth", labelKey: "product_dim_folded_width", hintKey: "product_dim_folded_width_hint" },
+  { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
+  { key: "foldedDepth", labelKey: "product_dim_folded_depth", hintKey: "product_dim_folded_depth_hint" },
 ];
 
-const SKU_NUM_FIELDS: { key: keyof SkuFormValue; label: string }[] = [
-  { key: "price", label: "Price 售价 (₱)" },
-  { key: "compareAtPrice", label: "Compare-at price 划线原价 (₱)" },
-  { key: "supplierCost", label: "Supplier cost" },
-  { key: "landedCost", label: "Landed cost" },
-  { key: "productWeight", label: "Product weight" },
-  { key: "packageWidth", label: "Package width" },
-  { key: "packageHeight", label: "Package height" },
-  { key: "packageDepth", label: "Package depth" },
-  { key: "packageWeight", label: "Package weight" },
-  { key: "volumetricWeight", label: "Volumetric weight" },
+const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
+  { key: "price", labelKey: "product_sku_price" },
+  { key: "compareAtPrice", labelKey: "product_sku_compare_at" },
+  { key: "supplierCost", labelKey: "product_sku_supplier_cost" },
+  { key: "landedCost", labelKey: "product_sku_landed_cost" },
+  { key: "productWeight", labelKey: "product_sku_product_weight" },
+  { key: "packageWidth", labelKey: "product_sku_package_width" },
+  { key: "packageHeight", labelKey: "product_sku_package_height" },
+  { key: "packageDepth", labelKey: "product_sku_package_depth" },
+  { key: "packageWeight", labelKey: "product_sku_package_weight" },
+  { key: "volumetricWeight", labelKey: "product_sku_volumetric_weight" },
 ];
 
-const SKU_LABELS: Partial<Record<keyof SkuFormValue, string>> = Object.fromEntries(
-  SKU_NUM_FIELDS.map((f) => [f.key, f.label]),
-);
+const SKU_LABEL_KEYS: Partial<Record<keyof SkuFormValue, TKey>> = Object.fromEntries(
+  SKU_NUM_FIELDS.map((f) => [f.key, f.labelKey]),
+) as Partial<Record<keyof SkuFormValue, TKey>>;
 
-// Chinese per-field guidance inside the SKU box.
-const SKU_FIELD_HINTS: Partial<Record<keyof SkuFormValue, ReactNode>> = {
-  price: "前台售价，单位比索 ₱。不填价格，该款式在前台无法购买。",
-  compareAtPrice:
-    "划线原价（可选）。高于售价时前台显示折扣；不打折请留空，不要填等于售价的数。",
-  supplierCost: "出厂价，内部成本字段，前台不会显示。",
-  landedCost: "到菲落地成本，内部核算字段，前台不显示。",
-  productWeight: "产品净重，单位 kg。",
-  packageWidth: "外包装宽，单位 cm。",
-  packageHeight: "外包装高，单位 cm。",
-  packageDepth: "外包装深，单位 cm。",
-  packageWeight: "带包装毛重，单位 kg。",
-  volumetricWeight: "体积重，单位 kg，物流计费用；可先留空。",
+// Per-field operator guidance inside the SKU box.
+const SKU_FIELD_HINT_KEYS: Partial<Record<keyof SkuFormValue, TKey>> = {
+  price: "product_sku_price_hint",
+  compareAtPrice: "product_sku_compare_at_hint",
+  supplierCost: "product_sku_supplier_cost_hint",
+  landedCost: "product_sku_landed_cost_hint",
+  productWeight: "product_sku_product_weight_hint",
+  packageWidth: "product_sku_package_width_hint",
+  packageHeight: "product_sku_package_height_hint",
+  packageDepth: "product_sku_package_depth_hint",
+  packageWeight: "product_sku_package_weight_hint",
+  volumetricWeight: "product_sku_volumetric_weight_hint",
 };
 
 // How the numeric SKU fields are grouped in the form (serialization still
@@ -345,20 +351,21 @@ function parseNonNegative(
   key: string,
   label: string,
   errors: FieldErrors,
+  translate: ProductFormTranslate,
 ): number | null {
   const s = raw.trim();
   if (s === "") return null;
   if (!NUM_RE.test(s)) {
-    addError(errors, key, `${label} must be a number.`);
+    addError(errors, key, translate("product_err_not_number", { label }));
     return null;
   }
   const n = Number(s);
   if (!Number.isFinite(n)) {
-    addError(errors, key, `${label} must be a number.`);
+    addError(errors, key, translate("product_err_not_number", { label }));
     return null;
   }
   if (n < 0) {
-    addError(errors, key, `${label} must be 0 or greater.`);
+    addError(errors, key, translate("product_err_negative", { label }));
     return null;
   }
   return n;
@@ -370,20 +377,21 @@ function parseNonNegativeInt(
   key: string,
   label: string,
   errors: FieldErrors,
+  translate: ProductFormTranslate,
 ): number {
   const s = raw.trim();
   if (s === "") return 0;
   if (!NUM_RE.test(s)) {
-    addError(errors, key, `${label} must be a whole number.`);
+    addError(errors, key, translate("product_err_not_integer", { label }));
     return 0;
   }
   const n = Number(s);
   if (!Number.isFinite(n) || !Number.isInteger(n)) {
-    addError(errors, key, `${label} must be a whole number.`);
+    addError(errors, key, translate("product_err_not_integer", { label }));
     return 0;
   }
   if (n < 0) {
-    addError(errors, key, `${label} must be 0 or greater.`);
+    addError(errors, key, translate("product_err_negative", { label }));
     return 0;
   }
   return n;
@@ -418,13 +426,16 @@ function isValidMediaUrl(url: string): boolean {
  * not part of the serialized payload and serializeFormValue cannot validate
  * it. Both save paths call this first; returns a message, or null when valid.
  */
-export function validateStockEntry(value: ProductFormValue): string | null {
+export function validateStockEntry(
+  value: ProductFormValue,
+  translate: ProductFormTranslate = defaultTranslate,
+): string | null {
   for (const [index, variant] of value.variants.entries()) {
     const raw = variant.sku?.stock.trim() ?? "";
     if (raw === "") continue;
     const parsed = Number(raw);
     if (!Number.isInteger(parsed) || parsed < 0) {
-      return `Stock must be a whole number of 0 or more (variant ${index + 1}).`;
+      return translate("product_err_stock_entry", { number: index + 1 });
     }
   }
   return null;
@@ -432,55 +443,61 @@ export function validateStockEntry(value: ProductFormValue): string | null {
 
 export function serializeFormValue(
   v: ProductFormValue,
+  translate: ProductFormTranslate = defaultTranslate,
 ): SerializeFormResult {
   const errors: FieldErrors = {};
 
   // --- Basics --------------------------------------------------------------
   const name = v.name.trim();
-  if (!name) addError(errors, "name", "Name is required.");
+  if (!name) addError(errors, "name", translate("product_err_name_required"));
   else if (name.length > 255)
-    addError(errors, "name", "Name must be 255 characters or fewer.");
+    addError(errors, "name", translate("product_err_name_max"));
 
   const slug = v.slug.trim();
-  if (!slug) addError(errors, "slug", "Slug is required.");
-  else if (slug.length > 120) addError(errors, "slug", SLUG_HINT);
-  else if (!SLUG_RE.test(slug)) addError(errors, "slug", SLUG_HINT);
+  if (!slug) addError(errors, "slug", translate("product_err_slug_required"));
+  else if (slug.length > 120)
+    addError(errors, "slug", translate("product_slug_hint"));
+  else if (!SLUG_RE.test(slug))
+    addError(errors, "slug", translate("product_slug_hint"));
 
   const description = v.description.trim();
   if (description.length > 5000)
-    addError(
-      errors,
-      "description",
-      "Description must be 5,000 characters or fewer.",
-    );
+    addError(errors, "description", translate("product_err_description_max"));
 
   const tagline = v.tagline.trim();
   if (tagline.length > 200)
-    addError(errors, "tagline", "Tagline must be 200 characters or fewer.");
+    addError(errors, "tagline", translate("product_err_tagline_max"));
 
   const materials = v.materials.trim();
   if (materials.length > 1000)
-    addError(errors, "materials", "Materials must be 1,000 characters or fewer.");
+    addError(errors, "materials", translate("product_err_materials_max"));
 
   const features = v.features
     .map((line) => line.trim())
     .filter(Boolean);
   if (features.some((line) => line.length > 200))
-    addError(errors, "features", "Each feature must be 200 characters or fewer.");
+    addError(errors, "features", translate("product_err_feature_line_max"));
   if (features.join("\n").length > 2000)
-    addError(errors, "features", "Features must be 2,000 characters or fewer.");
+    addError(errors, "features", translate("product_err_features_max"));
 
-  if (!v.categoryId) addError(errors, "categoryId", "Category is required.");
+  if (!v.categoryId)
+    addError(errors, "categoryId", translate("product_err_category_required"));
   else if (!UUID_RE.test(v.categoryId))
-    addError(errors, "categoryId", "Choose a valid category.");
+    addError(errors, "categoryId", translate("product_err_category_invalid"));
 
   // --- Dimensions ----------------------------------------------------------
   const dimensions = {} as Pick<
     CreateProductInput,
     "width" | "height" | "depth" | "foldedWidth" | "foldedHeight" | "foldedDepth"
   >;
-  for (const { key, label } of DIMENSION_FIELDS) {
-    dimensions[key] = parseNonNegative(v[key], key, label, errors);
+  for (const { key, labelKey } of DIMENSION_FIELDS) {
+    dimensions[key] = parseNonNegative(
+      v[key],
+      key,
+      translate(labelKey),
+      errors,
+      translate,
+    );
   }
 
   // --- Images --------------------------------------------------------------
@@ -494,27 +511,20 @@ export function serializeFormValue(
     // sortOrder is positional, not content, so it does not count as filled in.
     if (!url && !altText) return;
 
-    if (!url) addError(errors, `images.${i}.url`, "Image URL is required.");
+    if (!url) addError(errors, `images.${i}.url`, translate("product_err_image_url_required"));
     else if (url.length > 2048)
-      addError(
-        errors,
-        `images.${i}.url`,
-        "Image URL must be 2,048 characters or fewer.",
-      );
+      addError(errors, `images.${i}.url`, translate("product_err_image_url_max"));
     else if (!isValidMediaUrl(url)) {
-      addError(errors, `images.${i}.url`, "Image URL must be a valid URL.");
+      addError(errors, `images.${i}.url`, translate("product_err_image_url_invalid"));
     }
     if (altText.length > 255)
-      addError(
-        errors,
-        `images.${i}.altText`,
-        "Alt text must be 255 characters or fewer.",
-      );
+      addError(errors, `images.${i}.altText`, translate("product_err_alt_max"));
     const sortOrder = parseNonNegativeInt(
       sortRaw,
       `images.${i}.sortOrder`,
-      "Sort order",
+      translate("product_label_sort_order"),
       errors,
+      translate,
     );
     images.push({
       url,
@@ -533,27 +543,20 @@ export function serializeFormValue(
     // keeps a row alive.
     if (!url && !altText) return;
 
-    if (!url) addError(errors, `detailBlocks.${i}.url`, "Media URL is required.");
+    if (!url) addError(errors, `detailBlocks.${i}.url`, translate("product_err_detail_url_required"));
     else if (url.length > 2048)
-      addError(
-        errors,
-        `detailBlocks.${i}.url`,
-        "Media URL must be 2,048 characters or fewer.",
-      );
+      addError(errors, `detailBlocks.${i}.url`, translate("product_err_detail_url_max"));
     else if (!isValidMediaUrl(url)) {
-      addError(errors, `detailBlocks.${i}.url`, "Media URL must be a valid URL.");
+      addError(errors, `detailBlocks.${i}.url`, translate("product_err_detail_url_invalid"));
     }
     if (altText.length > 255)
-      addError(
-        errors,
-        `detailBlocks.${i}.altText`,
-        "Alt text must be 255 characters or fewer.",
-      );
+      addError(errors, `detailBlocks.${i}.altText`, translate("product_err_alt_max"));
     const sortOrder = parseNonNegativeInt(
       block.sortOrder,
       `detailBlocks.${i}.sortOrder`,
-      "Sort order",
+      translate("product_label_sort_order"),
       errors,
+      translate,
     );
     detailBlocks.push({
       type: block.type,
@@ -568,18 +571,15 @@ export function serializeFormValue(
   v.variants.forEach((vr, i) => {
     const variantName = vr.name.trim();
     if (!variantName)
-      addError(errors, `variants.${i}.name`, "Variant name is required.");
+      addError(errors, `variants.${i}.name`, translate("product_err_variant_name_required"));
     else if (variantName.length > 120)
-      addError(
-        errors,
-        `variants.${i}.name`,
-        "Variant name must be 120 characters or fewer.",
-      );
+      addError(errors, `variants.${i}.name`, translate("product_err_variant_name_max"));
     const position = parseNonNegativeInt(
       vr.position,
       `variants.${i}.position`,
-      "Position",
+      translate("product_label_position"),
       errors,
+      translate,
     );
 
     let sku: CreateSkuInput | undefined;
@@ -587,32 +587,16 @@ export function serializeFormValue(
       const formSku = vr.sku;
       const skuCode = formSku.skuCode.trim();
       if (!skuCode)
-        addError(
-          errors,
-          `variants.${i}.sku.skuCode`,
-          "SKU code is required when a SKU is enabled.",
-        );
+        addError(errors, `variants.${i}.sku.skuCode`, translate("product_err_sku_code_required"));
       else if (skuCode.length > 64)
-        addError(
-          errors,
-          `variants.${i}.sku.skuCode`,
-          "SKU code must be 64 characters or fewer.",
-        );
+        addError(errors, `variants.${i}.sku.skuCode`, translate("product_err_sku_code_max"));
 
       const supplierSku = formSku.supplierSku.trim();
       if (supplierSku.length > 120)
-        addError(
-          errors,
-          `variants.${i}.sku.supplierSku`,
-          "Supplier SKU must be 120 characters or fewer.",
-        );
+        addError(errors, `variants.${i}.sku.supplierSku`, translate("product_err_supplier_sku_max"));
       const costCurrency = formSku.costCurrency.trim();
       if (costCurrency.length > 8)
-        addError(
-          errors,
-          `variants.${i}.sku.costCurrency`,
-          "Currency code must be 8 characters or fewer.",
-        );
+        addError(errors, `variants.${i}.sku.costCurrency`, translate("product_err_currency_max"));
 
       const skuRecord: Record<string, string | number> = {
         skuCode,
@@ -622,13 +606,14 @@ export function serializeFormValue(
       };
       if (supplierSku) skuRecord.supplierSku = supplierSku;
       if (costCurrency) skuRecord.costCurrency = costCurrency;
-      for (const { key, label } of SKU_NUM_FIELDS) {
+      for (const { key, labelKey } of SKU_NUM_FIELDS) {
         const raw = formSku[key].trim();
         const n = parseNonNegative(
           raw,
           `variants.${i}.sku.${key}`,
-          label,
+          translate(labelKey),
           errors,
+          translate,
         );
         // Empty -> omit (optional server field); parse errors are recorded.
         if (raw !== "" && n !== null) skuRecord[key] = n;
@@ -646,7 +631,7 @@ export function serializeFormValue(
   if (Object.keys(errors).length > 0) {
     return {
       ok: false,
-      error: "Please fix the highlighted fields and try again.",
+      error: translate("product_err_fix_highlighted"),
       fieldErrors: errors,
     };
   }
@@ -724,16 +709,8 @@ const removeBtnCls =
 // --- the form ----------------------------------------------------------------
 
 /** Editor tabs; the single form state object spans all of them. */
-const TABS = [
-  { key: "basic", label: "Basic Info" },
-  { key: "media", label: "Media" },
-  { key: "variants", label: "Variants & Pricing" },
-  { key: "specs", label: "Specifications" },
-  { key: "shipping", label: "Shipping" },
-  { key: "seo", label: "SEO" },
-  { key: "preview", label: "Preview" },
-] as const;
-type TabKey = (typeof TABS)[number]["key"];
+const TABS = PRODUCT_FORM_TABS;
+type TabKey = ProductFormTabKey;
 
 const SHIPPING_SKU_KEYS = [
   "productWeight",
@@ -766,19 +743,25 @@ export interface ProductFormProps {
   initial: ProductFormValue;
   categories: AdminCategoryNode[];
   onSubmit: (v: ProductFormValue) => void;
-  submitLabel: string;
+  /** Kept for callers that still pass the old copy; the header derives its label from status truth. */
+  submitLabel?: string;
   pending: boolean;
   error: string | null;
+  savedPreview: {
+    path: string;
+    status: ProductStatus;
+  } | null;
 }
 
 export function ProductForm({
   initial,
   categories,
   onSubmit,
-  submitLabel,
   pending,
   error,
+  savedPreview,
 }: ProductFormProps): ReactNode {
+  const { t, lang } = useAdminI18n();
   const [value, setValue] = useState<ProductFormValue>(initial);
   // Re-sync when `initial` changes identity (Task 10: loaded after fetch).
   // Render-phase adjustment (same pattern as the products list URL sync);
@@ -842,10 +825,8 @@ export function ProductForm({
   const setDraftSkuField = (
     combinationKey: string,
     key: (typeof SHIPPING_SKU_KEYS)[number],
-    raw: string,
+    value: number | null,
   ): void => {
-    const trimmed = raw.trim();
-    if (trimmed !== "" && !/^\d+(\.\d*)?$/.test(trimmed)) return;
     updateGraph((draft) => {
       const variant = draft.variants.find(
         (item) => item.combinationKey === combinationKey,
@@ -853,7 +834,7 @@ export function ProductForm({
       if (!variant?.sku) return;
       variant.sku = {
         ...variant.sku,
-        [key]: trimmed === "" ? null : Number(trimmed),
+        [key]: value,
       };
     });
   };
@@ -1062,19 +1043,21 @@ export function ProductForm({
   };
 
   // Renders one numeric SKU field (price group / cost group / logistics
-  // group) with its Chinese operator hint.
+  // group) with its localized operator hint.
   const renderSkuField = (
     variantIndex: number,
     key: keyof SkuFormValue,
   ): ReactNode => {
     const sku = value.variants[variantIndex]?.sku ?? null;
+    const labelKey = SKU_LABEL_KEYS[key];
+    const hintKey = SKU_FIELD_HINT_KEYS[key];
     return (
       <Field
         key={key}
-        label={SKU_LABELS[key] ?? key}
+        label={labelKey ? t(labelKey) : key}
         htmlFor={`pf-variants-${variantIndex}-sku-${key}`}
         error={err(`variants.${variantIndex}.sku.${key}`)}
-        hint={SKU_FIELD_HINTS[key]}
+        hint={hintKey ? t(hintKey) : undefined}
       >
         <TextInput
           id={`pf-variants-${variantIndex}-sku-${key}`}
@@ -1091,29 +1074,32 @@ export function ProductForm({
     );
   };
 
-  /**
-   * Serializes + submits the single form value. `statusOverride` lets the
-   * action bar's "Save Draft" store the current edits as a DRAFT in one click
-   * without mutating the visible status select first.
-   */
-  const submitForm = (statusOverride?: ProductStatus): void => {
-    const target = statusOverride ? { ...value, status: statusOverride } : value;
+  /** Serializes + submits the one form value using its selected wire status. */
+  const submitForm = (): void => {
+    const target = value;
     // Task 11: typed-graph validation runs BEFORE the legacy serializer so a
     // graph problem jumps straight to the editors even when basics are fine.
     if (typed && target.graph) {
       const graph = target.graph;
-      const graphErrors = [...validateAdminCatalogGraph(graph).errors];
-      if (candidatesError) graphErrors.push(candidatesError);
+      const graphErrors = [...validateAdminCatalogGraph(graph, t).errors];
+      let mediaUrlError = false;
+      if (candidatesError && graphErrors.length === 0) {
+        graphErrors.push(t("product_graph_structure_invalid"));
+      }
       const seenCodes = new Set<string>();
       for (const variant of graph.variants) {
         if (!variant.sku) continue;
         const code = variant.sku.skuCode.trim();
         if (!code) {
-          graphErrors.push(`“${variant.name}” 需要填写 SKU code 才能保存。`);
+          graphErrors.push(
+            t("product_graph_sku_code_required", { name: variant.name }),
+          );
         } else {
           const normalized = code.toLowerCase();
           if (seenCodes.has(normalized)) {
-            graphErrors.push(`Duplicate SKU code ${code}（两个款式用了同一个编码）。`);
+            graphErrors.push(
+              t("product_graph_sku_code_duplicate", { code }),
+            );
           }
           seenCodes.add(normalized);
         }
@@ -1130,7 +1116,7 @@ export function ProductForm({
           ),
         )
       ) {
-        graphErrors.push("Swatch hex must be a #rrggbb color.");
+        graphErrors.push(t("product_graph_swatch_invalid"));
       }
       if (
         graph.options.some((option) =>
@@ -1142,7 +1128,7 @@ export function ProductForm({
           ),
         )
       ) {
-        graphErrors.push("Option thumbnail must be a valid image URL.");
+        graphErrors.push(t("product_graph_thumbnail_invalid"));
       }
       if (
         graph.media.some(
@@ -1150,26 +1136,34 @@ export function ProductForm({
             media.url.trim() !== "" && !isValidMediaUrl(media.url.trim()),
         )
       ) {
-        graphErrors.push(
-          "Scoped media URL must be a valid http(s) or /uploads/… URL.",
-        );
+        mediaUrlError = true;
+        graphErrors.push(t("product_graph_media_url_invalid"));
       }
       if (graphErrors.length > 0) {
         setFormError(graphErrors.join(" "));
-        setActiveTab("variants");
+        // Jump straight to the failing section: a scoped-media URL problem
+        // belongs to the media tab, everything else to the editors.
+        setActiveTab(mediaUrlError ? "media" : "variants");
         return;
       }
     }
-    const result = serializeFormValue(target);
+    // The active translator rides along so field-level errors match the UI
+    // language (the default English fallback stays for payload-only callers).
+    const result = serializeFormValue(target, t);
     if (!result.ok) {
       setFieldErrors(result.fieldErrors);
       // Say WHICH tab holds the errors — with panels hidden, a generic
       // "fix the highlighted fields" leaves the operator hunting.
       const brokenTabs = [
         ...new Set(Object.keys(result.fieldErrors).map(tabForErrorKey)),
-      ].map((key) => TABS.find((t) => t.key === key)?.label ?? key);
+      ].map((key) => {
+        const tab = TABS.find((candidate) => candidate.key === key);
+        return tab ? t(tab.labelKey) : key;
+      });
       setFormError(
-        `Please fix the highlighted fields and try again.（出错位置：${brokenTabs.join("、")}）`,
+        t("product_form_validation_summary", {
+          tabs: brokenTabs.join(lang === "zh" ? "、" : ", "),
+        }),
       );
       // Jump straight to the first failing tab.
       const firstKey = Object.keys(result.fieldErrors)[0];
@@ -1195,108 +1189,45 @@ export function ProductForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate>
-      {/* Sticky action bar + tab row. top-14 clears the shell's h-14 top bar;
-          z-10 sits under its z-20 (and the sidebar's z-30). Kept inside the
-          single <form> so both save buttons submit it — no nested forms.
-          Tabs live here too, so a save at the bottom of any panel can jump
-          straight to another tab without scrolling back up. */}
-      <div className="sticky top-14 z-10 -mx-4 mb-6 border-b border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur md:-mx-8 md:px-8">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Link
-            href="/admin/products"
-            className="text-sm font-semibold text-cta hover:underline"
-          >
-            ← Back to Products
-          </Link>
-          <div className="flex items-center gap-2">
-            <label htmlFor="pf-status" className="text-xs font-semibold text-ink-secondary">
-              Status
-            </label>
-            <select
-              id="pf-status"
-              value={value.status}
-              onChange={(e) => patch({ status: e.target.value as ProductStatus })}
-              className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm font-semibold text-ink focus:border-cta focus:outline-none"
-            >
-              {PRODUCT_STATUSES.map((s) => (
-                <option key={s} value={s} title={STATUS_LABELS[s]}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => submitForm("DRAFT")}
-              disabled={pending}
-              className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-ink hover:border-primary disabled:text-ink-muted"
-            >
-              Save Draft
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="md"
-              className="h-9 min-w-0 px-5 text-sm"
-              disabled={pending}
-              aria-busy={pending}
-            >
-              {pending ? "Saving…" : submitLabel}
-            </Button>
-            {value.slug.trim() ? (
-              <Link
-                href={`/products/${value.slug.trim()}`}
-                target="_blank"
-                className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-semibold leading-9 text-cta hover:border-primary"
-              >
-                Preview Product
-              </Link>
-            ) : (
-              <span className="text-xs text-ink-muted">填好 Slug 并保存后可预览</span>
-            )}
-          </div>
-        </div>
+      <ProductFormHeader
+        currentStatus={value.status}
+        savedStatus={savedPreview?.status ?? null}
+        pending={pending}
+        currentTab={activeTab}
+        tabErrors={Object.fromEntries(
+          TABS.map((tab) => [tab.key, tabHasError(tab.key)]),
+        ) as Partial<Record<TabKey, boolean>>}
+        labels={{
+          back: t("product_form_back"),
+          status: t("product_form_status"),
+          statusOptions: {
+            DRAFT: t("product_form_status_draft"),
+            ACTIVE: t("product_form_status_active"),
+            DISABLED: t("product_form_status_disabled"),
+          },
+          tabs: {
+            basic: t("product_form_tab_basic"),
+            media: t("product_form_tab_media"),
+            variants: t("product_form_tab_variants"),
+            specs: t("product_form_tab_specs"),
+            shipping: t("product_form_tab_shipping"),
+            seo: t("product_form_tab_seo"),
+            preview: t("product_form_tab_preview"),
+          },
+          tabsAria: t("product_form_tabs_aria"),
+          statusAria: t("product_form_status_aria"),
+          tabError: t("product_form_tab_error"),
+          saveDraft: t("product_form_save_draft"),
+          savePublish: t("product_form_save_publish"),
+          saveChanges: t("product_form_save_changes"),
+          saveUnpublish: t("product_form_save_unpublish"),
+          saving: t("product_form_saving"),
+        }}
+        onStatusChange={(status) => patch({ status })}
+        onTabChange={setActiveTab}
+        onSubmitIntent={() => undefined}
+      />
 
-        {/* Tab row lives inside the sticky block: switch sections from any
-            scroll position without climbing back to the top. */}
-        <div
-          role="tablist"
-          aria-label="Product form sections"
-          className="mt-3 flex flex-wrap gap-2"
-        >
-          {TABS.map((tab) => {
-            const selected = activeTab === tab.key;
-            const hasError = tabHasError(tab.key);
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                id={`pf-tab-${tab.key}`}
-                aria-selected={selected}
-                aria-controls={`pf-panel-${tab.key}`}
-                onClick={() => setActiveTab(tab.key)}
-                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
-                  selected
-                    ? "bg-cta text-white"
-                    : "border border-border bg-card text-ink-secondary hover:text-cta"
-                }`}
-              >
-                {tab.key === "variants" && typed
-                  ? "Options & Variants 选项与款式"
-                  : tab.label}
-                {hasError ? (
-                  <span
-                    aria-label="(有错误)"
-                    className="ml-1.5 inline-block h-2 w-2 rounded-full bg-sale align-middle"
-                  />
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {formError ? (
         <div
@@ -1319,35 +1250,11 @@ export function ProductForm({
         </div>
       ) : null}
 
-      {/* Operator workflow guide (internal back office; never storefront). */}
-      <details className="group mb-6 rounded-lg bg-primary-light/30 px-4 py-3 text-xs leading-relaxed text-ink-secondary">
-        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
-          上架流程（新商品按此顺序操作）
-          <span className="ml-2 font-normal text-ink-muted group-open:hidden">展开</span>
-        </summary>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>
-            在本页填写商品信息、图片、款式与价格，先以
-            <span className="font-semibold"> DRAFT 草稿</span>保存。
-          </li>
-          <li>
-            确认无误后把右上 Status 改为
-            <span className="font-semibold"> ACTIVE 上架</span>（DRAFT 在前台完全不可见）。
-          </li>
-          <li>
-            到左侧 <span className="font-semibold">Inventory</span> 页给每个 SKU
-            入库：搜到商品 → Adjust → 填正数数量（如 50）和原因。库存为 0
-            时前台显示 Out of Stock，不能下单。
-          </li>
-          <li>
-            到左侧 <span className="font-semibold">Collections</span> 页把商品加入
-            New Arrivals（前台显示 New 角标）。Bestseller 角标只挂真实热销款，新品不要挂。
-          </li>
-        </ol>
-        <p className="mt-2">
-          出厂价、物流尺寸等成本字段仅后台可见；前台只显示售价和商品描述。
-        </p>
-      </details>
+      {/* Concise contextual workflow status: the long per-step guide lived
+          here before; the controls below already explain themselves. */}
+      <p className="mb-6 rounded-lg bg-primary-light/30 px-4 py-3 text-xs leading-relaxed text-ink-secondary">
+        {t("product_form_workflow_hint")}
+      </p>
 
       {/* Panels are conditionally rendered; all form state lives in the single
           `value` object, so switching tabs never loses edits. */}
@@ -1360,18 +1267,15 @@ export function ProductForm({
 
         {activeTab === "basic" && (
           <>
-            <Section
-              title="Basic Info"
-              hint="带 * 为必填。前台首屏依次展示：商品名 → Tagline → 评分 → 价格。"
-            >
+            <Section title={t("product_basic_title")} hint={t("product_basic_hint")}>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field
-                  label="Name *"
+                  label={t("product_basic_name_label")}
                   htmlFor="pf-name"
                   error={err("name")}
                   hint={
-                    <span title="前台展示的英文商品名，也是唯一 H1。建议：品类 + 核心特征 + 规格/层数，如 Foldable Shoe Cabinet 3-Tier with Clear Doors。">
-                      英文商品名（前台唯一 H1）
+                    <span title={t("product_basic_name_tooltip")}>
+                      {t("product_basic_name_hint")}
                     </span>
                   }
                 >
@@ -1385,12 +1289,12 @@ export function ProductForm({
                 </Field>
 
                 <Field
-                  label="Tagline / Subtitle"
+                  label={t("product_basic_tagline_label")}
                   htmlFor="pf-tagline"
                   error={err("tagline")}
                   hint={
-                    <span title="一句话卖点，显示在商品名下方。留空则前台不显示这一行。最多 200 字符。">
-                      商品名下的一句话卖点，留空则不显示
+                    <span title={t("product_basic_tagline_tooltip")}>
+                      {t("product_basic_tagline_hint")}
                     </span>
                   }
                 >
@@ -1406,12 +1310,12 @@ export function ProductForm({
 
                 <div className="md:col-span-2">
                   <Field
-                    label="Description"
+                    label={t("product_basic_description_label")}
                     htmlFor="pf-description"
                     error={err("description")}
                     hint={
-                      <span title="英文详情描述（顾客可见），支持换行，最多 5,000 字符。只显示在下方 Product Details 区——材质、功能等规格请填到 Specifications 页，不要写在这里。">
-                        详情区开头的短文字；规格请用 Specifications 页
+                      <span title={t("product_basic_description_tooltip")}>
+                        {t("product_basic_description_hint")}
                       </span>
                     }
                   >
@@ -1425,12 +1329,12 @@ export function ProductForm({
                 </div>
 
                 <Field
-                  label="Category *"
+                  label={t("product_basic_category_label")}
                   htmlFor="pf-category"
                   error={err("categoryId")}
                   hint={
-                    <span title="商品的固定归属，决定它出现在哪个分类页与面包屑。一个商品只能选一个分类；营销分组（新品/热销）在 Collections 页管理。">
-                      归属分类，决定分类页与面包屑
+                    <span title={t("product_basic_category_tooltip")}>
+                      {t("product_basic_category_hint")}
                     </span>
                   }
                 >
@@ -1440,7 +1344,7 @@ export function ProductForm({
                     onChange={(e) => patch({ categoryId: e.target.value })}
                   >
                     <option value="" disabled>
-                      Select a category…
+                      {t("product_basic_category_placeholder")}
                     </option>
                     {flatCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
@@ -1453,12 +1357,12 @@ export function ProductForm({
                 </Field>
 
                 <Field
-                  label="Room"
+                  label={t("product_basic_room_label")}
                   htmlFor="pf-room"
                   error={err("room")}
                   hint={
-                    <span title="主要使用空间（单选），用于前台分类页的 Room 筛选；不确定可留空。">
-                      前台 Room 筛选用
+                    <span title={t("product_basic_room_tooltip")}>
+                      {t("product_basic_room_hint")}
                     </span>
                   }
                 >
@@ -1470,19 +1374,19 @@ export function ProductForm({
                     <option value="">—</option>
                     {ROOMS.map((r) => (
                       <option key={r} value={r}>
-                        {ROOM_LABELS[r] ?? r}
+                        {ROOM_LABEL_KEYS[r] ? t(ROOM_LABEL_KEYS[r]) : r}
                       </option>
                     ))}
                   </Select>
                 </Field>
 
                 <Field
-                  label="Internal role"
+                  label={t("product_basic_role_label")}
                   htmlFor="pf-internal-role"
                   error={err("internalRole")}
                   hint={
-                    <span title="内部运营定位，不展示给顾客，用于推荐排序：引流款低价拉新，利润款做高客单。">
-                      内部运营定位，前台不显示
+                    <span title={t("product_basic_role_tooltip")}>
+                      {t("product_basic_role_hint")}
                     </span>
                   }
                 >
@@ -1494,16 +1398,18 @@ export function ProductForm({
                     <option value="">—</option>
                     {INTERNAL_ROLES.map((r) => (
                       <option key={r} value={r}>
-                        {ROLE_LABELS[r] ?? r}
+                        {ROLE_LABEL_KEYS[r] ? t(ROLE_LABEL_KEYS[r]) : r}
                       </option>
                     ))}
                   </Select>
                 </Field>
 
                 <fieldset className="md:col-span-2">
-                  <legend className="text-sm font-medium text-ink">Solutions</legend>
+                  <legend className="text-sm font-medium text-ink">
+                    {t("product_basic_solutions_legend")}
+                  </legend>
                   <p className="mt-1 text-xs text-ink-muted">
-                    卖点标签（可多选），驱动前台 Solution 筛选；不符合的不要勾选。
+                    {t("product_basic_solutions_hint")}
                   </p>
                   <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {SOLUTIONS.map((s) => (
@@ -1516,7 +1422,7 @@ export function ProductForm({
                             onChange={(e) => toggleSolution(s, e.target.checked)}
                             className="h-4 w-4 rounded border-border accent-cta"
                           />
-                          {SOLUTION_LABELS[s] ?? s}
+                          {SOLUTION_LABEL_KEYS[s] ? t(SOLUTION_LABEL_KEYS[s]) : s}
                         </label>
                       </li>
                     ))}
@@ -1528,30 +1434,20 @@ export function ProductForm({
         )}
 
         {activeTab === "media" && (
-          <>
-            {graphLocked ? (
-              <div
-                role="alert"
-                className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
-              >
-                该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），
-                共享媒体列表编辑已暂停（整表替换会抹掉选项值/款式作用域媒体）。
-              </div>
-            ) : null}
-            <fieldset disabled={graphLocked} className="min-w-0">
-            <Section
-              title="Product media"
-              hint={
-                <>
-                  一格一张媒体，可拖动排序（也可用 ← → 微调）。「封面」= 前台主图。
-                  建议每商品 4–6 张：白底主图、细节、尺寸图、生活场景图；也可加短视频。
-                  点卡片展开填写 Alt text；URL 与排序数字收在「Advanced」里。
-                </>
-              }
+          <ProductMediaPanel
+            graphLocked={graphLocked}
+            graphVersion={value.graph?.catalogGraphVersion ?? 0}
+            pending={pending}
+            graphDraft={graphDraft}
+            onGraphChange={typed && graphDraft ? updateGraph : null}
+            sharedGallery={
+              <Section
+              title={t("product_media_shared_title")}
+              hint={t("product_media_gallery_hint")}
             >
               {value.images.length === 0 ? (
                 <p className="text-sm text-ink-muted">
-                  还没有媒体，点下方按钮添加第一张（主图）。
+                  {t("product_media_empty")}
                 </p>
               ) : (
                 <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -1582,7 +1478,11 @@ export function ProductForm({
                           type="button"
                           onClick={() => setActiveMedia(expanded ? null : i)}
                           aria-expanded={expanded}
-                          aria-label={`Media ${i + 1}${isCover ? "（封面）" : ""}`}
+                          aria-label={
+                            isCover
+                              ? t("product_media_card_cover_aria", { number: i + 1 })
+                              : t("product_media_card_aria", { number: i + 1 })
+                          }
                           className="relative block aspect-square w-full cursor-grab active:cursor-grabbing"
                         >
                           {img.url.trim() ? (
@@ -1606,7 +1506,9 @@ export function ProductForm({
                             )
                           ) : (
                             <span className="flex h-full items-center justify-center text-xs text-ink-muted">
-                              {img.type === "VIDEO" ? "未填视频" : "未填图片"}
+                              {img.type === "VIDEO"
+                                ? t("product_media_empty_video")
+                                : t("product_media_empty_image")}
                             </span>
                           )}
                           {(img.type === "VIDEO" || !img.url.trim()) && (
@@ -1619,20 +1521,21 @@ export function ProductForm({
                           )}
                           {isCover ? (
                             <span className="absolute left-1.5 top-1.5 rounded-full bg-cta px-2 py-0.5 text-xs font-semibold text-white">
-                              封面
+                              {t("product_media_cover")}
                             </span>
                           ) : null}
                         </button>
 
-                        {/* Quick actions under the thumbnail. */}
-                        <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                        {/* Quick actions under the thumbnail; wrapping keeps the
+                            destructive/status controls reachable on 375px. */}
+                        <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               className={removeBtnCls}
                               onClick={() => moveImage(i, -1)}
                               disabled={pending || i === 0}
-                              aria-label={`Move media ${i + 1} left`}
+                              aria-label={t("product_media_move_left", { number: i + 1 })}
                             >
                               ←
                             </button>
@@ -1641,7 +1544,7 @@ export function ProductForm({
                               className={removeBtnCls}
                               onClick={() => moveImage(i, 1)}
                               disabled={pending || i === value.images.length - 1}
-                              aria-label={`Move media ${i + 1} right`}
+                              aria-label={t("product_media_move_right", { number: i + 1 })}
                             >
                               →
                             </button>
@@ -1654,7 +1557,7 @@ export function ProductForm({
                                 disabled={pending}
                                 className="text-xs font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
                               >
-                                设为封面
+                                {t("product_media_set_cover")}
                               </button>
                             ) : null}
                             <button
@@ -1666,7 +1569,7 @@ export function ProductForm({
                               }}
                               disabled={pending}
                             >
-                              Remove
+                              {t("product_media_remove")}
                             </button>
                           </div>
                         </div>
@@ -1677,13 +1580,13 @@ export function ProductForm({
                         {expanded ? (
                           <div className="border-t border-border p-2">
                             <Field
-                              label="Alt text"
+                              label={t("product_media_alt_label")}
                               htmlFor={`pf-images-${i}-alt`}
                               error={err(`images.${i}.altText`)}
                             >
                               <TextInput
                                 id={`pf-images-${i}-alt`}
-                                aria-label={`Media ${i + 1} alt text`}
+                                aria-label={t("product_media_alt_aria", { number: i + 1 })}
                                 value={img.altText}
                                 onChange={(e) =>
                                   setImage(i, { altText: e.target.value })
@@ -1693,13 +1596,17 @@ export function ProductForm({
                             </Field>
                             <div className="mt-2">
                               <Field
-                                label={img.type === "VIDEO" ? "Video URL" : "Image URL"}
+                                label={
+                                  img.type === "VIDEO"
+                                    ? t("product_media_url_video_label")
+                                    : t("product_media_url_image_label")
+                                }
                                 htmlFor={`pf-images-${i}-url`}
                                 error={err(`images.${i}.url`)}
                               >
                                 <ImageUrlInput
                                   id={`pf-images-${i}-url`}
-                                  ariaLabel={`Media ${i + 1} URL`}
+                                  ariaLabel={t("product_media_url_aria", { number: i + 1 })}
                                   kind={img.type === "VIDEO" ? "video" : "image"}
                                   value={img.url}
                                   onChange={(url) => setImage(i, { url })}
@@ -1709,17 +1616,17 @@ export function ProductForm({
                             </div>
                             <details className="mt-1">
                               <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
-                                Advanced（排序数字）
+                                {t("product_media_advanced")}
                               </summary>
                               <div className="mt-2">
                                 <Field
-                                  label="Sort"
+                                  label={t("product_media_sort_label")}
                                   htmlFor={`pf-images-${i}-sort`}
                                   error={err(`images.${i}.sortOrder`)}
                                 >
                                   <TextInput
                                     id={`pf-images-${i}-sort`}
-                                    aria-label={`Media ${i + 1} sort order`}
+                                    aria-label={t("product_media_sort_aria", { number: i + 1 })}
                                     inputMode="numeric"
                                     value={img.sortOrder}
                                     onChange={(e) =>
@@ -1745,7 +1652,7 @@ export function ProductForm({
                   onClick={() => addImage("IMAGE")}
                   disabled={pending}
                 >
-                  Add photo
+                  {t("product_media_add_image")}
                 </Button>
                 <Button
                   type="button"
@@ -1754,43 +1661,20 @@ export function ProductForm({
                   onClick={() => addImage("VIDEO")}
                   disabled={pending}
                 >
-                  Add video
+                  {t("product_media_add_video")}
                 </Button>
               </div>
             </Section>
-            </fieldset>
-
-            {/* Task 11: scoped media editing lives next to the gallery it
-                extends. Shared rows stay gallery-owned; the editor manages
-                option-value and variant scopes on the typed draft. */}
-            {typed && graphDraft ? (
-              <Section
-                title="Scoped media 作用域媒体"
-                hint="按选项值/款式挂媒体：前台选择对应作用域时整体替换，不与共享媒体合并。"
-              >
-                <ProductMediaScopesEditor
-                  draft={graphDraft}
-                  onChange={updateGraph}
-                  pending={pending}
-                />
-              </Section>
-            ) : null}
-
-      {/* ---------------- Detail blocks (description body) ---------------- */}
+            }
+            detailBlocks={
+      /* ---------------- Detail blocks (description body) ---------------- */
       <Section
-        title="详情内容（图片 / 视频）"
-        hint={
-          <>
-            显示在商品页图集下方的详情区。顾客主要靠这里的图/视频做判断，所以详情以
-            图片视频为主：1688 详情长图、实物拍摄、安装视频都可以放。IMAGE
-            可粘贴网址或点「上传图片」；VIDEO 粘贴 MP4 直链。顺序即前台展示顺序，用 ↑ ↓
-            调整；上方「Description」的短文字会显示在详情区开头。
-          </>
-        }
+        title={t("product_detail_title")}
+        hint={t("product_detail_hint")}
       >
         {value.detailBlocks.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            还没有详情内容，点下方「Add image / Add video」添加第一块。
+            {t("product_detail_empty")}
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
@@ -1800,13 +1684,13 @@ export function ProductForm({
                 className="grid gap-3 md:grid-cols-[120px_1fr_200px_auto] md:items-end"
               >
                 <Field
-                  label={i === 0 ? "类型" : ""}
+                  label={i === 0 ? t("product_detail_type_label") : ""}
                   htmlFor={`pf-detail-${i}-type`}
-                  hint={i === 0 ? "图片或视频" : undefined}
+                  hint={i === 0 ? `${t("product_detail_type_image")} / ${t("product_detail_type_video")}` : undefined}
                 >
                   <Select
                     id={`pf-detail-${i}-type`}
-                    aria-label={i === 0 ? undefined : `Detail block ${i + 1} type`}
+                    aria-label={i === 0 ? undefined : t("product_detail_type_aria", { number: i + 1 })}
                     value={block.type}
                     onChange={(e) =>
                       setDetailBlock(i, {
@@ -1815,26 +1699,26 @@ export function ProductForm({
                     }
                     disabled={pending}
                   >
-                    <option value="IMAGE">图片</option>
-                    <option value="VIDEO">视频</option>
+                    <option value="IMAGE">{t("product_detail_type_image")}</option>
+                    <option value="VIDEO">{t("product_detail_type_video")}</option>
                   </Select>
                 </Field>
                 <Field
-                  label={i === 0 ? "URL" : ""}
+                  label={i === 0 ? t("product_detail_url_label") : ""}
                   htmlFor={`pf-detail-${i}-url`}
                   error={err(`detailBlocks.${i}.url`)}
                   hint={
                     i === 0
                       ? block.type === "VIDEO"
-                        ? "MP4 直链；手机上不自动播放，给顾客点播按钮。"
-                        : "图片网址，必须是可直接打开的图片链接。"
+                        ? t("product_detail_url_video_hint")
+                        : t("product_detail_url_image_hint")
                       : undefined
                   }
                 >
                   {block.type === "IMAGE" ? (
                     <ImageUrlInput
                       id={`pf-detail-${i}-url`}
-                      ariaLabel={i === 0 ? undefined : `Detail block ${i + 1} URL`}
+                      ariaLabel={i === 0 ? undefined : t("product_detail_url_aria", { number: i + 1 })}
                       value={block.url}
                       onChange={(url) => setDetailBlock(i, { url })}
                       disabled={pending}
@@ -1842,7 +1726,7 @@ export function ProductForm({
                   ) : (
                     <ImageUrlInput
                       id={`pf-detail-${i}-url`}
-                      ariaLabel={i === 0 ? undefined : `Detail block ${i + 1} URL`}
+                      ariaLabel={i === 0 ? undefined : t("product_detail_url_aria", { number: i + 1 })}
                       kind="video"
                       placeholder="https://…/product-demo.mp4"
                       value={block.url}
@@ -1852,14 +1736,14 @@ export function ProductForm({
                   )}
                 </Field>
                 <Field
-                  label={i === 0 ? "Alt text" : ""}
+                  label={i === 0 ? t("product_media_alt_label") : ""}
                   htmlFor={`pf-detail-${i}-alt`}
                   error={err(`detailBlocks.${i}.altText`)}
-                  hint={i === 0 ? "英文描述，SEO 与无障碍用。" : undefined}
+                  hint={i === 0 ? t("product_detail_alt_hint") : undefined}
                 >
                   <TextInput
                     id={`pf-detail-${i}-alt`}
-                    aria-label={i === 0 ? undefined : `Detail block ${i + 1} alt text`}
+                    aria-label={i === 0 ? undefined : t("product_detail_alt_aria", { number: i + 1 })}
                     value={block.altText}
                     onChange={(e) => setDetailBlock(i, { altText: e.target.value })}
                     autoComplete="off"
@@ -1871,7 +1755,7 @@ export function ProductForm({
                     className={removeBtnCls}
                     onClick={() => moveDetailBlock(i, -1)}
                     disabled={pending || i === 0}
-                    aria-label={`Move block ${i + 1} up`}
+                    aria-label={t("product_detail_move_up", { number: i + 1 })}
                   >
                     ↑
                   </button>
@@ -1880,7 +1764,7 @@ export function ProductForm({
                     className={removeBtnCls}
                     onClick={() => moveDetailBlock(i, 1)}
                     disabled={pending || i === value.detailBlocks.length - 1}
-                    aria-label={`Move block ${i + 1} down`}
+                    aria-label={t("product_detail_move_down", { number: i + 1 })}
                   >
                     ↓
                   </button>
@@ -1890,7 +1774,7 @@ export function ProductForm({
                     onClick={() => removeDetailBlock(i)}
                     disabled={pending}
                   >
-                    Remove
+                    {t("product_detail_remove")}
                   </button>
                 </div>
               </li>
@@ -1905,7 +1789,7 @@ export function ProductForm({
             onClick={() => addDetailBlock("IMAGE")}
             disabled={pending}
           >
-            Add image
+            {t("product_detail_add_image")}
           </Button>
           <Button
             type="button"
@@ -1914,33 +1798,34 @@ export function ProductForm({
             onClick={() => addDetailBlock("VIDEO")}
             disabled={pending}
           >
-            Add video
+            {t("product_detail_add_video")}
           </Button>
         </div>
 
           </Section>
-            </>
-          )}
+            }
+          />
+        )}
 
           {activeTab === "specs" && (
             <>
               <Section
-                title="Dimensions"
-                hint="全部以厘米 cm 填写。填写后前台 Specifications 自动展示尺寸；可折叠商品建议同时填折叠后尺寸。"
+                title={t("product_specs_dimensions_title")}
+                hint={t("product_specs_dimensions_hint")}
               >
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {DIMENSION_FIELDS.map(({ key, label, hint }) => (
+                  {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
                     <Field
                       key={key}
-                      label={label}
+                      label={t(labelKey)}
                       htmlFor={`pf-${key}`}
                       error={err(key)}
-                      hint={hint}
+                      hint={t(hintKey)}
                     >
                       <TextInput
                         id={`pf-${key}`}
                         inputMode="decimal"
-                        placeholder="选填"
+                        placeholder={t("product_specs_optional_placeholder")}
                         value={value[key]}
                         onChange={(e) => patch({ [key]: e.target.value })}
                         autoComplete="off"
@@ -1951,10 +1836,14 @@ export function ProductForm({
               </Section>
 
               <Section
-                title="Materials"
-                hint="材质说明（如 Solid wood frame, MDF panels）。前台 Specifications 自动读取，不要写进 Description。留空则不显示。"
+                title={t("product_specs_materials_title")}
+                hint={t("product_specs_materials_hint")}
               >
-                <Field label="Materials" htmlFor="pf-materials" error={err("materials")}>
+                <Field
+                  label={t("product_specs_materials_label")}
+                  htmlFor="pf-materials"
+                  error={err("materials")}
+                >
                   <Textarea
                     id="pf-materials"
                     rows={3}
@@ -1966,12 +1855,12 @@ export function ProductForm({
               </Section>
 
               <Section
-                title="Features"
-                hint="功能点列表，一行一条（前台显示为 ✓ 短句）。用 ↑ ↓ 调整顺序；留空则整块不显示。"
+                title={t("product_specs_features_title")}
+                hint={t("product_specs_features_hint")}
               >
                 {value.features.length === 0 ? (
                   <p className="text-sm text-ink-muted">
-                    还没有功能点，点下方按钮添加第一条。
+                    {t("product_specs_features_empty")}
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-2">
@@ -1981,7 +1870,7 @@ export function ProductForm({
                           ✓
                         </span>
                         <TextInput
-                          aria-label={`Feature ${i + 1}`}
+                          aria-label={t("product_specs_feature_aria", { number: i + 1 })}
                           value={line}
                           maxLength={200}
                           onChange={(e) => setFeatureLine(i, e.target.value)}
@@ -1992,7 +1881,7 @@ export function ProductForm({
                           className={removeBtnCls}
                           onClick={() => moveFeatureLine(i, -1)}
                           disabled={pending || i === 0}
-                          aria-label={`Move feature ${i + 1} up`}
+                          aria-label={t("product_specs_feature_move_up", { number: i + 1 })}
                         >
                           ↑
                         </button>
@@ -2001,7 +1890,7 @@ export function ProductForm({
                           className={removeBtnCls}
                           onClick={() => moveFeatureLine(i, 1)}
                           disabled={pending || i === value.features.length - 1}
-                          aria-label={`Move feature ${i + 1} down`}
+                          aria-label={t("product_specs_feature_move_down", { number: i + 1 })}
                         >
                           ↓
                         </button>
@@ -2010,7 +1899,7 @@ export function ProductForm({
                           className={removeBtnCls}
                           onClick={() => removeFeatureLine(i)}
                           disabled={pending}
-                          aria-label={`Remove feature ${i + 1}`}
+                          aria-label={t("product_specs_feature_remove", { number: i + 1 })}
                         >
                           ✕
                         </button>
@@ -2026,7 +1915,7 @@ export function ProductForm({
                   onClick={addFeatureLine}
                   disabled={pending}
                 >
-                  Add feature
+                  {t("product_specs_add_feature")}
                 </Button>
               </Section>
             </>
@@ -2037,8 +1926,8 @@ export function ProductForm({
              options editor + candidate matrix — the legacy free-form list is
              gone (a legacy whole-list write on a graph product would 409). */
           <Section
-            title="Options & Variants 选项与款式"
-            hint="最多两个启用的选项组；矩阵列出全部组合，保存只提交修改过的行，库存随保存一并写入。"
+            title={t("product_variants_typed_title")}
+            hint={t("product_variants_typed_hint")}
           >
             <ProductOptionsEditor
               draft={graphDraft}
@@ -2059,34 +1948,34 @@ export function ProductForm({
              gap). The backend rejects legacy whole-list variants/images
              writes with a named 409, so editing pauses here explicitly. */
           <Section
-            title="Variants & Pricing"
-            hint="该商品使用类型化选项图，整表编辑已暂停。"
+            title={t("product_variants_locked_title")}
+            hint={t("product_variants_locked_hint")}
           >
             <div
               role="alert"
               className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
             >
-              该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），但当前后台接口未返回选项图数据，
-              款式、图片列表与物流字段编辑已暂停，避免旧表单抹掉选项与媒体作用域。
-              基础信息、规格与详情内容仍可正常编辑保存。
+              {t("product_variants_locked_alert", {
+                version: value.graph?.catalogGraphVersion ?? 0,
+              })}
             </div>
           </Section>
         ) : activeTab === "variants" && (
           <Section
-            title="Variants & Pricing"
-            hint="款式 = 顾客可选择的颜色/规格。每个款式对应一个 SKU；至少 1 个勾选 Has SKU 的款式才能销售。包装/重量等物流字段在 Shipping 页统一填写。"
+            title={t("product_variants_legacy_title")}
+            hint={t("product_variants_legacy_hint")}
           >
             {value.variants.length === 0 ? (
               <p className="text-sm text-ink-muted">
-                还没有款式。点下方 Add variant 添加；可销售商品至少需要 1 个带 SKU 的款式。
+                {t("product_variants_legacy_empty")}
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
                 {value.variants.map((vr, i) => (
                   <li key={i} className="rounded-lg bg-background p-4">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
                       <h3 className="text-sm font-semibold text-ink">
-                        {vr.name.trim() || `Variant ${i + 1}`}
+                        {vr.name.trim() || t("product_variant_name_fallback", { number: i + 1 })}
                       </h3>
                       <button
                         type="button"
@@ -2094,17 +1983,17 @@ export function ProductForm({
                         onClick={() => removeVariant(i)}
                         disabled={pending}
                       >
-                        Remove
+                        {t("product_variant_remove")}
                       </button>
                     </div>
 
                     {/* Default-visible fields: name, price, compare-at. */}
                     <div className="mt-3 grid gap-4 md:grid-cols-3">
                       <Field
-                        label="Variant name *"
+                        label={t("product_variant_name_label")}
                         htmlFor={`pf-variants-${i}-name`}
                         error={err(`variants.${i}.name`)}
-                        hint="前台款式按钮文字，通常填颜色；只有一款可填 Default。"
+                        hint={t("product_variant_name_hint")}
                       >
                         <TextInput
                           id={`pf-variants-${i}-name`}
@@ -2134,10 +2023,10 @@ export function ProductForm({
                         disabled={pending}
                       />
                       <span>
-                        Has SKU
+                        {t("product_variant_has_sku")}
                         <span className="font-normal text-ink-muted">
                           {" "}
-                          — 勾选后才能填价格、入库销售；不勾选时该款式在前台只显示 View Details
+                          — {t("product_variant_has_sku_hint")}
                         </span>
                       </span>
                     </label>
@@ -2147,10 +2036,10 @@ export function ProductForm({
                         {/* Default-visible: SKU code, status, stock. */}
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                           <Field
-                            label="SKU code *"
+                            label={t("product_variant_sku_code_label")}
                             htmlFor={`pf-variants-${i}-sku-code`}
                             error={err(`variants.${i}.sku.skuCode`)}
-                            hint="内部库存编码，全店唯一。"
+                            hint={t("product_variant_sku_code_hint")}
                           >
                             <TextInput
                               id={`pf-variants-${i}-sku-code`}
@@ -2162,10 +2051,10 @@ export function ProductForm({
                             />
                           </Field>
                           <Field
-                            label="SKU status"
+                            label={t("product_variant_sku_status_label")}
                             htmlFor={`pf-variants-${i}-sku-status`}
                             error={err(`variants.${i}.sku.status`)}
-                            hint="ACTIVE 可售；DISABLED 停售（数据保留）。"
+                            hint={t("product_variant_sku_status_hint")}
                           >
                             <Select
                               id={`pf-variants-${i}-sku-status`}
@@ -2178,60 +2067,62 @@ export function ProductForm({
                             >
                               {SKU_STATUSES.map((s) => (
                                 <option key={s} value={s}>
-                                  {s}
+                                  {s === "ACTIVE"
+                                    ? t("product_sku_status_ACTIVE")
+                                    : t("product_sku_status_DISABLED")}
                                 </option>
                               ))}
                             </Select>
                           </Field>
                         </div>
 
-                    {/* Stock lives in its own table, which is why the product
-                        form could not see it before. The figure shown is what
-                        the form last read and it is saved back as an absolute
-                        value, so a stale copy cannot corrupt the count the way
-                        a client-computed delta would. */}
-                    <div className="mt-4">
-                      <p className="text-xs font-semibold text-ink-secondary">
-                        Stock 库存
-                      </p>
-                      <p className="mt-0.5 text-xs text-ink-muted">
-                        可售数量，前台据此显示库存状态并在售罄时拦住下单。保存商品时一并写入，后台保留库存流水。
-                      </p>
-                      <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <Field
-                          label="Stock 库存"
-                          htmlFor={`pf-variants-${i}-stock`}
-                          hint={
-                            !vr.sku.id
-                              ? "SKU 尚未创建：保存后会按这里的数量写入库存。"
-                              : vr.sku.reserved !== "0"
-                                ? `已有 ${vr.sku.reserved} 件被未完成订单占用，库存不能低于该数。`
-                                : "当前无订单占用。"
-                          }
-                        >
-                          <TextInput
-                            id={`pf-variants-${i}-stock`}
-                            inputMode="numeric"
-                            value={vr.sku.stock}
-                            onChange={(e) => setSku(i, { stock: e.target.value })}
-                            autoComplete="off"
-                          />
-                        </Field>
-                      </div>
-                    </div>
+                        {/* Stock lives in its own table, which is why the product
+                            form could not see it before. The figure shown is what
+                            the form last read and it is saved back as an absolute
+                            value, so a stale copy cannot corrupt the count the way
+                            a client-computed delta would. */}
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold text-ink-secondary">
+                            {t("product_stock_title")}
+                          </p>
+                          <p className="mt-0.5 text-xs text-ink-muted">
+                            {t("product_stock_hint")}
+                          </p>
+                          <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <Field
+                              label={t("product_stock_label")}
+                              htmlFor={`pf-variants-${i}-stock`}
+                              hint={
+                                !vr.sku.id
+                                  ? t("product_stock_hint_new_sku")
+                                  : vr.sku.reserved !== "0"
+                                    ? t("product_stock_hint_reserved", { reserved: vr.sku.reserved })
+                                    : t("product_stock_hint_clear")
+                              }
+                            >
+                              <TextInput
+                                id={`pf-variants-${i}-stock`}
+                                inputMode="numeric"
+                                value={vr.sku.stock}
+                                onChange={(e) => setSku(i, { stock: e.target.value })}
+                                autoComplete="off"
+                              />
+                            </Field>
+                          </div>
+                        </div>
 
                         {/* Advanced: position, supplier refs, internal costs.
                             Logistics fields live on the Shipping tab. */}
                         <details className="mt-4">
                           <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
-                            Advanced inventory &amp; logistics
+                            {t("product_variant_advanced")}
                           </summary>
                           <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                             <Field
-                              label="Position"
+                              label={t("product_variant_position_label")}
                               htmlFor={`pf-variants-${i}-position`}
                               error={err(`variants.${i}.position`)}
-                              hint="显示顺序，0 起"
+                              hint={t("product_variant_position_hint")}
                             >
                               <TextInput
                                 id={`pf-variants-${i}-position`}
@@ -2245,10 +2136,10 @@ export function ProductForm({
                               />
                             </Field>
                             <Field
-                              label="Supplier SKU"
+                              label={t("product_variant_supplier_sku_label")}
                               htmlFor={`pf-variants-${i}-supplier-sku`}
                               error={err(`variants.${i}.sku.supplierSku`)}
-                              hint="工厂货号/型号，内部使用，前台不显示。"
+                              hint={t("product_variant_supplier_sku_hint")}
                             >
                               <TextInput
                                 id={`pf-variants-${i}-supplier-sku`}
@@ -2260,10 +2151,10 @@ export function ProductForm({
                               />
                             </Field>
                             <Field
-                              label="Cost currency"
+                              label={t("product_variant_currency_label")}
                               htmlFor={`pf-variants-${i}-cost-currency`}
                               error={err(`variants.${i}.sku.costCurrency`)}
-                              hint="成本货币代码，如 CNY。售价固定为 PHP ₱。"
+                              hint={t("product_variant_currency_hint")}
                             >
                               <TextInput
                                 id={`pf-variants-${i}-cost-currency`}
@@ -2279,41 +2170,6 @@ export function ProductForm({
                             {renderSkuField(i, "landedCost")}
                           </div>
                         </details>
-
-                        {/* Stock lives in its own table, which is why the product
-                            form could not see it before. The figure shown is what
-                            the form last read and it is saved back as an absolute
-                            value, so a stale copy cannot corrupt the count the way
-                            a client-computed delta would. */}
-                        <div className="mt-4">
-                          <p className="text-xs font-semibold text-ink-secondary">
-                            Stock 库存
-                          </p>
-                          <p className="mt-0.5 text-xs text-ink-muted">
-                            可售数量，保存商品时一并写入，后台保留库存流水。
-                          </p>
-                          <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                            <Field
-                              label="Stock 库存"
-                              htmlFor={`pf-variants-${i}-stock`}
-                              hint={
-                                !vr.sku.id
-                                  ? "SKU 尚未创建：保存后会按这里的数量写入库存。"
-                                  : vr.sku.reserved !== "0"
-                                    ? `已有 ${vr.sku.reserved} 件被未完成订单占用，库存不能低于该数。`
-                                    : "当前无订单占用。"
-                              }
-                            >
-                              <TextInput
-                                id={`pf-variants-${i}-stock`}
-                                inputMode="numeric"
-                                value={vr.sku.stock}
-                                onChange={(e) => setSku(i, { stock: e.target.value })}
-                                autoComplete="off"
-                              />
-                            </Field>
-                          </div>
-                        </div>
                       </div>
                     ) : null}
                   </li>
@@ -2328,7 +2184,7 @@ export function ProductForm({
               onClick={addVariant}
               disabled={pending}
             >
-              Add variant
+              {t("product_variant_add")}
             </Button>
           </Section>
         )}
@@ -2338,12 +2194,12 @@ export function ProductForm({
              so shipping fields write there (the legacy list rows would be
              dropped from the PATCH and the edits silently lost). */
           <Section
-            title="Shipping — 包装与重量"
-            hint="按 SKU 填写，仅用于发货/运费核算，前台不显示；可先留空，发货前补齐。数据存于选项图的 SKU 行。"
+            title={t("product_shipping_title")}
+            hint={t("product_shipping_typed_hint")}
           >
             {graphDraft.variants.length === 0 ? (
               <p className="text-sm text-ink-muted">
-                还没有款式——先到 Options &amp; Variants 页填写候选款式。
+                {t("product_shipping_typed_empty")}
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
@@ -2353,7 +2209,7 @@ export function ProductForm({
                     className="rounded-lg bg-background p-4"
                   >
                     <p className="text-sm font-semibold text-ink">
-                      {variant.name.trim() || "（未命名款式）"}
+                      {variant.name.trim() || t("product_shipping_unnamed")}
                       {variant.sku?.skuCode.trim() ? (
                         <span className="ml-2 font-normal text-ink-muted">
                           {variant.sku.skuCode.trim()}
@@ -2362,34 +2218,37 @@ export function ProductForm({
                     </p>
                     {variant.sku ? (
                       <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {SHIPPING_SKU_KEYS.map((key) => (
-                          <Field
-                            key={key}
-                            label={SKU_LABELS[key] ?? String(key)}
-                          >
-                            <TextInput
-                              aria-label={`${String(key)} for ${variant.name || "variant"}`}
-                              inputMode="decimal"
-                              value={
-                                variant.sku && variant.sku[key] !== null
-                                  ? String(variant.sku[key])
-                                  : ""
-                              }
-                              onChange={(e) =>
-                                setDraftSkuField(
-                                  variant.combinationKey,
-                                  key,
-                                  e.target.value,
-                                )
-                              }
-                              autoComplete="off"
-                            />
-                          </Field>
-                        ))}
+                        {SHIPPING_SKU_KEYS.map((key) => {
+                          const labelKey = SKU_LABEL_KEYS[key];
+                          return (
+                            <Field
+                              key={key}
+                              label={labelKey ? t(labelKey) : String(key)}
+                            >
+                              <DecimalInput
+                                aria-label={t("product_shipping_field_aria", {
+                                  field: labelKey ? t(labelKey) : String(key),
+                                  variant:
+                                    variant.name.trim() || t("product_shipping_unnamed"),
+                                })}
+                                inputMode="decimal"
+                                value={variant.sku?.[key] ?? null}
+                                onValueChange={(nextValue) =>
+                                  setDraftSkuField(
+                                    variant.combinationKey,
+                                    key,
+                                    nextValue,
+                                  )
+                                }
+                                autoComplete="off"
+                              />
+                            </Field>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="mt-2 text-xs text-ink-muted">
-                        该款式还没有 SKU——在矩阵里填写 SKU code 后再填物流字段。
+                        {t("product_shipping_typed_no_sku")}
                       </p>
                     )}
                   </li>
@@ -2399,21 +2258,22 @@ export function ProductForm({
           </Section>
         ) : activeTab === "shipping" && graphLocked ? (
           <Section
-            title="Shipping — 包装与重量"
-            hint="该商品使用类型化选项图，整表编辑已暂停。"
+            title={t("product_shipping_title")}
+            hint={t("product_shipping_locked_hint")}
           >
             <div
               role="alert"
               className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
             >
-              该商品已迁移到类型化选项图（版本 {value.graph?.catalogGraphVersion ?? 0}），
-              物流字段编辑已暂停（SKU 数据随选项图保存，当前接口未返回图数据）。
+              {t("product_shipping_locked_alert", {
+                version: value.graph?.catalogGraphVersion ?? 0,
+              })}
             </div>
             {value.variants.length > 0 ? (
               <ul className="mt-4 flex flex-col gap-1 text-xs text-ink-muted">
                 {value.variants.map((vr, i) => (
                   <li key={i}>
-                    {vr.name.trim() || `Variant ${i + 1}`}
+                    {vr.name.trim() || t("product_variant_name_fallback", { number: i + 1 })}
                     {vr.sku?.skuCode.trim() ? ` — ${vr.sku.skuCode.trim()}` : ""}
                   </li>
                 ))}
@@ -2422,19 +2282,21 @@ export function ProductForm({
           </Section>
         ) : activeTab === "shipping" && (
           <Section
-            title="Shipping — 包装与重量"
-            hint="按 SKU 填写，仅用于发货/运费核算，前台不显示；可先留空，发货前补齐。与 Variants 页的 Advanced 存的是同一份数据。"
+            title={t("product_shipping_title")}
+            hint={t("product_shipping_legacy_hint")}
           >
             {value.variants.length === 0 ? (
               <p className="text-sm text-ink-muted">
-                还没有款式——先到 Variants &amp; Pricing 页添加。
+                {t("product_shipping_legacy_empty", {
+                  tab: t("product_variants_legacy_title"),
+                })}
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
                 {value.variants.map((vr, i) => (
                   <li key={i} className="rounded-lg bg-background p-4">
                     <p className="text-sm font-semibold text-ink">
-                      {vr.name.trim() || `Variant ${i + 1}`}
+                      {vr.name.trim() || t("product_variant_name_fallback", { number: i + 1 })}
                       {vr.sku?.skuCode.trim() ? (
                         <span className="ml-2 font-normal text-ink-muted">
                           {vr.sku.skuCode.trim()}
@@ -2447,7 +2309,7 @@ export function ProductForm({
                       </div>
                     ) : (
                       <p className="mt-2 text-xs text-ink-muted">
-                        该款式未启用 SKU，无物流字段。
+                        {t("product_shipping_legacy_no_sku")}
                       </p>
                     )}
                   </li>
@@ -2459,10 +2321,10 @@ export function ProductForm({
 
         {activeTab === "seo" && (
           <Section
-            title="SEO"
-            hint="商品网页地址与搜索结果预览。图片 Alt text 在 Media 页每张图上填写。"
+            title={t("product_seo_title")}
+            hint={t("product_seo_hint")}
           >
-            <Field label="Slug *" htmlFor="pf-slug" error={err("slug")}>
+            <Field label={t("product_seo_slug_label")} htmlFor="pf-slug" error={err("slug")}>
               <TextInput
                 id="pf-slug"
                 value={value.slug}
@@ -2472,33 +2334,35 @@ export function ProductForm({
                 autoComplete="off"
               />
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <p className="text-xs text-ink-muted">{SLUG_HINT}</p>
+                <p className="text-xs text-ink-muted">{t("product_slug_hint")}</p>
                 <button
                   type="button"
                   onClick={autoSlug}
                   className="text-xs font-semibold text-cta hover:underline"
                 >
-                  根据名称自动生成
+                  {t("product_seo_autogenerate")}
                 </button>
               </div>
               <p className="text-xs text-ink-muted">
-                保存后不要随意修改，避免旧链接失效。
+                {t("product_seo_slug_stable_hint")}
               </p>
             </Field>
 
             <div className="mt-6">
               <p className="text-xs font-semibold text-ink-secondary">
-                搜索结果预览（示意）
+                {t("product_seo_preview_title")}
               </p>
               <div className="mt-2 max-w-xl rounded-lg bg-background p-4">
                 <p className="truncate text-sm font-semibold text-[#1a0dab]">
-                  {value.name.trim() || "Product name"} | LUWAG Living
+                  {value.name.trim() || t("product_seo_preview_name_fallback")} | LUWAG Living
                 </p>
                 <p className="truncate text-xs text-[#006621]">
                   luwag.ph/products/{value.slug.trim() || "your-slug"}
                 </p>
                 <p className="mt-1 line-clamp-2 text-xs text-ink-secondary">
-                  {(value.tagline.trim() || value.description.trim() || "暂无描述——填好 Tagline 或 Description 后这里显示摘要。").slice(0, 160)}
+                  {(value.tagline.trim() ||
+                    value.description.trim() ||
+                    t("product_seo_preview_desc_fallback")).slice(0, 160)}
                 </p>
               </div>
             </div>
@@ -2506,13 +2370,13 @@ export function ProductForm({
             {value.images.some((img) => img.altText.trim()) ? (
               <div className="mt-6">
                 <p className="text-xs font-semibold text-ink-secondary">
-                  图片 Alt text 概览
+                  {t("product_seo_alt_overview")}
                 </p>
                 <ul className="mt-2 flex flex-col gap-1 text-xs text-ink-muted">
                   {value.images.map((img, i) =>
                     img.altText.trim() ? (
                       <li key={i}>
-                        Image {i + 1}: {img.altText.trim()}
+                        {t("product_seo_alt_item", { number: i + 1, alt: img.altText.trim() })}
                       </li>
                     ) : null,
                   )}
@@ -2520,7 +2384,7 @@ export function ProductForm({
               </div>
             ) : (
               <p className="mt-6 text-xs text-ink-muted">
-                还没有填任何图片 Alt text——到 Media 页补齐，利于 SEO 与无障碍。
+                {t("product_seo_alt_empty")}
               </p>
             )}
           </Section>
@@ -2528,11 +2392,14 @@ export function ProductForm({
 
         {activeTab === "preview" && (
           <Section
-            title="Preview"
-            hint="左边是本表单当前内容的实时预览；整页预览显示已保存版本，需先保存。"
+            title={t("product_form_tab_preview")}
+            hint={t("product_form_preview_unsaved")}
           >
-            <div className="flex flex-col gap-5">
-              <LivePreview>
+            <ProductPreviewPanel
+              savedPreview={savedPreview}
+              currentSlug={value.slug}
+              currentStatus={value.status}
+            >
                 <ProductDetailBody
                   description={value.description}
                   blocks={value.detailBlocks.map((block) => ({
@@ -2555,22 +2422,7 @@ export function ProductForm({
                       null,
                   }}
                 />
-              </LivePreview>
-              {value.slug.trim() ? (
-                <div className="border-t border-border pt-4">
-                  <h4 className="text-xs font-semibold text-ink-secondary">
-                    整页预览（已保存版本，商品详情页）
-                  </h4>
-                  <div className="mt-3">
-                    <StorefrontPreview path={`/products/${value.slug.trim()}`} />
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-ink-muted">
-                  整页预览需要先保存：填好 Slug 并保存后，这里会显示商品详情页的真实效果。
-                </p>
-              )}
-            </div>
+              </ProductPreviewPanel>
           </Section>
         )}
       </div>

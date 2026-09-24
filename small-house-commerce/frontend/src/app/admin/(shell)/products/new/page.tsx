@@ -24,6 +24,7 @@ import {
   type AdminProduct,
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   buildCatalogGraphPatch,
   collectStockBatch,
@@ -68,8 +69,23 @@ const EMPTY_DRAFT_BASELINE: AdminCatalogGraphDraft = {
   media: [],
 };
 
+/**
+ * Sentinel for category rejections that carry no Error message: the visible
+ * copy resolves via t() at render, so no English fallback lives in state.
+ */
+const LOAD_ERROR_FALLBACK = Symbol("categories-load-fallback");
+
+/**
+ * The stock batch settles one entry per requested SKU. An entry that never
+ * arrives means that write was never confirmed — it must stay in the failure
+ * panel rather than be read as success.
+ */
+const STOCK_OUTCOME_MISSING =
+  "The server did not report an outcome for this stock row.";
+
 export default function NewProductPage(): ReactNode {
   const router = useRouter();
+  const { t } = useAdminI18n();
 
   const [initial] = useState<ProductFormValue>(() =>
     emptyProductFormValue(),
@@ -77,7 +93,9 @@ export default function NewProductPage(): ReactNode {
   const [categories, setCategories] = useState<AdminCategoryNode[] | null>(
     null,
   );
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<
+    string | typeof LOAD_ERROR_FALLBACK | null
+  >(null);
   const [nonce, setNonce] = useState(0);
 
   const [pending, setPending] = useState(false);
@@ -109,16 +127,13 @@ export default function NewProductPage(): ReactNode {
         if (!active) return;
         setCategories([]);
         setLoadError(
-          err instanceof Error
-            ? err.message
-            : "Couldn't load categories.",
+          err instanceof Error ? err.message : LOAD_ERROR_FALLBACK,
         );
       });
     return () => {
       active = false;
     };
   }, [nonce]);
-
   // Reset lives in the event handler (not the effect body, which would
   // cascade-render): retry flips back to the skeleton then refetches.
   const retryLoad = (): void => {
@@ -135,10 +150,12 @@ export default function NewProductPage(): ReactNode {
   const retryStockFailures = useCallback(async (): Promise<void> => {
     if (stockFailures.length === 0) return;
     const retryable = stockFailures.filter((failure) => failure.skuId !== "");
+    // Rows the save could never address (no real SKU id) are not retryable —
+    // but they were never written either, so they must outlive the retry
+    // instead of being dropped by a navigation that implies success.
+    const unresolved = stockFailures.filter((failure) => failure.skuId === "");
     if (retryable.length === 0) {
-      setError(
-        "No rows can be retried — continue on the edit page and save there.",
-      );
+      setError(t("product_new_retry_none"));
       return;
     }
     setPending(true);
@@ -154,6 +171,7 @@ export default function NewProductPage(): ReactNode {
       const attemptBySkuId = new Map(
         retryable.map((failure) => [failure.skuId, failure]),
       );
+      const settledSkuIds = new Set(results.map((entry) => entry.skuId));
       const stillFailed: StockFailureRow[] = [];
       for (const entry of results) {
         if (entry.ok) continue;
@@ -165,32 +183,50 @@ export default function NewProductPage(): ReactNode {
           error: entry.error,
         });
       }
+      // Same reconciliation as the create path: a row that was sent but never
+      // settled was not written, so it stays failed.
+      for (const row of retryable) {
+        if (settledSkuIds.has(row.skuId)) continue;
+        stillFailed.push({
+          skuId: row.skuId,
+          onHand: row.onHand,
+          label: row.label,
+          error: STOCK_OUTCOME_MISSING,
+        });
+      }
       if (!mounted.current) return;
-      setStockFailures(stillFailed);
-      if (stillFailed.length === 0) {
+      // Unresolved rows stay in the panel: the retry settled only the rows it
+      // could address, so the save is not complete while they remain.
+      const remaining = [...unresolved, ...stillFailed];
+      setStockFailures(remaining);
+      if (remaining.length === 0) {
         if (createdId) router.push(`/admin/products/${createdId}/edit`);
       } else {
-        setError(`${stillFailed.length} stock update(s) still failed.`);
+        setError(t("product_save_stock_still_failed", { count: remaining.length }));
       }
     } catch (err: unknown) {
       if (!mounted.current) return;
       setError(
-        err instanceof Error ? err.message : "Failed to retry stock updates.",
+        err instanceof Error ? err.message : t("product_save_retry_failed"),
       );
     } finally {
       if (mounted.current) setPending(false);
     }
-  }, [stockFailures, createdId, router]);
+  }, [stockFailures, createdId, router, t]);
 
   const handleSubmit = (v: ProductFormValue): void => {
-    const stockError = validateStockEntry(v);
+    // Once POST succeeds, this page is recovery-only. Re-submitting would either
+    // 409 on the same slug or create a duplicate after the operator edits it;
+    // the persisted row must be continued from its edit-page link instead.
+    if (createdId !== null) return;
+    const stockError = validateStockEntry(v, t);
     if (stockError) {
       setError(stockError);
       return;
     }
     // The form already validated; serialize is pure, so re-running it here
     // cannot fail — it yields the CreateProductInput payload.
-    const result = serializeFormValue(v);
+    const result = serializeFormValue(v, t);
     if (!result.ok) return;
 
     // Typed rows = the operator used the options/matrix editors. A gallery
@@ -202,7 +238,7 @@ export default function NewProductPage(): ReactNode {
     if (v.graphTyped && v.graph) {
       const draft = structuredClone(v.graph);
       stripUnsavableMedia(draft);
-      syncSharedMediaDraft(draft, v.images);
+      syncSharedMediaDraft(draft, result.value.images);
       const hasTypedRows =
         draft.options.length > 0 ||
         draft.variants.length > 0 ||
@@ -272,6 +308,7 @@ export default function NewProductPage(): ReactNode {
             const attemptBySkuId = new Map(
               resolved.ready.map((row) => [row.skuId, row]),
             );
+            const settledSkuIds = new Set(results.map((entry) => entry.skuId));
             for (const entry of results) {
               if (entry.ok) continue;
               const attempt = attemptBySkuId.get(entry.skuId);
@@ -280,6 +317,18 @@ export default function NewProductPage(): ReactNode {
                 onHand: attempt?.onHand ?? 0,
                 label: attempt?.label ?? entry.skuId,
                 error: entry.error,
+              });
+            }
+            // A requested row the response never settled is reconciled by
+            // skuId membership (not by array length), so a dropped or
+            // duplicated entry can never make an unwritten row read as saved.
+            for (const row of resolved.ready) {
+              if (settledSkuIds.has(row.skuId)) continue;
+              failures.push({
+                skuId: row.skuId,
+                onHand: row.onHand,
+                label: row.label,
+                error: STOCK_OUTCOME_MISSING,
               });
             }
           }
@@ -291,7 +340,7 @@ export default function NewProductPage(): ReactNode {
           // rows failed. The panel retries exactly those rows.
           setStockFailures(failures);
           setError(
-            `Product created, but ${failures.length} stock update(s) failed — retry below (only failed rows are sent again).`,
+            t("product_new_stock_partial", { count: failures.length }),
           );
           setPending(false);
           return;
@@ -301,12 +350,12 @@ export default function NewProductPage(): ReactNode {
       } catch (err: unknown) {
         if (!mounted.current) return;
         const message =
-          err instanceof Error ? err.message : "Failed to create product.";
+          err instanceof Error ? err.message : t("product_new_create_failed");
         if (created) {
           // Post-create failure (Phase A graph PATCH / batch transport): the
           // product exists — surface the backend message verbatim; the
           // continue-on-edit link below is the way forward.
-          setError(`Product created, but a later save step failed: ${message}`);
+          setError(t("product_new_later_step_failed", { message }));
           setPending(false);
           return;
         }
@@ -315,7 +364,7 @@ export default function NewProductPage(): ReactNode {
         // maps 409 to the slug-specific alert; other messages stay verbatim.
         setError(
           errorStatus(err) === 409
-            ? "A product with this slug already exists."
+            ? t("product_save_slug_conflict")
             : message,
         );
         setPending(false);
@@ -326,13 +375,13 @@ export default function NewProductPage(): ReactNode {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
-        title="New product"
+        title={t("product_new_title")}
         actions={
           <Link
             href="/admin/products"
             className="text-sm font-semibold text-cta hover:underline"
           >
-            Back to products
+            {t("product_form_back")}
           </Link>
         }
       />
@@ -343,16 +392,20 @@ export default function NewProductPage(): ReactNode {
           className="mt-4 rounded-xl border border-border bg-card p-6"
         >
           <p className="text-sm font-semibold text-ink">
-            Couldn&apos;t load categories.
+            {t("product_new_categories_error_title")}
           </p>
-          <p className="mt-1 text-sm text-ink-muted">{loadError}</p>
+          <p className="mt-1 text-sm text-ink-muted">
+            {loadError === LOAD_ERROR_FALLBACK
+              ? t("product_unknown_error")
+              : loadError}
+          </p>
           <Button
             variant="secondary"
             size="md"
             onClick={retryLoad}
             className="mt-4"
           >
-            Retry
+            {t("common_retry")}
           </Button>
         </div>
       ) : categories === null ? (
@@ -363,14 +416,14 @@ export default function NewProductPage(): ReactNode {
       ) : categories.length === 0 ? (
         <div className="mt-4">
           <EmptyState
-            title="No categories yet."
-            hint="Every product needs a category — create one before adding products."
+            title={t("product_new_no_categories_title")}
+            hint={t("product_new_no_categories_hint")}
             action={
               <Link
                 href="/admin/categories"
                 className="inline-flex h-12 min-w-[140px] items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
               >
-                Go to categories
+                {t("product_new_go_categories")}
               </Link>
             }
           />
@@ -385,12 +438,12 @@ export default function NewProductPage(): ReactNode {
               role="status"
               className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
             >
-              商品已创建（部分步骤可能未完成）。Continue on the edit page:{" "}
+              {t("product_new_partial_success")}{" "}
               <Link
                 href={`/admin/products/${createdId}/edit`}
                 className="font-semibold underline"
               >
-                继续编辑该商品（edit page）
+                {t("product_new_continue_edit")}
               </Link>
             </div>
           ) : null}
@@ -412,6 +465,7 @@ export default function NewProductPage(): ReactNode {
             submitLabel="Create product"
             pending={pending}
             error={error}
+            savedPreview={null}
           />
         </>
       )}
