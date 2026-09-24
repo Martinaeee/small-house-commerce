@@ -119,6 +119,61 @@ describe('catalog graph write DTO', () => {
     });
   });
 
+  it('accepts the md5-minted ids the legacy compat projection stores', () => {
+    // These are real ids minted by 20260921100000_backfill_variant_options:
+    // `md5(namespace || ':' || source_id)::uuid` (catalog-compat.ts mirrors the
+    // same formula). PostgreSQL accepts them as uuid, but the hash leaves the
+    // RFC 4122 version/variant bits unconstrained, so `z.string().uuid()`
+    // rejected every graph the backfill touched — the admin could no longer
+    // save those products.
+    const compatOptionId = '2be07dba-7f8d-f101-fb99-864bb94f90bf';
+    const compatValueId = '7f44714c-79b3-62b0-e06c-1005ecbbb2e6';
+    const compatVariantId = '01a0b305-bd7e-70be-a715-99e7f2ade0d9';
+
+    const result = catalogGraphPatchSchema.safeParse(
+      patch({
+        options: [
+          {
+            id: compatOptionId,
+            kind: 'STYLE',
+            name: 'Style',
+            position: 0,
+            presentation: 'TEXT',
+            isMediaDriver: false,
+            isActive: true,
+            values: [
+              {
+                id: compatValueId,
+                label: 'default',
+                position: 0,
+                isActive: true,
+              },
+            ],
+          },
+        ],
+        variants: [
+          {
+            id: compatVariantId,
+            position: 0,
+            optionValueRefs: [{ id: compatValueId }],
+          },
+        ],
+      }),
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('still rejects ids that are not uuid-shaped', () => {
+    expect(entityRefSchema.safeParse({ id: 'legacy-option-1' }).success).toBe(
+      false,
+    );
+    expect(entityRefSchema.safeParse({ id: 'not-a-uuid' }).success).toBe(false);
+    expect(
+      entityRefSchema.safeParse({ id: '2be07dba-7f8d-f101-fb99' }).success,
+    ).toBe(false);
+  });
+
   it('rejects media with two scopes', () => {
     expect(
       mediaWriteSchema.safeParse({
