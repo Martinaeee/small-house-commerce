@@ -99,11 +99,14 @@ export function VariantMatrix({
   draft = null,
   onChange,
   pending = false,
+  highlightKey = null,
 }: {
   candidates: readonly VariantCandidate[];
   draft?: AdminCatalogGraphDraft | null;
   onChange?: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
+  /** Materialized row the problem rail asked to highlight. */
+  highlightKey?: string | null;
 }): ReactNode {
   const { t } = useAdminI18n();
   const [page, setPage] = useState(1);
@@ -252,10 +255,16 @@ export function VariantMatrix({
                   const sku = row?.sku ?? null;
                   const warning = rowWarnings[candidate.combinationKey];
                   const missingCode = sku !== null && !sku.skuCode.trim();
+                  const rowKeyValue = row ? (row.id ?? row.clientKey ?? "") : "";
                   return (
                     <tr
                       key={candidate.combinationKey}
-                      className="border-b border-border/60 align-middle"
+                      id={rowKeyValue ? `pf-row-${rowKeyValue}` : undefined}
+                      className={`border-b border-border/60 align-middle ${
+                        rowKeyValue && highlightKey === rowKeyValue
+                          ? "ring-2 ring-sale ring-offset-2"
+                          : ""
+                      }`}
                     >
                       <td className="py-2 pr-3">
                         <span className="font-medium text-ink">

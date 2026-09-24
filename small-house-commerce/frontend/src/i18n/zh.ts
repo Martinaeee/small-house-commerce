@@ -484,6 +484,30 @@ export const zh = {
   product_graph_thumbnail_invalid: "选项缩略图必须是有效的图片网址。",
   product_graph_media_url_invalid: "作用域媒体网址必须是有效的 http(s) 或 /uploads/… 链接。",
 
+  // --- Product form: persistent error rail ---
+  product_issue_rail_count: "{count} 个问题待处理",
+  product_issue_rail_show: "查看",
+  product_issue_rail_hide: "收起",
+  product_issue_rail_jump: "跳到该选项",
+  product_issue_action_enable_values: "启用全部 {count} 个选项值",
+  product_issue_action_disable_option: "停用这个选项",
+  product_issue_action_copy: "复制错误信息",
+  product_issue_copied: "已复制",
+  product_issue_detail_active_value_required:
+    "前台至少需要一个可选项才能渲染选择器，所以启用中的选项不能没有启用的选项值。",
+  product_issue_detail_duplicate_value_label:
+    "两个启用中的选项值重名，前台无法区分它们。",
+  product_issue_detail_duplicate_value_position:
+    "两个启用中的选项值占了同一个排序位。",
+  product_issue_detail_value_label_required: "每个启用中的选项值都要填写名称。",
+  product_issue_detail_active_option_limit: "最多只能同时启用两个选项组。",
+  product_issue_detail_media_driver_limit:
+    "只能指定一个选项作为更换商品图的依据。",
+  product_issue_detail_candidate_limit:
+    "启用中的选项值组合数超过上限（100 个款式）。",
+  product_issue_detail_unknown:
+    "这条错误需要人工判断，可以复制信息发给技术同学。",
+
   // --- Product form: serializer / validation errors ---
   product_err_fix_highlighted: "请修正标红字段后重试。",
   product_err_name_required: "商品名必填。",

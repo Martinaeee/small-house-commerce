@@ -488,6 +488,30 @@ export const en: Record<ZhKey, string> = {
     "Value label in option {option} must not be empty.",
   product_graph_media_driver_limit:
     "A catalog graph may have at most one active media-driver option group.",
+  product_issue_rail_count: "{count} issue(s) to resolve",
+  product_issue_rail_show: "Review",
+  product_issue_rail_hide: "Hide",
+  product_issue_rail_jump: "Go to it",
+  product_issue_action_enable_values: "Enable all {count} values",
+  product_issue_action_disable_option: "Disable this option",
+  product_issue_action_copy: "Copy error text",
+  product_issue_copied: "Copied",
+  product_issue_detail_active_value_required:
+    "The storefront needs at least one selectable value to render the picker, so an active option cannot have zero active values.",
+  product_issue_detail_duplicate_value_label:
+    "Two active values share a label, so the storefront cannot tell them apart.",
+  product_issue_detail_duplicate_value_position:
+    "Two active values occupy the same position.",
+  product_issue_detail_value_label_required:
+    "Every active value needs a label.",
+  product_issue_detail_active_option_limit:
+    "At most two option groups can be active at once.",
+  product_issue_detail_media_driver_limit:
+    "Only one option can drive which product images are shown.",
+  product_issue_detail_candidate_limit:
+    "The active values produce more than the 100-variant limit.",
+  product_issue_detail_unknown:
+    "This one needs a human call — copy the text and send it to the team.",
   product_graph_candidate_limit:
     "Active option groups produce {count} candidates; the limit is {limit}.",
   product_graph_structure_invalid:

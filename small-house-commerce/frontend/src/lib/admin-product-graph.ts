@@ -610,6 +610,10 @@ export type AdminCatalogGraphIssueCode =
 
 export interface AdminCatalogGraphIssue {
   code: AdminCatalogGraphIssueCode;
+  /** Draft option key (id ?? clientKey) this issue belongs to, when known. */
+  optionKey?: string;
+  /** Draft option-value key this issue belongs to, when known. */
+  valueKey?: string;
 }
 
 export type AdminCatalogGraphValidationMessageKey =
@@ -650,8 +654,9 @@ export function validateAdminCatalogGraph(
     key: AdminCatalogGraphValidationMessageKey,
     vars: Record<string, string | number>,
     fallback: string,
+    locate: { optionKey?: string; valueKey?: string } = {},
   ): void => {
-    issues.push({ code });
+    issues.push({ code, ...locate });
     errors.push(translate ? translate(key, vars) : fallback);
   };
   const options = activeOptionsSorted(draft);
@@ -677,6 +682,7 @@ export function validateAdminCatalogGraph(
         "product_graph_active_value_required",
         { option: option.name },
         `Active option ${option.name} must have at least one active value.`,
+        { optionKey: rowKey(option) },
       );
       continue;
     }
@@ -690,6 +696,7 @@ export function validateAdminCatalogGraph(
           "product_graph_duplicate_value_label",
           { label: value.label, option: option.name },
           `Duplicate active value label ${value.label} in option ${option.name}.`,
+          { optionKey: rowKey(option), valueKey: rowKey(value) },
         );
       }
       seenLabels.add(label);
@@ -699,6 +706,7 @@ export function validateAdminCatalogGraph(
           "product_graph_duplicate_value_position",
           { position: value.position, option: option.name },
           `Duplicate active value position ${value.position} in option ${option.name}.`,
+          { optionKey: rowKey(option), valueKey: rowKey(value) },
         );
       }
       seenPositions.add(value.position);
@@ -708,6 +716,7 @@ export function validateAdminCatalogGraph(
           "product_graph_value_label_required",
           { option: option.name },
           `Value label in option ${option.name} must not be empty.`,
+          { optionKey: rowKey(option), valueKey: rowKey(value) },
         );
       }
     }
@@ -910,6 +919,20 @@ export function buildCatalogGraphPatch(
   );
   const originalMediaById = new Map(original.media.map((m) => [m.id, m]));
 
+  const valueUpsert = (
+    draftValue: AdminOptionValueDraft,
+  ): CatalogOptionValueUpsert => ({
+    ...(draftValue.id !== undefined
+      ? { id: draftValue.id }
+      : { clientKey: draftValue.clientKey! }),
+    label: draftValue.label,
+    position: draftValue.position,
+    swatchHex: draftValue.swatchHex,
+    thumbnailUrl: draftValue.thumbnailUrl,
+    thumbnailAlt: draftValue.thumbnailAlt,
+    isActive: draftValue.isActive,
+  });
+
   const optionUpserts: CatalogOptionUpsert[] = [];
   for (const draftOption of draft.options) {
     const key = rowKey(draftOption);
@@ -927,21 +950,28 @@ export function buildCatalogGraphPatch(
         continue; // unaddressable new row (see variant guard below)
       }
       if (valueChanged(source?.values.find((v) => v.id === valueKey), draftValue)) {
-        valueRows.push({
-          ...(draftValue.id !== undefined ? { id: draftValue.id } : { clientKey: draftValue.clientKey! }),
-          label: draftValue.label,
-          position: draftValue.position,
-          swatchHex: draftValue.swatchHex,
-          thumbnailUrl: draftValue.thumbnailUrl,
-          thumbnailAlt: draftValue.thumbnailAlt,
-          isActive: draftValue.isActive,
-        });
+        valueRows.push(valueUpsert(draftValue));
       }
     }
     // Values that existed on the server but are gone from the draft retire
     // through the retirements block below (draftValueKeys diff).
     if (source && !optionScalarChanged(source, draftOption) && valueRows.length === 0) {
       continue;
+    }
+    // The backend validates every option upsert as a self-contained option
+    // (`validateOptionGraph` in catalog-graph.dto.ts runs on the patch alone),
+    // so an active option must carry an active value even when this delta only
+    // moved its scalars — otherwise a rename, a reorder, or a gallery-driver
+    // switch would be rejected with "Active option X must have at least one
+    // active value."
+    if (draftOption.isActive && !valueRows.some((row) => row.isActive)) {
+      for (const draftValue of draftOption.values) {
+        if (!draftValue.isActive) continue;
+        if (draftValue.id === undefined && draftValue.clientKey === undefined) {
+          continue;
+        }
+        valueRows.push(valueUpsert(draftValue));
+      }
     }
 
     optionUpserts.push({

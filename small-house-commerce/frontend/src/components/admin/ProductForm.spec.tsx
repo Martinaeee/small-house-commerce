@@ -88,6 +88,115 @@ async function openVariantsTab(): Promise<void> {
   await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
 }
 
+function renderFormWithError(
+  initial: ProductFormValue,
+  error: string,
+): ReturnType<typeof render> {
+  return render(
+    <AdminI18nProvider>
+      <ProductForm
+        initial={initial}
+        categories={[]}
+        onSubmit={vi.fn()}
+        submitLabel="Save changes"
+        pending={false}
+        error={error}
+        savedPreview={null}
+      />
+    </AdminI18nProvider>,
+  );
+}
+
+/**
+ * The problem rail. Blocking problems live inside the sticky chrome, say what
+ * is wrong in the operator's language, and carry the repair — so a rejected
+ * save never leaves the operator guessing.
+ */
+describe("ProductForm problem rail", () => {
+  beforeEach(() => {
+    setAdminLang("zh");
+  });
+
+  const brokenOption: AdminCatalogGraphDraft = {
+    ...typedGraph,
+    options: [
+      {
+        ...typedGraph.options[0],
+        values: typedGraph.options[0].values.map((value) => ({
+          ...value,
+          isActive: false,
+        })),
+      },
+    ],
+  };
+
+  it("keeps the problem inside the sticky header so scrolling never hides it", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue({ graphTyped: true, graph: brokenOption }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    const rail = screen.getByRole("alert");
+    expect(rail.textContent).toContain("1 个问题待处理");
+    expect(rail.textContent).toContain("启用的选项 Color 至少需要一个启用的选项值。");
+    expect(rail.closest(".sticky")).not.toBeNull();
+  });
+
+  it("repairs the graph in one click and clears itself", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue({ graphTyped: true, graph: brokenOption }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    await user.click(screen.getByRole("button", { name: "查看" }));
+
+    expect(screen.getByText("前台至少需要一个可选项才能渲染选择器，所以启用中的选项不能没有启用的选项值。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "停用这个选项" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "选项、价格与库存" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("turns a raw backend rejection into the same translated card", async () => {
+    const user = userEvent.setup();
+    renderFormWithError(
+      baseValue({ graphTyped: true, graph: brokenOption }),
+      "Validation failed: catalogGraph.options: Active option Color must have at least one active value.",
+    );
+
+    const rail = screen.getByRole("alert");
+    expect(rail.textContent).toContain("启用的选项 Color 至少需要一个启用的选项值。");
+    expect(rail.textContent).not.toContain("Validation failed");
+
+    await user.click(screen.getByRole("button", { name: "查看" }));
+    expect(
+      screen.getByRole("button", { name: "停用这个选项" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /跳到该选项/ }));
+    expect(screen.getByRole("tab", { name: "选项、价格与库存" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("keeps an unrecognized rejection readable and copyable", async () => {
+    const user = userEvent.setup();
+    renderFormWithError(
+      baseValue({ graphTyped: true, graph: typedGraph }),
+      "Validation failed: slug: A product with this slug already exists.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "查看" }));
+    // The collapsed line and the expanded card both carry the text.
+    expect(
+      screen.getAllByText("slug: A product with this slug already exists."),
+    ).not.toHaveLength(0);
+    expect(
+      screen.getByRole("button", { name: "复制错误信息" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ProductForm variants tab modes", () => {
   beforeEach(() => {
     setAdminLang("zh");

@@ -200,6 +200,9 @@ interface AdminProductJson {
 // --- admin API helpers (direct backend calls) --------------------------------
 
 let adminToken: string | null = null;
+/** Captured from the same cached login so a test can seed a session without
+ * spending one of the ten admin-login slots per ten minutes. */
+let adminRefreshToken: string | null = null;
 
 async function withAdminToken<T>(
   run: (
@@ -217,7 +220,12 @@ async function withAdminToken<T>(
         login.ok(),
         `admin API login (${login.status()} — the login throttle is 10/10min per IP)`,
       ).toBeTruthy();
-      adminToken = ((await login.json()) as { accessToken: string }).accessToken;
+      const body = (await login.json()) as {
+        accessToken: string;
+        refreshToken: string;
+      };
+      adminToken = body.accessToken;
+      adminRefreshToken = body.refreshToken;
     }
     return await run(adminToken, context);
   } finally {
@@ -878,6 +886,29 @@ async function loginAsAdmin(page: Page): Promise<void> {
 /** Logs in, resolves the seeded product id through the API, opens the editor. */
 async function openEditor(page: Page, slug: string): Promise<string> {
   await loginAsAdmin(page);
+  const productId = await adminProductIdFor(slug);
+  await gotoAdmin(page, `/admin/products/${productId}/edit`);
+  await expect(page.getByRole("tablist")).toBeVisible();
+  return productId;
+}
+
+/**
+ * Opens the editor with a session seeded from the cached login's refresh token.
+ * The admin login route allows ten requests per ten minutes per IP and the gate
+ * spends that budget, so scenarios added late in the file must not log in
+ * again; the app mints its access token from the stored refresh token instead
+ * (that route allows thirty per window).
+ */
+async function openEditorWithStoredSession(
+  page: Page,
+  slug: string,
+): Promise<string> {
+  await withAdminToken(async () => undefined);
+  if (adminRefreshToken === null) throw new Error("no cached admin session");
+  const refreshToken = adminRefreshToken;
+  await page.addInitScript((token) => {
+    window.localStorage.setItem("sh_admin_refresh", token);
+  }, refreshToken);
   const productId = await adminProductIdFor(slug);
   await gotoAdmin(page, `/admin/products/${productId}/edit`);
   await expect(page.getByRole("tablist")).toBeVisible();
@@ -1835,6 +1866,123 @@ test.describe("Scoped media + gallery driver", () => {
       }
       if (cleanupFailures.length > 0) {
         throw new Error(`scoped-media cleanup failed: ${cleanupFailures.join("; ")}`);
+      }
+    }
+  });
+});
+
+/**
+ * The problem rail. Two contracts live here:
+ *  - a scalar-only option change (the gallery-driver switch) must produce a
+ *    patch the backend accepts. The backend validates each option upsert as a
+ *    self-contained graph, so a delta that carried `values: []` for an active
+ *    option used to be rejected with "Active option X must have at least one
+ *    active value." — even though the merged graph was perfectly valid;
+ *  - a genuinely broken graph shows up inside the sticky chrome, stays on
+ *    screen after scrolling to the bottom of the form, and is repairable in
+ *    one click.
+ *
+ * Both live in one test because the admin login throttle allows ten requests
+ * per ten minutes per IP and the scenarios above already spend that budget.
+ */
+test.describe("Problem rail and patch validity", () => {
+  test("saves a driver switch cleanly and repairs a broken graph from the sticky rail", async ({
+    page,
+  }) => {
+    test.setTimeout(360_000);
+    const stopErrors = trackBrowserErrors(page);
+    const before = await adminProduct(COLOR_SIZE_SLUG);
+    const patchBodies: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "PATCH" &&
+        request.url().includes("/admin/products/")
+      ) {
+        patchBodies.push(request.postData() ?? "");
+      }
+    });
+    let primaryError: unknown = null;
+
+    try {
+      await openEditorWithStoredSession(page, COLOR_SIZE_SLUG);
+
+      // --- A. driver switch: a scalar-only option change must save ----------
+      await selectTab(page, "media");
+      await page
+        .getByLabel(ZH.driverSelect, { exact: true })
+        .selectOption({ label: "Size" });
+      await page.locator(SAVE_BUTTON).click();
+      await expect(page.getByText(ZH.saved)).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator("#pf-problem-rail")).toHaveCount(0);
+
+      // Every active option in the delta carries an active value — exactly what
+      // the backend's patch-only validation demands.
+      const graphPatch = patchBodies.find((body) => body.includes("catalogGraph"));
+      expect(graphPatch, "graph PATCH captured").toBeTruthy();
+      const parsed = JSON.parse(graphPatch ?? "{}") as {
+        catalogGraph?: {
+          options?: {
+            name: string;
+            isActive: boolean;
+            values: { isActive: boolean }[];
+          }[];
+        };
+      };
+      const options = parsed.catalogGraph?.options ?? [];
+      expect(options.length).toBeGreaterThan(0);
+      for (const option of options) {
+        if (!option.isActive) continue;
+        expect(
+          option.values.some((value) => value.isActive),
+          `active option ${option.name} carries an active value`,
+        ).toBe(true);
+      }
+      const saved = await adminProduct(COLOR_SIZE_SLUG);
+      expect(
+        optionByName(saved, "Size").isMediaDriver,
+        "the driver switch persisted",
+      ).toBe(true);
+
+      // --- B. broken graph: the rail stays visible and repairs in place -----
+      await selectTab(page, "variants");
+      const group = optionGroup(page, 1);
+      await group.getByLabel("选项值 1 启用", { exact: true }).uncheck();
+      await group.getByLabel("选项值 2 启用", { exact: true }).uncheck();
+      await page.locator(SAVE_BUTTON).click();
+
+      const rail = page.locator("#pf-problem-rail");
+      await expect(rail).toContainText("1 个问题待处理");
+      await expect(rail).toContainText("至少需要一个启用的选项值");
+
+      // The rail rides inside the sticky chrome: it is still on screen after
+      // scrolling to the very bottom of the form.
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await expect(rail).toBeInViewport();
+
+      // One click repairs the graph and clears the rail.
+      await rail.getByRole("button", { name: "查看" }).click();
+      await rail.getByRole("button", { name: "停用这个选项" }).click();
+      await expect(page.locator("#pf-problem-rail")).toHaveCount(0);
+      await expect(
+        group.getByLabel("选项 1 启用", { exact: true }),
+      ).not.toBeChecked();
+
+      await stopErrors();
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      const cleanupFailures = await restoreProductSnapshot(before);
+      if (primaryError) {
+        if (cleanupFailures.length > 0) {
+          throw new AggregateError(
+            [primaryError, ...cleanupFailures.map((message) => new Error(message))],
+            "problem-rail assertions failed; cleanup also reported failures",
+          );
+        }
+        throw primaryError;
+      }
+      if (cleanupFailures.length > 0) {
+        throw new Error(`problem-rail cleanup failed: ${cleanupFailures.join("; ")}`);
       }
     }
   });
