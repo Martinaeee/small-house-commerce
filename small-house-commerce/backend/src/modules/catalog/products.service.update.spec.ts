@@ -65,6 +65,8 @@ function createHarness(options: HarnessOptions = {}) {
   };
 
   const tx = {
+    // product_code_seq lookup; the value only has to be renderable.
+    $queryRaw: vi.fn(async () => [{ value: 1n }]),
     product: {
       create: vi.fn(async () => updatedProduct),
       update: vi.fn(async () => updatedProduct),

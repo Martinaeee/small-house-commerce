@@ -119,6 +119,9 @@ model Product {
   id             String              @id @default(uuid(7)) @db.Uuid
   name           String
   slug           String              @unique
+  /// Internal, operator-facing product number ("P-000001"). Assigned once from
+  /// `product_code_seq`, never reused, and never rendered on the storefront.
+  productCode    String?             @unique @map("product_code")
   description    String?
   // First-screen one-line selling point under the H1; empty hides the row.
   tagline        String?

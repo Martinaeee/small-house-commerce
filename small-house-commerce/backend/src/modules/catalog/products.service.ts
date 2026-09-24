@@ -37,6 +37,18 @@ import {
  */
 const PENDING_RENAME = '__pending_rename__';
 
+/** Widest code the six-digit padding can hold; the sequence is the real guard. */
+const PRODUCT_CODE_WIDTH = 6;
+
+/**
+ * Renders a `product_code_seq` value as the operator-facing product number
+ * ("P-000001"). Six digits keep every code the same width so lists sort
+ * naturally; the sequence keeps them unique and never reuses one.
+ */
+export function formatProductCode(sequenceValue: bigint | number): string {
+  return `P-${String(sequenceValue).padStart(PRODUCT_CODE_WIDTH, '0')}`;
+}
+
 const ADMIN_PRODUCT_INCLUDE = {
   images: {
     where: { optionValueId: null, variantId: null },
@@ -291,8 +303,15 @@ export class ProductsService {
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
+        // Internal product number, minted from the sequence so concurrent
+        // creates cannot collide. It never changes afterwards and is never
+        // rendered on the storefront.
+        const [codeRow] = await tx.$queryRaw<Array<{ value: bigint }>>`
+          SELECT nextval('product_code_seq') AS value
+        `;
         const product = await tx.product.create({
           data: {
+            productCode: formatProductCode(codeRow?.value ?? 0n),
             name: input.name,
             slug: input.slug,
             description: input.description ?? null,

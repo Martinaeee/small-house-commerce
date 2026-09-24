@@ -4,7 +4,7 @@ import type {
   AdminProductQuery,
   StorefrontProductQuery,
 } from './dto/product.dto.js';
-import { ProductsService } from './products.service.js';
+import { ProductsService, formatProductCode } from './products.service.js';
 
 vi.mock('../../common/revalidation.js', () => ({
   CACHE_TAGS: { STOREFRONT: 'storefront' },
@@ -327,6 +327,8 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
     structuredClone(data),
   );
   const tx = {
+    // product_code_seq lookup; the value only has to be renderable.
+    $queryRaw: vi.fn(async () => [{ value: 7n }]),
     product: {
       create: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID })),
       update: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID, variants: [] })),
@@ -407,6 +409,24 @@ describe('ProductsService graph-v0 variant compatibility', () => {
     },
   );
 
+  it('mints the operator-facing product number from the sequence on create', async () => {
+    const harness = createLegacyWriteHarness();
+
+    await harness.service.create({
+      name: 'Numbered product',
+      slug: 'numbered-product',
+      categoryId: 'category-id',
+      status: 'DRAFT',
+      solutions: [],
+      images: [],
+      detailBlocks: [],
+      variants: [],
+    } as never);
+
+    const [call] = harness.tx.product.create.mock.calls;
+    expect(call?.[0].data.productCode).toBe('P-000007');
+  });
+
   it('adds a sentinel variant while preserving retained variant, SKU, and key identities', async () => {
     const existingKey = legacyUnmappedCombinationKey(EXISTING_VARIANT_ID);
     const harness = createLegacyWriteHarness([
@@ -459,5 +479,15 @@ describe('ProductsService graph-v0 variant compatibility', () => {
         }),
       }),
     );
+  });
+});
+
+describe("formatProductCode", () => {
+  it("renders sequence values as stable six-digit product numbers", () => {
+    expect(formatProductCode(1n)).toBe("P-000001");
+    expect(formatProductCode(7)).toBe("P-000007");
+    expect(formatProductCode(999999n)).toBe("P-999999");
+    // Past six digits the code simply grows; the sequence stays unique.
+    expect(formatProductCode(1234567n)).toBe("P-1234567");
   });
 });
