@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deserializeProduct } from "@/app/admin/(shell)/products/[id]/edit/page";
 import { appendImage, serializeFormValue, type ProductFormValue } from "@/components/admin/ProductForm";
+import { syncSharedMediaDraft } from "@/lib/admin-product-graph";
 import type { AdminProduct } from "@/lib/admin-api";
 
 /**
@@ -118,5 +119,68 @@ describe("appendImage", () => {
     const orders = result.value.images.map((image) => image.sortOrder);
     expect(orders).toEqual([0, 1, 2, 3]);
     expect(new Set(orders).size).toBe(orders.length);
+  });
+
+  it("keeps scoped graph media disjoint when shared gallery rows reorder", () => {
+    const value = deserializeProduct(productWithImages([0, 1, 2]));
+    value.graph = {
+      catalogGraphVersion: 3,
+      defaultDisplayVariantRef: null,
+      options: [],
+      variants: [],
+      media: [
+        {
+          id: "shared-1",
+          url: "/uploads/shared-1.jpg",
+          type: "IMAGE",
+          altText: null,
+          sortOrder: 0,
+          optionValueRef: null,
+          variantRef: null,
+        },
+        {
+          id: "scoped-1",
+          url: "/uploads/scoped.jpg",
+          type: "IMAGE",
+          altText: null,
+          sortOrder: 0,
+          optionValueRef: { id: "value-1" },
+          variantRef: null,
+        },
+        {
+          id: "shared-2",
+          url: "/uploads/shared-2.jpg",
+          type: "IMAGE",
+          altText: null,
+          sortOrder: 1,
+          optionValueRef: null,
+          variantRef: null,
+        },
+      ],
+    };
+
+    // The operator drags the shared gallery into a new order, then saves:
+    // the save path syncs the form gallery onto the draft's shared rows and
+    // must leave scoped rows (option-value/variant) untouched.
+    value.images.reverse();
+    syncSharedMediaDraft(value.graph, value.images);
+
+    const scoped = value.graph.media.filter(
+      (row) => row.optionValueRef !== null || row.variantRef !== null,
+    );
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]).toMatchObject({
+      id: "scoped-1",
+      url: "/uploads/scoped.jpg",
+      optionValueRef: { id: "value-1" },
+    });
+    const shared = value.graph.media.filter(
+      (row) => row.optionValueRef === null && row.variantRef === null,
+    );
+    expect(shared.map((row) => row.url)).toEqual([
+      "https://example.test/2.jpg",
+      "https://example.test/1.jpg",
+      "https://example.test/0.jpg",
+    ]);
   });
 });

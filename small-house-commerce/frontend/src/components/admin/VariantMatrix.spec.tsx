@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
+import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { GraphDraftHarness, draftJson } from "@/test/harness";
 import type {
   AdminCatalogGraphDraft,
@@ -13,6 +15,11 @@ import { VariantMatrix } from "@/components/admin/VariantMatrix";
  * Task 11 — the 30-row candidate matrix: client-side pagination, bulk edits,
  * lazy row materialization with stable client keys, stock input guardrails,
  * and the protected-disable affordances for persisted rows.
+ *
+ * Task 3 — the matrix is fully localized through the admin i18n provider
+ * (zh default, coherent en), keeps its local horizontal scroller without
+ * forcing page-level overflow, and translates the raw SKU status enums while
+ * the wire values stay ACTIVE/DISABLED.
  */
 
 function makeCandidates(n: number): VariantCandidate[] {
@@ -36,6 +43,10 @@ function draft(overrides: Partial<AdminCatalogGraphDraft> = {}): AdminCatalogGra
   };
 }
 
+function withProvider(children: ReactNode): ReactNode {
+  return <AdminI18nProvider>{children}</AdminI18nProvider>;
+}
+
 function Harness({
   candidates,
   initial,
@@ -43,13 +54,13 @@ function Harness({
   candidates: VariantCandidate[];
   initial: AdminCatalogGraphDraft;
 }) {
-  return (
+  return withProvider(
     <GraphDraftHarness
       initial={initial}
       render={(draft, onChange) => (
         <VariantMatrix candidates={candidates} draft={draft} onChange={onChange} />
       )}
-    />
+    />,
   );
 }
 
@@ -58,25 +69,29 @@ function draftVariants(): AdminVariantDraft[] {
 }
 
 describe("VariantMatrix", () => {
+  beforeEach(() => {
+    setAdminLang("zh");
+  });
+
   it("renders only the current thirty-row matrix page", () => {
-    render(<VariantMatrix candidates={makeCandidates(31)} />);
+    render(withProvider(<VariantMatrix candidates={makeCandidates(31)} />));
 
     expect(screen.getAllByRole("row")).toHaveLength(31);
-    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
   });
 
   it("paginates to the remaining rows and back", async () => {
     const user = userEvent.setup();
-    render(<VariantMatrix candidates={makeCandidates(31)} />);
+    render(withProvider(<VariantMatrix candidates={makeCandidates(31)} />));
 
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "下一页" }));
     expect(screen.getAllByRole("row")).toHaveLength(2);
     expect(screen.getByText("Variant 31")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await user.click(screen.getByRole("button", { name: "上一页" }));
     expect(screen.getByText("Variant 1")).toBeInTheDocument();
   });
 
@@ -84,8 +99,8 @@ describe("VariantMatrix", () => {
     const user = userEvent.setup();
     render(<Harness candidates={makeCandidates(31)} initial={draft()} />);
 
-    await user.type(screen.getByLabelText("Bulk price"), "199");
-    await user.click(screen.getByRole("button", { name: "Apply price to page" }));
+    await user.type(screen.getByLabelText("批量售价"), "199");
+    await user.click(screen.getByRole("button", { name: "本页统一售价" }));
 
     const rows = draftVariants();
     expect(rows).toHaveLength(30); // page 1 only; row 31 untouched
@@ -99,8 +114,8 @@ describe("VariantMatrix", () => {
     const user = userEvent.setup();
     render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
 
-    await user.type(screen.getByLabelText("SKU code for Variant 1"), "SH-001");
-    await user.type(screen.getByLabelText("Price for Variant 1"), "1299");
+    await user.type(screen.getByLabelText("Variant 1 的 SKU 编码"), "SH-001");
+    await user.type(screen.getByLabelText("Variant 1 的售价"), "1299");
 
     const rows = draftVariants();
     expect(rows).toHaveLength(1);
@@ -149,7 +164,7 @@ describe("VariantMatrix", () => {
       />,
     );
 
-    const stock = screen.getByLabelText("Stock for Variant 1");
+    const stock = screen.getByLabelText("Variant 1 的库存");
     await user.clear(stock);
     await user.type(stock, "6");
     const rows = draftVariants();
@@ -178,17 +193,42 @@ describe("VariantMatrix", () => {
       />,
     );
 
-    await user.type(screen.getByLabelText("Stock for Variant 1"), "x");
-    expect(screen.getByText(/whole number/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Variant 1 的库存"), "x");
+    expect(screen.getByText(/库存必须是 0 以上的整数/)).toBeInTheDocument();
     expect(draftVariants()[0].sku).toBeNull();
+  });
+
+  it("preserves character-by-character decimal price and compare-at input", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
+
+    await user.type(screen.getByLabelText("Variant 1 的售价"), "19.95");
+    await user.type(screen.getByLabelText("Variant 1 的划线价"), "29.5");
+
+    expect(screen.getByLabelText("Variant 1 的售价")).toHaveValue("19.95");
+    expect(screen.getByLabelText("Variant 1 的划线价")).toHaveValue("29.5");
+    expect(draftVariants()[0].sku?.price).toBe(19.95);
+    expect(draftVariants()[0].sku?.compareAtPrice).toBe(29.5);
+  });
+
+  it("clears an edited decimal when its draft-only row is removed", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
+
+    const price = screen.getByLabelText("Variant 1 的售价");
+    await user.type(price, "5");
+    await user.click(screen.getByRole("button", { name: "移除该行" }));
+
+    expect(draftVariants()).toHaveLength(0);
+    expect(price).toHaveValue("");
   });
 
   it("flags a priced row that still has no SKU code", async () => {
     const user = userEvent.setup();
     render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
 
-    await user.type(screen.getByLabelText("Price for Variant 1"), "1299");
-    expect(screen.getByText(/SKU code is required/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Variant 1 的售价"), "1299");
+    expect(screen.getByText(/保存前需要填写 SKU 编码/)).toBeInTheDocument();
   });
 
   it("offers Remove for draft-only rows but only protected disable for persisted rows", async () => {
@@ -214,13 +254,13 @@ describe("VariantMatrix", () => {
 
     const persistedRow = screen.getByText("Variant 1").closest("tr");
     expect(persistedRow).not.toBeNull();
-    expect(within(persistedRow!).queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    expect(within(persistedRow!).queryByRole("button", { name: "移除该行" })).not.toBeInTheDocument();
     expect(
       within(persistedRow!).getByText(/有订单\/库存引用/),
     ).toBeInTheDocument();
 
     const draftRow = screen.getByText("Variant 2").closest("tr");
-    await user.click(within(draftRow!).getByRole("button", { name: "Remove" }));
+    await user.click(within(draftRow!).getByRole("button", { name: "移除该行" }));
     const rows = draftVariants();
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe("variant-1");
@@ -264,9 +304,41 @@ describe("VariantMatrix", () => {
     );
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Status for Variant 1" }),
+      screen.getByRole("combobox", { name: "Variant 1 的状态" }),
       "DISABLED",
     );
     expect(draftVariants()[0].sku?.status).toBe("DISABLED");
+  });
+
+  it("translates the raw SKU status enums while the option values stay wire values", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
+
+    await user.type(screen.getByLabelText("Variant 1 的 SKU 编码"), "SH-001");
+    const status = screen.getByRole("combobox", { name: "Variant 1 的状态" });
+    expect(screen.getByRole("option", { name: "在售" })).toHaveAttribute("value", "ACTIVE");
+    expect(screen.getByRole("option", { name: "停售" })).toHaveAttribute("value", "DISABLED");
+
+    await user.selectOptions(status, "DISABLED");
+    expect(draftVariants()[0].sku?.status).toBe("DISABLED");
+  });
+
+  it("keeps a local horizontal scroller with an explicit narrow-screen hint", () => {
+    render(withProvider(<VariantMatrix candidates={makeCandidates(31)} />));
+
+    expect(screen.getByText(/表格可横向滚动/)).toBeInTheDocument();
+    const scroller = screen.getByRole("table").parentElement;
+    expect(scroller?.className).toContain("overflow-x-auto");
+  });
+
+  it("renders a coherent English matrix through the same provider", () => {
+    setAdminLang("en");
+    render(withProvider(<VariantMatrix candidates={makeCandidates(1)} />));
+
+    expect(screen.getByText("Variant matrix")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bulk price")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply price to page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByText("The table scrolls horizontally to show all columns.")).toBeInTheDocument();
   });
 });

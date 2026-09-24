@@ -2,6 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import { inputCls } from "@/components/admin/Field";
+import { DecimalInput } from "@/components/admin/DecimalInput";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   type AdminCatalogGraphDraft,
   type AdminSkuDraft,
@@ -103,6 +105,7 @@ export function VariantMatrix({
   onChange?: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
 }): ReactNode {
+  const { t } = useAdminI18n();
   const [page, setPage] = useState(1);
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkStock, setBulkStock] = useState("");
@@ -148,8 +151,8 @@ export function VariantMatrix({
     if (!valid) {
       setBulkError(
         kind === "price"
-          ? "Bulk price must be a number of 0 or more."
-          : "Bulk stock must be a whole number of 0 or more.",
+          ? t("product_matrix_bulk_price_error")
+          : t("product_matrix_bulk_stock_error"),
       );
       return;
     }
@@ -167,18 +170,21 @@ export function VariantMatrix({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm font-semibold text-ink">
-          Variant matrix 款式矩阵
+          {t("product_matrix_title")}
           <span className="ml-2 font-normal text-ink-muted">
-            {candidates.length} 个候选 · 每页 {MATRIX_PAGE_SIZE} 行 · 保存只提交修改过的行
+            {t("product_matrix_summary", {
+              count: candidates.length,
+              pageSize: MATRIX_PAGE_SIZE,
+            })}
           </span>
         </p>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input
-            aria-label="Bulk price"
+            aria-label={t("product_matrix_bulk_price_aria")}
             className={`${inputCls} w-32`}
             inputMode="decimal"
             value={bulkPrice}
-            placeholder="统一售价 ₱"
+            placeholder={t("product_matrix_bulk_price_placeholder")}
             onChange={(e) => setBulkPrice(e.target.value)}
             disabled={!editable}
             autoComplete="off"
@@ -189,14 +195,14 @@ export function VariantMatrix({
             onClick={() => applyBulk("price")}
             disabled={!editable}
           >
-            Apply price to page
+            {t("product_matrix_apply_price")}
           </button>
           <input
-            aria-label="Bulk stock"
+            aria-label={t("product_matrix_bulk_stock_aria")}
             className={`${inputCls} w-32`}
             inputMode="numeric"
             value={bulkStock}
-            placeholder="统一库存"
+            placeholder={t("product_matrix_bulk_stock_placeholder")}
             onChange={(e) => setBulkStock(e.target.value)}
             disabled={!editable}
             autoComplete="off"
@@ -207,7 +213,7 @@ export function VariantMatrix({
             onClick={() => applyBulk("stock")}
             disabled={!editable}
           >
-            Apply stock to page
+            {t("product_matrix_apply_stock")}
           </button>
         </div>
       </div>
@@ -218,206 +224,217 @@ export function VariantMatrix({
       ) : null}
 
       {candidates.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          没有候选款式：启用选项组并至少添加一个值后，这里会列出全部组合。
-        </p>
+        <p className="text-sm text-ink-muted">{t("product_matrix_empty")}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-secondary">
-                <th className="py-2 pr-3">Variant 款式</th>
-                <th className="py-2 pr-3">SKU code</th>
-                <th className="py-2 pr-3">Price ₱</th>
-                <th className="py-2 pr-3">Compare-at ₱</th>
-                <th className="py-2 pr-3">Stock 库存</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.map((candidate) => {
-                const row = rowFor(candidate);
-                const persisted = row?.id !== undefined;
-                const sku = row?.sku ?? null;
-                const warning = rowWarnings[candidate.combinationKey];
-                const missingCode = sku !== null && !sku.skuCode.trim();
-                return (
-                  <tr
-                    key={candidate.combinationKey}
-                    className="border-b border-border/60 align-middle"
-                  >
-                    <td className="py-2 pr-3">
-                      <span className="font-medium text-ink">
-                        {candidate.name}
-                      </span>
-                      <span
-                        className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                          persisted
-                            ? "bg-primary-light/60 text-ink-secondary"
-                            : "bg-emerald-100 text-emerald-800"
-                        }`}
-                      >
-                        {persisted ? "已有" : "新"}
-                      </span>
-                      {row?.hasReferences ? (
-                        <span className="ml-1 text-xs text-ink-muted">
-                          有订单/库存引用
+        <>
+          {/* Local horizontal scroller only — the page never overflows; the
+              hint names the narrow-screen access pattern explicitly. */}
+          <p className="text-xs text-ink-muted md:hidden">
+            {t("product_matrix_scroll_hint")}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[880px] text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-secondary">
+                  <th className="py-2 pr-3">{t("product_matrix_col_variant")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_sku_code")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_price")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_compare_at")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_stock")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_status")}</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((candidate) => {
+                  const row = rowFor(candidate);
+                  const persisted = row?.id !== undefined;
+                  const sku = row?.sku ?? null;
+                  const warning = rowWarnings[candidate.combinationKey];
+                  const missingCode = sku !== null && !sku.skuCode.trim();
+                  return (
+                    <tr
+                      key={candidate.combinationKey}
+                      className="border-b border-border/60 align-middle"
+                    >
+                      <td className="py-2 pr-3">
+                        <span className="font-medium text-ink">
+                          {candidate.name}
                         </span>
-                      ) : null}
-                      {warning ? (
-                        <p className="text-xs text-red-700" role="status">
-                          {warning}
-                        </p>
-                      ) : null}
-                      {missingCode ? (
-                        <p className="text-xs text-red-700" role="status">
-                          SKU code is required before saving.
-                        </p>
-                      ) : null}
-                      {persisted ? (
-                        <p className="text-xs text-ink-muted">
-                          已保存款式不在此删除——停用对应选项值后由系统停用/清理。
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        aria-label={`SKU code for ${candidate.name}`}
-                        className={`${inputCls} w-36`}
-                        value={sku?.skuCode ?? ""}
-                        onChange={(e) =>
-                          editSku(candidate, { skuCode: e.target.value })
-                        }
-                        disabled={!editable}
-                        autoComplete="off"
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        aria-label={`Price for ${candidate.name}`}
-                        className={`${inputCls} w-28`}
-                        inputMode="decimal"
-                        value={sku?.price === null || sku === null ? "" : String(sku.price)}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            editSku(candidate, { price: null });
-                            setWarning(candidate.combinationKey, null);
-                          } else if (PRICE_RE.test(raw)) {
-                            editSku(candidate, { price: Number(raw) });
-                            setWarning(candidate.combinationKey, null);
-                          } else {
-                            setWarning(
-                              candidate.combinationKey,
-                              "Price must be a number of 0 or more.",
-                            );
-                          }
-                        }}
-                        disabled={!editable}
-                        autoComplete="off"
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        aria-label={`Compare-at for ${candidate.name}`}
-                        className={`${inputCls} w-28`}
-                        inputMode="decimal"
-                        value={
-                          sku?.compareAtPrice === null || sku === null
-                            ? ""
-                            : String(sku.compareAtPrice)
-                        }
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            editSku(candidate, { compareAtPrice: null });
-                            setWarning(candidate.combinationKey, null);
-                          } else if (PRICE_RE.test(raw)) {
-                            editSku(candidate, { compareAtPrice: Number(raw) });
-                            setWarning(candidate.combinationKey, null);
-                          } else {
-                            setWarning(
-                              candidate.combinationKey,
-                              "Compare-at price must be a number of 0 or more.",
-                            );
-                          }
-                        }}
-                        disabled={!editable}
-                        autoComplete="off"
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        aria-label={`Stock for ${candidate.name}`}
-                        className={`${inputCls} w-24`}
-                        inputMode="numeric"
-                        value={sku === null ? "" : String(sku.onHand)}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            editSku(candidate, { onHand: 0 });
-                            setWarning(candidate.combinationKey, null);
-                          } else if (NUM_RE.test(raw)) {
-                            editSku(candidate, { onHand: Number(raw) });
-                            setWarning(candidate.combinationKey, null);
-                          } else {
-                            setWarning(
-                              candidate.combinationKey,
-                              "Stock must be a whole number of 0 or more.",
-                            );
-                          }
-                        }}
-                        disabled={!editable}
-                        autoComplete="off"
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      {sku ? (
-                        <select
-                          aria-label={`Status for ${candidate.name}`}
-                          className={`${inputCls} w-32`}
-                          value={sku.status}
+                        <span
+                          className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
+                            persisted
+                              ? "bg-primary-light/60 text-ink-secondary"
+                              : "bg-emerald-100 text-emerald-800"
+                          }`}
+                        >
+                          {persisted
+                            ? t("product_matrix_persisted")
+                            : t("product_matrix_new")}
+                        </span>
+                        {row?.hasReferences ? (
+                          <span className="ml-1 text-xs text-ink-muted">
+                            {t("product_matrix_has_references")}
+                          </span>
+                        ) : null}
+                        {warning ? (
+                          <p className="text-xs text-red-700" role="status">
+                            {warning}
+                          </p>
+                        ) : null}
+                        {missingCode ? (
+                          <p className="text-xs text-red-700" role="status">
+                            {t("product_matrix_missing_code")}
+                          </p>
+                        ) : null}
+                        {persisted ? (
+                          <p className="text-xs text-ink-muted">
+                            {t("product_matrix_persisted_note")}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          aria-label={t("product_matrix_sku_code_aria", {
+                            name: candidate.name,
+                          })}
+                          className={`${inputCls} w-36`}
+                          value={sku?.skuCode ?? ""}
                           onChange={(e) =>
-                            editSku(candidate, {
-                              status: e.target.value as AdminSkuDraft["status"],
-                            })
+                            editSku(candidate, { skuCode: e.target.value })
                           }
                           disabled={!editable}
-                        >
-                          <option value="ACTIVE">ACTIVE</option>
-                          <option value="DISABLED">DISABLED</option>
-                        </select>
-                      ) : (
-                        <span className="text-xs text-ink-muted">无 SKU</span>
-                      )}
-                    </td>
-                    <td className="py-2 text-right">
-                      {!persisted && editable ? (
-                        <button
-                          type="button"
-                          className="text-sm font-semibold text-red-700 hover:underline"
-                          onClick={() =>
-                            onChange?.((draft) => {
-                              const index = draft.variants.findIndex(
-                                (item) =>
-                                  item.combinationKey ===
-                                  candidate.combinationKey,
-                              );
-                              if (index >= 0) draft.variants.splice(index, 1);
-                            })
+                          autoComplete="off"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <DecimalInput
+                          aria-label={t("product_matrix_price_aria", {
+                            name: candidate.name,
+                          })}
+                          className={`${inputCls} w-28`}
+                          inputMode="decimal"
+                          value={sku?.price ?? null}
+                          onValueChange={(price) => {
+                            editSku(candidate, { price });
+                            setWarning(candidate.combinationKey, null);
+                          }}
+                          onValidityChange={(valid) =>
+                            setWarning(
+                              candidate.combinationKey,
+                              valid ? null : t("product_matrix_warning_price"),
+                            )
                           }
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                          disabled={!editable}
+                          autoComplete="off"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <DecimalInput
+                          aria-label={t("product_matrix_compare_at_aria", {
+                            name: candidate.name,
+                          })}
+                          className={`${inputCls} w-28`}
+                          inputMode="decimal"
+                          value={sku?.compareAtPrice ?? null}
+                          onValueChange={(compareAtPrice) => {
+                            editSku(candidate, { compareAtPrice });
+                            setWarning(candidate.combinationKey, null);
+                          }}
+                          onValidityChange={(valid) =>
+                            setWarning(
+                              candidate.combinationKey,
+                              valid
+                                ? null
+                                : t("product_matrix_warning_compare_at"),
+                            )
+                          }
+                          disabled={!editable}
+                          autoComplete="off"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          aria-label={t("product_matrix_stock_aria", {
+                            name: candidate.name,
+                          })}
+                          className={`${inputCls} w-24`}
+                          inputMode="numeric"
+                          value={sku === null ? "" : String(sku.onHand)}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === "") {
+                              editSku(candidate, { onHand: 0 });
+                              setWarning(candidate.combinationKey, null);
+                            } else if (NUM_RE.test(raw)) {
+                              editSku(candidate, { onHand: Number(raw) });
+                              setWarning(candidate.combinationKey, null);
+                            } else {
+                              setWarning(
+                                candidate.combinationKey,
+                                t("product_matrix_warning_stock"),
+                              );
+                            }
+                          }}
+                          disabled={!editable}
+                          autoComplete="off"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        {sku ? (
+                          <select
+                            aria-label={t("product_matrix_status_aria", {
+                              name: candidate.name,
+                            })}
+                            className={`${inputCls} w-32`}
+                            value={sku.status}
+                            onChange={(e) =>
+                              editSku(candidate, {
+                                status: e.target.value as AdminSkuDraft["status"],
+                              })
+                            }
+                            disabled={!editable}
+                          >
+                            <option value="ACTIVE">
+                              {t("product_sku_status_ACTIVE")}
+                            </option>
+                            <option value="DISABLED">
+                              {t("product_sku_status_DISABLED")}
+                            </option>
+                          </select>
+                        ) : (
+                          <span className="text-xs text-ink-muted">
+                            {t("product_matrix_no_sku")}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-right">
+                        {!persisted && editable ? (
+                          <button
+                            type="button"
+                            className="text-sm font-semibold text-red-700 hover:underline"
+                            onClick={() =>
+                              onChange?.((draft) => {
+                                const index = draft.variants.findIndex(
+                                  (item) =>
+                                    item.combinationKey ===
+                                    candidate.combinationKey,
+                                );
+                                if (index >= 0) draft.variants.splice(index, 1);
+                              })
+                            }
+                          >
+                            {t("product_matrix_remove")}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <div className="flex items-center gap-3">
@@ -427,10 +444,10 @@ export function VariantMatrix({
           onClick={() => setPage(current - 1)}
           disabled={current <= 1}
         >
-          Previous page
+          {t("product_matrix_previous")}
         </button>
         <span className="text-sm text-ink-secondary">
-          Page {current} / {totalPages}
+          {t("product_matrix_page_status", { current, total: totalPages })}
         </span>
         <button
           type="button"
@@ -438,7 +455,7 @@ export function VariantMatrix({
           onClick={() => setPage(current + 1)}
           disabled={current >= totalPages}
         >
-          Next page
+          {t("product_matrix_next")}
         </button>
       </div>
     </div>

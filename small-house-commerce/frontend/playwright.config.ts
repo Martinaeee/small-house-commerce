@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { assertE2EDatabaseUrl } from "./src/lib/e2e-guard";
 
 /**
  * Task 20 — Phase 1 browser acceptance gate.
@@ -38,6 +39,7 @@ const PG_PASSWORD = process.env.E2E_PG_PASSWORD ?? "postgres";
 export const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${TEST_DB}?schema=public`;
+assertE2EDatabaseUrl(E2E_DATABASE_URL);
 
 const BACKEND_ENV = {
   PORT: String(BACKEND_PORT),
@@ -69,17 +71,17 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "pnpm --dir ../backend exec nest start",
+      command: "pnpm --dir ../backend exec tsx ../frontend/e2e/bootstrap.ts",
       url: `http://127.0.0.1:${BACKEND_PORT}/api/v1`,
       timeout: 300_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: BACKEND_ENV,
     },
     {
       command: `pnpm exec next dev -p ${FRONTEND_PORT}`,
       url: FRONTEND_ORIGIN,
       timeout: 300_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: {
         API_TARGET: `http://127.0.0.1:${BACKEND_PORT}`,
         NEXT_TELEMETRY_DISABLED: "1",

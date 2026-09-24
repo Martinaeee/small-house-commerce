@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { describe, expect, it, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GraphDraftHarness, draftJson } from "@/test/harness";
 import type {
@@ -8,6 +8,7 @@ import type {
   AdminOptionValueDraft,
 } from "@/lib/admin-product-graph";
 import { ProductOptionsEditor } from "@/components/admin/ProductOptionsEditor";
+import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
 /**
  * Task 11 — typed option group editing: kinds/presentations, media driver,
@@ -62,14 +63,20 @@ function draft(
 
 function Harness({ initial }: { initial: AdminCatalogGraphDraft }) {
   return (
-    <GraphDraftHarness
-      initial={initial}
-      render={(draft, onChange) => (
-        <ProductOptionsEditor draft={draft} onChange={onChange} />
-      )}
-    />
+    <AdminI18nProvider>
+      <GraphDraftHarness
+        initial={initial}
+        render={(draft, onChange) => (
+          <ProductOptionsEditor draft={draft} onChange={onChange} />
+        )}
+      />
+    </AdminI18nProvider>
   );
 }
+
+beforeEach(() => {
+  setAdminLang("en");
+});
 
 async function setTypeahead(
   user: ReturnType<typeof userEvent.setup>,
@@ -80,15 +87,14 @@ async function setTypeahead(
 }
 
 describe("ProductOptionsEditor", () => {
-  it("renders group name, kind, and presentation controls", () => {
+  it("renders operator names for option name, type, display style, and values", () => {
     render(<Harness initial={draft([optionDraft()])} />);
 
     expect(screen.getByLabelText("Option 1 name")).toHaveValue("Color");
-    expect(screen.getByLabelText("Option 1 kind")).toHaveValue("COLOR");
-    expect(screen.getByLabelText("Option 1 presentation")).toHaveValue("TEXT");
-    expect(
-      screen.getByRole("checkbox", { name: "Option 1 media driver" }),
-    ).not.toBeChecked();
+    expect(screen.getByLabelText("Option 1 type")).toHaveValue("COLOR");
+    expect(screen.getByLabelText("Option 1 display style")).toHaveValue("TEXT");
+    expect(screen.getByText(/Option values/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Option 1 media driver" })).not.toBeInTheDocument();
   });
 
   it("renames a group through onChange", async () => {
@@ -129,13 +135,13 @@ describe("ProductOptionsEditor", () => {
     // Adding a fourth group is blocked…
     expect(screen.getByRole("button", { name: /Add option group/i })).toBeDisabled();
     // …and the third (inactive) group cannot be activated.
-    const thirdActive = screen.getByRole("checkbox", { name: "Option 3 active" });
-    expect(thirdActive).toBeDisabled();
+    const thirdEnabled = screen.getByRole("checkbox", { name: "Option 3 enabled" });
+    expect(thirdEnabled).toBeDisabled();
     expect(
-      screen.getByText(/最多同时启用两个选项组/),
+      screen.getByText(/At most two option groups can be enabled/),
     ).toBeInTheDocument();
 
-    await user.click(thirdActive).catch(() => undefined);
+    await user.click(thirdEnabled).catch(() => undefined);
     // Clicking a disabled checkbox must not mutate the draft.
     expect(
       (draftJson() as AdminCatalogGraphDraft).options[2].isActive,
@@ -165,7 +171,7 @@ describe("ProductOptionsEditor", () => {
     );
 
     // Summary shows the real count; the alert names the cap violation.
-    expect(screen.getByText(/候选款式：110/)).toBeInTheDocument();
+    expect(screen.getAllByText(/110 candidates/).length).toBeGreaterThan(0);
     expect(screen.getByRole("alert")).toHaveTextContent(/110/);
     expect(screen.getByRole("alert")).toHaveTextContent(/100/);
   });
@@ -174,8 +180,8 @@ describe("ProductOptionsEditor", () => {
     const user = userEvent.setup();
     render(<Harness initial={draft([optionDraft()])} />);
 
-    await setTypeahead(user, "Option 1 presentation", "SWATCH");
-    const swatch = screen.getByLabelText("Value 1 swatch hex");
+    await setTypeahead(user, "Option 1 display style", "SWATCH");
+    const swatch = screen.getAllByLabelText("Value 1 swatch hex")[1]!;
     await user.type(swatch, "#ff0000");
     expect(
       (draftJson() as AdminCatalogGraphDraft).options[0].values[0].swatchHex,
@@ -186,8 +192,9 @@ describe("ProductOptionsEditor", () => {
     const user = userEvent.setup();
     render(<Harness initial={draft([optionDraft()])} />);
 
-    await setTypeahead(user, "Option 1 presentation", "IMAGE");
-    expect(screen.getByText(/建议上传缩略图/)).toBeInTheDocument();
+    await setTypeahead(user, "Option 1 display style", "IMAGE");
+    expect(screen.getByText(/selector thumbnail/i)).toBeInTheDocument();
+    expect(screen.getByText(/falls back to the first image/i)).toBeInTheDocument();
 
     // The existing ImageUrlInput uploader is reused (upload button present).
     expect(
@@ -201,7 +208,7 @@ describe("ProductOptionsEditor", () => {
     expect(screen.queryByText(/建议上传缩略图/)).not.toBeInTheDocument();
   });
 
-  it("deactivates a persisted value (protected) instead of removing it", async () => {
+  it("disables a persisted value with the status control instead of removing it", async () => {
     const user = userEvent.setup();
     render(
       <Harness
@@ -211,13 +218,9 @@ describe("ProductOptionsEditor", () => {
       />,
     );
 
-    // Persisted values offer deactivate, never a hard Remove.
-    expect(screen.queryByRole("button", { name: /^Remove$/ })).not.toBeInTheDocument();
-    const valueRow = screen.getByLabelText("Value 1 label").closest("li");
-    expect(valueRow).not.toBeNull();
-    await user.click(
-      within(valueRow as HTMLElement).getByRole("button", { name: /Deactivate/i }),
-    );
+    expect(screen.queryByRole("button", { name: /Remove option value/i })).not.toBeInTheDocument();
+    const status = screen.getByRole("checkbox", { name: "Value 1 enabled" });
+    await user.click(status);
     const state = draftJson() as AdminCatalogGraphDraft;
     expect(state.options[0].values[0].isActive).toBe(false);
     expect(state.options[0].values[0].id).toBe("val-1");
@@ -227,17 +230,114 @@ describe("ProductOptionsEditor", () => {
     const user = userEvent.setup();
     render(<Harness initial={draft([optionDraft()])} />);
 
-    await user.click(screen.getByRole("button", { name: /^Remove$/ }));
+    await user.click(screen.getByRole("button", { name: "Remove option value" }));
     expect(
       (draftJson() as AdminCatalogGraphDraft).options[0].values,
     ).toHaveLength(0);
+  });
+
+  it("removes media and variants orphaned by a draft-only value", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={draft([optionDraft()], {
+          variants: [
+            {
+              clientKey: "variant-new",
+              name: "Red",
+              position: 0,
+              combinationKey: "red",
+              optionValueRefs: [{ clientKey: "value-1" }],
+              sku: null,
+            },
+          ],
+          media: [
+            {
+              clientKey: "value-media",
+              url: "not-a-url",
+              type: "IMAGE",
+              altText: null,
+              sortOrder: 0,
+              optionValueRef: { clientKey: "value-1" },
+              variantRef: null,
+            },
+            {
+              clientKey: "variant-media",
+              url: "not-a-url",
+              type: "IMAGE",
+              altText: null,
+              sortOrder: 0,
+              optionValueRef: null,
+              variantRef: { clientKey: "variant-new" },
+            },
+          ],
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove option value" }));
+
+    const state = draftJson() as AdminCatalogGraphDraft;
+    expect(state.options[0].values).toHaveLength(0);
+    expect(state.variants).toHaveLength(0);
+    expect(state.media).toHaveLength(0);
+  });
+
+  it("removes media and variants orphaned by a draft-only option group", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={draft(
+          [optionDraft({ id: undefined, clientKey: "option-new" })],
+          {
+            variants: [
+              {
+                clientKey: "variant-new",
+                name: "Red",
+                position: 0,
+                combinationKey: "red",
+                optionValueRefs: [{ clientKey: "value-1" }],
+                sku: null,
+              },
+            ],
+            media: [
+              {
+                clientKey: "value-media",
+                url: "not-a-url",
+                type: "IMAGE",
+                altText: null,
+                sortOrder: 0,
+                optionValueRef: { clientKey: "value-1" },
+                variantRef: null,
+              },
+              {
+                clientKey: "variant-media",
+                url: "not-a-url",
+                type: "IMAGE",
+                altText: null,
+                sortOrder: 0,
+                optionValueRef: null,
+                variantRef: { clientKey: "variant-new" },
+              },
+            ],
+          },
+        )}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove option group" }));
+
+    const state = draftJson() as AdminCatalogGraphDraft;
+    expect(state.options).toHaveLength(0);
+    expect(state.variants).toHaveLength(0);
+    expect(state.media).toHaveLength(0);
   });
 
   it("adds a value and a new group with request-local client keys", async () => {
     const user = userEvent.setup();
     render(<Harness initial={draft([optionDraft()])} />);
 
-    await user.click(screen.getByRole("button", { name: "Add value" }));
+    await user.click(screen.getByRole("button", { name: "Add option value" }));
     await user.type(screen.getByLabelText("Value 2 label"), "Blue");
 
     const state = draftJson() as AdminCatalogGraphDraft;
@@ -252,28 +352,52 @@ describe("ProductOptionsEditor", () => {
     expect(next.options[1].kind).toBe("COLOR");
   });
 
-  it("allows exactly one media driver and blocks a second", async () => {
+  it("uses one enabled status control for a persisted group without a deactivate action", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={draft([optionDraft()])} />);
+
+    const status = screen.getByRole("checkbox", { name: "Option 1 enabled" });
+    expect(status).toBeChecked();
+    expect(screen.queryByRole("button", { name: /Deactivate/i })).not.toBeInTheDocument();
+
+    await user.click(status);
+    const state = draftJson() as AdminCatalogGraphDraft;
+    expect(state.options[0].isActive).toBe(false);
+    expect(state.options[0].id).toBe("option-1");
+  });
+
+  it("keeps the same enabled control and offers remove only for an unsaved group", async () => {
     const user = userEvent.setup();
     render(
       <Harness
         initial={draft([
-          optionDraft({ isMediaDriver: true }),
-          optionDraft({
-            id: "option-2",
-            name: "Size",
-            kind: "SIZE",
-            position: 1,
-            values: [valueDraft({ clientKey: "value-s", label: "M" })],
-          }),
+          optionDraft({ id: undefined, clientKey: "option-new" }),
         ])}
       />,
     );
 
-    const second = screen.getByRole("checkbox", { name: "Option 2 media driver" });
-    expect(second).toBeDisabled();
-    await user.click(second).catch(() => undefined);
-    expect(
-      (draftJson() as AdminCatalogGraphDraft).options[1].isMediaDriver,
-    ).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "Option 1 enabled" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Remove option group" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove option group" }));
+    expect((draftJson() as AdminCatalogGraphDraft).options).toHaveLength(0);
+  });
+
+  it("uses one enabled status control for a persisted value without a deactivate action", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={draft([
+          optionDraft({ values: [valueDraft({ id: "value-1", clientKey: undefined })] }),
+        ])}
+      />,
+    );
+
+    const status = screen.getByRole("checkbox", { name: "Value 1 enabled" });
+    expect(status).toBeChecked();
+    expect(screen.queryByRole("button", { name: /Deactivate/i })).not.toBeInTheDocument();
+    await user.click(status);
+    const state = draftJson() as AdminCatalogGraphDraft;
+    expect(state.options[0].values[0].isActive).toBe(false);
+    expect(state.options[0].values[0].id).toBe("value-1");
   });
 });
