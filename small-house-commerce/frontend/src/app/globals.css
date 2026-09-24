@@ -35,6 +35,15 @@
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
 
+  /* Admin chrome (back office only): a deep green rail on the warm page
+     background, with its own text ramp so the storefront palette stays
+     untouched. */
+  --color-admin-rail: #16352b;
+  --color-admin-rail-hover: #1e4636;
+  --color-admin-rail-active: #26543f;
+  --color-admin-rail-text: #e7efe9;
+  --color-admin-rail-muted: #9db3a8;
+
   /* §6 typography: system stack for loading speed (§27 Rule 3, §26) */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;

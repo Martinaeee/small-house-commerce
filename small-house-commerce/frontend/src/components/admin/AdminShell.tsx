@@ -55,8 +55,8 @@ function navLinkClass(active: boolean): string {
   return [
     "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
     active
-      ? "bg-primary-light/40 text-cta"
-      : "text-ink-secondary hover:bg-primary-light/40 hover:text-cta",
+      ? "bg-admin-rail-active text-white"
+      : "text-admin-rail-muted hover:bg-admin-rail-hover hover:text-white",
   ].join(" ");
 }
 
@@ -217,9 +217,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
   return (
     <>
       {/* Desktop fixed sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-border bg-card md:flex">
-        <div className="flex h-14 items-center border-b border-border px-5">
-          <span className="text-base font-bold text-cta">LUWAG Admin</span>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col bg-admin-rail md:flex">
+        <div className="flex h-14 items-center border-b border-white/10 px-5">
+          <span className="text-base font-bold tracking-tight text-white">
+            LUWAG <span className="font-medium text-admin-rail-muted">Admin</span>
+          </span>
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <NavList items={nav} pathname={pathname} />
@@ -293,12 +295,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
               role="dialog"
               aria-modal="true"
               aria-label="Admin menu"
-              className={`absolute inset-y-0 left-0 flex w-64 flex-col bg-card shadow-xl transition-transform duration-200 ease-out motion-reduce:transition-none ${
+              className={`absolute inset-y-0 left-0 flex w-64 flex-col bg-admin-rail shadow-xl transition-transform duration-200 ease-out motion-reduce:transition-none ${
                 drawerOpen ? "translate-x-0" : "-translate-x-full"
               }`}
             >
-              <div className="flex items-center justify-between border-b border-border px-4 py-4">
-                <span className="text-base font-bold text-cta">LUWAG Admin</span>
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+                <span className="text-base font-bold tracking-tight text-white">
+                  LUWAG{" "}
+                  <span className="font-medium text-admin-rail-muted">Admin</span>
+                </span>
                 <button
                   ref={closeButtonRef}
                   type="button"
@@ -307,7 +312,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     hamburgerRef.current?.focus();
                   }}
                   aria-label="Close admin menu"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-ink hover:bg-primary-light/40"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-admin-rail-text hover:bg-admin-rail-hover"
                 >
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-5 w-5">
                     <path

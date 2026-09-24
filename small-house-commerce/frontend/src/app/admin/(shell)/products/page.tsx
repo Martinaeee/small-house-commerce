@@ -19,12 +19,16 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { ProductQuickView } from "@/components/admin/ProductQuickView";
 import { Button } from "@/components/ui/Button";
 import {
+  ADMIN_PRODUCT_ATTENTION,
   adminApi,
   formatAmount,
   type AdminCategoryNode,
   type AdminProduct,
+  type AdminProductAttention,
+  type AdminProductCounts,
   type Paged,
   type ProductStatus,
 } from "@/lib/admin-api";
@@ -47,6 +51,43 @@ const STATUS_LABEL_KEYS: Record<ProductStatus, TKey> = {
   ACTIVE: "product_form_status_active",
   DISABLED: "product_form_status_disabled",
 };
+
+// "Needs attention" preset labels; the wire values stay the API's snake_case.
+const ATTENTION_LABEL_KEYS: Record<AdminProductAttention, TKey> = {
+  missing_media: "products_attention_missing_media",
+  no_priced_sku: "products_attention_no_priced_sku",
+  incomplete_shipping: "products_attention_incomplete_shipping",
+  stale_draft: "products_attention_stale_draft",
+};
+
+// The storefront column reports the SAVED status — the only thing a shopper can
+// reach — never a form selection that has not been written yet.
+const STOREFRONT_LABEL_KEYS: Record<ProductStatus, TKey> = {
+  ACTIVE: "products_storefront_live",
+  DRAFT: "products_storefront_draft",
+  DISABLED: "products_storefront_unpublished",
+};
+
+/** Distinct ACTIVE SKU prices, ascending. Empty when nothing is sellable. */
+function activePrices(row: AdminProduct): number[] {
+  const prices = new Set<number>();
+  for (const variant of row.variants) {
+    const sku = variant.sku;
+    if (!sku || sku.status !== "ACTIVE" || sku.price === null) continue;
+    const price = Number(sku.price);
+    if (Number.isFinite(price)) prices.add(price);
+  }
+  return [...prices].sort((left, right) => left - right);
+}
+
+/** One price, or a "from – to" range when the variants disagree. */
+function priceLabel(row: AdminProduct): string {
+  const prices = activePrices(row);
+  if (prices.length === 0) return "—";
+  const lowest = formatAmount(prices[0]);
+  const highest = formatAmount(prices[prices.length - 1]);
+  return lowest === highest ? lowest : `${lowest} – ${highest}`;
+}
 
 /**
  * Sentinel for list rejections that carry no Error message: the visible copy
@@ -89,14 +130,22 @@ function ProductsPageContent() {
     ? (rawStatus as ProductStatus)
     : "";
   const categoryId = searchParams.get("categoryId") ?? "";
+  const rawAttention = searchParams.get("attention");
+  const attention = ADMIN_PRODUCT_ATTENTION.includes(
+    rawAttention as AdminProductAttention,
+  )
+    ? (rawAttention as AdminProductAttention)
+    : "";
   const page =
     Math.max(1, Number.parseInt(searchParams.get("page") ?? "", 10)) || 1;
 
-  const filtersActive = Boolean(search || status || categoryId);
+  const filtersActive = Boolean(search || status || categoryId || attention);
 
   // Blocked-delete page alert (kept across refetch); declared before the
   // URL-filter callbacks so they can clear it when filters change.
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Read-only peek at one product; never a second editing surface.
+  const [quickView, setQuickView] = useState<AdminProduct | null>(null);
 
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -174,6 +223,9 @@ function ProductsPageContent() {
   // --- list data ------------------------------------------------------------
 
   const [data, setData] = useState<Paged<AdminProduct> | null>(null);
+  // Server-aggregated counters: the status totals and every "needs attention"
+  // preset. Never derived from the visible page.
+  const [counts, setCounts] = useState<AdminProductCounts | null>(null);
   const [error, setError] = useState<
     string | typeof LOAD_ERROR_FALLBACK | null
   >(null);
@@ -182,6 +234,7 @@ function ProductsPageContent() {
     status,
     search,
     categoryId,
+    attention,
     String(page),
     String(nonce),
   ].join("|");
@@ -192,6 +245,23 @@ function ProductsPageContent() {
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
+  // Counters refresh with the list (nonce bumps on delete/retry). A failure
+  // only hides the strip — the table must still render.
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .productCounts()
+      .then((res) => {
+        if (active) setCounts(res);
+      })
+      .catch(() => {
+        // Keep the previous counters rather than flashing zeros.
+      });
+    return () => {
+      active = false;
+    };
+  }, [nonce]);
+
   useEffect(() => {
     let active = true;
     adminApi
@@ -199,6 +269,7 @@ function ProductsPageContent() {
         status: status || undefined,
         search: search || undefined,
         categoryId: categoryId || undefined,
+        attention: attention || undefined,
         page,
       })
       .then((res) => {
@@ -233,7 +304,7 @@ function ProductsPageContent() {
     return () => {
       active = false;
     };
-  }, [queryKey, status, search, categoryId, page, pathname, router, searchParams]);
+  }, [queryKey, status, search, categoryId, attention, page, pathname, router, searchParams]);
   // --- delete ---------------------------------------------------------------
 
   // The row object is captured so the dialog can show its name even after the
@@ -413,6 +484,74 @@ function ProductsPageContent() {
         </div>
       ) : null}
 
+      {/* Status counters and "needs attention" presets. Both are aggregated in
+          the database; clicking either applies the matching list filter. */}
+      {counts ? (
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {(
+              [
+                { value: "", labelKey: "products_status_all", count: counts.status.all },
+                { value: "ACTIVE", labelKey: "product_form_status_active", count: counts.status.active },
+                { value: "DRAFT", labelKey: "product_form_status_draft", count: counts.status.draft },
+                { value: "DISABLED", labelKey: "product_form_status_disabled", count: counts.status.disabled },
+              ] as const satisfies readonly { value: string; labelKey: TKey; count: number }[]
+            ).map((card) => {
+              const selected = status === card.value;
+              return (
+                <button
+                  key={card.value || "all"}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    patchParams({ status: card.value || null, page: null })
+                  }
+                  className={`rounded-xl border bg-card px-4 py-3 text-left transition-colors ${
+                    selected ? "border-cta" : "border-border hover:border-primary"
+                  }`}
+                >
+                  <span className="block text-xs font-medium text-ink-secondary">
+                    {t(card.labelKey)}
+                  </span>
+                  <span className="mt-1 block text-xl font-semibold text-ink">
+                    {card.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+            <span className="text-sm font-semibold text-ink">
+              {t("products_attention_title")}
+            </span>
+            {ADMIN_PRODUCT_ATTENTION.map((key) => {
+              const selected = attention === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    patchParams({ attention: selected ? null : key, page: null })
+                  }
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    selected
+                      ? "border-cta bg-primary-light/40 text-cta"
+                      : "border-border text-ink-secondary hover:border-primary hover:text-cta"
+                  }`}
+                >
+                  {t(ATTENTION_LABEL_KEYS[key])}
+                  <span className="ml-1.5 font-semibold">
+                    {counts.attention[key]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {/* Table / states */}
       <div className="mt-4">
         {loading ? (
@@ -469,12 +608,14 @@ function ProductsPageContent() {
               <caption className="sr-only">{t("products_title")}</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <th scope="col" className="px-4 py-3">{t("products_col_code")}</th>
                   <th scope="col" className="px-4 py-3">{t("products_col_product")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_slug")}</th>
                   <th scope="col" className="px-4 py-3">{t("products_col_category")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_skus")}</th>
                   <th scope="col" className="px-4 py-3">{t("products_col_status")}</th>
                   <th scope="col" className="px-4 py-3">{t("products_col_price")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_variants")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_media")}</th>
+                  <th scope="col" className="px-4 py-3">{t("products_col_storefront")}</th>
                   <th scope="col" className="px-4 py-3">{t("products_col_updated")}</th>
                   <th scope="col" className="px-4 py-3">{t("common_actions")}</th>
                 </tr>
@@ -488,30 +629,46 @@ function ProductsPageContent() {
                       key={row.id}
                       className="border-b border-border last:border-0"
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <PlaceholderImage
-                            label={row.name}
-                            className="h-12 w-12 shrink-0 overflow-hidden rounded-lg"
-                          />
-                          <span
-                            className="max-w-[220px] truncate font-medium text-ink"
-                            title={row.name}
-                          >
-                            {row.name}
-                          </span>
-                        </div>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-ink-secondary">
+                        {row.productCode ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className="block max-w-[180px] truncate text-ink-secondary"
-                          title={row.slug}
-                        >
-                          {row.slug}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          {row.images[0] ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
+                            <img
+                              src={row.images[0].url}
+                              alt=""
+                              className="h-12 w-12 shrink-0 rounded-lg border border-border object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <PlaceholderImage
+                              label={row.name}
+                              className="h-12 w-12 shrink-0 overflow-hidden rounded-lg"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <span
+                              className="block max-w-[220px] truncate font-medium text-ink"
+                              title={row.name}
+                            >
+                              {row.name}
+                            </span>
+                            <span
+                              className="block max-w-[220px] truncate text-xs text-ink-muted"
+                              title={row.slug}
+                            >
+                              {row.slug}
+                            </span>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-ink-secondary">
                         {categoryNames.get(row.categoryId) ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-ink-secondary">
+                        {row.variants.length}
                       </td>
                       <td className="px-4 py-3">
                         <Badge
@@ -520,10 +677,43 @@ function ProductsPageContent() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                        {formatAmount(row.variants[0]?.sku?.price ?? null)}
+                        {priceLabel(row)}
                       </td>
-                      <td className="px-4 py-3 text-ink-secondary">
-                        {row.variants.length}
+                      <td className="px-4 py-3">
+                        {row.images.length === 0 ? (
+                          <span className="text-xs text-ink-muted">
+                            {t("products_media_none")}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5">
+                            {row.images.slice(0, 3).map((image) => (
+                              // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail strip.
+                              <img
+                                key={image.id}
+                                src={image.url}
+                                alt=""
+                                className="h-8 w-8 rounded border border-border object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ))}
+                            {row.images.length > 3 ? (
+                              <span className="text-xs text-ink-muted">
+                                +{row.images.length - 3}
+                              </span>
+                            ) : null}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-xs font-medium ${
+                            row.status === "ACTIVE"
+                              ? "text-success"
+                              : "text-ink-muted"
+                          }`}
+                        >
+                          {t(STOREFRONT_LABEL_KEYS[row.status])}
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
                         {new Date(row.updatedAt).toLocaleString("en-PH", {
@@ -536,27 +726,46 @@ function ProductsPageContent() {
                       </td>
                       <td className="px-4 py-3">
                         {canManage ? (
-                          <div className="flex gap-3">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setQuickView(row)}
+                              className="text-sm font-semibold text-cta hover:underline"
+                            >
+                              {t("products_quick_view")}
+                            </button>
                             <Link
                               href={`/admin/products/${row.id}/edit`}
                               className="text-sm font-semibold text-cta hover:underline"
                             >
                               {t("common_edit")}
                             </Link>
-                            <Link
-                              href={`/admin/products/${row.id}/reviews`}
-                              className="text-sm font-semibold text-cta hover:underline"
-                            >
-                              {t("products_action_reviews")}
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => openDelete(row)}
-                              disabled={rowBusy}
-                              className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                            >
-                              {t("common_delete")}
-                            </button>
+                            {/* Destructive and rare actions stay folded away:
+                                a product with order history is not disposable. */}
+                            <details className="relative">
+                              <summary
+                                aria-label={t("products_more_actions")}
+                                className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-lg border border-border text-ink-secondary hover:border-primary hover:text-cta"
+                              >
+                                ⋯
+                              </summary>
+                              <div className="absolute right-0 z-10 mt-1 flex w-40 flex-col rounded-lg border border-border bg-card p-1 shadow-lg">
+                                <Link
+                                  href={`/admin/products/${row.id}/reviews`}
+                                  className="rounded px-3 py-2 text-sm text-ink hover:bg-primary-light/30"
+                                >
+                                  {t("products_action_reviews")}
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => openDelete(row)}
+                                  disabled={rowBusy}
+                                  className="rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-ink-muted"
+                                >
+                                  {t("common_delete")}
+                                </button>
+                              </div>
+                            </details>
                           </div>
                         ) : (
                           <span className="text-ink-muted">—</span>
@@ -619,6 +828,14 @@ function ProductsPageContent() {
           </form>
         ) : null}
       </Dialog>
+
+      <ProductQuickView
+        row={quickView}
+        categoryName={
+          quickView ? categoryNames.get(quickView.categoryId) : undefined
+        }
+        onClose={() => setQuickView(null)}
+      />
     </div>
   );
 }

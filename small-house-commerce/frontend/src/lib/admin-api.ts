@@ -349,10 +349,27 @@ export interface AdminDetailBlock {
   sortOrder: number;
 }
 
+/** "Needs attention" presets: the value filters the list AND names its counter. */
+export const ADMIN_PRODUCT_ATTENTION = [
+  "missing_media",
+  "no_priced_sku",
+  "incomplete_shipping",
+  "stale_draft",
+] as const;
+export type AdminProductAttention = (typeof ADMIN_PRODUCT_ATTENTION)[number];
+
+/** Server-aggregated list counters (the list itself is paginated). */
+export interface AdminProductCounts {
+  status: { all: number; active: number; draft: number; disabled: number };
+  attention: Record<AdminProductAttention, number>;
+}
+
 export interface AdminProduct {
   id: string;
   name: string;
   slug: string;
+  /** Internal, operator-facing product number ("P-000001"); never on the storefront. */
+  productCode: string | null;
   description: string | null;
   /** First-screen one-line selling point under the H1; null/empty hides it. */
   tagline: string | null;
@@ -1072,6 +1089,7 @@ export const adminApi = {
     search?: string;
     status?: ProductStatus;
     categoryId?: string;
+    attention?: AdminProductAttention;
     page?: number;
     pageSize?: number;
   }): Promise<Paged<AdminProduct>> =>
@@ -1080,10 +1098,18 @@ export const adminApi = {
         search: p.search,
         status: p.status,
         categoryId: p.categoryId,
+        attention: p.attention,
         page: p.page,
         pageSize: p.pageSize,
       })}`,
     ),
+
+  /**
+   * List counters, aggregated server-side. The list itself is paginated, so a
+   * count derived from the visible page would be wrong.
+   */
+  productCounts: (): Promise<AdminProductCounts> =>
+    adminAuthedFetch<AdminProductCounts>("/api/v1/admin/products/counts"),
 
   getProduct: (id: string): Promise<AdminProduct> =>
     adminAuthedFetch<AdminProduct>(

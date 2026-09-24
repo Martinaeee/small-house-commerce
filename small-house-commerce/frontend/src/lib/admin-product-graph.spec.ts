@@ -165,6 +165,7 @@ function productFor(graph: AdminCatalogGraph): AdminProduct {
     id: PRODUCT_ID,
     name: "Chair",
     slug: "chair",
+    productCode: "P-000001",
     description: null,
     tagline: null,
     categoryId: CATEGORY_ID,

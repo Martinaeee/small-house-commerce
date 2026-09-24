@@ -16,11 +16,21 @@ vi.mock("next/navigation", () => ({
 
 const listProducts = vi.fn();
 const listCategories = vi.fn();
+const productCounts = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
+  ADMIN_PRODUCT_ATTENTION: [
+    "missing_media",
+    "no_priced_sku",
+    "incomplete_shipping",
+    "stale_draft",
+  ],
   adminApi: {
     listProducts: (...args: unknown[]) => listProducts(...args),
     listCategories: (...args: unknown[]) => listCategories(...args),
+    productCounts: (...args: unknown[]) => productCounts(...args),
+    getProduct: vi.fn(),
+    listProductLandingPages: vi.fn(),
     deleteProduct: vi.fn(),
   },
   formatAmount: (value: unknown) => (value === null || value === undefined ? "—" : `₱${value}`),
@@ -37,6 +47,7 @@ const ROW: AdminProduct = {
   id: "p1",
   name: "Chair",
   slug: "chair",
+  productCode: "P-000001",
   description: null,
   tagline: null,
   categoryId: "c1",
@@ -103,6 +114,15 @@ describe("AdminProductsPage localization", () => {
       pageSize: 20,
     } satisfies Paged<AdminProduct>);
     listCategories.mockReset().mockResolvedValue([]);
+    productCounts.mockReset().mockResolvedValue({
+      status: { all: 1, active: 0, draft: 1, disabled: 0 },
+      attention: {
+        missing_media: 0,
+        no_priced_sku: 0,
+        incomplete_shipping: 0,
+        stale_draft: 0,
+      },
+    });
   });
 
   afterEach(cleanup);
