@@ -92,6 +92,39 @@ export function testDatabaseGuard(
 
 const CATEGORY_SLUG = 'e2e-catalog';
 const LP_SLUG = 'e2e-lp-color-size';
+const PDP_SLUG = 'e2e-color-size';
+const RELATED_OOS_SLUG = 'e2e-related-oos';
+
+const PDP_DETAIL_BLOCKS = [
+  {
+    id: '00000000-0000-7000-8000-000000000001',
+    type: 'IMAGE' as const,
+    url: '/uploads/e2e/color-size-shared-1.svg',
+    altText: 'PDP detail first',
+    sortOrder: 10,
+  },
+  {
+    id: '00000000-0000-7000-8000-000000000002',
+    type: 'IMAGE' as const,
+    url: '/uploads/e2e/e2e-color-size-red.svg',
+    altText: 'PDP detail second',
+    sortOrder: 20,
+  },
+  {
+    id: '00000000-0000-7000-8000-000000000003',
+    type: 'IMAGE' as const,
+    url: '/uploads/e2e/e2e-color-size-blue.svg',
+    altText: 'PDP detail third',
+    sortOrder: 20,
+  },
+  {
+    id: '00000000-0000-7000-8000-000000000004',
+    type: 'IMAGE' as const,
+    url: '/uploads/e2e/legacy-shared-1.svg',
+    altText: 'PDP detail fourth',
+    sortOrder: 30,
+  },
+] as const;
 
 /** Tiny self-contained SVG so no network access is needed to render media. */
 function svg(label: string, fill: string): string {
@@ -513,6 +546,109 @@ async function createProduct(
   return created;
 }
 
+/**
+ * Adds the deterministic PDP-UX fixture facts without recreating the original
+ * variant scenarios. Keeping this additive lets repeated gates preserve the
+ * stable ids required by Next dev's cache while avoiding writes under uploads/.
+ */
+async function ensurePdpUxFixtures(
+  ctx: SeedContext,
+  categoryId: string,
+  warehouseId: string,
+): Promise<void> {
+  const product = await ctx.prisma.product.findUnique({
+    where: { slug: PDP_SLUG },
+    select: { id: true },
+  });
+  if (!product) {
+    throw new Error(`PDP UX fixture requires seeded product ${PDP_SLUG}.`);
+  }
+
+  await ctx.prisma.product.update({
+    where: { id: product.id },
+    data: {
+      tagline: 'Compact storage, built for flexible homes.',
+      description:
+        'A space-smart cabinet with flexible storage for compact Filipino homes.',
+      materials: 'Powder-coated steel and engineered wood',
+      features: 'Slim footprint\nFlexible shelf layout\nEasy-clean surfaces',
+      width: 88,
+      height: 120,
+      depth: 42,
+      foldedWidth: 88,
+      foldedHeight: 18,
+      foldedDepth: 42,
+    },
+  });
+  await ctx.prisma.sku.updateMany({
+    where: { productId: product.id },
+    data: {
+      productWeight: 23,
+      packageWidth: 91,
+      packageHeight: 125,
+      packageDepth: 20,
+      packageWeight: 27,
+      volumetricWeight: 45.5,
+    },
+  });
+  for (const block of PDP_DETAIL_BLOCKS) {
+    await ctx.prisma.productDetailBlock.upsert({
+      where: { id: block.id },
+      create: { productId: product.id, ...block },
+      update: {
+        productId: product.id,
+        type: block.type,
+        url: block.url,
+        altText: block.altText,
+        sortOrder: block.sortOrder,
+      },
+    });
+  }
+
+  const existingOos = await ctx.prisma.product.findUnique({
+    where: { slug: RELATED_OOS_SLUG },
+    select: { id: true },
+  });
+  const oosProduct = existingOos
+    ? await ctx.prisma.product.update({
+        where: { id: existingOos.id },
+        data: { categoryId, status: ProductStatus.ACTIVE },
+      })
+    : await createProduct(
+        ctx,
+        {
+          slug: RELATED_OOS_SLUG,
+          name: 'E2E Related Sold Out Cabinet',
+          typed: false,
+          variants: [
+            {
+              name: 'Default',
+              skuCode: 'E2E-RELATED-OOS',
+              price: 899,
+              onHand: 0,
+            },
+          ],
+          sharedMedia: [],
+        },
+        categoryId,
+        warehouseId,
+      );
+
+  const oosSkus = await ctx.prisma.sku.findMany({
+    where: { productId: oosProduct.id },
+    select: { id: true },
+  });
+  await ctx.prisma.sku.updateMany({
+    where: { productId: oosProduct.id },
+    data: { status: 'ACTIVE', price: 899 },
+  });
+  for (const sku of oosSkus) {
+    await setStock(ctx, warehouseId, sku.id, 0);
+  }
+
+  await seedLandingPage(ctx, product.id);
+}
+
 async function seedLandingPage(ctx: SeedContext, productId: string): Promise<void> {
   const existing = await ctx.prisma.productLandingPage.findUnique({
     where: { slug: LP_SLUG },
@@ -562,8 +698,9 @@ async function main(): Promise<void> {
       where: { slug: { startsWith: 'e2e-' } },
     });
     if (existing >= productSpecs().length) {
+      await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
       console.log(
-        `seed-e2e: ${existing} scenario products already present — skipping recreation.`,
+        `seed-e2e: ${existing} base scenario products already present — refreshed additive PDP UX fixtures.`,
       );
       console.log('seed-e2e: done.');
       return;
@@ -585,10 +722,8 @@ async function main(): Promise<void> {
     for (const spec of productSpecs()) {
       const product = await createProduct(ctx, spec, categoryId, warehouseId);
       console.log(`seeded ${spec.slug} (${product.id})`);
-      if (spec.slug === 'e2e-color-size') {
-        await seedLandingPage(ctx, product.id);
-      }
     }
+    await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
 
     console.log('seed-e2e: done.');
   } finally {

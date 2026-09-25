@@ -675,7 +675,7 @@ export function PdpClient({
               <Button
                 onClick={(event) => requestIntent("ORDER_NOW", event.currentTarget)}
                 disabled={busy || selectableCount === 0}
-                className="flex-1"
+                className="w-full sm:flex-1"
                 data-testid="order-now"
               >
                 {resolvedVariant ? "ORDER NOW" : "CHOOSE OPTIONS"}
@@ -685,7 +685,7 @@ export function PdpClient({
               variant={resolvedOutOfStock ? "primary" : "secondary"}
               onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
               disabled={busy || selectableCount === 0}
-              className="flex-1"
+              className="w-full sm:flex-1"
               data-testid="add-to-cart"
             >
               {addLabel}
