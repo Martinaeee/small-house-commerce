@@ -74,7 +74,13 @@ export function AdminGlobalHeader({
         {moduleTitle}
       </p>
 
-      <div className="hidden w-full min-w-[420px] max-w-[520px] lg:flex">
+      <div
+        className={
+          searchControl
+            ? "flex w-9 shrink-0 lg:w-full lg:min-w-[420px] lg:max-w-[520px]"
+            : "hidden w-full min-w-[420px] max-w-[520px] lg:flex"
+        }
+      >
         {searchControl ?? <SearchBoundary />}
       </div>
 

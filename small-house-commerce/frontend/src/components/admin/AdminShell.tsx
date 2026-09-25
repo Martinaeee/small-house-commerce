@@ -14,6 +14,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { AdminGlobalHeader } from "@/components/admin/AdminGlobalHeader";
+import { AdminGlobalSearch } from "@/components/admin/AdminGlobalSearch";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
 
@@ -234,6 +235,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             moduleTitle={title}
             admin={admin}
             onLogout={onLogout}
+            searchControl={<AdminGlobalSearch permissions={admin.permissions} />}
             mobileMenuTrigger={
               <button
                 ref={hamburgerRef}

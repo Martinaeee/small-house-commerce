@@ -73,7 +73,11 @@ describe("AdminGlobalHeader", () => {
       notificationControl: <button type="button">Notifications live</button>,
     });
 
-    expect(screen.getByRole("button", { name: "Search live" })).toBeInTheDocument();
+    const liveSearch = screen.getByRole("button", { name: "Search live" });
+    expect(liveSearch).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Search live" })).toHaveLength(1);
+    expect(liveSearch.parentElement).toHaveClass("flex", "w-9", "lg:min-w-[420px]");
+    expect(liveSearch.parentElement).not.toHaveClass("hidden");
     expect(screen.getByRole("button", { name: "Notifications live" })).toBeInTheDocument();
     expect(screen.queryByLabelText("全局搜索尚未启用")).not.toBeInTheDocument();
 
