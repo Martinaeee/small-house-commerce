@@ -68,7 +68,9 @@ const GRAPH_SNAPSHOT_INCLUDE = {
   images: {
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
-  detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
+  detailBlocks: {
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+  },
 } satisfies Prisma.ProductInclude;
 
 type GraphSnapshot = Prisma.ProductGetPayload<{

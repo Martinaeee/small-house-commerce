@@ -60,7 +60,9 @@ const ADMIN_PRODUCT_INCLUDE = {
     where: { optionValueId: null, variantId: null },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
-  detailBlocks: { orderBy: { sortOrder: 'asc' as const } },
+  detailBlocks: {
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+  },
   variants: {
     include: { sku: true },
     orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
@@ -168,7 +170,7 @@ const STOREFRONT_PDP_SELECT = {
   features: true,
   detailBlocks: {
     select: { id: true, type: true, url: true, altText: true, sortOrder: true },
-    orderBy: { sortOrder: 'asc' as const },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
 } satisfies Prisma.ProductSelect;
 

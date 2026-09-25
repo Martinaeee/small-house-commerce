@@ -216,6 +216,9 @@ describe('ProductsService storefront image query contracts', () => {
             where: { optionValueId: null, variantId: null },
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           }),
+          detailBlocks: expect.objectContaining({
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          }),
         }),
       }),
     );
@@ -232,6 +235,9 @@ describe('ProductsService storefront image query contracts', () => {
         include: expect.objectContaining({
           images: expect.objectContaining({
             where: { optionValueId: null, variantId: null },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          }),
+          detailBlocks: expect.objectContaining({
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           }),
           variants: expect.objectContaining({

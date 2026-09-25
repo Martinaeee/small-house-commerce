@@ -38,6 +38,27 @@ const SHARED_MEDIA_ID = '50000000-0000-4000-8000-000000000001';
 const SYNTHETIC_OPTION_ID = '90000000-0000-4000-8000-000000000008';
 const SYNTHETIC_VALUE_ID = '90000000-0000-4000-8000-000000000009';
 
+describe('CatalogGraphService admin snapshot query', () => {
+  it('stabilizes equal detail sort orders with the persisted id', async () => {
+    const findUnique = vi.fn(async () => null);
+    const service = new CatalogGraphService({
+      product: { findUnique },
+    } as never);
+
+    await service.adminSnapshot(PRODUCT_ID);
+
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          detailBlocks: {
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          },
+        }),
+      }),
+    );
+  });
+});
+
 interface OptionRow {
   id: string;
   productId: string;

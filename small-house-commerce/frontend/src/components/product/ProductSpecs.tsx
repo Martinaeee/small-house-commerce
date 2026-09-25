@@ -8,35 +8,62 @@ export interface ProductSpecSource extends SpecDimensions {
   features?: string | null;
 }
 
-/**
- * Structured Specifications section for the PDP details area. Reads only the
- * structured product columns (dimensions, materials, features) — operators
- * never type this into the description. Rendered only when at least one of
- * the three has content; hidden entirely otherwise.
- */
-export function ProductSpecs({ product }: { product: ProductSpecSource }): ReactNode {
-  const materials = product.materials?.trim() ?? "";
-  const features = (product.features ?? "")
+function featureLines(features: string | null | undefined): string[] {
+  return (features ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const hasSpecs = materials !== "" || features.length > 0;
-  const hasDimensions =
+}
+
+function hasDimensions(product: SpecDimensions): boolean {
+  return (
     product.width !== null ||
     product.height !== null ||
     product.depth !== null ||
     product.foldedWidth !== null ||
     product.foldedHeight !== null ||
-    product.foldedDepth !== null;
+    product.foldedDepth !== null
+  );
+}
 
-  if (!hasSpecs && !hasDimensions) return null;
+export function ProductSpecs({
+  product,
+  productWeight = null,
+  includeFeatures = true,
+}: {
+  product: ProductSpecSource;
+  productWeight?: number | null;
+  /** Admin live preview compatibility; the real PDP moves features above media. */
+  includeFeatures?: boolean;
+}): ReactNode {
+  const materials = product.materials?.trim() ?? "";
+  const features = includeFeatures ? featureLines(product.features) : [];
+  const dimensions = hasDimensions(product);
+
+  if (
+    materials === "" &&
+    features.length === 0 &&
+    !dimensions &&
+    productWeight === null
+  ) {
+    return null;
+  }
 
   return (
-    <div id="specifications" className="scroll-mt-28 rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-4 text-2xl font-semibold text-ink">Specifications</h2>
+    <section
+      id="specifications"
+      aria-labelledby="product-specifications-title"
+      className="scroll-mt-28 rounded-lg border border-border bg-card p-6"
+    >
+      <h2
+        id="product-specifications-title"
+        className="mb-4 text-2xl font-semibold text-ink"
+      >
+        Product Specifications
+      </h2>
       <div className="flex flex-col gap-5">
-        {hasDimensions && <DimensionRows product={product} />}
-        {materials !== "" && (
+        {dimensions ? <DimensionRows product={product} /> : null}
+        {materials !== "" ? (
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Materials
@@ -45,23 +72,71 @@ export function ProductSpecs({ product }: { product: ProductSpecSource }): React
               {materials}
             </p>
           </div>
-        )}
-        {features.length > 0 && (
+        ) : null}
+        {productWeight !== null ? (
+          <div className="flex items-baseline justify-between gap-4 border-t border-border pt-3">
+            <p className="text-sm text-ink-secondary">Product weight</p>
+            <p className="text-sm font-medium text-ink">{productWeight} kg</p>
+          </div>
+        ) : null}
+        {features.length > 0 ? (
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Features
             </p>
             <ul className="flex flex-col gap-1.5">
               {features.map((feature, index) => (
-                <li key={index} className="flex items-start gap-2 text-sm text-ink-secondary">
-                  <span aria-hidden className="mt-0.5 font-semibold text-cta">✓</span>
+                <li
+                  key={`${feature}-${index}`}
+                  className="flex items-start gap-2 text-sm text-ink-secondary"
+                >
+                  <span aria-hidden className="mt-0.5 font-semibold text-cta">
+                    ✓
+                  </span>
                   {feature}
                 </li>
               ))}
             </ul>
           </div>
-        )}
+        ) : null}
       </div>
-    </div>
+    </section>
+  );
+}
+
+export function MaterialDimensions({
+  product,
+}: {
+  product: ProductSpecSource;
+}): ReactNode {
+  const materials = product.materials?.trim() ?? "";
+  const dimensions = hasDimensions(product);
+  if (materials === "" && !dimensions) return null;
+
+  return (
+    <section
+      aria-labelledby="material-dimensions-title"
+      className="rounded-lg border border-border bg-card p-6"
+    >
+      <h2
+        id="material-dimensions-title"
+        className="mb-4 text-2xl font-semibold text-ink"
+      >
+        Material &amp; Dimensions
+      </h2>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {materials !== "" ? (
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              Material
+            </p>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
+              {materials}
+            </p>
+          </div>
+        ) : null}
+        {dimensions ? <DimensionRows product={product} /> : null}
+      </div>
+    </section>
   );
 }

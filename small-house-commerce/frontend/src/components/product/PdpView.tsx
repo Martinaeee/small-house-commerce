@@ -1,9 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
-import { PdpInfoSections } from "./PdpInfoSections";
-import { ProductDetailBody } from "./ProductDetailBody";
-import { ProductSpecs } from "./ProductSpecs";
+import { PdpDetails } from "./PdpDetails";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { TrustBar } from "@/components/ui/TrustBar";
@@ -44,6 +42,7 @@ export async function PdpView({
   const detailBlocks = product.detailBlocks ?? [];
   const hasDetails =
     Boolean(product.description?.trim()) ||
+    Boolean(product.features?.trim()) ||
     detailBlocks.some((block) => block.url.trim() !== "");
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
@@ -67,34 +66,39 @@ export async function PdpView({
             productPath={productPath}
             promoSlot={promoSlot}
           />
+
+          {/* Section navigation is extracted in Task 3; keep native anchors. */}
+          <nav
+            aria-label="Product sections"
+            className="sticky top-16 z-20 mt-10 hidden gap-6 border-b border-border bg-background/95 py-3 text-sm font-semibold backdrop-blur lg:flex"
+          >
+            {hasDetails ? (
+              <a href="#details" className="text-ink-secondary hover:text-cta">
+                Details
+              </a>
+            ) : null}
+            <a
+              href="#shipping-faq"
+              className="text-ink-secondary hover:text-cta"
+            >
+              Delivery &amp; FAQs
+            </a>
+            <a href="#reviews" className="text-ink-secondary hover:text-cta">
+              Reviews
+            </a>
+          </nav>
+
+          <section className="mt-12 flex flex-col gap-8 lg:mt-8">
+            <PdpDetails
+              product={product}
+              supportEmail={settings.supportEmail}
+              supportHours={settings.supportHours}
+            />
+            <ReviewSection product={product} />
+            <TrustBar />
+          </section>
         </PdpPurchaseProvider>
       </Suspense>
-
-      {/* Desktop section anchors; the 64px offset clears the sticky header. */}
-      <nav
-        aria-label="Product sections"
-        className="sticky top-16 z-20 mt-10 hidden gap-6 border-b border-border bg-background/95 py-3 text-sm font-semibold backdrop-blur lg:flex"
-      >
-        {hasDetails && (
-          <a href="#details" className="text-ink-secondary hover:text-cta">Details</a>
-        )}
-        <a href="#shipping-faq" className="text-ink-secondary hover:text-cta">Delivery &amp; FAQs</a>
-        <a href="#reviews" className="text-ink-secondary hover:text-cta">Reviews</a>
-      </nav>
-
-      <section className="mt-12 flex flex-col gap-8 lg:mt-8">
-        <ProductDetailBody
-          description={product.description}
-          blocks={detailBlocks}
-        />
-        <ProductSpecs product={product} />
-        <PdpInfoSections
-          supportEmail={settings.supportEmail}
-          supportHours={settings.supportHours}
-        />
-        <ReviewSection product={product} />
-        <TrustBar />
-      </section>
 
       {related.length > 0 && (
         <section className="mt-12">
