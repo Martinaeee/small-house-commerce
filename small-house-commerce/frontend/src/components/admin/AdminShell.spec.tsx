@@ -33,13 +33,26 @@ vi.mock("@/components/admin/AdminAuthProvider", () => ({
 }));
 
 vi.mock("@/components/admin/AdminGlobalHeader", () => ({
-  AdminGlobalHeader: ({ searchControl }: { searchControl?: ReactNode }) => (
-    <header>{searchControl}</header>
+  AdminGlobalHeader: ({
+    searchControl,
+    notificationControl,
+  }: {
+    searchControl?: ReactNode;
+    notificationControl?: ReactNode;
+  }) => (
+    <header>
+      {searchControl}
+      {notificationControl}
+    </header>
   ),
 }));
 
 vi.mock("@/components/admin/AdminGlobalSearch", () => ({
   AdminGlobalSearch: () => <button type="button">Search</button>,
+}));
+
+vi.mock("@/components/admin/AdminNotifications", () => ({
+  AdminNotifications: () => <button type="button">Notifications live</button>,
 }));
 
 vi.mock("@/lib/admin-i18n", () => ({
@@ -60,6 +73,17 @@ describe("AdminShell hidden permission-backed destinations", () => {
     shellState.permissions = ["ORDER_VIEW_OWN"];
     shellState.replace.mockReset();
     shellState.logout.mockReset();
+  });
+
+  it("injects one real notification control into the global header", () => {
+    renderShell();
+
+    expect(
+      screen.getByRole("button", { name: "Notifications live" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Notifications live" }),
+    ).toHaveLength(1);
   });
 
   it.each(["/admin/customers/customer-1", "/admin/search"])(

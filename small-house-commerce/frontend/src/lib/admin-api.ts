@@ -1025,6 +1025,9 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const adminApi = {
+  notifications: (signal?: AbortSignal): Promise<unknown> =>
+    adminAuthedFetch<unknown>("/api/v1/admin/notifications", { signal }),
+
   searchAdmin: ({
     q,
     limit = 5,

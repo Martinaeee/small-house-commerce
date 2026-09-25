@@ -34,27 +34,6 @@ function SearchBoundary(): ReactNode {
   );
 }
 
-function NotificationBoundary(): ReactNode {
-  const { t } = useAdminI18n();
-  return (
-    <span
-      aria-label={t("admin_header_notifications_pending")}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-ink-muted"
-      title={t("admin_header_notifications_pending")}
-    >
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-4 w-4">
-        <path
-          d="M6.5 9.5a5.5 5.5 0 0 1 11 0v3.25l1.5 2.5H5l1.5-2.5V9.5Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-        <path d="M10 18a2.2 2.2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    </span>
-  );
-}
-
 export function AdminGlobalHeader({
   moduleTitle,
   admin,
@@ -98,7 +77,7 @@ export function AdminGlobalHeader({
           {lang === "zh" ? "EN" : "中文"}
         </button>
 
-        {notificationControl ?? <NotificationBoundary />}
+        {notificationControl}
 
         <details
           role="group"

@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 describe("AdminGlobalHeader", () => {
-  it("renders an honest Phase-B boundary instead of fake search or notifications", () => {
+  it("keeps the honest search boundary without rendering a fake notification control", () => {
     renderHeader();
 
     const search = screen.getByLabelText("全局搜索尚未启用");
@@ -43,9 +43,7 @@ describe("AdminGlobalHeader", () => {
     expect(within(search).queryByRole("textbox")).not.toBeInTheDocument();
     expect(within(search).queryByRole("button")).not.toBeInTheDocument();
 
-    const notifications = screen.getByLabelText("通知尚未启用");
-    expect(notifications).toBeInTheDocument();
-    expect(notifications.tagName).not.toBe("BUTTON");
+    expect(screen.queryByLabelText("通知尚未启用")).not.toBeInTheDocument();
     expect(screen.getByText("Philippines / PHP")).toBeInTheDocument();
   });
 
