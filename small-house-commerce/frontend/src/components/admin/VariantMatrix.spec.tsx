@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -43,6 +43,34 @@ function draft(overrides: Partial<AdminCatalogGraphDraft> = {}): AdminCatalogGra
   };
 }
 
+function persistedVariant(index: number, skuCode: string): AdminVariantDraft {
+  return {
+    id: `variant-${index + 1}`,
+    name: `Variant ${index + 1}`,
+    position: index,
+    combinationKey: `k${index}`,
+    optionValueRefs: [],
+    sku: {
+      id: `sku-${index + 1}`,
+      skuCode,
+      status: "ACTIVE",
+      supplierSku: null,
+      supplierCost: null,
+      costCurrency: null,
+      landedCost: null,
+      price: null,
+      compareAtPrice: null,
+      productWeight: null,
+      packageWidth: null,
+      packageHeight: null,
+      packageDepth: null,
+      packageWeight: null,
+      volumetricWeight: null,
+      onHand: 0,
+    },
+  };
+}
+
 function withProvider(children: ReactNode): ReactNode {
   return <AdminI18nProvider>{children}</AdminI18nProvider>;
 }
@@ -71,6 +99,53 @@ function draftVariants(): AdminVariantDraft[] {
 describe("VariantMatrix", () => {
   beforeEach(() => {
     setAdminLang("zh");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("opens and focuses the persisted requested SKU across matrix pages without timers", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const scrollIntoView = vi.spyOn(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const candidates = makeCandidates(31);
+    const graph = draft({
+      variants: [
+        persistedVariant(0, "SKU-1"),
+        persistedVariant(30, "SKU-31"),
+      ],
+    });
+    const renderMatrix = (requestedSkuCode: string | null) =>
+      withProvider(
+        <VariantMatrix
+          candidates={candidates}
+          draft={graph}
+          onChange={() => {}}
+          requestedSkuCode={requestedSkuCode}
+        />,
+      );
+
+    const view = render(renderMatrix("SKU-31"));
+    expect(screen.getByLabelText("Variant 31 的 SKU 编码")).toHaveFocus();
+    expect(screen.getByText("第 2 / 2 页")).toBeVisible();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "center" });
+
+    view.rerender(renderMatrix("SKU-1"));
+    expect(screen.getByLabelText("Variant 1 的 SKU 编码")).toHaveFocus();
+    expect(screen.getByText("第 1 / 2 页")).toBeVisible();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "center" });
+
+    view.rerender(renderMatrix("UNKNOWN"));
+    expect(screen.getByLabelText("Variant 1 的 SKU 编码")).toHaveFocus();
+    expect(screen.getByText("第 1 / 2 页")).toBeVisible();
   });
 
   it("renders only the current thirty-row matrix page", () => {

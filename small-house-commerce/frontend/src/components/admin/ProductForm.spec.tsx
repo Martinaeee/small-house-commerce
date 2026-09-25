@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
@@ -87,6 +87,11 @@ async function openVariantsTab(): Promise<void> {
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 function renderFormWithError(
   initial: ProductFormValue,
@@ -206,6 +211,105 @@ describe("ProductForm problem rail", () => {
 describe("ProductForm variants tab modes", () => {
   beforeEach(() => {
     setAdminLang("zh");
+  });
+
+  it("opens and focuses exact legacy SKU inputs across same-page requests without timers", () => {
+    vi.useFakeTimers();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const scrollIntoView = vi.spyOn(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const initial = baseValue({
+      variants: [
+        {
+          name: "Legacy 1",
+          position: "0",
+          sku: {
+            skuCode: "LEGACY-1",
+            status: "ACTIVE",
+            price: "1299",
+            compareAtPrice: "",
+            supplierSku: "",
+            supplierCost: "",
+            costCurrency: "",
+            landedCost: "",
+            productWeight: "",
+            packageWidth: "",
+            packageHeight: "",
+            packageDepth: "",
+            packageWeight: "",
+            volumetricWeight: "",
+            id: "sku-legacy-1",
+            stock: "5",
+            reserved: "0",
+          },
+        },
+        {
+          name: "Legacy 2",
+          position: "1",
+          sku: {
+            skuCode: "LEGACY-2",
+            status: "ACTIVE",
+            price: "1399",
+            compareAtPrice: "",
+            supplierSku: "",
+            supplierCost: "",
+            costCurrency: "",
+            landedCost: "",
+            productWeight: "",
+            packageWidth: "",
+            packageHeight: "",
+            packageDepth: "",
+            packageWeight: "",
+            volumetricWeight: "",
+            id: "sku-legacy-2",
+            stock: "3",
+            reserved: "0",
+          },
+        },
+      ],
+    });
+    const renderRequested = (requestedSkuCode: string | null) => (
+      <AdminI18nProvider>
+        <ProductForm
+          initial={initial}
+          categories={[]}
+          onSubmit={vi.fn()}
+          pending={false}
+          error={null}
+          savedPreview={null}
+          requestedSection="variants"
+          requestedSkuCode={requestedSkuCode}
+        />
+      </AdminI18nProvider>
+    );
+
+    const view = render(renderRequested("LEGACY-2"));
+    expect(
+      screen.getByLabelText(/SKU 编码/, {
+        selector: "#pf-variants-1-sku-code",
+      }),
+    ).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "center" });
+
+    view.rerender(renderRequested("LEGACY-1"));
+    expect(
+      screen.getByLabelText(/SKU 编码/, {
+        selector: "#pf-variants-0-sku-code",
+      }),
+    ).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "center" });
+
+    view.rerender(renderRequested("UNKNOWN"));
+    expect(
+      screen.getByLabelText(/SKU 编码/, {
+        selector: "#pf-variants-0-sku-code",
+      }),
+    ).toHaveFocus();
   });
 
   it("shows the typed editors for graph payloads and hides Add variant", async () => {

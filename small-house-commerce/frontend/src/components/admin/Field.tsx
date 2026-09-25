@@ -1,6 +1,7 @@
 import type {
   InputHTMLAttributes,
   ReactNode,
+  Ref,
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
@@ -43,9 +44,18 @@ export function Field({
 
 export function TextInput({
   className = "",
+  inputRef,
   ...props
-}: InputHTMLAttributes<HTMLInputElement>): ReactNode {
-  return <input className={`${inputCls} ${className}`.trim()} {...props} />;
+}: InputHTMLAttributes<HTMLInputElement> & {
+  inputRef?: Ref<HTMLInputElement>;
+}): ReactNode {
+  return (
+    <input
+      ref={inputRef}
+      className={`${inputCls} ${className}`.trim()}
+      {...props}
+    />
+  );
 }
 
 export function Select({

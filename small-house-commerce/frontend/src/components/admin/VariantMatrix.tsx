@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { inputCls } from "@/components/admin/Field";
 import { DecimalInput } from "@/components/admin/DecimalInput";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -100,6 +100,7 @@ export function VariantMatrix({
   onChange,
   pending = false,
   highlightKey = null,
+  requestedSkuCode = null,
 }: {
   candidates: readonly VariantCandidate[];
   draft?: AdminCatalogGraphDraft | null;
@@ -107,9 +108,37 @@ export function VariantMatrix({
   pending?: boolean;
   /** Materialized row the problem rail asked to highlight. */
   highlightKey?: string | null;
+  /** Persisted SKU code requested by an internal search result. */
+  requestedSkuCode?: string | null;
 }): ReactNode {
   const { t } = useAdminI18n();
-  const [page, setPage] = useState(1);
+  const requestedVariant =
+    requestedSkuCode === null
+      ? undefined
+      : draft?.variants.find(
+          (variant) => variant.sku?.skuCode === requestedSkuCode,
+        );
+  const requestedCombinationKey = requestedVariant?.combinationKey ?? null;
+  const requestedIndex =
+    requestedCombinationKey === null
+      ? -1
+      : candidates.findIndex(
+          (candidate) =>
+            candidate.combinationKey === requestedCombinationKey,
+        );
+  const requestedPage =
+    requestedIndex < 0
+      ? null
+      : Math.floor(requestedIndex / MATRIX_PAGE_SIZE) + 1;
+  const requestedIdentity = `${requestedSkuCode ?? ""}\u0000${requestedCombinationKey ?? ""}`;
+  const [page, setPage] = useState(requestedPage ?? 1);
+  const [syncedRequestIdentity, setSyncedRequestIdentity] =
+    useState(requestedIdentity);
+  if (requestedIdentity !== syncedRequestIdentity) {
+    setSyncedRequestIdentity(requestedIdentity);
+    if (requestedPage !== null) setPage(requestedPage);
+  }
+  const skuInputRefs = useRef(new Map<string, HTMLInputElement>());
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkStock, setBulkStock] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -125,6 +154,25 @@ export function VariantMatrix({
     current * MATRIX_PAGE_SIZE,
   );
   const editable = onChange !== undefined && draft !== null && !pending;
+
+  useLayoutEffect(() => {
+    if (
+      requestedCombinationKey === null ||
+      requestedPage === null ||
+      current !== requestedPage
+    ) {
+      return;
+    }
+    const input = skuInputRefs.current.get(requestedCombinationKey);
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView({ block: "center" });
+  }, [
+    current,
+    requestedCombinationKey,
+    requestedIdentity,
+    requestedPage,
+  ]);
 
   const rowFor = (candidate: VariantCandidate): AdminVariantDraft | undefined =>
     draft?.variants.find(
@@ -304,6 +352,18 @@ export function VariantMatrix({
                       </td>
                       <td className="py-2 pr-3">
                         <input
+                          ref={(node) => {
+                            if (node) {
+                              skuInputRefs.current.set(
+                                candidate.combinationKey,
+                                node,
+                              );
+                            } else {
+                              skuInputRefs.current.delete(
+                                candidate.combinationKey,
+                              );
+                            }
+                          }}
                           aria-label={t("product_matrix_sku_code_aria", {
                             name: candidate.name,
                           })}

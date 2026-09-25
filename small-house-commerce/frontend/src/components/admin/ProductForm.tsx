@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -808,6 +809,10 @@ export interface ProductFormProps {
   landingCount?: number | null;
   /** Saved product id, for the rail's landing-page link. */
   productId?: string | null;
+  /** Canonical editor section requested by an internal deep link. */
+  requestedSection?: ProductFormTabKey | null;
+  /** Persisted SKU code requested by an internal search result. */
+  requestedSkuCode?: string | null;
 }
 
 export function ProductForm({
@@ -820,6 +825,8 @@ export function ProductForm({
   identity = null,
   landingCount = null,
   productId = null,
+  requestedSection = null,
+  requestedSkuCode = null,
 }: ProductFormProps): ReactNode {
   const { t, lang } = useAdminI18n();
   const [value, setValue] = useState<ProductFormValue>(initial);
@@ -844,7 +851,17 @@ export function ProductForm({
   } | null>(null);
   // Which editor tab is open. Panels are conditionally rendered but all state
   // lives in `value` above, so switching tabs never loses edits.
-  const [activeTab, setActiveTab] = useState<TabKey>("basic");
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    requestedSection ?? "basic",
+  );
+  const requestIdentity = `${requestedSection ?? ""}\u0000${requestedSkuCode ?? ""}`;
+  const [syncedRequestIdentity, setSyncedRequestIdentity] =
+    useState(requestIdentity);
+  if (requestIdentity !== syncedRequestIdentity) {
+    setSyncedRequestIdentity(requestIdentity);
+    if (requestedSection !== null) setActiveTab(requestedSection);
+  }
+  const legacySkuRefs = useRef(new Map<string, HTMLInputElement>());
   // Index of the image card currently being HTML5-dragged.
   const dragFrom = useRef<number | null>(null);
 
@@ -857,6 +874,29 @@ export function ProductForm({
   const typed = value.graphTyped === true && value.graph !== undefined;
   const graphLocked = !typed && (value.graph?.catalogGraphVersion ?? 0) > 0;
   const graphDraft = typed && value.graph ? value.graph : null;
+
+  useLayoutEffect(() => {
+    if (
+      requestedSection !== "variants" ||
+      requestedSkuCode === null ||
+      activeTab !== "variants" ||
+      typed ||
+      graphLocked
+    ) {
+      return;
+    }
+    const input = legacySkuRefs.current.get(requestedSkuCode);
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView({ block: "center" });
+  }, [
+    activeTab,
+    graphLocked,
+    requestedSection,
+    requestedSkuCode,
+    syncedInitial,
+    typed,
+  ]);
 
   const updateGraph = (mutate: (draft: AdminCatalogGraphDraft) => void): void => {
     setValue((prev) => {
@@ -2137,6 +2177,7 @@ export function ProductForm({
                 onChange={updateGraph}
                 pending={pending}
                 highlightKey={highlight?.key ?? null}
+                requestedSkuCode={requestedSkuCode}
               />
             </div>
           </Section>
@@ -2239,6 +2280,12 @@ export function ProductForm({
                             hint={t("product_variant_sku_code_hint")}
                           >
                             <TextInput
+                              inputRef={(node) => {
+                                const skuCode = vr.sku?.skuCode.trim();
+                                if (!skuCode) return;
+                                if (node) legacySkuRefs.current.set(skuCode, node);
+                                else legacySkuRefs.current.delete(skuCode);
+                              }}
                               id={`pf-variants-${i}-sku-code`}
                               value={vr.sku.skuCode}
                               onChange={(e) =>

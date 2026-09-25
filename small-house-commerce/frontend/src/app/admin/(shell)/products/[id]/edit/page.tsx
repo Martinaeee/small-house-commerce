@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -282,7 +282,14 @@ function BackLink(): ReactNode {
 
 export default function EditProductPage(): ReactNode {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const id = params.id;
+  const requestedSection =
+    searchParams.get("section") === "variants" ? "variants" : null;
+  const requestedSkuCode =
+    requestedSection === "variants"
+      ? searchParams.get("sku")?.trim() || null
+      : null;
   const router = useRouter();
   const { t } = useAdminI18n();
 
@@ -832,6 +839,8 @@ export default function EditProductPage(): ReactNode {
         }}
         landingCount={landingCount}
         productId={product.id}
+        requestedSection={requestedSection}
+        requestedSkuCode={requestedSkuCode}
       />
 
       {/* Whole-list replacement warning, next to Save (spec §8.8 / gap #5). */}

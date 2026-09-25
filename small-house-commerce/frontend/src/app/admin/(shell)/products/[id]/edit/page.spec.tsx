@@ -19,11 +19,28 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
  */
 
 const refreshMock = vi.fn();
+const navigationState = vi.hoisted(() => ({ searchParams: "" }));
+const productFormRender = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "p1" }),
   useRouter: () => ({ refresh: refreshMock, push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(navigationState.searchParams),
 }));
+
+vi.mock("@/components/admin/ProductForm", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/components/admin/ProductForm")
+  >();
+  const React = await import("react");
+  return {
+    ...actual,
+    ProductForm: (props: Parameters<typeof actual.ProductForm>[0]) => {
+      productFormRender(props);
+      return React.createElement(actual.ProductForm, props);
+    },
+  };
+});
 
 const getProduct = vi.fn();
 const listCategories = vi.fn();
@@ -269,6 +286,8 @@ describe("edit page saved preview", () => {
 describe("EditProductPage save orchestration", () => {
   beforeEach(() => {
     setAdminLang("zh");
+    navigationState.searchParams = "";
+    productFormRender.mockReset();
     refreshMock.mockReset();
     getProduct.mockReset();
     listCategories.mockReset().mockResolvedValue([CATEGORY]);
@@ -281,6 +300,51 @@ describe("EditProductPage save orchestration", () => {
   });
 
   afterEach(cleanup);
+
+  it("forwards only canonical variants and SKU search context across same-page query changes", async () => {
+    navigationState.searchParams = "section=variants&sku=E2E-CS-BLUE-M";
+    getProduct.mockResolvedValue(typedProduct());
+
+    const view = renderEditPage();
+    await waitForForm();
+    expect(productFormRender.mock.lastCall?.[0]).toMatchObject({
+      requestedSection: "variants",
+      requestedSkuCode: "E2E-CS-BLUE-M",
+    });
+
+    navigationState.searchParams = "section=variants&sku=E2E-CS-BLUE-L";
+    view.rerender(
+      <AdminI18nProvider>
+        <EditProductPage />
+      </AdminI18nProvider>,
+    );
+    expect(productFormRender.mock.lastCall?.[0]).toMatchObject({
+      requestedSection: "variants",
+      requestedSkuCode: "E2E-CS-BLUE-L",
+    });
+
+    navigationState.searchParams = "section=media&sku=SH-BLUE";
+    view.rerender(
+      <AdminI18nProvider>
+        <EditProductPage />
+      </AdminI18nProvider>,
+    );
+    expect(productFormRender.mock.lastCall?.[0]).toMatchObject({
+      requestedSection: null,
+      requestedSkuCode: null,
+    });
+
+    navigationState.searchParams = "section=variants&sku=%20%20";
+    view.rerender(
+      <AdminI18nProvider>
+        <EditProductPage />
+      </AdminI18nProvider>,
+    );
+    expect(productFormRender.mock.lastCall?.[0]).toMatchObject({
+      requestedSection: "variants",
+      requestedSkuCode: null,
+    });
+  });
 
   it("uses one wide sticky editor header for saved identity and navigation", async () => {
     getProduct.mockResolvedValue(legacyProduct());
