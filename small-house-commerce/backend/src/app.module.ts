@@ -9,6 +9,7 @@ import { CmsModule } from './modules/cms/cms.module.js';
 import { CollectionsModule } from './modules/collections/collections.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { InventoryModule } from './modules/inventory/inventory.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PsgcModule } from './modules/psgc/psgc.module.js';
 import { SearchModule } from './modules/search/search.module.js';
@@ -39,6 +40,7 @@ import { UsersModule } from './modules/users/users.module.js';
     OrdersModule,
     PsgcModule,
     SearchModule,
+    NotificationsModule,
     CollectionsModule,
     UploadsModule,
     SettingsModule,
