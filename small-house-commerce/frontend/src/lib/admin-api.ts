@@ -117,6 +117,31 @@ export interface CustomerSearchHit {
   matchedText: string;
 }
 
+export interface AdminCustomerAddress {
+  id: string;
+  customerId: string;
+  fullName: string;
+  phone: string;
+  province: string;
+  city: string;
+  barangay: string | null;
+  postalCode: string | null;
+  streetAddress: string;
+  landmark: string | null;
+  createdAt: string;
+}
+
+export interface AdminCustomerDetail {
+  id: string;
+  name: string | null;
+  normalizedPhone: string;
+  email: string | null;
+  currentRiskLevel: string;
+  createdAt: string;
+  updatedAt: string;
+  addresses: AdminCustomerAddress[];
+}
+
 export interface ShipmentSearchHit {
   kind: "SHIPMENT";
   shipmentId: string;
@@ -1012,6 +1037,11 @@ export const adminApi = {
     adminAuthedFetch<AdminSearchResponse>(
       `/api/v1/admin/search${buildQuery({ q, limit })}`,
       { signal },
+    ),
+
+  getCustomer: (id: string): Promise<AdminCustomerDetail> =>
+    adminAuthedFetch<AdminCustomerDetail>(
+      `/api/v1/admin/customers/${encodeURIComponent(id)}`,
     ),
 
   listOrders: (p: {
