@@ -66,6 +66,85 @@ export interface Paged<T> {
   pageSize: number;
 }
 
+// --- global search -----------------------------------------------------------
+
+export interface SearchGroup<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
+export interface ProductSearchHit {
+  kind: "PRODUCT";
+  productId: string;
+  name: string;
+  productCode: string | null;
+  slug: string;
+  status: ProductStatus;
+  matchedField: "PRODUCT_CODE" | "SKU_CODE" | "NAME" | "SLUG";
+  matchedText: string;
+  matchedSku: {
+    skuId: string;
+    skuCode: string;
+    skuStatus: "ACTIVE" | "DISABLED";
+    variantId: string;
+    variantName: string;
+    price: string | null;
+    availableInventory: number;
+  } | null;
+}
+
+export interface OrderSearchHit {
+  kind: "ORDER";
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  confirmationStatus: string;
+  customerName: string | null;
+  normalizedPhone: string;
+  createdAt: string;
+  matchedField: "ORDER_NUMBER" | "PHONE" | "CUSTOMER_NAME";
+  matchedText: string;
+}
+
+export interface CustomerSearchHit {
+  kind: "CUSTOMER";
+  customerId: string;
+  name: string | null;
+  normalizedPhone: string;
+  email: string | null;
+  riskLevel: string;
+  matchedField: "PHONE" | "EMAIL" | "NAME";
+  matchedText: string;
+}
+
+export interface ShipmentSearchHit {
+  kind: "SHIPMENT";
+  shipmentId: string;
+  trackingNumber: string;
+  carrier: string;
+  status: string;
+  orderId: string;
+  orderNumber: string;
+  matchedField: "TRACKING_NUMBER";
+  matchedText: string;
+}
+
+export interface AdminSearchResponse {
+  query: string;
+  groups: {
+    products?: SearchGroup<ProductSearchHit>;
+    orders?: SearchGroup<OrderSearchHit>;
+    customers?: SearchGroup<CustomerSearchHit>;
+    shipments?: SearchGroup<ShipmentSearchHit>;
+  };
+}
+
+export type AdminSearchHit =
+  | ProductSearchHit
+  | OrderSearchHit
+  | CustomerSearchHit
+  | ShipmentSearchHit;
+
 // --- money formatting --------------------------------------------------------
 
 /**
@@ -921,6 +1000,20 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const adminApi = {
+  searchAdmin: ({
+    q,
+    limit = 5,
+    signal,
+  }: {
+    q: string;
+    limit?: number;
+    signal?: AbortSignal;
+  }): Promise<AdminSearchResponse> =>
+    adminAuthedFetch<AdminSearchResponse>(
+      `/api/v1/admin/search${buildQuery({ q, limit })}`,
+      { signal },
+    ),
+
   listOrders: (p: {
     /** Single status or comma-separated set (workbench tab buckets). */
     status?: string;
