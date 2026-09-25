@@ -174,6 +174,12 @@ describe("PdpDetails", () => {
       "Delivery, Returns & FAQs",
     ]);
 
+    for (const id of ["details", "specifications", "shipping-faq"]) {
+      const target = container.querySelector(`#${id}`);
+      expect(target).not.toBeNull();
+      expect(target).toHaveClass("scroll-mt-28");
+    }
+
     for (const url of ["featured.jpg", "remaining-1.jpg", "remaining-2.mp4"]) {
       expect(container.querySelectorAll(`[src="${url}"]`)).toHaveLength(1);
     }
