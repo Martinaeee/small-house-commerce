@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -164,6 +165,7 @@ function OrderDetailPage(): ReactNode {
   // Loading is DERIVED (same pattern as the orders list): true until this
   // exact key settles — no synchronous setState in the fetch effect body.
   const [settledKey, setSettledKey] = useState<string | null>(null);
+  const shipmentSectionRef = useRef<HTMLDivElement | null>(null);
   const loading = settledKey !== queryKey;
   const initialLoading = loading && order === null && !loadError && !notFound;
 
@@ -207,6 +209,17 @@ function OrderDetailPage(): ReactNode {
       active = false;
     };
   }, [id, queryKey]);
+
+  useLayoutEffect(() => {
+    if (
+      order?.id !== id ||
+      order.shipments.length === 0 ||
+      window.location.hash !== "#shipments"
+    ) {
+      return;
+    }
+    shipmentSectionRef.current?.scrollIntoView({ block: "start" });
+  }, [id, order]);
 
   // --- confirm / cancel / review --------------------------------------------
 
@@ -1125,7 +1138,11 @@ function OrderDetailPage(): ReactNode {
         {/* Shipments — one order may have multiple boxes (§61); each is signed
             independently, and the order turns SIGNED once every box is signed. */}
         {order.shipments.length > 0 ? (
-          <div id="shipments" className="scroll-mt-24">
+          <div
+            ref={shipmentSectionRef}
+            id="shipments"
+            className="scroll-mt-24"
+          >
             <Card title={`Shipments (${order.shipments.length})`}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">

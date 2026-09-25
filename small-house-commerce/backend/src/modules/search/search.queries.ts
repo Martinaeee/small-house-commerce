@@ -63,14 +63,15 @@ function escapeLike(value: string): string {
 export function normalizeSearchTerms(query: string): SearchTerms {
   const normalized = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
   const escaped = escapeLike(normalized);
-  const digits = /^[+\d()\-\s]+$/.test(query) ? query.replace(/\D/g, '') : '';
+  const isPhoneQuery = /^[+\d()\-\s]+$/.test(query);
+  const digits = isPhoneQuery ? query.replace(/\D/g, '') : '';
   const phoneDigits = digits.length >= 2 ? digits : null;
 
   return {
     exact: normalized,
     prefix: `${escaped}%`,
     contains: [...normalized].length >= 3 ? `%${escaped}%` : null,
-    phoneExact: normalizePhilippinePhone(query),
+    phoneExact: isPhoneQuery ? normalizePhilippinePhone(query) : null,
     phoneDigits,
     phonePrefix: phoneDigits === null ? null : `${escapeLike(phoneDigits)}%`,
     phoneContains:

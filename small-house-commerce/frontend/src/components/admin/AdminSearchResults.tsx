@@ -202,6 +202,10 @@ export interface AdminSearchResultsProps {
   activeOptionId?: string | null;
   onActivate?: (hit: AdminSearchHit) => void;
   onActiveOptionChange?: (optionId: string) => void;
+  onOptionRef?: (
+    optionId: string,
+    node: HTMLButtonElement | null,
+  ) => void;
 }
 
 export function AdminSearchResults({
@@ -211,6 +215,7 @@ export function AdminSearchResults({
   activeOptionId = null,
   onActivate,
   onActiveOptionChange,
+  onOptionRef,
 }: AdminSearchResultsProps): ReactNode {
   const { t } = useAdminI18n();
   const content = ADMIN_SEARCH_GROUPS.map((group) => {
@@ -254,6 +259,7 @@ export function AdminSearchResults({
             return (
               <button
                 key={optionId}
+                ref={(node) => onOptionRef?.(optionId, node)}
                 id={optionId}
                 type="button"
                 role="option"

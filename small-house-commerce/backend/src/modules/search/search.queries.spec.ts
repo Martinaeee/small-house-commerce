@@ -60,6 +60,17 @@ describe('normalizeSearchTerms', () => {
       phoneContains: null,
     });
   });
+
+  it('does not promote mixed text containing a complete number to phone search', () => {
+    for (const query of ['abc09171234567', 'invoice +63 917 123 4567']) {
+      expect(normalizeSearchTerms(query)).toMatchObject({
+        phoneExact: null,
+        phoneDigits: null,
+        phonePrefix: null,
+        phoneContains: null,
+      });
+    }
+  });
 });
 
 describe('search ranking scores', () => {

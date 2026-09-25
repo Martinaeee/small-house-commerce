@@ -969,6 +969,7 @@ test.describe.serial("Admin global search real stack", () => {
     );
     const shipmentAnchor = page.locator("#shipments");
     await expect(shipmentAnchor).toBeVisible();
+    await expect(shipmentAnchor).toBeInViewport();
     await expect(shipmentAnchor.getByText(fx.shipmentUiTracking)).toBeVisible();
 
     await openPalette(page, fx.uiToken);

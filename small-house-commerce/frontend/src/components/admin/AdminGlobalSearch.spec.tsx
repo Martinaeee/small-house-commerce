@@ -256,6 +256,57 @@ describe("AdminGlobalSearch", () => {
     expect(navigation.push).toHaveBeenCalledWith("/admin/orders/o1");
   });
 
+  it("lets a focused dialog control handle Enter after an option was highlighted", async () => {
+    searchAdmin.mockResolvedValue(responseWithAllGroups());
+    const user = setupUser();
+    renderSearch();
+    await openAndType(user, "chair");
+    await advance(250);
+    await flushPromises();
+    await user.keyboard("{ArrowDown}");
+
+    screen.getByRole("button", { name: "查看全部结果" }).focus();
+    await user.keyboard("{Enter}");
+
+    expect(navigation.push).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledWith("/admin/search?q=chair");
+  });
+
+  it("scrolls the newly highlighted option into the nearest visible area", async () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const response = responseWithAllGroups();
+    response.groups.products = {
+      items: Array.from({ length: 5 }, (_, index) =>
+        productHit(`p${index + 1}`, `Chair ${index + 1}`, `s${index + 1}`),
+      ),
+      hasMore: true,
+    };
+    searchAdmin.mockResolvedValue(response);
+    const user = setupUser();
+
+    try {
+      renderSearch();
+      await openAndType(user, "chair");
+      await advance(250);
+      await flushPromises();
+      await user.keyboard("{ArrowDown}".repeat(8));
+
+      const shipment = screen.getByRole("option", { name: /TRACK-001/ });
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(shipment);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
   it("cannot activate an option removed by a newer response", async () => {
     searchAdmin
       .mockResolvedValueOnce(responseWithProduct("Old chair"))

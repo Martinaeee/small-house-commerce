@@ -27,7 +27,7 @@ import { useAdminI18n } from "@/lib/admin-i18n";
  *              in Task 4 and supersedes this later)
  *   authed   → sidebar/top-bar shell; when the permission filter leaves zero
  *              nav items (e.g. OPTIMIZER), the "No modules available" state
- *              replaces the page children entirely.
+ *              replaces page children except for authorized hidden routes.
  *
  * Mobile (<768px) reuses the storefront mega-menu drawer interaction:
  * portaled slide-over, backdrop, Esc, focus trap, focus return to the trigger.
@@ -50,6 +50,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/single-pages", labelKey: "nav_single_pages", permission: "PRODUCT_MANAGE" },
   { href: "/admin/settings", labelKey: "nav_settings", permission: "SYSTEM_SETTINGS_EDIT" },
 ];
+
+const SEARCH_PERMISSIONS = [
+  "PRODUCT_MANAGE",
+  "ORDER_VIEW_ALL",
+  "CUSTOMER_MANAGE",
+] as const;
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
 
@@ -196,12 +202,17 @@ export function AdminShell({ children }: { children: ReactNode }) {
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
+  const canRenderHiddenRoute =
+    (pathname === "/admin/search" &&
+      SEARCH_PERMISSIONS.some((permission) => hasPermission(permission))) ||
+    (pathname.startsWith("/admin/customers/") &&
+      hasPermission("CUSTOMER_MANAGE"));
 
-  // Zero granted modules: the empty state replaces page children regardless
-  // of what the routed page would render (OPTIMIZER has ORDER_VIEW_OWN only,
-  // which no V1 module uses).
+  // Zero granted sidebar modules normally gets the honest empty state. Search
+  // and Customer Detail are permission-backed destinations without nav items,
+  // so their authorized routes must still mount their real page children.
   const shellBody =
-    nav.length === 0 ? (
+    nav.length === 0 && !canRenderHiddenRoute ? (
       <div className="mx-auto mt-24 max-w-md rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-base font-semibold text-ink">
           No modules available for your account.

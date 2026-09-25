@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -53,6 +54,7 @@ export function AdminGlobalSearch({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const optionRefs = useRef(new Map<string, HTMLButtonElement>());
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
@@ -107,6 +109,24 @@ export function AdminGlobalSearch({
     [navigateTo],
   );
 
+  const registerOptionRef = useCallback(
+    (optionId: string, node: HTMLButtonElement | null) => {
+      if (node === null) {
+        optionRefs.current.delete(optionId);
+      } else {
+        optionRefs.current.set(optionId, node);
+      }
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (effectiveActiveId === null) return;
+    optionRefs.current
+      .get(effectiveActiveId)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [effectiveActiveId]);
+
   useEffect(() => {
     const onShortcut = (event: KeyboardEvent) => {
       if (
@@ -143,7 +163,9 @@ export function AdminGlobalSearch({
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        if (visibleResults.length === 0) return;
+        if (event.target !== inputRef.current || visibleResults.length === 0) {
+          return;
+        }
         event.preventDefault();
         const currentIndex = visibleResults.findIndex(
           ({ hit }) => adminSearchOptionId(hit) === effectiveActiveId,
@@ -160,7 +182,11 @@ export function AdminGlobalSearch({
         setActiveOptionId(adminSearchOptionId(visibleResults[nextIndex]!.hit));
         return;
       }
-      if (event.key === "Enter" && effectiveActiveId !== null) {
+      if (
+        event.key === "Enter" &&
+        event.target === inputRef.current &&
+        effectiveActiveId !== null
+      ) {
         const current = visibleResults.find(
           ({ hit }) => adminSearchOptionId(hit) === effectiveActiveId,
         );
@@ -330,6 +356,7 @@ export function AdminGlobalSearch({
             activeOptionId={effectiveActiveId}
             onActivate={activate}
             onActiveOptionChange={setActiveOptionId}
+            onOptionRef={registerOptionRef}
           />
         ) : null}
 
