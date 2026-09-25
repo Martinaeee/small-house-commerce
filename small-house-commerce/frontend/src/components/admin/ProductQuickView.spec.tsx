@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { adminApi, type AdminProduct } from "@/lib/admin-api";
@@ -132,13 +132,16 @@ describe("ProductQuickView", () => {
     expect(await screen.findByText("1 个 →")).toBeInTheDocument();
   });
 
-  it("keeps a DRAFT product honest: no storefront link, no live claim", () => {
+  it("keeps a DRAFT product honest: no storefront link, no live claim", async () => {
     renderDrawer({ ...ROW, status: "DRAFT" });
 
     expect(screen.getByText("当前未上架，前台不可见。")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "打开前台页面" }),
     ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("读取中…")).not.toBeInTheDocument();
+    });
   });
 
   it("closes on Escape and never contains editing controls", async () => {

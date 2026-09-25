@@ -269,7 +269,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </Button>
         </header>
 
-        <main>{shellBody}</main>
+        <main className="admin-app">{shellBody}</main>
       </div>
 
       {/* Mobile drawer (portaled to body) */}

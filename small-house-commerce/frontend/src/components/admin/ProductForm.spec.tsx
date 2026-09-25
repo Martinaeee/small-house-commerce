@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -139,6 +139,12 @@ describe("ProductForm problem rail", () => {
     expect(rail.textContent).toContain("1 个问题待处理");
     expect(rail.textContent).toContain("启用的选项 Color 至少需要一个启用的选项值。");
     expect(rail.closest(".sticky")).not.toBeNull();
+    const variantsTab = screen.getByRole("tab", {
+      name: /选项、价格与库存/,
+    });
+    expect(
+      within(variantsTab).getByLabelText("1 个阻断问题"),
+    ).toHaveClass("bg-red-600");
   });
 
   it("repairs the graph in one click and clears itself", async () => {
@@ -342,7 +348,7 @@ describe("ProductForm variants tab modes", () => {
       "pf-tab-seo",
       "pf-tab-preview",
     ]);
-    expect(tabs.map((tab) => tab.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+    expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual([
       "基本信息",
       "商品媒体",
       "选项、价格与库存",
@@ -629,11 +635,24 @@ describe("ProductForm Task 3 localization and structure", () => {
     });
   });
 
-  it("replaces the long workflow guide with concise contextual help", () => {
+  it("keeps workflow guidance collapsed and lightly groups Basic Info", () => {
     renderForm(baseValue());
 
     expect(screen.queryByText(/上架流程（新商品按此顺序操作）/)).not.toBeInTheDocument();
-    expect(screen.getByText(/先以「保存草稿」/)).toBeInTheDocument();
+    const help = screen.getByText("上架与保存帮助").closest("details");
+    expect(help).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { name: "前台商品信息" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "运营属性" })).toBeInTheDocument();
+  });
+
+  it("marks recommendation tabs in amber without turning them into blocking errors", () => {
+    renderForm(baseValue({ tagline: "", description: "" }));
+
+    const seoTab = screen.getByRole("tab", { name: /搜索与链接/ });
+    expect(within(seoTab).getByLabelText("1 条建议")).toHaveClass("bg-amber-500");
+    expect(
+      within(seoTab).queryByLabelText(/阻断问题/),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps a wrapping sticky header with a horizontally scrollable tab row", () => {
@@ -641,6 +660,14 @@ describe("ProductForm Task 3 localization and structure", () => {
 
     expect(screen.getByRole("tablist").className).toContain("overflow-x-auto");
     expect(screen.getByRole("button", { name: "保存草稿" })).toBeInTheDocument();
+  });
+
+  it("keeps the wide side rail below the sticky editor header", () => {
+    renderForm(baseValue());
+
+    const rail = screen.getByRole("heading", { name: "发布检查" }).closest("aside");
+    expect(rail).not.toBeNull();
+    expect(rail?.className).toContain("xl:top-52");
   });
 
   it("routes a shipping-field error to the shipping tab", async () => {
@@ -695,6 +722,40 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.getAllByRole("button", { name: "保存草稿" })).toHaveLength(1);
     expect(screen.getByRole("option", { name: "在售" })).toHaveAttribute("value", "ACTIVE");
     expect(screen.getByRole("option", { name: "停售" })).toHaveAttribute("value", "DISABLED");
+  });
+
+  it("shows the stable product number as read-only in Basic Info", () => {
+    render(
+      <AdminI18nProvider>
+        <ProductForm
+          initial={baseValue()}
+          categories={[]}
+          onSubmit={vi.fn()}
+          pending={false}
+          error={null}
+          savedPreview={{ path: "/products/chair", status: "DRAFT" }}
+          identity={{
+            name: "Chair",
+            productCode: "P-000042",
+            coverImageUrl: null,
+            updatedAt: "2026-09-24T08:15:00.000Z",
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Chair" })).toBeInTheDocument();
+    expect(screen.getByLabelText("内部商品编号")).toHaveValue("P-000042");
+    expect(screen.getByLabelText("内部商品编号")).toHaveAttribute("readonly");
+    expect(screen.getByText(/上次保存/)).toBeInTheDocument();
+  });
+
+  it("labels an unsaved new product and explains when its number is generated", () => {
+    renderForm(baseValue());
+
+    expect(screen.getByRole("heading", { name: "新建商品" })).toBeInTheDocument();
+    expect(screen.getByLabelText("内部商品编号")).toHaveValue("保存后自动生成");
+    expect(screen.getByLabelText("内部商品编号")).toHaveAttribute("readonly");
   });
 
   it("keeps explicit keyboard media reordering with translated controls that wrap", async () => {

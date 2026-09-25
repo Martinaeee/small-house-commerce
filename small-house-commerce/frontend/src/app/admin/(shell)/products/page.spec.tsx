@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
 /**
@@ -145,7 +145,7 @@ describe("AdminProductsPage localization", () => {
       "href",
       "/admin/products/new",
     );
-    expect(screen.getByRole("link", { name: "编辑" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /编辑/ })).toHaveAttribute(
       "href",
       "/admin/products/p1/edit",
     );
@@ -179,6 +179,73 @@ describe("AdminProductsPage localization", () => {
     expect(screen.getAllByText("1 个 SKU").length).toBeGreaterThan(0);
   });
 
+  it("orders compact status and attention controls before filters and the table", async () => {
+    const view = renderListPage();
+    await screen.findAllByText("Chair");
+
+    const statusSummary = screen.getByRole("region", { name: "商品状态统计" });
+    const attentionSummary = screen.getByRole("region", { name: "需要处理" });
+    const filters = screen.getByRole("region", { name: "商品筛选" });
+    const table = screen.getByRole("table", { name: "商品" });
+
+    expect(
+      statusSummary.compareDocumentPosition(attentionSummary) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      attentionSummary.compareDocumentPosition(filters) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      filters.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(view.container.querySelector(".max-w-\\[1200px\\]")).toBeNull();
+  });
+
+  it("collapses help, de-emphasizes zero attention counts, and highlights real problems", async () => {
+    productCounts.mockResolvedValue({
+      status: { all: 3, active: 2, draft: 1, disabled: 0 },
+      attention: {
+        missing_media: 2,
+        no_priced_sku: 0,
+        incomplete_shipping: 1,
+        stale_draft: 0,
+      },
+    });
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    const help = screen.getByText("商品管理帮助").closest("details");
+    expect(help).not.toHaveAttribute("open");
+    expect(
+      screen.getByRole("button", { name: /^缺少共享图库/ }),
+    ).toHaveClass("border-amber-300");
+    expect(
+      screen.getByRole("button", { name: /^已上架但没有定价 SKU/ }),
+    ).toHaveClass("opacity-50");
+  });
+
+  it("uses compact storefront badges and icon-only row actions", async () => {
+    renderListPage();
+    const table = await screen.findByRole("table", { name: "商品" });
+    const name = within(table).getByText("Chair", {
+      selector: 'span[title="Chair"]',
+    });
+    const row = name.closest("tr");
+    expect(row).not.toBeNull();
+    const scoped = within(row!);
+
+    expect(scoped.getByText("Draft")).toBeInTheDocument();
+    expect(scoped.getByText(/Sep 23, 2026/)).toHaveTextContent(
+      /^Sep 23, 2026$/,
+    );
+    const quickView = scoped.getByRole("button", { name: "快速查看 Chair" });
+    const edit = scoped.getByRole("link", { name: "编辑 Chair" });
+    expect(quickView.textContent).toBe("");
+    expect(edit.textContent).toBe("");
+    expect(scoped.getByRole("button", { name: "更多操作" })).toBeInTheDocument();
+  });
+
   it("renders a coherent English list through the same provider", async () => {
     setAdminLang("en");
     renderListPage();
@@ -187,6 +254,6 @@ describe("AdminProductsPage localization", () => {
     expect(screen.getAllByText("Draft").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("DRAFT")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New product" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Edit/ })).toBeInTheDocument();
   });
 });

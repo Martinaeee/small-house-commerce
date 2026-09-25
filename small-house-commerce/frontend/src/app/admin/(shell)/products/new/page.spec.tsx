@@ -33,6 +33,8 @@ vi.mock("@/lib/admin-api", () => ({
     updateProduct: (...args: unknown[]) => updateProduct(...args),
     setStockBatch: (...args: unknown[]) => setStockBatch(...args),
   },
+  formatAmount: (value: unknown) =>
+    value === null || value === undefined ? "—" : `₱${value}`,
 }));
 
 import { AdminApiError } from "@/lib/admin-auth";
@@ -426,6 +428,20 @@ describe("NewProductPage two-phase save", () => {
     expect(within(panel).getByText("目标库存 4")).toBeInTheDocument();
     expect(screen.getByText("1 项库存更新仍失败。")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("uses one wide sticky editor header before the product is saved", async () => {
+    const view = renderNewProductPage();
+
+    await screen.findByRole("tab", { name: "基本信息" });
+    expect(
+      screen.getByRole("heading", { name: "新建商品" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /返回商品列表/ })).toHaveLength(1);
+    expect(screen.getByLabelText("内部商品编号")).toHaveValue("保存后自动生成");
+    expect(
+      view.container.querySelector(".max-w-\\[1600px\\]"),
+    ).not.toBeNull();
   });
 
   it("never previews or requests an unsaved product", async () => {

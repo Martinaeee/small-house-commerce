@@ -373,18 +373,20 @@ export default function NewProductPage(): ReactNode {
   };
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader
-        title={t("product_new_title")}
-        actions={
-          <Link
-            href="/admin/products"
-            className="text-sm font-semibold text-cta hover:underline"
-          >
-            {t("product_form_back")}
-          </Link>
-        }
-      />
+    <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
+      {categories === null || categories.length === 0 || loadError ? (
+        <PageHeader
+          title={t("product_new_title")}
+          actions={
+            <Link
+              href="/admin/products"
+              className="text-sm font-semibold text-cta hover:underline"
+            >
+              {t("product_form_back")}
+            </Link>
+          }
+        />
+      ) : null}
 
       {loadError ? (
         <div

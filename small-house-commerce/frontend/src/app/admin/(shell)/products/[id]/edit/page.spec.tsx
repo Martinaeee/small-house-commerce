@@ -42,6 +42,8 @@ vi.mock("@/lib/admin-api", () => ({
     listProductLandingPages: (...args: unknown[]) =>
       listProductLandingPages(...args),
   },
+  formatAmount: (value: unknown) =>
+    value === null || value === undefined ? "—" : `₱${value}`,
 }));
 
 import EditProductPage, {
@@ -98,6 +100,7 @@ function skuOf(
 function legacyProduct(overrides: Partial<AdminProduct> = {}): AdminProduct {
   return {
     id: "p1",
+    productCode: "P-000042",
     name: "Chair",
     slug: "chair",
     description: null,
@@ -278,6 +281,21 @@ describe("EditProductPage save orchestration", () => {
   });
 
   afterEach(cleanup);
+
+  it("uses one wide sticky editor header for saved identity and navigation", async () => {
+    getProduct.mockResolvedValue(legacyProduct());
+
+    const view = renderEditPage();
+    await waitForForm();
+
+    expect(screen.getByRole("heading", { name: "Chair" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "编辑商品" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /返回商品列表/ })).toHaveLength(1);
+    expect(screen.getByLabelText("内部商品编号")).toHaveValue("P-000042");
+    expect(
+      view.container.querySelector(".max-w-\\[1600px\\]"),
+    ).not.toBeNull();
+  });
 
   it("sends no PATCH and no stock request for a no-op save", async () => {
     const user = userEvent.setup();

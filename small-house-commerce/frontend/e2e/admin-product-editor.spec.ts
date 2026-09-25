@@ -2117,10 +2117,14 @@ test.describe("Localization", () => {
         expected.tabsAria,
       );
       for (const key of TAB_KEYS) {
-        const label = (await tab(page, key, lang).innerText()).trim();
-        expect(label, `${key} label (${lang})`).toBe(expected.tabs[key]);
+        const tabControl = tab(page, key, lang);
+        await expect(tabControl).toHaveAttribute("aria-label", expected.tabs[key]);
+        const visibleLabel = (await tabControl.innerText()).trim();
+        expect(visibleLabel, `${key} label (${lang})`).toContain(
+          expected.tabs[key],
+        );
         // No bilingual concatenation: the other language's label is absent.
-        expect(label).not.toContain(other.tabs[key]);
+        expect(visibleLabel).not.toContain(other.tabs[key]);
       }
       await expect(page.locator("#pf-status")).toHaveValue("ACTIVE");
       const statusOptions = await page

@@ -11,7 +11,6 @@ import {
   type ReactNode,
 } from "react";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { PageHeader } from "@/components/admin/PageHeader";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import {
   ProductForm,
@@ -735,7 +734,7 @@ export default function EditProductPage(): ReactNode {
 
   if (initialLoading) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
         <BackLink />
         <div className="mt-4">
           <TableSkeleton rows={10} cols={3} />
@@ -746,7 +745,7 @@ export default function EditProductPage(): ReactNode {
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
         <BackLink />
         <div className="mt-4">
           <EmptyState
@@ -768,7 +767,7 @@ export default function EditProductPage(): ReactNode {
 
   if (!product || !categories || !initial) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
         <BackLink />
         <div
           role="alert"
@@ -798,24 +797,7 @@ export default function EditProductPage(): ReactNode {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader
-        title={t("product_edit_title")}
-        actions={
-          <span className="flex items-center gap-4">
-            {product && landingCount !== null ? (
-              <Link
-                href={`/admin/single-pages?productId=${product.id}`}
-                className="text-sm font-semibold text-cta hover:underline"
-              >
-                {t("product_edit_landing_link", { count: landingCount })}
-              </Link>
-            ) : null}
-            <BackLink />
-          </span>
-        }
-      />
-
+    <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
       {notice ? (
         <div
           role="status"
@@ -842,6 +824,14 @@ export default function EditProductPage(): ReactNode {
         pending={pending}
         error={error}
         savedPreview={buildSavedPreview(product)}
+        identity={{
+          name: product.name,
+          productCode: product.productCode,
+          coverImageUrl: product.images[0]?.url ?? null,
+          updatedAt: product.updatedAt,
+        }}
+        landingCount={landingCount}
+        productId={product.id}
       />
 
       {/* Whole-list replacement warning, next to Save (spec §8.8 / gap #5). */}

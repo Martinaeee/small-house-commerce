@@ -64,8 +64,14 @@
   --container-content: 1200px;
 }
 
-/*
- * Homepage room-scene hotspot entry (one-shot staggered pop + ping ring).
+/* Back-office actions use the LUWAG deep green rail palette. The storefront
+   keeps the warm brown CTA tokens above. */
+.admin-app {
+  --color-cta: var(--color-admin-rail-active);
+  --color-cta-hover: var(--color-admin-rail-hover);
+}
+
+/* Homepage room-scene hotspot entry (one-shot staggered pop + ping ring).
  * Delays are supplied inline per dot; both are disabled for users who
  * prefer reduced motion.
  */

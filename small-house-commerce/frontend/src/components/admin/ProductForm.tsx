@@ -19,13 +19,15 @@ import { ImageUrlInput } from "./ImageUrlInput";
 import { DecimalInput } from "./DecimalInput";
 import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
 import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
+import { ProductEditorRail } from "./product-form/ProductEditorRail";
 import { ProductPreviewPanel } from "./product-form/ProductPreviewPanel";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
-import type {
-  AdminCategoryNode,
-  CreateProductInput,
-  ProductStatus,
+import {
+  formatAmount,
+  type AdminCategoryNode,
+  type CreateProductInput,
+  type ProductStatus,
 } from "@/lib/admin-api";
 import {
   buildVariantCandidates,
@@ -38,6 +40,11 @@ import {
   type AdminProductIssue,
   type AdminProductIssueAction,
 } from "@/lib/admin-product-issues";
+import {
+  productReadiness,
+  type ReadinessCheckKey,
+  type ReadinessWarningKey,
+} from "@/lib/admin-product-readiness";
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
@@ -735,6 +742,19 @@ const EMPTY_GRAPH_DRAFT: AdminCatalogGraphDraft = {
 };
 type TabKey = ProductFormTabKey;
 
+const READINESS_CHECK_TABS: Record<ReadinessCheckKey, TabKey> = {
+  basic: "basic",
+  priced_sku: "variants",
+  shared_media: "media",
+  shipping: "shipping",
+  default_variant: "variants",
+};
+
+const READINESS_WARNING_TABS: Record<ReadinessWarningKey, TabKey> = {
+  seo: "seo",
+  option_media: "media",
+};
+
 const SHIPPING_SKU_KEYS = [
   "productWeight",
   "packageWidth",
@@ -774,6 +794,20 @@ export interface ProductFormProps {
     path: string;
     status: ProductStatus;
   } | null;
+  /**
+   * Saved identity for the sticky header (server truth). Absent on /new.
+   * The product number is display-only — it is minted once and never edited.
+   */
+  identity?: {
+    name: string;
+    productCode: string | null;
+    coverImageUrl: string | null;
+    updatedAt: string | null;
+  } | null;
+  /** Landing pages attached to this product; null while unknown. */
+  landingCount?: number | null;
+  /** Saved product id, for the rail's landing-page link. */
+  productId?: string | null;
 }
 
 export function ProductForm({
@@ -783,6 +817,9 @@ export function ProductForm({
   pending,
   error,
   savedPreview,
+  identity = null,
+  landingCount = null,
+  productId = null,
 }: ProductFormProps): ReactNode {
   const { t, lang } = useAdminI18n();
   const [value, setValue] = useState<ProductFormValue>(initial);
@@ -866,6 +903,80 @@ export function ProductForm({
 
   const flatCategories = flattenCategories(categories);
   const err = (key: string): string | undefined => fieldErrors[key];
+
+  // --- side rail: derived, read-only ---------------------------------------
+  // Dirty = the form differs from the last saved value. A JSON comparison is
+  // enough for this shape (plain data, no cycles) and keeps the header honest.
+  const dirty = useMemo(
+    () => JSON.stringify(value) !== JSON.stringify(initial),
+    [value, initial],
+  );
+
+  const savedAt = identity?.updatedAt ? new Date(identity.updatedAt) : null;
+  const headerIdentity = identity
+    ? {
+        name: identity.name,
+        productCode: identity.productCode,
+        coverImageUrl: identity.coverImageUrl,
+        lastSavedLabel:
+          savedAt && !Number.isNaN(savedAt.getTime())
+            ? t("product_form_last_saved", {
+                date: savedAt.toLocaleString(lang === "zh" ? "zh-CN" : "en-PH", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              })
+            : null,
+      }
+    : null;
+
+  const readiness = useMemo(
+    () =>
+      productReadiness({
+        name: value.name,
+        slug: value.slug,
+        categoryId: value.categoryId,
+        tagline: value.tagline,
+        description: value.description,
+        images: value.images,
+        graph: graphDraft,
+        legacyVariants: value.variants,
+      }),
+    [value, graphDraft],
+  );
+
+  // The rail's blocking list is the SAME issue list the save path builds, so
+  // the rail can never claim "ready" while a save would fail.
+  const railBlocking = useMemo(
+    () => (graphDraft ? collectGraphIssues(graphDraft, t) : []),
+    [graphDraft, t],
+  );
+
+  const railPriceLabel = useMemo(() => {
+    const prices = new Set<number>();
+    if (graphDraft) {
+      for (const variant of graphDraft.variants) {
+        const sku = variant.sku;
+        if (!sku || sku.status !== "ACTIVE" || sku.price === null) continue;
+        if (Number.isFinite(sku.price)) prices.add(sku.price);
+      }
+    } else {
+      for (const variant of value.variants) {
+        const sku = variant.sku;
+        if (!sku || sku.status !== "ACTIVE" || sku.price.trim() === "") continue;
+        const price = Number(sku.price);
+        if (Number.isFinite(price)) prices.add(price);
+      }
+    }
+    const sorted = [...prices].sort((left, right) => left - right);
+    if (sorted.length === 0) return "—";
+    const lowest = formatAmount(String(sorted[0]));
+    const highest = formatAmount(String(sorted[sorted.length - 1]));
+    return lowest === highest ? lowest : `${lowest} – ${highest}`;
+  }, [graphDraft, value.variants]);
 
   const clearValidation = (): void => {
     setFieldErrors({});
@@ -1203,8 +1314,34 @@ export function ProductForm({
     row.querySelector<HTMLElement>("select, input, button")?.focus();
   }, [highlight, activeTab]);
 
-  const tabHasError = (tab: TabKey): boolean =>
-    Object.keys(fieldErrors).some((k) => tabForErrorKey(k) === tab);
+  const tabIndicators = Object.fromEntries(
+    TABS.map((tab) => {
+      const fieldBlocking = Object.keys(fieldErrors).filter(
+        (key) => tabForErrorKey(key) === tab.key,
+      ).length;
+      const issueIds = new Set(
+        [...railBlocking, ...railIssues]
+          .filter(
+            (issue) => issue.tab === tab.key && issue.id !== "serializer",
+          )
+          .map((issue) => issue.id),
+      );
+      const incompleteChecks = readiness.checks.filter(
+        (check) =>
+          !check.ok && READINESS_CHECK_TABS[check.key] === tab.key,
+      ).length;
+      const advisoryWarnings = readiness.warnings.filter(
+        (warning) => READINESS_WARNING_TABS[warning.key] === tab.key,
+      ).length;
+      return [
+        tab.key,
+        {
+          blocking: fieldBlocking + issueIds.size,
+          warning: incompleteChecks + advisoryWarnings,
+        },
+      ];
+    }),
+  ) as Record<TabKey, { blocking: number; warning: number }>;
   const coverSortOrder =
     value.images.length > 0
       ? Math.min(...value.images.map((img) => Number(img.sortOrder.trim() || "0") || 0))
@@ -1217,9 +1354,7 @@ export function ProductForm({
         savedStatus={savedPreview?.status ?? null}
         pending={pending}
         currentTab={activeTab}
-        tabErrors={Object.fromEntries(
-          TABS.map((tab) => [tab.key, tabHasError(tab.key)]),
-        ) as Partial<Record<TabKey, boolean>>}
+        tabIndicators={tabIndicators}
         labels={{
           back: t("product_form_back"),
           status: t("product_form_status"),
@@ -1239,13 +1374,21 @@ export function ProductForm({
           },
           tabsAria: t("product_form_tabs_aria"),
           statusAria: t("product_form_status_aria"),
-          tabError: t("product_form_tab_error"),
+          tabBlockingCount: (count) =>
+            t("product_form_tab_blocking_count", { count }),
+          tabWarningCount: (count) =>
+            t("product_form_tab_warning_count", { count }),
           saveDraft: t("product_form_save_draft"),
           savePublish: t("product_form_save_publish"),
           saveChanges: t("product_form_save_changes"),
           saveUnpublish: t("product_form_save_unpublish"),
           saving: t("product_form_saving"),
+          unsavedChanges: t("product_form_unsaved"),
+          previewAction: t("product_form_preview_action"),
+          newProduct: t("product_form_new_title"),
         }}
+        identity={headerIdentity}
+        dirty={dirty}
         onStatusChange={(status) => patch({ status })}
         onTabChange={setActiveTab}
         onSubmitIntent={() => undefined}
@@ -1258,25 +1401,38 @@ export function ProductForm({
         }
       />
 
-      {/* Concise contextual workflow status: the long per-step guide lived
-          here before; the controls below already explain themselves. */}
-      <p className="mb-6 rounded-lg bg-primary-light/30 px-4 py-3 text-xs leading-relaxed text-ink-secondary">
-        {t("product_form_workflow_hint")}
-      </p>
+      <details className="mb-5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-ink-secondary">
+        <summary className="cursor-pointer list-none font-semibold text-cta">
+          {t("product_form_help_summary")}
+          <span aria-hidden className="ml-1 text-ink-muted">⌄</span>
+        </summary>
+        <p className="mt-2 leading-relaxed">
+          {t("product_form_workflow_hint")}
+        </p>
+      </details>
 
-      {/* Panels are conditionally rendered; all form state lives in the single
-          `value` object, so switching tabs never loses edits. */}
+      {/* Wide workspace: the form takes the room it needs. At desktop widths,
+          the read-only rail stays visible below the sticky editor header. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,72fr)_minmax(20rem,28fr)]">
       <div
         role="tabpanel"
         id={`pf-panel-${activeTab}`}
         aria-labelledby={`pf-tab-${activeTab}`}
-        className="flex flex-col gap-8"
+        className="flex min-w-0 flex-col gap-8"
       >
 
         {activeTab === "basic" && (
           <>
             <Section title={t("product_basic_title")} hint={t("product_basic_hint")}>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-6">
+                <section aria-labelledby="pf-basic-storefront-heading">
+                  <h3
+                    id="pf-basic-storefront-heading"
+                    className="mb-3 text-sm font-semibold text-ink"
+                  >
+                    {t("product_basic_group_storefront")}
+                  </h3>
+                  <div className="grid gap-4 md:grid-cols-2">
                 <Field
                   label={t("product_basic_name_label")}
                   htmlFor="pf-name"
@@ -1363,6 +1519,20 @@ export function ProductForm({
                     ))}
                   </Select>
                 </Field>
+                  </div>
+                </section>
+
+                <section
+                  aria-labelledby="pf-basic-operations-heading"
+                  className="border-t border-border pt-5"
+                >
+                  <h3
+                    id="pf-basic-operations-heading"
+                    className="mb-3 text-sm font-semibold text-ink"
+                  >
+                    {t("product_basic_group_operations")}
+                  </h3>
+                  <div className="grid gap-4 md:grid-cols-2">
 
                 <Field
                   label={t("product_basic_room_label")}
@@ -1412,6 +1582,20 @@ export function ProductForm({
                   </Select>
                 </Field>
 
+                <Field
+                  label={t("product_basic_code_label")}
+                  htmlFor="pf-product-code"
+                  hint={t("product_basic_code_hint")}
+                >
+                  <TextInput
+                    id="pf-product-code"
+                    aria-label={t("product_basic_code_label")}
+                    value={identity?.productCode ?? t("product_basic_code_pending")}
+                    readOnly
+                    className="bg-background font-mono text-ink-secondary"
+                  />
+                </Field>
+
                 <fieldset className="md:col-span-2">
                   <legend className="text-sm font-medium text-ink">
                     {t("product_basic_solutions_legend")}
@@ -1436,6 +1620,8 @@ export function ProductForm({
                     ))}
                   </ul>
                 </fieldset>
+                  </div>
+                </section>
               </div>
             </Section>
           </>
@@ -2436,6 +2622,32 @@ export function ProductForm({
               </ProductPreviewPanel>
           </Section>
         )}
+      </div>
+
+        <aside className="min-w-0 xl:sticky xl:top-52 xl:self-start">
+          <ProductEditorRail
+            blocking={railBlocking}
+            readiness={readiness}
+            storefront={{
+              savedStatus: savedPreview?.status ?? null,
+              selectedStatus: value.status,
+              path: savedPreview?.path ?? "",
+            }}
+            landing={{ count: landingCount, productId }}
+            preview={{
+              name: value.name,
+              coverImageUrl: [...value.images]
+                .sort(
+                  (left, right) =>
+                    Number(left.sortOrder.trim() || "0") -
+                    Number(right.sortOrder.trim() || "0"),
+                )
+                .find((image) => image.url.trim())?.url ?? null,
+              priceLabel: railPriceLabel,
+            }}
+            onOpenPreview={() => setActiveTab("preview")}
+          />
+        </aside>
       </div>
     </form>
   );

@@ -63,10 +63,10 @@ const ATTENTION_LABEL_KEYS: Record<AdminProductAttention, TKey> = {
 
 // The storefront column reports the SAVED status — the only thing a shopper can
 // reach — never a form selection that has not been written yet.
-const STOREFRONT_LABEL_KEYS: Record<ProductStatus, TKey> = {
-  ACTIVE: "products_storefront_live",
-  DRAFT: "products_storefront_draft",
-  DISABLED: "products_storefront_unpublished",
+const STOREFRONT_BADGE_LABEL_KEYS: Record<ProductStatus, TKey> = {
+  ACTIVE: "products_storefront_badge_live",
+  DRAFT: "products_storefront_badge_draft",
+  DISABLED: "products_storefront_badge_unpublished",
 };
 
 /** Distinct ACTIVE SKU prices, ascending. Empty when nothing is sellable. */
@@ -395,34 +395,133 @@ function ProductsPageContent() {
   // --- render ---------------------------------------------------------------
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={t("products_title")}
         count={data?.total}
         actions={
-          canManage ? (
-            <Link
-              href="/admin/products/new"
-              className="inline-flex h-12 min-w-[140px] items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
-            >
-              {t("products_new")}
-            </Link>
-          ) : null
+          <>
+            <details className="relative">
+              <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-ink-secondary hover:border-primary hover:text-cta">
+                <span aria-hidden>?</span>
+                {t("products_help_summary")}
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-80 rounded-xl border border-border bg-card p-4 text-xs leading-relaxed text-ink-secondary shadow-xl">
+                <p className="text-sm font-semibold text-ink">
+                  {t("products_legend_title")}
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>{t("products_legend_status")}</li>
+                  <li>{t("products_legend_inventory")}</li>
+                  <li>{t("products_legend_collections")}</li>
+                </ul>
+              </div>
+            </details>
+            {canManage ? (
+              <Link
+                href="/admin/products/new"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-cta px-4 text-sm font-semibold text-white hover:bg-cta-hover"
+              >
+                {t("products_new")}
+              </Link>
+            ) : null}
+          </>
         }
       />
 
-      {/* Operator legend: statuses + where stock and badges actually live. */}
-      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
-        <p className="text-sm font-semibold text-ink">{t("products_legend_title")}</p>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>{t("products_legend_status")}</li>
-          <li>{t("products_legend_inventory")}</li>
-          <li>{t("products_legend_collections")}</li>
-        </ul>
-      </div>
+      {/* Status totals are navigation, not dashboard cards. Keep them first so
+          the current catalogue scope is obvious before any finer filters. */}
+      {counts ? (
+        <section
+          aria-label={t("products_status_summary_aria")}
+          className="mt-5 overflow-x-auto border-b border-border"
+        >
+          <div className="flex min-w-max items-end gap-1">
+            {(
+              [
+                { value: "", labelKey: "products_status_all", count: counts.status.all },
+                { value: "ACTIVE", labelKey: "product_form_status_active", count: counts.status.active },
+                { value: "DRAFT", labelKey: "product_form_status_draft", count: counts.status.draft },
+                { value: "DISABLED", labelKey: "product_form_status_disabled", count: counts.status.disabled },
+              ] as const satisfies readonly { value: string; labelKey: TKey; count: number }[]
+            ).map((item) => {
+              const selected = status === item.value;
+              return (
+                <button
+                  key={item.value || "all"}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    patchParams({ status: item.value || null, page: null })
+                  }
+                  className={`flex min-w-[8.5rem] items-center justify-between gap-3 border-b-2 px-4 py-2.5 text-left text-sm font-semibold transition-colors ${
+                    selected
+                      ? "border-cta text-cta"
+                      : "border-transparent text-ink-secondary hover:border-primary hover:text-ink"
+                  }`}
+                >
+                  <span>{t(item.labelKey)}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      selected
+                        ? "bg-primary-light/50 text-cta"
+                        : "bg-background text-ink-muted"
+                    }`}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
-      {/* Filter bar */}
-      <div className="mt-4 rounded-xl border border-border bg-card p-4">
+      {/* Attention presets share the server predicate with their counts. Empty
+          presets stay available but recede; actual problems carry amber weight. */}
+      {counts || attention ? (
+        <section
+          aria-label={t("products_attention_aria")}
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
+        >
+          <span className="mr-1 text-sm font-semibold text-ink">
+            {t("products_attention_title")}
+          </span>
+          {ADMIN_PRODUCT_ATTENTION.map((key) => {
+            const selected = attention === key;
+            const count = counts?.attention[key] ?? null;
+            const hasIssues = (count ?? 0) > 0;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={selected}
+                onClick={() =>
+                  patchParams({ attention: selected ? null : key, page: null })
+                }
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  selected
+                    ? "border-cta bg-primary-light/40 text-cta"
+                    : hasIssues
+                      ? "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400"
+                      : "border-border bg-background/50 text-ink-muted opacity-50 hover:opacity-80"
+                }`}
+              >
+                {t(ATTENTION_LABEL_KEYS[key])}
+                {count !== null ? (
+                  <span className="ml-1.5 font-semibold">{count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </section>
+      ) : null}
+
+      {/* Search and categorical filters follow status and attention scope. */}
+      <section
+        aria-label={t("products_filters_aria")}
+        className="mt-4 rounded-xl border border-border bg-card p-4"
+      >
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
           <div className="md:min-w-[220px] md:flex-1">
             <Field label={t("products_search_label")} htmlFor="products-search">
@@ -485,7 +584,7 @@ function ProductsPageContent() {
             {t("products_clear_filters")}
           </Button>
         </div>
-      </div>
+      </section>
 
       {/* Active filters stay visible with a one-click clear, so a filtered list
           can never look like "the catalogue only has these rows". */}
@@ -552,84 +651,10 @@ function ProductsPageContent() {
         </div>
       ) : null}
 
-      {/* Status counters and "needs attention" presets. Both are aggregated in
-          the database; clicking either applies the matching list filter. The
-          preset strip also renders when only the filter is known, so an active
-          preset is never hidden by a failed counter request. */}
-      {counts || attention ? (
-        <div className="mt-4 flex flex-col gap-3">
-          {counts ? (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {(
-              [
-                { value: "", labelKey: "products_status_all", count: counts.status.all },
-                { value: "ACTIVE", labelKey: "product_form_status_active", count: counts.status.active },
-                { value: "DRAFT", labelKey: "product_form_status_draft", count: counts.status.draft },
-                { value: "DISABLED", labelKey: "product_form_status_disabled", count: counts.status.disabled },
-              ] as const satisfies readonly { value: string; labelKey: TKey; count: number }[]
-            ).map((card) => {
-              const selected = status === card.value;
-              return (
-                <button
-                  key={card.value || "all"}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() =>
-                    patchParams({ status: card.value || null, page: null })
-                  }
-                  className={`rounded-xl border bg-card px-4 py-3 text-left transition-colors ${
-                    selected ? "border-cta" : "border-border hover:border-primary"
-                  }`}
-                >
-                  <span className="block text-xs font-medium text-ink-secondary">
-                    {t(card.labelKey)}
-                  </span>
-                  <span className="mt-1 block text-xl font-semibold text-ink">
-                    {card.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
-            <span className="text-sm font-semibold text-ink">
-              {t("products_attention_title")}
-            </span>
-            {ADMIN_PRODUCT_ATTENTION.map((key) => {
-              const selected = attention === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() =>
-                    patchParams({ attention: selected ? null : key, page: null })
-                  }
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    selected
-                      ? "border-cta bg-primary-light/40 text-cta"
-                      : "border-border text-ink-secondary hover:border-primary hover:text-cta"
-                  }`}
-                >
-                  {t(ATTENTION_LABEL_KEYS[key])}
-                  {counts ? (
-                    <span className="ml-1.5 font-semibold">
-                      {counts.attention[key]}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
       {/* Table / states */}
       <div className="mt-4">
         {loading ? (
-          <TableSkeleton rows={6} cols={8} />
+          <TableSkeleton rows={6} cols={9} />
         ) : error ? (
           <div
             role="alert"
@@ -678,20 +703,30 @@ function ProductsPageContent() {
           )
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[1000px] text-sm">
+            <table className="w-full min-w-[1080px] table-fixed text-sm">
               <caption className="sr-only">{t("products_title")}</caption>
+              <colgroup>
+                <col className="w-[5.5rem]" />
+                <col className="w-[17.25rem]" />
+                <col className="w-[5.5rem]" />
+                <col className="w-[6.5rem]" />
+                <col className="w-[4.5rem]" />
+                <col className="w-[12rem]" />
+                <col className="w-[5.5rem]" />
+                <col className="w-[7rem]" />
+                <col className="w-[8rem]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th scope="col" className="px-4 py-3">{t("products_col_code")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_product")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_category")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_skus")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_status")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_price")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_media")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_storefront")}</th>
-                  <th scope="col" className="px-4 py-3">{t("products_col_updated")}</th>
-                  <th scope="col" className="px-4 py-3">{t("common_actions")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_code")}</th>
+                  <th scope="col" className="px-3 py-3">{t("products_col_product")}</th>
+                  <th scope="col" className="px-3 py-3">{t("products_col_category")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_skus")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_status")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_price")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_storefront")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_updated")}</th>
+                  <th scope="col" className="whitespace-nowrap px-3 py-3">{t("common_actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -703,34 +738,34 @@ function ProductsPageContent() {
                       key={row.id}
                       className="border-b border-border last:border-0"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-ink-secondary">
+                      <td className="whitespace-nowrap px-3 py-3 font-mono text-xs font-medium tracking-wide text-ink-secondary">
                         {row.productCode ?? "—"}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <div className="flex items-center gap-3">
                           {row.images[0] ? (
                             // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
                             <img
                               src={row.images[0].url}
                               alt=""
-                              className="h-12 w-12 shrink-0 rounded-lg border border-border object-cover"
+                              className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
                               referrerPolicy="no-referrer"
                             />
                           ) : (
                             <PlaceholderImage
                               label={row.name}
-                              className="h-12 w-12 shrink-0 overflow-hidden rounded-lg"
+                              className="h-14 w-14 shrink-0 overflow-hidden rounded-lg"
                             />
                           )}
                           <div className="min-w-0">
                             <span
-                              className="block max-w-[220px] truncate font-medium text-ink"
+                              className="block max-w-[16rem] truncate font-semibold leading-tight text-ink"
                               title={row.name}
                             >
                               {row.name}
                             </span>
                             <span
-                              className="block max-w-[220px] truncate text-xs text-ink-muted"
+                              className="mt-1 block max-w-[16rem] truncate text-xs text-ink-muted"
                               title={row.slug}
                             >
                               {row.slug}
@@ -738,10 +773,10 @@ function ProductsPageContent() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-ink-secondary">
+                      <td className="px-3 py-3 text-ink-secondary">
                         {categoryNames.get(row.categoryId) ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-ink-secondary">
+                      <td className="px-3 py-3 text-ink-secondary">
                         {row.activeOptionNames &&
                         row.activeOptionNames.length > 0 ? (
                           <>
@@ -758,82 +793,88 @@ function ProductsPageContent() {
                           t("products_skus_count", { count: row.variants.length })
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <Badge
                           value={t(STATUS_LABEL_KEYS[row.status])}
                           tone={productBadgeTone(row.status)}
                         />
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
+                      <td className="whitespace-nowrap px-3 py-3 font-medium text-ink">
                         {priceLabel(row)}
                       </td>
-                      <td className="px-4 py-3">
-                        {row.images.length === 0 ? (
-                          <span className="text-xs text-ink-muted">
-                            {t("products_media_none")}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1.5">
-                            {row.images.slice(0, 3).map((image) => (
-                              // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail strip.
-                              <img
-                                key={image.id}
-                                src={image.url}
-                                alt=""
-                                className="h-8 w-8 rounded border border-border object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            ))}
-                            {row.images.length > 3 ? (
-                              <span className="text-xs text-ink-muted">
-                                +{row.images.length - 3}
-                              </span>
-                            ) : null}
-                          </span>
-                        )}
+                      <td className="whitespace-nowrap px-3 py-3">
+                        <Badge
+                          value={t(STOREFRONT_BADGE_LABEL_KEYS[row.status])}
+                          tone={productBadgeTone(row.status)}
+                        />
                       </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`text-xs font-medium ${
-                            row.status === "ACTIVE"
-                              ? "text-success"
-                              : "text-ink-muted"
-                          }`}
-                        >
-                          {t(STOREFRONT_LABEL_KEYS[row.status])}
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
-                        {new Date(row.updatedAt).toLocaleString("en-PH", {
+                      <td className="whitespace-nowrap px-3 py-3 text-ink-secondary">
+                        {new Date(row.updatedAt).toLocaleDateString("en-PH", {
                           year: "numeric",
                           month: "short",
                           day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
                         })}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         {canManage ? (
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => setQuickView(row)}
-                              className="text-sm font-semibold text-cta hover:underline"
+                              aria-label={t("products_action_quick_view_aria", {
+                                name: row.name,
+                              })}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink-secondary hover:border-border hover:bg-background hover:text-cta"
                             >
-                              {t("products_quick_view")}
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                aria-hidden
+                                className="h-4 w-4"
+                              >
+                                <path
+                                  d="M2.8 12s3.2-5.2 9.2-5.2S21.2 12 21.2 12 18 17.2 12 17.2 2.8 12 2.8 12Z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.7"
+                                />
+                                <circle
+                                  cx="12"
+                                  cy="12"
+                                  r="2.4"
+                                  stroke="currentColor"
+                                  strokeWidth="1.7"
+                                />
+                              </svg>
                             </button>
                             <Link
                               href={`/admin/products/${row.id}/edit`}
-                              className="text-sm font-semibold text-cta hover:underline"
+                              aria-label={t("products_action_edit_aria", {
+                                name: row.name,
+                              })}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink-secondary hover:border-border hover:bg-background hover:text-cta"
                             >
-                              {t("common_edit")}
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                aria-hidden
+                                className="h-4 w-4"
+                              >
+                                <path
+                                  d="m14.7 5.3 4 4M4.5 19.5l3.8-.8L19 8a1.4 1.4 0 0 0 0-2l-1-1a1.4 1.4 0 0 0-2 0L5.3 15.7l-.8 3.8Z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.7"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
                             </Link>
                             {/* Destructive and rare actions stay folded away:
                                 a product with order history is not disposable. */}
                             <details className="relative">
                               <summary
+                                role="button"
                                 aria-label={t("products_more_actions")}
-                                className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-lg border border-border text-ink-secondary hover:border-primary hover:text-cta"
+                                className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-lg border border-transparent text-ink-secondary hover:border-border hover:bg-background hover:text-cta"
                               >
                                 ⋯
                               </summary>
@@ -933,8 +974,8 @@ export default function AdminProductsPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-          <TableSkeleton rows={6} cols={8} />
+        <div className="w-full max-w-none px-4 py-6 md:px-8">
+          <TableSkeleton rows={6} cols={9} />
         </div>
       }
     >

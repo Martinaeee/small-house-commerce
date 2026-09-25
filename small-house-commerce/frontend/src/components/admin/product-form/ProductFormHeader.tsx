@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { Badge } from "@/components/admin/Badge";
 import type { ProductStatus } from "@/lib/admin-api";
 
 export const PRODUCT_FORM_TABS = [
@@ -23,12 +24,17 @@ export interface ProductFormHeaderLabels {
   tabs: Record<ProductFormTabKey, string>;
   tabsAria: string;
   statusAria: string;
-  tabError: string;
+  tabBlockingCount: (count: number) => string;
+  tabWarningCount: (count: number) => string;
   saveDraft: string;
   savePublish: string;
   saveChanges: string;
   saveUnpublish: string;
   saving: string;
+  /** Amber chip shown while the form holds edits the server has not seen. */
+  unsavedChanges: string;
+  previewAction: string;
+  newProduct: string;
 }
 
 export interface ProductFormHeaderProps {
@@ -36,7 +42,9 @@ export interface ProductFormHeaderProps {
   savedStatus: ProductStatus | null;
   pending: boolean;
   currentTab: ProductFormTabKey;
-  tabErrors: Partial<Record<ProductFormTabKey, boolean>>;
+  tabIndicators: Partial<
+    Record<ProductFormTabKey, { blocking: number; warning: number }>
+  >;
   labels: ProductFormHeaderLabels;
   backHref?: string;
   onStatusChange: (status: ProductStatus) => void;
@@ -45,7 +53,25 @@ export interface ProductFormHeaderProps {
   onSubmitIntent?: () => void;
   /** Persistent problem rail rendered inside the sticky chrome. */
   errorRail?: ReactNode;
+  /**
+   * Saved identity (server truth). Absent on /new, where nothing is saved yet.
+   * The product number is display-only: it is minted once and never edited.
+   */
+  identity?: {
+    name: string;
+    productCode: string | null;
+    coverImageUrl: string | null;
+    lastSavedLabel: string | null;
+  } | null;
+  /** True while the form differs from the last saved value. */
+  dirty?: boolean;
 }
+
+const STATUS_TONES: Record<ProductStatus, "green" | "amber" | "red"> = {
+  ACTIVE: "green",
+  DRAFT: "amber",
+  DISABLED: "red",
+};
 
 type SaveLabels = Pick<
   ProductFormHeaderLabels,
@@ -67,13 +93,15 @@ export function ProductFormHeader({
   savedStatus,
   pending,
   currentTab,
-  tabErrors,
+  tabIndicators,
   labels,
   backHref = "/admin/products",
   onStatusChange,
   onTabChange,
   onSubmitIntent,
   errorRail,
+  identity = null,
+  dirty = false,
 }: ProductFormHeaderProps): ReactNode {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const submitLabel = pending ? labels.saving : saveLabel(currentStatus, savedStatus, labels);
@@ -116,7 +144,54 @@ export function ProductFormHeader({
         >
           ← {labels.back}
         </Link>
-        <div className="flex items-center gap-2">
+
+        <div className="flex min-w-0 items-center gap-3">
+          {identity?.coverImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded asset.
+            <img
+              src={identity.coverImageUrl}
+              alt=""
+              className="hidden h-10 w-10 shrink-0 rounded-lg border border-border object-cover sm:block"
+              referrerPolicy="no-referrer"
+            />
+          ) : null}
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1
+                className="truncate text-base font-semibold text-ink"
+                title={identity?.name ?? labels.newProduct}
+              >
+                {identity?.name ?? labels.newProduct}
+              </h1>
+              {identity ? (
+                <Badge
+                  value={labels.statusOptions[savedStatus ?? currentStatus]}
+                  tone={STATUS_TONES[savedStatus ?? currentStatus]}
+                />
+              ) : null}
+              {dirty ? (
+                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {labels.unsavedChanges}
+                </span>
+              ) : null}
+            </div>
+            {identity ? (
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+                <span className="font-mono">
+                  {identity.productCode ?? "—"}
+                </span>
+                {identity.lastSavedLabel ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>{identity.lastSavedLabel}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <label htmlFor="pf-status" className="text-xs font-semibold text-ink-secondary">
             {labels.status}
           </label>
@@ -132,8 +207,13 @@ export function ProductFormHeader({
             <option value="ACTIVE">{labels.statusOptions.ACTIVE}</option>
             <option value="DISABLED">{labels.statusOptions.DISABLED}</option>
           </select>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onTabChange("preview")}
+            className="h-9 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-cta hover:border-primary"
+          >
+            {labels.previewAction}
+          </button>
           <button
             type="submit"
             onClick={onSubmitIntent}
@@ -149,11 +229,14 @@ export function ProductFormHeader({
       <div
         role="tablist"
         aria-label={labels.tabsAria}
-        className="mt-3 flex min-w-0 gap-2 overflow-x-auto pb-1"
+        className="mt-3 flex min-w-0 gap-1 overflow-x-auto"
       >
         {PRODUCT_FORM_TABS.map((tab, index) => {
           const selected = currentTab === tab.key;
-          const hasError = tabErrors[tab.key] === true;
+          const indicator = tabIndicators[tab.key] ?? {
+            blocking: 0,
+            warning: 0,
+          };
           return (
             <button
               key={tab.key}
@@ -162,24 +245,35 @@ export function ProductFormHeader({
               }}
               type="button"
               role="tab"
+              aria-label={labels.tabs[tab.key]}
               id={`pf-tab-${tab.key}`}
               tabIndex={selected ? 0 : -1}
               aria-selected={selected}
               aria-controls={`pf-panel-${tab.key}`}
               onClick={() => onTabChange(tab.key)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+              className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
                 selected
-                  ? "bg-cta text-white"
-                  : "border border-border bg-card text-ink-secondary hover:text-cta"
+                  ? "border-cta text-cta"
+                  : "border-transparent text-ink-secondary hover:text-cta"
               }`}
             >
               {labels.tabs[tab.key]}
-              {hasError ? (
+              {indicator.blocking > 0 ? (
                 <span
-                  aria-label={labels.tabError}
-                  className="ml-1.5 inline-block h-2 w-2 rounded-full bg-sale align-middle"
-                />
+                  aria-label={labels.tabBlockingCount(indicator.blocking)}
+                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                >
+                  {indicator.blocking}
+                </span>
+              ) : null}
+              {indicator.warning > 0 ? (
+                <span
+                  aria-label={labels.tabWarningCount(indicator.warning)}
+                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                >
+                  {indicator.warning}
+                </span>
               ) : null}
             </button>
           );
