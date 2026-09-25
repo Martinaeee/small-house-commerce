@@ -4,6 +4,10 @@ import type { ReactNode } from "react";
 import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 import { ProductMediaScopesEditor } from "@/components/admin/ProductMediaScopesEditor";
 import {
+  DetailMediaWorkspace,
+  type DetailMediaWorkspaceProps,
+} from "@/components/admin/product-form/DetailMediaWorkspace";
+import {
   SharedMediaWorkspace,
   type SharedMediaWorkspaceProps,
 } from "@/components/admin/product-form/SharedMediaWorkspace";
@@ -16,16 +20,16 @@ export interface ProductMediaPanelProps {
   graphDraft: AdminCatalogGraphDraft | null;
   onGraphChange: ((mutate: (draft: AdminCatalogGraphDraft) => void) => void) | null;
   sharedMedia: SharedMediaWorkspaceProps;
-  detailBlocks: ReactNode;
+  detailMedia: DetailMediaWorkspaceProps;
   /** Row the problem rail asked to highlight (media row key). */
   highlightKey?: string | null;
 }
 
 /**
  * Controlled media-tab composition. ProductForm remains the sole owner of the
- * complete product value; this panel receives controlled shared-media props,
- * a rendered detail slice, and the graph media callback, so shared gallery
- * rows never become graph-scoped rows accidentally.
+ * complete product value; this panel receives controlled shared/detail-media
+ * props and the graph media callback, so the three media lines stay separate
+ * and shared gallery rows never become graph-scoped rows accidentally.
  */
 export function ProductMediaPanel({
   graphLocked,
@@ -34,7 +38,7 @@ export function ProductMediaPanel({
   graphDraft,
   onGraphChange,
   sharedMedia,
-  detailBlocks,
+  detailMedia,
   highlightKey = null,
 }: ProductMediaPanelProps): ReactNode {
   const { t } = useAdminI18n();
@@ -68,7 +72,7 @@ export function ProductMediaPanel({
           </div>
         </section>
       ) : null}
-      {detailBlocks}
+      <DetailMediaWorkspace {...detailMedia} />
     </>
   );
 }

@@ -459,6 +459,9 @@ export const zh = {
 
   // --- Product form: detail blocks ---
   product_detail_title: "详情内容（图片 / 视频）",
+  product_detail_scope_explanation:
+    "仅用于 PDP 长图 / 视频详情；不会进入商品主图库或款式图库。",
+  product_detail_blocks_aria: "PDP 详情媒体块",
   product_detail_hint: "显示在图集下方的详情区；顺序即前台展示顺序，用 ↑ ↓ 调整。",
   product_detail_empty: "还没有详情内容，点下方按钮添加第一块。",
   product_detail_type_label: "类型",
@@ -474,8 +477,8 @@ export const zh = {
   product_detail_move_up: "将详情块 {number} 上移",
   product_detail_move_down: "将详情块 {number} 下移",
   product_detail_remove: "移除详情块",
-  product_detail_add_image: "添加图片",
-  product_detail_add_video: "添加视频",
+  product_detail_add_image: "添加详情图片",
+  product_detail_add_video: "添加详情视频",
 
   // --- Product form: specs tab ---
   product_specs_dimensions_title: "尺寸",

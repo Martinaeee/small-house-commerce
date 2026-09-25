@@ -880,6 +880,109 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.getByLabelText("内部商品编号")).toHaveAttribute("readonly");
   });
 
+  it("preserves detail-media payload fields and keeps all three media lines disjoint", async () => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const graph = baseValue().graph!;
+    renderForm(
+      baseValue({
+        images: [
+          {
+            url: "/uploads/shared.jpg",
+            type: "IMAGE",
+            altText: "Shared",
+            sortOrder: "0",
+          },
+        ],
+        detailBlocks: [
+          {
+            type: "IMAGE",
+            url: "/uploads/detail-a.jpg",
+            altText: "Detail A",
+            sortOrder: "0",
+          },
+          {
+            type: "IMAGE",
+            url: "/uploads/detail-b.jpg",
+            altText: "Detail B",
+            sortOrder: "1",
+          },
+        ],
+        graph: {
+          ...graph,
+          media: [
+            {
+              id: "scoped-media",
+              url: "/uploads/scoped.jpg",
+              type: "IMAGE",
+              altText: "Scoped",
+              sortOrder: 0,
+              optionValueRef: { id: "value-scoped" },
+              variantRef: null,
+            },
+          ],
+        },
+      }),
+      onSubmit,
+    );
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+
+    fireEvent.change(screen.getByLabelText("Detail block 1 alt text"), {
+      target: { value: "Detail A updated" },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Move detail block 1 down" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Add detail video" }));
+    fireEvent.change(screen.getByLabelText("Detail block 3 URL"), {
+      target: { value: "/uploads/detail-c.mp4" },
+    });
+    fireEvent.change(screen.getByLabelText("Detail block 3 alt text"), {
+      target: { value: "Detail C" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const submitted = onSubmit.mock.calls[0]?.[0] as ProductFormValue;
+    expect(submitted.detailBlocks).toEqual([
+      {
+        type: "IMAGE",
+        url: "/uploads/detail-b.jpg",
+        altText: "Detail B",
+        sortOrder: "0",
+      },
+      {
+        type: "IMAGE",
+        url: "/uploads/detail-a.jpg",
+        altText: "Detail A updated",
+        sortOrder: "1",
+      },
+      {
+        type: "VIDEO",
+        url: "/uploads/detail-c.mp4",
+        altText: "Detail C",
+        sortOrder: "2",
+      },
+    ]);
+    expect(submitted.images).toEqual([
+      {
+        url: "/uploads/shared.jpg",
+        type: "IMAGE",
+        altText: "Shared",
+        sortOrder: "0",
+      },
+    ]);
+    expect(submitted.graph?.media).toEqual([
+      expect.objectContaining({
+        id: "scoped-media",
+        optionValueRef: { id: "value-scoped" },
+        variantRef: null,
+      }),
+    ]);
+    expect(submitted.graph?.media).toHaveLength(1);
+  });
+
   it("keeps shared-media rows parent-owned while the workspace remounts", async () => {
     setAdminLang("en");
     const user = userEvent.setup();

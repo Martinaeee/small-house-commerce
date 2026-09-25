@@ -454,6 +454,9 @@ export const en: Record<ZhKey, string> = {
   product_media_add_video: "Add video",
 
   product_detail_title: "Detail content (images / videos)",
+  product_detail_scope_explanation:
+    "PDP long-form media only. These blocks do not appear in the main product gallery or variant galleries.",
+  product_detail_blocks_aria: "PDP detail media blocks",
   product_detail_hint:
     "Shown in the details area below the gallery; the row order is the storefront order. Use the arrows to reorder.",
   product_detail_empty: "No detail content yet. Add the first block below.",
@@ -470,9 +473,9 @@ export const en: Record<ZhKey, string> = {
   product_detail_alt_hint: "English description for SEO and accessibility.",
   product_detail_move_up: "Move detail block {number} up",
   product_detail_move_down: "Move detail block {number} down",
-  product_detail_remove: "Remove block",
-  product_detail_add_image: "Add image",
-  product_detail_add_video: "Add video",
+  product_detail_remove: "Remove detail block",
+  product_detail_add_image: "Add detail image",
+  product_detail_add_video: "Add detail video",
 
   product_specs_dimensions_title: "Dimensions",
   product_specs_dimensions_hint:

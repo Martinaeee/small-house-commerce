@@ -16,7 +16,6 @@ import {
   Textarea,
 } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
-import { ImageUrlInput } from "./ImageUrlInput";
 import { DecimalInput } from "./DecimalInput";
 import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
 import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
@@ -1674,144 +1673,15 @@ export function ProductForm({
               onRemove: removeImage,
               onAdd: addImage,
             }}
-            detailBlocks={
-      /* ---------------- Detail blocks (description body) ---------------- */
-      <Section
-        title={t("product_detail_title")}
-        hint={t("product_detail_hint")}
-      >
-        {value.detailBlocks.length === 0 ? (
-          <p className="text-sm text-ink-muted">
-            {t("product_detail_empty")}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {value.detailBlocks.map((block, i) => (
-              <li
-                key={i}
-                className="grid gap-3 md:grid-cols-[120px_1fr_200px_auto] md:items-end"
-              >
-                <Field
-                  label={i === 0 ? t("product_detail_type_label") : ""}
-                  htmlFor={`pf-detail-${i}-type`}
-                  hint={i === 0 ? `${t("product_detail_type_image")} / ${t("product_detail_type_video")}` : undefined}
-                >
-                  <Select
-                    id={`pf-detail-${i}-type`}
-                    aria-label={i === 0 ? undefined : t("product_detail_type_aria", { number: i + 1 })}
-                    value={block.type}
-                    onChange={(e) =>
-                      setDetailBlock(i, {
-                        type: e.target.value as DetailBlockFormValue["type"],
-                      })
-                    }
-                    disabled={pending}
-                  >
-                    <option value="IMAGE">{t("product_detail_type_image")}</option>
-                    <option value="VIDEO">{t("product_detail_type_video")}</option>
-                  </Select>
-                </Field>
-                <Field
-                  label={i === 0 ? t("product_detail_url_label") : ""}
-                  htmlFor={`pf-detail-${i}-url`}
-                  error={err(`detailBlocks.${i}.url`)}
-                  hint={
-                    i === 0
-                      ? block.type === "VIDEO"
-                        ? t("product_detail_url_video_hint")
-                        : t("product_detail_url_image_hint")
-                      : undefined
-                  }
-                >
-                  {block.type === "IMAGE" ? (
-                    <ImageUrlInput
-                      id={`pf-detail-${i}-url`}
-                      ariaLabel={i === 0 ? undefined : t("product_detail_url_aria", { number: i + 1 })}
-                      value={block.url}
-                      onChange={(url) => setDetailBlock(i, { url })}
-                      disabled={pending}
-                    />
-                  ) : (
-                    <ImageUrlInput
-                      id={`pf-detail-${i}-url`}
-                      ariaLabel={i === 0 ? undefined : t("product_detail_url_aria", { number: i + 1 })}
-                      kind="video"
-                      placeholder="https://…/product-demo.mp4"
-                      value={block.url}
-                      onChange={(url) => setDetailBlock(i, { url })}
-                      disabled={pending}
-                    />
-                  )}
-                </Field>
-                <Field
-                  label={i === 0 ? t("product_media_alt_label") : ""}
-                  htmlFor={`pf-detail-${i}-alt`}
-                  error={err(`detailBlocks.${i}.altText`)}
-                  hint={i === 0 ? t("product_detail_alt_hint") : undefined}
-                >
-                  <TextInput
-                    id={`pf-detail-${i}-alt`}
-                    aria-label={i === 0 ? undefined : t("product_detail_alt_aria", { number: i + 1 })}
-                    value={block.altText}
-                    onChange={(e) => setDetailBlock(i, { altText: e.target.value })}
-                    autoComplete="off"
-                  />
-                </Field>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className={removeBtnCls}
-                    onClick={() => moveDetailBlock(i, -1)}
-                    disabled={pending || i === 0}
-                    aria-label={t("product_detail_move_up", { number: i + 1 })}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className={removeBtnCls}
-                    onClick={() => moveDetailBlock(i, 1)}
-                    disabled={pending || i === value.detailBlocks.length - 1}
-                    aria-label={t("product_detail_move_down", { number: i + 1 })}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className={removeBtnCls}
-                    onClick={() => removeDetailBlock(i)}
-                    disabled={pending}
-                  >
-                    {t("product_detail_remove")}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => addDetailBlock("IMAGE")}
-            disabled={pending}
-          >
-            {t("product_detail_add_image")}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => addDetailBlock("VIDEO")}
-            disabled={pending}
-          >
-            {t("product_detail_add_video")}
-          </Button>
-        </div>
-
-          </Section>
-            }
+            detailMedia={{
+              blocks: value.detailBlocks,
+              pending,
+              highlightKey: highlight?.key ?? null,
+              onPatch: setDetailBlock,
+              onMove: moveDetailBlock,
+              onRemove: removeDetailBlock,
+              onAdd: addDetailBlock,
+            }}
           />
         )}
 
