@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { testDatabaseGuard } from './seed-e2e.js';
+import { E2E_ROLE_ACCOUNTS, testDatabaseGuard } from './seed-e2e.js';
 
 /**
  * Task 20: the E2E seed refuses to touch anything that does not look like a
@@ -7,6 +7,26 @@ import { testDatabaseGuard } from './seed-e2e.js';
  * wipe a developer's local catalog or a production database.
  */
 describe('seed-e2e test database guard', () => {
+  it('declares one deterministic account for each search RBAC scenario', () => {
+    expect(E2E_ROLE_ACCOUNTS).toEqual([
+      {
+        name: 'E2E Admin',
+        email: 'e2e-admin@smallhouse.test',
+        roleCode: 'SUPER_ADMIN',
+      },
+      {
+        name: 'E2E Warehouse',
+        email: 'e2e-warehouse@smallhouse.test',
+        roleCode: 'WAREHOUSE',
+      },
+      {
+        name: 'E2E Optimizer',
+        email: 'e2e-optimizer@smallhouse.test',
+        roleCode: 'OPTIMIZER',
+      },
+    ]);
+  });
+
   it('accepts the documented variant test database', () => {
     const result = testDatabaseGuard(
       'postgresql://postgres:postgres@localhost:5432/small_house_variant_test?schema=public',

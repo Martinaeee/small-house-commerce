@@ -32,6 +32,23 @@ import {
 /** E2E admin credentials (documented in the Playwright config). */
 export const E2E_ADMIN_EMAIL = 'e2e-admin@smallhouse.test';
 export const E2E_ADMIN_PASSWORD = 'E2eAdminPass123!';
+export const E2E_ROLE_ACCOUNTS = [
+  {
+    name: 'E2E Admin',
+    email: E2E_ADMIN_EMAIL,
+    roleCode: 'SUPER_ADMIN',
+  },
+  {
+    name: 'E2E Warehouse',
+    email: 'e2e-warehouse@smallhouse.test',
+    roleCode: 'WAREHOUSE',
+  },
+  {
+    name: 'E2E Optimizer',
+    email: 'e2e-optimizer@smallhouse.test',
+    roleCode: 'OPTIMIZER',
+  },
+] as const;
 
 /**
  * Fails closed unless the database name is unmistakably a disposable test
@@ -126,31 +143,35 @@ async function ensureWarehouse(ctx: SeedContext): Promise<string> {
   return created.id;
 }
 
-async function ensureE2EAdmin(ctx: SeedContext): Promise<void> {
-  const existing = await ctx.prisma.user.findUnique({
-    where: { email: E2E_ADMIN_EMAIL },
-    select: { id: true },
-  });
-  if (existing) return;
-
-  const superAdmin = await ctx.prisma.role.findUnique({
-    where: { code: 'SUPER_ADMIN' },
-    select: { id: true },
-  });
-  if (!superAdmin) {
-    throw new Error(
-      'The SUPER_ADMIN role is missing — run `prisma db seed` on the test database first.',
-    );
-  }
+async function ensureE2EAdmins(ctx: SeedContext): Promise<void> {
   const passwordHash = await argon2.hash(E2E_ADMIN_PASSWORD);
-  await ctx.prisma.user.create({
-    data: {
-      name: 'E2E Admin',
-      email: E2E_ADMIN_EMAIL,
-      passwordHash,
-      roles: { create: [{ roleId: superAdmin.id }] },
-    },
-  });
+  for (const account of E2E_ROLE_ACCOUNTS) {
+    const role = await ctx.prisma.role.findUnique({
+      where: { code: account.roleCode },
+      select: { id: true },
+    });
+    if (!role) {
+      throw new Error(
+        `The ${account.roleCode} role is missing — run \`prisma db seed\` on the test database first.`,
+      );
+    }
+    await ctx.prisma.user.upsert({
+      where: { email: account.email },
+      create: {
+        name: account.name,
+        email: account.email,
+        passwordHash,
+        status: 'ACTIVE',
+        roles: { create: [{ roleId: role.id }] },
+      },
+      update: {
+        name: account.name,
+        passwordHash,
+        status: 'ACTIVE',
+        roles: { deleteMany: {}, create: [{ roleId: role.id }] },
+      },
+    });
+  }
 }
 
 async function setStock(
@@ -528,7 +549,7 @@ async function main(): Promise<void> {
   const ctx: SeedContext = { prisma, uploadDir };
 
   try {
-    await ensureE2EAdmin(ctx);
+    await ensureE2EAdmins(ctx);
     const categoryId = await ensureCategory(ctx);
     const warehouseId = await ensureWarehouse(ctx);
 

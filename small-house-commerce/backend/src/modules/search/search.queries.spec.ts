@@ -122,8 +122,13 @@ describe('Product search SQL', () => {
     expect(sql.sql).toContain('WITH inventory_totals');
     expect(sql.sql).toContain('SUM(on_hand - reserved)');
     expect(sql.sql).toContain('PARTITION BY product_id');
+    expect(sql.sql).toContain(
+      'ORDER BY score::int DESC, sku_id NULLS LAST, product_id',
+    );
     expect(sql.sql).toContain('WHERE product_rank = 1');
-    expect(sql.sql).toContain('ORDER BY score DESC, updated_at DESC, product_id ASC');
+    expect(sql.sql).toContain(
+      'ORDER BY score::int DESC, updated_at DESC, product_id ASC',
+    );
     expect(sql.sql).toContain("ESCAPE '\\'");
     expect(sql.sql).not.toContain(raw);
     expect(flatValues(sql)).toContain(raw.toLocaleLowerCase('en-US'));
@@ -144,6 +149,9 @@ describe('cross-domain search SQL', () => {
     expect(sql.sql).toContain('FROM orders o');
     expect(sql.sql).toContain("replace(c.normalized_phone, '+', '')");
     expect(sql.sql).toContain("'0' || substring(replace(c.normalized_phone, '+', '') from 3)");
+    expect(sql.sql).toContain(
+      'ORDER BY score::int DESC, updated_at DESC, order_id ASC',
+    );
     expect(flatValues(sql)).toContain('091712%');
     expect(flatValues(sql)).toContain('%091712%');
     expect(flatValues(sql)).toContain(6);
@@ -169,6 +177,9 @@ describe('cross-domain search SQL', () => {
     expect(sql.sql).toContain("lower(COALESCE(c.email, ''))");
     expect(sql.sql).toContain("lower(COALESCE(c.name, ''))");
     expect(sql.sql).toContain('c.normalized_phone');
+    expect(sql.sql).toContain(
+      'ORDER BY score::int DESC, updated_at DESC, customer_id ASC',
+    );
     expect(flatValues(sql)).toContain('jane');
     expect(flatValues(sql)).toContain(6);
   });
@@ -178,7 +189,9 @@ describe('cross-domain search SQL', () => {
     expect(sql.sql).toContain('FROM shipments s');
     expect(sql.sql).toContain('JOIN orders o ON o.id = s.order_id');
     expect(sql.sql).toContain('s.tracking_number IS NOT NULL');
-    expect(sql.sql).toContain('ORDER BY score DESC, updated_at DESC, shipment_id ASC');
+    expect(sql.sql).toContain(
+      'ORDER BY score::int DESC, updated_at DESC, shipment_id ASC',
+    );
     expect(flatValues(sql)).toContain('trk-001');
     expect(flatValues(sql)).toContain(6);
   });

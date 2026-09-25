@@ -1125,7 +1125,8 @@ function OrderDetailPage(): ReactNode {
         {/* Shipments — one order may have multiple boxes (§61); each is signed
             independently, and the order turns SIGNED once every box is signed. */}
         {order.shipments.length > 0 ? (
-          <Card title={`Shipments (${order.shipments.length})`}>
+          <div id="shipments" className="scroll-mt-24">
+            <Card title={`Shipments (${order.shipments.length})`}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <caption className="sr-only">Order shipments</caption>
@@ -1208,7 +1209,8 @@ function OrderDetailPage(): ReactNode {
                 {shipError}
               </p>
             ) : null}
-          </Card>
+            </Card>
+          </div>
         ) : null}
 
         {/* Attribution — M3: order-level snapshots vs attribution relation. */}

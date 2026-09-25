@@ -226,7 +226,7 @@ export function buildProductSearchQuery(terms: SearchTerms, take: number): Prism
         candidates.*,
         row_number() OVER (
           PARTITION BY product_id
-          ORDER BY score DESC, sku_id NULLS LAST, product_id
+          ORDER BY score::int DESC, sku_id NULLS LAST, product_id
         ) AS product_rank
       FROM candidates
     )
@@ -249,7 +249,7 @@ export function buildProductSearchQuery(terms: SearchTerms, take: number): Prism
       available_inventory
     FROM ranked
     WHERE product_rank = 1
-    ORDER BY score DESC, updated_at DESC, product_id ASC
+    ORDER BY score::int DESC, updated_at DESC, product_id ASC
     LIMIT ${take}
   `;
 }
@@ -420,7 +420,7 @@ export function buildOrderSearchQuery(terms: SearchTerms, take: number): Prisma.
         ${phoneContainsPredicate}
         ${customerNameContainsPredicate}
     ) AS ranked_orders
-    ORDER BY score DESC, updated_at DESC, order_id ASC
+    ORDER BY score::int DESC, updated_at DESC, order_id ASC
     LIMIT ${take}
   `;
 }
@@ -568,7 +568,7 @@ export function buildCustomerSearchQuery(terms: SearchTerms, take: number): Pris
         ${phoneContainsPredicate}
         ${containsPredicate}
     ) AS ranked_customers
-    ORDER BY score DESC, updated_at DESC, customer_id ASC
+    ORDER BY score::int DESC, updated_at DESC, customer_id ASC
     LIMIT ${take}
   `;
 }
@@ -615,7 +615,7 @@ export function buildShipmentSearchQuery(terms: SearchTerms, take: number): Pris
           ${containsPredicate}
         )
     ) AS ranked_shipments
-    ORDER BY score DESC, updated_at DESC, shipment_id ASC
+    ORDER BY score::int DESC, updated_at DESC, shipment_id ASC
     LIMIT ${take}
   `;
 }
