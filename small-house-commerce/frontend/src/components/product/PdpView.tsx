@@ -5,6 +5,7 @@ import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNav } from "./PdpSectionNav";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
+import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { fetchSiteSettings } from "@/lib/site-settings";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
@@ -106,6 +107,8 @@ export async function PdpView({
           </div>
         </section>
       )}
+
+      <RecentlyViewed excludeProductId={product.id} limit={4} />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   type ProductImage,
 } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
+import { selectRelatedProducts } from "@/lib/pdp-products";
 // One directory up from the lp route tree: reuse the PDP data helpers.
 import { fetchCategoryInfo } from "../../products/[slug]/page";
 
@@ -118,7 +119,7 @@ export default async function LandingPageRoute({
   const [category, relatedRes] = await Promise.all([
     fetchCategoryInfo(product.categoryId),
     fetch(
-      serverApiUrl(`/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=5`),
+      serverApiUrl(`/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=9`),
       { next: { revalidate, tags: STOREFRONT_TAGS } },
     ).catch(() => null),
   ]);
@@ -126,8 +127,9 @@ export default async function LandingPageRoute({
   let related: Product[] = [];
   if (relatedRes?.ok) {
     try {
-      related = ((await relatedRes.json()) as Paged<Product>).items.filter(
-        (item) => item.id !== product.id,
+      related = selectRelatedProducts(
+        ((await relatedRes.json()) as Paged<Product>).items,
+        product.id,
       );
     } catch {
       related = [];
