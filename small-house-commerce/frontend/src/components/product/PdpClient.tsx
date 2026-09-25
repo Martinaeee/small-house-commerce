@@ -31,7 +31,7 @@ import { RatingStars } from "./RatingStars";
 import { ProductGallery } from "./ProductGallery";
 import { ProductLightbox } from "./ProductLightbox";
 import { ProductDetailsModal } from "./ProductDetailsModal";
-import { MobileStickyCta } from "./MobileStickyCta";
+import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
@@ -184,6 +184,7 @@ export function PdpClient({
   const intentTriggerRef = useRef<HTMLElement | null>(null);
   const intentExecutingRef = useRef(false);
   const mediaRequestRef = useRef(0);
+  const heroRef = useRef<HTMLDivElement | null>(null);
 
   const resolvedVariant = primaryDerived.resolvedVariant;
   const displayVariant = primaryDerived.displayVariant;
@@ -344,19 +345,6 @@ export function PdpClient({
   useEffect(() => {
     recordProductView(product.id);
   }, [product.id]);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const apply = () => {
-      document.body.style.paddingBottom = mq.matches ? "108px" : "";
-    };
-    apply();
-    mq.addEventListener("change", apply);
-    return () => {
-      mq.removeEventListener("change", apply);
-      document.body.style.paddingBottom = "";
-    };
-  }, []);
 
   useEffect(() => {
     // ViewContent is once per product view, not once per option change: the
@@ -588,6 +576,7 @@ export function PdpClient({
         </div>
 
         <div
+          ref={heroRef}
           id="pdp-purchase"
           data-testid="pdp-purchase"
           className="flex scroll-mt-28 flex-col gap-4"
@@ -767,20 +756,20 @@ export function PdpClient({
           onClose={closePicker}
         />
       )}
-      {!overlayOpen && (
-        <MobileStickyCta
-          name={product.name}
-          price={price}
-          compareAtPrice={compareAt}
-          outOfStock={resolvedOutOfStock}
+      {!overlayOpen ? (
+        <PdpStickyBuy
+          product={product}
+          heroRef={heroRef}
+          line={primaryLine}
+          derived={primaryDerived}
           busy={busy}
-          contactHref={restockHref}
-          orderLabel={resolvedVariant ? "ORDER NOW" : "CHOOSE OPTIONS"}
-          addLabel={addLabel}
-          onOrderNow={(event) => requestIntent("ORDER_NOW", event.currentTarget)}
-          onAddToCart={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
+          variantLabel={displayVariant?.name ?? null}
+          onQuantityChange={(quantity) =>
+            setQuantity(primaryLine.clientLineId, quantity)
+          }
+          onIntent={requestIntent}
         />
-      )}
+      ) : null}
     </>
   );
 }

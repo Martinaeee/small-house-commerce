@@ -1,0 +1,181 @@
+import { useRef } from "react";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Product } from "@/lib/api";
+import { createInitialPurchaseLines } from "./PdpPurchaseProvider";
+import { resolveSelection } from "@/lib/product-selection";
+import { PdpStickyBuy } from "./PdpStickyBuy";
+
+const product = {
+  id: "sticky-product",
+  name: "Folding Chair",
+  slug: "folding-chair",
+  defaultDisplayVariantId: "chair-black",
+  effectiveCoverMedia: {
+    id: "cover",
+    url: "/chair.jpg",
+    type: "IMAGE",
+    altText: "Black folding chair",
+    sortOrder: 0,
+  },
+  images: [],
+  options: [],
+  variants: [
+    {
+      id: "chair-black",
+      name: "Black",
+      position: 0,
+      combinationKey: "",
+      optionValueIds: [],
+      sku: {
+        id: "chair-sku",
+        skuCode: "CHAIR-BLACK",
+        status: "ACTIVE",
+        price: 899,
+        compareAtPrice: 999,
+        availableInventory: 6,
+      },
+    },
+  ],
+} as unknown as Product;
+
+interface ObserverHarness {
+  enter(): void;
+  leave(): void;
+  observe: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+}
+
+function installIntersectionObserver(): ObserverHarness {
+  let callback: IntersectionObserverCallback | null = null;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+
+  class MockIntersectionObserver {
+    constructor(next: IntersectionObserverCallback) {
+      callback = next;
+    }
+
+    observe = observe;
+    unobserve = vi.fn();
+    disconnect = disconnect;
+    takeRecords = vi.fn(() => []);
+    root = null;
+    rootMargin = "0px";
+    thresholds = [0];
+  }
+
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+
+  const notify = (isIntersecting: boolean) => {
+    if (!callback) throw new Error("Observer was not created");
+    act(() => {
+      callback?.(
+        [
+          {
+            isIntersecting,
+            intersectionRatio: isIntersecting ? 1 : 0,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+    });
+  };
+
+  return {
+    enter: () => notify(true),
+    leave: () => notify(false),
+    observe,
+    disconnect,
+  };
+}
+
+function Harness({
+  onQuantityChange = vi.fn(),
+  onIntent = vi.fn(),
+}: {
+  onQuantityChange?: (quantity: number) => void;
+  onIntent?: (
+    intent: "ADD_TO_CART" | "ORDER_NOW",
+    trigger: HTMLElement,
+  ) => void;
+}) {
+  const heroRef = useRef<HTMLDivElement>(null);
+  const line = createInitialPurchaseLines(product)[0]!;
+  const derived = resolveSelection(product, line);
+
+  return (
+    <>
+      <div ref={heroRef}>Hero</div>
+      <PdpStickyBuy
+        product={product}
+        heroRef={heroRef}
+        line={line}
+        derived={derived}
+        busy={false}
+        variantLabel="Black"
+        onQuantityChange={onQuantityChange}
+        onIntent={onIntent}
+      />
+    </>
+  );
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  document.body.style.paddingBottom = "";
+});
+
+describe("PdpStickyBuy", () => {
+  it("stays hidden while the hero intersects and shows one responsive shared-action bar after it leaves", () => {
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+
+    expect(observer.observe).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+
+    observer.leave();
+
+    const bar = screen.getByTestId("sticky-buy");
+    expect(bar).toHaveTextContent("Folding Chair");
+    expect(bar).toHaveTextContent("Black");
+    expect(bar).toHaveTextContent("₱899.00");
+    expect(screen.getByTestId("sticky-order-now")).toBeVisible();
+    expect(screen.getByTestId("sticky-add-to-cart")).toBeVisible();
+    expect(bar.className).toContain("motion-reduce:");
+
+    observer.enter();
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+  });
+
+  it("forwards quantity and both purchase intents without owning purchase state", async () => {
+    const observer = installIntersectionObserver();
+    const onQuantityChange = vi.fn();
+    const onIntent = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Harness
+        onQuantityChange={onQuantityChange}
+        onIntent={onIntent}
+      />,
+    );
+    observer.leave();
+
+    await user.click(screen.getByRole("button", { name: "Increase sticky quantity" }));
+    expect(onQuantityChange).toHaveBeenCalledWith(2);
+
+    await user.click(screen.getByTestId("sticky-order-now"));
+    expect(onIntent).toHaveBeenCalledWith("ORDER_NOW", expect.any(HTMLElement));
+
+    await user.click(screen.getByTestId("sticky-add-to-cart"));
+    expect(onIntent).toHaveBeenCalledWith("ADD_TO_CART", expect.any(HTMLElement));
+  });
+
+  it("fails closed without IntersectionObserver support", () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+
+    expect(() => render(<Harness />)).not.toThrow();
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+  });
+});

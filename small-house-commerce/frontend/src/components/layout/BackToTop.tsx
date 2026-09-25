@@ -10,8 +10,8 @@ import { usePathname } from "next/navigation";
  * catalog). Hidden controls leave the tab sequence (tabIndex -1).
  *
  * Bottom offsets clear the fixed mobile chrome that owns each route —
- * MobileTabBar's 4rem bar by default, and the taller (~8rem) sticky CTA bar
- * from MobileStickyCta (PDP/LP) or CartView on their routes. The desktop
+ * MobileTabBar's 4rem bar by default, and the taller (~7rem) shared-state
+ * sticky buy bar on PDP/LP routes or CartView on the cart route. The desktop
  * offset stacks above the Messenger bubble's default 16px/56px slot.
  */
 export function BackToTop() {

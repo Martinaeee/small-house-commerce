@@ -301,6 +301,38 @@ function renderPdp({
   );
 }
 
+function installStickyObserver() {
+  let callback: IntersectionObserverCallback | null = null;
+
+  class MockIntersectionObserver {
+    constructor(next: IntersectionObserverCallback) {
+      callback = next;
+    }
+
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+    takeRecords = vi.fn(() => []);
+    root = null;
+    rootMargin = "0px";
+    thresholds = [0];
+  }
+
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+
+  return {
+    leave() {
+      if (!callback) throw new Error("Sticky observer was not created");
+      act(() => {
+        callback?.(
+          [{ isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+      });
+    },
+  };
+}
+
 let popStateSync: (() => void) | null = null;
 
 beforeEach(() => {
@@ -341,6 +373,7 @@ beforeEach(() => {
 afterEach(() => {
   if (popStateSync) window.removeEventListener("popstate", popStateSync);
   popStateSync = null;
+  vi.unstubAllGlobals();
 });
 
 function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
@@ -415,6 +448,64 @@ describe("PDP conversion hero", () => {
     expect(within(trust).getByText("Secure checkout")).toBeVisible();
     expect(within(trust).getByText("48-hour damage support")).toBeVisible();
     expect(within(trust).queryByText(/easy returns/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("shared-state sticky buy", () => {
+  it("tracks the current selection and quantity and invokes the existing add path once", async () => {
+    installMediaFetch();
+    const observer = installStickyObserver();
+    const user = userEvent.setup();
+    renderPdp({ variantId: "blue-large" });
+
+    observer.leave();
+    const sticky = screen.getByTestId("sticky-buy");
+    expect(within(sticky).getAllByText("Blue / Large")).toHaveLength(2);
+    expect(within(sticky).getByText("₱120.00")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await user.click(screen.getByRole("button", { name: "Small" }));
+
+    expect(within(sticky).getAllByText("Red / Small")).toHaveLength(2);
+    expect(within(sticky).getByText("₱100.00")).toBeVisible();
+
+    await user.click(
+      within(sticky).getByRole("button", {
+        name: "Increase sticky quantity",
+      }),
+    );
+    expect(screen.getByTestId("qty")).toHaveTextContent("2");
+    expect(screen.getByTestId("sticky-qty")).toHaveTextContent("2");
+
+    await user.click(screen.getByTestId("sticky-add-to-cart"));
+
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(cart.addItem).toHaveBeenCalledWith({
+      skuId: "sku-red-small",
+      quantity: 2,
+    });
+    expect(
+      tracking.track.mock.calls.filter(([name]) => name === "AddToCart"),
+    ).toHaveLength(1);
+    expect(
+      tracking.trackCustom.mock.calls.filter(
+        ([name]) => name === "variant_confirm",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("opens the same confirmation dialog for unresolved sticky Order Now", async () => {
+    const observer = installStickyObserver();
+    const user = userEvent.setup();
+    renderPdp();
+
+    observer.leave();
+    await user.click(screen.getByTestId("sticky-order-now"));
+
+    expect(
+      screen.getByRole("dialog", { name: "Confirm your options" }),
+    ).toBeVisible();
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 });
 
