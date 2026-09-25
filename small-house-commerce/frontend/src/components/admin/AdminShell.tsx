@@ -206,6 +206,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const canRenderHiddenRoute =
     (pathname === "/admin/search" &&
       SEARCH_PERMISSIONS.some((permission) => hasPermission(permission))) ||
+    (pathname === "/admin/notifications" &&
+      (hasPermission("ORDER_CONFIRM") || hasPermission("PRODUCT_MANAGE"))) ||
     (pathname.startsWith("/admin/customers/") &&
       hasPermission("CUSTOMER_MANAGE"));
 

@@ -38,6 +38,11 @@ export const zh = {
   admin_notifications_PRODUCT_NO_PRICED_SKU: "商品没有已定价 SKU",
   admin_notifications_PRODUCT_INCOMPLETE_SHIPPING: "商品配送信息不完整",
   admin_notifications_PRODUCT_STALE_DRAFT: "长期未更新的草稿商品",
+  admin_notifications_page_subtitle: "查看当前需要处理的订单与商品事项。",
+  admin_notifications_page_explanation:
+    "数量来自当前业务状态，刷新后可能变化。",
+  admin_notifications_page_count: "当前有 {count} 项需要处理",
+  admin_notifications_page_region: "当前通知",
   admin_search_dialog: "全局搜索",
   admin_search_input: "搜索商品、订单、客户和物流",
   admin_search_shortcut: "⌘K / Ctrl K",

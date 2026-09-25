@@ -20,27 +20,37 @@ const LABEL_KEYS: Record<AdminNotificationKind, TKey> = {
 
 export interface AdminNotificationListProps {
   items: AdminNotificationItem[];
+  mode?: "panel" | "page";
   onNavigate?: () => void;
 }
 
 export function AdminNotificationList({
   items,
+  mode = "panel",
   onNavigate,
 }: AdminNotificationListProps) {
   const { t } = useAdminI18n();
+  const pageMode = mode === "page";
 
   return (
-    <ul className="divide-y divide-border">
+    <ul className={pageMode ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-border"}>
       {items.map((item) => {
         const href = adminNotificationHref(item);
         if (!href) return null;
 
         return (
-          <li key={item.kind}>
+          <li
+            key={item.kind}
+            className={pageMode ? "overflow-hidden rounded-xl border border-border" : undefined}
+          >
             <Link
               href={href}
               onClick={onNavigate}
-              className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-admin-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+              className={
+                pageMode
+                  ? "flex min-h-20 items-center gap-4 bg-card px-5 py-4 text-sm shadow-sm hover:bg-admin-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  : "flex items-center gap-3 px-4 py-3 text-sm hover:bg-admin-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+              }
             >
               <span className="min-w-0 flex-1 font-medium text-ink">
                 {t(LABEL_KEYS[item.kind])}

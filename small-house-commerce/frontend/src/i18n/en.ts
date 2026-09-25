@@ -40,6 +40,12 @@ export const en: Record<ZhKey, string> = {
   admin_notifications_PRODUCT_INCOMPLETE_SHIPPING:
     "Products with incomplete shipping details",
   admin_notifications_PRODUCT_STALE_DRAFT: "Stale draft products",
+  admin_notifications_page_subtitle:
+    "Review current order and product work that needs attention.",
+  admin_notifications_page_explanation:
+    "Counts reflect current business state and may change after refresh.",
+  admin_notifications_page_count: "{count} items require attention",
+  admin_notifications_page_region: "Current notifications",
   admin_search_dialog: "Global search",
   admin_search_input: "Search products, orders, customers, and shipments",
   admin_search_shortcut: "⌘K / Ctrl K",

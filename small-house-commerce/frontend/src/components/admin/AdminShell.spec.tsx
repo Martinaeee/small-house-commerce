@@ -86,6 +86,33 @@ describe("AdminShell hidden permission-backed destinations", () => {
     ).toHaveLength(1);
   });
 
+  it.each(["ORDER_CONFIRM", "PRODUCT_MANAGE"])(
+    "keeps notifications mounted for a %s-only account",
+    (permission) => {
+      shellState.pathname = "/admin/notifications";
+      shellState.permissions = [permission];
+
+      renderShell();
+
+      expect(screen.getByText("Protected route content")).toBeVisible();
+      expect(
+        screen.queryByText("No modules available for your account."),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("keeps the no-modules boundary on notifications for an unsupported account", () => {
+    shellState.pathname = "/admin/notifications";
+    shellState.permissions = ["ORDER_VIEW_OWN"];
+
+    renderShell();
+
+    expect(
+      screen.getByText("No modules available for your account."),
+    ).toBeVisible();
+    expect(screen.queryByText("Protected route content")).not.toBeInTheDocument();
+  });
+
   it.each(["/admin/customers/customer-1", "/admin/search"])(
     "keeps %s mounted for a CUSTOMER_MANAGE-only account",
     (pathname) => {
