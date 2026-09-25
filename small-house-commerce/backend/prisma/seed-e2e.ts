@@ -649,6 +649,112 @@ async function ensurePdpUxFixtures(
   await seedLandingPage(ctx, product.id);
 }
 
+/**
+ * Keeps every derived Notifications V1 category observable without relying on
+ * mutable orders or products created by other specs. These rows live only in
+ * the guarded disposable E2E database.
+ */
+async function ensureNotificationFixtures(
+  ctx: SeedContext,
+  categoryId: string,
+): Promise<void> {
+  await ctx.prisma.product.upsert({
+    where: { slug: 'e2e-notification-no-price' },
+    create: {
+      id: '00000000-0000-7000-8000-000000000120',
+      name: 'E2E Notification No Price',
+      slug: 'e2e-notification-no-price',
+      description: 'Active E2E product without a priced SKU.',
+      categoryId,
+      status: ProductStatus.ACTIVE,
+      solutions: [],
+    },
+    update: {
+      name: 'E2E Notification No Price',
+      description: 'Active E2E product without a priced SKU.',
+      categoryId,
+      status: ProductStatus.ACTIVE,
+    },
+  });
+
+  const staleAt = new Date('2020-01-01T00:00:00.000Z');
+  await ctx.prisma.product.upsert({
+    where: { slug: 'e2e-notification-stale-draft' },
+    create: {
+      id: '00000000-0000-7000-8000-000000000121',
+      name: 'E2E Notification Stale Draft',
+      slug: 'e2e-notification-stale-draft',
+      description: 'Old E2E draft for the current-state notification.',
+      categoryId,
+      status: ProductStatus.DRAFT,
+      solutions: [],
+      createdAt: staleAt,
+      updatedAt: staleAt,
+    },
+    update: {
+      name: 'E2E Notification Stale Draft',
+      description: 'Old E2E draft for the current-state notification.',
+      categoryId,
+      status: ProductStatus.DRAFT,
+      updatedAt: staleAt,
+    },
+  });
+
+  const customer = await ctx.prisma.customer.upsert({
+    where: { normalizedPhone: '+639170000120' },
+    create: {
+      id: '00000000-0000-7000-8000-000000000122',
+      name: 'E2E Notification Customer',
+      normalizedPhone: '+639170000120',
+      email: 'e2e-notifications@smallhouse.test',
+    },
+    update: {
+      name: 'E2E Notification Customer',
+      email: 'e2e-notifications@smallhouse.test',
+    },
+  });
+
+  for (const fixture of [
+    {
+      id: '00000000-0000-7000-8000-000000000123',
+      orderNumber: 'E2E-NOTIFY-UNCONFIRMED',
+      confirmationStatus: 'UNCONFIRMED' as const,
+    },
+    {
+      id: '00000000-0000-7000-8000-000000000124',
+      orderNumber: 'E2E-NOTIFY-NEEDS-REVIEW',
+      confirmationStatus: 'NEEDS_REVIEW' as const,
+    },
+  ]) {
+    await ctx.prisma.order.upsert({
+      where: { orderNumber: fixture.orderNumber },
+      create: {
+        id: fixture.id,
+        orderNumber: fixture.orderNumber,
+        customerId: customer.id,
+        orderStatus: 'NEW',
+        confirmationStatus: fixture.confirmationStatus,
+        paymentStatus: 'COD_PENDING',
+        currency: 'PHP',
+        subtotal: 0,
+        discountTotal: 0,
+        shippingTotal: 0,
+        grandTotal: 0,
+      },
+      update: {
+        customerId: customer.id,
+        orderStatus: 'NEW',
+        confirmationStatus: fixture.confirmationStatus,
+        paymentStatus: 'COD_PENDING',
+        subtotal: 0,
+        discountTotal: 0,
+        shippingTotal: 0,
+        grandTotal: 0,
+      },
+    });
+  }
+}
+
 async function seedLandingPage(ctx: SeedContext, productId: string): Promise<void> {
   const existing = await ctx.prisma.productLandingPage.findUnique({
     where: { slug: LP_SLUG },
@@ -699,6 +805,7 @@ async function main(): Promise<void> {
     });
     if (existing >= productSpecs().length) {
       await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
+      await ensureNotificationFixtures(ctx, categoryId);
       console.log(
         `seed-e2e: ${existing} base scenario products already present — refreshed additive PDP UX fixtures.`,
       );
@@ -724,6 +831,7 @@ async function main(): Promise<void> {
       console.log(`seeded ${spec.slug} (${product.id})`);
     }
     await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
+    await ensureNotificationFixtures(ctx, categoryId);
 
     console.log('seed-e2e: done.');
   } finally {

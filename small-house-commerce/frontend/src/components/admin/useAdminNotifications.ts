@@ -36,7 +36,6 @@ export function useAdminNotifications(): UseAdminNotificationsResult {
   useEffect(() => {
     const id = ++requestId.current;
     const controller = new AbortController();
-    setState(LOADING_STATE);
 
     void adminApi
       .notifications(controller.signal)
@@ -65,6 +64,8 @@ export function useAdminNotifications(): UseAdminNotificationsResult {
   }, [requestKey]);
 
   const refresh = useCallback(() => {
+    requestId.current += 1;
+    setState(LOADING_STATE);
     setRequestKey((current) => current + 1);
   }, []);
 

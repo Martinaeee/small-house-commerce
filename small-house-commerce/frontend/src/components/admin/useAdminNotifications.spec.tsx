@@ -102,6 +102,34 @@ describe("useAdminNotifications", () => {
     });
   });
 
+  it("invalidates the old response as soon as refresh is requested", async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    notifications
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useAdminNotifications());
+
+    await act(async () => {
+      result.current.refresh();
+      first.resolve(response(1));
+      await first.promise;
+    });
+
+    expect(result.current).toMatchObject({
+      status: "loading",
+      response: null,
+    });
+    await act(async () => {
+      second.resolve(response(2));
+      await second.promise;
+    });
+    expect(result.current).toMatchObject({
+      status: "ready",
+      response: response(2),
+    });
+  });
+
   it("keeps newer success when an older request rejects after refresh", async () => {
     const first = deferred<unknown>();
     const second = deferred<unknown>();

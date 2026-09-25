@@ -203,6 +203,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
+  const isHiddenRoute =
+    pathname === "/admin/search" ||
+    pathname === "/admin/notifications" ||
+    pathname.startsWith("/admin/customers/");
   const canRenderHiddenRoute =
     (pathname === "/admin/search" &&
       SEARCH_PERMISSIONS.some((permission) => hasPermission(permission))) ||
@@ -210,12 +214,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
       (hasPermission("ORDER_CONFIRM") || hasPermission("PRODUCT_MANAGE"))) ||
     (pathname.startsWith("/admin/customers/") &&
       hasPermission("CUSTOMER_MANAGE"));
+  const hiddenRouteDenied = isHiddenRoute && !canRenderHiddenRoute;
 
-  // Zero granted sidebar modules normally gets the honest empty state. Search
-  // and Customer Detail are permission-backed destinations without nav items,
-  // so their authorized routes must still mount their real page children.
+  // Hidden destinations require their own permission even when another granted
+  // module keeps the sidebar non-empty. Authorized hidden routes still mount
+  // for role shapes (for example ORDER_CONFIRM-only) with no sidebar entries.
   const shellBody =
-    nav.length === 0 && !canRenderHiddenRoute ? (
+    hiddenRouteDenied || (nav.length === 0 && !canRenderHiddenRoute) ? (
       <div className="mx-auto mt-24 max-w-md rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-base font-semibold text-ink">
           No modules available for your account.
