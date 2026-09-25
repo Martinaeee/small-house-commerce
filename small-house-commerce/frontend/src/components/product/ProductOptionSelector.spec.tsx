@@ -343,6 +343,81 @@ afterEach(() => {
   popStateSync = null;
 });
 
+function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    expect(
+      nodes[index]!.compareDocumentPosition(nodes[index + 1]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  }
+}
+
+describe("PDP conversion hero", () => {
+  it("orders real product facts before the shared purchase actions and truthful trust strip", () => {
+    const item: Product = {
+      ...product,
+      tagline: "A compact chair for flexible homes.",
+      ratingAverage: 4.8,
+      reviewCount: 12,
+      width: 120,
+      height: 74,
+      depth: 60,
+      foldedWidth: 120,
+      foldedHeight: 8,
+      foldedDepth: 60,
+      availableMediaScopes: {
+        optionValueIds: [],
+        variantIds: [],
+      },
+    };
+
+    renderPdp({ item, variantId: "red-small" });
+
+    const hero = screen.getByTestId("pdp-purchase");
+    const title = within(hero).getByRole("heading", { name: "Chair" });
+    const tagline = within(hero).getByText(
+      "A compact chair for flexible homes.",
+    );
+    const reviews = within(hero).getByRole("link", { name: /12 reviews/i });
+    const price = within(hero).getByText("₱100.00");
+    const options = within(hero).getByRole("group", { name: "Color" });
+    const dimensions = within(hero).getByRole("heading", {
+      name: "Dimensions & Fit",
+    });
+    const deliveryHeading = within(hero).getByText("Estimated delivery");
+    const quantity = within(hero).getByText("Qty");
+    const orderNow = within(hero).getByTestId("order-now");
+    const addToCart = within(hero).getByTestId("add-to-cart");
+    const trust = within(hero).getByLabelText("Purchase assurances");
+
+    expectDocumentOrder([
+      title,
+      tagline,
+      reviews,
+      price,
+      options,
+      dimensions,
+      deliveryHeading,
+      quantity,
+      orderNow,
+      addToCart,
+      trust,
+    ]);
+    expect(within(hero).getByText("Assembled: 120 × 74 × 60 cm")).toBeVisible();
+    expect(within(hero).getByText("Folded: 120 × 8 × 60 cm")).toBeVisible();
+    expect(
+      within(hero).getByRole("link", { name: "View full dimensions →" }),
+    ).toHaveAttribute("href", "#specifications");
+    expect(orderNow).toHaveClass("bg-cta");
+    expect(addToCart).not.toHaveClass("bg-cta");
+    expect(within(trust).getByText("Cash on Delivery")).toBeVisible();
+    expect(within(trust).getByText("Nationwide delivery")).toBeVisible();
+    expect(within(trust).getByText("Secure checkout")).toBeVisible();
+    expect(within(trust).getByText("48-hour damage support")).toBeVisible();
+    expect(within(trust).queryByText(/easy returns/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("ProductOptionSelector", () => {
   it("renders accessible IMAGE/SWATCH/TEXT choices and marks impossible choices disabled", async () => {
     const user = userEvent.setup();

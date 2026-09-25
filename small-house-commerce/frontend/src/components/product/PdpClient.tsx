@@ -35,6 +35,7 @@ import { MobileStickyCta } from "./MobileStickyCta";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { pdpDimensionSummary } from "./pdp-facts";
 
 function TruckGlyph() {
   return (
@@ -42,16 +43,6 @@ function TruckGlyph() {
       <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="7" cy="18" r="1.6" />
       <circle cx="17" cy="18" r="1.6" />
-    </svg>
-  );
-}
-
-function CartGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8}>
-      <path d="M3 4h2l2.2 12.2a1.5 1.5 0 0 0 1.5 1.3h7.9a1.5 1.5 0 0 0 1.5-1.2L21 8H6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="10" cy="20.5" r="1.2" />
-      <circle cx="18" cy="20.5" r="1.2" />
     </svg>
   );
 }
@@ -204,10 +195,9 @@ export function PdpClient({
   const price = primaryDerived.price;
   const compareAt = primaryDerived.compareAtPrice;
   const selectableCount = primaryDerived.selectableVariants.length;
+  const dimensions = pdpDimensionSummary(product);
   const hasDimensions =
-    product.width !== null || product.height !== null || product.depth !== null ||
-    product.foldedWidth !== null || product.foldedHeight !== null ||
-    product.foldedDepth !== null;
+    dimensions.assembled !== null || dimensions.folded !== null;
   const basePath = productPath ?? `/products/${product.slug}`;
   const urlVariantValues = searchParams.getAll("variant");
   const hasVariantParam = urlVariantValues.length > 0;
@@ -597,19 +587,14 @@ export function PdpClient({
           )}
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <h1 className="text-product-title font-semibold text-ink lg:text-product-title-desktop">{product.name}</h1>
-            <button
-              type="button"
-              onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
-              disabled={busy}
-              aria-label="Add to cart"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border text-cta hover:border-primary disabled:text-ink-muted md:hidden"
-            >
-              <CartGlyph />
-            </button>
-          </div>
+        <div
+          id="pdp-purchase"
+          data-testid="pdp-purchase"
+          className="flex scroll-mt-28 flex-col gap-4"
+        >
+          <h1 className="text-product-title font-semibold text-ink lg:text-product-title-desktop">
+            {product.name}
+          </h1>
 
           {product.tagline?.trim() && (
             <p className="text-product-subtitle text-ink-secondary lg:text-product-subtitle-desktop">
@@ -633,13 +618,39 @@ export function PdpClient({
           <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" />
 
           {hasDimensions && (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(true)}
-              className="self-start text-sm font-medium text-cta underline-offset-2 hover:underline"
+            <section
+              id="pdp-dimensions-summary"
+              aria-labelledby="pdp-dimensions-summary-title"
+              className="rounded-lg border border-border bg-card p-4"
             >
-              Size guide
-            </button>
+              <h2
+                id="pdp-dimensions-summary-title"
+                className="text-sm font-semibold text-ink"
+              >
+                Dimensions &amp; Fit
+              </h2>
+              <div className="mt-2 space-y-1 text-sm text-ink-secondary">
+                {dimensions.assembled ? (
+                  <p>Assembled: {dimensions.assembled}</p>
+                ) : null}
+                {dimensions.folded ? <p>Folded: {dimensions.folded}</p> : null}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <a
+                  href="#specifications"
+                  className="text-sm font-medium text-cta underline-offset-2 hover:underline"
+                >
+                  View full dimensions →
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen(true)}
+                  className="text-sm text-ink-secondary underline-offset-2 hover:text-cta hover:underline"
+                >
+                  Open size guide
+                </button>
+              </div>
+            </section>
           )}
 
           <div className="flex items-start gap-2.5 rounded-lg border border-border bg-background p-3 text-sm">
@@ -712,10 +723,26 @@ export function PdpClient({
             </p>
           )}
 
-          <ul className="mt-2 flex flex-col gap-1 text-sm text-ink-secondary">
-            <li className="flex items-center gap-2"><span className="font-semibold text-cta">✓</span> Cash On Delivery Available</li>
-            <li className="flex items-center gap-2"><span className="font-semibold text-cta">✓</span> Nationwide Delivery</li>
-            <li className="flex items-center gap-2"><span className="font-semibold text-cta">✓</span> Customer Support Available</li>
+          <ul
+            aria-label="Purchase assurances"
+            className="mt-2 grid grid-cols-1 gap-2 rounded-lg border border-border bg-background p-4 text-sm text-ink-secondary sm:grid-cols-2"
+          >
+            <li className="flex items-center gap-2">
+              <span className="font-semibold text-cta">✓</span>
+              Cash on Delivery
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="font-semibold text-cta">✓</span>
+              Nationwide delivery
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="font-semibold text-cta">✓</span>
+              Secure checkout
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="font-semibold text-cta">✓</span>
+              48-hour damage support
+            </li>
           </ul>
         </div>
       </div>
