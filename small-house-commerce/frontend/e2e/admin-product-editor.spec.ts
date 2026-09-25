@@ -2147,8 +2147,8 @@ test.describe("Localization", () => {
     await selectTab(page, "variants");
     await expect(page.getByText(ZH.typedVariantsTitle, { exact: true })).toBeVisible();
 
-    // Toggle to en.
-    await page.getByRole("button", { name: "Switch language" }).click();
+    // Toggle to en. The shell control itself follows the active dictionary.
+    await page.getByRole("button", { name: "切换语言" }).click();
     await assertLang("en");
     await selectTab(page, "media", "en");
     await expect(page.getByText(EN.sharedGallery).first()).toBeVisible();

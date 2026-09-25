@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { Badge, type BadgeTone } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -50,6 +51,7 @@ function SinglePagesInner() {
   const searchParams = useSearchParams();
   const presetProductId = searchParams.get("productId");
   const { hasPermission } = useAdminAuth();
+  const { t } = useAdminI18n();
   const canManage = hasPermission("PRODUCT_MANAGE");
 
   const [rows, setRows] = useState<Paged<AdminLandingPageRow> | null>(null);
@@ -294,8 +296,9 @@ function SinglePagesInner() {
   return (
     <div>
       <PageHeader
-        title="Single Pages"
+        title={t("single_pages_title")}
         count={rows?.total}
+        subtitle={t("single_pages_subtitle")}
         actions={canManage ? <Button size="md" onClick={openCreate}>新建落地页</Button> : undefined}
       />
 

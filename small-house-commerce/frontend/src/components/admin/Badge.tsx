@@ -48,10 +48,10 @@ export function statusTone(value: string): BadgeTone {
 }
 
 const toneCls: Record<BadgeTone, string> = {
-  green: "bg-emerald-100 text-emerald-800",
-  amber: "bg-amber-100 text-amber-800",
-  red: "bg-red-100 text-red-800",
-  neutral: "bg-border/40 text-ink-secondary",
+  green: "bg-admin-success-soft text-admin-success",
+  amber: "bg-admin-warning-soft text-admin-warning",
+  red: "bg-admin-error-soft text-admin-error",
+  neutral: "bg-admin-neutral-soft text-ink-secondary",
 };
 
 export function Badge({

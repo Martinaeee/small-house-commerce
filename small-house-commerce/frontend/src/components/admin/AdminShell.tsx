@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { AdminGlobalHeader } from "@/components/admin/AdminGlobalHeader";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
 
@@ -95,7 +96,7 @@ function NavList({
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { status, admin, hasPermission, logout } = useAdminAuth();
-  const { lang, setLang, t } = useAdminI18n();
+  const { t } = useAdminI18n();
   const router = useRouter();
   const pathname = usePathname();
   const drawerId = useId();
@@ -194,7 +195,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
-  const roleCode = admin.roles[0]?.code;
 
   // Zero granted modules: the empty state replaces page children regardless
   // of what the routed page would render (OPTIMIZER has ORDER_VIEW_OWN only,
@@ -216,60 +216,48 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {/* Desktop fixed sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col bg-admin-rail md:flex">
-        <div className="flex h-14 items-center border-b border-white/10 px-5">
-          <span className="text-base font-bold tracking-tight text-white">
-            LUWAG <span className="font-medium text-admin-rail-muted">Admin</span>
-          </span>
-        </div>
-        <div className="flex-1 overflow-y-auto px-3 py-4">
-          <NavList items={nav} pathname={pathname} />
-        </div>
-      </aside>
-
-      <div className="md:pl-56">
-        {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:px-8">
-          <button
-            ref={hamburgerRef}
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open admin menu"
-            aria-expanded={drawerOpen}
-            aria-controls={`${drawerId}-drawer`}
-            className="flex items-center rounded-lg p-2 text-ink hover:text-cta md:hidden"
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-6 w-6">
-              <path
-                d="M4 7h16M4 12h16M4 17h16"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <h1 className="flex-1 truncate text-lg font-semibold text-ink">{title}</h1>
-          <span className="hidden text-sm text-ink-secondary sm:inline">{admin.name}</span>
-          {roleCode && (
-            <span className="rounded-full bg-primary-light/40 px-2 py-0.5 text-xs font-medium text-cta">
-              {roleCode}
+      <div className="admin-shell min-h-screen bg-background">
+        {/* Desktop fixed sidebar */}
+        <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col bg-admin-rail md:flex">
+          <div className="flex h-14 items-center border-b border-white/10 px-5">
+            <span className="text-base font-bold tracking-tight text-white">
+              LUWAG <span className="font-medium text-admin-rail-muted">Admin</span>
             </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            aria-label="Switch language"
-            className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink-secondary hover:text-cta"
-          >
-            {lang === "zh" ? "EN" : "中文"}
-          </button>
-          <Button variant="text" size="md" onClick={onLogout} className="min-w-0 px-2">
-            Log out
-          </Button>
-        </header>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-4">
+            <NavList items={nav} pathname={pathname} />
+          </div>
+        </aside>
 
-        <main className="admin-app">{shellBody}</main>
+        <div className="md:pl-56">
+          <AdminGlobalHeader
+            moduleTitle={title}
+            admin={admin}
+            onLogout={onLogout}
+            mobileMenuTrigger={
+              <button
+                ref={hamburgerRef}
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open admin menu"
+                aria-expanded={drawerOpen}
+                aria-controls={`${drawerId}-drawer`}
+                className="flex items-center rounded-lg p-2 text-ink hover:text-cta md:hidden"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-6 w-6">
+                  <path
+                    d="M4 7h16M4 12h16M4 17h16"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            }
+          />
+
+          <main className="admin-app">{shellBody}</main>
+        </div>
       </div>
 
       {/* Mobile drawer (portaled to body) */}

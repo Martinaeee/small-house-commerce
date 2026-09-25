@@ -144,7 +144,7 @@ describe("ProductForm problem rail", () => {
     });
     expect(
       within(variantsTab).getByLabelText("1 个阻断问题"),
-    ).toHaveClass("bg-red-600");
+    ).toHaveClass("bg-admin-error");
   });
 
   it("repairs the graph in one click and clears itself", async () => {
@@ -649,7 +649,7 @@ describe("ProductForm Task 3 localization and structure", () => {
     renderForm(baseValue({ tagline: "", description: "" }));
 
     const seoTab = screen.getByRole("tab", { name: /搜索与链接/ });
-    expect(within(seoTab).getByLabelText("1 条建议")).toHaveClass("bg-amber-500");
+    expect(within(seoTab).getByLabelText("1 条建议")).toHaveClass("bg-admin-warning");
     expect(
       within(seoTab).queryByLabelText(/阻断问题/),
     ).not.toBeInTheDocument();

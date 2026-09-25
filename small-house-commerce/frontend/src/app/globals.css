@@ -35,14 +35,27 @@
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
 
-  /* Admin chrome (back office only): a deep green rail on the warm page
-     background, with its own text ramp so the storefront palette stays
-     untouched. */
-  --color-admin-rail: #16352b;
-  --color-admin-rail-hover: #1e4636;
-  --color-admin-rail-active: #26543f;
-  --color-admin-rail-text: #e7efe9;
-  --color-admin-rail-muted: #9db3a8;
+  /* Admin design system. These tokens are consumed only inside AdminShell;
+     storefront surfaces keep the warm brand palette above. */
+  --color-admin-rail: #123e32;
+  --color-admin-rail-hover: #194c3e;
+  --color-admin-rail-active: #225b49;
+  --color-admin-rail-text: #e8f0ec;
+  --color-admin-rail-muted: #9db6aa;
+  --color-admin-canvas: #f7f8f5;
+  --color-admin-surface: #ffffff;
+  --color-admin-surface-secondary: #fbf8f3;
+  --color-admin-border: #e5e8e3;
+  --color-admin-primary: #1f5a47;
+  --color-admin-primary-hover: #174a3a;
+  --color-admin-primary-soft: #e7f0ec;
+  --color-admin-success: #217a3c;
+  --color-admin-success-soft: #e8f5ed;
+  --color-admin-warning: #9a5512;
+  --color-admin-warning-soft: #fff4e5;
+  --color-admin-error: #b42318;
+  --color-admin-error-soft: #fdecec;
+  --color-admin-neutral-soft: #f0f2ef;
 
   /* §6 typography: system stack for loading speed (§27 Rule 3, §26) */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -64,11 +77,23 @@
   --container-content: 1200px;
 }
 
-/* Back-office actions use the LUWAG deep green rail palette. The storefront
-   keeps the warm brown CTA tokens above. */
+/* AdminShell remaps the generic surface/action tokens so every existing admin
+   component inherits one visual language without changing storefront colors. */
+.admin-shell {
+  --color-background: var(--color-admin-canvas);
+  --color-card: var(--color-admin-surface);
+  --color-border: var(--color-admin-border);
+  --color-primary: var(--color-admin-primary);
+  --color-primary-dark: var(--color-admin-primary-hover);
+  --color-primary-light: var(--color-admin-primary-soft);
+  --color-cta: var(--color-admin-primary);
+  --color-cta-hover: var(--color-admin-primary-hover);
+  --color-success: var(--color-admin-success);
+}
+
 .admin-app {
-  --color-cta: var(--color-admin-rail-active);
-  --color-cta-hover: var(--color-admin-rail-hover);
+  min-height: calc(100vh - 3.5rem);
+  background: var(--color-background);
 }
 
 /* Homepage room-scene hotspot entry (one-shot staggered pop + ping ring).

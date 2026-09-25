@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field, Select, TextInput, Textarea } from "@/components/admin/Field";
@@ -815,6 +816,7 @@ function PayloadEditor(props: EditorProps) {
 
 function HomepageAdminContent() {
   const { hasPermission } = useAdminAuth();
+  const { t } = useAdminI18n();
   const canManage = hasPermission("PRODUCT_MANAGE");
 
   const [drafts, setDrafts] = useState<SectionDraft[] | null>(null);
@@ -1151,8 +1153,9 @@ function HomepageAdminContent() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
-        title="首页装修"
+        title={t("homepage_title")}
         count={sorted.length}
+        subtitle={t("homepage_subtitle")}
         actions={
           <div className="flex items-center gap-3">
             {savedAt ? <span className="text-sm text-ink-secondary">已发布 {savedAt}</span> : null}

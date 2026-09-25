@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { Button } from "@/components/ui/Button";
 import {
   adminApi,
@@ -84,12 +85,12 @@ function ClassificationBadge({ value }: { value: string | null }) {
   if (!value) return <span className="text-ink-muted">—</span>;
   const tone =
     value === "RECHECK"
-      ? "bg-red-100 text-red-700"
+      ? "bg-admin-error-soft text-admin-error"
       : value === "RPT"
-        ? "bg-amber-100 text-amber-700"
+        ? "bg-admin-warning-soft text-admin-warning"
         : value === "AGAIN"
-          ? "bg-green-100 text-green-700"
-          : "bg-primary-light/40 text-cta";
+          ? "bg-admin-success-soft text-admin-success"
+          : "bg-admin-primary-soft text-cta";
   const dot =
     value === "RECHECK"
       ? "🔴"
@@ -125,11 +126,11 @@ function StatusTab({
 }) {
   const toneCls =
     tone === "red"
-      ? "bg-red-100 text-red-700 border-red-200"
+      ? "bg-admin-error-soft text-admin-error border-admin-error/20"
       : tone === "amber"
-        ? "bg-amber-100 text-amber-800 border-amber-200"
+        ? "bg-admin-warning-soft text-admin-warning border-admin-warning/20"
         : tone === "green"
-          ? "bg-green-100 text-green-700 border-green-200"
+          ? "bg-admin-success-soft text-admin-success border-admin-success/20"
           : "";
   return (
     <button
@@ -161,6 +162,7 @@ type ActionDialog = { id: string; kind: "confirm" | "cancel" } | null;
 
 function OrdersPageContent() {
   const { hasPermission } = useAdminAuth();
+  const { t } = useAdminI18n();
   const canConfirmPerm = hasPermission("ORDER_CONFIRM");
   const canCancelPerm = hasPermission("ORDER_CANCEL");
 
@@ -514,8 +516,9 @@ function OrdersPageContent() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
       <PageHeader
-        title="Orders"
+        title={t("orders_title")}
         count={data?.total}
+        subtitle={t("orders_subtitle")}
         actions={
           canConfirmPerm ? (
             <Button
@@ -526,7 +529,7 @@ function OrdersPageContent() {
                 setShowCreate(true);
               }}
             >
-              + New Order
+              {t("orders_new")}
             </Button>
           ) : undefined
         }

@@ -95,15 +95,15 @@ export function ProductEditorRail({
         : t("rail_state_ready");
   const stateClass =
     readinessState === "blocking"
-      ? "bg-red-100 text-red-800"
+      ? "bg-admin-error-soft text-admin-error"
       : readinessState === "recommendation"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-emerald-100 text-emerald-800";
+        ? "bg-admin-warning-soft text-admin-warning"
+        : "bg-admin-success-soft text-admin-success";
   const progressClass =
     readinessState === "blocking"
-      ? "bg-red-600"
+      ? "bg-admin-error"
       : readinessState === "recommendation"
-        ? "bg-amber-500"
+        ? "bg-admin-warning"
         : "bg-cta";
 
   return (
@@ -138,13 +138,13 @@ export function ProductEditorRail({
         </div>
 
         {blocking.length > 0 ? (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
-            <p className="text-xs font-semibold text-red-700">
+          <div className="mt-3 rounded-lg border border-admin-error/20 bg-admin-error-soft p-3">
+            <p className="text-xs font-semibold text-admin-error">
               {t("rail_readiness_blocking")}
             </p>
             <ul className="mt-1 flex flex-col gap-1">
               {blocking.map((issue) => (
-                <li key={issue.id} className="text-xs leading-relaxed text-red-700">
+                <li key={issue.id} className="text-xs leading-relaxed text-admin-error">
                   {issue.message}
                 </li>
               ))}
@@ -175,14 +175,14 @@ export function ProductEditorRail({
 
         {hasRecommendations ? (
           <div className="mt-3 border-t border-border pt-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-admin-warning">
               {t("rail_recommendations_title")}
             </p>
             <ul className="mt-1.5 flex flex-col gap-1.5">
               {recommendationChecks.map((check) => (
                 <li
                   key={check.key}
-                  className="flex items-start gap-2 text-xs leading-relaxed text-amber-800"
+                  className="flex items-start gap-2 text-xs leading-relaxed text-admin-warning"
                 >
                   <span aria-hidden>○</span>
                   <span>{t(CHECK_LABEL_KEYS[check.key])}</span>
@@ -191,7 +191,7 @@ export function ProductEditorRail({
               {readiness.warnings.map((warning, index) => (
                 <li
                   key={`${warning.key}:${warning.name ?? index}`}
-                  className="flex items-start gap-2 text-xs leading-relaxed text-amber-800"
+                  className="flex items-start gap-2 text-xs leading-relaxed text-admin-warning"
                 >
                   <span aria-hidden>⚠</span>
                   <span>
@@ -227,7 +227,7 @@ export function ProductEditorRail({
             </span>
           </div>
           {statusChanged && publicStatus ? (
-            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            <p className="mt-2 rounded-lg bg-admin-warning-soft px-3 py-2 text-xs leading-relaxed text-admin-warning">
               {t("rail_storefront_unsaved", {
                 selected: t(STATUS_LABEL_KEYS[storefront.selectedStatus]),
                 saved: t(STATUS_LABEL_KEYS[publicStatus]),

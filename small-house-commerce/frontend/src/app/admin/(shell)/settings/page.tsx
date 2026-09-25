@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Field, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { adminApi, type AdminSiteSettings } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 
@@ -55,6 +56,7 @@ function toForm(row: AdminSiteSettings): SettingsForm {
 }
 
 export default function SiteSettingsPage(): ReactNode {
+  const { t } = useAdminI18n();
   const [data, setData] = useState<SettingsForm | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -127,7 +129,10 @@ export default function SiteSettingsPage(): ReactNode {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader title="站点设置" />
+      <PageHeader
+        title={t("settings_title")}
+        subtitle={t("settings_subtitle")}
+      />
 
       {loadError ? (
         <div role="alert" className="mt-4 rounded-xl border border-border bg-card p-6">

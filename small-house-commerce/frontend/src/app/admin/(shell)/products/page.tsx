@@ -399,10 +399,11 @@ function ProductsPageContent() {
       <PageHeader
         title={t("products_title")}
         count={data?.total}
+        subtitle={t("products_subtitle")}
         actions={
           <>
             <details className="relative">
-              <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-ink-secondary hover:border-primary hover:text-cta">
+              <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-admin-surface-secondary px-3 text-sm font-semibold text-ink-secondary hover:border-primary hover:text-cta">
                 <span aria-hidden>?</span>
                 {t("products_help_summary")}
               </summary>
@@ -482,7 +483,7 @@ function ProductsPageContent() {
       {counts || attention ? (
         <section
           aria-label={t("products_attention_aria")}
-          className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-admin-surface-secondary px-3 py-2.5"
         >
           <span className="mr-1 text-sm font-semibold text-ink">
             {t("products_attention_title")}
@@ -501,10 +502,10 @@ function ProductsPageContent() {
                 }
                 className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                   selected
-                    ? "border-cta bg-primary-light/40 text-cta"
+                    ? "border-cta bg-admin-primary-soft text-cta"
                     : hasIssues
-                      ? "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400"
-                      : "border-border bg-background/50 text-ink-muted opacity-50 hover:opacity-80"
+                      ? "border-admin-warning/30 bg-admin-warning-soft text-admin-warning hover:border-admin-warning/50"
+                      : "border-border bg-card/70 text-ink-muted opacity-50 hover:opacity-80"
                 }`}
               >
                 {t(ATTENTION_LABEL_KEYS[key])}

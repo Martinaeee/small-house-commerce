@@ -145,6 +145,9 @@ describe("AdminProductsPage localization", () => {
       "href",
       "/admin/products/new",
     );
+    expect(
+      screen.getByText("管理商品资料、SKU、价格、媒体以及前台展示。"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /编辑/ })).toHaveAttribute(
       "href",
       "/admin/products/p1/edit",
@@ -219,7 +222,7 @@ describe("AdminProductsPage localization", () => {
     expect(help).not.toHaveAttribute("open");
     expect(
       screen.getByRole("button", { name: /^缺少共享图库/ }),
-    ).toHaveClass("border-amber-300");
+    ).toHaveClass("border-admin-warning/30");
     expect(
       screen.getByRole("button", { name: /^已上架但没有定价 SKU/ }),
     ).toHaveClass("opacity-50");
@@ -254,6 +257,11 @@ describe("AdminProductsPage localization", () => {
     expect(screen.getAllByText("Draft").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("DRAFT")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New product" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Manage product details, SKUs, pricing, media, and storefront presentation.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Edit/ })).toBeInTheDocument();
   });
 });

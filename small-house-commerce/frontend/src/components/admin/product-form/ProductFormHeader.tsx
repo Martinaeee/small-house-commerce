@@ -170,7 +170,7 @@ export function ProductFormHeader({
                 />
               ) : null}
               {dirty ? (
-                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                <span className="shrink-0 rounded-full bg-admin-warning-soft px-2 py-0.5 text-xs font-semibold text-admin-warning">
                   {labels.unsavedChanges}
                 </span>
               ) : null}
@@ -262,7 +262,7 @@ export function ProductFormHeader({
               {indicator.blocking > 0 ? (
                 <span
                   aria-label={labels.tabBlockingCount(indicator.blocking)}
-                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-admin-error px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
                 >
                   {indicator.blocking}
                 </span>
@@ -270,7 +270,7 @@ export function ProductFormHeader({
               {indicator.warning > 0 ? (
                 <span
                   aria-label={labels.tabWarningCount(indicator.warning)}
-                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                  className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-admin-warning px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
                 >
                   {indicator.warning}
                 </span>

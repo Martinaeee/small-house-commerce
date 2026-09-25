@@ -33,7 +33,7 @@ export function Field({
       <div>{children}</div>
       {hint ? <p className="text-xs font-normal leading-relaxed text-ink-muted">{hint}</p> : null}
       {error ? (
-        <p className="text-xs text-red-700" role="alert">
+        <p className="text-xs text-admin-error" role="alert">
           {error}
         </p>
       ) : null}

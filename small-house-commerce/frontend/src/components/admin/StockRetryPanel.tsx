@@ -52,7 +52,7 @@ export function StockRetryPanel({
             <span className="ml-2 text-ink-muted">
               {t("product_stock_panel_target", { onHand: failure.onHand })}
             </span>
-            <p className="mt-0.5 text-xs text-red-700">{failure.error}</p>
+            <p className="mt-0.5 text-xs text-admin-error">{failure.error}</p>
           </li>
         ))}
       </ul>

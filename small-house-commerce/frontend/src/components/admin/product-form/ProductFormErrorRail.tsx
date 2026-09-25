@@ -51,7 +51,7 @@ export function ProductFormErrorRail({
     <div
       id="pf-problem-rail"
       role="alert"
-      className="mt-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-red-700"
+      className="mt-3 rounded-lg border border-admin-error/25 bg-admin-error-soft px-3 py-2 text-sm text-admin-error"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-semibold">
@@ -60,7 +60,7 @@ export function ProductFormErrorRail({
         <span className="min-w-0 flex-1 truncate">{first?.message}</span>
         <button
           type="button"
-          className="shrink-0 rounded-md border border-sale/40 bg-card px-2.5 py-1 text-xs font-semibold text-red-700 hover:border-sale"
+          className="shrink-0 rounded-md border border-admin-error/25 bg-card px-2.5 py-1 text-xs font-semibold text-admin-error hover:border-admin-error"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded

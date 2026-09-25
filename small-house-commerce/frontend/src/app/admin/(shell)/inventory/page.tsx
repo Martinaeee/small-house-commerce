@@ -11,6 +11,7 @@ import {
   type FormEvent,
 } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -114,6 +115,7 @@ function signedQty(n: number): string {
 
 function InventoryPageContent() {
   const { hasPermission } = useAdminAuth();
+  const { t } = useAdminI18n();
   const canAdjust = hasPermission("INVENTORY_ADJUST");
 
   const router = useRouter();
@@ -364,10 +366,13 @@ function InventoryPageContent() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
-      <PageHeader title="Inventory" />
+      <PageHeader
+        title={t("inventory_title")}
+        subtitle={t("inventory_subtitle")}
+      />
 
       {/* Chinese operator guide for stock-in/out workflow. */}
-      <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">
+      <div className="mt-4 rounded-xl border border-border bg-admin-surface-secondary p-4 text-xs leading-relaxed text-ink-secondary">
         <p className="text-sm font-semibold text-ink">库存怎么录入（新商品入库流程）</p>
         <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>
