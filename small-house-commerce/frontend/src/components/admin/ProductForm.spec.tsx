@@ -330,7 +330,20 @@ describe("ProductForm variants tab modes", () => {
       catalogGraphVersion: 2,
       options: [],
     };
-    renderForm(baseValue({ graphTyped: false, graph: locked }));
+    renderForm(
+      baseValue({
+        graphTyped: false,
+        graph: locked,
+        images: [
+          {
+            url: "https://example.com/locked.jpg",
+            type: "IMAGE",
+            altText: "Locked",
+            sortOrder: "0",
+          },
+        ],
+      }),
+    );
     await openVariantsTab();
 
     expect(screen.getByRole("alert")).toHaveTextContent(/类型化选项图/);
@@ -339,6 +352,11 @@ describe("ProductForm variants tab modes", () => {
     // Media tab: the gallery is locked too (images writes would 409).
     await user.click(screen.getByRole("tab", { name: "商品媒体" }));
     expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("list", { name: "共享媒体卡片" })).getByRole(
+        "listitem",
+      ),
+    ).toHaveAttribute("draggable", "false");
 
     // Shipping tab: sku fields are locked as well.
     await user.click(screen.getByRole("tab", { name: "包装与物流" }));
@@ -860,6 +878,46 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.getByRole("heading", { name: "新建商品" })).toBeInTheDocument();
     expect(screen.getByLabelText("内部商品编号")).toHaveValue("保存后自动生成");
     expect(screen.getByLabelText("内部商品编号")).toHaveAttribute("readonly");
+  });
+
+  it("keeps shared-media rows parent-owned while the workspace remounts", async () => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    renderForm(
+      baseValue({
+        images: [
+          {
+            url: "https://example.com/a.jpg",
+            type: "IMAGE",
+            altText: "Original",
+            sortOrder: "0",
+          },
+          { url: "", type: "IMAGE", altText: "", sortOrder: "1" },
+        ],
+      }),
+    );
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+
+    expect(screen.getByText("Rows 2")).toBeInTheDocument();
+    expect(screen.getByText("Usable 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Media 1 (cover)" }));
+    await user.selectOptions(screen.getByLabelText("Media 1 type"), "VIDEO");
+    await user.clear(screen.getByLabelText("Media 1 alt text"));
+    await user.type(screen.getByLabelText("Media 1 alt text"), "Updated");
+
+    await user.click(screen.getByRole("tab", { name: "Basic Info" }));
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+    await user.click(screen.getByRole("button", { name: "Media 1 (cover)" }));
+
+    expect(screen.getByLabelText("Media 1 type")).toHaveValue("VIDEO");
+    expect(screen.getByLabelText("Media 1 alt text")).toHaveValue("Updated");
+
+    await user.click(screen.getByRole("button", { name: "Add photo" }));
+    expect(screen.getByText("Rows 3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Media 3" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("keeps explicit keyboard media reordering with translated controls that wrap", async () => {

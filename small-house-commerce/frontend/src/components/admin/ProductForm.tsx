@@ -862,8 +862,6 @@ export function ProductForm({
     if (requestedSection !== null) setActiveTab(requestedSection);
   }
   const legacySkuRefs = useRef(new Map<string, HTMLInputElement>());
-  // Index of the image card currently being HTML5-dragged.
-  const dragFrom = useRef<number | null>(null);
 
   // --- Task 11: typed catalog graph mode ------------------------------------
   // Typed = the server payload carried options/media, so the options/matrix
@@ -1032,9 +1030,6 @@ export function ProductForm({
   // path as patch()); the parent server error is left untouched here — it
   // stays visible until the next submit attempt (see render below).
   // --- images ---------------------------------------------------------------
-  // Which media card is expanded for editing (Alt text / Advanced URL). One
-  // at a time keeps the grid scannable.
-  const [activeMedia, setActiveMedia] = useState<number | null>(null);
   const setImage = (i: number, p: Partial<ImageFormValue>): void => {
     setValue((prev) => ({
       ...prev,
@@ -1044,9 +1039,6 @@ export function ProductForm({
   };
   const addImage = (type: "IMAGE" | "VIDEO" = "IMAGE"): void => {
     setValue((prev) => ({ ...prev, images: appendImage(prev.images, type) }));
-    // Expand the new card's editing row right away so the operator can pick
-    // a file (or paste a URL) without a second click to find it.
-    setActiveMedia(value.images.length);
     clearValidation();
   };
   const removeImage = (i: number): void => {
@@ -1382,10 +1374,6 @@ export function ProductForm({
       ];
     }),
   ) as Record<TabKey, { blocking: number; warning: number }>;
-  const coverSortOrder =
-    value.images.length > 0
-      ? Math.min(...value.images.map((img) => Number(img.sortOrder.trim() || "0") || 0))
-      : 0;
 
   return (
     <form onSubmit={handleSubmit} noValidate>
@@ -1675,232 +1663,17 @@ export function ProductForm({
             graphDraft={graphDraft}
             onGraphChange={typed && graphDraft ? updateGraph : null}
             highlightKey={highlight?.key ?? null}
-            sharedGallery={
-              <Section
-              title={t("product_media_shared_title")}
-              hint={t("product_media_gallery_hint")}
-            >
-              {value.images.length === 0 ? (
-                <p className="text-sm text-ink-muted">
-                  {t("product_media_empty")}
-                </p>
-              ) : (
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-                  {value.images.map((img, i) => {
-                    const sortNum = Number(img.sortOrder.trim() || "0") || 0;
-                    const isCover = value.images.length > 0 && sortNum === coverSortOrder;
-                    const expanded = activeMedia === i;
-                    return (
-                      <li
-                        key={i}
-                        draggable
-                        onDragStart={(e) => {
-                          dragFrom.current = i;
-                          e.dataTransfer.effectAllowed = "move";
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (dragFrom.current !== null) moveImageTo(dragFrom.current, i);
-                          dragFrom.current = null;
-                        }}
-                        className={`overflow-hidden rounded-lg bg-background ${
-                          isCover ? "ring-2 ring-cta" : "border border-border"
-                        }`}
-                      >
-                        {/* Thumbnail cell: click to expand the editing row. */}
-                        <button
-                          type="button"
-                          onClick={() => setActiveMedia(expanded ? null : i)}
-                          aria-expanded={expanded}
-                          aria-label={
-                            isCover
-                              ? t("product_media_card_cover_aria", { number: i + 1 })
-                              : t("product_media_card_aria", { number: i + 1 })
-                          }
-                          className="relative block aspect-square w-full cursor-grab active:cursor-grabbing"
-                        >
-                          {img.url.trim() ? (
-                            img.type === "VIDEO" ? (
-                              <video
-                                src={img.url}
-                                muted
-                                playsInline
-                                preload="metadata"
-                                className="h-full w-full object-cover"
-                                draggable={false}
-                              />
-                            ) : (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={img.url}
-                                alt=""
-                                className="h-full w-full object-cover"
-                                draggable={false}
-                              />
-                            )
-                          ) : (
-                            <span className="flex h-full items-center justify-center text-xs text-ink-muted">
-                              {img.type === "VIDEO"
-                                ? t("product_media_empty_video")
-                                : t("product_media_empty_image")}
-                            </span>
-                          )}
-                          {(img.type === "VIDEO" || !img.url.trim()) && (
-                            <span
-                              aria-hidden
-                              className="absolute inset-0 flex items-center justify-center text-2xl text-white drop-shadow"
-                            >
-                              {img.type === "VIDEO" ? "▶" : ""}
-                            </span>
-                          )}
-                          {isCover ? (
-                            <span className="absolute left-1.5 top-1.5 rounded-full bg-cta px-2 py-0.5 text-xs font-semibold text-white">
-                              {t("product_media_cover")}
-                            </span>
-                          ) : null}
-                        </button>
-
-                        {/* Quick actions under the thumbnail; wrapping keeps the
-                            destructive/status controls reachable on 375px. */}
-                        <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              className={removeBtnCls}
-                              onClick={() => moveImage(i, -1)}
-                              disabled={pending || i === 0}
-                              aria-label={t("product_media_move_left", { number: i + 1 })}
-                            >
-                              ←
-                            </button>
-                            <button
-                              type="button"
-                              className={removeBtnCls}
-                              onClick={() => moveImage(i, 1)}
-                              disabled={pending || i === value.images.length - 1}
-                              aria-label={t("product_media_move_right", { number: i + 1 })}
-                            >
-                              →
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {!isCover ? (
-                              <button
-                                type="button"
-                                onClick={() => setCoverImage(i)}
-                                disabled={pending}
-                                className="text-xs font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
-                              >
-                                {t("product_media_set_cover")}
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              className={removeBtnCls}
-                              onClick={() => {
-                                removeImage(i);
-                                setActiveMedia(null);
-                              }}
-                              disabled={pending}
-                            >
-                              {t("product_media_remove")}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Expanded editing row: Alt text + URL/upload right
-                            away (that's the primary action), sort tucked into
-                            Advanced. */}
-                        {expanded ? (
-                          <div className="border-t border-border p-2">
-                            <Field
-                              label={t("product_media_alt_label")}
-                              htmlFor={`pf-images-${i}-alt`}
-                              error={err(`images.${i}.altText`)}
-                            >
-                              <TextInput
-                                id={`pf-images-${i}-alt`}
-                                aria-label={t("product_media_alt_aria", { number: i + 1 })}
-                                value={img.altText}
-                                onChange={(e) =>
-                                  setImage(i, { altText: e.target.value })
-                                }
-                                autoComplete="off"
-                              />
-                            </Field>
-                            <div className="mt-2">
-                              <Field
-                                label={
-                                  img.type === "VIDEO"
-                                    ? t("product_media_url_video_label")
-                                    : t("product_media_url_image_label")
-                                }
-                                htmlFor={`pf-images-${i}-url`}
-                                error={err(`images.${i}.url`)}
-                              >
-                                <ImageUrlInput
-                                  id={`pf-images-${i}-url`}
-                                  ariaLabel={t("product_media_url_aria", { number: i + 1 })}
-                                  kind={img.type === "VIDEO" ? "video" : "image"}
-                                  value={img.url}
-                                  onChange={(url) => setImage(i, { url })}
-                                  disabled={pending}
-                                />
-                              </Field>
-                            </div>
-                            <details className="mt-1">
-                              <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
-                                {t("product_media_advanced")}
-                              </summary>
-                              <div className="mt-2">
-                                <Field
-                                  label={t("product_media_sort_label")}
-                                  htmlFor={`pf-images-${i}-sort`}
-                                  error={err(`images.${i}.sortOrder`)}
-                                >
-                                  <TextInput
-                                    id={`pf-images-${i}-sort`}
-                                    aria-label={t("product_media_sort_aria", { number: i + 1 })}
-                                    inputMode="numeric"
-                                    value={img.sortOrder}
-                                    onChange={(e) =>
-                                      setImage(i, { sortOrder: e.target.value })
-                                    }
-                                    autoComplete="off"
-                                  />
-                                </Field>
-                              </div>
-                            </details>
-                          </div>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  onClick={() => addImage("IMAGE")}
-                  disabled={pending}
-                >
-                  {t("product_media_add_image")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  onClick={() => addImage("VIDEO")}
-                  disabled={pending}
-                >
-                  {t("product_media_add_video")}
-                </Button>
-              </div>
-            </Section>
-            }
+            sharedMedia={{
+              images: value.images,
+              pending,
+              highlightKey: highlight?.key ?? null,
+              onPatch: setImage,
+              onMove: moveImage,
+              onReorder: moveImageTo,
+              onSetCover: setCoverImage,
+              onRemove: removeImage,
+              onAdd: addImage,
+            }}
             detailBlocks={
       /* ---------------- Detail blocks (description body) ---------------- */
       <Section

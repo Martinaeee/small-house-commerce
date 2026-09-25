@@ -410,6 +410,15 @@ export const en: Record<ZhKey, string> = {
 
   product_media_gallery_hint:
     "One item per cell; drag or use the ← → buttons to reorder — the cover is the storefront's main image. Click a card to edit its alt text.",
+  product_media_cards_aria: "Shared media cards",
+  product_media_summary_rows: "Rows {count}",
+  product_media_summary_usable: "Usable {count}",
+  product_media_summary_images: "Images {count}",
+  product_media_summary_videos: "Videos {count}",
+  product_media_summary_alt: "Alt text {complete}/{total}",
+  product_media_order: "Order {position}",
+  product_media_type_label: "Media type",
+  product_media_type_aria: "Media {number} type",
   product_media_empty: "No media yet. Add the first item below.",
   product_media_card_aria: "Media {number}",
   product_media_card_cover_aria: "Media {number} (cover)",

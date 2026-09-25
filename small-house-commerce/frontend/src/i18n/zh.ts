@@ -414,6 +414,15 @@ export const zh = {
   // --- Product form: shared gallery cards ---
   product_media_gallery_hint:
     "每格一张媒体，可拖动或用 ← → 排序；「封面」为前台主图。点卡片展开填写 Alt 文本。",
+  product_media_cards_aria: "共享媒体卡片",
+  product_media_summary_rows: "{count} 行",
+  product_media_summary_usable: "{count} 项可用",
+  product_media_summary_images: "{count} 张图片",
+  product_media_summary_videos: "{count} 个视频",
+  product_media_summary_alt: "Alt 文本 {complete}/{total}",
+  product_media_order: "顺序 {position}",
+  product_media_type_label: "媒体类型",
+  product_media_type_aria: "媒体 {number} 的类型",
   product_media_empty: "还没有媒体，点下方按钮添加第一张。",
   product_media_card_aria: "媒体 {number}",
   product_media_card_cover_aria: "媒体 {number}（封面）",

@@ -3,6 +3,10 @@
 import type { ReactNode } from "react";
 import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 import { ProductMediaScopesEditor } from "@/components/admin/ProductMediaScopesEditor";
+import {
+  SharedMediaWorkspace,
+  type SharedMediaWorkspaceProps,
+} from "@/components/admin/product-form/SharedMediaWorkspace";
 import { useAdminI18n } from "@/lib/admin-i18n";
 
 export interface ProductMediaPanelProps {
@@ -11,7 +15,7 @@ export interface ProductMediaPanelProps {
   pending: boolean;
   graphDraft: AdminCatalogGraphDraft | null;
   onGraphChange: ((mutate: (draft: AdminCatalogGraphDraft) => void) => void) | null;
-  sharedGallery: ReactNode;
+  sharedMedia: SharedMediaWorkspaceProps;
   detailBlocks: ReactNode;
   /** Row the problem rail asked to highlight (media row key). */
   highlightKey?: string | null;
@@ -19,9 +23,9 @@ export interface ProductMediaPanelProps {
 
 /**
  * Controlled media-tab composition. ProductForm remains the sole owner of the
- * complete product value; this panel receives only the rendered shared/detail
- * slices and the graph media callback, so shared gallery rows never become
- * graph-scoped rows accidentally.
+ * complete product value; this panel receives controlled shared-media props,
+ * a rendered detail slice, and the graph media callback, so shared gallery
+ * rows never become graph-scoped rows accidentally.
  */
 export function ProductMediaPanel({
   graphLocked,
@@ -29,7 +33,7 @@ export function ProductMediaPanel({
   pending,
   graphDraft,
   onGraphChange,
-  sharedGallery,
+  sharedMedia,
   detailBlocks,
   highlightKey = null,
 }: ProductMediaPanelProps): ReactNode {
@@ -45,7 +49,10 @@ export function ProductMediaPanel({
         </div>
       ) : null}
       <fieldset disabled={graphLocked} className="min-w-0">
-        {sharedGallery}
+        <SharedMediaWorkspace
+          {...sharedMedia}
+          pending={sharedMedia.pending || graphLocked}
+        />
       </fieldset>
       {graphDraft && onGraphChange ? (
         <section>
