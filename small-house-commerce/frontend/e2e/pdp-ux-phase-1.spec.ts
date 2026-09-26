@@ -222,17 +222,55 @@ test.describe("PDP UX Phase 1", () => {
     await expectDocumentOrder([
       hero.getByRole("heading", { level: 1, name: product.name }),
       hero.getByText(TAGLINE),
+      hero.getByRole("list", { name: "Selling points" }),
       hero.getByText("No reviews yet"),
       hero.getByTestId("price").first(),
       hero.getByRole("group", { name: "Color", exact: true }),
-      hero.locator("#pdp-dimensions-summary"),
-      hero.getByText("Estimated delivery"),
-      hero.getByTestId("qty"),
-      orderNow,
-      addToCart,
+      hero.getByTestId("pdp-dimensions-summary"),
+      hero.getByTestId("pdp-delivery"),
+      hero.getByTestId("pdp-buy-row"),
     ]);
     await expect(orderNow).toHaveText("CHOOSE OPTIONS");
     await expect(addToCart).toHaveText("CHOOSE OPTIONS");
+
+    // Selling points are the real solution tags, one emoji pill each.
+    const sellingPoints = hero.getByRole("list", { name: "Selling points" });
+    await expect(sellingPoints.getByRole("listitem")).toHaveText([
+      "📦Foldable",
+      "🔄Easy to Move",
+    ]);
+
+    // One compact dimension line plus the size-guide trigger; the folded line
+    // lives in Specifications and the size guide, not in the hero.
+    await expect(hero.getByTestId("pdp-dimensions-line")).toHaveText(
+      `Dimensions: ${product.width} × ${product.height} × ${product.depth} cm`,
+    );
+    await expect(hero.getByText(/^Folded:/)).toHaveCount(0);
+    await hero.getByRole("button", { name: "Size guide" }).click();
+    const sizeGuide = page.getByRole("dialog", { name: "Product details" });
+    await expect(sizeGuide).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sizeGuide).toHaveCount(0);
+
+    // Service assurances sit beside the estimate, inside the delivery card.
+    const delivery = hero.getByTestId("pdp-delivery");
+    await expect(delivery.getByText("Estimated delivery")).toBeVisible();
+    await expect(
+      delivery
+        .getByRole("list", { name: "Service assurances" })
+        .getByRole("listitem"),
+    ).toHaveText([
+      "✓COD & Free Shipping",
+      "✓Arrived in 1-5 days",
+      "✓7-Day Free Return & Exchange",
+    ]);
+
+    // Quantity and both purchase actions share one row.
+    const buyRow = hero.getByTestId("pdp-buy-row");
+    await expect(buyRow.getByTestId("qty")).toBeVisible();
+    await expect(buyRow.getByTestId("order-now")).toBeVisible();
+    await expect(buyRow.getByTestId("add-to-cart")).toBeVisible();
+
     await page.screenshot({
       path: screenshotPath("phase-pdp-ux-hero-1440.png"),
     });

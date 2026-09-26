@@ -23,6 +23,7 @@ import {
   PrismaClient,
   ProductStatus,
   type Product,
+  type Solution,
 } from '../src/generated/prisma/client.js';
 import {
   canonicalCombinationKey,
@@ -247,6 +248,8 @@ interface ProductSpec {
   options?: OptionSpec[];
   variants: VariantSpec[];
   sharedMedia: { name: string; label: string; fill: string }[];
+  /** Admin 卖点标签; drives the PDP selling-point pills. */
+  solutions?: Solution[];
 }
 
 const VALUE_FILL: Record<string, string> = {
@@ -323,6 +326,7 @@ function productSpecs(): ProductSpec[] {
       slug: 'e2e-color-size',
       name: 'E2E Color x Size Cabinet',
       typed: true,
+      solutions: ['FOLDABLE', 'MOBILE'],
       options: [
         {
           kind: 'COLOR',
@@ -398,7 +402,7 @@ async function createProduct(
       description: `E2E scenario product: ${spec.name}.`,
       categoryId,
       status: ProductStatus.ACTIVE,
-      solutions: [],
+      solutions: spec.solutions ?? [],
       catalogGraphVersion: spec.typed ? 1 : 0,
       images: {
         create: spec.sharedMedia.map((media, index) => ({
