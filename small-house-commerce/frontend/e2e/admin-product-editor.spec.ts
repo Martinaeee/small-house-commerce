@@ -1039,11 +1039,23 @@ async function openEditorWithStoredSession(
   if (adminRefreshToken === null) throw new Error("no cached admin session");
   const refreshToken = adminRefreshToken;
   await page.addInitScript((token) => {
+    const marker = "sh:e2e-admin-refresh-seeded";
+    if (window.sessionStorage.getItem(marker) === "1") return;
     window.localStorage.setItem("sh_admin_refresh", token);
+    window.sessionStorage.setItem(marker, "1");
   }, refreshToken);
   const productId = await adminProductIdFor(slug);
   await gotoAdmin(page, `/admin/products/${productId}/edit`);
   await expect(page.getByRole("tablist")).toBeVisible();
+
+  // The refresh endpoint rotates tokens. Carry the newest token into the next
+  // isolated Playwright page instead of replaying the now-revoked seed token.
+  const rotatedRefreshToken = await page.evaluate(() =>
+    window.localStorage.getItem("sh_admin_refresh"),
+  );
+  expect(rotatedRefreshToken, "admin refresh token rotated").toBeTruthy();
+  expect(rotatedRefreshToken).not.toBe(refreshToken);
+  adminRefreshToken = rotatedRefreshToken;
   return productId;
 }
 
