@@ -47,6 +47,7 @@ enum PermissionCode {
   SYSTEM_SETTINGS_EDIT
   PRODUCT_MANAGE
   CUSTOMER_MANAGE
+  CAMPAIGN_LINK_BUILD
 }
 
 /// DATABASE.md §5 `users`.

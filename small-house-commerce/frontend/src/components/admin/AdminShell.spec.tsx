@@ -131,6 +131,23 @@ describe("AdminShell hidden permission-backed destinations", () => {
     },
   );
 
+  it("renders the dedicated link builder as the optimizer's only module", () => {
+    shellState.pathname = "/admin/link-builder";
+    shellState.permissions = ["ORDER_VIEW_OWN", "CAMPAIGN_LINK_BUILD"];
+
+    renderShell();
+
+    expect(
+      screen.getByRole("link", { name: "nav_link_builder" }),
+    ).toHaveAttribute("href", "/admin/link-builder");
+    expect(screen.getByText("Protected route content")).toBeVisible();
+    expect(
+      screen.queryByText("No modules available for your account."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "nav_orders" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "nav_products" })).not.toBeInTheDocument();
+  });
+
   it("keeps the no-modules boundary for accounts without a supported route", () => {
     renderShell();
 

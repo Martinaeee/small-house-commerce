@@ -1010,7 +1010,7 @@ test.describe.serial("Admin global search real stack", () => {
     expect(Object.keys(response.groups).sort()).toEqual(["orders", "shipments"]);
   });
 
-  test("Optimizer receives an empty aggregate and renders no entity result", async ({ page }) => {
+  test("Optimizer receives an empty search aggregate and can build only public campaign links", async ({ page }) => {
     const fx = fixtures!;
     const response = await search(fx.uiToken, 20, ACCOUNTS.optimizer);
     expect(response.groups).toEqual({});
@@ -1021,5 +1021,189 @@ test.describe.serial("Admin global search real stack", () => {
     await expect(dialog).toContainText("当前账户没有可搜索的模块");
     await expect(dialog.getByRole("combobox")).toHaveCount(0);
     await expect(dialog.getByRole("option")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    const session = await login(ACCOUNTS.optimizer);
+    const contextResponse = await api.get(`${API}/admin/link-builder/context`, {
+      headers: authHeaders(session.accessToken),
+    });
+    expect(
+      contextResponse.ok(),
+      `link-builder context: ${contextResponse.status()} ${await contextResponse.text()}`,
+    ).toBeTruthy();
+    const context = (await contextResponse.json()) as {
+      products: {
+        id: string;
+        name: string;
+        slug: string;
+        variants: { id: string; name: string }[];
+        landingPages: { id: string; slug: string; title: string }[];
+      }[];
+    };
+    expect(Object.keys(context)).toEqual(["products"]);
+    for (const product of context.products) {
+      expect(Object.keys(product).sort()).toEqual([
+        "id",
+        "landingPages",
+        "name",
+        "slug",
+        "variants",
+      ]);
+      for (const variant of product.variants) {
+        expect(Object.keys(variant).sort()).toEqual(["id", "name"]);
+      }
+      for (const landingPage of product.landingPages) {
+        expect(Object.keys(landingPage).sort()).toEqual([
+          "id",
+          "slug",
+          "title",
+        ]);
+      }
+    }
+    expect(JSON.stringify(context)).not.toMatch(
+      /customer|orderNumber|profit|supplierCost|optimizerId|adCode/i,
+    );
+
+    for (const deniedPath of [
+      "/admin/products?page=1&pageSize=1",
+      "/admin/landing-pages?page=1&pageSize=1",
+    ]) {
+      const denied = await api.get(`${API}${deniedPath}`, {
+        headers: authHeaders(session.accessToken),
+      });
+      expect(denied.status(), deniedPath).toBe(403);
+    }
+
+    const product = context.products.find(
+      (item) => item.slug === "e2e-color-size",
+    );
+    expect(product, "active color-size product in public context").toBeTruthy();
+    const variant = product!.variants.find(
+      (item) => item.name === "Red / Small",
+    );
+    const landingPage = product!.landingPages.find(
+      (item) => item.slug === "e2e-lp-color-size",
+    );
+    expect(variant, "active Red / Small variant").toBeTruthy();
+    expect(landingPage, "live seeded landing page").toBeTruthy();
+
+    await page.evaluate(() => {
+      const scope = window as typeof window & { __copiedLink?: string };
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            scope.__copiedLink = value;
+          },
+        },
+      });
+    });
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.getByRole("link", { name: "投放链接" }).click();
+    await expect(page).toHaveURL(/\/admin\/link-builder$/);
+    await expect(
+      page.getByRole("heading", { name: "投放链接生成器" }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "投放链接" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "订单" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "商品" })).toHaveCount(0);
+
+    await page.locator("#link-builder-product").selectOption(product!.id);
+    await page.locator("#link-builder-variant").selectOption(variant!.id);
+    await page
+      .locator("#link-builder-landing-page")
+      .selectOption(landingPage!.id);
+    await page.getByLabel(/优化师 \/ AID/).fill("optimizer e2e & PH");
+    await page.getByLabel("来源（UTM Source）").fill("Meta Ads / PH");
+    await page.getByLabel("Campaign ID").fill("campaign/2026?phase=1");
+    await page.getByLabel("Ad Set ID").fill("adset-7");
+    await page.getByLabel("Ad ID").fill("ad-9");
+    await page.getByLabel("UTM Medium").fill("paid-social");
+    await page.getByLabel("UTM Campaign").fill("Condo + Chair");
+    await page.addStyleTag({
+      content: "nextjs-portal { display: none !important; }",
+    });
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({
+      path: resolve(
+        SCREENSHOTS,
+        "phase4-optimizer-link-builder-desktop.png",
+      ),
+      fullPage: true,
+    });
+
+    await page.getByRole("button", { name: "生成链接" }).click();
+    const generated = page.getByTestId("generated-campaign-url");
+    await expect(generated).toBeVisible();
+    const generatedUrl = new URL((await generated.textContent()) ?? "");
+    expect(generatedUrl.origin).toBe("https://luwag.ph");
+    expect(generatedUrl.pathname).toBe("/lp/e2e-lp-color-size");
+    expect(generatedUrl.searchParams.get("variant")).toBe(variant!.id);
+    expect(generatedUrl.searchParams.get("aid")).toBe("optimizer e2e & PH");
+    expect(generatedUrl.searchParams.get("campaign_id")).toBe(
+      "campaign/2026?phase=1",
+    );
+    expect(generatedUrl.searchParams.get("adset_id")).toBe("adset-7");
+    expect(generatedUrl.searchParams.get("ad_id")).toBe("ad-9");
+    expect(generatedUrl.searchParams.get("utm_source")).toBe("Meta Ads / PH");
+    expect(generatedUrl.searchParams.get("utm_medium")).toBe("paid-social");
+    expect(generatedUrl.searchParams.get("utm_campaign")).toBe(
+      "Condo + Chair",
+    );
+    expect(generatedUrl.searchParams.has("landingPageId")).toBe(false);
+    expect(generatedUrl.searchParams.has("landing_page_id")).toBe(false);
+    for (const key of [
+      "variant",
+      "aid",
+      "campaign_id",
+      "adset_id",
+      "ad_id",
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+    ]) {
+      expect(generatedUrl.searchParams.getAll(key), key).toHaveLength(1);
+    }
+
+    const productUrl = `https://luwag.ph/products/${product!.slug}`;
+    const variantUrl = `${productUrl}?variant=${variant!.id}`;
+    for (const copy of [
+      { name: "复制商品链接", expected: productUrl },
+      { name: "复制款式链接", expected: variantUrl },
+      { name: "复制投放链接", expected: generatedUrl.toString() },
+    ]) {
+      await page.getByRole("button", { name: copy.name }).click();
+      await expect(page.getByRole("button", { name: "已复制" })).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as typeof window & { __copiedLink?: string })
+                .__copiedLink,
+          ),
+        )
+        .toBe(copy.expected);
+    }
+
+    const generatedSection = page.locator(
+      'section[aria-labelledby="link-builder-generated-heading"]',
+    );
+    await generatedSection.screenshot({
+      path: resolve(SCREENSHOTS, "phase4-generated-url.png"),
+    });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(
+      page.getByRole("heading", { name: "投放链接生成器" }),
+    ).toBeInViewport();
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({
+      path: resolve(
+        SCREENSHOTS,
+        "phase4-optimizer-link-builder-mobile-375.png",
+      ),
+      fullPage: true,
+    });
   });
 });

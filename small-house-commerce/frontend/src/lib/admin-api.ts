@@ -13,6 +13,7 @@
  */
 
 import { adminAuthedFetch } from "./admin-auth";
+import type { CampaignLinkContext } from "./campaign-link-builder";
 import { formatPrice } from "@/components/ui/PriceBox";
 import type { OrderOptionSnapshotV1 } from "./order-options";
 
@@ -169,6 +170,8 @@ export type AdminSearchHit =
   | OrderSearchHit
   | CustomerSearchHit
   | ShipmentSearchHit;
+
+export type AdminLinkBuilderContext = CampaignLinkContext;
 
 // --- money formatting --------------------------------------------------------
 
@@ -1044,6 +1047,11 @@ export const adminApi = {
     adminAuthedFetch<AdminSearchResponse>(
       `/api/v1/admin/search${buildQuery({ q, limit })}`,
       { signal },
+    ),
+
+  getLinkBuilderContext: (): Promise<AdminLinkBuilderContext> =>
+    adminAuthedFetch<AdminLinkBuilderContext>(
+      "/api/v1/admin/link-builder/context",
     ),
 
   getCustomer: (id: string): Promise<AdminCustomerDetail> =>

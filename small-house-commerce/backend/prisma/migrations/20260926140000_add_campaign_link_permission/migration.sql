@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "PermissionCode" ADD VALUE 'CAMPAIGN_LINK_BUILD';

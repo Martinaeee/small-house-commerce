@@ -49,6 +49,11 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/groupings", labelKey: "nav_groupings", permission: "PRODUCT_MANAGE" },
   { href: "/admin/homepage", labelKey: "nav_homepage", permission: "PRODUCT_MANAGE" },
   { href: "/admin/single-pages", labelKey: "nav_single_pages", permission: "PRODUCT_MANAGE" },
+  {
+    href: "/admin/link-builder",
+    labelKey: "nav_link_builder",
+    permission: "CAMPAIGN_LINK_BUILD",
+  },
   { href: "/admin/settings", labelKey: "nav_settings", permission: "SYSTEM_SETTINGS_EDIT" },
 ];
 

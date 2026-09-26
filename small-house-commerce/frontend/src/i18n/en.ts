@@ -9,6 +9,7 @@ export const en: Record<ZhKey, string> = {
   nav_groupings: "Groupings",
   nav_homepage: "Homepage Builder",
   nav_single_pages: "Single Pages",
+  nav_link_builder: "Link Builder",
   nav_settings: "Site Settings",
 
   admin_header_search_pending: "Global search is not enabled yet",
@@ -115,6 +116,58 @@ export const en: Record<ZhKey, string> = {
   single_pages_subtitle: "Manage campaign landing pages, linked products, and visit performance.",
   settings_title: "Site settings",
   settings_subtitle: "Maintain support contacts and operational site information.",
+
+  link_builder_title: "Optimizer Link Builder",
+  link_builder_subtitle:
+    "Generate links from real products, variants, and landing pages using the existing attribution contract.",
+  link_builder_loading: "Loading link builder…",
+  link_builder_load_error: "Link-builder data could not be loaded.",
+  link_builder_empty: "There are no active products available for campaigns.",
+  link_builder_target_section: "Campaign target",
+  link_builder_attribution_section: "Attribution fields",
+  link_builder_product: "Product",
+  link_builder_variant: "Variant",
+  link_builder_no_variant: "No specific variant",
+  link_builder_landing_page: "Landing page (optional)",
+  link_builder_no_landing_page: "Use product page",
+  link_builder_aid: "Optimizer / AID",
+  link_builder_aid_hint:
+    "AID uses the existing free-form contract, up to 64 characters. No second identifier convention is created.",
+  link_builder_utm_source: "Source (UTM source)",
+  link_builder_campaign_id: "Campaign ID",
+  link_builder_adset_id: "Ad Set ID",
+  link_builder_ad_id: "Ad ID",
+  link_builder_utm_medium: "UTM Medium",
+  link_builder_utm_campaign: "UTM Campaign",
+  link_builder_generate: "Generate links",
+  link_builder_generated_title: "Generated links",
+  link_builder_generated_hint:
+    "Landing pages record attribution through the /lp/ path; no second landing-page query key is added.",
+  link_builder_product_link: "Product link",
+  link_builder_variant_link: "Variant link",
+  link_builder_campaign_link: "Campaign link",
+  link_builder_copy_product: "Copy product link",
+  link_builder_copy_variant: "Copy variant link",
+  link_builder_copy_campaign: "Copy campaign link",
+  link_builder_copied: "Copied",
+  link_builder_waiting: "Enter an AID to generate copyable campaign links.",
+  link_builder_error_PRODUCT_INVALID: "Select a real active product.",
+  link_builder_error_VARIANT_INVALID: "Select a real variant for this product.",
+  link_builder_error_LANDING_PAGE_INVALID:
+    "Select a real landing page for this product.",
+  link_builder_error_AID_REQUIRED: "AID is required.",
+  link_builder_error_AID_TOO_LONG: "AID must be 64 characters or fewer.",
+  link_builder_error_CAMPAIGN_ID_TOO_LONG:
+    "Campaign ID must be 64 characters or fewer.",
+  link_builder_error_ADSET_ID_TOO_LONG:
+    "Ad Set ID must be 64 characters or fewer.",
+  link_builder_error_AD_ID_TOO_LONG: "Ad ID must be 64 characters or fewer.",
+  link_builder_error_UTM_SOURCE_TOO_LONG:
+    "Source must be 120 characters or fewer.",
+  link_builder_error_UTM_MEDIUM_TOO_LONG:
+    "UTM Medium must be 120 characters or fewer.",
+  link_builder_error_UTM_CAMPAIGN_TOO_LONG:
+    "UTM Campaign must be 120 characters or fewer.",
 
   common_confirm: "Confirm",
   common_cancel: "Cancel",

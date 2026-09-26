@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { AdminCategoriesController } from './admin/categories.controller.js';
+import { AdminLinkBuilderController } from './admin/link-builder.controller.js';
 import { AdminProductsController } from './admin/products.controller.js';
 import {
   AdminProductReviewsController,
@@ -12,6 +13,7 @@ import {
   AdminProductLandingPagesController,
 } from './landing/admin/landing-pages.controller.js';
 import { LandingPagesService } from './landing/landing-pages.service.js';
+import { LinkBuilderContextService } from './link-builder-context.service.js';
 import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
 import { CategoriesService } from './categories.service.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
@@ -28,6 +30,7 @@ import { SuppliersService } from './suppliers.service.js';
   imports: [AuthModule],
   controllers: [
     AdminCategoriesController,
+    AdminLinkBuilderController,
     AdminProductsController,
     AdminProductReviewsController,
     AdminReviewsController,
@@ -42,6 +45,7 @@ import { SuppliersService } from './suppliers.service.js';
   providers: [
     CategoriesService,
     CatalogGraphService,
+    LinkBuilderContextService,
     ProductsService,
     ReviewsService,
     SuppliersService,

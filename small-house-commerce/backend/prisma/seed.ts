@@ -1,5 +1,5 @@
-// Seeds the reference data the RBAC tables need: the six roles, the twelve
-// permission codes, and the role -> permission grants.
+// Seeds the reference data the RBAC tables need: the six roles, permission
+// codes, and the role -> permission grants.
 //
 // Sources:
 //   docs/DATABASE.md §4 (role list), §6 (permission codes)
@@ -18,11 +18,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import {
   PrismaClient,
   HomepageSectionType,
-  PermissionCode,
   RoleCode,
   type PermissionCode as PermissionCodeType,
   type RoleCode as RoleCodeType,
 } from '../src/generated/prisma/client.js';
+import { RBAC_GRANTS, RBAC_PERMISSIONS } from './rbac.js';
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL as string,
@@ -71,22 +71,7 @@ const ROLES: { code: RoleCodeType; name: string; description: string }[] = [
 
 // --- permissions (DATABASE.md §6) -------------------------------------------
 
-const PERMISSIONS: { code: PermissionCodeType; description: string }[] = [
-  { code: PermissionCode.ORDER_VIEW_ALL, description: 'View every order regardless of optimizer.' },
-  { code: PermissionCode.ORDER_VIEW_OWN, description: 'View only orders attributed to the current optimizer.' },
-  { code: PermissionCode.ORDER_CONFIRM, description: 'Confirm a COD order.' },
-  { code: PermissionCode.ORDER_CANCEL, description: 'Cancel an order, including risky ones.' },
-  { code: PermissionCode.ORDER_CHANGE_AID, description: 'Change the AID attribution of an order.' },
-  { code: PermissionCode.CUSTOMER_RISK_VIEW, description: 'View customer risk events and history.' },
-  { code: PermissionCode.CUSTOMER_RISK_EDIT, description: 'Create or edit customer risk events.' },
-  { code: PermissionCode.INVENTORY_VIEW, description: 'View stock levels.' },
-  { code: PermissionCode.INVENTORY_ADJUST, description: 'Manually adjust stock.' },
-  { code: PermissionCode.SHIPMENT_CREATE, description: 'Create shipments and update shipment status.' },
-  { code: PermissionCode.REPORT_PROFIT_VIEW, description: 'View company profit and profit reports.' },
-  { code: PermissionCode.SYSTEM_SETTINGS_EDIT, description: 'Edit system and security configuration.' },
-  { code: PermissionCode.PRODUCT_MANAGE, description: 'Manage products, variants, SKUs, categories and suppliers.' },
-  { code: PermissionCode.CUSTOMER_MANAGE, description: 'Manage customer profiles and addresses.' },
-];
+const PERMISSIONS = RBAC_PERMISSIONS;
 
 // --- grants (ADMIN_SPEC.md §4) ----------------------------------------------
 //
@@ -97,54 +82,7 @@ const PERMISSIONS: { code: PermissionCodeType; description: string }[] = [
 // WAREHOUSE    Fulfillment; denied attribution changes and profit
 // FINANCE      Read-only analytics; no operational writes
 
-const ALL_PERMISSIONS: PermissionCodeType[] = PERMISSIONS.map((p) => p.code);
-
-const GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
-  [RoleCode.SUPER_ADMIN]: ALL_PERMISSIONS,
-
-  [RoleCode.ADMIN]: [
-    PermissionCode.ORDER_VIEW_ALL,
-    PermissionCode.ORDER_CONFIRM,
-    PermissionCode.ORDER_CANCEL,
-    PermissionCode.ORDER_CHANGE_AID,
-    PermissionCode.CUSTOMER_RISK_VIEW,
-    PermissionCode.CUSTOMER_RISK_EDIT,
-    PermissionCode.INVENTORY_VIEW,
-    PermissionCode.INVENTORY_ADJUST,
-    PermissionCode.SHIPMENT_CREATE,
-    PermissionCode.REPORT_PROFIT_VIEW,
-    PermissionCode.PRODUCT_MANAGE,
-    PermissionCode.CUSTOMER_MANAGE,
-    // deliberately not SYSTEM_SETTINGS_EDIT
-  ],
-
-  [RoleCode.OPTIMIZER]: [
-    PermissionCode.ORDER_VIEW_OWN,
-    // deliberately not REPORT_PROFIT_VIEW, not ORDER_VIEW_ALL
-  ],
-
-  [RoleCode.CONFIRMOR]: [
-    PermissionCode.ORDER_VIEW_ALL,
-    PermissionCode.ORDER_CONFIRM,
-    PermissionCode.ORDER_CANCEL,
-    PermissionCode.CUSTOMER_RISK_VIEW,
-    PermissionCode.CUSTOMER_RISK_EDIT,
-    // deliberately not INVENTORY_ADJUST, not REPORT_PROFIT_VIEW
-  ],
-
-  [RoleCode.WAREHOUSE]: [
-    PermissionCode.ORDER_VIEW_ALL,
-    PermissionCode.INVENTORY_VIEW,
-    PermissionCode.SHIPMENT_CREATE,
-    // deliberately not ORDER_CHANGE_AID, not REPORT_PROFIT_VIEW, not INVENTORY_ADJUST
-  ],
-
-  [RoleCode.FINANCE]: [
-    PermissionCode.ORDER_VIEW_ALL,
-    PermissionCode.REPORT_PROFIT_VIEW,
-    // deliberately no write permissions
-  ],
-};
+const GRANTS = RBAC_GRANTS;
 
 async function main(): Promise<void> {
   for (const role of ROLES) {
