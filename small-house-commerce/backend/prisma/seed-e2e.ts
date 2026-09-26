@@ -389,8 +389,24 @@ function productSpecs(): ProductSpec[] {
   ];
 }
 
-async function createProduct(
-  ctx: SeedContext,
+/**
+ * Canonical base-scenario slugs that are missing from the database.
+ *
+ * Completeness is decided per slug, never by counting rows that merely look
+ * like fixtures: additive fixtures (notifications, PDP extras) would otherwise
+ * stand in for a base scenario that never got created, and every later
+ * assertion would fail against a product that is not there.
+ */
+export function missingBaseScenarioSlugs(
+  presentSlugs: Iterable<string>,
+): string[] {
+  const present = new Set(presentSlugs);
+  return productSpecs()
+    .map((spec) => spec.slug)
+    .filter((slug) => !present.has(slug));
+}
+
+async function createProduct(  ctx: SeedContext,
   spec: ProductSpec,
   categoryId: string,
   warehouseId: string,
@@ -826,24 +842,38 @@ async function main(): Promise<void> {
     // `next dev` fetch cache (Next 16 dev caches are sticky — a reused dev
     // server would serve the previous generation's ids and the deep-link
     // scenarios would break). Recreate the database for fully fresh data.
-    const existing = await prisma.product.count({
-      where: { slug: { startsWith: 'e2e-' } },
+    //
+    // Completeness is checked against the EXACT canonical slug set, never a
+    // count of everything that looks like a fixture: an additive fixture
+    // (notifications, PDP extras) must not stand in for a missing base
+    // scenario, and only canonical slugs are ever deleted.
+    const requiredSlugs = productSpecs().map((spec) => spec.slug);
+    const present = await prisma.product.findMany({
+      where: { slug: { in: requiredSlugs } },
+      select: { slug: true },
     });
-    if (existing >= productSpecs().length) {
+    const presentSlugs = present.map((row) => row.slug);
+    const missingSlugs = missingBaseScenarioSlugs(presentSlugs);
+    if (missingSlugs.length === 0) {
       await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
       await ensureNotificationFixtures(ctx, categoryId);
       console.log(
-        `seed-e2e: ${existing} base scenario products already present — refreshed additive PDP UX fixtures.`,
+        `seed-e2e: all ${requiredSlugs.length} base scenario products present — refreshed additive PDP UX fixtures.`,
       );
       console.log('seed-e2e: done.');
       return;
     }
-    if (existing > 0) {
-      // Partial leftovers from an interrupted seed: recreate them. If real
-      // orders already reference the SKUs the delete is FK-restricted —
-      // recreate the database instead of force-wiping.
+    if (presentSlugs.length > 0) {
+      // Partial leftovers from an interrupted seed: recreate the canonical
+      // scenarios. If real orders already reference the SKUs the delete is
+      // FK-restricted — recreate the database instead of force-wiping.
+      console.log(
+        `seed-e2e: missing base scenarios (${missingSlugs.join(', ')}) — recreating the canonical products.`,
+      );
       try {
-        await prisma.product.deleteMany({ where: { slug: { startsWith: 'e2e-' } } });
+        await prisma.product.deleteMany({
+          where: { slug: { in: requiredSlugs } },
+        });
       } catch {
         console.error(
           'seed-e2e: previous E2E products are referenced (orders/carts) — recreate the test database instead.',

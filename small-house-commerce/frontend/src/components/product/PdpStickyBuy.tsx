@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type ReactNode,
   type RefObject,
@@ -40,6 +41,7 @@ export function PdpStickyBuy({
   onIntent,
 }: PdpStickyBuyProps): ReactNode {
   const [visible, setVisible] = useState(false);
+  const barRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const hero = heroRef.current;
@@ -52,19 +54,27 @@ export function PdpStickyBuy({
     return () => observer.disconnect();
   }, [heroRef]);
 
+  // The bar is fixed, so the document must reserve exactly its height or the
+  // last of the footer sits underneath it. Measuring (instead of a per-breakpoint
+  // constant) keeps mobile, desktop and safe-area insets correct in one rule.
   useEffect(() => {
-    if (!visible || typeof window.matchMedia !== "function") return;
-    const mobile = window.matchMedia("(max-width: 767px)");
+    if (!visible) return;
+    const bar = barRef.current;
+    if (!bar) return;
     const previous = document.body.style.paddingBottom;
     const apply = () => {
-      document.body.style.paddingBottom = mobile.matches
-        ? "calc(7rem + env(safe-area-inset-bottom))"
-        : previous;
+      document.body.style.paddingBottom = `${Math.ceil(
+        bar.getBoundingClientRect().height,
+      )}px`;
     };
     apply();
-    mobile.addEventListener?.("change", apply);
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
+    observer?.observe(bar);
+    window.addEventListener("resize", apply);
     return () => {
-      mobile.removeEventListener?.("change", apply);
+      observer?.disconnect();
+      window.removeEventListener("resize", apply);
       document.body.style.paddingBottom = previous;
     };
   }, [visible]);
@@ -82,6 +92,7 @@ export function PdpStickyBuy({
 
   return (
     <aside
+      ref={barRef}
       data-testid="sticky-buy"
       aria-label="Sticky purchase controls"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(0,0,0,0.08)] backdrop-blur motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-reduce:transition-none sm:px-4 md:py-3"

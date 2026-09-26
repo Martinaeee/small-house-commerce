@@ -167,7 +167,7 @@ function bell(page: Page, totalCount: number) {
   return page.getByRole("button", {
     name:
       totalCount > 0
-        ? `通知，${totalCount} 项待处理`
+        ? `通知，${totalCount} 个待处理问题`
         : "通知",
   });
 }
@@ -318,7 +318,9 @@ test.describe.serial("Admin Notifications V1 real stack", () => {
     await expect(
       page.getByRole("heading", { name: "通知中心", level: 1 }),
     ).toBeVisible();
-    await expect(page.getByText(`当前有 ${current.totalCount} 项需要处理`)).toBeVisible();
+    await expect(
+      page.getByText(`当前有 ${current.totalCount} 个待处理问题`),
+    ).toBeVisible();
     const workspace = page.getByRole("region", { name: "当前通知" });
     await expect(workspace.getByRole("link")).toHaveCount(6);
     for (const item of current.items) {
@@ -355,6 +357,10 @@ test.describe.serial("Admin Notifications V1 real stack", () => {
       await expect(page.getByRole("status")).toContainText(
         "目前没有需要处理的通知",
       );
+      // No dead-end link: this account cannot mount the full workspace.
+      await expect(
+        page.getByRole("link", { name: "查看全部通知" }),
+      ).toHaveCount(0);
 
       await expect(
         page.getByText("No modules available for your account."),

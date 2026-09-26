@@ -6,7 +6,12 @@ import { useAdminI18n } from "@/lib/admin-i18n";
 import { AdminNotificationList } from "./AdminNotificationList";
 import { useAdminNotifications } from "./useAdminNotifications";
 
-export function AdminNotifications() {
+export function AdminNotifications({
+  canViewAll,
+}: {
+  /** Same permission the /admin/notifications route itself requires. */
+  canViewAll: boolean;
+}) {
   const { t } = useAdminI18n();
   const { status, response, retry, refresh } = useAdminNotifications();
   const [open, setOpen] = useState(false);
@@ -135,15 +140,20 @@ export function AdminNotifications() {
             ) : null}
           </div>
 
-          <div className="border-t border-border p-2">
-            <Link
-              href="/admin/notifications"
-              onClick={() => setOpen(false)}
-              className="flex h-9 items-center justify-center rounded-lg text-xs font-semibold text-cta hover:bg-admin-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              {t("admin_notifications_view_all")}
-            </Link>
-          </div>
+          {/* The full page needs its own permission; without it the link would
+              land on the shell's "no modules" boundary. The panel itself is
+              fine to show — it already lists only permitted categories. */}
+          {canViewAll ? (
+            <div className="border-t border-border p-2">
+              <Link
+                href="/admin/notifications"
+                onClick={() => setOpen(false)}
+                className="flex h-9 items-center justify-center rounded-lg text-xs font-semibold text-cta hover:bg-admin-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {t("admin_notifications_view_all")}
+              </Link>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -231,6 +231,21 @@ describe("AdminGlobalSearch", () => {
     expect(screen.queryByRole("dialog", { name: "全局搜索" })).not.toBeInTheDocument();
   });
 
+  it("exposes the search input as a named form field", async () => {
+    const user = setupUser();
+    renderSearch();
+
+    await user.keyboard("{Control>}k{/Control}");
+
+    const input = screen.getByRole("combobox", {
+      name: "搜索商品、订单、客户和物流",
+    });
+    // Password managers and form tooling need a stable id/name pair.
+    expect(input).toHaveAttribute("id");
+    expect(input.getAttribute("id")).not.toBe("");
+    expect(input).toHaveAttribute("name", "admin-search");
+  });
+
   it("supports Meta+K and ignores bare k", async () => {
     const user = setupUser();
     renderSearch();

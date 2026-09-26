@@ -1,6 +1,7 @@
 // src/components/product/ProductSpecs.tsx
 import type { ReactNode } from "react";
 import { DimensionRows, type SpecDimensions } from "./SizeGuide";
+import { pdpSpecsVisible } from "./pdp-facts";
 
 /** Narrow spec source so the admin live preview can pass a plain object. */
 export interface ProductSpecSource extends SpecDimensions {
@@ -40,12 +41,9 @@ export function ProductSpecs({
   const features = includeFeatures ? featureLines(product.features) : [];
   const dimensions = hasDimensions(product);
 
-  if (
-    materials === "" &&
-    features.length === 0 &&
-    !dimensions &&
-    productWeight === null
-  ) {
+  // The PDP passes includeFeatures={false}, so this is exactly the predicate
+  // the sticky nav uses — one rule, no drift between link and anchor.
+  if (!pdpSpecsVisible(product, productWeight) && features.length === 0) {
     return null;
   }
 

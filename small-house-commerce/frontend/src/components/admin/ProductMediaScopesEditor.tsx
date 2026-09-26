@@ -496,6 +496,11 @@ export function ProductMediaScopesEditor({
             );
           })}
         </div>
+        {activeDriver === undefined ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+            {t("product_media_driver_shared_note")}
+          </p>
+        ) : null}
       </section>
 
       <section>

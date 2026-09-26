@@ -100,7 +100,9 @@ describe("AdminNotificationsPage", () => {
     setHookState("ready", populated);
     render(pageTree());
 
-    expect(screen.getByText("21 items require attention")).toBeVisible();
+    expect(
+      screen.getByText("21 active issues require attention"),
+    ).toBeVisible();
     const workspace = screen.getByRole("region", {
       name: "Current notifications",
     });
@@ -153,7 +155,7 @@ describe("AdminNotificationsPage", () => {
     expect(
       screen.getByRole("heading", { name: "通知中心", level: 1 }),
     ).toBeVisible();
-    expect(screen.getByText("当前有 21 项需要处理")).toBeVisible();
+    expect(screen.getByText("当前有 21 个待处理问题")).toBeVisible();
     expect(screen.getByText("订单需要复核")).toBeVisible();
   });
 });

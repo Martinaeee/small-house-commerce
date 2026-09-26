@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { E2E_ROLE_ACCOUNTS, testDatabaseGuard } from './seed-e2e.js';
+import {
+  E2E_ROLE_ACCOUNTS,
+  missingBaseScenarioSlugs,
+  testDatabaseGuard,
+} from './seed-e2e.js';
 
 /**
  * Task 20: the E2E seed refuses to touch anything that does not look like a
@@ -70,5 +74,44 @@ describe('seed-e2e test database guard', () => {
     expect(testDatabaseGuard(undefined).ok).toBe(false);
     expect(testDatabaseGuard('').ok).toBe(false);
     expect(testDatabaseGuard('not-a-postgres-url').ok).toBe(false);
+  });
+});
+
+describe('seed-e2e base scenario completeness', () => {
+  const canonical = [
+    'e2e-legacy-style',
+    'e2e-color-only',
+    'e2e-size-only',
+    'e2e-color-size',
+    'e2e-exact-override',
+  ];
+
+  it('treats a full canonical set as complete', () => {
+    expect(missingBaseScenarioSlugs(canonical)).toEqual([]);
+  });
+
+  it('names the missing base scenario instead of counting fixtures', () => {
+    const withAdditiveFixturesOnly = [
+      ...canonical.filter((slug) => slug !== 'e2e-size-only'),
+      // Additive fixtures must not stand in for the missing base scenario.
+      'e2e-notification-no-price',
+      'e2e-notification-stale-draft',
+      'e2e-related-oos',
+      'e2e-lp-color-size',
+    ];
+
+    expect(missingBaseScenarioSlugs(withAdditiveFixturesOnly)).toEqual([
+      'e2e-size-only',
+    ]);
+  });
+
+  it('reports every canonical slug when nothing has been seeded', () => {
+    expect(missingBaseScenarioSlugs([])).toEqual(canonical);
+  });
+
+  it('ignores unrelated catalogue slugs', () => {
+    expect(missingBaseScenarioSlugs([...canonical, 'stainless-rack'])).toEqual(
+      [],
+    );
   });
 });

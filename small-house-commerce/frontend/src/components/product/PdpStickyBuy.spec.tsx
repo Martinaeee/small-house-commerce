@@ -157,6 +157,38 @@ describe("PdpStickyBuy", () => {
     expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
   });
 
+  it("reserves the bar's measured height on the document at every width", () => {
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+    observer.leave();
+
+    const bar = screen.getByTestId("sticky-buy");
+    const rect = {
+      height: 72,
+      width: 1440,
+      top: 828,
+      left: 0,
+      right: 1440,
+      bottom: 900,
+      x: 0,
+      y: 828,
+      toJSON: () => ({}),
+    } as DOMRect;
+    vi.spyOn(bar, "getBoundingClientRect").mockReturnValue(rect);
+
+    // Desktop widths used to be excluded, which left the footer underneath.
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1440,
+    });
+    window.dispatchEvent(new Event("resize"));
+
+    expect(document.body.style.paddingBottom).toBe("72px");
+
+    observer.enter();
+    expect(document.body.style.paddingBottom).toBe("");
+  });
+
   it("uses the currently resolved gallery image instead of the product's initial cover", () => {
     const observer = installIntersectionObserver();
     const scopedCover: ProductImage = {

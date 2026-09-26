@@ -243,6 +243,34 @@ describe("ProductMediaScopesEditor", () => {
     expect(next.variants).toEqual(initial.variants);
   });
 
+  it("explains that shared-only still leaves exact overrides in charge", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={draft({
+          options: [
+            optionDraft({ id: "option-color", name: "Color", isMediaDriver: false }),
+          ],
+        })}
+      />,
+    );
+
+    // Shared only is the active driver: the note must not claim every variant
+    // uses the shared gallery, because exact overrides still win.
+    expect(
+      screen.getByText(
+        "No option-value switching. Variants without exact overrides use the shared gallery.",
+      ),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Color" }));
+    expect(
+      screen.queryByText(
+        "No option-value switching. Variants without exact overrides use the shared gallery.",
+      ),
+    ).toBeNull();
+  });
+
   it("offers no value scopes until an active gallery-switching option is selected", () => {
     render(
       <Harness
@@ -342,7 +370,7 @@ describe("ProductMediaScopesEditor", () => {
     expect(greenSummary).toHaveTextContent("Rows 1");
     expect(greenSummary).toHaveTextContent("Usable 0");
     expect(greenSummary).toHaveTextContent(
-      "No usable media; matching variants use the shared gallery",
+      "No usable media; variants without an exact override use the shared gallery",
     );
 
     const graySummary = screen.getByLabelText("Color / Gray media summary");

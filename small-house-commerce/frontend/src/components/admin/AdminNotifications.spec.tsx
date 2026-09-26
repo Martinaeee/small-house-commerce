@@ -64,11 +64,11 @@ function setHookState(
   };
 }
 
-function renderNotifications() {
+function renderNotifications({ canViewAll = true }: { canViewAll?: boolean } = {}) {
   return render(
     <AdminI18nProvider>
       <div>
-        <AdminNotifications />
+        <AdminNotifications canViewAll={canViewAll} />
         <button type="button">Outside</button>
       </div>
     </AdminI18nProvider>,
@@ -108,7 +108,7 @@ describe("AdminNotifications", () => {
     renderNotifications();
 
     const trigger = screen.getByRole("button", {
-      name: "通知，128 项待处理",
+      name: "通知，128 个待处理问题",
     });
     const badge = within(trigger).getByText("99+");
     expect(badge).toHaveAttribute("aria-hidden", "true");
@@ -151,7 +151,7 @@ describe("AdminNotifications", () => {
     view.rerender(
       <AdminI18nProvider>
         <div>
-          <AdminNotifications />
+          <AdminNotifications canViewAll />
           <button type="button">Outside</button>
         </div>
       </AdminI18nProvider>,
@@ -166,7 +166,7 @@ describe("AdminNotifications", () => {
     setHookState("ready", populated);
     renderNotifications();
     const trigger = screen.getByRole("button", {
-      name: "通知，128 项待处理",
+      name: "通知，128 个待处理问题",
     });
 
     await user.click(trigger);
@@ -187,7 +187,7 @@ describe("AdminNotifications", () => {
 
     act(() => setAdminLang("en"));
     const trigger = screen.getByRole("button", {
-      name: "Notifications, 128 items require attention",
+      name: "Notifications, 128 active issues require attention",
     });
     await user.click(trigger);
 
@@ -195,5 +195,53 @@ describe("AdminNotifications", () => {
     expect(panel).toHaveTextContent("Orders need review");
     expect(panel).toHaveTextContent("Orders await confirmation");
     expect(within(panel).getByRole("link", { name: "View all notifications" })).toBeVisible();
+  });
+
+  it("hides View all when the account cannot open the notifications page", async () => {
+    const user = userEvent.setup();
+    setHookState("ready", populated);
+    renderNotifications({ canViewAll: false });
+
+    await user.click(
+      screen.getByRole("button", { name: "通知，128 个待处理问题" }),
+    );
+
+    const panel = screen.getByRole("dialog", { name: "通知中心" });
+    // The panel itself still works — only the dead-end link is gone.
+    expect(within(panel).getByText("订单需要复核")).toBeVisible();
+    expect(
+      within(panel).queryByRole("link", { name: "查看全部通知" }),
+    ).toBeNull();
+  });
+
+  it("shows View all pointing at the guarded page when the account qualifies", async () => {
+    const user = userEvent.setup();
+    setHookState("ready", populated);
+    renderNotifications({ canViewAll: true });
+
+    await user.click(
+      screen.getByRole("button", { name: "通知，128 个待处理问题" }),
+    );
+
+    expect(
+      within(screen.getByRole("dialog", { name: "通知中心" })).getByRole(
+        "link",
+        { name: "查看全部通知" },
+      ),
+    ).toHaveAttribute("href", "/admin/notifications");
+  });
+
+  it("counts active issues rather than unique entities", async () => {
+    const user = userEvent.setup();
+    setHookState("ready", populated);
+    renderNotifications();
+
+    await user.click(
+      screen.getByRole("button", { name: "通知，128 个待处理问题" }),
+    );
+
+    const panel = screen.getByRole("dialog", { name: "通知中心" });
+    expect(panel).toHaveTextContent("2 个待处理问题");
+    expect(panel).not.toHaveTextContent("2 项");
   });
 });

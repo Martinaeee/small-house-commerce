@@ -37,8 +37,7 @@ export function pdpDimensionSummary(
   };
 }
 
-/** One selling-point pill under the tagline. */
-export interface PdpSellingPoint {
+/** One selling-point pill under the tagline. */export interface PdpSellingPoint {
   value: Solution;
   label: string;
 }
@@ -67,4 +66,39 @@ export function pdpSolutionBadges(
 ): PdpSellingPoint[] {
   const tagged = new Set(product.solutions);
   return SOLUTION_BADGES.filter((badge) => tagged.has(badge.value));
+}
+
+export type PdpSpecSource = Pick<
+  Product,
+  | "materials"
+  | "width"
+  | "height"
+  | "depth"
+  | "foldedWidth"
+  | "foldedHeight"
+  | "foldedDepth"
+>;
+
+/**
+ * Whether the Specifications section renders — the ONE rule behind both the
+ * section itself and its sticky-nav link. `productWeight` belongs to the
+ * currently displayed variant, so the answer changes with the selection; the
+ * nav reads it from the same purchase state rather than scanning every
+ * variant (which used to leave a link pointing at a section that never
+ * rendered).
+ */
+export function pdpSpecsVisible(
+  product: PdpSpecSource,
+  productWeight: number | null,
+): boolean {
+  return (
+    Boolean(product.materials?.trim()) ||
+    product.width !== null ||
+    product.height !== null ||
+    product.depth !== null ||
+    product.foldedWidth !== null ||
+    product.foldedHeight !== null ||
+    product.foldedDepth !== null ||
+    productWeight !== null
+  );
 }

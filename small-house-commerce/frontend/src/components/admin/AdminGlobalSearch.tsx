@@ -49,6 +49,7 @@ export function AdminGlobalSearch({
   const { t } = useAdminI18n();
   const router = useRouter();
   const resultsId = useId();
+  const inputId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -258,6 +259,8 @@ export function AdminGlobalSearch({
             </svg>
             <input
               ref={inputRef}
+              id={inputId}
+              name="admin-search"
               type="search"
               role="combobox"
               aria-label={t("admin_search_input")}

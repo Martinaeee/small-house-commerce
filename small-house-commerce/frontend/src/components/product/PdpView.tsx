@@ -2,7 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpDetails } from "./PdpDetails";
-import { PdpSectionNav } from "./PdpSectionNav";
+import { PdpSectionNavGate } from "./PdpSectionNavGate";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
@@ -46,17 +46,6 @@ export async function PdpView({
     Boolean(product.description?.trim()) ||
     Boolean(product.features?.trim()) ||
     detailBlocks.some((block) => block.url.trim() !== "");
-  const hasSpecifications =
-    Boolean(product.materials?.trim()) ||
-    product.width !== null ||
-    product.height !== null ||
-    product.depth !== null ||
-    product.foldedWidth !== null ||
-    product.foldedHeight !== null ||
-    product.foldedDepth !== null ||
-    product.variants.some(
-      (variant) => variant.sku?.productWeight != null,
-    );
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <script
@@ -80,10 +69,7 @@ export async function PdpView({
             promoSlot={promoSlot}
           />
 
-          <PdpSectionNav
-            hasDetails={hasDetails}
-            hasSpecifications={hasSpecifications}
-          />
+          <PdpSectionNavGate product={product} hasDetails={hasDetails} />
 
           <section className="mt-12 flex flex-col gap-8 lg:mt-8">
             <PdpDetails

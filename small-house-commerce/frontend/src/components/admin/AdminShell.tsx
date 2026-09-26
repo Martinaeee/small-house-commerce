@@ -203,6 +203,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
+  // One source of truth for the notifications page: the route guard below and
+  // the Bell's "View all" affordance must agree, or the link dead-ends.
+  const canViewNotificationsPage =
+    hasPermission("ORDER_CONFIRM") || hasPermission("PRODUCT_MANAGE");
   const isHiddenRoute =
     pathname === "/admin/search" ||
     pathname === "/admin/notifications" ||
@@ -210,8 +214,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const canRenderHiddenRoute =
     (pathname === "/admin/search" &&
       SEARCH_PERMISSIONS.some((permission) => hasPermission(permission))) ||
-    (pathname === "/admin/notifications" &&
-      (hasPermission("ORDER_CONFIRM") || hasPermission("PRODUCT_MANAGE"))) ||
+    (pathname === "/admin/notifications" && canViewNotificationsPage) ||
     (pathname.startsWith("/admin/customers/") &&
       hasPermission("CUSTOMER_MANAGE"));
   const hiddenRouteDenied = isHiddenRoute && !canRenderHiddenRoute;
@@ -255,7 +258,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
             admin={admin}
             onLogout={onLogout}
             searchControl={<AdminGlobalSearch permissions={admin.permissions} />}
-            notificationControl={<AdminNotifications />}
+            notificationControl={
+              <AdminNotifications canViewAll={canViewNotificationsPage} />
+            }
             mobileMenuTrigger={
               <button
                 ref={hamburgerRef}
