@@ -3,6 +3,7 @@
 
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { ViewportVideo } from "./ViewportVideo";
 
 interface Props {
   images: ProductImage[];
@@ -54,14 +55,13 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
         className="relative overflow-hidden rounded-lg border border-border bg-card"
       >
         {current.type === "VIDEO" ? (
-          // First frame only; playback lives in the lightbox where the
-          // controls don't fight the surrounding click-to-open button.
-          <video
+          <ViewportVideo
+            key={current.id}
             src={current.url}
-            muted
-            playsInline
-            preload="metadata"
-            className="aspect-square w-full object-cover"
+            mode="TEASER"
+            ariaLabel={current.altText ?? "Product video"}
+            controls={false}
+            className="pointer-events-none aspect-square w-full object-cover"
           />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
@@ -87,16 +87,9 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
               }`}
             >
               {image.type === "VIDEO" ? (
-                <>
-                  <video
-                    src={image.url}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    className="h-full w-full object-cover"
-                  />
+                <span className="absolute inset-0 bg-black">
                   <PlayBadge />
-                </>
+                </span>
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={image.url} alt="" className="h-full w-full object-cover" />

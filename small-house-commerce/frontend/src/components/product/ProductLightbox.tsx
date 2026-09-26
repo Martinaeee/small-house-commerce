@@ -3,7 +3,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProductImage } from "@/lib/api";
+import { suspendViewportPlayback } from "@/lib/viewport-video-coordinator";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { ViewportVideo } from "./ViewportVideo";
 
 interface Props {
   images: ProductImage[];
@@ -46,6 +48,8 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
   // Starts at the opened index; scroll updates it (desktop counter is the
   // staged index and stays a prop, not this).
   const [visibleIndex, setVisibleIndex] = useState(index);
+
+  useEffect(() => suspendViewportPlayback(), []);
 
   // Render-time adjustment, same pattern as PdpClient's variant sync: when
   // the staged index moves in split mode, mark the stage as fading so the
@@ -199,12 +203,11 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
             )}
             {current.url ? (
               current.type === "VIDEO" ? (
-                <video
+                <ViewportVideo
                   key={current.id}
                   src={current.url}
-                  controls
-                  playsInline
-                  preload="metadata"
+                  mode="LIGHTBOX"
+                  ariaLabel={current.altText ?? "Product video"}
                   className="max-h-full max-w-full rounded-md"
                 />
               ) : (
@@ -240,12 +243,18 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                     i === index ? "border-cta" : "border-transparent hover:border-primary"
                   }`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={image.url}
-                    alt=""
-                    className="aspect-square w-full object-cover"
-                  />
+                  {image.type === "VIDEO" ? (
+                    <span className="flex aspect-square w-full items-center justify-center bg-black text-3xl text-white" aria-hidden>
+                      ▶
+                    </span>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={image.url}
+                      alt=""
+                      className="aspect-square w-full object-cover"
+                    />
+                  )}
                 </button>
               ))}
             </div>
@@ -268,11 +277,10 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
               >
                 {image.url ? (
                   image.type === "VIDEO" ? (
-                    <video
+                    <ViewportVideo
                       src={image.url}
-                      controls
-                      playsInline
-                      preload="metadata"
+                      mode="LIGHTBOX"
+                      ariaLabel={image.altText ?? `Product video ${i + 1}`}
                       className="block h-auto w-full bg-black"
                     />
                   ) : (
