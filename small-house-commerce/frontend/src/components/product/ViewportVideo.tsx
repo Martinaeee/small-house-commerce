@@ -140,6 +140,7 @@ export function ViewportVideo({
       aria-label={ariaLabel}
       className={className}
       data-video-mode={mode}
+      data-video-source={src}
     />
   );
 }

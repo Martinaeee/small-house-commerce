@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
+import { ViewportVideo } from "./ViewportVideo";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
 
@@ -12,16 +13,12 @@ function DetailMedia({
 }): ReactNode {
   if (block.type === "VIDEO") {
     return (
-      <video
+      <ViewportVideo
+        src={block.url}
+        mode="CONTENT"
+        ariaLabel={block.altText ?? "Product detail video"}
         className="w-full rounded-lg border border-border bg-black"
-        controls
-        playsInline
-        preload="metadata"
-        aria-label={block.altText ?? "Product detail video"}
-      >
-        <source src={block.url} />
-        {block.altText ?? "Product video"}
-      </video>
+      />
     );
   }
 

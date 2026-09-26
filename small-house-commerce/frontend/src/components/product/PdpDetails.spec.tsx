@@ -144,7 +144,11 @@ function contentOrder(container: HTMLElement): string[] {
     (node) => {
       if (node instanceof HTMLImageElement) return node.getAttribute("src") ?? "";
       if (node instanceof HTMLVideoElement) {
-        return node.querySelector("source")?.getAttribute("src") ?? "";
+        return (
+          node.dataset.videoSource ??
+          node.querySelector("source")?.getAttribute("src") ??
+          ""
+        );
       }
       return node.textContent?.trim() ?? "";
     },
@@ -180,13 +184,26 @@ describe("PdpDetails", () => {
       expect(target).toHaveClass("scroll-mt-28");
     }
 
-    for (const url of ["featured.jpg", "remaining-1.jpg", "remaining-2.mp4"]) {
+    for (const url of ["featured.jpg", "remaining-1.jpg"]) {
       expect(container.querySelectorAll(`[src="${url}"]`)).toHaveLength(1);
     }
+    expect(
+      container.querySelectorAll('[data-video-source="remaining-2.mp4"]'),
+    ).toHaveLength(1);
     expect(screen.queryByAltText("Must not render")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Must not render either"),
     ).not.toBeInTheDocument();
+    const detailVideo = screen.getByLabelText(
+      "Folding demonstration",
+    ) as HTMLVideoElement;
+    expect(detailVideo).toHaveAttribute("data-video-mode", "CONTENT");
+    expect(detailVideo).toHaveAttribute("data-video-source", "remaining-2.mp4");
+    expect(detailVideo).not.toHaveAttribute("src");
+    expect(detailVideo.querySelector("source")).toBeNull();
+    expect(detailVideo).toHaveAttribute("controls");
+    expect(detailVideo).toHaveProperty("muted", true);
+    expect(detailVideo).toHaveAttribute("playsinline");
     expect(screen.getAllByText("Folds flat")).toHaveLength(1);
     expect(screen.getAllByText("Locking frame")).toHaveLength(1);
   });
