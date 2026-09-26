@@ -43,21 +43,30 @@ const product = {
 interface ObserverHarness {
   enter(): void;
   leave(): void;
+  enterCod(): void;
+  leaveCod(): void;
   observe: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
 }
 
 function installIntersectionObserver(): ObserverHarness {
-  let callback: IntersectionObserverCallback | null = null;
+  const observed: Element[] = [];
+  const callbacks = new Map<Element, IntersectionObserverCallback>();
   const observe = vi.fn();
   const disconnect = vi.fn();
 
   class MockIntersectionObserver {
+    callback: IntersectionObserverCallback;
+
     constructor(next: IntersectionObserverCallback) {
-      callback = next;
+      this.callback = next;
     }
 
-    observe = observe;
+    observe = (target: Element) => {
+      observe(target);
+      observed.push(target);
+      callbacks.set(target, this.callback);
+    };
     unobserve = vi.fn();
     disconnect = disconnect;
     takeRecords = vi.fn(() => []);
@@ -68,10 +77,12 @@ function installIntersectionObserver(): ObserverHarness {
 
   vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
 
-  const notify = (isIntersecting: boolean) => {
-    if (!callback) throw new Error("Observer was not created");
+  const notify = (target: Element | undefined, isIntersecting: boolean) => {
+    if (!target) throw new Error("Observer target was not registered");
+    const callback = callbacks.get(target);
+    if (!callback) throw new Error("Observer was not created for the target");
     act(() => {
-      callback?.(
+      callback(
         [
           {
             isIntersecting,
@@ -83,9 +94,16 @@ function installIntersectionObserver(): ObserverHarness {
     });
   };
 
+  const heroTarget = (): Element | undefined =>
+    observed.find((element) => element.id !== "quick-cod-order");
+  const codTarget = (): Element | undefined =>
+    observed.find((element) => element.id === "quick-cod-order");
+
   return {
-    enter: () => notify(true),
-    leave: () => notify(false),
+    enter: () => notify(heroTarget(), true),
+    leave: () => notify(heroTarget(), false),
+    enterCod: () => notify(codTarget(), true),
+    leaveCod: () => notify(codTarget(), false),
     observe,
     disconnect,
   };
@@ -155,6 +173,27 @@ describe("PdpStickyBuy", () => {
 
     observer.enter();
     expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+  });
+
+  it("yields while the inline COD section is in view and returns after it leaves", () => {
+    const observer = installIntersectionObserver();
+    render(
+      <>
+        <Harness />
+        <section id="quick-cod-order">COD</section>
+      </>,
+    );
+
+    observer.leave();
+    expect(screen.getByTestId("sticky-buy")).toBeVisible();
+
+    // The COD card carries its own selection + submit, so the fixed bar must
+    // not stack a second purchase UI over it.
+    observer.enterCod();
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+
+    observer.leaveCod();
+    expect(screen.getByTestId("sticky-buy")).toBeVisible();
   });
 
   it("reserves the bar's measured height on the document at every width", () => {

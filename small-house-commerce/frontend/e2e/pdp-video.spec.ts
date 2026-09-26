@@ -85,8 +85,10 @@ async function selectValue(
   optionName: string,
   valueLabel: string,
 ): Promise<void> {
+  // The PDP renders the shared selector twice (hero + the inline COD card),
+  // so option lookups are scoped to the hero.
   const value = page
-    .getByRole("main")
+    .locator("#pdp-purchase")
     .getByRole("group", { name: optionName, exact: true })
     .getByRole("button", { name: valueLabel, exact: true });
   await expect(async () => {

@@ -20,6 +20,14 @@ import { ProductOptionSelector } from "@/components/product/ProductOptionSelecto
 
 interface QuickAddViewProps {
   product: Product;
+  /**
+   * Variant the picker starts on. The PDP passes its current selection so the
+   * drawer opens on the chosen combination; the PLP and cart quick-add leave
+   * it null (nothing is chosen yet — never "the first SKU").
+   */
+  initialVariantId?: string | null;
+  /** Quantity the picker starts on; the PDP hands over its current quantity. */
+  initialQuantity?: number | null;
   /** Called exactly once after a successful add; the drawer swaps to cart. */
   onAdded: () => void;
   /** Close the whole drawer (product link). */
@@ -36,9 +44,19 @@ interface QuickAddViewProps {
  * no positional variant→image mapping exists here. The Confirm click is the
  * explicit purchase confirmation; only a successful add fires AddToCart.
  */
-export function QuickAddView({ product, onAdded, onClose }: QuickAddViewProps) {
+export function QuickAddView({
+  product,
+  initialVariantId = null,
+  initialQuantity = null,
+  onAdded,
+  onClose,
+}: QuickAddViewProps) {
   return (
-    <PdpPurchaseProvider product={product} initialVariantId={null}>
+    <PdpPurchaseProvider
+      product={product}
+      initialVariantId={initialVariantId}
+      initialQuantity={initialQuantity ?? 1}
+    >
       <QuickAddPicker product={product} onAdded={onAdded} onClose={onClose} />
     </PdpPurchaseProvider>
   );

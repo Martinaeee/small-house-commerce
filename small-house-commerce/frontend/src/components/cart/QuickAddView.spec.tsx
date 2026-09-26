@@ -212,6 +212,42 @@ describe("QuickAddView", () => {
     expect(cart.addItem).not.toHaveBeenCalled();
   });
 
+  it("opens pre-set to the variant and quantity the PDP handed over and confirms them directly", async () => {
+    const user = userEvent.setup();
+    render(
+      <QuickAddView
+        product={swatchProduct}
+        initialVariantId="blue-large"
+        initialQuantity={2}
+        onAdded={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // The handed-over combination is selected and immediately confirmable —
+    // the shopper never re-picks what they already chose on the PDP, and the
+    // quantity they set there is not reset to 1.
+    expect(screen.getByRole("button", { name: "Blue" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Large" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("picker-qty-chair")).toHaveTextContent("2");
+    const confirm = screen.getByTestId("picker-confirm-chair");
+    expect(confirm).toBeEnabled();
+
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(cart.addItem).toHaveBeenCalledWith(
+        { skuId: "sku-blue-large", quantity: 2 },
+        { openDrawer: false },
+      ),
+    );
+  });
+
   it("shows the effective cover before any selection, not the first legacy image", () => {
     render(
       <QuickAddView

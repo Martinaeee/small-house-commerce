@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { PsgcAddressSelects } from "@/components/checkout/PsgcAddressSelects";
 import { checkoutInputCls as inputCls } from "@/components/checkout/checkoutFieldStyles";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { ProductOptionSelector } from "./ProductOptionSelector";
 
 /**
  * Inline COD order on the PDP (Phase 2).
@@ -231,6 +232,15 @@ export function PdpQuickCodOrder(): ReactNode {
         Pay in cash when it arrives.
       </p>
 
+      {/* The same shared option selector as the hero, so the combination can
+          be chosen right here instead of scrolling back to the top. */}
+      <div id="quick-cod-options" className="mt-5 border-b border-border pb-5">
+        <ProductOptionSelector
+          lineId={primaryLine.clientLineId}
+          instanceId="quick-cod"
+        />
+      </div>
+
       <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Selection summary — the same state the hero is using. */}
         <dl
@@ -258,12 +268,12 @@ export function PdpQuickCodOrder(): ReactNode {
               {needsOptions ? (
                 // Nothing is chosen yet: the page-wide default display variant
                 // is what the gallery shows, not the ordered variant, so the
-                // summary must not claim it. Point at the real selector instead.
+                // summary must not claim it. Point at the selector instead.
                 <a
-                  href="#pdp-purchase"
+                  href="#quick-cod-options"
                   className="text-cta underline-offset-2 hover:underline"
                 >
-                  Choose options above
+                  Choose options
                 </a>
               ) : (
                 (variantLabel ?? "—")
@@ -452,7 +462,7 @@ export function PdpQuickCodOrder(): ReactNode {
               role="status"
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink-secondary"
             >
-              Choose your options above to order this item.
+              Choose your options to order this item.
             </p>
           ) : null}
 

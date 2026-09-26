@@ -39,7 +39,7 @@ const navigation = vi.hoisted(() => {
     },
   };
 });
-const cart = vi.hoisted(() => ({ addItem: vi.fn() }));
+const cart = vi.hoisted(() => ({ addItem: vi.fn(), openPicker: vi.fn() }));
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 
 vi.mock("next/navigation", async () => {
@@ -51,7 +51,7 @@ vi.mock("next/navigation", async () => {
   };
 });
 vi.mock("@/components/cart/CartContext", () => ({
-  useCart: () => ({ addItem: cart.addItem }),
+  useCart: () => ({ addItem: cart.addItem, openPicker: cart.openPicker }),
 }));
 vi.mock("@/components/site/SiteSettingsProvider", () => ({
   useSiteSettings: () => ({
@@ -340,6 +340,7 @@ beforeEach(() => {
   navigation.push.mockReset();
   navigation.replace.mockReset();
   cart.addItem.mockReset().mockResolvedValue(undefined);
+  cart.openPicker.mockReset();
   tracking.track.mockReset();
   tracking.trackCustom.mockReset();
   vi.restoreAllMocks();
@@ -489,7 +490,7 @@ describe("PDP conversion hero", () => {
 });
 
 describe("shared-state sticky buy", () => {
-  it("tracks the current selection and quantity and invokes the existing add path once", async () => {
+  it("tracks the current selection and quantity and hands the add to the drawer picker once", async () => {
     installMediaFetch();
     const observer = installStickyObserver();
     const user = userEvent.setup();
@@ -516,19 +517,23 @@ describe("shared-state sticky buy", () => {
 
     await user.click(screen.getByTestId("sticky-add-to-cart"));
 
-    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
-    expect(cart.addItem).toHaveBeenCalledWith({
-      skuId: "sku-red-small",
-      quantity: 2,
+    // The drawer owns the confirmation: the picker opens pre-set to the
+    // chosen combination AND quantity, and nothing is added until its own
+    // Confirm.
+    expect(cart.openPicker).toHaveBeenCalledTimes(1);
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "red-small",
+      initialQuantity: 2,
     });
+    expect(cart.addItem).not.toHaveBeenCalled();
     expect(
       tracking.track.mock.calls.filter(([name]) => name === "AddToCart"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(
       tracking.trackCustom.mock.calls.filter(
         ([name]) => name === "variant_confirm",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("opens the same confirmation dialog for unresolved sticky Order Now", async () => {
@@ -624,11 +629,13 @@ describe("ProductOptionSelector", () => {
 });
 
 describe("PDP option confirmation and deep links", () => {
-  it("keeps the default variant display-only and labels an ordinary unresolved CTA CHOOSE OPTIONS", () => {
+  it("keeps the CTA labels stable and the default variant display-only", () => {
     renderPdp();
 
     expect(screen.getAllByText("₱100.00")[0]).toBeVisible();
-    expect(screen.getByTestId("add-to-cart")).toHaveTextContent("CHOOSE OPTIONS");
+    // The labels never change with resolution: the pickers are what resolve.
+    expect(screen.getByTestId("add-to-cart")).toHaveTextContent("ADD TO CART");
+    expect(screen.getByTestId("order-now")).toHaveTextContent("ORDER NOW");
     expect(screen.getByRole("button", { name: "Red" })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -636,7 +643,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.addItem).not.toHaveBeenCalled();
   });
 
-  it("shows an exact valid deep-linked variant but requires confirmation before add-to-cart", async () => {
+  it("opens the drawer picker pre-set to the deep-linked variant instead of adding directly", async () => {
     installMediaFetch();
     navigation.search = new URLSearchParams("campaign=spring&variant=blue-large");
     window.history.replaceState(
@@ -655,24 +662,19 @@ describe("PDP option confirmation and deep links", () => {
     trigger.focus();
     await user.click(trigger);
 
-    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
-    expect(dialog).toBeVisible();
+    expect(cart.openPicker).toHaveBeenCalledTimes(1);
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "blue-large",
+      initialQuantity: 1,
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm your options" }),
+    ).not.toBeInTheDocument();
     expect(cart.addItem).not.toHaveBeenCalled();
     expect(tracking.track).not.toHaveBeenCalledWith(
       "AddToCart",
       expect.anything(),
     );
-
-    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
-    await waitFor(() =>
-      expect(cart.addItem).toHaveBeenCalledWith({
-        skuId: "sku-blue-large",
-        quantity: 1,
-      }),
-    );
-    expect(cart.addItem).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument();
-    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("does not navigate for an unconfirmed Order Now and performs it once after confirmation", async () => {
@@ -692,7 +694,29 @@ describe("PDP option confirmation and deep links", () => {
     expect(navigation.push).toHaveBeenCalledTimes(1);
   });
 
-  it("confirms after every group is explicitly touched and invalidates after a later mutation", async () => {
+  it("always opens the Order Now dialog, even for an already-confirmed combination", async () => {
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp();
+
+    // Both groups explicitly touched: the combination is complete and
+    // confirmed, and Order Now still asks before going to checkout.
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await user.click(screen.getByRole("button", { name: "Small" }));
+    await user.click(screen.getByTestId("order-now"));
+
+    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
+    expect(dialog).toBeVisible();
+    expect(navigation.push).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+    expect(navigation.push).toHaveBeenCalledWith(
+      "/checkout?skuId=sku-red-small&qty=1&slug=chair",
+    );
+    expect(navigation.push).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands every add-to-cart to the drawer pre-set to the current combination", async () => {
     installMediaFetch();
     const user = userEvent.setup();
     renderPdp();
@@ -700,28 +724,43 @@ describe("PDP option confirmation and deep links", () => {
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByRole("button", { name: "Small" }));
     await user.click(screen.getByTestId("add-to-cart"));
-    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(cart.openPicker).toHaveBeenLastCalledWith(product, {
+      initialVariantId: "red-small",
+      initialQuantity: 1,
+    });
+    expect(cart.addItem).not.toHaveBeenCalled();
 
+    // A later mutation flows into the next picker opening — the drawer is
+    // never pre-set to a stale combination.
     await user.click(screen.getByRole("button", { name: "Large" }));
     await user.click(screen.getByTestId("add-to-cart"));
-    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeVisible();
-    expect(cart.addItem).toHaveBeenCalledTimes(1);
+    expect(cart.openPicker).toHaveBeenLastCalledWith(product, {
+      initialVariantId: "red-large",
+      initialQuantity: 1,
+    });
+    expect(cart.openPicker).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm your options" }),
+    ).not.toBeInTheDocument();
+    expect(cart.addItem).not.toHaveBeenCalled();
   });
 
-  it("allows confirmed active OOS add-to-cart save behavior but blocks Order Now", async () => {
+  it("routes an out-of-stock combination through the drawer for save-for-later and hides Order Now", async () => {
     const user = userEvent.setup();
     renderPdp();
 
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByRole("button", { name: "Large" }));
     expect(screen.getByTestId("stock-state")).toHaveTextContent("Out of Stock");
+
+    // The drawer picker allows adding an out-of-stock combination (save for
+    // later); the PDP never adds it silently.
     await user.click(screen.getByTestId("add-to-cart"));
-    await waitFor(() =>
-      expect(cart.addItem).toHaveBeenCalledWith({
-        skuId: "sku-red-large",
-        quantity: 1,
-      }),
-    );
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "red-large",
+      initialQuantity: 1,
+    });
+    expect(cart.addItem).not.toHaveBeenCalled();
     expect(screen.queryByTestId("order-now")).not.toBeInTheDocument();
     expect(navigation.push).not.toHaveBeenCalledWith(
       expect.stringContaining("/checkout"),
@@ -729,22 +768,15 @@ describe("PDP option confirmation and deep links", () => {
     );
   });
 
-  it("executes a confirmed pending intent only once even on repeated confirm clicks", async () => {
+  it("executes a confirmed Order Now only once even on repeated confirm clicks", async () => {
     navigation.search = new URLSearchParams("variant=blue-large");
     const user = userEvent.setup();
-    let resolveAdd!: () => void;
-    cart.addItem.mockReturnValue(
-      new Promise<void>((resolve) => {
-        resolveAdd = resolve;
-      }),
-    );
     renderPdp({ variantId: "blue-large" });
 
-    await user.click(screen.getByTestId("add-to-cart"));
+    await user.click(screen.getByTestId("order-now"));
     const confirm = screen.getByRole("button", { name: "Confirm" });
     await user.dblClick(confirm);
-    expect(cart.addItem).toHaveBeenCalledTimes(1);
-    resolveAdd();
+    expect(navigation.push).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument(),
     );
@@ -787,7 +819,7 @@ describe("PDP option confirmation and deep links", () => {
     renderPdp();
 
     await waitFor(() => expect(window.location.search).toBe("?campaign=spring"));
-    expect(screen.getByTestId("add-to-cart")).toHaveTextContent("CHOOSE OPTIONS");
+    expect(screen.getByTestId("add-to-cart")).toHaveTextContent("ADD TO CART");
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 
@@ -819,7 +851,7 @@ describe("PDP option confirmation and deep links", () => {
 
       await waitFor(() => expect(window.location.search).toBe("?campaign=spring"));
       expect(screen.getByTestId("add-to-cart")).toHaveTextContent(
-        "CHOOSE OPTIONS",
+        "ADD TO CART",
       );
       expect(cart.addItem).not.toHaveBeenCalled();
     },
@@ -998,7 +1030,7 @@ describe("browser history navigation", () => {
 
     expect(pushState).not.toHaveBeenCalled();
     expect(screen.getByTestId("add-to-cart")).toHaveTextContent(
-      "CHOOSE OPTIONS",
+      "ADD TO CART",
     );
     expect(screen.getAllByText("₱100.00")[0]).toBeVisible();
 
@@ -1052,11 +1084,13 @@ describe("browser history navigation", () => {
       "ADD TO CART",
     );
 
-    // A URL-restored selection stays unconfirmed, exactly like a deep link.
+    // A URL-restored selection stays unconfirmed; add-to-cart opens the
+    // drawer pre-set to it instead of adding silently.
     await user.click(screen.getByTestId("add-to-cart"));
-    expect(
-      screen.getByRole("dialog", { name: "Confirm your options" }),
-    ).toBeVisible();
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "blue-large",
+      initialQuantity: 1,
+    });
     expect(cart.addItem).not.toHaveBeenCalled();
   });
 
@@ -1109,7 +1143,11 @@ describe("browser history navigation", () => {
       "USER:color:red|size:small",
     );
     await user.click(screen.getByTestId("add-to-cart"));
-    await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "red-small",
+      initialQuantity: 1,
+    });
+    expect(cart.addItem).not.toHaveBeenCalled();
     expect(
       screen.queryByRole("dialog", { name: "Confirm your options" }),
     ).not.toBeInTheDocument();
@@ -1196,16 +1234,29 @@ describe("browser history navigation", () => {
     expect(tracking.trackCustom).toHaveBeenCalledTimes(1);
   });
 
-  it("emits variant_confirm and AddToCart exactly once after a confirmed add", async () => {
-    installMediaFetch();
+  it("emits variant_confirm and AddToCart exactly once after a direct single-variant add", async () => {
+    const single = {
+      ...product,
+      id: "single-product",
+      variants: [product.variants[0]],
+      options: product.options.map((option) => ({
+        ...option,
+        values: option.values.filter((value) =>
+          product.variants[0].optionValueIds.includes(value.id),
+        ),
+      })),
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+    };
     const user = userEvent.setup();
-    renderPdp({ variantId: "blue-large" });
+    renderPdp({ item: single });
 
     await user.click(screen.getByTestId("add-to-cart"));
-    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
-    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
+    expect(cart.addItem).toHaveBeenCalledWith({
+      skuId: "sku-red-small",
+      quantity: 1,
+    });
     expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
       "ViewContent",
       "AddToCart",
@@ -1213,9 +1264,9 @@ describe("browser history navigation", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "AddToCart",
       expect.objectContaining({
-        content_ids: ["sku-blue-large"],
-        contents: [{ id: "sku-blue-large", quantity: 1 }],
-        value: 120,
+        content_ids: ["sku-red-small"],
+        contents: [{ id: "sku-red-small", quantity: 1 }],
+        value: 100,
         currency: "PHP",
       }),
     );
@@ -1225,9 +1276,9 @@ describe("browser history navigation", () => {
     expect(tracking.trackCustom).toHaveBeenCalledWith(
       "variant_confirm",
       expect.objectContaining({
-        product_id: "product-1",
-        variant_id: "blue-large",
-        sku_id: "sku-blue-large",
+        product_id: "single-product",
+        variant_id: "red-small",
+        sku_id: "sku-red-small",
         source: "PDP",
       }),
     );

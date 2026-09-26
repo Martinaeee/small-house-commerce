@@ -174,7 +174,7 @@ export function PdpClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { addItem } = useCart();
+  const { addItem, openPicker } = useCart();
   const { supportEmail, supportHours } = useSiteSettings();
   const {
     primaryLine,
@@ -480,6 +480,24 @@ export function PdpClient({
     (intent: PurchaseIntent, trigger: HTMLElement) => {
       if (purchaseBusy) return;
       intentTriggerRef.current = trigger;
+      // Multi-variant products always route through an explicit picker, even
+      // when a combination is already chosen: ORDER NOW confirms in the
+      // dialog and then goes to checkout; ADD TO CART opens the right-side
+      // drawer picker (the same one the PLP uses), pre-set to the current
+      // selection, so the combination is reviewed before it is added.
+      // Single-variant products have nothing to pick and keep the direct
+      // paths below.
+      if (selectableCount > 1) {
+        if (intent === "ADD_TO_CART") {
+          openPicker(product, {
+            initialVariantId: resolvedVariant?.id ?? null,
+            initialQuantity: primaryLine.quantity,
+          });
+          return;
+        }
+        setPendingIntent(intent);
+        return;
+      }
       if (
         primaryDerived.purchaseConfirmed &&
         resolvedVariant &&
@@ -495,9 +513,13 @@ export function PdpClient({
       purchaseBusy,
       executeAddToCart,
       executeOrderNow,
+      openPicker,
       primaryDerived.purchaseConfirmed,
       primaryDerived.purchasableVariant,
+      primaryLine.quantity,
+      product,
       resolvedVariant,
+      selectableCount,
     ],
   );
 
@@ -550,8 +572,6 @@ export function PdpClient({
   )}`;
   const overlayOpen =
     lightboxIndex !== null || detailsOpen || pendingIntent !== null;
-  const addLabel =
-    selectableCount > 1 && !resolvedVariant ? "CHOOSE OPTIONS" : "ADD TO CART";
   const ratingRow =
     product.reviewCount > 0 && product.ratingAverage !== null ? (
       <a href="#reviews" className="inline-flex items-center gap-2 text-sm text-ink-secondary">
@@ -727,12 +747,11 @@ export function PdpClient({
                 onClick={(event) => requestIntent("ORDER_NOW", event.currentTarget)}
                 disabled={purchaseBusy || selectableCount === 0}
                 // The shared md size pins min-w-[120px]; below sm the stepper
-                // shares the row, so the buttons shrink and the longer
-                // "CHOOSE OPTIONS" label wraps instead of overflowing.
+                // shares the row, so the buttons shrink instead of overflowing.
                 className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
                 data-testid="order-now"
               >
-                {resolvedVariant ? "ORDER NOW" : "CHOOSE OPTIONS"}
+                ORDER NOW
               </Button>
             )}
             <Button
@@ -742,7 +761,7 @@ export function PdpClient({
               className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
               data-testid="add-to-cart"
             >
-              {addLabel}
+              ADD TO CART
             </Button>
           </div>
 

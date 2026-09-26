@@ -364,12 +364,30 @@ async function selectValue(
   optionName: string,
   valueLabel: string,
 ): Promise<void> {
+  // The PDP renders the shared selector twice (hero + the inline COD card),
+  // so option lookups are scoped to the hero.
   const value = page
+    .locator("#pdp-purchase")
     .getByRole("group", { name: optionName, exact: true })
     .getByRole("button", { name: valueLabel, exact: true });
   // Click + verify: a click landing just before React attaches handlers is
   // swallowed silently, which would leave the combination unconfirmed and
   // reroute Order Now through the buy-now confirm interstitial.
+  await expect(async () => {
+    await value.click();
+    await expect(value).toHaveAttribute("aria-pressed", "true");
+  }).toPass({ timeout: 15_000 });
+}
+
+/** The drawer picker (PLP quick add) is the only selector on that page. */
+async function selectDrawerValue(
+  page: Page,
+  optionName: string,
+  valueLabel: string,
+): Promise<void> {
+  const value = page
+    .getByRole("group", { name: optionName, exact: true })
+    .getByRole("button", { name: valueLabel, exact: true });
   await expect(async () => {
     await value.click();
     await expect(value).toHaveAttribute("aria-pressed", "true");
@@ -403,7 +421,9 @@ test.describe("Legacy Style compatibility", () => {
     const stopErrors = trackBrowserErrors(page);
     await gotoPdp(page, SLUGS.legacy);
 
-    const group = page.getByRole("group", { name: "Style", exact: true });
+    const group = page
+      .locator("#pdp-purchase")
+      .getByRole("group", { name: "Style", exact: true });
     await expect(group.getByRole("button", { name: "Walnut", exact: true })).toBeVisible();
     await expect(group.getByRole("button", { name: "Oak", exact: true })).toBeVisible();
 
@@ -422,6 +442,7 @@ test.describe("Legacy Style compatibility", () => {
 
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Style", exact: true })
         .getByRole("button", { name: "Oak", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -435,7 +456,9 @@ test.describe("Legacy Style compatibility", () => {
 
     await expect(page).toHaveURL(new RegExp(`/products/${SLUGS.legacy}$`));
     await expect(
-      page.getByRole("group", { name: "Style", exact: true }),
+      page
+        .locator("#pdp-purchase")
+        .getByRole("group", { name: "Style", exact: true }),
     ).toBeVisible();
     await stopErrors();
   });
@@ -471,6 +494,7 @@ test.describe("Color-only", () => {
     await gotoPdp(page, SLUGS.colorOnly);
 
     const blue = page
+      .locator("#pdp-purchase")
       .getByRole("group", { name: "Color", exact: true })
       .getByRole("button", { name: "Blue", exact: true });
     await blue.focus();
@@ -488,7 +512,13 @@ test.describe("Color-only", () => {
 
     await selectValue(page, "Color", "Blue");
     await page.getByTestId("add-to-cart").click();
-    await expect(page.getByText("Your Cart")).toBeVisible();
+    // The drawer picker opens pre-set to the chosen value; its Confirm adds.
+    const picker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(picker).toBeVisible();
+    await picker.getByTestId(`picker-confirm-${SLUGS.colorOnly}`).click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: /Your Cart/ }),
+    ).toBeVisible();
     await stopErrors();
   });
 
@@ -497,7 +527,11 @@ test.describe("Color-only", () => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await gotoPdp(page, SLUGS.colorOnly);
 
-    await expect(page.getByRole("group", { name: "Color", exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator("#pdp-purchase")
+        .getByRole("group", { name: "Color", exact: true }),
+    ).toBeVisible();
     await expect(page.getByText("1,199").first()).toBeVisible();
     await stopErrors();
   });
@@ -516,7 +550,14 @@ test.describe("Size-only stock behavior", () => {
     await expect(page.getByTestId("oos-contact")).toBeVisible();
 
     await page.getByTestId("add-to-cart").click();
-    await expect(page.getByText("Your Cart")).toBeVisible();
+    // Out-of-stock save-for-later now happens in the drawer picker.
+    const picker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(picker).toBeVisible();
+    await picker.getByTestId(`picker-confirm-${SLUGS.sizeOnly}`).click();
+    // The drawer swaps to the cart view once the add settles.
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: /Your Cart/ }),
+    ).toBeVisible();
     await stopErrors();
   });
 
@@ -526,6 +567,11 @@ test.describe("Size-only stock behavior", () => {
 
     await selectValue(page, "Size", "Medium");
     await page.getByTestId("order-now").click();
+    // Order Now always confirms in the dialog before checkout.
+    await page
+      .getByRole("dialog", { name: "Confirm your options" })
+      .getByRole("button", { name: "Confirm" })
+      .click();
     await expect(page).toHaveURL(/\/checkout/);
     await expect(page.getByTestId("review-order")).toBeVisible();
     await stopErrors();
@@ -547,6 +593,7 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Blue");
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Size", exact: true })
         .getByRole("button", { name: "Small", exact: true }),
     ).toHaveAttribute("title", /out of stock/i);
@@ -563,11 +610,13 @@ test.describe("Color x Size end-to-end purchase", () => {
     await gotoPdp(page, SLUGS.colorSize, `?variant=${redMedium!.id}`);
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Color", exact: true })
         .getByRole("button", { name: "Red", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Size", exact: true })
         .getByRole("button", { name: "Medium", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -579,11 +628,13 @@ test.describe("Color x Size end-to-end purchase", () => {
     await expect(page).toHaveURL(new RegExp(`/products/${SLUGS.colorSize}$`));
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Color", exact: true })
         .getByRole("button", { name: "Red", exact: true }),
     ).toHaveAttribute("aria-pressed", "false");
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Size", exact: true })
         .getByRole("button", { name: "Medium", exact: true }),
     ).toHaveAttribute("aria-pressed", "false");
@@ -600,8 +651,8 @@ test.describe("Color x Size end-to-end purchase", () => {
 
     // The confirm button stays disabled until a full combination is picked —
     // nothing resolves on a multi-SKU product without choosing options.
-    await selectValue(page, "Color", "Red");
-    await selectValue(page, "Size", "Medium");
+    await selectDrawerValue(page, "Color", "Red");
+    await selectDrawerValue(page, "Size", "Medium");
     await page.getByTestId("picker-confirm-e2e-color-size").click();
     await expect(page.getByText("Your Cart")).toBeVisible();
     await stopErrors();
@@ -613,7 +664,13 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Medium");
     await page.getByTestId("add-to-cart").click();
-    await expect(page.getByText("Your Cart")).toBeVisible();
+    // Add to Cart always opens the drawer pre-set to the chosen combination.
+    const picker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(picker).toBeVisible();
+    await picker.getByTestId(`picker-confirm-${SLUGS.colorSize}`).click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: /Your Cart/ }),
+    ).toBeVisible();
 
     await goto(page, "/cart");
     // Cart lines show the structured option values (T18 contract).
@@ -629,6 +686,11 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Blue");
     await selectValue(page, "Size", "Medium");
     await page.getByTestId("order-now").click();
+    // Order Now confirms in the dialog before checkout.
+    await page
+      .getByRole("dialog", { name: "Confirm your options" })
+      .getByRole("button", { name: "Confirm" })
+      .click();
     await expect(page).toHaveURL(/\/checkout/);
 
     await fillAddress(page);
@@ -666,6 +728,10 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Small");
     await page.getByTestId("order-now").click();
+    await page
+      .getByRole("dialog", { name: "Confirm your options" })
+      .getByRole("button", { name: "Confirm" })
+      .click();
     await expect(page).toHaveURL(/\/checkout/);
     await fillAddress(page);
     await page.getByPlaceholder("0917 123 4567").fill(phone);
@@ -763,7 +829,11 @@ test.describe("Landing page", () => {
     await goto(page, "/lp/e2e-lp-color-size");
 
     await expect(page.getByText("E2E promo headline")).toBeVisible();
-    await expect(page.getByRole("group", { name: "Color", exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator("#pdp-purchase")
+        .getByRole("group", { name: "Color", exact: true }),
+    ).toBeVisible();
     // The seed's default display variant is Red / Small at 1,299; Blue is
     // selected explicitly in the Color-only coverage above.
     await expect(page.getByText("1,299").first()).toBeVisible();

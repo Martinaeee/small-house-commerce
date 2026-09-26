@@ -188,6 +188,18 @@ async function chooseFirstOption(
   return label;
 }
 
+/**
+ * The inline COD card renders its own instance of the shared option selector
+ * (the probe renders a second one), so option buttons are scoped by instance.
+ */
+function selectorInstance(instanceId: string): HTMLElement {
+  const root = document.querySelector(`[data-selector-instance="${instanceId}"]`);
+  if (!(root instanceof HTMLElement)) {
+    throw new Error(`selector instance ${instanceId} is not rendered`);
+  }
+  return root;
+}
+
 /** Fills the five required fields through the real controls. */
 async function fillRequiredFields(
   user: ReturnType<typeof userEvent.setup>,
@@ -372,7 +384,10 @@ describe("PdpQuickCodOrder", () => {
     expect(submit).toHaveTextContent("Placing order…");
     expect(screen.getByTestId("psgc-province")).toBeDisabled();
     expect(screen.getByTestId("psgc-city")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Blue" })).toBeDisabled();
+    // Every rendered selector instance locks while the order is in flight.
+    const lockedBlue = screen.getAllByRole("button", { name: "Blue" });
+    expect(lockedBlue.length).toBeGreaterThan(1);
+    for (const button of lockedBlue) expect(button).toBeDisabled();
     expect(screen.getByTestId("quantity-probe")).toBeDisabled();
     expect(screen.getByTestId("quick-cod-quantity")).toHaveTextContent("1");
 
@@ -454,7 +469,13 @@ describe("PdpQuickCodOrder", () => {
       ),
     ).toHaveLength(0);
 
-    await user.click(screen.getByRole("button", { name: "Red" }));
+    // The OOS draft becomes orderable by picking the in-stock value in the
+    // inline COD selector — no scroll back to the hero required.
+    await user.click(
+      within(selectorInstance("quick-cod")).getByRole("button", {
+        name: "Red",
+      }),
+    );
     await user.click(screen.getByTestId("quick-cod-submit"));
 
     await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
@@ -475,8 +496,11 @@ describe("PdpQuickCodOrder", () => {
     // summary must not claim it as the ordered variant.
     expect(variantCell).not.toHaveTextContent("Red");
     expect(
-      within(variantCell).getByRole("link", { name: "Choose options above" }),
-    ).toHaveAttribute("href", "#pdp-purchase");
+      within(variantCell).getByRole("link", { name: "Choose options" }),
+    ).toHaveAttribute("href", "#quick-cod-options");
+    // The selector that link points at is rendered inside the same card.
+    expect(selectorInstance("quick-cod")).toBeInTheDocument();
+    expect(document.getElementById("quick-cod-options")).toBeVisible();
   });
 
   it("asks for options instead of ordering before a variant is chosen", async () => {
@@ -485,7 +509,7 @@ describe("PdpQuickCodOrder", () => {
 
     expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
     expect(
-      screen.getByText("Choose your options above to order this item."),
+      screen.getByText("Choose your options to order this item."),
     ).toBeVisible();
 
     await fillRequiredFields(user);

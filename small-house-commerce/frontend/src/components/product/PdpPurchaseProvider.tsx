@@ -57,6 +57,11 @@ const PRIMARY_LINE_ID = "primary";
 export interface PdpPurchaseProviderProps {
   product: Product;
   initialVariantId?: string | null;
+  /**
+   * Starting quantity for the primary line. The PDP hands its current
+   * quantity to the drawer picker so a chosen quantity is never reset to 1.
+   */
+  initialQuantity?: number;
   children: ReactNode;
 }
 
@@ -81,8 +86,14 @@ function createPurchaseLine(
 export function createInitialPurchaseLines(
   product: Product,
   initialVariantId?: string | null,
+  initialQuantity = 1,
 ): PurchaseLineState[] {
-  return [createPurchaseLine(product, PRIMARY_LINE_ID, initialVariantId)];
+  const line = createPurchaseLine(product, PRIMARY_LINE_ID, initialVariantId);
+  return [
+    initialQuantity > 1
+      ? { ...line, quantity: Math.floor(initialQuantity) }
+      : line,
+  ];
 }
 
 function updateLine(
@@ -172,10 +183,11 @@ const PdpPurchaseContext = createContext<PdpPurchaseContextValue | null>(null);
 function StatefulPdpPurchaseProvider({
   product,
   initialVariantId,
+  initialQuantity,
   children,
 }: PdpPurchaseProviderProps) {
   const [orderLines, setOrderLines] = useState<PurchaseLineState[]>(() =>
-    createInitialPurchaseLines(product, initialVariantId),
+    createInitialPurchaseLines(product, initialVariantId, initialQuantity),
   );
   const [purchaseLocked, setPurchaseLockedState] = useState(false);
   const purchaseLockedRef = useRef(false);

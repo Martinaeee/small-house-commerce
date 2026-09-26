@@ -46,6 +46,8 @@ export function CartDrawer() {
     isOpen,
     view,
     pickerProduct,
+    pickerInitialVariantId,
+    pickerInitialQuantity,
     changeTarget,
     closeCart,
     updateItem,
@@ -237,6 +239,8 @@ export function CartDrawer() {
         {view === "picker" && pickerProduct ? (
           <QuickAddView
             product={pickerProduct}
+            initialVariantId={pickerInitialVariantId}
+            initialQuantity={pickerInitialQuantity}
             onClose={handleClose}
             onAdded={() => {
               goToCartView();

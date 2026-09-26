@@ -41,6 +41,7 @@ export function PdpStickyBuy({
   onIntent,
 }: PdpStickyBuyProps): ReactNode {
   const [visible, setVisible] = useState(false);
+  const [codInView, setCodInView] = useState(false);
   const barRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -54,11 +55,30 @@ export function PdpStickyBuy({
     return () => observer.disconnect();
   }, [heroRef]);
 
+  // The inline COD form carries its own selection and submit, so the fixed
+  // bar yields while that section is on screen instead of stacking a second
+  // purchase UI over it. The section id is the same contract the COD form
+  // and the E2E gates already use.
+  useEffect(() => {
+    const section = document.getElementById("quick-cod-order");
+    if (!section || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setCodInView(entry?.isIntersecting ?? false),
+      // Require the section to reach the upper 60% of the viewport, so the
+      // bar stays while the COD section only peeks in from the bottom edge.
+      { rootMargin: "0px 0px -40% 0px", threshold: 0 },
+    );
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
+
+  const shown = visible && !codInView;
+
   // The bar is fixed, so the document must reserve exactly its height or the
   // last of the footer sits underneath it. Measuring (instead of a per-breakpoint
   // constant) keeps mobile, desktop and safe-area insets correct in one rule.
   useEffect(() => {
-    if (!visible) return;
+    if (!shown) return;
     const bar = barRef.current;
     if (!bar) return;
     const previous = document.body.style.paddingBottom;
@@ -77,18 +97,13 @@ export function PdpStickyBuy({
       window.removeEventListener("resize", apply);
       document.body.style.paddingBottom = previous;
     };
-  }, [visible]);
+  }, [shown]);
 
-  if (!visible) return null;
+  if (!shown) return null;
 
   const resolvedOutOfStock =
     derived.resolvedVariant !== null && derived.availableInventory <= 0;
   const unavailable = derived.selectableVariants.length === 0;
-  const orderLabel = derived.resolvedVariant ? "ORDER NOW" : "CHOOSE OPTIONS";
-  const addLabel =
-    derived.selectableVariants.length > 1 && !derived.resolvedVariant
-      ? "CHOOSE OPTIONS"
-      : "ADD TO CART";
 
   return (
     <aside
@@ -171,7 +186,7 @@ export function PdpStickyBuy({
             className="min-w-0 shrink px-3 text-xs sm:min-w-[120px] sm:px-5 sm:text-sm"
             data-testid="sticky-order-now"
           >
-            {orderLabel}
+            ORDER NOW
           </Button>
         )}
         <Button
@@ -182,7 +197,7 @@ export function PdpStickyBuy({
           className="min-w-0 shrink px-3 text-xs sm:min-w-[120px] sm:px-5 sm:text-sm"
           data-testid="sticky-add-to-cart"
         >
-          {addLabel}
+          ADD TO CART
         </Button>
       </div>
     </aside>

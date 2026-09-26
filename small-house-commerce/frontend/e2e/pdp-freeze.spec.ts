@@ -125,8 +125,10 @@ async function selectValue(
   optionName: string,
   valueLabel: string,
 ): Promise<void> {
+  // The PDP renders the shared selector twice (hero + the inline COD card),
+  // so option lookups are scoped to the hero.
   const value = page
-    .getByRole("main")
+    .locator("#pdp-purchase")
     .getByRole("group", { name: optionName, exact: true })
     .getByRole("button", { name: valueLabel, exact: true });
   await expect(async () => {
@@ -194,15 +196,15 @@ test.describe("PDP V1 freeze", () => {
     await expect(page.locator('section[aria-label="Why shop with us"]')).toBeVisible();
 
     // --- Variant + Price + CTA ---------------------------------------------
-    // Nothing is chosen yet: the COD summary must point at the real selector
+    // Nothing is chosen yet: the COD summary points at the inline selector
     // instead of presenting the default display variant as the ordered one.
     await expect(
       page
         .getByRole("main")
         .locator("#quick-cod-order")
         .getByTestId("quick-cod-variant")
-        .getByRole("link", { name: "Choose options above" }),
-    ).toHaveAttribute("href", "#pdp-purchase");
+        .getByRole("link", { name: "Choose options" }),
+    ).toHaveAttribute("href", "#quick-cod-options");
 
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Small");
@@ -352,11 +354,13 @@ test.describe("PDP V1 freeze", () => {
     await goto(page, `/products/${PDP_SLUG}?variant=${redSmall.id}`);
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Color", exact: true })
         .getByRole("button", { name: "Red", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page
+        .locator("#pdp-purchase")
         .getByRole("group", { name: "Size", exact: true })
         .getByRole("button", { name: "Small", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");

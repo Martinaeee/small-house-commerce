@@ -109,8 +109,9 @@ async function selectValue(
   optionName: string,
   valueLabel: string,
 ): Promise<void> {
+  // The COD card renders its own selector instance; hero lookups are scoped.
   const value = page
-    .getByRole("main")
+    .locator("#pdp-purchase")
     .getByRole("group", { name: optionName, exact: true })
     .getByRole("button", { name: valueLabel, exact: true });
   await expect(async () => {
@@ -202,10 +203,11 @@ test.describe("PDP inline COD order", () => {
       await expect(
         hero.getByRole("button", { name: "Increase quantity" }),
       ).toBeDisabled();
-      const sticky = page.getByTestId("sticky-buy");
-      await expect(sticky).toBeVisible();
+      // The sticky bar intentionally yields to the COD section; the shared
+      // lock stays provable on the inline selector rendered right here.
+      await expect(page.getByTestId("sticky-buy")).toHaveCount(0);
       await expect(
-        sticky.getByRole("button", { name: "Increase sticky quantity" }),
+        section.getByRole("button", { name: "Red" }),
       ).toBeDisabled();
     } finally {
       releaseOrder();
@@ -290,7 +292,7 @@ test.describe("PDP inline COD order", () => {
     // Nothing chosen yet: the form explains itself instead of ordering.
     await expect(section.getByTestId("quick-cod-submit")).toBeDisabled();
     await expect(
-      page.getByText("Choose your options above to order this item."),
+      page.getByText("Choose your options to order this item."),
     ).toBeVisible();
 
     const color = product.options.find((option) => option.name === "Color");

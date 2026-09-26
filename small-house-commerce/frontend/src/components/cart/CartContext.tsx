@@ -34,10 +34,21 @@ interface CartContextValue {
   isOpen: boolean;
   view: DrawerView;
   pickerProduct: Product | null;
+  /**
+   * Variant the picker view starts on. The PDP hands over its current
+   * selection so the drawer opens on the combination the shopper already
+   * chose; null starts unselected (PLP and cart quick-add).
+   */
+  pickerInitialVariantId: string | null;
+  /** Quantity the picker view starts on; null means the default of 1. */
+  pickerInitialQuantity: number | null;
   /** The cart line whose options are being changed (view === "change"). */
   changeTarget: CartItem | null;
   /** Open the drawer in the variant-picker view for the given product. */
-  openPicker: (product: Product) => void;
+  openPicker: (
+    product: Product,
+    options?: { initialVariantId?: string | null; initialQuantity?: number },
+  ) => void;
   /**
    * Open the drawer in the Change Options view for the given cart line.
    * Usable from the drawer's own cart view or from the cart page.
@@ -82,6 +93,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<DrawerView>("cart");
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+  const [pickerInitialVariantId, setPickerInitialVariantId] = useState<
+    string | null
+  >(null);
+  const [pickerInitialQuantity, setPickerInitialQuantity] = useState<
+    number | null
+  >(null);
   const [changeTarget, setChangeTarget] = useState<CartItem | null>(null);
   // Captured synchronously in the add-to-cart click task — before the busy
   // rerender disables the trigger and Chrome moves focus to <body> — and
@@ -96,14 +113,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const openCart = useCallback(() => {
     captureOpener();
     setPickerProduct(null);
+    setPickerInitialVariantId(null);
+    setPickerInitialQuantity(null);
     setChangeTarget(null);
     setView("cart");
     setIsOpen(true);
   }, [captureOpener]);
   const openPicker = useCallback(
-    (product: Product) => {
+    (
+      product: Product,
+      options?: { initialVariantId?: string | null; initialQuantity?: number },
+    ) => {
       captureOpener();
       setPickerProduct(product);
+      setPickerInitialVariantId(options?.initialVariantId ?? null);
+      setPickerInitialQuantity(options?.initialQuantity ?? null);
       setChangeTarget(null);
       setView("picker");
       setIsOpen(true);
@@ -114,6 +138,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (item: CartItem) => {
       captureOpener();
       setPickerProduct(null);
+      setPickerInitialVariantId(null);
+      setPickerInitialQuantity(null);
       setChangeTarget(item);
       setView("change");
       setIsOpen(true);
@@ -127,6 +153,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const closeCart = useCallback(() => {
     setIsOpen(false);
     setPickerProduct(null);
+    setPickerInitialVariantId(null);
+    setPickerInitialQuantity(null);
     setChangeTarget(null);
     setView("cart");
   }, []);
@@ -290,6 +318,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     isOpen,
     view,
     pickerProduct,
+    pickerInitialVariantId,
+    pickerInitialQuantity,
     changeTarget,
     openPicker,
     openChangeOptions,

@@ -129,7 +129,10 @@ async function selectValue(
   optionName: string,
   valueLabel: string,
 ): Promise<void> {
+  // The PDP renders the shared selector twice (hero + the inline COD card),
+  // so option lookups are scoped to the hero.
   const value = page
+    .locator("#pdp-purchase")
     .getByRole("group", { name: optionName, exact: true })
     .getByRole("button", { name: valueLabel, exact: true });
   await expect(async () => {
@@ -230,8 +233,8 @@ test.describe("PDP UX Phase 1", () => {
       hero.getByTestId("pdp-delivery"),
       hero.getByTestId("pdp-buy-row"),
     ]);
-    await expect(orderNow).toHaveText("CHOOSE OPTIONS");
-    await expect(addToCart).toHaveText("CHOOSE OPTIONS");
+    await expect(orderNow).toHaveText("ORDER NOW");
+    await expect(addToCart).toHaveText("ADD TO CART");
 
     // Selling points are the real solution tags, each with a line icon.
     const sellingPoints = hero.getByRole("list", { name: "Selling points" });
@@ -423,7 +426,7 @@ test.describe("PDP UX Phase 1", () => {
     }
   });
 
-  test("shows one shared-state sticky bar and sends one cart mutation for one click", async ({
+  test("shows one shared-state sticky bar and sends one cart mutation per drawer confirm", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -469,7 +472,18 @@ test.describe("PDP UX Phase 1", () => {
         });
       });
       await stickyAdd.click();
-      await expect(page.getByText("Added to cart")).toBeVisible();
+
+      // Add to Cart always hands off to the drawer picker, pre-set to the
+      // shared selection (Red / Medium, quantity 2). One Confirm click is
+      // exactly one cart mutation.
+      const picker = page.getByRole("dialog", { name: "Add to cart" });
+      await expect(picker).toBeVisible();
+      await expect(picker).toContainText("Red / Medium");
+      await expect(picker.getByTestId(`picker-qty-${PDP_SLUG}`)).toHaveText("2");
+      await picker.getByTestId(`picker-confirm-${PDP_SLUG}`).click();
+      await expect(
+        page.getByRole("dialog").getByRole("heading", { name: /Your Cart/ }),
+      ).toBeVisible();
       await expect.poll(() => cartMutations.length).toBe(1);
       await expect(stickyAdd).toHaveAttribute("data-e2e-clicks", "1");
 
