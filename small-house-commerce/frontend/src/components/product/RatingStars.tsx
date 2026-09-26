@@ -1,7 +1,8 @@
 // src/components/product/RatingStars.tsx
 /**
  * Read-only star rating, PDP_SPEC §22. Renders to the nearest half star
- * using text glyphs (no icon dependency). Colour is the CTA brown.
+ * using text glyphs (no icon dependency). Filled/half stars use the amber
+ * star token; empty stars fall back to the border token.
  */
 export function RatingStars({ value, className = "" }: { value: number; className?: string }) {
   const rounded = Math.round(value * 2) / 2;
@@ -14,7 +15,7 @@ export function RatingStars({ value, className = "" }: { value: number; classNam
   });
   return (
     <span
-      className={`inline-flex text-cta ${className}`}
+      className={`inline-flex text-star ${className}`}
       aria-label={`Rated ${value.toFixed(1)} out of 5`}
       role="img"
     >

@@ -386,12 +386,13 @@ function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
 }
 
 describe("PDP conversion hero", () => {
-  it("orders real product facts before the shared purchase actions and truthful trust strip", () => {
+  it("orders real product facts before the shared purchase actions and truthful service assurances", () => {
     const item: Product = {
       ...product,
       tagline: "A compact chair for flexible homes.",
       ratingAverage: 4.8,
       reviewCount: 12,
+      solutions: ["FOLDABLE", "MOBILE"],
       width: 120,
       height: 74,
       depth: 60,
@@ -411,43 +412,74 @@ describe("PDP conversion hero", () => {
     const tagline = within(hero).getByText(
       "A compact chair for flexible homes.",
     );
+    const sellingPoints = within(hero).getByRole("list", {
+      name: "Selling points",
+    });
     const reviews = within(hero).getByRole("link", { name: /12 reviews/i });
     const price = within(hero).getByText("₱100.00");
     const options = within(hero).getByRole("group", { name: "Color" });
-    const dimensions = within(hero).getByRole("heading", {
-      name: "Dimensions & Fit",
-    });
+    const dimensions = within(hero).getByTestId("pdp-dimensions-summary");
     const deliveryHeading = within(hero).getByText("Estimated delivery");
-    const quantity = within(hero).getByText("Qty");
+    const buyRow = within(hero).getByTestId("pdp-buy-row");
     const orderNow = within(hero).getByTestId("order-now");
     const addToCart = within(hero).getByTestId("add-to-cart");
-    const trust = within(hero).getByLabelText("Purchase assurances");
 
     expectDocumentOrder([
       title,
       tagline,
+      sellingPoints,
       reviews,
       price,
       options,
       dimensions,
       deliveryHeading,
-      quantity,
-      orderNow,
-      addToCart,
-      trust,
+      buyRow,
     ]);
-    expect(within(hero).getByText("Assembled: 120 × 74 × 60 cm")).toBeVisible();
-    expect(within(hero).getByText("Folded: 120 × 8 × 60 cm")).toBeVisible();
+
+    // Selling points are the real solution tags, rendered as emoji pills.
+    expect(within(sellingPoints).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(sellingPoints).getByText("Foldable")).toBeVisible();
+    expect(within(sellingPoints).getByText("Easy to Move")).toBeVisible();
+
+    // One compact dimension line plus the size guide; no folded line in the hero.
+    expect(within(hero).getByTestId("pdp-dimensions-line")).toHaveTextContent(
+      "Dimensions: 120 × 74 × 60 cm",
+    );
+    expect(within(hero).queryByText(/Folded:/)).not.toBeInTheDocument();
     expect(
-      within(hero).getByRole("link", { name: "View full dimensions →" }),
-    ).toHaveAttribute("href", "#specifications");
+      within(hero).queryByRole("link", { name: "View full dimensions →" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(hero).getByRole("button", { name: "Size guide" }),
+    ).toBeVisible();
+
+    // Service assurances sit inside the delivery card, beside the estimate.
+    const delivery = within(hero).getByTestId("pdp-delivery");
+    expect(within(delivery).getByText("Estimated delivery")).toBeVisible();
+    expect(within(delivery).getByText("Metro Manila: 2–3 days")).toBeVisible();
+    expect(within(delivery).getByText("COD & Free Shipping")).toBeVisible();
+    expect(within(delivery).getByText("Arrived in 1-5 days")).toBeVisible();
+    expect(
+      within(delivery).getByText("7-Day Free Return & Exchange"),
+    ).toBeVisible();
+
+    // Quantity and both purchase actions share one row.
+    expect(buyRow).toContainElement(within(buyRow).getByTestId("qty"));
+    expect(buyRow).toContainElement(orderNow);
+    expect(buyRow).toContainElement(addToCart);
+
     expect(orderNow).toHaveClass("bg-cta");
     expect(addToCart).not.toHaveClass("bg-cta");
-    expect(within(trust).getByText("Cash on Delivery")).toBeVisible();
-    expect(within(trust).getByText("Nationwide delivery")).toBeVisible();
-    expect(within(trust).getByText("Secure checkout")).toBeVisible();
-    expect(within(trust).getByText("48-hour damage support")).toBeVisible();
-    expect(within(trust).queryByText(/easy returns/i)).not.toBeInTheDocument();
+  });
+
+  it("hides the selling-point row when the product carries no solution tags", () => {
+    renderPdp({ item: { ...product, solutions: [] } });
+
+    expect(
+      within(screen.getByTestId("pdp-purchase")).queryByRole("list", {
+        name: "Selling points",
+      }),
+    ).not.toBeInTheDocument();
   });
 });
 

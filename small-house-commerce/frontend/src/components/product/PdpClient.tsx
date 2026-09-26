@@ -35,7 +35,7 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { pdpDimensionSummary } from "./pdp-facts";
+import { pdpDimensionSummary, pdpSolutionBadges } from "./pdp-facts";
 
 function TruckGlyph() {
   return (
@@ -46,6 +46,25 @@ function TruckGlyph() {
     </svg>
   );
 }
+
+function RulerGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <path d="M3 9.5 9.5 3 21 14.5 14.5 21z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m7 9 1.5 1.5M10 6l1.5 1.5M13 12l1.5 1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * Service assurances shown beside the delivery estimate. Current policy only —
+ * never invent a guarantee the shop does not honour.
+ */
+const SERVICE_ASSURANCES = [
+  "COD & Free Shipping",
+  "Arrived in 1-5 days",
+  "7-Day Free Return & Exchange",
+] as const;
 
 type PurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
 
@@ -199,6 +218,7 @@ export function PdpClient({
   const dimensions = pdpDimensionSummary(product);
   const hasDimensions =
     dimensions.assembled !== null || dimensions.folded !== null;
+  const sellingPoints = pdpSolutionBadges(product);
   const basePath = productPath ?? `/products/${product.slug}`;
   const urlVariantValues = searchParams.getAll("variant");
   const hasVariantParam = urlVariantValues.length > 0;
@@ -596,6 +616,20 @@ export function PdpClient({
             </p>
           )}
 
+          {sellingPoints.length > 0 && (
+            <ul aria-label="Selling points" className="flex flex-wrap gap-2">
+              {sellingPoints.map((point) => (
+                <li
+                  key={point.value}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-ink-secondary"
+                >
+                  <span aria-hidden="true">{point.emoji}</span>
+                  {point.label}
+                </li>
+              ))}
+            </ul>
+          )}
+
           {ratingRow}
 
           <div>
@@ -612,75 +646,85 @@ export function PdpClient({
           <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" />
 
           {hasDimensions && (
-            <section
-              id="pdp-dimensions-summary"
-              aria-labelledby="pdp-dimensions-summary-title"
-              className="rounded-lg border border-border bg-card p-4"
+            <div
+              data-testid="pdp-dimensions-summary"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-card px-4 py-3 text-sm"
             >
-              <h2
-                id="pdp-dimensions-summary-title"
-                className="text-sm font-semibold text-ink"
+              <p
+                data-testid="pdp-dimensions-line"
+                className="text-ink-secondary"
               >
-                Dimensions &amp; Fit
-              </h2>
-              <div className="mt-2 space-y-1 text-sm text-ink-secondary">
-                {dimensions.assembled ? (
-                  <p>Assembled: {dimensions.assembled}</p>
-                ) : null}
-                {dimensions.folded ? <p>Folded: {dimensions.folded}</p> : null}
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <a
-                  href="#specifications"
-                  className="text-sm font-medium text-cta underline-offset-2 hover:underline"
-                >
-                  View full dimensions →
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setDetailsOpen(true)}
-                  className="text-sm text-ink-secondary underline-offset-2 hover:text-cta hover:underline"
-                >
-                  Open size guide
-                </button>
-              </div>
-            </section>
+                <span className="font-semibold text-ink">Dimensions:</span>{" "}
+                {dimensions.assembled ?? dimensions.folded}
+              </p>
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(true)}
+                className="inline-flex items-center gap-1.5 font-medium text-cta underline-offset-2 hover:underline"
+              >
+                <RulerGlyph />
+                Size guide
+              </button>
+            </div>
           )}
 
-          <div className="flex items-start gap-2.5 rounded-lg border border-border bg-background p-3 text-sm">
-            <TruckGlyph />
-            <div>
-              <p className="font-semibold text-ink">Estimated delivery</p>
-              <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
-              <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
+          <div
+            data-testid="pdp-delivery"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-6"
+          >
+            <div className="flex items-start gap-2.5">
+              <TruckGlyph />
+              <div>
+                <p className="font-semibold text-ink">Estimated delivery</p>
+                <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
+                <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
+              </div>
             </div>
+            <ul
+              aria-label="Service assurances"
+              className="flex flex-col gap-1.5 text-ink-secondary sm:shrink-0"
+            >
+              {SERVICE_ASSURANCES.map((line) => (
+                <li key={line} className="flex items-center gap-2">
+                  <span className="font-semibold text-cta">✓</span>
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-ink-secondary">Qty</span>
-            <div className="flex items-center rounded-lg border border-border bg-card">
+          <div
+            data-testid="pdp-buy-row"
+            className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3"
+          >
+            <div
+              aria-label="Quantity"
+              role="group"
+              className="flex shrink-0 items-center rounded-lg border border-border bg-card"
+            >
               <button
                 type="button"
                 aria-label="Decrease quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity - 1)}
-                className="h-11 w-11 text-lg text-ink hover:text-cta"
+                className="h-11 w-9 text-lg text-ink hover:text-cta sm:w-11"
               >−</button>
-              <span className="w-8 text-center text-base font-semibold" data-testid="qty">{primaryLine.quantity}</span>
+              <span className="w-7 text-center text-base font-semibold" data-testid="qty">{primaryLine.quantity}</span>
               <button
                 type="button"
                 aria-label="Increase quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity + 1)}
-                className="h-11 w-11 text-lg text-ink hover:text-cta"
+                className="h-11 w-9 text-lg text-ink hover:text-cta sm:w-11"
               >+</button>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
             {!resolvedOutOfStock && (
               <Button
                 onClick={(event) => requestIntent("ORDER_NOW", event.currentTarget)}
                 disabled={busy || selectableCount === 0}
-                className="w-full sm:flex-1"
+                // The shared md size pins min-w-[120px]; below sm the stepper
+                // shares the row, so the buttons shrink and the longer
+                // "CHOOSE OPTIONS" label wraps instead of overflowing.
+                className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
                 data-testid="order-now"
               >
                 {resolvedVariant ? "ORDER NOW" : "CHOOSE OPTIONS"}
@@ -690,7 +734,7 @@ export function PdpClient({
               variant={resolvedOutOfStock ? "primary" : "secondary"}
               onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
               disabled={busy || selectableCount === 0}
-              className="w-full sm:flex-1"
+              className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
               data-testid="add-to-cart"
             >
               {addLabel}
@@ -716,28 +760,6 @@ export function PdpClient({
               {notice}
             </p>
           )}
-
-          <ul
-            aria-label="Purchase assurances"
-            className="mt-2 grid grid-cols-1 gap-2 rounded-lg border border-border bg-background p-4 text-sm text-ink-secondary sm:grid-cols-2"
-          >
-            <li className="flex items-center gap-2">
-              <span className="font-semibold text-cta">✓</span>
-              Cash on Delivery
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="font-semibold text-cta">✓</span>
-              Nationwide delivery
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="font-semibold text-cta">✓</span>
-              Secure checkout
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="font-semibold text-cta">✓</span>
-              48-hour damage support
-            </li>
-          </ul>
         </div>
       </div>
 

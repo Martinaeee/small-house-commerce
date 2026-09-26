@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { Product } from "@/lib/api";
-import { pdpDimensionSummary } from "./pdp-facts";
+import { pdpDimensionSummary, pdpSolutionBadges } from "./pdp-facts";
 
 type DimensionInput = Parameters<typeof pdpDimensionSummary>[0];
 
@@ -58,5 +58,40 @@ describe("pdpDimensionSummary", () => {
     >();
     expectTypeOf<HasPackageWidth>().toEqualTypeOf<false>();
     expectTypeOf<HasProductWeight>().toEqualTypeOf<false>();
+  });
+});
+
+describe("pdpSolutionBadges", () => {
+  it("maps real solution tags to emoji selling points in canonical order", () => {
+    expect(pdpSolutionBadges({ solutions: ["MOBILE", "FOLDABLE"] })).toEqual([
+      { value: "FOLDABLE", emoji: "📦", label: "Foldable" },
+      { value: "MOBILE", emoji: "🔄", label: "Easy to Move" },
+    ]);
+  });
+
+  it("covers every solution the admin can tag", () => {
+    expect(
+      pdpSolutionBadges({
+        solutions: [
+          "FOLDABLE",
+          "NARROW_SPACE",
+          "MOBILE",
+          "MULTIFUNCTIONAL",
+          "HIDDEN_STORAGE",
+          "RENTAL_FRIENDLY",
+        ],
+      }).map((badge) => badge.label),
+    ).toEqual([
+      "Foldable",
+      "Narrow Space",
+      "Easy to Move",
+      "Multifunctional",
+      "Hidden Storage",
+      "Rental Friendly",
+    ]);
+  });
+
+  it("returns nothing when the product carries no solution tags", () => {
+    expect(pdpSolutionBadges({ solutions: [] })).toEqual([]);
   });
 });

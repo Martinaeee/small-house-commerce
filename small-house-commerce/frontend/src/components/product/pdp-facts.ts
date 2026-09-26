@@ -1,4 +1,4 @@
-import type { Product } from "@/lib/api";
+import type { Product, Solution } from "@/lib/api";
 
 export type PdpDimensionSource = Pick<
   Product,
@@ -35,4 +35,36 @@ export function pdpDimensionSummary(
       product.foldedDepth,
     ),
   };
+}
+
+/** One emoji selling-point pill under the tagline. */
+export interface PdpSellingPoint {
+  value: Solution;
+  emoji: string;
+  label: string;
+}
+
+/**
+ * Emoji + label for every solution the admin can tag (the 卖点标签 checkboxes
+ * in the product editor). The list is fixed here rather than free text so a
+ * pill can never show an emoji that does not match its tag.
+ */
+const SOLUTION_BADGES: readonly PdpSellingPoint[] = [
+  { value: "FOLDABLE", emoji: "📦", label: "Foldable" },
+  { value: "NARROW_SPACE", emoji: "↔️", label: "Narrow Space" },
+  { value: "MOBILE", emoji: "🔄", label: "Easy to Move" },
+  { value: "MULTIFUNCTIONAL", emoji: "🧩", label: "Multifunctional" },
+  { value: "HIDDEN_STORAGE", emoji: "🗄️", label: "Hidden Storage" },
+  { value: "RENTAL_FRIENDLY", emoji: "🏠", label: "Rental Friendly" },
+];
+
+/**
+ * Selling points for the hero, filtered to the product's real tags and kept
+ * in canonical order so the row does not reshuffle between saves.
+ */
+export function pdpSolutionBadges(
+  product: Pick<Product, "solutions">,
+): PdpSellingPoint[] {
+  const tagged = new Set(product.solutions);
+  return SOLUTION_BADGES.filter((badge) => tagged.has(badge.value));
 }
