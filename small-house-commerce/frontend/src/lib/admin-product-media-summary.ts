@@ -76,13 +76,16 @@ export interface VariantMediaResolutionSummary {
   optionValueRef: EntityRef | null;
 }
 
-function usableRows(rows: readonly AdminMediaDraft[]): AdminMediaDraft[] {
+function usableRows<T extends Pick<AdminMediaDraft, "url">>(
+  rows: readonly T[],
+): T[] {
   return rows.filter(isUsable);
 }
 
 export function summarizeVariantMediaResolution(
   draft: AdminCatalogGraphDraft,
   variant: AdminVariantDraft,
+  sharedRowsOverride: readonly Pick<AdminMediaDraft, "url">[] | null = null,
 ): VariantMediaResolutionSummary {
   const variantKey = entityRowKey(variant);
   const exactRows = usableRows(
@@ -128,9 +131,10 @@ export function summarizeVariantMediaResolution(
   }
 
   const sharedRows = usableRows(
-    draft.media.filter(
-      (row) => row.optionValueRef === null && row.variantRef === null,
-    ),
+    sharedRowsOverride ??
+      draft.media.filter(
+        (row) => row.optionValueRef === null && row.variantRef === null,
+      ),
   );
   return {
     source: "SHARED",

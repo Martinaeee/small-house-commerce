@@ -65,6 +65,7 @@ export function ProductMediaPanel({
           <div className="mt-4">
             <ProductMediaScopesEditor
               draft={graphDraft}
+              sharedMedia={sharedMedia.images}
               onChange={onGraphChange}
               pending={pending}
               highlightKey={highlightKey}

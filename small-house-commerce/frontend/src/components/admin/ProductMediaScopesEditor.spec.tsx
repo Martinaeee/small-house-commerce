@@ -654,6 +654,63 @@ describe("ProductMediaScopesEditor", () => {
     ).toHaveTextContent("Inactive / legacy");
   });
 
+  it("does not render an empty src while a controlled shared row is still blank", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { container } = render(
+      <AdminI18nProvider>
+        <ProductMediaScopesEditor
+          draft={draft()}
+          sharedMedia={[
+            { url: "", type: "IMAGE", altText: null },
+            { url: "/uploads/current.jpg", type: "IMAGE", altText: "Current" },
+          ]}
+          onChange={vi.fn()}
+        />
+      </AdminI18nProvider>,
+    );
+    const errors = consoleError.mock.calls.flat().join("\n");
+    consoleError.mockRestore();
+
+    expect(errors).not.toContain("empty string");
+    expect(container.querySelector('img[src=""]')).toBeNull();
+    expect(container.querySelector('video[src=""]')).toBeNull();
+    expect(screen.getByText(/2 shared items/)).toBeInTheDocument();
+  });
+
+  it("uses the current controlled shared draft for resolver fallback summaries", () => {
+    const initial = draft({
+      options: [optionDraft({ isMediaDriver: false })],
+      media: [mediaDraft({ id: "persisted-shared" })],
+    });
+    const before = structuredClone(initial);
+    const currentShared = [
+      {
+        url: "/uploads/current-a.jpg",
+        type: "IMAGE" as const,
+        altText: "A",
+      },
+      {
+        url: "/uploads/current-b.jpg",
+        type: "IMAGE" as const,
+        altText: "B",
+      },
+    ];
+    render(
+      <AdminI18nProvider>
+        <ProductMediaScopesEditor
+          draft={initial}
+          sharedMedia={currentShared}
+          onChange={vi.fn()}
+        />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByLabelText("Red / M media resolution")).toHaveTextContent(
+      "Uses shared gallery · 2 media",
+    );
+    expect(initial).toEqual(before);
+  });
+
   it("mirrors exact, driver-value, and shared resolution in collapsed variant rows", async () => {
     const user = userEvent.setup();
     const driver = optionDraft({

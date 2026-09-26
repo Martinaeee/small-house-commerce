@@ -95,6 +95,32 @@ describe("SharedMediaWorkspace", () => {
     expect(props.onReorder).not.toHaveBeenCalled();
   });
 
+  it("keeps the expanded editor attached to a card after it moves", async () => {
+    const user = userEvent.setup();
+    const { props, rerender } = renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Media 2" }));
+    expect(screen.getByLabelText("Media 2 URL")).toHaveValue(
+      "/uploads/demo.mp4",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Move media 2 left" }));
+    const reordered = [
+      { ...images[1], sortOrder: "0" },
+      { ...images[0], sortOrder: "1" },
+      images[2],
+    ];
+    rerender(
+      <AdminI18nProvider>
+        <SharedMediaWorkspace {...props} images={reordered} />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByLabelText("Media 1 URL")).toHaveValue(
+      "/uploads/demo.mp4",
+    );
+  });
+
   it("forwards every edit and ordering action without mutating its controlled value", async () => {
     const user = userEvent.setup();
     const { props, rerender } = renderWorkspace();

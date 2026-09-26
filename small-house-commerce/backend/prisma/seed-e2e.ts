@@ -591,6 +591,28 @@ async function ensurePdpUxFixtures(
       volumetricWeight: 45.5,
     },
   });
+  const [, canonicalDriver] = await ctx.prisma.$transaction([
+    ctx.prisma.productOption.updateMany({
+      where: { productId: product.id },
+      data: { isMediaDriver: false },
+    }),
+    ctx.prisma.productOption.updateMany({
+      where: { productId: product.id, name: 'Color', isActive: true },
+      data: { isMediaDriver: true },
+    }),
+  ]);
+  if (canonicalDriver.count !== 1) {
+    throw new Error(
+      `PDP UX fixture expected one active Color option, found ${canonicalDriver.count}.`,
+    );
+  }
+  const canonicalDetailIds = PDP_DETAIL_BLOCKS.map((block) => block.id);
+  await ctx.prisma.productDetailBlock.deleteMany({
+    where: {
+      productId: product.id,
+      id: { notIn: canonicalDetailIds },
+    },
+  });
   for (const block of PDP_DETAIL_BLOCKS) {
     await ctx.prisma.productDetailBlock.upsert({
       where: { id: block.id },

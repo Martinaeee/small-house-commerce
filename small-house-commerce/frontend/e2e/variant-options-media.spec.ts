@@ -39,7 +39,18 @@ interface ProductJson {
   effectiveCoverMedia: { url: string } | null;
   options: { id: string; name: string; isMediaDriver: boolean; values: { id: string; label: string }[] }[];
   variants: { id: string; name: string; combinationKey: string; sku: { skuCode: string; price: string } | null }[];
-  images: { url: string }[];
+  images: {
+    url: string;
+    type: "IMAGE" | "VIDEO";
+    altText: string | null;
+  }[];
+  detailBlocks: {
+    id: string;
+    type: "IMAGE" | "VIDEO";
+    url: string;
+    altText: string | null;
+    sortOrder: number;
+  }[];
 }
 
 /** Seed credentials from backend/prisma/seed-e2e.ts. */
@@ -669,7 +680,7 @@ test.describe("Color x Size end-to-end purchase", () => {
 // Chrome default 1280x720, which is the gate's desktop leg.
 
 test.describe("Exact scoped-media override", () => {
-  test("deep-linked variant shows exact media and switching scopes cleanly", async ({ page }) => {
+  test("conserves exact → value → shared media and isolates ordered PDP details", async ({ page }) => {
     const stopErrors = trackBrowserErrors(page);
     const audit = auditMediaRequests(page);
     const product = await fetchProduct(SLUGS.exactOverride);
@@ -691,6 +702,48 @@ test.describe("Exact scoped-media override", () => {
     expect(
       audit.scopedSince(afterBlue, { optionValueId: blueValue!.id }).length,
     ).toBeGreaterThan(0);
+
+    // A product with no media driver resolves directly to its shared gallery.
+    const sizeOnly = await fetchProduct(SLUGS.sizeOnly);
+    await gotoPdp(page, SLUGS.sizeOnly);
+    const sharedStage = page.getByRole("button", { name: "Open image gallery" });
+    await expect(sharedStage.locator("img")).toHaveAttribute(
+      "src",
+      new RegExp(sizeOnly.images[0]!.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+
+    // PDP detail blocks keep their own saved order and identity in the details
+    // body; none is projected into the main gallery as a detail-media row.
+    const colorSize = await fetchProduct(SLUGS.colorSize);
+    await gotoPdp(page, SLUGS.colorSize);
+    const validDetails = colorSize.detailBlocks.filter(
+      (block) => block.url.trim() !== "",
+    );
+    const renderedDetails = page.locator(
+      'img[alt^="PDP detail"], video[aria-label^="PDP detail"]',
+    );
+    await expect(renderedDetails).toHaveCount(validDetails.length);
+    expect(
+      await renderedDetails.evaluateAll((nodes) =>
+        nodes.map((node) =>
+          node instanceof HTMLVideoElement
+            ? new URL(node.querySelector("source")?.src ?? "").pathname
+            : new URL((node as HTMLImageElement).src).pathname,
+        ),
+      ),
+    ).toEqual(validDetails.map((block) => block.url));
+    for (const block of validDetails) {
+      const detailNode =
+        block.type === "VIDEO"
+          ? page.locator(`video[aria-label="${block.altText}"]`)
+          : page.locator(`img[alt="${block.altText}"]`);
+      await expect(detailNode).toHaveCount(1);
+    }
+    await expect(
+      page
+        .getByRole("button", { name: "Open image gallery" })
+        .locator('[alt^="PDP detail"], [aria-label^="PDP detail"]'),
+    ).toHaveCount(0);
     await stopErrors();
   });
 });

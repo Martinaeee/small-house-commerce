@@ -48,10 +48,14 @@ const SEEDED_SLUGS = [
   "e2e-color-size",
   "e2e-exact-override",
   "e2e-legacy-style",
+  "e2e-notification-no-price",
+  "e2e-notification-stale-draft",
+  "e2e-related-oos",
   "e2e-size-only",
 ];
 
 /** Existing seeded SVG assets: reusing them keeps every thumbnail a 200. */
+const SHARED_MEDIA_URL = "/uploads/e2e/color-only-shared-1.svg";
 const VALUE_MEDIA_URL = "/uploads/e2e/exact-override-red.svg";
 const VARIANT_MEDIA_URL = "/uploads/e2e/e2e-exact-override-blue.svg";
 const THUMBNAIL_URL = "/uploads/e2e/size-only-shared-1.svg";
@@ -77,6 +81,26 @@ const ZH = {
   statusActive: "上架",
   statusDisabled: "下架",
   driverSelect: "切换商品图库的选项",
+  driverGroup: "图库来源",
+  driverShared: "仅使用共享图库",
+  driverAffected: (count: number) => `影响 SKU：${count}`,
+  sharedCards: "共享媒体卡片",
+  sharedRows: (count: number) => `${count} 行`,
+  sharedUsable: (count: number) => `${count} 项可用`,
+  sharedImages: (count: number) => `${count} 张图片`,
+  sharedVideos: (count: number) => `${count} 个视频`,
+  summaryAlt: (complete: number, total: number) => `Alt 文本 ${complete}/${total}`,
+  scopeSummary: (option: string, value: string) => `${option} / ${value} 媒体摘要`,
+  scopeActive: "当前生效",
+  scopeInactive: "未生效 / 旧作用域",
+  exactSummary: (variant: string) => `${variant} 媒体解析摘要`,
+  exactSourceExact: (count: number) => `精确覆盖 · ${count} 项媒体`,
+  exactSourceValue: (value: string, count: number) =>
+    `使用 ${value} 图库 · ${count} 项媒体`,
+  exactSourceShared: (count: number) => `使用共享图库 · ${count} 项媒体`,
+  detailTitle: "详情内容（图片 / 视频）",
+  detailExplanation: "仅用于 PDP 长图 / 视频详情；不会进入商品主图库或款式图库。",
+  detailBlocks: "PDP 详情媒体块",
   targetVariant: "目标款式",
   addVariantMedia: "添加款式媒体",
   addValueMedia: (name: string) => `为 ${name} 添加媒体`,
@@ -124,6 +148,22 @@ const TAB_KEYS = ["basic", "media", "variants", "specs", "shipping", "seo", "pre
 type TabKey = (typeof TAB_KEYS)[number];
 
 // --- backend API types (admin GET /admin/products/:id) -----------------------
+
+interface ProductImageRow {
+  id: string;
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  sortOrder: number;
+}
+
+interface DetailBlockRow {
+  id: string;
+  url: string;
+  type: "IMAGE" | "VIDEO";
+  altText: string | null;
+  sortOrder: number;
+}
 
 interface GraphMediaRow {
   id: string;
@@ -173,6 +213,9 @@ interface GraphSku {
   packageDepth: number | null;
   packageWeight: number | null;
   volumetricWeight: number | null;
+  onHand: number;
+  reserved: number;
+  availableInventory: number;
 }
 
 interface GraphVariant {
@@ -192,6 +235,8 @@ interface AdminProductJson {
   categoryId?: string;
   status: "DRAFT" | "ACTIVE" | "DISABLED";
   catalogGraphVersion: number;
+  images: ProductImageRow[];
+  detailBlocks: DetailBlockRow[];
   options?: GraphOption[];
   media?: GraphMediaRow[];
   variants: GraphVariant[];
@@ -377,6 +422,21 @@ function skuSemanticState(sku: GraphVariant["sku"]) {
   };
 }
 
+function packageInventoryState(product: AdminProductJson): unknown {
+  return product.variants.map((variant) => ({
+    variantId: variant.id,
+    skuId: variant.sku?.id ?? null,
+    sku: variant.sku
+      ? {
+          ...skuSemanticState(variant.sku),
+          onHand: variant.sku.onHand,
+          reserved: variant.sku.reserved,
+          availableInventory: variant.sku.availableInventory,
+        }
+      : null,
+  }));
+}
+
 function optionValueSemanticKey(
   product: AdminProductJson,
   optionValueId: string,
@@ -420,6 +480,12 @@ function canonicalSemanticState(product: AdminProductJson): string {
       status: product.status, categoryId: product.categoryId,
     },
     tagline: product.tagline,
+    detailBlocks: product.detailBlocks.map((block) => ({
+      type: block.type,
+      url: block.url,
+      altText: block.altText,
+      sortOrder: block.sortOrder,
+    })),
     options: (product.options ?? [])
       .map((option) => ({
         kind: option.kind,
@@ -772,6 +838,62 @@ async function restoreProductSnapshot(
     }
   }
 
+  const detailState = (product: AdminProductJson) =>
+    product.detailBlocks.map((block) => ({
+      type: block.type,
+      url: block.url,
+      altText: block.altText,
+      sortOrder: block.sortOrder,
+    }));
+  if (JSON.stringify(detailState(current)) !== JSON.stringify(detailState(before))) {
+    try {
+      // The runtime whole-list endpoint intentionally creates fresh detail IDs,
+      // so fixture cleanup uses the guarded disposable database to restore the
+      // exact pre-test rows rather than leaving identity drift for later specs.
+      assertE2EDatabaseUrl(CONFIGURED_DATABASE_URL);
+      execFileSync("pnpm", ["exec", "tsx", "-e", `
+        import assert from 'node:assert/strict';
+        import { PrismaPg } from '@prisma/adapter-pg';
+        import { PrismaClient } from './src/generated/prisma/client.ts';
+        import { assertE2EDatabaseUrl } from '../frontend/src/lib/e2e-guard.ts';
+        const { productId, slug, detailBlocks } = JSON.parse(process.env.E2E_DETAIL_FIXTURE!);
+        async function main() {
+          assertE2EDatabaseUrl(process.env.DATABASE_URL);
+          const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+          try {
+            const [database] = await prisma.$queryRawUnsafe('SELECT current_database() AS name');
+            assert.equal(database.name, 'small_house_variant_test');
+            await prisma.$transaction(async (tx) => {
+              const owned = await tx.product.findUniqueOrThrow({ where: { id: productId } });
+              assert.equal(owned.slug, slug);
+              assert.match(slug, /^e2e-/);
+              await tx.productDetailBlock.deleteMany({ where: { productId } });
+              for (const block of detailBlocks) {
+                await tx.productDetailBlock.create({ data: { productId, ...block } });
+              }
+            });
+          } finally { await prisma.$disconnect(); }
+        }
+        main().catch((error) => { console.error(error); process.exitCode = 1; });
+      `], {
+        cwd: resolve(__dirname, "../../backend"),
+        env: {
+          ...process.env,
+          DATABASE_URL: CONFIGURED_DATABASE_URL,
+          E2E_DETAIL_FIXTURE: JSON.stringify({
+            productId: before.id,
+            slug,
+            detailBlocks: before.detailBlocks,
+          }),
+        },
+        stdio: "pipe",
+      });
+      current = await adminProduct(slug);
+    } catch (error) {
+      failures.push(`restore detail blocks: ${cleanupError(error)}`);
+    }
+  }
+
   let graphPatch: RestoreGraphPatch | null = null;
   try {
     graphPatch = buildRestoreGraphPatch(before, current);
@@ -1059,11 +1181,6 @@ async function scrollBelowSticky(page: Page, selector: string): Promise<void> {
 }
 
 const SAVE_BUTTON = 'button[type="submit"][aria-busy]';
-
-/** A row-scoped control: the <li> that owns the media URL input. */
-function mediaRow(page: Page, urlAriaLabel: string) {
-  return page.getByLabel(urlAriaLabel, { exact: true }).locator("xpath=ancestor::li[1]");
-}
 
 function scopedMediaUrlInputs(page: Page) {
   return page.locator('input[aria-label$="的媒体 URL"]');
@@ -1673,9 +1790,20 @@ test.describe("Scoped media + gallery driver", () => {
     const stopErrors = trackBrowserErrors(page);
     const before = await adminProduct(COLOR_SIZE_SLUG);
     const beforeSignature = scopeSignature(before);
+    const beforePackageInventory = packageInventoryState(before);
+    const beforeCore = {
+      id: before.id,
+      slug: before.slug,
+      name: before.name,
+      status: before.status,
+      categoryId: before.categoryId,
+      tagline: before.tagline,
+    };
     const colorOption = optionByName(before, "Color");
+    const sizeOption = optionByName(before, "Size");
     const blueValue = valueByLabel(colorOption, "Blue");
     const redValue = valueByLabel(colorOption, "Red");
+    const sizeSmall = valueByLabel(sizeOption, "Small");
     const blueSmall = variantByName(before, "Blue / Small");
     let primaryError: unknown = null;
 
@@ -1683,40 +1811,142 @@ test.describe("Scoped media + gallery driver", () => {
       await openEditor(page, COLOR_SIZE_SLUG);
       await selectTab(page, "media");
 
-      // --- A. driver switching (draft only, never saved) --------------------
-      const driver = page.getByLabel(ZH.driverSelect, { exact: true });
-      await expect(driver).toBeVisible();
-      await driver.selectOption({ label: "Color" });
-      await expect(page.getByText(ZH.sharedGallery).first()).toBeVisible();
-      expect(await scopedMediaUrlInputs(page).count()).toBe(2); // Red 1 + Blue 1
-      await expect(page.locator("summary").filter({ hasText: ZH.inactiveTitle })).toHaveCount(0);
-
-      // Hand the gallery to Size (which has no media of its own).
-      await driver.selectOption({ label: "Size" });
-      await expect(page.getByText(ZH.noValueMedia).first()).toBeVisible();
-
-      // The old rows are NOT dropped: they move to the inactive-scope section.
-      const inactive = page.locator("details").filter({ hasText: ZH.inactiveTitle }).first();
-      await expect(inactive).toBeVisible();
-      await inactive.locator("summary").click();
-      await expect(
-        inactive.getByText(ZH.inactiveSource("Color", "Red"), { exact: true }),
-      ).toBeVisible();
-      await expect(
-        inactive.getByText(ZH.inactiveSource("Color", "Blue"), { exact: true }),
-      ).toBeVisible();
-      await expect(inactive.getByText("1 项媒体")).toHaveCount(2);
-
-      // Switching back restores them as active scopes (still never merged).
-      await driver.selectOption({ label: "Color" });
-      expect(await scopedMediaUrlInputs(page).count()).toBe(2);
-      await expect(page.locator("summary").filter({ hasText: ZH.inactiveTitle })).toHaveCount(0);
-      await expect(page.getByLabel("Red 1 的媒体 URL", { exact: true })).toHaveValue(
-        RED_VALUE_URL,
+      const sharedHeading = page.getByRole("heading", {
+        name: ZH.sharedGallery,
+        exact: true,
+      });
+      const sharedSection = sharedHeading.locator("xpath=ancestor::section[1]");
+      const sharedList = page.getByRole("list", { name: ZH.sharedCards });
+      const driverGroup = page.getByRole("group", { name: ZH.driverGroup });
+      const redScopeSummary = page.getByLabel(
+        ZH.scopeSummary("Color", "Red"),
+        { exact: true },
       );
-      await expect(page.getByLabel("Blue 1 的媒体 URL", { exact: true })).toHaveValue(
-        BLUE_VALUE_URL,
+      const blueScopeSummary = page.getByLabel(
+        ZH.scopeSummary("Color", "Blue"),
+        { exact: true },
       );
+      const redSmallSummary = page.getByLabel(
+        ZH.exactSummary("Red / Small"),
+        { exact: true },
+      );
+      const detailHeading = page.getByRole("heading", {
+        name: ZH.detailTitle,
+        exact: true,
+      });
+      const detailSection = detailHeading.locator("xpath=ancestor::section[1]");
+
+      // --- A. responsive, factual workspace summaries ------------------------
+      for (const viewport of [
+        { width: 375, height: 812, label: "mobile-375" },
+        { width: 768, height: 1024, label: "tablet-768" },
+        { width: 1440, height: 900, label: "desktop-1440" },
+        { width: 1920, height: 1080, label: "wide-1920" },
+      ]) {
+        await page.setViewportSize(viewport);
+        await expect(sharedList).toBeVisible();
+        const card = sharedList.getByRole("listitem").first();
+        const box = await card.boundingBox();
+        expect(box, `${viewport.label}: shared card box`).not.toBeNull();
+        expect(box!.width, `${viewport.label}: shared card minimum`).toBeGreaterThanOrEqual(139);
+        expect(box!.width, `${viewport.label}: shared card maximum`).toBeLessThanOrEqual(161);
+
+        const addShared = page.getByRole("button", { name: "添加图片", exact: true });
+        expect(
+          await addShared.locator("xpath=..").evaluate((node) =>
+            getComputedStyle(node).flexWrap,
+          ),
+          `${viewport.label}: shared action toolbar wraps`,
+        ).toBe("wrap");
+        await addShared.scrollIntoViewIfNeeded();
+        await assertElementNotCovered(addShared, `${viewport.label}: add shared image`);
+        await assertNoPageOverflow(page, viewport.label);
+
+        if (viewport.width === 375) {
+          await page.screenshot({
+            path: "screenshots/phase-product-media-ux-mobile-375.png",
+            fullPage: true,
+          });
+        }
+      }
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await sharedHeading.scrollIntoViewIfNeeded();
+      await expect(sharedSection.getByText(ZH.sharedRows(1), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText(ZH.sharedUsable(1), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText(ZH.sharedImages(1), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText(ZH.sharedVideos(0), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText(ZH.summaryAlt(1, 1), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText("顺序 1", { exact: true })).toBeVisible();
+      await sharedSection.screenshot({
+        path: "screenshots/phase-product-media-ux-shared-1440.png",
+      });
+
+      for (const name of [ZH.driverShared, "Color", "Size"]) {
+        await expect(
+          driverGroup.getByRole("button", { name, exact: true }),
+        ).toContainText(ZH.driverAffected(4));
+      }
+      await expect(
+        driverGroup.getByRole("button", { name: "Color", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await expect(redScopeSummary).toContainText(ZH.scopeActive);
+      await expect(redScopeSummary).toContainText(ZH.sharedRows(1));
+      await expect(redScopeSummary).toContainText(ZH.sharedUsable(1));
+      await expect(blueScopeSummary).toContainText(ZH.scopeActive);
+      await expect(redSmallSummary).toContainText(ZH.exactSourceValue("Red", 1));
+      await expect(redSmallSummary.locator("xpath=ancestor::details[1]")).not.toHaveAttribute(
+        "open",
+        "",
+      );
+
+      await expect(detailSection.getByText(ZH.detailExplanation, { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.sharedRows(4), { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.sharedImages(4), { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.sharedVideos(0), { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.summaryAlt(4, 4), { exact: true })).toBeVisible();
+      await expect(page.getByRole("list", { name: ZH.detailBlocks })).toBeVisible();
+
+      // Add a second shared row and move it to the cover position. This is still
+      // the controlled shared line — no scoped/detail row is touched.
+      await page.getByRole("button", { name: "添加图片", exact: true }).click();
+      await page.getByLabel("媒体 2 的网址", { exact: true }).fill(SHARED_MEDIA_URL);
+      await page.getByLabel("媒体 2 的 Alt 文本", { exact: true }).fill("E2E shared added");
+      await page.getByRole("button", { name: "将媒体 2 左移", exact: true }).click();
+      await expect(sharedSection.getByText(ZH.sharedRows(2), { exact: true })).toBeVisible();
+      await expect(sharedSection.getByText("顺序 2", { exact: true })).toBeVisible();
+
+      // Hand the gallery to Size. Color rows remain visible as inactive legacy
+      // scopes, and before a Size scope exists every variant falls back to the
+      // two-row shared gallery.
+      await driverGroup.getByRole("button", { name: "Size", exact: true }).click();
+      await expect(
+        driverGroup.getByRole("button", { name: "Size", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await expect(redScopeSummary).toContainText(ZH.scopeInactive);
+      await expect(blueScopeSummary).toContainText(ZH.scopeInactive);
+      await expect(redSmallSummary).toContainText(ZH.exactSourceShared(2));
+
+      // Inactive rows are still editable; switching the driver never drops them.
+      await redScopeSummary.click();
+      await page
+        .getByLabel("Red 1 的 Alt 文本", { exact: true })
+        .fill("Red scope preserved E2E");
+
+      // Add the active Size / Small gallery, making the resolver summary move
+      // from Shared to the active driver value without changing persistence code.
+      const sizeSmallSummary = page.getByLabel(
+        ZH.scopeSummary("Size", "Small"),
+        { exact: true },
+      );
+      await sizeSmallSummary.click();
+      await page.getByRole("button", { name: ZH.addValueMedia("Small") }).click();
+      await page.getByLabel("Small 1 的媒体 URL", { exact: true }).fill(VALUE_MEDIA_URL);
+      await page.getByLabel("Small 1 的 Alt 文本", { exact: true }).fill("Size Small E2E");
+      await expect(redSmallSummary).toContainText(ZH.exactSourceValue("Small", 1));
+      await page.locator("#pf-panel-media").screenshot({
+        path: "screenshots/phase-product-media-ux-driver-values-1440.png",
+      });
 
       // --- B. the selector thumbnail is a distinct field --------------------
       await selectTab(page, "variants");
@@ -1736,32 +1966,62 @@ test.describe("Scoped media + gallery driver", () => {
         fullPage: true,
       });
 
-      // --- C. scoped media edits -------------------------------------------
+      // --- C. exact override + PDP detail edits ------------------------------
       await selectTab(page, "media");
       expect(
         await scopedMediaUrlInputs(page).count(),
         "the selector thumbnail is not a gallery row",
-      ).toBe(2);
+      ).toBe(3); // inactive Red/Blue + active Size/Small
       await expect(
         page.locator(`input[aria-label$="的媒体 URL"][value="${THUMBNAIL_URL}"]`),
       ).toHaveCount(0);
 
-      await page.getByRole("button", { name: ZH.addValueMedia("Blue") }).click();
-      const blueValueUrl = page.getByLabel("Blue 2 的媒体 URL", { exact: true });
-      await expect(blueValueUrl).toBeVisible();
-      await blueValueUrl.fill(VALUE_MEDIA_URL);
-
-      await page.locator("summary").filter({ hasText: ZH.exactTitle }).first().click();
-      await page
-        .getByLabel(ZH.targetVariant, { exact: true })
-        .selectOption({ label: "Blue / Small" });
-      await page.getByRole("button", { name: ZH.addVariantMedia }).click();
-      const variantUrl = page.getByLabel("Blue / Small 1 的媒体 URL", { exact: true });
+      const blueSmallSummary = page.getByLabel(
+        ZH.exactSummary("Blue / Small"),
+        { exact: true },
+      );
+      await expect(blueSmallSummary).toContainText(
+        ZH.exactSourceValue("Small", 1),
+      );
+      await blueSmallSummary.click();
+      const blueSmallDetails = blueSmallSummary.locator(
+        "xpath=ancestor::details[1]",
+      );
+      await expect(blueSmallDetails).toHaveAttribute("open", "");
+      await blueSmallDetails
+        .getByRole("button", { name: ZH.addVariantMedia })
+        .click();
+      const variantUrl = page.getByLabel("Blue / Small 1 的媒体 URL", {
+        exact: true,
+      });
       await expect(variantUrl).toBeVisible();
       await variantUrl.fill(VARIANT_MEDIA_URL);
+      await page
+        .getByLabel("Blue / Small 1 的 Alt 文本", { exact: true })
+        .fill("Blue Small exact E2E");
+      await expect(blueSmallSummary).toContainText(ZH.exactSourceExact(1));
       expect(await scopedMediaUrlInputs(page).count()).toBe(4);
 
-      // Save.
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await blueSmallSummary.scrollIntoViewIfNeeded();
+      await blueSmallSummary
+        .locator("xpath=ancestor::section[1]")
+        .screenshot({ path: "screenshots/phase-product-media-ux-exact-1920.png" });
+
+      // Reorder the separately-owned PDP detail blocks and edit the moved row.
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page
+        .getByRole("button", { name: "将详情块 2 上移", exact: true })
+        .click();
+      await page
+        .getByLabel("详情块 1 的 Alt 文本", { exact: true })
+        .fill("PDP detail second E2E");
+      await detailHeading.scrollIntoViewIfNeeded();
+      await detailSection.screenshot({
+        path: "screenshots/phase-product-media-ux-detail-1440.png",
+      });
+
+      // Save all three controlled media lines together.
       await page.locator(SAVE_BUTTON).click();
       await expect(page.getByText(ZH.saved)).toBeVisible({ timeout: 30_000 });
 
@@ -1769,7 +2029,21 @@ test.describe("Scoped media + gallery driver", () => {
       const saved = await adminProduct(COLOR_SIZE_SLUG);
       const media = saved.media ?? [];
 
-      // XOR: no media row ever carries both scopes.
+      // Versioning and unrelated write domains remain untouched.
+      expect(saved.catalogGraphVersion).toBeGreaterThan(before.catalogGraphVersion);
+      expect({
+        id: saved.id,
+        slug: saved.slug,
+        name: saved.name,
+        status: saved.status,
+        categoryId: saved.categoryId,
+        tagline: saved.tagline,
+      }).toEqual(beforeCore);
+      expect(packageInventoryState(saved)).toEqual(beforePackageInventory);
+      expect(optionByName(saved, "Size").isMediaDriver).toBe(true);
+      expect(optionByName(saved, "Color").isMediaDriver).toBe(false);
+
+      // XOR: no graph-media row ever carries both scopes.
       for (const row of media) {
         expect(
           [row.optionValueId, row.variantId].filter((value) => value !== null).length,
@@ -1777,78 +2051,111 @@ test.describe("Scoped media + gallery driver", () => {
         ).toBeLessThanOrEqual(1);
       }
 
+      const sharedRow = media.find((row) => row.url === SHARED_MEDIA_URL);
+      expect(sharedRow, "the reordered shared row persisted").toBeTruthy();
+      expect(sharedRow!.optionValueId).toBeNull();
+      expect(sharedRow!.variantId).toBeNull();
+
       const valueRow = media.find((row) => row.url === VALUE_MEDIA_URL);
       expect(valueRow, "the new option-value media row persisted").toBeTruthy();
-      expect(valueRow!.optionValueId).toBe(blueValue.id);
+      expect(valueRow!.optionValueId).toBe(sizeSmall.id);
       expect(valueRow!.variantId).toBeNull();
 
       const variantRow = media.find((row) => row.url === VARIANT_MEDIA_URL);
       expect(variantRow, "the new exact-variant media row persisted").toBeTruthy();
       expect(variantRow!.variantId).toBe(blueSmall.id);
       expect(variantRow!.optionValueId).toBeNull();
+      expect(new Set([sharedRow!.id, valueRow!.id, variantRow!.id]).size).toBe(3);
+      for (const row of [sharedRow!, valueRow!, variantRow!]) {
+        expect(row.id, `client key adopted for ${row.url}`).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      }
 
-      // Not merged: two distinct rows, and the pre-existing value scopes are
-      // untouched by the exact-variant override.
-      expect(valueRow!.id).not.toBe(variantRow!.id);
+      // Every pre-existing graph row kept its persisted identity, including the
+      // Color scopes that became inactive when Size was selected.
+      for (const original of before.media ?? []) {
+        expect(
+          media.find((row) => row.id === original.id),
+          `preserved media id ${original.id}`,
+        ).toBeTruthy();
+      }
       const redRow = media.find((row) => row.url === RED_VALUE_URL);
-      expect(redRow!.optionValueId).toBe(redValue.id);
-      expect(redRow!.variantId).toBeNull();
+      const blueRow = media.find((row) => row.url === BLUE_VALUE_URL);
+      expect(redRow).toMatchObject({
+        id: (before.media ?? []).find((row) => row.url === RED_VALUE_URL)?.id,
+        optionValueId: redValue.id,
+        variantId: null,
+        altText: "Red scope preserved E2E",
+      });
+      expect(blueRow).toMatchObject({
+        id: (before.media ?? []).find((row) => row.url === BLUE_VALUE_URL)?.id,
+        optionValueId: blueValue.id,
+        variantId: null,
+      });
 
       expect(scopeSignature(saved)).toEqual(
         [
           ...beforeSignature,
-          `value:${blueValue.id}|${VALUE_MEDIA_URL}`,
+          `shared|${SHARED_MEDIA_URL}`,
+          `value:${sizeSmall.id}|${VALUE_MEDIA_URL}`,
           `variant:${blueSmall.id}|${VARIANT_MEDIA_URL}`,
         ].sort(),
       );
-      // The thumbnail round-tripped as an option-value field, not as media.
+      expect(media).toHaveLength((before.media ?? []).length + 3);
+
+      // Every scope is dense independently after reorder/add operations.
+      const ordersByScope = new Map<string, number[]>();
+      for (const row of media) {
+        const scope = row.optionValueId
+          ? `value:${row.optionValueId}`
+          : row.variantId
+            ? `variant:${row.variantId}`
+            : "shared";
+        const orders = ordersByScope.get(scope) ?? [];
+        orders.push(row.sortOrder);
+        ordersByScope.set(scope, orders);
+      }
+      for (const [scope, orders] of ordersByScope) {
+        expect(
+          [...orders].sort((left, right) => left - right),
+          `${scope} has dense sort orders`,
+        ).toEqual(orders.map((_, index) => index));
+      }
+
+      // Shared rows round-trip through Product.images only; detail rows retain
+      // their own order/fields and never acquire graph scope or gallery entries.
+      expect(saved.images.map((row) => row.url)).toEqual([
+        SHARED_MEDIA_URL,
+        before.images[0]!.url,
+      ]);
+      const expectedDetails = [
+        before.detailBlocks[1]!,
+        before.detailBlocks[0]!,
+        ...before.detailBlocks.slice(2),
+      ].map((block, index) => ({
+        type: block.type,
+        url: block.url,
+        altText: index === 0 ? "PDP detail second E2E" : block.altText,
+        sortOrder: index,
+      }));
+      expect(
+        saved.detailBlocks.map(({ type, url, altText, sortOrder }) => ({
+          type,
+          url,
+          altText,
+          sortOrder,
+        })),
+      ).toEqual(expectedDetails);
+      expect(media.filter((row) => row.altText === "PDP detail second E2E")).toEqual([]);
+      expect(saved.images.filter((row) => row.altText === "PDP detail second E2E")).toEqual([]);
+
+      // The selector thumbnail remains an option-value field, never a gallery row.
       expect(valueByLabel(optionByName(saved, "Color"), "Red").thumbnailUrl).toBe(
         THUMBNAIL_URL,
       );
       expect(optionByName(saved, "Color").presentation).toBe("IMAGE");
-      // ...and it did NOT become gallery media: only the two rows we added.
-      expect(media).toHaveLength((before.media ?? []).length + 2);
-      expect(
-        media.filter((row) => row.url === THUMBNAIL_URL),
-        "the selector thumbnail never becomes a gallery row",
-      ).toEqual([]);
-
-      // --- E. restore through the same UI -----------------------------------
-      await selectTab(page, "variants");
-      // Clear the thumbnail FIRST: switching back to SWATCH hides the field,
-      // and a hidden-but-set thumbnail would still be written by the save.
-      await page.getByLabel(ZH.thumbnail, { exact: true }).fill("");
-      await page
-        .getByLabel(ZH.presentation, { exact: true })
-        .selectOption({ label: ZH.presentationSwatch });
-      await selectTab(page, "media");
-      await mediaRow(page, "Blue 2 的媒体 URL")
-        .getByRole("button", { name: ZH.removeMedia })
-        .click();
-      await page.locator("summary").filter({ hasText: ZH.exactTitle }).first().click();
-      // The target-variant picker falls back to the first variant on remount,
-      // so re-select the variant that owns the override before removing it.
-      await page
-        .getByLabel(ZH.targetVariant, { exact: true })
-        .selectOption({ label: "Blue / Small" });
-      await mediaRow(page, "Blue / Small 1 的媒体 URL")
-        .getByRole("button", { name: ZH.removeMedia })
-        .click();
-      expect(await scopedMediaUrlInputs(page).count()).toBe(2);
-
-      await page.locator(SAVE_BUTTON).click();
-      await expect(page.getByText(ZH.saved)).toBeVisible({ timeout: 30_000 });
-
-      const restored = await adminProduct(COLOR_SIZE_SLUG);
-      expect(scopeSignature(restored), "the fixture is back to its seeded scopes").toEqual(
-        beforeSignature,
-      );
-      expect(optionByName(restored, "Color").presentation).toBe(
-        colorOption.presentation,
-      );
-      expect(valueByLabel(optionByName(restored, "Color"), "Red").thumbnailUrl).toBe(
-        redValue.thumbnailUrl,
-      );
+      expect(media.filter((row) => row.url === THUMBNAIL_URL)).toEqual([]);
 
       await stopErrors();
     } catch (error) {
@@ -1909,8 +2216,9 @@ test.describe("Problem rail and patch validity", () => {
       // --- A. driver switch: a scalar-only option change must save ----------
       await selectTab(page, "media");
       await page
-        .getByLabel(ZH.driverSelect, { exact: true })
-        .selectOption({ label: "Size" });
+        .getByRole("group", { name: ZH.driverGroup })
+        .getByRole("button", { name: "Size", exact: true })
+        .click();
       await page.locator(SAVE_BUTTON).click();
       await expect(page.getByText(ZH.saved)).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("#pf-problem-rail")).toHaveCount(0);

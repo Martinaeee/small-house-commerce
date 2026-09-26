@@ -30,6 +30,18 @@ function belongsToImage(highlightKey: string | null, index: number): boolean {
   );
 }
 
+function indexAfterMove(
+  current: number | null,
+  from: number,
+  to: number,
+): number | null {
+  if (current === null || from === to) return current;
+  if (current === from) return to;
+  if (from < to && current > from && current <= to) return current - 1;
+  if (from > to && current >= to && current < from) return current + 1;
+  return current;
+}
+
 /**
  * Controlled editor for the product's default gallery. The form owns every
  * row and every mutation; this workspace keeps only which card is expanded
@@ -138,8 +150,12 @@ export function SharedMediaWorkspace({
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
-                  if (!pending && dragFrom.current !== null) {
-                    onReorder(dragFrom.current, index);
+                  const from = dragFrom.current;
+                  if (!pending && from !== null) {
+                    setActiveIndex((current) =>
+                      indexAfterMove(current, from, index),
+                    );
+                    onReorder(from, index);
                   }
                   dragFrom.current = null;
                 }}
@@ -222,7 +238,12 @@ export function SharedMediaWorkspace({
                       <button
                         type="button"
                         className={compactActionCls}
-                        onClick={() => onMove(index, -1)}
+                        onClick={() => {
+                          setActiveIndex((current) =>
+                            indexAfterMove(current, index, index - 1),
+                          );
+                          onMove(index, -1);
+                        }}
                         disabled={pending || index === 0}
                         aria-label={t("product_media_move_left", {
                           number: index + 1,
@@ -233,7 +254,12 @@ export function SharedMediaWorkspace({
                       <button
                         type="button"
                         className={compactActionCls}
-                        onClick={() => onMove(index, 1)}
+                        onClick={() => {
+                          setActiveIndex((current) =>
+                            indexAfterMove(current, index, index + 1),
+                          );
+                          onMove(index, 1);
+                        }}
                         disabled={pending || index === images.length - 1}
                         aria-label={t("product_media_move_right", {
                           number: index + 1,
@@ -245,7 +271,12 @@ export function SharedMediaWorkspace({
                     {!isCover ? (
                       <button
                         type="button"
-                        onClick={() => onSetCover(index)}
+                        onClick={() => {
+                          setActiveIndex((current) =>
+                            indexAfterMove(current, index, 0),
+                          );
+                          onSetCover(index);
+                        }}
                         disabled={pending}
                         className="text-[11px] font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
                       >
@@ -256,7 +287,11 @@ export function SharedMediaWorkspace({
                       type="button"
                       className={compactActionCls}
                       onClick={() => {
-                        setActiveIndex(null);
+                        setActiveIndex((current) => {
+                          if (current === null) return null;
+                          if (current === index) return null;
+                          return current > index ? current - 1 : current;
+                        });
                         onRemove(index);
                       }}
                       disabled={pending}

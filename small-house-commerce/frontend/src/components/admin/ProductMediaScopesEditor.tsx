@@ -75,22 +75,32 @@ function variantSemanticKey(
     : `variant:${variant.position}:${variant.name.trim()}`;
 }
 
+interface SharedSummaryMediaRow
+  extends Pick<AdminMediaDraft, "url" | "type" | "altText"> {
+  id?: string;
+  clientKey?: string;
+}
+
 export function ProductMediaScopesEditor({
   draft,
+  sharedMedia = null,
   onChange,
   pending = false,
   highlightKey = null,
 }: {
   draft: AdminCatalogGraphDraft;
+  sharedMedia?: readonly SharedSummaryMediaRow[] | null;
   onChange: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
   /** Media row the problem rail asked to highlight. */
   highlightKey?: string | null;
 }): ReactNode {
   const { t } = useAdminI18n();
-  const shared = draft.media.filter(
+  const persistedShared = draft.media.filter(
     (row) => row.optionValueRef === null && row.variantRef === null,
   );
+  const shared: readonly SharedSummaryMediaRow[] =
+    sharedMedia ?? persistedShared;
   const activeOptions = draft.options.filter((option) => option.isActive);
   const activeDriver = activeOptions.find((option) => option.isMediaDriver);
   const [selectedVariant, setSelectedVariant] = useState("");
@@ -377,9 +387,11 @@ export function ProductMediaScopesEditor({
         </p>
         {shared.length > 0 ? (
           <ul className="mt-2 flex flex-wrap gap-2">
-            {shared.map((row) => (
+            {shared
+              .filter((row) => row.url.trim() !== "")
+              .map((row, index) => (
               <li
-                key={row.id ?? row.clientKey}
+                key={row.id ?? row.clientKey ?? `shared-${index}-${row.url}`}
                 className="overflow-hidden rounded-lg border border-border bg-card"
               >
                 {row.type === "VIDEO" ? (
@@ -579,7 +591,11 @@ export function ProductMediaScopesEditor({
             {variantSelections.map(({ key, variant }) => {
               const variantKey = rowKey(variant);
               const rows = rowsForVariant(variantKey);
-              const resolution = summarizeVariantMediaResolution(draft, variant);
+              const resolution = summarizeVariantMediaResolution(
+                draft,
+                variant,
+                shared,
+              );
               let sourceLabel: string;
               if (resolution.source === "EXACT") {
                 sourceLabel = t("product_media_exact_source_exact", {
