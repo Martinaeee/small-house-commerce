@@ -3,11 +3,19 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { ViewportVideo } from "./ViewportVideo";
 import { resetViewportPlaybackForTests } from "@/lib/viewport-video-coordinator";
 
-let observerCallback: IntersectionObserverCallback;
+interface ObserverRecord {
+  callback: IntersectionObserverCallback;
+  options?: IntersectionObserverInit;
+}
+
+let observers: ObserverRecord[] = [];
 
 class IntersectionObserverMock {
-  constructor(callback: IntersectionObserverCallback) {
-    observerCallback = callback;
+  constructor(
+    callback: IntersectionObserverCallback,
+    options?: IntersectionObserverInit,
+  ) {
+    observers.push({ callback, options });
   }
   observe = vi.fn();
   unobserve = vi.fn();
@@ -45,13 +53,21 @@ function setSaveData(saveData: boolean): void {
   });
 }
 
-function enterViewport(video: HTMLVideoElement, ratio = 0.8): void {
+function intersect(
+  video: HTMLVideoElement,
+  rootMargin: string,
+  ratio = 0.8,
+): void {
+  const observer = [...observers]
+    .reverse()
+    .find((record) => (record.options?.rootMargin ?? "0px") === rootMargin);
+  if (!observer) throw new Error(`Missing observer with rootMargin ${rootMargin}`);
   act(() => {
-    observerCallback(
+    observer.callback(
       [
         {
           target: video,
-          isIntersecting: true,
+          isIntersecting: ratio > 0,
           intersectionRatio: ratio,
         } as unknown as IntersectionObserverEntry,
       ],
@@ -60,7 +76,25 @@ function enterViewport(video: HTMLVideoElement, ratio = 0.8): void {
   });
 }
 
+function enterViewport(video: HTMLVideoElement, ratio = 0.8): void {
+  for (const observer of observers) {
+    act(() => {
+      observer.callback(
+        [
+          {
+            target: video,
+            isIntersecting: true,
+            intersectionRatio: ratio,
+          } as unknown as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+    });
+  }
+}
+
 beforeEach(() => {
+  observers = [];
   vi.stubGlobal("IntersectionObserver", IntersectionObserverMock);
   setMotionPreference(false);
   setSaveData(false);
@@ -103,6 +137,34 @@ describe("ViewportVideo", () => {
     );
   });
 
+  it("preloads near the viewport but waits for actual visibility to autoplay", async () => {
+    render(
+      <ViewportVideo
+        src="/teaser.mp4"
+        mode="TEASER"
+        ariaLabel="Product teaser"
+      />,
+    );
+    const video = screen.getByLabelText("Product teaser") as HTMLVideoElement;
+
+    intersect(video, "320px 0px");
+
+    await waitFor(() => expect(video).toHaveAttribute("src", "/teaser.mp4"));
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+
+    intersect(video, "0px");
+
+    await waitFor(() =>
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1),
+    );
+
+    intersect(video, "0px", 0);
+
+    await waitFor(() =>
+      expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1),
+    );
+  });
+
   it.each([
     ["reduced motion", true, false],
     ["Save-Data", false, true],
@@ -122,6 +184,21 @@ describe("ViewportVideo", () => {
 
     await waitFor(() => expect(video).toHaveAttribute("src", "/detail.mp4"));
     expect(video).toHaveAttribute("preload", "none");
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  });
+
+  it("loads without autoplay when viewport observation is unavailable", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    render(
+      <ViewportVideo
+        src="/detail.mp4"
+        mode="CONTENT"
+        ariaLabel="Detail video"
+      />,
+    );
+    const video = screen.getByLabelText("Detail video");
+
+    await waitFor(() => expect(video).toHaveAttribute("src", "/detail.mp4"));
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
   });
 

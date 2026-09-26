@@ -109,15 +109,35 @@ export function ViewportVideo({
     }
     const observer = new IntersectionObserver(
       ([entry]) => {
+        if (entry?.isIntersecting) setSourceEnabled(true);
+      },
+      { rootMargin: "320px 0px", threshold: 0 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [autoplayMode]);
+
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element || !autoplayMode) return;
+    if (typeof IntersectionObserver === "undefined") {
+      intersectionRatioRef.current = 0;
+      registrationRef.current?.update({
+        eligible: false,
+        intersectionRatio: 0,
+      });
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
         const ratio = entry?.isIntersecting ? entry.intersectionRatio : 0;
         intersectionRatioRef.current = ratio;
-        if (entry?.isIntersecting) setSourceEnabled(true);
         registrationRef.current?.update({
           eligible: sourceEnabled && autoplayAllowed,
           intersectionRatio: ratio,
         });
       },
-      { rootMargin: "320px 0px", threshold: [0, 0.25, 0.6] },
+      { rootMargin: "0px", threshold: [0, 0.25, 0.6] },
     );
     observer.observe(element);
     return () => observer.disconnect();

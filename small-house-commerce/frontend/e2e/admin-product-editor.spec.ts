@@ -1891,10 +1891,13 @@ test.describe("Scoped media + gallery driver", () => {
         driverGroup.getByRole("button", { name: "Color", exact: true }),
       ).toHaveAttribute("aria-pressed", "true");
       await expect(redScopeSummary).toContainText(ZH.scopeActive);
-      await expect(redScopeSummary).toContainText(ZH.sharedRows(1));
-      await expect(redScopeSummary).toContainText(ZH.sharedUsable(1));
+      await expect(redScopeSummary).toContainText(ZH.sharedRows(2));
+      await expect(redScopeSummary).toContainText(ZH.sharedUsable(2));
+      await expect(redScopeSummary).toContainText(ZH.sharedImages(1));
+      await expect(redScopeSummary).toContainText(ZH.sharedVideos(1));
+      await expect(redScopeSummary).toContainText(ZH.summaryAlt(2, 2));
       await expect(blueScopeSummary).toContainText(ZH.scopeActive);
-      await expect(redSmallSummary).toContainText(ZH.exactSourceValue("Red", 1));
+      await expect(redSmallSummary).toContainText(ZH.exactSourceValue("Red", 2));
       await expect(redSmallSummary.locator("xpath=ancestor::details[1]")).not.toHaveAttribute(
         "open",
         "",
@@ -1902,8 +1905,8 @@ test.describe("Scoped media + gallery driver", () => {
 
       await expect(detailSection.getByText(ZH.detailExplanation, { exact: true })).toBeVisible();
       await expect(detailSection.getByText(ZH.sharedRows(4), { exact: true })).toBeVisible();
-      await expect(detailSection.getByText(ZH.sharedImages(4), { exact: true })).toBeVisible();
-      await expect(detailSection.getByText(ZH.sharedVideos(0), { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.sharedImages(3), { exact: true })).toBeVisible();
+      await expect(detailSection.getByText(ZH.sharedVideos(1), { exact: true })).toBeVisible();
       await expect(detailSection.getByText(ZH.summaryAlt(4, 4), { exact: true })).toBeVisible();
       await expect(page.getByRole("list", { name: ZH.detailBlocks })).toBeVisible();
 
@@ -1971,7 +1974,7 @@ test.describe("Scoped media + gallery driver", () => {
       expect(
         await scopedMediaUrlInputs(page).count(),
         "the selector thumbnail is not a gallery row",
-      ).toBe(3); // inactive Red/Blue + active Size/Small
+      ).toBe(4); // inactive Red (image + video)/Blue + active Size/Small
       await expect(
         page.locator(`input[aria-label$="的媒体 URL"][value="${THUMBNAIL_URL}"]`),
       ).toHaveCount(0);
@@ -2000,7 +2003,7 @@ test.describe("Scoped media + gallery driver", () => {
         .getByLabel("Blue / Small 1 的 Alt 文本", { exact: true })
         .fill("Blue Small exact E2E");
       await expect(blueSmallSummary).toContainText(ZH.exactSourceExact(1));
-      expect(await scopedMediaUrlInputs(page).count()).toBe(4);
+      expect(await scopedMediaUrlInputs(page).count()).toBe(5);
 
       await page.setViewportSize({ width: 1920, height: 1080 });
       await blueSmallSummary.scrollIntoViewIfNeeded();

@@ -95,6 +95,8 @@ const CATEGORY_SLUG = 'e2e-catalog';
 const LP_SLUG = 'e2e-lp-color-size';
 const PDP_SLUG = 'e2e-color-size';
 const RELATED_OOS_SLUG = 'e2e-related-oos';
+const PDP_VIDEO_URL = '/e2e/product-video.webm';
+const PDP_GALLERY_VIDEO_ID = '00000000-0000-7000-8000-000000000005';
 
 const PDP_DETAIL_BLOCKS = [
   {
@@ -120,8 +122,8 @@ const PDP_DETAIL_BLOCKS = [
   },
   {
     id: '00000000-0000-7000-8000-000000000004',
-    type: 'IMAGE' as const,
-    url: '/uploads/e2e/legacy-shared-1.svg',
+    type: 'VIDEO' as const,
+    url: PDP_VIDEO_URL,
     altText: 'PDP detail fourth',
     sortOrder: 30,
   },
@@ -626,6 +628,38 @@ async function ensurePdpUxFixtures(
       `PDP UX fixture expected one active Color option, found ${canonicalDriver.count}.`,
     );
   }
+  const redValue = await ctx.prisma.productOptionValue.findFirst({
+    where: {
+      option: { productId: product.id, name: 'Color' },
+      label: 'Red',
+      isActive: true,
+    },
+    select: { id: true },
+  });
+  if (!redValue) {
+    throw new Error('PDP video fixture requires the active Red option value.');
+  }
+  await ctx.prisma.productImage.upsert({
+    where: { id: PDP_GALLERY_VIDEO_ID },
+    create: {
+      id: PDP_GALLERY_VIDEO_ID,
+      productId: product.id,
+      optionValueId: redValue.id,
+      url: PDP_VIDEO_URL,
+      type: 'VIDEO',
+      altText: 'PDP gallery video',
+      sortOrder: 1,
+    },
+    update: {
+      productId: product.id,
+      optionValueId: redValue.id,
+      variantId: null,
+      url: PDP_VIDEO_URL,
+      type: 'VIDEO',
+      altText: 'PDP gallery video',
+      sortOrder: 1,
+    },
+  });
   const canonicalDetailIds = PDP_DETAIL_BLOCKS.map((block) => block.id);
   await ctx.prisma.productDetailBlock.deleteMany({
     where: {

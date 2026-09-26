@@ -309,16 +309,19 @@ test.describe("PDP UX Phase 1", () => {
       await renderedDetailMedia.evaluateAll((nodes) =>
         nodes.map((node) => {
           if (node instanceof HTMLVideoElement) {
-            return new URL(node.querySelector("source")?.src ?? "").pathname;
+            return (
+              node.dataset.videoSource ??
+              new URL(node.currentSrc || node.src).pathname
+            );
           }
           return new URL((node as HTMLImageElement).src).pathname;
         }),
       ),
     ).toEqual(validBlocks.map((block) => block.url));
     for (const block of validBlocks) {
-      await expect(page.getByText(block.altText ?? "", { exact: true })).toHaveCount(
-        block.type === "VIDEO" ? 1 : 0,
-      );
+      await expect(
+        page.locator(`video[aria-label="${block.altText}"]`),
+      ).toHaveCount(block.type === "VIDEO" ? 1 : 0);
       await expect(page.locator(`img[alt="${block.altText}"]`)).toHaveCount(
         block.type === "IMAGE" ? 1 : 0,
       );

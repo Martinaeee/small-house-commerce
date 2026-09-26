@@ -62,6 +62,7 @@ const productCache = new Map<string, ProductJson>();
 // --- admin API helpers (direct backend calls) ---------------------------------
 
 let adminToken: string | null = null;
+let adminRefreshToken: string | null = null;
 async function withAdminToken<T>(
   run: (
     token: string,
@@ -75,7 +76,12 @@ async function withAdminToken<T>(
         data: { email: E2E_ADMIN_EMAIL, password: E2E_ADMIN_PASSWORD },
       });
       expect(login.ok(), "admin API login").toBeTruthy();
-      adminToken = ((await login.json()) as { accessToken: string }).accessToken;
+      const body = (await login.json()) as {
+        accessToken: string;
+        refreshToken: string;
+      };
+      adminToken = body.accessToken;
+      adminRefreshToken = body.refreshToken;
     }
     return await run(adminToken, context);
   } finally {
@@ -727,7 +733,8 @@ test.describe("Exact scoped-media override", () => {
       await renderedDetails.evaluateAll((nodes) =>
         nodes.map((node) =>
           node instanceof HTMLVideoElement
-            ? new URL(node.querySelector("source")?.src ?? "").pathname
+            ? (node.dataset.videoSource ??
+              new URL(node.currentSrc || node.src).pathname)
             : new URL((node as HTMLImageElement).src).pathname,
         ),
       ),
@@ -773,16 +780,17 @@ test.describe("Admin typed editors", () => {
     let primaryError: unknown = null;
 
     try {
-      // UI login (the admin refresh-token flow), then resolve the product id
-      // through the admin API with the same credentials.
-      await goto(page, "/admin/login");
-      await page.locator("input[type=email]").fill(E2E_ADMIN_EMAIL);
-      await page.locator("input[type=password]").fill(E2E_ADMIN_PASSWORD);
-      await page.locator("button[type=submit]").click();
-      await expect(page).toHaveURL(/\/admin(?!\/login)/, { timeout: 30_000 });
+      // Reuse the direct API login's refresh token rather than spend another
+      // throttled /auth/login slot solely to open this typed editor.
+      if (adminRefreshToken === null) throw new Error("no cached admin session");
+      const refreshToken = adminRefreshToken;
+      await page.addInitScript((token) => {
+        window.localStorage.setItem("sh_admin_refresh", token);
+      }, refreshToken);
 
       const productId = await adminProductIdFor(SLUGS.colorSize);
       await goto(page, `/admin/products/${productId}/edit`);
+      await expect(page.getByRole("tablist")).toBeVisible();
 
       // Variants & Pricing tab: the typed editors own variants on typed products.
       await page
