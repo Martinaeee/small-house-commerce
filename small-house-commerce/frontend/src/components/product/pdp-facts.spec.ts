@@ -62,10 +62,10 @@ describe("pdpDimensionSummary", () => {
 });
 
 describe("pdpSolutionBadges", () => {
-  it("maps real solution tags to emoji selling points in canonical order", () => {
+  it("maps real solution tags to selling points in canonical order", () => {
     expect(pdpSolutionBadges({ solutions: ["MOBILE", "FOLDABLE"] })).toEqual([
-      { value: "FOLDABLE", emoji: "📦", label: "Foldable" },
-      { value: "MOBILE", emoji: "🔄", label: "Easy to Move" },
+      { value: "FOLDABLE", label: "Foldable" },
+      { value: "MOBILE", label: "Easy to Move" },
     ]);
   });
 

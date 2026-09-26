@@ -436,12 +436,16 @@ describe("PDP conversion hero", () => {
       buyRow,
     ]);
 
-    // Selling points are the real solution tags, rendered as emoji pills.
-    expect(within(sellingPoints).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(sellingPoints).getByText("Foldable")).toBeVisible();
-    expect(within(sellingPoints).getByText("Easy to Move")).toBeVisible();
+    // Selling points are the real solution tags, each with its own line icon.
+    const pills = within(sellingPoints).getAllByRole("listitem");
+    expect(pills).toHaveLength(2);
+    expect(pills[0]).toHaveTextContent("Foldable");
+    expect(pills[1]).toHaveTextContent("Easy to Move");
+    pills.forEach((pill) => expect(pill.querySelector("svg")).not.toBeNull());
+    expect(sellingPoints.textContent ?? "").not.toMatch(/\p{Extended_Pictographic}/u);
 
-    // One compact dimension line plus the size guide; no folded line in the hero.
+    // One compact dimension line with the size guide right beside it; no
+    // folded line and no framed card in the hero.
     expect(within(hero).getByTestId("pdp-dimensions-line")).toHaveTextContent(
       "Dimensions: 120 × 74 × 60 cm",
     );
@@ -449,9 +453,10 @@ describe("PDP conversion hero", () => {
     expect(
       within(hero).queryByRole("link", { name: "View full dimensions →" }),
     ).not.toBeInTheDocument();
-    expect(
-      within(hero).getByRole("button", { name: "Size guide" }),
-    ).toBeVisible();
+    expectDocumentOrder([
+      within(dimensions).getByTestId("pdp-dimensions-line"),
+      within(dimensions).getByRole("button", { name: "Size guide" }),
+    ]);
 
     // Service assurances sit inside the delivery card, beside the estimate.
     const delivery = within(hero).getByTestId("pdp-delivery");

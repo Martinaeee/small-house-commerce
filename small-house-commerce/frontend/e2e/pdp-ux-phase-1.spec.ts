@@ -233,12 +233,11 @@ test.describe("PDP UX Phase 1", () => {
     await expect(orderNow).toHaveText("CHOOSE OPTIONS");
     await expect(addToCart).toHaveText("CHOOSE OPTIONS");
 
-    // Selling points are the real solution tags, one emoji pill each.
+    // Selling points are the real solution tags, each with a line icon.
     const sellingPoints = hero.getByRole("list", { name: "Selling points" });
-    await expect(sellingPoints.getByRole("listitem")).toHaveText([
-      "📦Foldable",
-      "🔄Easy to Move",
-    ]);
+    const pills = sellingPoints.getByRole("listitem");
+    await expect(pills).toHaveText(["Foldable", "Easy to Move"]);
+    await expect(pills.locator("svg")).toHaveCount(2);
 
     // One compact dimension line plus the size-guide trigger; the folded line
     // lives in Specifications and the size guide, not in the hero.

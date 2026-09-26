@@ -36,6 +36,7 @@ import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { pdpDimensionSummary, pdpSolutionBadges } from "./pdp-facts";
+import { SolutionIcon } from "./pdp-solution-icons";
 
 function TruckGlyph() {
   return (
@@ -621,9 +622,9 @@ export function PdpClient({
               {sellingPoints.map((point) => (
                 <li
                   key={point.value}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-ink-secondary"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-ink"
                 >
-                  <span aria-hidden="true">{point.emoji}</span>
+                  <SolutionIcon value={point.value} />
                   {point.label}
                 </li>
               ))}
@@ -648,7 +649,7 @@ export function PdpClient({
           {hasDimensions && (
             <div
               data-testid="pdp-dimensions-summary"
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-card px-4 py-3 text-sm"
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
             >
               <p
                 data-testid="pdp-dimensions-line"
