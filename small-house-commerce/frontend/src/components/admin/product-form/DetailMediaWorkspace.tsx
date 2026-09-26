@@ -12,6 +12,7 @@ export interface DetailMediaWorkspaceProps {
   blocks: readonly DetailBlockFormValue[];
   pending: boolean;
   highlightKey?: string | null;
+  fieldErrors?: Readonly<Record<string, string>>;
   onPatch(index: number, patch: Partial<DetailBlockFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onRemove(index: number): void;
@@ -33,6 +34,7 @@ export function DetailMediaWorkspace({
   blocks,
   pending,
   highlightKey = null,
+  fieldErrors = {},
   onPatch,
   onMove,
   onRemove,
@@ -91,6 +93,7 @@ export function DetailMediaWorkspace({
           className="mt-4 flex flex-col gap-3"
         >
           {blocks.map((block, index) => {
+            const blockKey = `detailBlocks.${index}`;
             const highlighted = belongsToBlock(highlightKey, index);
             return (
               <li
@@ -102,7 +105,8 @@ export function DetailMediaWorkspace({
               >
                 <div
                   id={
-                    highlighted && highlightKey
+                    highlightKey === blockKey ||
+                    highlightKey === `${blockKey}.type`
                       ? `pf-row-${highlightKey}`
                       : undefined
                   }
@@ -136,10 +140,18 @@ export function DetailMediaWorkspace({
                   </Field>
                 </div>
 
-                <div className="min-w-0">
+                <div
+                  id={
+                    highlightKey === `${blockKey}.url`
+                      ? `pf-row-${highlightKey}`
+                      : undefined
+                  }
+                  className="min-w-0"
+                >
                   <Field
                     label={t("product_detail_url_label")}
                     htmlFor={`pf-detail-${index}-url`}
+                    error={fieldErrors[`${blockKey}.url`]}
                     hint={
                       block.type === "VIDEO"
                         ? t("product_detail_url_video_hint")
@@ -164,10 +176,18 @@ export function DetailMediaWorkspace({
                   </Field>
                 </div>
 
-                <div className="min-w-0">
+                <div
+                  id={
+                    highlightKey === `${blockKey}.altText`
+                      ? `pf-row-${highlightKey}`
+                      : undefined
+                  }
+                  className="min-w-0"
+                >
                   <Field
                     label={t("product_media_alt_label")}
                     htmlFor={`pf-detail-${index}-alt`}
+                    error={fieldErrors[`${blockKey}.altText`]}
                     hint={t("product_detail_alt_hint")}
                   >
                     <TextInput
@@ -185,7 +205,14 @@ export function DetailMediaWorkspace({
                   </Field>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1">
+                <div
+                  id={
+                    highlightKey === `${blockKey}.sortOrder`
+                      ? `pf-row-${highlightKey}`
+                      : undefined
+                  }
+                  className="flex flex-wrap items-center gap-1"
+                >
                   <button
                     type="button"
                     className={rowActionCls}
@@ -216,6 +243,14 @@ export function DetailMediaWorkspace({
                   >
                     {t("product_detail_remove")}
                   </button>
+                  {fieldErrors[`${blockKey}.sortOrder`] ? (
+                    <p
+                      className="basis-full text-xs text-admin-error"
+                      role="alert"
+                    >
+                      {fieldErrors[`${blockKey}.sortOrder`]}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             );

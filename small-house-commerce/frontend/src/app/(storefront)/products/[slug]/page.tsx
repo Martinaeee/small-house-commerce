@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { PdpView } from "@/components/product/PdpView";
 import { deliveryWindows } from "@/lib/deliveryWindow";
 import { absoluteUrl, buildProductJsonLd } from "@/lib/product-jsonld";
-import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
+import { serverApiUrl, type Category, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
-import { selectRelatedProducts } from "@/lib/pdp-products";
+import { fetchRelatedProducts } from "@/lib/pdp-products";
 
 export const revalidate = 120;
 
@@ -125,25 +125,10 @@ export default async function ProductDetailPage({
     ? ((await fetchProduct(slug, initialVariantId)) ?? baseProduct)
     : baseProduct;
 
-  const [category, relatedRes] = await Promise.all([
+  const [category, related] = await Promise.all([
     fetchCategoryInfo(product.categoryId),
-    fetch(
-      serverApiUrl(`/api/v1/storefront/products?categoryId=${product.categoryId}&pageSize=9`),
-      { next: { revalidate, tags: STOREFRONT_TAGS } },
-    ).catch(() => null),
+    fetchRelatedProducts(product.categoryId, product.id, { revalidate }),
   ]);
-
-  let related: Product[] = [];
-  if (relatedRes?.ok) {
-    try {
-      related = selectRelatedProducts(
-        ((await relatedRes.json()) as Paged<Product>).items,
-        product.id,
-      );
-    } catch {
-      related = [];
-    }
-  }
 
   return (
     <PdpView

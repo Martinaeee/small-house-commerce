@@ -12,6 +12,7 @@ export interface SharedMediaWorkspaceProps {
   images: readonly ImageFormValue[];
   pending: boolean;
   highlightKey?: string | null;
+  fieldErrors?: Readonly<Record<string, string>>;
   onPatch(index: number, patch: Partial<ImageFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onReorder(from: number, to: number): void;
@@ -51,6 +52,7 @@ export function SharedMediaWorkspace({
   images,
   pending,
   highlightKey = null,
+  fieldErrors = {},
   onPatch,
   onMove,
   onReorder,
@@ -77,9 +79,17 @@ export function SharedMediaWorkspace({
           ),
         )
       : 0;
+  const highlightedImageMatch = highlightKey?.match(/^images\.(\d+)(?:\.|$)/);
+  const highlightedImageIndex = highlightedImageMatch
+    ? Number(highlightedImageMatch[1])
+    : null;
+  const editorIndex =
+    highlightedImageIndex !== null && highlightedImageIndex < images.length
+      ? highlightedImageIndex
+      : activeIndex;
   const activeImage =
-    activeIndex !== null && activeIndex < images.length
-      ? images[activeIndex]
+    editorIndex !== null && editorIndex < images.length
+      ? images[editorIndex]
       : null;
 
   return (
@@ -127,7 +137,7 @@ export function SharedMediaWorkspace({
           {images.map((image, index) => {
             const sortOrder = Number(image.sortOrder.trim() || "0") || 0;
             const isCover = sortOrder === coverSortOrder;
-            const expanded = activeIndex === index;
+            const expanded = editorIndex === index;
             const highlighted = belongsToImage(highlightKey, index);
             return (
               <li
@@ -167,7 +177,7 @@ export function SharedMediaWorkspace({
               >
                 <div
                   id={
-                    highlighted && highlightKey
+                    highlightKey === `images.${index}`
                       ? `pf-row-${highlightKey}`
                       : undefined
                   }
@@ -306,88 +316,127 @@ export function SharedMediaWorkspace({
         </ul>
       )}
 
-      {activeImage && activeIndex !== null ? (
+      {activeImage && editorIndex !== null ? (
         <div
           id="shared-media-editor"
           className="mt-4 grid gap-3 rounded-xl border border-border bg-background p-4 md:grid-cols-2"
         >
-          <Field
-            label={t("product_media_type_label")}
-            htmlFor={`pf-images-${activeIndex}-type`}
+          <div
+            id={
+              highlightKey === `images.${editorIndex}.type`
+                ? `pf-row-${highlightKey}`
+                : undefined
+            }
           >
-            <Select
-              id={`pf-images-${activeIndex}-type`}
-              aria-label={t("product_media_type_aria", {
-                number: activeIndex + 1,
-              })}
-              value={activeImage.type}
-              onChange={(event) =>
-                onPatch(activeIndex, {
-                  type: event.target.value as ImageFormValue["type"],
-                })
-              }
-              disabled={pending}
+            <Field
+              label={t("product_media_type_label")}
+              htmlFor={`pf-images-${editorIndex}-type`}
             >
-              <option value="IMAGE">{t("product_media_type_image")}</option>
-              <option value="VIDEO">{t("product_media_type_video")}</option>
-            </Select>
-          </Field>
-          <Field
-            label={t("product_media_alt_label")}
-            htmlFor={`pf-images-${activeIndex}-alt`}
+              <Select
+                id={`pf-images-${editorIndex}-type`}
+                aria-label={t("product_media_type_aria", {
+                  number: editorIndex + 1,
+                })}
+                value={activeImage.type}
+                onChange={(event) =>
+                  onPatch(editorIndex, {
+                    type: event.target.value as ImageFormValue["type"],
+                  })
+                }
+                disabled={pending}
+              >
+                <option value="IMAGE">{t("product_media_type_image")}</option>
+                <option value="VIDEO">{t("product_media_type_video")}</option>
+              </Select>
+            </Field>
+          </div>
+          <div
+            id={
+              highlightKey === `images.${editorIndex}.altText`
+                ? `pf-row-${highlightKey}`
+                : undefined
+            }
           >
-            <TextInput
-              id={`pf-images-${activeIndex}-alt`}
-              aria-label={t("product_media_alt_aria", {
-                number: activeIndex + 1,
-              })}
-              value={activeImage.altText}
-              onChange={(event) =>
-                onPatch(activeIndex, { altText: event.target.value })
-              }
-              disabled={pending}
-              autoComplete="off"
-            />
-          </Field>
-          <div className="md:col-span-2">
+            <Field
+              label={t("product_media_alt_label")}
+              htmlFor={`pf-images-${editorIndex}-alt`}
+              error={fieldErrors[`images.${editorIndex}.altText`]}
+            >
+              <TextInput
+                id={`pf-images-${editorIndex}-alt`}
+                aria-label={t("product_media_alt_aria", {
+                  number: editorIndex + 1,
+                })}
+                value={activeImage.altText}
+                onChange={(event) =>
+                  onPatch(editorIndex, { altText: event.target.value })
+                }
+                disabled={pending}
+                autoComplete="off"
+              />
+            </Field>
+          </div>
+          <div
+            id={
+              highlightKey === `images.${editorIndex}.url`
+                ? `pf-row-${highlightKey}`
+                : undefined
+            }
+            className="md:col-span-2"
+          >
             <Field
               label={
                 activeImage.type === "VIDEO"
                   ? t("product_media_url_video_label")
                   : t("product_media_url_image_label")
               }
-              htmlFor={`pf-images-${activeIndex}-url`}
+              htmlFor={`pf-images-${editorIndex}-url`}
+              error={fieldErrors[`images.${editorIndex}.url`]}
             >
               <ImageUrlInput
-                id={`pf-images-${activeIndex}-url`}
+                id={`pf-images-${editorIndex}-url`}
                 ariaLabel={t("product_media_url_aria", {
-                  number: activeIndex + 1,
+                  number: editorIndex + 1,
                 })}
                 kind={activeImage.type === "VIDEO" ? "video" : "image"}
                 value={activeImage.url}
-                onChange={(url) => onPatch(activeIndex, { url })}
+                onChange={(url) => onPatch(editorIndex, { url })}
                 disabled={pending}
               />
             </Field>
           </div>
-          <details className="md:col-span-2">
+          <details
+            open={
+              Boolean(fieldErrors[`images.${editorIndex}.sortOrder`]) ||
+              undefined
+            }
+            className="md:col-span-2"
+          >
             <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
               {t("product_media_advanced")}
             </summary>
-            <div className="mt-2 max-w-xs">
+            <div
+              id={
+                highlightKey === `images.${editorIndex}.sortOrder`
+                  ? `pf-row-${highlightKey}`
+                  : undefined
+              }
+              className="mt-2 max-w-xs"
+            >
               <Field
                 label={t("product_media_sort_label")}
-                htmlFor={`pf-images-${activeIndex}-sort`}
+                htmlFor={`pf-images-${editorIndex}-sort`}
+                error={fieldErrors[`images.${editorIndex}.sortOrder`]}
               >
                 <TextInput
-                  id={`pf-images-${activeIndex}-sort`}
+                  id={`pf-images-${editorIndex}-sort`}
                   aria-label={t("product_media_sort_aria", {
-                    number: activeIndex + 1,
+                    number: editorIndex + 1,
                   })}
                   inputMode="numeric"
                   value={activeImage.sortOrder}
                   onChange={(event) =>
-                    onPatch(activeIndex, { sortOrder: event.target.value })
+                    onPatch(editorIndex, { sortOrder: event.target.value })
                   }
                   disabled={pending}
                   autoComplete="off"

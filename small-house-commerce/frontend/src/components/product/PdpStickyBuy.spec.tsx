@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Product } from "@/lib/api";
+import type { Product, ProductImage } from "@/lib/api";
 import { createInitialPurchaseLines } from "./PdpPurchaseProvider";
 import { resolveSelection } from "@/lib/product-selection";
 import { PdpStickyBuy } from "./PdpStickyBuy";
@@ -92,9 +92,15 @@ function installIntersectionObserver(): ObserverHarness {
 }
 
 function Harness({
+  value = product,
+  coverMedia = value.effectiveCoverMedia,
+  restockHref = "mailto:support@example.test?subject=Restock",
   onQuantityChange = vi.fn(),
   onIntent = vi.fn(),
 }: {
+  value?: Product;
+  coverMedia?: ProductImage | null;
+  restockHref?: string;
   onQuantityChange?: (quantity: number) => void;
   onIntent?: (
     intent: "ADD_TO_CART" | "ORDER_NOW",
@@ -102,14 +108,16 @@ function Harness({
   ) => void;
 }) {
   const heroRef = useRef<HTMLDivElement>(null);
-  const line = createInitialPurchaseLines(product)[0]!;
-  const derived = resolveSelection(product, line);
+  const line = createInitialPurchaseLines(value)[0]!;
+  const derived = resolveSelection(value, line);
 
   return (
     <>
       <div ref={heroRef}>Hero</div>
       <PdpStickyBuy
-        product={product}
+        product={value}
+        coverMedia={coverMedia}
+        restockHref={restockHref}
         heroRef={heroRef}
         line={line}
         derived={derived}
@@ -147,6 +155,50 @@ describe("PdpStickyBuy", () => {
 
     observer.enter();
     expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+  });
+
+  it("uses the currently resolved gallery image instead of the product's initial cover", () => {
+    const observer = installIntersectionObserver();
+    const scopedCover: ProductImage = {
+      id: "blue-cover",
+      url: "/chair-blue.jpg",
+      type: "IMAGE",
+      altText: "Blue folding chair",
+      sortOrder: 0,
+    };
+    render(<Harness coverMedia={scopedCover} />);
+
+    observer.leave();
+
+    expect(
+      screen.getByRole("img", { name: "Blue folding chair" }),
+    ).toHaveAttribute("src", "/chair-blue.jpg");
+    expect(
+      screen.queryByRole("img", { name: "Black folding chair" }),
+    ).toBeNull();
+  });
+
+  it("keeps the existing restock contact action in the out-of-stock sticky state", () => {
+    const observer = installIntersectionObserver();
+    const outOfStock = {
+      ...product,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        sku: variant.sku
+          ? { ...variant.sku, availableInventory: 0 }
+          : null,
+      })),
+    } as Product;
+    const restockHref =
+      "mailto:support@example.test?subject=Restock%20Blue%20chair";
+    render(<Harness value={outOfStock} restockHref={restockHref} />);
+
+    observer.leave();
+
+    expect(screen.queryByTestId("sticky-order-now")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Contact us to order" }),
+    ).toHaveAttribute("href", restockHref);
   });
 
   it("forwards quantity and both purchase intents without owning purchase state", async () => {

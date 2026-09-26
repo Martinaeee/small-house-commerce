@@ -815,6 +815,32 @@ describe("ProductMediaScopesEditor", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens the exact-variant scope that owns a highlighted media row", () => {
+    const initial = draft({
+      media: [
+        mediaDraft({
+          id: "variant-media",
+          url: "not-a-url",
+          optionValueRef: null,
+          variantRef: { id: "variant-1" },
+        }),
+      ],
+    });
+    render(
+      <AdminI18nProvider>
+        <ProductMediaScopesEditor
+          draft={initial}
+          onChange={vi.fn()}
+          highlightKey="variant-media"
+        />
+      </AdminI18nProvider>,
+    );
+
+    const summary = screen.getByLabelText("Red / M media resolution");
+    expect(summary.closest("details")).toHaveAttribute("open");
+    expect(screen.getByLabelText("Media URL for Red / M 1")).toBeVisible();
+  });
+
   it("keeps exact-variant media in a collapsed advanced section", async () => {
     const user = userEvent.setup();
     render(

@@ -6,9 +6,9 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import type { Product } from "@/lib/api";
+import type { Product, ProductImage } from "@/lib/api";
 import type { ProductSelectionDerived } from "@/lib/product-selection";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { PriceBox } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
 
@@ -16,6 +16,8 @@ export type StickyPurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
 
 export interface PdpStickyBuyProps {
   product: Product;
+  coverMedia: ProductImage | null;
+  restockHref: string;
   heroRef: RefObject<HTMLElement | null>;
   line: PurchaseLineState;
   derived: ProductSelectionDerived;
@@ -27,6 +29,8 @@ export interface PdpStickyBuyProps {
 
 export function PdpStickyBuy({
   product,
+  coverMedia,
+  restockHref,
   heroRef,
   line,
   derived,
@@ -67,9 +71,6 @@ export function PdpStickyBuy({
 
   if (!visible) return null;
 
-  const cover = [product.effectiveCoverMedia, ...product.images].find(
-    (media) => media?.type === "IMAGE" && media.url.trim() !== "",
-  );
   const resolvedOutOfStock =
     derived.resolvedVariant !== null && derived.availableInventory <= 0;
   const unavailable = derived.selectableVariants.length === 0;
@@ -86,11 +87,11 @@ export function PdpStickyBuy({
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(0,0,0,0.08)] backdrop-blur motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-reduce:transition-none sm:px-4 md:py-3"
     >
       <div className="mx-auto flex max-w-[1200px] items-center gap-2 sm:gap-3">
-        {cover ? (
+        {coverMedia ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={cover.url}
-            alt={cover.altText ?? product.name}
+            src={coverMedia.url}
+            alt={coverMedia.altText ?? product.name}
             className="hidden h-14 w-14 shrink-0 rounded-md border border-border object-cover md:block"
           />
         ) : null}
@@ -139,7 +140,17 @@ export function PdpStickyBuy({
           </button>
         </div>
 
-        {!resolvedOutOfStock ? (
+        {resolvedOutOfStock ? (
+          <ButtonLink
+            href={restockHref}
+            size="md"
+            variant="secondary"
+            className="min-w-0 shrink px-3 text-xs sm:min-w-[120px] sm:px-5 sm:text-sm"
+            data-testid="sticky-contact-restock"
+          >
+            Contact us to order
+          </ButtonLink>
+        ) : (
           <Button
             size="md"
             onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
@@ -149,7 +160,7 @@ export function PdpStickyBuy({
           >
             {orderLabel}
           </Button>
-        ) : null}
+        )}
         <Button
           size="md"
           variant={resolvedOutOfStock ? "primary" : "secondary"}

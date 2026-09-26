@@ -49,17 +49,13 @@ function response(value: unknown): Response {
 }
 
 const current = product("current", { inventory: 5 });
-const relatedItems = [
+const relatedPageOne = [
   current,
-  product("oos", { inventory: 0 }),
-  product("a"),
-  product("disabled", { status: "DISABLED", inventory: 8 }),
-  product("b"),
-  product("unpriced", { price: null, inventory: 8 }),
-  product("c"),
-  product("d"),
-  product("e"),
+  ...Array.from({ length: 8 }, (_, index) =>
+    product(`oos-${index}`, { inventory: 0 }),
+  ),
 ];
+const relatedPageTwo = ["a", "b", "c", "d"].map((id) => product(id));
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -71,7 +67,13 @@ beforeEach(() => {
       }
       if (url.includes("/storefront/categories")) return response([]);
       if (url.includes("/storefront/products?categoryId=")) {
-        return response({ items: relatedItems });
+        const pageTwo = url.includes("page=2");
+        return response({
+          items: pageTwo ? relatedPageTwo : relatedPageOne,
+          total: relatedPageOne.length + relatedPageTwo.length,
+          page: pageTwo ? 2 : 1,
+          pageSize: 9,
+        });
       }
       throw new Error(`Unexpected URL: ${url}`);
     }),
@@ -92,7 +94,7 @@ describe("ProductDetailPage related products", () => {
     expect(view.props.related.map(({ id }) => id)).toEqual(["a", "b", "c", "d"]);
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/storefront/products?categoryId=category-1&pageSize=9",
+        "/storefront/products?categoryId=category-1&page=2&pageSize=9",
       ),
       expect.any(Object),
     );

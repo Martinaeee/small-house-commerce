@@ -305,6 +305,11 @@ export function PdpClient({
     gallerySelection.scopeKey === requestedMediaScopeKey
       ? Math.min(gallerySelection.index, Math.max(0, galleryImages.length - 1))
       : 0;
+  const stickyCoverMedia =
+    [galleryImages[galleryActive], ...galleryImages].find(
+      (media) =>
+        media?.type === "IMAGE" && media.url.trim() !== "",
+    ) ?? null;
   const lightboxIndex =
     lightboxSelection?.scopeKey === requestedMediaScopeKey
       ? lightboxSelection.index
@@ -759,6 +764,8 @@ export function PdpClient({
       {!overlayOpen ? (
         <PdpStickyBuy
           product={product}
+          coverMedia={stickyCoverMedia}
+          restockHref={restockHref}
           heroRef={heroRef}
           line={primaryLine}
           derived={primaryDerived}

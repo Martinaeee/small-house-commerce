@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -644,6 +644,77 @@ describe("ProductForm variants tab modes", () => {
       "aria-labelledby",
       "pf-tab-media",
     );
+  });
+
+  it("reveals shared and detail field errors inside the extracted media workspaces", async () => {
+    const user = userEvent.setup();
+    renderForm(
+      baseValue({
+        images: [
+          {
+            url: "not-a-url",
+            type: "IMAGE",
+            altText: "Shared image",
+            sortOrder: "0",
+          },
+        ],
+        detailBlocks: [
+          {
+            type: "IMAGE",
+            url: "/uploads/detail.jpg",
+            altText: "x".repeat(256),
+            sortOrder: "0",
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    expect(screen.getByRole("tab", { name: "商品媒体" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("图片网址必须是有效链接。")).toBeVisible();
+    expect(screen.getByText("Alt 文本不能超过 255 个字符。")).toBeVisible();
+    expect(screen.getByLabelText("媒体 1 的网址")).toBeVisible();
+    expect(screen.getByLabelText("媒体 1 的网址")).toHaveFocus();
+  });
+
+  it("opens and focuses a scoped media row when the problem rail jumps to it", async () => {
+    const user = userEvent.setup();
+    const badScopedGraph: AdminCatalogGraphDraft = {
+      ...structuredClone(typedGraph),
+      options: typedGraph.options.map((option) => ({
+        ...structuredClone(option),
+        isMediaDriver: true,
+      })),
+      media: [
+        {
+          id: "media-bad-scoped",
+          url: "not-a-url",
+          type: "IMAGE",
+          altText: null,
+          sortOrder: 0,
+          optionValueRef: { id: "value-1" },
+          variantRef: null,
+        },
+      ],
+    };
+    renderForm(baseValue({ graphTyped: true, graph: badScopedGraph }));
+
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    await user.click(screen.getByRole("button", { name: "查看" }));
+    await user.click(screen.getByRole("button", { name: /跳到该选项/ }));
+
+    const scope = screen
+      .getByLabelText("Color / Red 媒体摘要")
+      .closest("details");
+    expect(scope).toHaveAttribute("open");
+    expect(screen.getByLabelText("Red 1 的媒体 URL")).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Red 1 的媒体 URL")).toHaveFocus();
+    });
   });
 
   it("preserves character-by-character typed shipping decimals", async () => {

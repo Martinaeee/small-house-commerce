@@ -1270,6 +1270,12 @@ export function ProductForm({
       });
       const firstKey = Object.keys(result.fieldErrors)[0];
       const firstTab = firstKey ? tabForErrorKey(firstKey) : "basic";
+      if (firstKey) {
+        setHighlight((previous) => ({
+          key: firstKey,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
+      }
       setIssues([
         {
           id: "serializer",
@@ -1286,6 +1292,7 @@ export function ProductForm({
     }
     setFieldErrors({});
     setIssues([]);
+    setHighlight(null);
     onSubmit(target);
   };
 
@@ -1339,10 +1346,25 @@ export function ProductForm({
 
   useEffect(() => {
     if (!highlight) return;
-    const row = document.getElementById(`pf-row-${highlight.key}`);
-    if (!row) return;
-    row.scrollIntoView?.({ block: "center" });
-    row.querySelector<HTMLElement>("select, input, button")?.focus();
+    let active = true;
+    const focusHighlightedRow = () => {
+      if (!active) return;
+      const row = document.getElementById(`pf-row-${highlight.key}`);
+      if (!row) return;
+      row.scrollIntoView?.({ block: "center" });
+      row
+        .querySelector<HTMLElement>(
+          "[data-problem-focus], select, input, button",
+        )
+        ?.focus();
+    };
+    focusHighlightedRow();
+    // Native <details> applies its open state after the rail click commits.
+    // Repeating in a microtask keeps focus inside the newly revealed editor.
+    queueMicrotask(focusHighlightedRow);
+    return () => {
+      active = false;
+    };
   }, [highlight, activeTab]);
 
   const tabIndicators = Object.fromEntries(
@@ -1666,6 +1688,7 @@ export function ProductForm({
               images: value.images,
               pending,
               highlightKey: highlight?.key ?? null,
+              fieldErrors,
               onPatch: setImage,
               onMove: moveImage,
               onReorder: moveImageTo,
@@ -1677,6 +1700,7 @@ export function ProductForm({
               blocks: value.detailBlocks,
               pending,
               highlightKey: highlight?.key ?? null,
+              fieldErrors,
               onPatch: setDetailBlock,
               onMove: moveDetailBlock,
               onRemove: removeDetailBlock,

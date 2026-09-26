@@ -113,6 +113,22 @@ export function ProductMediaScopesEditor({
   )
     ? selectedVariant
     : "";
+  const highlightedMedia = highlightKey
+    ? draft.media.find((row) => rowKey(row) === highlightKey)
+    : undefined;
+  const highlightedValueKey = highlightedMedia?.optionValueRef
+    ? rowKey(highlightedMedia.optionValueRef)
+    : "";
+  const highlightedVariantKey = highlightedMedia?.variantRef
+    ? rowKey(highlightedMedia.variantRef)
+    : "";
+  const highlightedVariantSemanticKey = highlightedVariantKey
+    ? (variantSelections.find(
+        ({ variant }) => rowKey(variant) === highlightedVariantKey,
+      )?.key ?? "")
+    : "";
+  const openVariantSemanticKey =
+    highlightedVariantSemanticKey || selectedVariantSemanticKey;
 
   const rowsForValue = (valueKey: string): AdminMediaDraft[] =>
     draft.media
@@ -163,7 +179,7 @@ export function ProductMediaScopesEditor({
     onChange((next) => {
       const variant = next.variants.find(
         (item) =>
-          variantSemanticKey(next, item) === selectedVariantSemanticKey,
+          variantSemanticKey(next, item) === openVariantSemanticKey,
       );
       if (!variant) return;
       next.media.push({
@@ -302,6 +318,7 @@ export function ProductMediaScopesEditor({
             kind={row.type === "VIDEO" ? "video" : "image"}
             value={row.url}
             onChange={(url) => setMedia(key, { url })}
+            problemFocus={highlightKey === key}
             disabled={pending}
           />
         </div>
@@ -499,6 +516,21 @@ export function ProductMediaScopesEditor({
               return (
                 <details
                   key={valueKey}
+                  open={highlightedValueKey === valueKey || undefined}
+                  onToggle={(event) => {
+                    if (
+                      !event.currentTarget.open ||
+                      highlightedValueKey !== valueKey
+                    ) {
+                      return;
+                    }
+                    const details = event.currentTarget;
+                    queueMicrotask(() => {
+                      details
+                        .querySelector<HTMLElement>("[data-problem-focus]")
+                        ?.focus();
+                    });
+                  }}
                   className="rounded-xl border border-border bg-background"
                 >
                   <summary
@@ -624,12 +656,25 @@ export function ProductMediaScopesEditor({
               return (
                 <li key={key}>
                   <details
-                    open={selectedVariantSemanticKey === key}
+                    open={openVariantSemanticKey === key}
                     onToggle={(event) => {
                       const isOpen = event.currentTarget.open;
                       setSelectedVariant((current) =>
                         isOpen ? key : current === key ? "" : current,
                       );
+                      if (
+                        isOpen &&
+                        highlightedVariantSemanticKey === key
+                      ) {
+                        const details = event.currentTarget;
+                        queueMicrotask(() => {
+                          details
+                            .querySelector<HTMLElement>(
+                              "[data-problem-focus]",
+                            )
+                            ?.focus();
+                        });
+                      }
                     }}
                     className="rounded-xl border border-border bg-background"
                   >

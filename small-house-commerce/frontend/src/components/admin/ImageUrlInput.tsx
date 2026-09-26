@@ -67,6 +67,7 @@ export function ImageUrlInput({
   disabled = false,
   placeholder = "https://…",
   kind = "image",
+  problemFocus = false,
 }: {
   id?: string;
   ariaLabel?: string;
@@ -75,6 +76,8 @@ export function ImageUrlInput({
   disabled?: boolean;
   placeholder?: string;
   kind?: "image" | "video";
+  /** Preferred focus target when the sticky problem rail jumps to this row. */
+  problemFocus?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -135,6 +138,7 @@ export function ImageUrlInput({
         <input
           id={id}
           aria-label={ariaLabel}
+          data-problem-focus={problemFocus || undefined}
           className={`${inputCls} min-w-0 flex-1`}
           value={value}
           placeholder={placeholder}
