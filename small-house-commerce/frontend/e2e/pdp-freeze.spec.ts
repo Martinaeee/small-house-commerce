@@ -194,6 +194,16 @@ test.describe("PDP V1 freeze", () => {
     await expect(page.locator('section[aria-label="Why shop with us"]')).toBeVisible();
 
     // --- Variant + Price + CTA ---------------------------------------------
+    // Nothing is chosen yet: the COD summary must point at the real selector
+    // instead of presenting the default display variant as the ordered one.
+    await expect(
+      page
+        .getByRole("main")
+        .locator("#quick-cod-order")
+        .getByTestId("quick-cod-variant")
+        .getByRole("link", { name: "Choose options above" }),
+    ).toHaveAttribute("href", "#pdp-purchase");
+
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Small");
     await expect(hero.getByTestId("order-now")).toHaveText("ORDER NOW");

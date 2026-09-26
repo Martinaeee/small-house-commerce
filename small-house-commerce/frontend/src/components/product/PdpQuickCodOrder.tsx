@@ -255,7 +255,19 @@ export function PdpQuickCodOrder(): ReactNode {
               className="text-right font-medium text-ink"
               data-testid="quick-cod-variant"
             >
-              {variantLabel ?? "—"}
+              {needsOptions ? (
+                // Nothing is chosen yet: the page-wide default display variant
+                // is what the gallery shows, not the ordered variant, so the
+                // summary must not claim it. Point at the real selector instead.
+                <a
+                  href="#pdp-purchase"
+                  className="text-cta underline-offset-2 hover:underline"
+                >
+                  Choose options above
+                </a>
+              ) : (
+                (variantLabel ?? "—")
+              )}
             </dd>
           </div>
           <div className="flex justify-between gap-3">

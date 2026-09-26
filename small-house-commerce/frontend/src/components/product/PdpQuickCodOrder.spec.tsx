@@ -465,6 +465,20 @@ describe("PdpQuickCodOrder", () => {
     ).toHaveLength(1);
   });
 
+  it("never presents the default display variant as the chosen one before a selection", () => {
+    renderQuickOrder(buildProduct(), null);
+
+    const variantCell = within(
+      screen.getByTestId("quick-cod-summary"),
+    ).getByTestId("quick-cod-variant");
+    // "Red" is only the default DISPLAY variant; nothing is chosen yet, so the
+    // summary must not claim it as the ordered variant.
+    expect(variantCell).not.toHaveTextContent("Red");
+    expect(
+      within(variantCell).getByRole("link", { name: "Choose options above" }),
+    ).toHaveAttribute("href", "#pdp-purchase");
+  });
+
   it("asks for options instead of ordering before a variant is chosen", async () => {
     const user = userEvent.setup();
     renderQuickOrder(buildProduct(), null);
