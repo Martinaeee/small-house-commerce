@@ -113,6 +113,10 @@ async function goto(page: Page, path: string): Promise<Locator> {
   await page.goto(`http://localhost:3211${path}`);
   const main = page.getByRole("main");
   await expect(main.getByTestId("pdp-purchase")).toBeVisible();
+  // Next dev streams the page and then swaps in the hydrated tree, which can
+  // briefly leave two copies of a subtree in the DOM. Wait for the settled
+  // single hero before any strict page-scoped assertion runs.
+  await expect(page.getByTestId("pdp-purchase")).toHaveCount(1);
   return main;
 }
 
@@ -432,6 +436,7 @@ test.describe("PDP V1 freeze", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await expect(main.getByTestId("pdp-purchase")).toBeVisible();
+    await expect(page.getByTestId("pdp-purchase")).toHaveCount(1);
     await assertNoPageOverflow(page, "LP freeze 390");
     stopErrors();
   });
