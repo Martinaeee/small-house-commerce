@@ -163,6 +163,8 @@ export interface Product {
   description: string | null;
   /** First-screen one-line selling point under the H1; null/empty hides it. */
   tagline: string | null;
+  seoTitle?: string | null;
+  metaDescription?: string | null;
   categoryId: string;
   ratingAverage: number | null;
   reviewCount: number;

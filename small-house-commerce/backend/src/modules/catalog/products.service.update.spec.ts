@@ -169,6 +169,55 @@ describe('ProductsService.update — stock enrichment', () => {
   });
 });
 
+describe('ProductsService SEO persistence', () => {
+  it('writes independent SEO fields on update, including explicit null clears', async () => {
+    const { service, tx } = createHarness();
+
+    await service.update('p1', {
+      seoTitle: 'Compact chair | LUWAG',
+      metaDescription: null,
+    });
+
+    expect(tx.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'p1' },
+        data: expect.objectContaining({
+          seoTitle: 'Compact chair | LUWAG',
+          metaDescription: null,
+        }),
+      }),
+    );
+  });
+
+  it('writes SEO fields on create without aliasing description or tagline', async () => {
+    const { service, tx } = createHarness();
+
+    await service.create({
+      name: 'Chair',
+      slug: 'chair',
+      description: 'Product body',
+      tagline: 'Hero copy',
+      seoTitle: 'Search title',
+      metaDescription: 'Search description',
+      categoryId: 'c1',
+      status: 'DRAFT',
+      solutions: [],
+      images: [],
+      detailBlocks: [],
+      variants: [],
+    } as unknown as Parameters<typeof service.create>[0]);
+
+    expect(tx.product.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        description: 'Product body',
+        tagline: 'Hero copy',
+        seoTitle: 'Search title',
+        metaDescription: 'Search description',
+      }),
+    });
+  });
+});
+
 describe('ProductsService.create — stock enrichment', () => {
   it('returns stock figures on the created product too', async () => {
     const { service } = createHarness({

@@ -79,6 +79,8 @@ const STOREFRONT_SELECT = {
   slug: true,
   description: true,
   tagline: true,
+  seoTitle: true,
+  metaDescription: true,
   categoryId: true,
   room: true,
   internalRole: true,
@@ -357,6 +359,8 @@ export class ProductsService {
             slug: input.slug,
             description: input.description ?? null,
             tagline: input.tagline ?? null,
+            seoTitle: input.seoTitle ?? null,
+            metaDescription: input.metaDescription ?? null,
             categoryId: input.categoryId,
             status: input.status,
             room: input.room ?? null,
@@ -449,6 +453,9 @@ export class ProductsService {
     if (input.slug !== undefined) data.slug = input.slug;
     if (input.description !== undefined) data.description = input.description;
     if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.seoTitle !== undefined) data.seoTitle = input.seoTitle;
+    if (input.metaDescription !== undefined)
+      data.metaDescription = input.metaDescription;
     if (input.categoryId !== undefined)
       data.category = { connect: { id: input.categoryId } };
     if (input.status !== undefined) data.status = input.status;

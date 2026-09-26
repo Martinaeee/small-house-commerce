@@ -5,6 +5,7 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
   ProductForm,
   emptyProductFormValue,
+  serializeFormValue,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
 import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
@@ -522,6 +523,89 @@ describe("ProductForm variants tab modes", () => {
       "aria-labelledby",
       "pf-tab-preview",
     );
+  });
+
+  it("serializes blank and filled SEO fields independently from storefront copy", () => {
+    const filled = serializeFormValue(
+      baseValue({
+        description: "Product body",
+        tagline: "Hero tagline",
+        seoTitle: "  Search title  ",
+        metaDescription: "  Search description  ",
+      }),
+    );
+    expect(filled).toMatchObject({
+      ok: true,
+      value: {
+        description: "Product body",
+        tagline: "Hero tagline",
+        seoTitle: "Search title",
+        metaDescription: "Search description",
+      },
+    });
+
+    const blank = serializeFormValue(
+      baseValue({ seoTitle: "   ", metaDescription: "   " }),
+    );
+    expect(blank).toMatchObject({
+      ok: true,
+      value: { seoTitle: null, metaDescription: null },
+    });
+  });
+
+  it("edits independent SEO fields and uses saved variant identities for links", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <AdminI18nProvider>
+        <ProductForm
+          initial={baseValue({
+            status: "ACTIVE",
+            description: "Storefront body",
+            tagline: "Hero tagline",
+            seoTitle: "Old SEO title",
+            metaDescription: "Old meta description",
+          })}
+          categories={[]}
+          onSubmit={onSubmit}
+          pending={false}
+          error={null}
+          savedPreview={{
+            path: "/products/saved-chair",
+            status: "ACTIVE",
+            variants: [
+              {
+                id: "00000000-0000-7000-8000-000000000001",
+                name: "Red / Small",
+                skuStatus: "ACTIVE",
+              },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "搜索与链接" }));
+    await user.clear(screen.getByLabelText(/SEO 标题/));
+    await user.type(screen.getByLabelText(/SEO 标题/), "New SEO title");
+    await user.clear(screen.getByLabelText(/Meta 描述/));
+    await user.type(screen.getByLabelText(/Meta 描述/), "New meta description");
+
+    expect(
+      screen.getByText(
+        "https://luwag.ph/products/saved-chair?variant=00000000-0000-7000-8000-000000000001",
+      ),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "保存更改" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      seoTitle: "New SEO title",
+      metaDescription: "New meta description",
+      description: "Storefront body",
+      tagline: "Hero tagline",
+    });
   });
 
   it("uses translated section names in the Chinese validation summary", async () => {

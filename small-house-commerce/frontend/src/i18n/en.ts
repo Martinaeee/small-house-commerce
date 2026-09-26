@@ -610,10 +610,30 @@ export const en: Record<ZhKey, string> = {
   product_seo_slug_stable_hint:
     "Avoid changing it after saving so old links keep working.",
   product_seo_autogenerate: "Generate from name",
-  product_seo_preview_title: "Search result preview (mock)",
+  product_seo_title_label: "SEO title",
+  product_seo_meta_label: "Meta description",
+  product_seo_canonical_label: "Canonical (system generated)",
+  product_seo_title_count: "{count} / 60",
+  product_seo_description_count: "{count} / 160",
+  product_seo_field_limits:
+    "60 / 160 are search-display recommendations; storage allows up to 200 / 300 characters.",
+  product_seo_preview_title: "Google search result preview",
   product_seo_preview_name_fallback: "Product name",
   product_seo_preview_desc_fallback:
-    "No description yet — add a tagline or description to see the snippet.",
+    "No description yet — add a meta description or product description to see the snippet.",
+  product_links_title: "Product & variant links",
+  product_links_hint:
+    "Generated only from the saved product slug and real variant IDs, never names or array positions.",
+  product_links_main_label: "Main Product URL",
+  product_links_variants_title: "Variant URLs",
+  product_links_copy_product: "Copy product link",
+  product_links_copy_variant: "Copy variant link",
+  product_links_copied: "Copied",
+  product_links_unsaved:
+    "Save the product before generating real product and variant links.",
+  product_links_no_variants: "No saved sellable variants are available for links.",
+  product_links_not_public:
+    "The saved product is not active; these links become public after activation.",
   product_seo_alt_overview: "Image alt text overview",
   product_seo_alt_item: "Image {number}: {alt}",
   product_seo_alt_empty:
@@ -674,6 +694,9 @@ export const en: Record<ZhKey, string> = {
   product_err_slug_required: "Slug is required.",
   product_err_description_max: "Description must be 5,000 characters or fewer.",
   product_err_tagline_max: "Tagline must be 200 characters or fewer.",
+  product_err_seo_title_max: "SEO title must be 200 characters or fewer.",
+  product_err_meta_description_max:
+    "Meta description must be 300 characters or fewer.",
   product_err_materials_max: "Materials must be 1,000 characters or fewer.",
   product_err_feature_line_max: "Each feature must be 200 characters or fewer.",
   product_err_features_max: "Features must be 2,000 characters or fewer.",

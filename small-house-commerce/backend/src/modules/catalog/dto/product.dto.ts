@@ -68,6 +68,9 @@ const productBaseSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
   // First-screen one-line selling point under the H1; null/'' hides the row.
   tagline: z.string().max(200).nullable().optional(),
+  // Advisory UI counters use 60/160; storage matches the existing LP SEO bounds.
+  seoTitle: z.string().trim().max(200).nullable().optional(),
+  metaDescription: z.string().trim().max(300).nullable().optional(),
   categoryId: z.string().uuid(),
   status: z.nativeEnum(ProductStatus).default('DRAFT'),
   room: z.nativeEnum(Room).nullable().optional(),

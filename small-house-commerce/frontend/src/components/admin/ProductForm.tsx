@@ -21,6 +21,10 @@ import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./
 import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
 import { ProductEditorRail } from "./product-form/ProductEditorRail";
 import { ProductPreviewPanel } from "./product-form/ProductPreviewPanel";
+import {
+  ProductSeoLinksPanel,
+  type SavedProductLinkContext,
+} from "./product-form/ProductSeoLinksPanel";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
 import {
@@ -65,6 +69,9 @@ export interface ProductFormValue {
   description: string;
   /** First-screen one-line selling point under the H1. Empty hides the row. */
   tagline: string;
+  /** Independent search metadata; never aliases description or tagline. */
+  seoTitle: string;
+  metaDescription: string;
   categoryId: string;
   status: ProductStatus;
   room: string;
@@ -328,6 +335,8 @@ export function emptyProductFormValue(): ProductFormValue {
     slug: "",
     description: "",
     tagline: "",
+    seoTitle: "",
+    metaDescription: "",
     categoryId: "",
     status: "DRAFT",
     room: "",
@@ -488,6 +497,18 @@ export function serializeFormValue(
   const tagline = v.tagline.trim();
   if (tagline.length > 200)
     addError(errors, "tagline", translate("product_err_tagline_max"));
+
+  const seoTitle = v.seoTitle.trim();
+  if (seoTitle.length > 200)
+    addError(errors, "seoTitle", translate("product_err_seo_title_max"));
+
+  const metaDescription = v.metaDescription.trim();
+  if (metaDescription.length > 300)
+    addError(
+      errors,
+      "metaDescription",
+      translate("product_err_meta_description_max"),
+    );
 
   const materials = v.materials.trim();
   if (materials.length > 1000)
@@ -662,6 +683,8 @@ export function serializeFormValue(
     slug,
     description: description || null,
     tagline: tagline || null,
+    seoTitle: seoTitle || null,
+    metaDescription: metaDescription || null,
     categoryId: v.categoryId,
     status: v.status,
     room: v.room || null,
@@ -772,7 +795,8 @@ function tabForErrorKey(key: string): TabKey {
       : "variants";
   }
   if (key.startsWith("images.") || key.startsWith("detailBlocks.")) return "media";
-  if (key === "slug") return "seo";
+  if (key === "slug" || key === "seoTitle" || key === "metaDescription")
+    return "seo";
   if (
     DIMENSION_FIELDS.some((f) => f.key === key) ||
     key === "materials" ||
@@ -790,10 +814,7 @@ export interface ProductFormProps {
   submitLabel?: string;
   pending: boolean;
   error: string | null;
-  savedPreview: {
-    path: string;
-    status: ProductStatus;
-  } | null;
+  savedPreview: SavedProductLinkContext | null;
   /**
    * Saved identity for the sticky header (server truth). Absent on /new.
    * The product number is display-only — it is minted once and never edited.
@@ -2260,22 +2281,18 @@ export function ProductForm({
             </Field>
 
             <div className="mt-6">
-              <p className="text-xs font-semibold text-ink-secondary">
-                {t("product_seo_preview_title")}
-              </p>
-              <div className="mt-2 max-w-xl rounded-lg bg-background p-4">
-                <p className="truncate text-sm font-semibold text-[#1a0dab]">
-                  {value.name.trim() || t("product_seo_preview_name_fallback")} | LUWAG Living
-                </p>
-                <p className="truncate text-xs text-[#006621]">
-                  luwag.ph/products/{value.slug.trim() || "your-slug"}
-                </p>
-                <p className="mt-1 line-clamp-2 text-xs text-ink-secondary">
-                  {(value.tagline.trim() ||
-                    value.description.trim() ||
-                    t("product_seo_preview_desc_fallback")).slice(0, 160)}
-                </p>
-              </div>
+              <ProductSeoLinksPanel
+                productName={value.name}
+                slug={value.slug}
+                seoTitle={value.seoTitle}
+                metaDescription={value.metaDescription}
+                fallbackDescription={value.description}
+                savedProduct={savedPreview}
+                onSeoTitleChange={(seoTitle) => patch({ seoTitle })}
+                onMetaDescriptionChange={(metaDescription) =>
+                  patch({ metaDescription })
+                }
+              />
             </div>
 
             {value.images.some((img) => img.altText.trim()) ? (

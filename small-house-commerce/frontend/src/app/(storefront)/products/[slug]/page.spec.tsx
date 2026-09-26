@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Product } from "@/lib/api";
-import ProductDetailPage from "./page";
+import ProductDetailPage, { generateMetadata } from "./page";
 
 vi.mock("@/lib/product-jsonld", () => ({
   absoluteUrl: (value: string) => value,
@@ -49,6 +49,20 @@ function response(value: unknown): Response {
 }
 
 const current = product("current", { inventory: 5 });
+const seoProduct = {
+  ...product("seo-product"),
+  name: "Storefront product name",
+  description: "Storefront description fallback.",
+  seoTitle: "Independent SEO title",
+  metaDescription: "Independent meta description.",
+  images: [],
+};
+const fallbackProduct = {
+  ...product("fallback-product"),
+  name: "Fallback product name",
+  description: "Fallback product description.",
+  images: [],
+};
 const relatedPageOne = [
   current,
   ...Array.from({ length: 8 }, (_, index) =>
@@ -62,6 +76,12 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("/storefront/products/seo-product")) {
+        return response(seoProduct);
+      }
+      if (url.includes("/storefront/products/fallback-product")) {
+        return response(fallbackProduct);
+      }
       if (url.includes("/storefront/products/current")) {
         return response(current);
       }
@@ -82,6 +102,41 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("ProductDetailPage metadata", () => {
+  it("uses independent SEO fields while keeping the canonical queryless", async () => {
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ slug: "seo-product" }),
+    });
+
+    expect(metadata).toMatchObject({
+      title: "Independent SEO title",
+      description: "Independent meta description.",
+      alternates: { canonical: "/products/seo-product" },
+      openGraph: {
+        title: "Independent SEO title",
+        description: "Independent meta description.",
+        url: "/products/seo-product",
+      },
+      twitter: {
+        title: "Independent SEO title",
+        description: "Independent meta description.",
+      },
+    });
+  });
+
+  it("preserves the existing name and description fallback", async () => {
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ slug: "fallback-product" }),
+    });
+
+    expect(metadata).toMatchObject({
+      title: "Fallback product name",
+      description: "Fallback product description.",
+      alternates: { canonical: "/products/fallback-product" },
+    });
+  });
 });
 
 describe("ProductDetailPage related products", () => {

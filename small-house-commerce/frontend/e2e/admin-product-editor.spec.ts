@@ -232,6 +232,8 @@ interface AdminProductJson {
   slug: string;
   name: string;
   tagline: string | null;
+  seoTitle: string | null;
+  metaDescription: string | null;
   categoryId?: string;
   status: "DRAFT" | "ACTIVE" | "DISABLED";
   catalogGraphVersion: number;
@@ -480,6 +482,8 @@ function canonicalSemanticState(product: AdminProductJson): string {
       status: product.status, categoryId: product.categoryId,
     },
     tagline: product.tagline,
+    seoTitle: product.seoTitle,
+    metaDescription: product.metaDescription,
     detailBlocks: product.detailBlocks.map((block) => ({
       type: block.type,
       url: block.url,
@@ -829,12 +833,18 @@ async function restoreProductSnapshot(
     return failures;
   }
 
-  if (current.tagline !== before.tagline) {
+  const scalarPatch: Record<string, string | null> = {};
+  if (current.tagline !== before.tagline) scalarPatch.tagline = before.tagline;
+  if (current.seoTitle !== before.seoTitle) scalarPatch.seoTitle = before.seoTitle;
+  if (current.metaDescription !== before.metaDescription) {
+    scalarPatch.metaDescription = before.metaDescription;
+  }
+  if (Object.keys(scalarPatch).length > 0) {
     try {
-      await adminPatch(current.id, { tagline: before.tagline });
+      await adminPatch(current.id, scalarPatch);
       current = await adminProduct(slug);
     } catch (error) {
-      failures.push(`restore tagline: ${cleanupError(error)}`);
+      failures.push(`restore product scalars: ${cleanupError(error)}`);
     }
   }
 
@@ -2176,6 +2186,132 @@ test.describe("Scoped media + gallery driver", () => {
       }
       if (cleanupFailures.length > 0) {
         throw new Error(`scoped-media cleanup failed: ${cleanupFailures.join("; ")}`);
+      }
+    }
+  });
+});
+
+test.describe("SEO and saved variant links", () => {
+  test("persists independent metadata and copies canonical real-id links", async ({
+    page,
+  }) => {
+    test.setTimeout(360_000);
+    const stopErrors = trackBrowserErrors(page);
+    const before = await adminProduct(COLOR_SIZE_SLUG);
+    const activeVariants = before.variants.filter(
+      (variant) => variant.sku?.status === "ACTIVE",
+    );
+    expect(activeVariants.length).toBeGreaterThan(0);
+    const seoTitle = "E2E Space-Smart Cabinet";
+    const metaDescription =
+      "Shop a compact storage cabinet designed for flexible Filipino homes.";
+    let primaryError: unknown = null;
+
+    try {
+      await page.addInitScript(() => {
+        const scope = window as typeof window & { __copiedLink?: string };
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: {
+            writeText: async (value: string) => {
+              scope.__copiedLink = value;
+            },
+          },
+        });
+      });
+      await openEditorWithStoredSession(page, COLOR_SIZE_SLUG);
+      await selectTab(page, "seo");
+      await page.setViewportSize({ width: 1440, height: 1200 });
+
+      await page.getByLabel(/SEO 标题/).fill(seoTitle);
+      await page.getByLabel(/Meta 描述/).fill(metaDescription);
+      await expect(page.getByText(`${seoTitle.length} / 60`)).toBeVisible();
+      await expect(
+        page.getByText(`${metaDescription.length} / 160`),
+      ).toBeVisible();
+      await expect(page.getByLabel(/Canonical/)).toHaveValue(
+        "https://luwag.ph/products/e2e-color-size",
+      );
+      await expect(page.getByLabel(/Canonical/)).toHaveAttribute("readonly", "");
+
+      const productUrl = "https://luwag.ph/products/e2e-color-size";
+      const productLinksSection = page
+        .getByRole("heading", { name: "商品与款式链接" })
+        .locator("xpath=ancestor::section[1]");
+      await expect(
+        productLinksSection.getByText(productUrl, { exact: true }),
+      ).toBeVisible();
+      for (const variant of activeVariants) {
+        const url = `${productUrl}?variant=${variant.id}`;
+        await expect(
+          productLinksSection.getByText(url, { exact: true }),
+        ).toBeVisible();
+      }
+
+      await page.getByRole("button", { name: "复制商品链接" }).click();
+      await expect(page.getByRole("button", { name: "已复制" }).first()).toBeVisible();
+      expect(
+        await page.evaluate(
+          () =>
+            (window as typeof window & { __copiedLink?: string }).__copiedLink,
+        ),
+      ).toBe(productUrl);
+
+      const firstVariant = activeVariants[0]!;
+      const firstVariantUrl = `${productUrl}?variant=${firstVariant.id}`;
+      await page
+        .getByText(firstVariantUrl, { exact: true })
+        .locator("xpath=ancestor::li[1]")
+        .getByRole("button", { name: "复制款式链接" })
+        .click();
+      expect(
+        await page.evaluate(
+          () =>
+            (window as typeof window & { __copiedLink?: string }).__copiedLink,
+        ),
+      ).toBe(firstVariantUrl);
+
+      await page.locator("#pf-slug").scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: "screenshots/phase4-seo-panel-desktop.png",
+      });
+      await productLinksSection.screenshot({
+        path: "screenshots/phase4-variant-links-desktop.png",
+      });
+
+      await page.locator(SAVE_BUTTON).click();
+      await expect(page.getByText(ZH.saved)).toBeVisible({ timeout: 30_000 });
+      const saved = await adminProduct(COLOR_SIZE_SLUG);
+      expect(saved.seoTitle).toBe(seoTitle);
+      expect(saved.metaDescription).toBe(metaDescription);
+
+      await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+      await gotoAdmin(page, `/products/${COLOR_SIZE_SLUG}`);
+      await expect(page).toHaveTitle(new RegExp(seoTitle));
+      await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+        "content",
+        metaDescription,
+      );
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        "href",
+        /\/products\/e2e-color-size$/,
+      );
+      await stopErrors();
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      const cleanupFailures = await restoreProductSnapshot(before);
+      if (primaryError) {
+        if (cleanupFailures.length > 0) {
+          throw new AggregateError(
+            [primaryError, ...cleanupFailures.map((message) => new Error(message))],
+            "SEO/link assertion failed; cleanup also reported failures",
+          );
+        }
+        throw primaryError;
+      }
+      if (cleanupFailures.length > 0) {
+        throw new Error(`SEO/link cleanup failed: ${cleanupFailures.join("; ")}`);
       }
     }
   });

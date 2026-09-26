@@ -75,6 +75,8 @@ const SCALAR_KEYS = [
   "slug",
   "description",
   "tagline",
+  "seoTitle",
+  "metaDescription",
   "categoryId",
   "status",
   "room",
@@ -112,6 +114,8 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     slug: p.slug,
     description: p.description ?? "",
     tagline: p.tagline ?? "",
+    seoTitle: p.seoTitle ?? "",
+    metaDescription: p.metaDescription ?? "",
     categoryId: p.categoryId,
     status: p.status,
     room: p.room ?? "",
@@ -180,9 +184,21 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
 }
 
 export function buildSavedPreview(
-  product: Pick<AdminProduct, "slug" | "status">,
-): { path: string; status: AdminProduct["status"] } {
-  return { path: `/products/${product.slug}`, status: product.status };
+  product: Pick<AdminProduct, "slug" | "status" | "variants">,
+): {
+  path: string;
+  status: AdminProduct["status"];
+  variants: { id: string; name: string; skuStatus: "ACTIVE" | "DISABLED" | null }[];
+} {
+  return {
+    path: `/products/${product.slug}`,
+    status: product.status,
+    variants: product.variants.map((variant) => ({
+      id: variant.id,
+      name: variant.name,
+      skuStatus: variant.sku?.status ?? null,
+    })),
+  };
 }
 
 /**

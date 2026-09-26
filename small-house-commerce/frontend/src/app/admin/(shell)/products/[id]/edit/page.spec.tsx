@@ -279,7 +279,13 @@ describe("edit page saved preview", () => {
       buildSavedPreview(
         legacyProduct({ slug: "server-slug", status: "ACTIVE" }),
       ),
-    ).toEqual({ path: "/products/server-slug", status: "ACTIVE" });
+    ).toEqual({
+      path: "/products/server-slug",
+      status: "ACTIVE",
+      variants: [
+        { id: "variant-1", name: "Default", skuStatus: "ACTIVE" },
+      ],
+    });
   });
 });
 
@@ -389,6 +395,43 @@ describe("EditProductPage save orchestration", () => {
     expect(updateProduct).toHaveBeenCalledWith("p1", { name: "Chair 2" });
     expect(setStock).not.toHaveBeenCalled();
     expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("PATCHes independent SEO fields without replaying storefront copy", async () => {
+    const user = userEvent.setup();
+    getProduct.mockResolvedValue(
+      legacyProduct({
+        description: "Product body",
+        tagline: "Hero tagline",
+        seoTitle: null,
+        metaDescription: null,
+      }),
+    );
+    updateProduct.mockResolvedValue(
+      legacyProduct({
+        description: "Product body",
+        tagline: "Hero tagline",
+        seoTitle: "Search title",
+        metaDescription: "Search description",
+      }),
+    );
+    renderEditPage();
+    await waitForForm();
+
+    await user.click(screen.getByRole("tab", { name: "搜索与链接" }));
+    await setInput(user, screen.getByLabelText(/SEO 标题/), "Search title");
+    await setInput(
+      user,
+      screen.getByLabelText(/Meta 描述/),
+      "Search description",
+    );
+    await clickSave(user);
+
+    await vi.waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(updateProduct).toHaveBeenCalledWith("p1", {
+      seoTitle: "Search title",
+      metaDescription: "Search description",
+    });
   });
 
   it("PATCHes the graph with the current catalogGraphVersion on a graph-only save", async () => {

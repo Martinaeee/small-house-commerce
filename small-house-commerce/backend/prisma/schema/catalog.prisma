@@ -125,6 +125,9 @@ model Product {
   description    String?
   // First-screen one-line selling point under the H1; empty hides the row.
   tagline        String?
+  // Independent search metadata. Canonical/OG URLs remain system-generated.
+  seoTitle        String? @map("seo_title")
+  metaDescription String? @map("meta_description")
   categoryId     String              @map("category_id") @db.Uuid
   status         ProductStatus       @default(DRAFT)
   room           Room?

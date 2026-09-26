@@ -76,7 +76,9 @@ export async function generateMetadata({
   const product = await fetchProduct(slug);
   if (!product) return { title: "Product not found" };
 
-  const description = product.description ?? undefined;
+  const title = product.seoTitle?.trim() || product.name;
+  const description =
+    product.metaDescription?.trim() || product.description || undefined;
   // OG/Twitter previews need poster images, not video URLs.
   const images = [...product.images]
     .filter((image) => image.type === "IMAGE")
@@ -84,11 +86,11 @@ export async function generateMetadata({
     .map((image) => absoluteUrl(image.url));
 
   return {
-    title: product.name,
+    title,
     description,
     alternates: { canonical: `/products/${product.slug}` },
     openGraph: {
-      title: product.name,
+      title,
       description,
       url: `/products/${product.slug}`,
       type: "website",
@@ -96,7 +98,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: images.length > 0 ? "summary_large_image" : "summary",
-      title: product.name,
+      title,
       description,
       images: images.length > 0 ? images : undefined,
     },

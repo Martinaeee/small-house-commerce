@@ -482,6 +482,8 @@ export interface AdminProduct {
   description: string | null;
   /** First-screen one-line selling point under the H1; null/empty hides it. */
   tagline: string | null;
+  seoTitle?: string | null;
+  metaDescription?: string | null;
   categoryId: string;
   status: ProductStatus;
   room: string | null;
@@ -855,6 +857,8 @@ export interface CreateProductInput {
   slug: string;
   description: string | null;
   tagline?: string | null;
+  seoTitle?: string | null;
+  metaDescription?: string | null;
   categoryId: string;
   status: ProductStatus;
   room: string | null;
