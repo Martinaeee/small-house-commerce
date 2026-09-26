@@ -31,6 +31,13 @@ export type VariantUnavailableReason = "MISSING" | "OOS";
 /** sessionStorage key for the purchase payload stashed before navigation. */
 export const PURCHASE_PAYLOAD_STORAGE_KEY = "luwag_purchase_payload";
 
+/**
+ * TRACKING_SPEC §12: InitiateCheckout fires at most once per checkout
+ * session. Shared so the checkout page and the inline PDP order form cannot
+ * each fire their own.
+ */
+export const INITIATE_CHECKOUT_FIRED_KEY = "luwag_ic_fired";
+
 /** ViewContent for the SKU actually displayed (deep link or default display). */
 export function viewContentEvent(input: {
   productId: string;

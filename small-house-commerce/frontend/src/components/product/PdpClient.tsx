@@ -179,11 +179,13 @@ export function PdpClient({
   const {
     primaryLine,
     primaryDerived,
+    purchaseLocked,
     confirmLine,
     setQuantity,
     syncLineFromUrl,
   } = usePdpPurchase();
   const [busy, setBusy] = useState(false);
+  const purchaseBusy = busy || purchaseLocked;
   const [notice, setNotice] = useState<string | null>(null);
   const [gallerySelection, setGallerySelection] = useState({
     scopeKey: "shared",
@@ -476,7 +478,7 @@ export function PdpClient({
 
   const requestIntent = useCallback(
     (intent: PurchaseIntent, trigger: HTMLElement) => {
-      if (busy) return;
+      if (purchaseBusy) return;
       intentTriggerRef.current = trigger;
       if (
         primaryDerived.purchaseConfirmed &&
@@ -490,7 +492,7 @@ export function PdpClient({
       setPendingIntent(intent);
     },
     [
-      busy,
+      purchaseBusy,
       executeAddToCart,
       executeOrderNow,
       primaryDerived.purchaseConfirmed,
@@ -707,21 +709,23 @@ export function PdpClient({
                 type="button"
                 aria-label="Decrease quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity - 1)}
-                className="h-11 w-9 text-lg text-ink hover:text-cta sm:w-11"
+                disabled={purchaseLocked}
+                className="h-11 w-9 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
               >−</button>
               <span className="w-7 text-center text-base font-semibold" data-testid="qty">{primaryLine.quantity}</span>
               <button
                 type="button"
                 aria-label="Increase quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity + 1)}
-                className="h-11 w-9 text-lg text-ink hover:text-cta sm:w-11"
+                disabled={purchaseLocked}
+                className="h-11 w-9 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
               >+</button>
             </div>
 
             {!resolvedOutOfStock && (
               <Button
                 onClick={(event) => requestIntent("ORDER_NOW", event.currentTarget)}
-                disabled={busy || selectableCount === 0}
+                disabled={purchaseBusy || selectableCount === 0}
                 // The shared md size pins min-w-[120px]; below sm the stepper
                 // shares the row, so the buttons shrink and the longer
                 // "CHOOSE OPTIONS" label wraps instead of overflowing.
@@ -734,7 +738,7 @@ export function PdpClient({
             <Button
               variant={resolvedOutOfStock ? "primary" : "secondary"}
               onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
-              disabled={busy || selectableCount === 0}
+              disabled={purchaseBusy || selectableCount === 0}
               className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
               data-testid="add-to-cart"
             >
@@ -779,7 +783,7 @@ export function PdpClient({
       {pendingIntent && (
         <VariantPickerDialog
           lineId={primaryLine.clientLineId}
-          busy={busy}
+          busy={purchaseBusy}
           onConfirm={() => void confirmPendingIntent()}
           onClose={closePicker}
         />
@@ -792,7 +796,7 @@ export function PdpClient({
           heroRef={heroRef}
           line={primaryLine}
           derived={primaryDerived}
-          busy={busy}
+          busy={purchaseBusy}
           variantLabel={displayVariant?.name ?? null}
           onQuantityChange={(quantity) =>
             setQuantity(primaryLine.clientLineId, quantity)

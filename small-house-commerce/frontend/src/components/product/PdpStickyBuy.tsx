@@ -131,7 +131,8 @@ export function PdpStickyBuy({
             type="button"
             aria-label="Decrease sticky quantity"
             onClick={() => onQuantityChange(line.quantity - 1)}
-            className="h-10 w-10 text-lg text-ink hover:text-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+            disabled={busy}
+            className="h-10 w-10 text-lg text-ink hover:text-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta disabled:cursor-not-allowed disabled:opacity-50"
           >
             −
           </button>
@@ -145,7 +146,8 @@ export function PdpStickyBuy({
             type="button"
             aria-label="Increase sticky quantity"
             onClick={() => onQuantityChange(line.quantity + 1)}
-            className="h-10 w-10 text-lg text-ink hover:text-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+            disabled={busy}
+            className="h-10 w-10 text-lg text-ink hover:text-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta disabled:cursor-not-allowed disabled:opacity-50"
           >
             +
           </button>

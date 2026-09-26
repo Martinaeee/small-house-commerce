@@ -26,6 +26,7 @@ interface PsgcAddressSelectsProps {
   errors?: { province?: string; city?: string };
   onBlurField?: (field: "province" | "city") => void;
   inputCls: string;
+  disabled?: boolean;
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -56,6 +57,7 @@ export function PsgcAddressSelects({
   errors,
   onBlurField,
   inputCls,
+  disabled = false,
 }: PsgcAddressSelectsProps) {
   const provinces = listProvinces();
   const cities = province ? listMunicipalities(province) : [];
@@ -141,6 +143,7 @@ export function PsgcAddressSelects({
           options={provinces}
           onChange={handleProvinceChange}
           onBlur={() => onBlurField?.("province")}
+          disabled={disabled}
           placeholder="Select province"
           searchPlaceholder="Search provinces…"
           invalid={Boolean(errors?.province)}
@@ -162,7 +165,7 @@ export function PsgcAddressSelects({
           options={cities}
           onChange={handleCityChange}
           onBlur={() => onBlurField?.("city")}
-          disabled={!province}
+          disabled={disabled || !province}
           placeholder="Select city / municipality"
           searchPlaceholder="Search cities…"
           invalid={Boolean(errors?.city)}
@@ -185,13 +188,15 @@ export function PsgcAddressSelects({
               value={barangay}
               onChange={(e) => onBarangayChange(e.target.value)}
               placeholder="Barangay"
+              disabled={disabled}
             />
             <p className="mt-1 text-xs text-sale">
               Could not load barangays — you can type it instead.{" "}
               <button
                 type="button"
-                className="underline hover:no-underline"
+                className="underline hover:no-underline disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => setRetryNonce((n) => n + 1)}
+                disabled={disabled}
               >
                 Retry
               </button>
@@ -206,7 +211,7 @@ export function PsgcAddressSelects({
               value={barangay}
               options={barangayNames}
               onChange={onBarangayChange}
-              disabled={!city}
+              disabled={disabled || !city}
               placeholder="Select barangay"
               searchPlaceholder="Search barangays…"
               loading={barangayLoading}

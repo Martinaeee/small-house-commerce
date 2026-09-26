@@ -13,12 +13,17 @@ import {
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { emitCommerceEvent, initiateCheckoutEvent } from "@/lib/commerce-events";
+import {
+  emitCommerceEvent,
+  initiateCheckoutEvent,
+  INITIATE_CHECKOUT_FIRED_KEY,
+} from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
+import { checkoutInputCls } from "./checkoutFieldStyles";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import {
@@ -46,13 +51,7 @@ import {
  *   stay in the cart. The backend re-validates stock for every submitted SKU.
  */
 
-const inputCls =
-  "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
-
-// TRACKING_SPEC: InitiateCheckout fires ONCE per checkout session. The confirm
-// step's "Edit" link remounts this form (it is no longer the only checkout
-// page), which would otherwise re-fire on every visit back.
-const IC_FIRED_KEY = "luwag_ic_fired";
+const inputCls = checkoutInputCls;
 
 interface CheckoutFormProps {
   skuId?: string;
@@ -163,13 +162,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   }, []);
 
   // TRACKING_SPEC §12 InitiateCheckout — at most once per checkout session
-  // (see IC_FIRED_KEY). Fail-open: if sessionStorage is unavailable the event
+  // (see INITIATE_CHECKOUT_FIRED_KEY). Fail-open: if sessionStorage is unavailable the event
   // still fires, and a storage write must never throw into the effect.
   useEffect(() => {
     if (orderItems.length === 0 || (isBuyNow && !buyNowMatchedSku)) return;
     try {
-      if (sessionStorage.getItem(IC_FIRED_KEY) === "1") return;
-      sessionStorage.setItem(IC_FIRED_KEY, "1");
+      if (sessionStorage.getItem(INITIATE_CHECKOUT_FIRED_KEY) === "1") return;
+      sessionStorage.setItem(INITIATE_CHECKOUT_FIRED_KEY, "1");
     } catch {
       // Storage unavailable: proceed and fire.
     }

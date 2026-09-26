@@ -27,6 +27,8 @@ export interface PdpPurchaseContextValue {
   orderLines: readonly PurchaseLineState[];
   primaryLine: PurchaseLineState;
   primaryDerived: ProductSelectionDerived;
+  purchaseLocked: boolean;
+  setPurchaseLocked(locked: boolean): void;
   selectOption(lineId: string, optionId: string, valueId: string): void;
   confirmLine(lineId: string): void;
   setQuantity(lineId: string, quantity: number): void;
@@ -175,10 +177,18 @@ function StatefulPdpPurchaseProvider({
   const [orderLines, setOrderLines] = useState<PurchaseLineState[]>(() =>
     createInitialPurchaseLines(product, initialVariantId),
   );
+  const [purchaseLocked, setPurchaseLockedState] = useState(false);
+  const purchaseLockedRef = useRef(false);
   const nextLineNumber = useRef(1);
+
+  const setPurchaseLocked = useCallback((locked: boolean) => {
+    purchaseLockedRef.current = locked;
+    setPurchaseLockedState(locked);
+  }, []);
 
   const dispatch = useCallback(
     (action: PurchaseLinesAction) => {
+      if (purchaseLockedRef.current) return;
       setOrderLines((current) => [
         ...reducePurchaseLines(product, current, action),
       ]);
@@ -237,6 +247,8 @@ function StatefulPdpPurchaseProvider({
       orderLines,
       primaryLine,
       primaryDerived,
+      purchaseLocked,
+      setPurchaseLocked,
       selectOption,
       confirmLine,
       setQuantity,
@@ -254,8 +266,10 @@ function StatefulPdpPurchaseProvider({
       primaryDerived,
       primaryLine,
       product,
+      purchaseLocked,
       removeLine,
       selectOption,
+      setPurchaseLocked,
       setQuantity,
     ],
   );

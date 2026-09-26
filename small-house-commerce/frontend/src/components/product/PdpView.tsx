@@ -3,6 +3,7 @@ import { PdpClient } from "./PdpClient";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
+import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 import { ProductCard } from "./ProductCard";
 import { ReviewSection } from "./ReviewSection";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
@@ -77,6 +78,7 @@ export async function PdpView({
               supportEmail={settings.supportEmail}
               supportHours={settings.supportHours}
             />
+            <PdpQuickCodOrder />
             <ReviewSection product={product} />
             <TrustBar />
           </section>

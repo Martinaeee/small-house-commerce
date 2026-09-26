@@ -112,6 +112,7 @@ export function ProductOptionSelector({
     product,
     orderLines,
     primaryDerived,
+    purchaseLocked,
     selectOption,
     changeLineVariant,
   } = usePdpPurchase();
@@ -193,7 +194,7 @@ export function ProductOptionSelector({
                           changeLineVariant(lineId);
                         }
                       }}
-                      disabled={!compatible}
+                      disabled={purchaseLocked || !compatible}
                       aria-pressed={selected}
                       aria-label={value.label}
                       title={
