@@ -218,6 +218,39 @@ describe('HomepageValidator hero rules', () => {
     });
   });
 
+  it('reports HERO_POSTER_MISSING for a posterless enabled mobile override video', async () => {
+    const doc = validDoc();
+    const media = videoMedia('/uploads/catalog/2026/primary-poster.jpg');
+    const mobileVideo = videoMedia(null).video;
+    if (mobileVideo === null) throw new Error('fixture is missing mobile video');
+    media.mobileOverride = { enabled: true, image: null, video: mobileVideo };
+    slidesOf(doc)[0].media = media;
+
+    const { errors } = await makeValidator(createLookup()).validate(doc);
+
+    expect(codes(errors)).toEqual(['HERO_POSTER_MISSING']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      severity: 'ERROR',
+      sectionId: HERO_SECTION_ID,
+      slideId: HERO_SLIDE_ID,
+    });
+  });
+
+  it('emits one slide-level poster issue when both active video sources lack posters', async () => {
+    const doc = validDoc();
+    const media = videoMedia(null);
+    const mobileVideo = videoMedia(null).video;
+    if (mobileVideo === null) throw new Error('fixture is missing mobile video');
+    media.mobileOverride = { enabled: true, image: null, video: mobileVideo };
+    slidesOf(doc)[0].media = media;
+
+    const { errors } = await makeValidator(createLookup()).validate(doc);
+
+    expect(codes(errors)).toEqual(['HERO_POSTER_MISSING']);
+    expect(errors).toHaveLength(1);
+  });
+
   it('accepts a video slide with a poster', async () => {
     const doc = validDoc();
     slidesOf(doc)[0].media = videoMedia('/uploads/catalog/2026/poster.jpg');
@@ -329,6 +362,7 @@ describe('HomepageValidator link targets', () => {
     slide.elements.eyebrow.link = productLink(uuid(201));
     slide.elements.heading.link = collectionLink(uuid(202));
     slide.elements.offer.link = categoryLink(uuid(203));
+    slide.elements.countdown.endsAt = T_END;
     slide.elements.countdown.link = landingLink(uuid(204));
     slide.elements.ctaPrimary.link = externalLink;
 
@@ -392,6 +426,20 @@ describe('HomepageValidator link targets', () => {
     expect(errors[0].sectionId).toBeUndefined();
     expect(errors[0].slideId).toBeUndefined();
     expect(lookup.collectionExists).toHaveBeenCalledWith([uuid(205)]);
+  });
+
+  it('ignores a stale countdown link when countdown is disabled by a null endsAt', async () => {
+    const doc = validDoc();
+    const slide = slidesOf(doc)[0];
+    slide.elements.countdown.endsAt = null;
+    slide.elements.countdown.link = collectionLink(uuid(205));
+
+    const lookup = createLookup();
+    const { errors, warnings } = await makeValidator(lookup).validate(doc);
+
+    expect(errors).toEqual([]);
+    expect(warnings).toEqual([]);
+    expect(lookup.collectionExists).not.toHaveBeenCalled();
   });
 
   it('does not call the lookup when there is nothing to resolve', async () => {

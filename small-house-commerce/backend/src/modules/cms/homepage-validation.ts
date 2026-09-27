@@ -162,7 +162,11 @@ function collectLookupIds(doc: HomepageDocument): LookupIds {
     if (section.type === 'HERO') {
       for (const slide of heroSlidesOf(section)) {
         if (!slide.enabled) continue;
-        for (const key of HERO_ELEMENT_KEYS) addLink(slide.elements[key].link);
+        for (const key of HERO_ELEMENT_KEYS) {
+          if (isHeroElementEnabled(slide, key)) {
+            addLink(slide.elements[key].link);
+          }
+        }
       }
     } else if (section.type === 'PRODUCT_GRID') {
       for (const row of section.products) ids.productIds.add(row.productId);
@@ -210,6 +214,14 @@ const HERO_ELEMENT_KEYS: readonly HeroElementKey[] = [
   'countdown',
 ];
 
+/** Countdown has no explicit enabled flag: a null endsAt disables it. */
+function isHeroElementEnabled(
+  slide: HeroSlide,
+  key: HeroElementKey,
+): boolean {
+  return key !== 'countdown' || slide.elements.countdown.endsAt !== null;
+}
+
 const ENTITY_NOUN: Record<LinkEntityType, string> = {
   PRODUCT: 'product',
   COLLECTION: 'collection',
@@ -237,6 +249,7 @@ function checkHeroSection(
     checkSlideContent(section, slide, errors, warnings);
 
     for (const key of HERO_ELEMENT_KEYS) {
+      if (!isHeroElementEnabled(slide, key)) continue;
       const link = slide.elements[key].link;
       if (link === null || link.type === 'EXTERNAL') continue;
       if (linkExists(link, results)) continue;
@@ -293,11 +306,12 @@ function checkSlideContent(
       ),
     );
   } else {
-    if (
-      media.type === 'VIDEO' &&
-      media.video !== null &&
-      media.video.poster === null
-    ) {
+    const primaryVideoMissingPoster =
+      media.type === 'VIDEO' && media.video?.poster === null;
+    const mobileVideoMissingPoster =
+      media.mobileOverride.enabled &&
+      media.mobileOverride.video?.poster === null;
+    if (primaryVideoMissingPoster || mobileVideoMissingPoster) {
       errors.push(
         issue(
           'ERROR',
