@@ -4,6 +4,7 @@ import {
   Get,
   Inject,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
   Req,
@@ -83,17 +84,20 @@ export class AdminHomepageController {
   }
 
   @Get('versions/:id')
-  getVersion(@Param('id') id: string) {
+  getVersion(@Param('id', new ParseUUIDPipe({ version: '7' })) id: string) {
     return this.docs.getVersion(id);
   }
 
   @Post('versions/:id/restore')
-  restore(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+  restore(
+    @Param('id', new ParseUUIDPipe({ version: '7' })) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.docs.restoreVersion(id, req.user?.userId ?? null);
   }
 
   @Post('versions/:id/unpublish')
-  unpublish(@Param('id') id: string) {
+  unpublish(@Param('id', new ParseUUIDPipe({ version: '7' })) id: string) {
     return this.docs.unpublishVersion(id);
   }
 

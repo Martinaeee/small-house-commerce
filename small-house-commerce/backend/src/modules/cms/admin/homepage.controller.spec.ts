@@ -1,9 +1,10 @@
-import { RequestMethod } from '@nestjs/common';
+import { RequestMethod, ParseUUIDPipe } from '@nestjs/common';
 import {
   GUARDS_METADATA,
   METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
+  ROUTE_ARGS_METADATA,
 } from '@nestjs/common/constants';
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
@@ -25,6 +26,26 @@ import {
   unpublishSchema,
 } from '../dto/homepage-document.dto.js';
 
+const DOCUMENT_ROUTES = [
+  { methodName: 'getDraft', method: RequestMethod.GET, path: 'draft' },
+  { methodName: 'saveDraft', method: RequestMethod.PUT, path: 'draft' },
+  { methodName: 'validate', method: RequestMethod.POST, path: 'validate' },
+  { methodName: 'publish', method: RequestMethod.POST, path: 'publish' },
+  { methodName: 'listVersions', method: RequestMethod.GET, path: 'versions' },
+  { methodName: 'getVersion', method: RequestMethod.GET, path: 'versions/:id' },
+  {
+    methodName: 'restore',
+    method: RequestMethod.POST,
+    path: 'versions/:id/restore',
+  },
+  {
+    methodName: 'unpublish',
+    method: RequestMethod.POST,
+    path: 'versions/:id/unpublish',
+  },
+  { methodName: 'previewToken', method: RequestMethod.POST, path: 'preview-token' },
+] as const;
+
 const USER_ID = '018f0c8b-2f4f-7f65-a409-a6bdb7de7523';
 const VERSION_ID = '018f0c8b-2f4f-7f65-a409-a6bdb7de7524';
 
@@ -41,42 +62,17 @@ function request(userId = USER_ID) {
 }
 
 describe('AdminHomepageController routes', () => {
-  it('exposes all nine document routes with the expected HTTP methods and paths', () => {
-    expect(
-      [
-        ['getDraft', RequestMethod.GET, 'draft'],
-        ['saveDraft', RequestMethod.PUT, 'draft'],
-        ['validate', RequestMethod.POST, 'validate'],
-        ['publish', RequestMethod.POST, 'publish'],
-        ['listVersions', RequestMethod.GET, 'versions'],
-        ['getVersion', RequestMethod.GET, 'versions/:id'],
-        ['restore', RequestMethod.POST, 'versions/:id/restore'],
-        ['unpublish', RequestMethod.POST, 'versions/:id/unpublish'],
-        ['previewToken', RequestMethod.POST, 'preview-token'],
-      ].map(([methodName, method, path]) => [
-        methodName,
-        routeMetadata(methodName as string),
-        { method, path },
-      ]),
-    ).toEqual(
-      expect.arrayContaining(
-        [
-          ['getDraft', RequestMethod.GET, 'draft'],
-          ['saveDraft', RequestMethod.PUT, 'draft'],
-          ['validate', RequestMethod.POST, 'validate'],
-          ['publish', RequestMethod.POST, 'publish'],
-          ['listVersions', RequestMethod.GET, 'versions'],
-          ['getVersion', RequestMethod.GET, 'versions/:id'],
-          ['restore', RequestMethod.POST, 'versions/:id/restore'],
-          ['unpublish', RequestMethod.POST, 'versions/:id/unpublish'],
-          ['previewToken', RequestMethod.POST, 'preview-token'],
-        ].map(([methodName, method, path]) => [
-          methodName,
-          routeMetadata(methodName as string),
-          { method, path },
-        ]),
-      ),
+  it('exposes exactly the nine document routes with independently asserted metadata', () => {
+    const documentHandlerNames = Object.getOwnPropertyNames(
+      AdminHomepageController.prototype,
+    ).filter((name) => name !== 'constructor' && name !== 'list');
+    expect(documentHandlerNames.sort()).toEqual(
+      DOCUMENT_ROUTES.map(({ methodName }) => methodName).sort(),
     );
+
+    for (const { methodName, method, path } of DOCUMENT_ROUTES) {
+      expect(routeMetadata(methodName)).toEqual({ method, path });
+    }
   });
 
   it('protects every route with JWT authentication, permission checks, and PRODUCT_MANAGE', () => {
@@ -168,7 +164,7 @@ describe('AdminHomepageController delegation', () => {
     expect(docs.publish).toHaveBeenCalledWith({ ...input, userId: USER_ID });
   });
 
-  it('delegates version listing, reading, restore, and unpublish with their route ids', async () => {
+  it('delegates version listing, reading, restore, and unpublish with their valid UUIDv7 route ids', async () => {
     const { controller, docs } = makeController();
 
     await controller.listVersions();
@@ -180,6 +176,33 @@ describe('AdminHomepageController delegation', () => {
     expect(docs.getVersion).toHaveBeenCalledWith(VERSION_ID);
     expect(docs.restoreVersion).toHaveBeenCalledWith(VERSION_ID, USER_ID);
     expect(docs.unpublishVersion).toHaveBeenCalledWith(VERSION_ID);
+  });
+
+  it('rejects malformed version ids through v7 pipes before document delegation', async () => {
+    const { docs } = makeController();
+    const versionHandlers = ['getVersion', 'restore', 'unpublish'] as const;
+
+    for (const methodName of versionHandlers) {
+      const metadata = Reflect.getMetadata(
+        ROUTE_ARGS_METADATA,
+        AdminHomepageController,
+        methodName,
+      ) as Record<string, { data?: unknown; pipes?: unknown[] }>;
+      const idArgument = Object.values(metadata).find((argument) => argument.data === 'id');
+      const idPipe = idArgument?.pipes?.find(
+        (pipe): pipe is ParseUUIDPipe => pipe instanceof ParseUUIDPipe,
+      );
+
+      expect(idPipe).toBeInstanceOf(ParseUUIDPipe);
+      if (!idPipe) throw new Error(`missing UUID pipe for ${methodName}`);
+      expect((idPipe as unknown as { version: string }).version).toBe('7');
+      await expect(idPipe.transform('not-a-version-id')).rejects.toThrow();
+      await expect(idPipe.transform(VERSION_ID)).resolves.toBe(VERSION_ID);
+    }
+
+    expect(docs.getVersion).not.toHaveBeenCalled();
+    expect(docs.restoreVersion).not.toHaveBeenCalled();
+    expect(docs.unpublishVersion).not.toHaveBeenCalled();
   });
 
   it('signs the current saved draft revision and returns the fixed TTL', async () => {
