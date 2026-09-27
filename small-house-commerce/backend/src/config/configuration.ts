@@ -27,6 +27,7 @@ export function configuration() {
       accessTtl: env.JWT_ACCESS_TTL,
       refreshTtl: env.JWT_REFRESH_TTL,
     },
+    homepagePreviewSecret: env.HOMEPAGE_PREVIEW_SECRET ?? '',
     r2: {
       accountId: env.R2_ACCOUNT_ID ?? null,
       accessKeyId: env.R2_ACCESS_KEY_ID ?? null,

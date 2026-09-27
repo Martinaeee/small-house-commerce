@@ -31,6 +31,9 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().min(1).default('1h'),
   JWT_REFRESH_TTL: z.string().min(1).default('7d'),
 
+  // Optional signed homepage draft-preview tokens. Empty/unset disables preview.
+  HOMEPAGE_PREVIEW_SECRET: z.string().optional(),
+
   // Cloudflare R2 direct image uploads. All optional: the app boots and the
   // URL-paste flow works without them; only presigning returns 503.
   R2_ACCOUNT_ID: z.string().optional(),

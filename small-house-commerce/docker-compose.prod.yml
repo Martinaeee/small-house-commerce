@@ -34,6 +34,7 @@ services:
       # /api/internal/revalidate route (shared secret, docker network).
       REVALIDATE_URL: http://frontend:3000
       REVALIDATE_SECRET: ${REVALIDATE_SECRET}
+      HOMEPAGE_PREVIEW_SECRET: ${HOMEPAGE_PREVIEW_SECRET:-}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
       UPLOAD_DIR: /app/uploads
