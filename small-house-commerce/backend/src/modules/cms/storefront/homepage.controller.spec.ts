@@ -70,6 +70,40 @@ describe('StorefrontHomepageController', () => {
     expect(res.setHeader).not.toHaveBeenCalled();
   });
 
+  it('marks repeated non-empty query values private but never forwards an array to either service', async () => {
+    const homepage = {
+      storefrontGet: vi.fn().mockResolvedValue({ sections: [] }),
+      storefrontGetAnnouncement: vi.fn().mockResolvedValue(null),
+    };
+    const homepageResponse = { setHeader: vi.fn() };
+    const announcementResponse = { setHeader: vi.fn() };
+    const controller = new StorefrontHomepageController(homepage as never);
+
+    await controller.get(
+      ['first-token', 'second-token'] as never,
+      homepageResponse as never,
+    );
+    await controller.announcement(
+      ['', 'announcement-token'] as never,
+      announcementResponse as never,
+    );
+
+    expect(homepage.storefrontGet).toHaveBeenCalledWith({
+      previewToken: undefined,
+    });
+    expect(homepage.storefrontGetAnnouncement).toHaveBeenCalledWith({
+      previewToken: undefined,
+    });
+    expect(homepageResponse.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'private, no-store',
+    );
+    expect(announcementResponse.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'private, no-store',
+    );
+  });
+
   it('declares query and passthrough response parameters instead of sending manually', () => {
     for (const methodName of ['get', 'announcement'] as const) {
       const metadata = Reflect.getMetadata(

@@ -168,7 +168,9 @@ export class HomepageService {
         sortOrder: section.sortOrder,
         schedule: section.schedule,
         payload: section.payload,
-        products: section.products.map((product) => ({ ...product })),
+        products: section.products
+          .map((product) => ({ ...product }))
+          .sort((left, right) => left.sortOrder - right.sortOrder),
       })),
     };
   }

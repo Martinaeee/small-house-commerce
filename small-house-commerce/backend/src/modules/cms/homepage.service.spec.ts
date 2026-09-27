@@ -536,6 +536,43 @@ describe('HomepageService versioned storefront source', () => {
     expect(ctx.prisma.homepageSection.findMany).not.toHaveBeenCalled();
   });
 
+  it('uses document product sortOrder for merchandising while filtering unsellable products and keeping badges attached', async () => {
+    const SECOND_PRODUCT_ID = '00000000-0000-7000-8000-000000000103';
+    const UNSALEABLE_PRODUCT_ID = '00000000-0000-7000-8000-000000000104';
+    const document = structuredClone(emptyDocument());
+    const grid = structuredClone(document.sections[0]);
+    grid.id = '00000000-0000-7000-8000-000000000002';
+    grid.type = 'PRODUCT_GRID';
+    grid.payload = {};
+    grid.products = [
+      { productId: PRODUCT_ID, sortOrder: 2, badge: 'Second' },
+      { productId: SECOND_PRODUCT_ID, sortOrder: 0, badge: 'First' },
+      { productId: UNSALEABLE_PRODUCT_ID, sortOrder: 1, badge: 'Unavailable' },
+    ];
+    document.sections = [grid];
+
+    const ctx = versionedContext(document);
+    ctx.products.storefrontByIds = vi.fn(async (ids: string[]) =>
+      ids
+        .map((id) => {
+          if (id === PRODUCT_ID) return skuProduct(id, 2, 100);
+          if (id === SECOND_PRODUCT_ID) return skuProduct(id, 1, 80);
+          if (id === UNSALEABLE_PRODUCT_ID) return skuProduct(id, 0, 60);
+          return undefined;
+        })
+        .filter(Boolean),
+    ) as never;
+
+    const result = await versionedService(ctx).storefrontGet();
+
+    expect(
+      (result.sections[0] as StorefrontSectionView).products,
+    ).toMatchObject([
+      { id: SECOND_PRODUCT_ID, badge: 'First' },
+      { id: PRODUCT_ID, badge: 'Second' },
+    ]);
+  });
+
   it('falls back to the legacy homepage sections when no version is effective and normalizes a legacy hero', async () => {
     const sections = [
       section({

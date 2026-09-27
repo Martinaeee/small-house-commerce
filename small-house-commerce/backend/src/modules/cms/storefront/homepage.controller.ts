@@ -9,27 +9,36 @@ export class StorefrontHomepageController {
 
   @Get('homepage')
   get(
-    @Query('previewToken') previewToken: string | undefined,
+    @Query('previewToken') previewToken: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
     this.markPreviewResponse(previewToken, res);
-    return this.homepage.storefrontGet({ previewToken });
+    return this.homepage.storefrontGet({
+      previewToken: this.scalarPreviewToken(previewToken),
+    });
   }
 
   @Get('announcement')
   announcement(
-    @Query('previewToken') previewToken: string | undefined,
+    @Query('previewToken') previewToken: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
     this.markPreviewResponse(previewToken, res);
-    return this.homepage.storefrontGetAnnouncement({ previewToken });
+    return this.homepage.storefrontGetAnnouncement({
+      previewToken: this.scalarPreviewToken(previewToken),
+    });
   }
 
-  private markPreviewResponse(
-    previewToken: string | undefined,
-    res: Response,
-  ): void {
-    if (typeof previewToken === 'string' && previewToken.length > 0) {
+  private scalarPreviewToken(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private markPreviewResponse(value: unknown, res: Response): void {
+    const hasNonEmptyToken =
+      (typeof value === 'string' && value.length > 0) ||
+      (Array.isArray(value) &&
+        value.some((item) => typeof item === 'string' && item.length > 0));
+    if (hasNonEmptyToken) {
       res.setHeader('Cache-Control', 'private, no-store');
     }
   }
