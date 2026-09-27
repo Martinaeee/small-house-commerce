@@ -262,6 +262,53 @@ describe("useCheckoutLines", () => {
     ]);
   });
 
+  it("resolves a PDP inline multi-item selection from the source product", async () => {
+    const directProduct: Product = {
+      ...product,
+      variants: [
+        product.variants[0],
+        {
+          id: "blue-large",
+          name: "Blue / Large",
+          position: 1,
+          combinationKey: "color:blue|size:large",
+          optionValueIds: ["blue", "large"],
+          sku: {
+            id: "sku-blue-large",
+            skuCode: "BLUE-LARGE",
+            status: "ACTIVE",
+            price: 120,
+            compareAtPrice: 150,
+            availableInventory: 6,
+          },
+        },
+      ],
+    };
+    apiMock.getProductBySlug.mockResolvedValue(directProduct);
+
+    const { result } = renderHook(() =>
+      useCheckoutLines({
+        directItems: [
+          { skuId: "sku-red-small", quantity: 1 },
+          { skuId: "sku-blue-large", quantity: 2 },
+        ],
+        directSlug: "chair",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.lines).toHaveLength(2));
+    expect(result.current.lines.map((line) => [line.variant, line.quantity])).toEqual([
+      ["Red / Small", 1],
+      ["Blue / Large", 2],
+    ]);
+    expect(result.current.orderItems).toEqual([
+      { skuId: "sku-red-small", quantity: 1 },
+      { skuId: "sku-blue-large", quantity: 2 },
+    ]);
+    expect(result.current.total).toBe(340);
+    expect(result.current.ready).toBe(true);
+  });
+
   it("a DISABLED-sku deep link dead-ends instead of failing at backend submit", async () => {
     const disabledSkuProduct: Product = {
       ...product,

@@ -138,6 +138,7 @@ async function fillInlineAddress(page: Page, phone = "09171234567"): Promise<voi
   await section
     .getByPlaceholder("House no., street, subdivision")
     .fill("12 E2E Street");
+  await section.getByLabel("Postal Code", { exact: true }).fill("1100");
 }
 
 test.beforeAll(async () => {
@@ -145,14 +146,26 @@ test.beforeAll(async () => {
 });
 
 test.describe("PDP inline COD order", () => {
-  test("places a real order for the displayed variant and keeps its attribution", async ({
+  test("reviews the PDP draft before placing one real attributed order", async ({
     page,
   }) => {
     const stopErrors = trackBrowserErrors(page);
     const variant = sellableVariant();
     const skuId = variant.sku!.id;
+    const additionalVariant = product.variants.find(
+      (candidate) => candidate.name === "Red / Medium" && candidate.sku !== null,
+    );
+    expect(additionalVariant, "Red / Medium sellable variant exists").toBeTruthy();
+    const orderPosts: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/storefront/orders")
+      ) {
+        orderPosts.push(request.url());
+      }
+    });
 
-    // An optimizer link is what the form must not lose.
     await gotoPdp(
       page,
       `?variant=${variant.id}&aid=aid-e2e-1&utm_source=facebook&utm_campaign=e2e`,
@@ -160,7 +173,6 @@ test.describe("PDP inline COD order", () => {
 
     const section = page.getByRole("main").locator("#quick-cod-order");
     await section.scrollIntoViewIfNeeded();
-    // The item list carries the deep-linked combination at the hero quantity.
     await expect(
       section.getByTestId(`quick-cod-row-qty-${variant.id}`),
     ).toHaveText("1");
@@ -169,11 +181,33 @@ test.describe("PDP inline COD order", () => {
         minimumFractionDigits: 2,
       }),
     );
+    await section
+      .getByRole("button", {
+        name: `Increase ${additionalVariant!.name} quantity`,
+      })
+      .click();
 
     await fillInlineAddress(page);
     await page.screenshot({
       path: screenshotPath("phase2-inline-cod-desktop.png"),
     });
+    await section.getByTestId("quick-cod-submit").click();
+
+    await expect(page).toHaveURL(/\/checkout\/confirm\?/);
+    expect(new URL(page.url()).searchParams.get("aid")).toBe("aid-e2e-1");
+    expect(orderPosts).toEqual([]);
+    await expect(page.getByRole("heading", { name: "Confirm your order" })).toBeVisible();
+    await expect(page.getByTestId("confirm-items")).toContainText("Size: Small");
+    await expect(page.getByTestId("confirm-items")).toContainText("Size: Medium");
+    await expect(page.getByTestId("confirm-address")).toContainText("12 E2E Street");
+    await expect(page.getByTestId("confirm-address")).toContainText("1100");
+    await expect(page.getByTestId("confirm-preferred-date")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit" }).first()).toHaveAttribute(
+      "href",
+      "/products/e2e-color-size?variant=" +
+        variant.id +
+        "&aid=aid-e2e-1&utm_source=facebook&utm_campaign=e2e#quick-cod-order",
+    );
 
     let releaseOrder!: () => void;
     let markOrderStarted!: () => void;
@@ -197,25 +231,12 @@ test.describe("PDP inline COD order", () => {
       await route.continue();
     });
 
-    await section.getByTestId("quick-cod-submit").click();
+    const confirmSubmit = page.getByTestId("confirm-place-order");
+    await confirmSubmit.click();
     await orderStarted;
     try {
-      await expect(section.getByTestId("quick-cod-submit")).toBeDisabled();
-      await expect(section.getByTestId("psgc-province")).toBeDisabled();
-      await expect(section.getByTestId("psgc-city")).toBeDisabled();
-      const hero = page.getByRole("main").getByTestId("pdp-purchase");
-      await expect(hero.getByRole("button", { name: "Red" })).toBeDisabled();
-      await expect(
-        hero.getByRole("button", { name: "Increase quantity" }),
-      ).toBeDisabled();
-      // The sticky bar intentionally yields to the COD section; the shared
-      // lock stays provable on the item list rendered right here.
-      await expect(page.getByTestId("sticky-buy")).toHaveCount(0);
-      await expect(
-        section.getByRole("button", {
-          name: `Increase ${variant.name} quantity`,
-        }),
-      ).toBeDisabled();
+      await expect(confirmSubmit).toBeDisabled();
+      await expect(confirmSubmit).toHaveText("Placing order…");
     } finally {
       releaseOrder();
     }
@@ -225,7 +246,10 @@ test.describe("PDP inline COD order", () => {
     await expect(page.getByTestId("order-number")).toHaveText(orderNumber);
 
     const order = await lookupOrder(orderNumber, "09171234567");
-    expect(order.items).toMatchObject([{ skuId, quantity: 1 }]);
+    expect(order.items).toMatchObject([
+      { skuId, quantity: 1 },
+      { skuId: additionalVariant!.sku!.id, quantity: 1 },
+    ]);
     expect(order.attribution?.aidSnapshot).toBe("aid-e2e-1");
     expect(order.attribution?.utmSource).toBe("facebook");
 
@@ -338,6 +362,10 @@ test.describe("PDP inline COD order", () => {
     const phone = "09171234568";
     await fillInlineAddress(page, phone);
     await section.getByTestId("quick-cod-submit").click();
+
+    await expect(page).toHaveURL(/\/checkout\/confirm\?/);
+    await expect(page.getByTestId("confirm-items")).toContainText("Qty 2");
+    await page.getByTestId("confirm-place-order").click();
 
     await expect(page).toHaveURL(/\/order-success\/PH\d+$/);
     const orderNumber = page.url().split("/").pop()!;

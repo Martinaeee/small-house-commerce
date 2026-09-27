@@ -1,26 +1,43 @@
 "use client";
 
-import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import {
-  api,
-  type Product,
-  type StorefrontProductVariant,
-} from "@/lib/api";
-import { readAttribution } from "@/lib/tracking";
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
+import { useRouter } from "next/navigation";
+import { type Product, type StorefrontProductVariant } from "@/lib/api";
+import {
+  addBusinessDays,
+  defaultPreferredDeliveryDate,
+  deliveryWindowFor,
+  manilaWallDate,
+  toDateInputValue,
+} from "@/lib/deliveryWindow";
 import {
   emitCommerceEvent,
   initiateCheckoutEvent,
-  purchaseEvent,
-  storePurchasePayload,
   INITIATE_CHECKOUT_FIRED_KEY,
 } from "@/lib/commerce-events";
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
+  validatePreferredDate,
   type CheckoutErrors,
   type CheckoutField,
 } from "@/lib/checkoutValidation";
+import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import { lookupPostalCode } from "@/lib/postalCodes";
+import {
+  fetchBarangays,
+  listMunicipalities,
+  listProvinces,
+  matchPsgcName,
+  reverseGeocode,
+} from "@/lib/psgc";
 import { totalsFor } from "@/components/checkout/checkoutItems";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -33,12 +50,10 @@ import { usePdpPurchase } from "./PdpPurchaseProvider";
  * Inline COD order on the PDP (Phase 2; item-list form per the 2026-09-27
  * revision).
  *
- * This is the SAME order path as the checkout page, one screen earlier: the
- * shopper picks one or more styles with quantities right here, validates with
- * the checkout's own rules, and posts to the one storefront order endpoint
- * (`api.createOrder`, which already accepts multiple items) so reservation,
- * risk, duplicate detection and attribution all run exactly as they do today.
- * Nothing here re-implements ordering.
+ * This is the same two-step order path as checkout: the shopper picks one or
+ * more styles and fills the shared delivery fields here, then reviews the
+ * canonical product/SKU data in CheckoutConfirmView before that page calls the
+ * one storefront order endpoint. The PDP never creates an order itself.
  *
  * The list starts from the hero's current selection (variant + quantity) so a
  * chosen combination is never re-picked; after that it is the shopper's own
@@ -52,6 +67,7 @@ const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
   province: "quick-cod-province",
   city: "quick-cod-city",
   streetAddress: "quick-cod-street",
+  preferredDeliveryDate: "quick-cod-preferred-date",
 };
 
 interface CodRow {
@@ -165,19 +181,71 @@ export function PdpQuickCodOrder(): ReactNode {
     province: "",
     city: "",
     barangay: "",
-    // The inline form has no postal-code input (the plan's field list stops at
-    // the street); the order contract treats it as optional, so it is sent
-    // empty rather than guessed.
     postalCode: "",
     streetAddress: "",
     landmark: "",
+    preferredDeliveryDate: defaultPreferredDeliveryDate(),
   });
+  const [dateBounds] = useState(() => {
+    const { year, month, day } = manilaWallDate(new Date());
+    const manilaToday = new Date(Date.UTC(year, month - 1, day));
+    return {
+      min: toDateInputValue(addBusinessDays(manilaToday, 3)),
+      max: toDateInputValue(
+        new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000),
+      ),
+    };
+  });
+  const postalAutoRef = useRef<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [promoOpen, setPromoOpen] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      await Promise.resolve();
+      if (!alive) return;
+      const draft = readCheckoutDraft();
+      const selection = draft?.selection;
+      if (
+        !draft ||
+        selection?.kind !== "PDP_INLINE" ||
+        selection.productSlug !== product.slug
+      ) {
+        return;
+      }
+      setForm({
+        ...draft.customer,
+        preferredDeliveryDate: draft.preferredDeliveryDate ?? "",
+      });
+      const bySku = new Map(
+        selection.items.map((item) => [item.skuId, item.quantity]),
+      );
+      setQuantities(
+        Object.fromEntries(
+          rows.map((row) => [
+            row.variant.id,
+            Math.max(
+              0,
+              Math.min(bySku.get(row.skuId) ?? 0, row.available, 99),
+            ),
+          ]),
+        ),
+      );
+      setListTouched(true);
+      setFormTouched(true);
+      setCheckoutStarted(true);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [product.slug, rows]);
 
   const selected = useMemo(
     () =>
@@ -199,6 +267,30 @@ export function PdpQuickCodOrder(): ReactNode {
   );
   const needsItems = items.length === 0;
   const orderable = !needsItems && !submitting;
+
+  function withDerivedPostal(next: typeof form, previous: string): string {
+    const isManualEntry = previous !== "" && previous !== postalAutoRef.current;
+    if (isManualEntry) return previous;
+    const { auto } = lookupPostalCode(
+      next.province,
+      next.city,
+      next.barangay,
+    );
+    if (auto !== null) {
+      postalAutoRef.current = auto;
+      return auto;
+    }
+    if (previous !== "") {
+      postalAutoRef.current = null;
+      return "";
+    }
+    return previous;
+  }
+
+  const postalLookup = useMemo(
+    () => lookupPostalCode(form.province, form.city, form.barangay),
+    [form.province, form.city, form.barangay],
+  );
 
   /**
    * TRACKING_SPEC §12: InitiateCheckout fires at most once per checkout
@@ -273,6 +365,149 @@ export function PdpQuickCodOrder(): ReactNode {
     }
   };
 
+  const handleProvinceChange = (value: string): void => {
+    setFormTouched(true);
+    fireInitiate(items, totals.subtotal);
+    setLocationError(null);
+    setLocationNotice(null);
+    setForm((current) => {
+      const next = { ...current, province: value, city: "", barangay: "" };
+      return {
+        ...next,
+        postalCode: withDerivedPostal(next, current.postalCode),
+      };
+    });
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.province;
+      delete next.city;
+      return next;
+    });
+  };
+
+  const handleCityChange = (value: string): void => {
+    setFormTouched(true);
+    fireInitiate(items, totals.subtotal);
+    setLocationError(null);
+    setLocationNotice(null);
+    setForm((current) => {
+      const next = { ...current, city: value, barangay: "" };
+      return {
+        ...next,
+        postalCode: withDerivedPostal(next, current.postalCode),
+      };
+    });
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.city;
+      return next;
+    });
+  };
+
+  const handleBarangayChange = (value: string): void => {
+    setFormTouched(true);
+    fireInitiate(items, totals.subtotal);
+    setForm((current) => {
+      const next = { ...current, barangay: value };
+      return {
+        ...next,
+        postalCode: withDerivedPostal(next, current.postalCode),
+      };
+    });
+  };
+
+  const handlePreferredDateChange = (
+    event: ChangeEvent<HTMLInputElement>,
+  ): void => {
+    setFormTouched(true);
+    fireInitiate(items, totals.subtotal);
+    const value = event.target.value;
+    const dateError = validatePreferredDate(value);
+    if (dateError) {
+      setForm((current) => ({ ...current, preferredDeliveryDate: "" }));
+      setErrors((current) => ({
+        ...current,
+        preferredDeliveryDate: dateError,
+      }));
+      return;
+    }
+    setForm((current) => ({ ...current, preferredDeliveryDate: value }));
+    setErrors((current) => {
+      if (!current.preferredDeliveryDate) return current;
+      const next = { ...current };
+      delete next.preferredDeliveryDate;
+      return next;
+    });
+  };
+
+  const handleUseMyLocation = (): void => {
+    setLocationError(null);
+    setLocationNotice(null);
+    if (!("geolocation" in navigator)) {
+      setLocationError(
+        "Could not detect your location. Please select your province and city.",
+      );
+      return;
+    }
+    setFormTouched(true);
+    fireInitiate(items, totals.subtotal);
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const address = await reverseGeocode(
+            position.coords.latitude,
+            position.coords.longitude,
+          );
+          const province = matchPsgcName(listProvinces(), address.province);
+          if (!province) {
+            setLocationError(
+              "Could not detect your location. Please select your province and city.",
+            );
+            return;
+          }
+          handleProvinceChange(province);
+          const city = matchPsgcName(
+            listMunicipalities(province),
+            address.city,
+          );
+          if (city) {
+            handleCityChange(city);
+            if (address.barangay) {
+              try {
+                const barangays = await fetchBarangays(province, city);
+                const barangay = matchPsgcName(
+                  barangays.map((candidate) => candidate.name),
+                  address.barangay,
+                );
+                if (barangay) handleBarangayChange(barangay);
+              } catch {
+                // Barangay remains available for manual selection.
+              }
+            }
+          } else {
+            setLocationNotice(
+              "We filled in your province. Please select your city.",
+            );
+          }
+        } catch {
+          setLocationError(
+            "Could not detect your location. Please select your province and city.",
+          );
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        setLocationError(
+          "Could not detect your location. Please select your province and city.",
+        );
+      },
+      { timeout: 10000, maximumAge: 60000 },
+    );
+  };
+
   const revalidate =
     (field: CheckoutField) => (): void =>
       setErrors((current) => {
@@ -295,15 +530,22 @@ export function PdpQuickCodOrder(): ReactNode {
     );
   };
 
-  async function placeOrder(): Promise<void> {
+  function goToReview(): void {
     if (inFlightRef.current) return;
-    setSubmitError(null);
     const validation = validateCheckoutForm(form);
+    const preferredDateError = validatePreferredDate(
+      form.preferredDeliveryDate,
+    );
+    if (preferredDateError) {
+      validation.preferredDeliveryDate = preferredDateError;
+    }
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
-      const firstInvalid = CHECKOUT_FIELD_ORDER.find(
-        (field) => validation[field],
-      );
+      const firstInvalid =
+        CHECKOUT_FIELD_ORDER.find((field) => validation[field]) ??
+        (validation.preferredDeliveryDate
+          ? "preferredDeliveryDate"
+          : undefined);
       const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
       if (focusId) document.getElementById(focusId)?.focus();
       return;
@@ -313,51 +555,29 @@ export function PdpQuickCodOrder(): ReactNode {
     inFlightRef.current = true;
     setPurchaseLocked(true);
     setSubmitting(true);
-    try {
-      const order = await api.createOrder({
-        customer: {
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-          province: form.province.trim(),
-          city: form.city.trim(),
-          barangay: form.barangay.trim() || null,
-          postalCode: form.postalCode.trim() || null,
-          streetAddress: form.streetAddress.trim(),
-          landmark: form.landmark.trim() || null,
-        },
+    // Attribution is URL-backed by contract. Carry the PDP query through the
+    // review step and back through Edit so aid/campaign/utm snapshots survive.
+    const query = typeof window === "undefined" ? "" : window.location.search;
+    writeCheckoutDraft(
+      {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        province: form.province.trim(),
+        city: form.city.trim(),
+        barangay: form.barangay.trim(),
+        postalCode: form.postalCode.trim(),
+        streetAddress: form.streetAddress.trim(),
+        landmark: form.landmark.trim(),
+      },
+      form.preferredDeliveryDate.trim() || null,
+      {
+        kind: "PDP_INLINE",
+        productSlug: product.slug,
+        productQuery: query,
         items,
-        attribution: readAttribution(),
-        preferredDeliveryDate: null,
-      });
-      try {
-        // The success page only receives the order number, so the full
-        // Purchase event is stashed tab-scoped BEFORE navigation; the
-        // existing PurchaseTracking consumes it exactly once.
-        storePurchasePayload(
-          purchaseEvent({
-            orderId: order.orderNumber,
-            items,
-            value: totals.subtotal,
-          }),
-        );
-        sessionStorage.setItem("lastOrderPhone", form.phone.trim());
-        // Same key the checkout page clears: the NEXT order in this tab must
-        // be able to fire InitiateCheckout again.
-        sessionStorage.removeItem(INITIATE_CHECKOUT_FIRED_KEY);
-      } catch {
-        // Storage unavailable: skip the success-page stashes; the order stands.
-      }
-      router.push(`/order-success/${order.orderNumber}`);
-    } catch (error) {
-      setSubmitError(
-        error instanceof Error && error.message
-          ? error.message
-          : "Could not place your order. Please try again.",
-      );
-      inFlightRef.current = false;
-      setPurchaseLocked(false);
-      setSubmitting(false);
-    }
+      },
+    );
+    router.push(`/checkout/confirm${query}`);
   }
 
   return (
@@ -569,7 +789,7 @@ export function PdpQuickCodOrder(): ReactNode {
           className="flex w-full flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            void placeOrder();
+            goToReview();
           }}
           noValidate
         >
@@ -579,7 +799,7 @@ export function PdpQuickCodOrder(): ReactNode {
                 htmlFor="quick-cod-name"
                 className="text-sm font-medium text-ink"
               >
-                Full Name
+                Full Name *
               </label>
               <input
                 id="quick-cod-name"
@@ -604,7 +824,7 @@ export function PdpQuickCodOrder(): ReactNode {
                 htmlFor="quick-cod-phone"
                 className="text-sm font-medium text-ink"
               >
-                Phone Number
+                Mobile Number *
               </label>
               <input
                 id="quick-cod-phone"
@@ -626,57 +846,105 @@ export function PdpQuickCodOrder(): ReactNode {
               <FieldError id="quick-cod-phone" message={errors.phone} />
             </div>
 
+            <p className="-mt-2 text-xs text-ink-muted sm:col-span-2">
+              We use your mobile number for delivery updates.
+            </p>
+
+            <div className="sm:col-span-2">
+              <button
+                type="button"
+                onClick={handleUseMyLocation}
+                disabled={submitting || locating}
+                className="text-sm font-medium text-cta hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {locating ? "Locating…" : "Use my location"}
+              </button>
+              {locationError ? (
+                <p role="alert" className="mt-1 text-xs text-sale">
+                  {locationError}
+                </p>
+              ) : null}
+              {locationNotice ? (
+                <p role="status" className="mt-1 text-xs text-ink-muted">
+                  {locationNotice}
+                </p>
+              ) : null}
+            </div>
+
             <PsgcAddressSelects
               province={form.province}
               city={form.city}
               barangay={form.barangay}
-              onProvinceChange={(value) => {
-                setFormTouched(true);
-                fireInitiate(items, totals.subtotal);
-                setForm((current) => ({
-                  ...current,
-                  province: value,
-                  city: "",
-                  barangay: "",
-                }));
-                setErrors((current) => {
-                  const next = { ...current };
-                  delete next.province;
-                  delete next.city;
-                  return next;
-                });
-              }}
-              onCityChange={(value) => {
-                setFormTouched(true);
-                fireInitiate(items, totals.subtotal);
-                setForm((current) => ({
-                  ...current,
-                  city: value,
-                  barangay: "",
-                }));
-                setErrors((current) => {
-                  const next = { ...current };
-                  delete next.city;
-                  return next;
-                });
-              }}
-              onBarangayChange={(value) => {
-                setFormTouched(true);
-                fireInitiate(items, totals.subtotal);
-                setForm((current) => ({ ...current, barangay: value }));
-              }}
+              onProvinceChange={handleProvinceChange}
+              onCityChange={handleCityChange}
+              onBarangayChange={handleBarangayChange}
               errors={errors}
               onBlurField={(field) => revalidate(field)()}
               inputCls={inputCls}
               disabled={submitting}
             />
 
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <label
+                htmlFor="quick-cod-postal"
+                className="text-sm font-medium text-ink"
+              >
+                Postal Code
+              </label>
+              <input
+                id="quick-cod-postal"
+                name="postalCode"
+                className={inputCls}
+                value={form.postalCode}
+                onChange={set("postalCode")}
+                placeholder="1100"
+                inputMode="numeric"
+                disabled={submitting}
+              />
+              {postalLookup.options.length > 1 ? (
+                <select
+                  aria-label="Pick a postal code"
+                  className={inputCls}
+                  value={
+                    postalLookup.options.some(
+                      (option) => option.zip === form.postalCode,
+                    )
+                      ? form.postalCode
+                      : ""
+                  }
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      postalCode: event.target.value,
+                    }))
+                  }
+                  disabled={submitting}
+                >
+                  <option value="">
+                    {postalLookup.auto
+                      ? "Change postal code"
+                      : `This city has ${postalLookup.options.length} ZIPs — pick one`}
+                  </option>
+                  {postalLookup.options.map((option) => (
+                    <option key={option.zip} value={option.zip}>
+                      {`${option.zip} — ${option.label}`}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {postalLookup.auto && form.postalCode === postalLookup.auto ? (
+                <span className="text-xs font-normal text-ink-muted">
+                  Filled in from your address — you can change it.
+                </span>
+              ) : null}
+            </div>
+
             <div className="sm:col-span-2">
               <label
                 htmlFor="quick-cod-street"
                 className="text-sm font-medium text-ink"
               >
-                Street / House / Unit
+                Full Address *
               </label>
               <input
                 id="quick-cod-street"
@@ -704,7 +972,7 @@ export function PdpQuickCodOrder(): ReactNode {
                 htmlFor="quick-cod-landmark"
                 className="text-sm font-medium text-ink"
               >
-                Notes <span className="text-ink-muted">(optional)</span>
+                Landmark
               </label>
               <input
                 id="quick-cod-landmark"
@@ -717,6 +985,43 @@ export function PdpQuickCodOrder(): ReactNode {
                 disabled={submitting}
               />
             </div>
+
+            <div className="sm:col-span-2">
+              <label
+                htmlFor="quick-cod-preferred-date"
+                className="text-sm font-medium text-ink"
+              >
+                Preferred delivery date (optional)
+              </label>
+              <input
+                id="quick-cod-preferred-date"
+                name="preferredDeliveryDate"
+                type="date"
+                min={dateBounds.min}
+                max={dateBounds.max}
+                className={`mt-1 ${inputCls}${
+                  errors.preferredDeliveryDate ? " border-sale" : ""
+                }`}
+                value={form.preferredDeliveryDate}
+                onChange={handlePreferredDateChange}
+                aria-invalid={Boolean(errors.preferredDeliveryDate)}
+                aria-describedby={
+                  errors.preferredDeliveryDate
+                    ? "quick-cod-preferred-date-error"
+                    : undefined
+                }
+                disabled={submitting}
+              />
+              <FieldError
+                id="quick-cod-preferred-date"
+                message={errors.preferredDeliveryDate}
+              />
+              <p className="mt-1 text-xs text-ink-muted">
+                {form.province.trim()
+                  ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                  : "Choose a preferred date (optional)."}
+              </p>
+            </div>
           </div>
 
           {needsItems ? (
@@ -728,16 +1033,6 @@ export function PdpQuickCodOrder(): ReactNode {
             </p>
           ) : null}
 
-          {submitError ? (
-            <p
-              role="alert"
-              data-testid="quick-cod-error"
-              className="rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
-            >
-              {submitError}
-            </p>
-          ) : null}
-
           <Button
             type="submit"
             size="lg"
@@ -745,7 +1040,7 @@ export function PdpQuickCodOrder(): ReactNode {
             disabled={!orderable}
             data-testid="quick-cod-submit"
           >
-            {submitting ? "Placing order…" : "PLACE COD ORDER"}
+            {submitting ? "Opening review…" : "REVIEW ORDER"}
           </Button>
 
           <ul className="flex flex-col gap-1.5 text-xs text-ink-muted">

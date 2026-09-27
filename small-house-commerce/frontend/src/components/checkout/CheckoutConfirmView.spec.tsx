@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CartItem, Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
@@ -155,6 +155,7 @@ beforeEach(() => {
     removeItems: vi.fn().mockResolvedValue(undefined),
   });
   draftMock.readCheckoutDraft.mockReturnValue(validDraft);
+  sessionStorage.clear();
 });
 
 describe("CheckoutConfirmView", () => {
@@ -192,6 +193,81 @@ describe("CheckoutConfirmView", () => {
     expect(screen.getByTestId("confirm-items")).toHaveTextContent("Qty 2");
     expect(screen.getByAltText("Cover")).toBeInTheDocument();
     expect(screen.getByTestId("confirm-place-order")).toBeEnabled();
+  });
+
+  it("reviews and submits every PDP inline item through the existing confirmation step", async () => {
+    const user = userEvent.setup();
+    const removeItems = vi.fn().mockResolvedValue(undefined);
+    useCartMock.mockReturnValue({ cart: null, loading: false, removeItems });
+    const directProduct: Product = {
+      ...product,
+      variants: [
+        product.variants[0],
+        {
+          id: "blue-large",
+          name: "Blue / Large",
+          position: 1,
+          combinationKey: "color:blue|size:large",
+          optionValueIds: ["blue", "large"],
+          sku: {
+            id: "sku-blue-large",
+            skuCode: "BLUE-LARGE",
+            status: "ACTIVE",
+            price: 120,
+            compareAtPrice: 150,
+            availableInventory: 6,
+          },
+        },
+      ],
+    };
+    apiMock.getProductBySlug.mockResolvedValue(directProduct);
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    draftMock.readCheckoutDraft.mockReturnValue({
+      ...validDraft,
+      selection: {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        productQuery: "?aid=aid-123&utm_source=facebook",
+        items: [
+          { skuId: "sku-red-small", quantity: 1 },
+          { skuId: "sku-blue-large", quantity: 2 },
+        ],
+      },
+    });
+
+    render(<CheckoutConfirmView />);
+
+    expect(await screen.findByText("Confirm your order")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("confirm-items")).toHaveTextContent(
+        "Color: Red · Size: Small",
+      ),
+    );
+    expect(screen.getByTestId("confirm-items")).toHaveTextContent(
+      "Color: Blue · Size: Large",
+    );
+    expect(screen.getByTestId("confirm-items")).toHaveTextContent("Qty 2");
+    expect(
+      screen.getAllByRole("link", { name: "Edit" })[0],
+    ).toHaveAttribute(
+      "href",
+      "/products/chair?aid=aid-123&utm_source=facebook#quick-cod-order",
+    );
+
+    await user.click(screen.getByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(apiMock.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            { skuId: "sku-red-small", quantity: 1 },
+            { skuId: "sku-blue-large", quantity: 2 },
+          ],
+        }),
+      ),
+    );
+    expect(removeItems).not.toHaveBeenCalled();
+    expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001");
   });
 
   it("offers the honest promo-code entry without inventing a discount", async () => {

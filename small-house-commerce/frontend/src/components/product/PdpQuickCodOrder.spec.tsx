@@ -13,6 +13,10 @@ const api = vi.hoisted(() => ({ createOrder: vi.fn() }));
 const tracking = vi.hoisted(() => ({ readAttribution: vi.fn() }));
 const events = vi.hoisted(() => ({ emitCommerceEvent: vi.fn() }));
 const router = vi.hoisted(() => ({ push: vi.fn() }));
+const checkoutDraft = vi.hoisted(() => ({
+  readCheckoutDraft: vi.fn(),
+  writeCheckoutDraft: vi.fn(),
+}));
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -27,6 +31,7 @@ vi.mock("@/lib/commerce-events", async () => {
   >("@/lib/commerce-events");
   return { ...actual, emitCommerceEvent: events.emitCommerceEvent };
 });
+vi.mock("@/lib/checkoutDraft", () => checkoutDraft);
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: router.push, replace: vi.fn() }),
 }));
@@ -192,12 +197,12 @@ async function chooseFirstOption(
 async function fillRequiredFields(
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<{ province: string; city: string }> {
-  await user.type(screen.getByLabelText("Full Name"), "Juan Dela Cruz");
-  await user.type(screen.getByLabelText("Phone Number"), "09171234567");
+  await user.type(screen.getByLabelText("Full Name *"), "Juan Dela Cruz");
+  await user.type(screen.getByLabelText("Mobile Number *"), "09171234567");
   const province = await chooseFirstOption(user, "psgc-province");
   const city = await chooseFirstOption(user, "psgc-city");
   await user.type(
-    screen.getByLabelText("Street / House / Unit"),
+    screen.getByLabelText("Full Address *"),
     "12 Mabini St",
   );
   return { province, city };
@@ -208,7 +213,11 @@ beforeEach(() => {
   tracking.readAttribution.mockReset();
   events.emitCommerceEvent.mockReset();
   router.push.mockReset();
+  checkoutDraft.readCheckoutDraft.mockReset();
+  checkoutDraft.writeCheckoutDraft.mockReset();
+  checkoutDraft.readCheckoutDraft.mockReturnValue(null);
   sessionStorage.clear();
+  window.history.replaceState({}, "", "/");
   tracking.readAttribution.mockReturnValue({
     sourceType: "FACEBOOK",
     aid: "aid-123",
@@ -216,13 +225,13 @@ beforeEach(() => {
 });
 
 describe("PdpQuickCodOrder", () => {
-  it("places the order through the real endpoint with the shared selection and attribution", async () => {
+  it("writes the shared checkout draft and opens review without creating an order", async () => {
     const user = userEvent.setup();
-    api.createOrder.mockResolvedValue({
-      orderNumber: "PH1001",
-      orderStatus: "NEW",
-      confirmationStatus: "UNCONFIRMED",
-    });
+    window.history.replaceState(
+      {},
+      "",
+      "/products/chair?aid=aid-123&utm_source=facebook",
+    );
     renderQuickOrder();
 
     // The item list starts from the hero's resolved variant and quantity.
@@ -231,41 +240,48 @@ describe("PdpQuickCodOrder", () => {
     expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱100.00");
 
     await fillRequiredFields(user);
+    await user.type(screen.getByLabelText("Postal Code"), "1100");
     await user.click(screen.getByTestId("quick-cod-submit"));
 
-    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
-    const payload = api.createOrder.mock.calls[0]?.[0] as {
-      customer: Record<string, unknown>;
-      items: unknown;
-      attribution: unknown;
-      preferredDeliveryDate: unknown;
-    };
-    expect(payload.customer).toMatchObject({
-      name: "Juan Dela Cruz",
-      phone: "09171234567",
-      streetAddress: "12 Mabini St",
-      barangay: null,
-      landmark: null,
-    });
-    // The address cascade fed real PSGC names through to the order.
-    expect(String(payload.customer.province)).not.toBe("");
-    expect(String(payload.customer.city)).not.toBe("");
-    expect(payload.items).toEqual([{ skuId: "sku-red", quantity: 1 }]);
-    expect(payload.attribution).toEqual({
-      sourceType: "FACEBOOK",
-      aid: "aid-123",
-    });
-    expect(payload.preferredDeliveryDate).toBeNull();
-    expect(router.push).toHaveBeenCalledWith("/order-success/PH1001");
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Juan Dela Cruz",
+        phone: "09171234567",
+        postalCode: "1100",
+        streetAddress: "12 Mabini St",
+        barangay: "",
+        landmark: "",
+      }),
+      expect.any(String),
+      {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        productQuery: "?aid=aid-123&utm_source=facebook",
+        items: [{ skuId: "sku-red", quantity: 1 }],
+      },
+    );
+    expect(router.push).toHaveBeenCalledWith(
+      "/checkout/confirm?aid=aid-123&utm_source=facebook",
+    );
   });
 
-  it("orders several styles with their own quantities in one COD order", async () => {
+  it("shows the same delivery fields as the normal checkout", () => {
+    renderQuickOrder();
+
+    expect(screen.getByRole("button", { name: "Use my location" })).toBeVisible();
+    expect(screen.getByLabelText("Postal Code")).toBeVisible();
+    expect(screen.getByLabelText("Landmark")).toBeVisible();
+    expect(screen.getByLabelText("Preferred delivery date (optional)")).toBeVisible();
+    expect(
+      screen.getByText("We use your mobile number for delivery updates."),
+    ).toBeVisible();
+    expect(screen.getByText("Choose a preferred date (optional).")).toBeVisible();
+    expect(screen.getByTestId("quick-cod-submit")).toHaveTextContent("REVIEW ORDER");
+  });
+
+  it("carries several styles with their own quantities into checkout review", async () => {
     const user = userEvent.setup();
-    api.createOrder.mockResolvedValue({
-      orderNumber: "PH1005",
-      orderStatus: "NEW",
-      confirmationStatus: "UNCONFIRMED",
-    });
     const base = buildProduct();
     const product = buildProduct({
       variants: base.variants.map((variant) =>
@@ -292,14 +308,21 @@ describe("PdpQuickCodOrder", () => {
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
 
-    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
-    const payload = api.createOrder.mock.calls[0]?.[0] as {
-      items: unknown;
-    };
-    expect(payload.items).toEqual([
-      { skuId: "sku-red", quantity: 1 },
-      { skuId: "sku-blue", quantity: 2 },
-    ]);
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        productQuery: "",
+        items: [
+          { skuId: "sku-red", quantity: 1 },
+          { skuId: "sku-blue", quantity: 2 },
+        ],
+      },
+    );
+    expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
 
   it("shows the compare-at strikethrough and a saving that is never deducted", () => {
@@ -316,25 +339,16 @@ describe("PdpQuickCodOrder", () => {
     expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱100.00");
   });
 
-  it("stashes the Purchase event before navigating to the existing success page", async () => {
+  it("does not stash Purchase before the shopper confirms the order", async () => {
     const user = userEvent.setup();
-    api.createOrder.mockResolvedValue({
-      orderNumber: "PH1002",
-      orderStatus: "NEW",
-      confirmationStatus: "UNCONFIRMED",
-    });
     renderQuickOrder();
 
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
 
-    await waitFor(() => expect(router.push).toHaveBeenCalled());
-    const stash = sessionStorage.getItem("luwag_purchase_payload");
-    expect(stash).not.toBeNull();
-    expect(JSON.parse(stash ?? "{}")).toMatchObject({
-      name: "Purchase",
-      data: { order_id: "PH1002" },
-    });
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
+    expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
 
   it("shows field-level errors and focuses the first invalid field", async () => {
@@ -346,15 +360,15 @@ describe("PdpQuickCodOrder", () => {
     expect(api.createOrder).not.toHaveBeenCalled();
     expect(screen.getByText("Please enter your name.")).toBeVisible();
     expect(screen.getByText("Please enter your mobile number.")).toBeVisible();
-    expect(screen.getByLabelText("Full Name")).toHaveFocus();
+    expect(screen.getByLabelText("Full Name *")).toHaveFocus();
   });
 
   it("rejects a malformed Philippine mobile number", async () => {
     const user = userEvent.setup();
     renderQuickOrder();
 
-    await user.type(screen.getByLabelText("Full Name"), "Juan");
-    await user.type(screen.getByLabelText("Phone Number"), "12345");
+    await user.type(screen.getByLabelText("Full Name *"), "Juan");
+    await user.type(screen.getByLabelText("Mobile Number *"), "12345");
     await user.click(screen.getByTestId("quick-cod-submit"));
 
     expect(
@@ -369,14 +383,14 @@ describe("PdpQuickCodOrder", () => {
 
     expect(events.emitCommerceEvent).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText("Full Name"), "J");
+    await user.type(screen.getByLabelText("Full Name *"), "J");
     expect(
       events.emitCommerceEvent.mock.calls.filter(
         ([event]) => event?.name === "InitiateCheckout",
       ),
     ).toHaveLength(1);
 
-    await user.type(screen.getByLabelText("Phone Number"), "09171234567");
+    await user.type(screen.getByLabelText("Mobile Number *"), "09171234567");
     expect(
       events.emitCommerceEvent.mock.calls.filter(
         ([event]) => event?.name === "InitiateCheckout",
@@ -390,7 +404,7 @@ describe("PdpQuickCodOrder", () => {
 
     await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
     await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
-    await user.type(screen.getByLabelText("Full Name"), "J");
+    await user.type(screen.getByLabelText("Full Name *"), "J");
 
     const checkoutEvent = events.emitCommerceEvent.mock.calls.find(
       ([event]) => event?.name === "InitiateCheckout",
@@ -402,27 +416,19 @@ describe("PdpQuickCodOrder", () => {
     });
   });
 
-  it("locks the address, the item list and the shared purchase controls while the order is in flight", async () => {
+  it("locks the address, item list and shared controls while opening review", async () => {
     const user = userEvent.setup();
-    let resolveOrder: ((value: unknown) => void) | undefined;
-    api.createOrder.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveOrder = resolve;
-        }),
-    );
     renderQuickOrder(buildProduct(), "red", true);
 
     await fillRequiredFields(user);
     const submit = screen.getByTestId("quick-cod-submit");
     await user.click(submit);
 
-    expect(api.createOrder).toHaveBeenCalledTimes(1);
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledTimes(1);
     expect(submit).toBeDisabled();
-    expect(submit).toHaveTextContent("Placing order…");
+    expect(submit).toHaveTextContent("Opening review…");
     expect(screen.getByTestId("psgc-province")).toBeDisabled();
     expect(screen.getByTestId("psgc-city")).toBeDisabled();
-    // The hero selector (probe) and the item list lock together.
     expect(screen.getByRole("button", { name: "Blue" })).toBeDisabled();
     expect(screen.getByTestId("quantity-probe")).toBeDisabled();
     expect(
@@ -431,47 +437,57 @@ describe("PdpQuickCodOrder", () => {
     expect(
       screen.getByRole("button", { name: "Decrease Red quantity" }),
     ).toBeDisabled();
-    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("1");
-
-    resolveOrder?.({
-      orderNumber: "PH1003",
-      orderStatus: "NEW",
-      confirmationStatus: "UNCONFIRMED",
-    });
-    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1));
+    expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
 
-  it("survives two submits dispatched in the same tick", async () => {
+  it("survives two review submits dispatched in the same tick", async () => {
     const user = userEvent.setup();
-    api.createOrder.mockImplementation(
-      () => new Promise(() => {}),
-    );
     renderQuickOrder();
 
     await fillRequiredFields(user);
     const form = screen.getByTestId("quick-cod-submit").closest("form")!;
 
-    // Two submits before React can re-render the disabled state: only the
-    // re-entry guard can stop the second one.
     fireEvent.submit(form);
     fireEvent.submit(form);
 
-    expect(api.createOrder).toHaveBeenCalledTimes(1);
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces a server error and keeps the form usable", async () => {
-    const user = userEvent.setup();
-    api.createOrder.mockRejectedValue(new Error("SKU is out of stock"));
+  it("restores a matching PDP draft when the shopper returns from review", async () => {
+    checkoutDraft.readCheckoutDraft.mockReturnValue({
+      customer: {
+        name: "Maria Santos",
+        phone: "09181234567",
+        province: "Metro Manila",
+        city: "Quezon City",
+        barangay: "Diliman",
+        postalCode: "1101",
+        streetAddress: "24 Luna St",
+        landmark: "Blue gate",
+      },
+      preferredDeliveryDate: "2026-10-05",
+      savedAt: "2026-09-27T00:00:00.000Z",
+      selection: {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        productQuery: "",
+        items: [{ skuId: "sku-red", quantity: 2 }],
+      },
+    });
+
     renderQuickOrder();
 
-    await fillRequiredFields(user);
-    await user.click(screen.getByTestId("quick-cod-submit"));
-
-    expect(await screen.findByTestId("quick-cod-error")).toHaveTextContent(
-      "SKU is out of stock",
+    await waitFor(() =>
+      expect(screen.getByLabelText("Full Name *")).toHaveValue("Maria Santos"),
     );
-    expect(router.push).not.toHaveBeenCalled();
-    expect(screen.getByTestId("quick-cod-submit")).toBeEnabled();
+    expect(screen.getByLabelText("Postal Code")).toHaveValue("1101");
+    expect(screen.getByLabelText("Landmark")).toHaveValue("Blue gate");
+    expect(screen.getByLabelText("Preferred delivery date (optional)")).toHaveValue(
+      "2026-10-05",
+    );
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("2");
   });
 
   it("marks an out-of-stock style unorderable without blocking the in-stock ones", async () => {
@@ -493,18 +509,18 @@ describe("PdpQuickCodOrder", () => {
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
 
-    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
-    const payload = api.createOrder.mock.calls[0]?.[0] as { items: unknown };
-    expect(payload.items).toEqual([{ skuId: "sku-red", quantity: 1 }]);
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      expect.objectContaining({
+        items: [{ skuId: "sku-red", quantity: 1 }],
+      }),
+    );
   });
 
   it("fires InitiateCheckout when the first item is added after the form was already touched", async () => {
     const user = userEvent.setup();
-    api.createOrder.mockResolvedValue({
-      orderNumber: "PH1004",
-      orderStatus: "NEW",
-      confirmationStatus: "UNCONFIRMED",
-    });
     renderQuickOrder(buildProduct(), null);
 
     await fillRequiredFields(user);
@@ -523,7 +539,9 @@ describe("PdpQuickCodOrder", () => {
     ).toHaveLength(1);
 
     await user.click(screen.getByTestId("quick-cod-submit"));
-    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
     expect(
       events.emitCommerceEvent.mock.calls.filter(
         ([event]) => event?.name === "InitiateCheckout",

@@ -9,6 +9,8 @@ export interface CheckoutLineInput {
   qty?: string;
   itemsParam?: string;
   slug?: string;
+  directItems?: { skuId: string; quantity: number }[];
+  directSlug?: string;
 }
 
 export interface CheckoutLines {
@@ -26,21 +28,39 @@ export interface CheckoutLines {
   total: number | null;
 }
 
-export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineInput): CheckoutLines {
+export function useCheckoutLines({
+  skuId,
+  qty,
+  itemsParam,
+  slug,
+  directItems,
+  directSlug,
+}: CheckoutLineInput): CheckoutLines {
   const { cart, loading: cartLoading } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [productError, setProductError] = useState(false);
 
   const buyNowQty = clampQty(qty);
-  const isBuyNow = Boolean(skuId);
+  const normalizedDirectItems = useMemo(
+    () =>
+      (directItems ?? []).map((item) => ({
+        skuId: item.skuId,
+        quantity: Math.min(99, Math.max(1, Math.floor(item.quantity) || 1)),
+      })),
+    [directItems],
+  );
+  const hasDirectItems = normalizedDirectItems.length > 0;
+  const isBuyNow = Boolean(skuId) || hasDirectItems;
+  const productSlug = hasDirectItems ? directSlug : slug;
   const requestedIds = useMemo(() => parseItemsParam(itemsParam), [itemsParam]);
 
-  // Buy Now: resolve name/variant/image/price via the product endpoint.
+  // Direct checkout (single Buy Now or PDP inline items): resolve the
+  // canonical names, variants, options and prices from the product endpoint.
   useEffect(() => {
-    if (!isBuyNow || !slug) return;
+    if (!isBuyNow || !productSlug) return;
     let cancelled = false;
     api
-      .getProductBySlug(slug)
+      .getProductBySlug(productSlug)
       .then((p) => {
         if (!cancelled) setProduct(p);
       })
@@ -50,7 +70,7 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
     return () => {
       cancelled = true;
     };
-  }, [isBuyNow, slug]);
+  }, [isBuyNow, productSlug]);
 
   const selectedItems: CartItem[] = useMemo(() => {
     if (isBuyNow || !cart) return [];
@@ -59,6 +79,24 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
   }, [isBuyNow, cart, requestedIds]);
 
   const lines: CheckoutLine[] = useMemo(() => {
+    if (hasDirectItems) {
+      if (!product) return [];
+      return normalizedDirectItems.map((item) => {
+        const variant = product.variants.find((v) => v.sku?.id === item.skuId);
+        const sku = variant?.sku ?? null;
+        return {
+          key: item.skuId,
+          slug: product.slug,
+          name: product.name,
+          variant: variant?.name ?? "Default",
+          options: buyNowLineOptions(product, item.skuId),
+          thumbnail: buyNowThumbnail(product),
+          quantity: item.quantity,
+          unitPrice: sku?.price ?? null,
+          compareAtPrice: sku?.compareAtPrice ?? null,
+        };
+      });
+    }
     if (isBuyNow) {
       if (!product || !skuId) return [];
       const variant = product.variants.find((v) => v.sku?.id === skuId);
@@ -94,15 +132,24 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
       unitPrice: item.unitPrice,
       compareAtPrice: item.compareAtPrice,
     }));
-  }, [isBuyNow, product, skuId, buyNowQty, selectedItems]);
+  }, [
+    hasDirectItems,
+    normalizedDirectItems,
+    isBuyNow,
+    product,
+    skuId,
+    buyNowQty,
+    selectedItems,
+  ]);
 
   const totals = useMemo(() => totalsFor(lines), [lines]);
   const total = isBuyNow ? (product ? totals.total : null) : totals.total;
 
   const orderItems = useMemo(() => {
+    if (hasDirectItems) return normalizedDirectItems;
     if (isBuyNow) return skuId ? [{ skuId, quantity: buyNowQty }] : [];
     return selectedItems.map((item) => ({ skuId: item.skuId, quantity: item.quantity }));
-  }, [isBuyNow, skuId, buyNowQty, selectedItems]);
+  }, [hasDirectItems, normalizedDirectItems, isBuyNow, skuId, buyNowQty, selectedItems]);
 
   const cartItemIds = useMemo(() => selectedItems.map((i) => i.itemId), [selectedItems]);
 
@@ -122,9 +169,18 @@ export function useCheckoutLines({ skuId, qty, itemsParam, slug }: CheckoutLineI
   const buyNowMatchedSku =
     !isBuyNow ||
     (product !== null &&
-      product.variants.some(
-        (v) => v.sku?.id === skuId && v.sku?.status === "ACTIVE",
-      ));
+      (hasDirectItems
+        ? normalizedDirectItems.every((item) =>
+            product.variants.some(
+              (variant) =>
+                variant.sku?.id === item.skuId &&
+                variant.sku?.status === "ACTIVE",
+            ),
+          )
+        : product.variants.some(
+            (variant) =>
+              variant.sku?.id === skuId && variant.sku?.status === "ACTIVE",
+          )));
 
   const ready = isBuyNow
     ? product !== null && !productError && buyNowMatchedSku

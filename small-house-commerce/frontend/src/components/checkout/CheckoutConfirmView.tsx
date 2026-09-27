@@ -52,6 +52,16 @@ interface CheckoutConfirmViewProps {
   slug?: string;
 }
 
+function editHrefForDraft(draft: CheckoutDraft | null, checkoutHref: string): string {
+  const selection = draft?.selection;
+  if (selection?.kind === "PDP_INLINE") {
+    return `/products/${encodeURIComponent(selection.productSlug)}${
+      selection.productQuery ?? ""
+    }#quick-cod-order`;
+  }
+  return checkoutHref;
+}
+
 export function CheckoutConfirmView({
   skuId,
   qty,
@@ -59,17 +69,33 @@ export function CheckoutConfirmView({
   slug,
 }: CheckoutConfirmViewProps) {
   const router = useRouter();
-  const checkout = useCheckoutLines({ skuId, qty, itemsParam, slug });
+  const [draft, setDraft] = useState<CheckoutDraft | null>(null);
+  const directSelection =
+    draft?.selection?.kind === "PDP_INLINE" ? draft.selection : undefined;
+  const checkout = useCheckoutLines({
+    skuId,
+    qty,
+    itemsParam,
+    slug,
+    directItems: directSelection?.items,
+    directSlug: directSelection?.productSlug,
+  });
   const { removeItems } = useCart();
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
   // Checkout lines carry their own enriched thumbnails (cart summary data /
   // Buy Now product cover) — no product-by-slug image recovery here either.
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<CheckoutDraft | null>(null);
   const [promoOpen, setPromoOpen] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const checkoutHref = `/checkout${checkoutQueryString({
+    skuId,
+    qty,
+    itemsParam,
+    slug,
+  })}`;
+  const editHref = editHrefForDraft(draft, checkoutHref);
 
   useEffect(() => {
     let alive = true;
@@ -92,7 +118,7 @@ export function CheckoutConfirmView({
         }
       }
       if (!d || invalid) {
-        router.replace(`/checkout${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
+        router.replace(editHrefForDraft(d, checkoutHref));
         return;
       }
       setDraft(d);
@@ -201,10 +227,10 @@ export function CheckoutConfirmView({
         </p>
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
-            href={`/checkout${checkoutQueryString({ skuId, qty, itemsParam, slug })}`}
+            href={editHref}
             className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
           >
-            Back to checkout
+            {directSelection ? "Back to order form" : "Back to checkout"}
           </Link>
           <Link href="/collections" className="text-sm text-cta hover:underline">
             Continue shopping
@@ -234,7 +260,7 @@ export function CheckoutConfirmView({
           <div data-testid="confirm-items" className="rounded-lg border border-border bg-card p-5">
             <div className="mb-1 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-ink">Your Order</h2>
-              <Link href="/cart" className="text-sm text-cta hover:underline">
+              <Link href={editHref} className="text-sm text-cta hover:underline">
                 Edit
               </Link>
             </div>
@@ -352,7 +378,7 @@ export function CheckoutConfirmView({
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-ink">Delivery Address</h2>
               <Link
-                href={`/checkout${checkoutQueryString({ skuId, qty, itemsParam, slug })}`}
+                href={editHref}
                 className="text-sm text-cta hover:underline"
               >
                 Edit
