@@ -1,0 +1,245 @@
+{
+    "products": [
+        {
+            "id": "01a0cd0d-26b5-75a9-8f63-3d7c0ae88eb0",
+            "badge": "new arrival",
+            "created_at": "2026-09-23T06:56:26.293+00:00",
+            "product_id": "01a09f5f-ea6b-755b-9500-70094a73f90c",
+            "section_id": "01a0aea5-6939-77ee-949a-cc4482b6f050",
+            "sort_order": 0
+        },
+        {
+            "id": "01a0cd0d-26b5-75a9-8f63-41472380dfb5",
+            "badge": "new arrival",
+            "created_at": "2026-09-23T06:56:26.293+00:00",
+            "product_id": "01a09f5f-ea12-7205-834d-12ec080bb0f2",
+            "section_id": "01a0aea5-6939-77ee-949a-cc4482b6f050",
+            "sort_order": 1
+        },
+        {
+            "id": "01a0cd0d-26b5-75a9-8f63-45afc2e2a183",
+            "badge": "best seller",
+            "created_at": "2026-09-23T06:56:26.293+00:00",
+            "product_id": "01a09f5f-e9ab-753c-a0f6-da1bb5816db1",
+            "section_id": "01a0aea5-6939-77ee-949a-cc4482b6f050",
+            "sort_order": 2
+        },
+        {
+            "id": "01a0cd0d-26b5-75a9-8f63-4a9dae1e93f9",
+            "badge": "best seller",
+            "created_at": "2026-09-23T06:56:26.293+00:00",
+            "product_id": "01a0b26a-4305-7662-a42c-e9081dc1bf3a",
+            "section_id": "01a0aea5-6939-77ee-949a-cc4482b6f050",
+            "sort_order": 3
+        }
+    ],
+    "sections": [
+        {
+            "id": "01a0aea5-690f-7408-82a1-2586150f1baf",
+            "type": "HERO",
+            "title": "Small Space. Big Luwag.",
+            "enabled": true,
+            "payload": {
+                "desktopImage": "/uploads/catalog/2026/239369f9-7aae-4bfb-aa06-e93b79ed2cc3.png",
+                "ctaPrimaryLink": "/collections",
+                "ctaPrimaryText": "Shop Small-Space Picks",
+                "ctaSecondaryLink": "#solutions",
+                "ctaSecondaryText": "Explore Solutions"
+            },
+            "subtitle": "Furniture designed for condos, rentals and everyday small-space living.",
+            "created_at": "2026-09-17T09:14:31.055+00:00",
+            "sort_order": 0,
+            "updated_at": "2026-09-23T06:56:25.825+00:00"
+        },
+        {
+            "id": "01a0aea5-6927-7290-99cb-8c6beb7a50b5",
+            "type": "USP",
+            "title": null,
+            "enabled": true,
+            "payload": {
+                "items": [
+                ]
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.079+00:00",
+            "sort_order": 10,
+            "updated_at": "2026-09-23T06:56:25.827+00:00"
+        },
+        {
+            "id": "01a0aea5-6930-744e-a0ad-741b3256ce67",
+            "type": "CATEGORY_TILES",
+            "title": "Shop by Category",
+            "enabled": true,
+            "payload": {
+                "categoryIds": [
+                    "01a09f54-12bd-7678-a14c-26c24041b288",
+                    "01a09f54-12ef-70ea-bbdc-68a0b6bc5205",
+                    "01a09f54-1308-7199-8e67-d203fde76d86",
+                    "01a09f54-1324-7011-8bed-8d9289c07a5f"
+                ]
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.088+00:00",
+            "sort_order": 20,
+            "updated_at": "2026-09-23T06:56:25.827+00:00"
+        },
+        {
+            "id": "01a0aea5-6939-77ee-949a-cc4482b6f050",
+            "type": "PRODUCT_GRID",
+            "title": "Small-Space Favorites",
+            "enabled": true,
+            "payload": {
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.097+00:00",
+            "sort_order": 30,
+            "updated_at": "2026-09-23T06:56:25.828+00:00"
+        },
+        {
+            "id": "01a0aea5-693e-729c-89b5-bc1387afae4b",
+            "type": "PRODUCT_STORY",
+            "title": "Made For Real Small Spaces",
+            "enabled": true,
+            "payload": {
+                "imageUrl": "/uploads/catalog/2026/80c6b716-71e5-415f-93be-ab08ea158529.png",
+                "productId": "01a09f5f-ea6b-755b-9500-70094a73f90c"
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.102+00:00",
+            "sort_order": 40,
+            "updated_at": "2026-09-23T06:56:25.829+00:00"
+        },
+        {
+            "id": "01a0aea5-6942-766c-b7c8-c2507ea88bbc",
+            "type": "SOLUTIONS",
+            "title": "Shop by Solution",
+            "enabled": true,
+            "payload": {
+                "items": [
+                    {
+                        "link": "/collections/bedroom-essentials",
+                        "blurb": "Compact beds, wardrobes and storage",
+                        "title": "Small Bedroom"
+                    },
+                    {
+                        "link": "/collections/small-space-solutions",
+                        "blurb": "Foldable desks that disappear",
+                        "title": "Home Office"
+                    },
+                    {
+                        "link": "/collections/small-space-solutions",
+                        "blurb": "Portable, non-permanent furniture",
+                        "title": "Rental Friendly"
+                    },
+                    {
+                        "link": "/collections/small-space-solutions",
+                        "blurb": "Set up and stow in seconds",
+                        "title": "Foldable Furniture"
+                    },
+                    {
+                        "link": "/collections/small-space-solutions",
+                        "blurb": "Slim profiles for tight corners",
+                        "title": "Narrow Space"
+                    },
+                    {
+                        "link": "/collections/storage-organization",
+                        "blurb": "Make every corner useful",
+                        "title": "Storage Solution"
+                    }
+                ]
+            },
+            "subtitle": "Whatever your space problem, there is furniture built for it.",
+            "created_at": "2026-09-17T09:14:31.106+00:00",
+            "sort_order": 50,
+            "updated_at": "2026-09-23T06:56:25.83+00:00"
+        },
+        {
+            "id": "01a0aea5-6946-72e9-b0a0-c5966e924acc",
+            "type": "PRODUCT_STORY",
+            "title": null,
+            "enabled": false,
+            "payload": {
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.114+00:00",
+            "sort_order": 60,
+            "updated_at": "2026-09-23T06:56:25.83+00:00"
+        },
+        {
+            "id": "01a0aea5-694e-7540-bd1e-378743f79908",
+            "type": "PRODUCT_GRID",
+            "title": "Small Upgrades",
+            "enabled": true,
+            "payload": {
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.118+00:00",
+            "sort_order": 70,
+            "updated_at": "2026-09-23T06:56:25.831+00:00"
+        },
+        {
+            "id": "01a0aea5-6951-7469-a046-2e1f41c4c7c3",
+            "type": "ROOM_INSPIRATION",
+            "title": "Room Inspiration",
+            "enabled": true,
+            "payload": {
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.121+00:00",
+            "sort_order": 80,
+            "updated_at": "2026-09-23T06:56:25.832+00:00"
+        },
+        {
+            "id": "01a0aea5-6958-7049-8b6d-7510e6165fb1",
+            "type": "UGC",
+            "title": null,
+            "enabled": true,
+            "payload": {
+                "entries": [
+                    {
+                        "name": "daady",
+                        "comment": "googgooggooggooggooggooggooggooggooggooggooggooggooggooggooggoog",
+                        "imageUrl": "/uploads/catalog/2026/8d4ceb4a-df2f-4641-9078-38c95a4c42e1.png",
+                        "productId": "01a09f5f-ea6b-755b-9500-70094a73f90c"
+                    }
+                ]
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.128+00:00",
+            "sort_order": 90,
+            "updated_at": "2026-09-23T06:56:25.833+00:00"
+        },
+        {
+            "id": "01a0aea5-695e-704e-a372-76abcdd2d180",
+            "type": "BRAND_STORY",
+            "title": null,
+            "enabled": true,
+            "payload": {
+                "body": "LUWAG Living makes furniture for small Filipino homes — the condos, apartments and rentals where every square meter counts. Our name comes from maluwag: spacious, easy-going, and maluwag sa budget. Pieces that fit, prices that don’t hurt, cash on delivery. Because a small space should feel maluwag.",
+                "bullets": [
+                ]
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.134+00:00",
+            "sort_order": 100,
+            "updated_at": "2026-09-23T06:56:25.834+00:00"
+        },
+        {
+            "id": "01a0aea5-6961-7102-9387-9958e0206a82",
+            "type": "CONFIDENCE",
+            "title": null,
+            "enabled": true,
+            "payload": {
+                "bullets": [
+                    "Cash on Delivery — pay at your door",
+                    "Nationwide delivery",
+                    "Real-time order updates by phone"
+                ]
+            },
+            "subtitle": null,
+            "created_at": "2026-09-17T09:14:31.138+00:00",
+            "sort_order": 110,
+            "updated_at": "2026-09-23T06:56:25.835+00:00"
+        }
+    ]
+}
