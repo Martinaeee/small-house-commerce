@@ -1,15 +1,33 @@
-import { Body, Controller, Get, Param, Put, Patch, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Req,
+  ServiceUnavailableException,
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Request } from 'express';
+import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { JwtAuthGuard, type RequestUser } from '../../auth/jwt-auth.guard.js';
 import { Permissions } from '../../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
-import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
-  saveHomepageSectionsSchema,
-  setHomepageProductsSchema,
-  type SaveHomepageSectionsInput,
-  type SetHomepageProductsInput,
-} from '../dto/homepage-section.dto.js';
+  publishSchema,
+  saveDraftSchema,
+  type PublishInput,
+  type SaveDraftInput,
+} from '../dto/homepage-document.dto.js';
+import { HomepageDocumentService } from '../homepage-document.service.js';
+import { DOCUMENT_VALIDATOR, type DocumentValidator } from '../homepage-document.js';
+import { PREVIEW_TOKEN_TTL_MS, signPreviewToken } from '../homepage-preview-token.js';
 import { HomepageService } from '../homepage.service.js';
+
+type AuthenticatedRequest = Request & { user?: RequestUser };
 
 /**
  * Homepage CMS admin routes. Reuses PRODUCT_MANAGE: no dedicated content
@@ -19,25 +37,77 @@ import { HomepageService } from '../homepage.service.js';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Permissions('PRODUCT_MANAGE')
 export class AdminHomepageController {
-  constructor(private readonly homepage: HomepageService) {}
+  constructor(
+    private readonly homepage: HomepageService,
+    private readonly docs: HomepageDocumentService,
+    @Inject(DOCUMENT_VALIDATOR) private readonly validator: DocumentValidator,
+    private readonly config: ConfigService,
+  ) {}
 
+  /** Read-only emergency rollback source; the legacy write routes are gone. */
   @Get('sections')
   list() {
     return this.homepage.adminList();
   }
 
-  @Patch('sections')
-  save(
-    @Body(new ZodValidationPipe(saveHomepageSectionsSchema)) input: SaveHomepageSectionsInput,
-  ) {
-    return this.homepage.saveSections(input);
+  @Get('draft')
+  getDraft() {
+    return this.docs.getDraft();
   }
 
-  @Put('sections/:id/products')
-  setProducts(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(setHomepageProductsSchema)) input: SetHomepageProductsInput,
+  @Put('draft')
+  saveDraft(
+    @Body(new ZodValidationPipe(saveDraftSchema)) input: SaveDraftInput,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.homepage.setSectionProducts(id, input);
+    return this.docs.saveDraft(input.draft, input.expectedRev, req.user?.userId ?? null);
+  }
+
+  @Post('validate')
+  async validate() {
+    const snapshot = await this.docs.getDraft();
+    return this.validator.validate(snapshot.draft);
+  }
+
+  @Post('publish')
+  publish(
+    @Body(new ZodValidationPipe(publishSchema)) input: PublishInput,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.docs.publish({ ...input, userId: req.user?.userId ?? null });
+  }
+
+  @Get('versions')
+  listVersions() {
+    return this.docs.listVersions();
+  }
+
+  @Get('versions/:id')
+  getVersion(@Param('id') id: string) {
+    return this.docs.getVersion(id);
+  }
+
+  @Post('versions/:id/restore')
+  restore(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.docs.restoreVersion(id, req.user?.userId ?? null);
+  }
+
+  @Post('versions/:id/unpublish')
+  unpublish(@Param('id') id: string) {
+    return this.docs.unpublishVersion(id);
+  }
+
+  @Post('preview-token')
+  async previewToken() {
+    const secret = this.config.get<string>('homepagePreviewSecret') ?? '';
+    if (secret.length === 0) {
+      throw new ServiceUnavailableException('Homepage preview is not configured');
+    }
+
+    const snapshot = await this.docs.getDraft();
+    return {
+      token: signPreviewToken(snapshot.draftRev, secret, new Date()),
+      expiresInMs: PREVIEW_TOKEN_TTL_MS,
+    };
   }
 }

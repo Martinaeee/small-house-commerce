@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { HomepageSectionType } from '../../../generated/prisma/client.js';
 import {
   homepagePayloadSchemas,
-  saveHomepageSectionsSchema,
-  setHomepageProductsSchema,
 } from './homepage-section.dto.js';
 
 describe('homepage payload schemas', () => {
@@ -238,35 +236,4 @@ describe('homepage payload schemas', () => {
     expect(schema.safeParse(scene({ alt: 'x'.repeat(121) })).success).toBe(false);
   });
 
-  it('validates the whole-section save body', () => {
-    const ok = saveHomepageSectionsSchema.safeParse({
-      sections: [{ enabled: true, sortOrder: 0, type: HomepageSectionType.HERO }],
-    });
-    expect(ok.success).toBe(true);
-    expect(
-      saveHomepageSectionsSchema.safeParse({ sections: [{ enabled: true, sortOrder: -1 }] }).success,
-    ).toBe(false);
-    expect(
-      saveHomepageSectionsSchema.safeParse({
-        sections: Array.from({ length: 21 }, () => ({ enabled: true, sortOrder: 0 })),
-      }).success,
-    ).toBe(false);
-  });
-
-  it('validates the section products body (badge ≤ 20, max 24 rows)', () => {
-    const id = crypto.randomUUID();
-    expect(
-      setHomepageProductsSchema.safeParse({ rows: [{ productId: id, sortOrder: 0, badge: '新品' }] })
-        .success,
-    ).toBe(true);
-    expect(
-      setHomepageProductsSchema.safeParse({ rows: [{ productId: id, sortOrder: 0, badge: 'x'.repeat(21) }] })
-        .success,
-    ).toBe(false);
-    expect(
-      setHomepageProductsSchema.safeParse({
-        rows: Array.from({ length: 25 }, () => ({ productId: crypto.randomUUID(), sortOrder: 0 })),
-      }).success,
-    ).toBe(false);
-  });
 });

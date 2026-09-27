@@ -395,6 +395,9 @@ export interface DocumentValidator {
   ): Promise<{ errors: PublishIssue[]; warnings: PublishIssue[] }>;
 }
 
+/** Runtime Nest token for the structural DocumentValidator interface. */
+export const DOCUMENT_VALIDATOR = Symbol('DOCUMENT_VALIDATOR');
+
 // --- defaults ---------------------------------------------------------------
 
 /** Fixed ids for the freshly created document (mirrored by the frontend). */

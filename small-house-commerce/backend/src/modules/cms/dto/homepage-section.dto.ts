@@ -133,33 +133,3 @@ export const homepagePayloadSchemas: Record<HomepageSectionType, z.ZodType> = {
   [HomepageSectionType.BRAND_STORY]: textBlockPayloadSchema,
   [HomepageSectionType.CONFIDENCE]: textBlockPayloadSchema,
 };
-
-const homepageSectionInputSchema = z.object({
-  id: z.string().uuid().optional(),
-  type: z.nativeEnum(HomepageSectionType).optional(),
-  title: z.string().max(200).nullable().optional(),
-  subtitle: z.string().max(500).nullable().optional(),
-  enabled: z.boolean(),
-  sortOrder: z.number().int().min(0).max(999),
-  // Validated per type inside HomepageService (it knows the row's type).
-  payload: z.unknown().optional(),
-});
-
-export const saveHomepageSectionsSchema = z.object({
-  sections: z.array(homepageSectionInputSchema).min(1).max(20),
-});
-
-export const setHomepageProductsSchema = z.object({
-  rows: z
-    .array(
-      z.object({
-        productId: z.string().uuid(),
-        sortOrder: z.number().int().min(0).max(999),
-        badge: z.string().max(20).nullable().optional(),
-      }),
-    )
-    .max(24),
-});
-
-export type SaveHomepageSectionsInput = z.infer<typeof saveHomepageSectionsSchema>;
-export type SetHomepageProductsInput = z.infer<typeof setHomepageProductsSchema>;

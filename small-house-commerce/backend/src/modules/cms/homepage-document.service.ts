@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -9,6 +10,7 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
+  DOCUMENT_VALIDATOR,
   homepageDocumentSchema,
   normalizeLegacyDocument,
   type DocumentValidator,
@@ -82,7 +84,7 @@ export class HomepageDocumentService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly validator: DocumentValidator,
+    @Inject(DOCUMENT_VALIDATOR) private readonly validator: DocumentValidator,
   ) {}
 
   // --- draft ---------------------------------------------------------------
