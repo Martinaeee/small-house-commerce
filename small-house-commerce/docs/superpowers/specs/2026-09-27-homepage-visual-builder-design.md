@@ -8,13 +8,39 @@
 
 1. **数据模型**：版本化 JSONB 文档（`homepage_documents` 单例草稿 + `homepage_versions` 发布快照），不改造现有关系表。
 2. **P1 范围**：基建（文档模型 / Draft / Publish / 版本历史）+ Hero 完整可视化（三栏编辑器、元素拖拽、响应式覆盖、Safe Area）+ Announcement Bar。
-3. **视频策略**：不做服务端转码。上传时校验格式/时长/尺寸，浏览器 canvas 抽首帧生成 Poster；Poster 缺失阻止发布。
+3. **视频策略**：不做服务端转码，也不做任何服务端 codec 解析（P1 无 ffmpeg/parser）。兼容性以**浏览器实测可解码**为准（元数据加载 + seek + 抽帧成功），不以 MIME 或 `canPlayType` 声明作为验证依据；Poster 强制。
 4. **本期只预留、不做完整功能**：Blog / Editorial / Press 模块、Newsletter 订阅、Mega Menu 可视化搭建、Wishlist 功能（Header 图标开关预留、默认隐藏）。
+5. **唯一写入链路（canonical write path）**：新 Homepage Document API 是唯一正常可写接口。旧 `homepage_sections` 仅作 **emergency rollback 数据源**（只读冻结）；旧 admin `GET` 可保留（只读排查），旧 admin `PATCH/PUT` 写接口在 P1 **删除**，禁止形成第二套可写数据源或双写。
+6. **数据库级单例**：`homepage_documents` 以固定 ID + `CHECK` 约束在数据库层保证有且仅有一行，不依赖 service 约定。
+7. **草稿预览 Token 安全契约**：见 §5.2——短 TTL、HMAC 签名不可猜、过期/篡改拒绝、`private, no-store`、`noindex, nofollow`、预览页零追踪、token 不落 localStorage。
 
 补充决策（主 Agent 推荐，用户未否决）：
 - RBAC 沿用 `PRODUCT_MANAGE`，P1 不新增权限码。
 - 图片继续使用现有原生 `<img>`；`next/image` 迁移与图片转码不在本期。
-- `homepage_sections` 旧表保留为只读回退，不删除。
+- `homepage_sections` 旧表只读冻结保留，不删除；emergency rollback = 上一版镜像 + 冻结旧表。
+
+### 最终数据流（唯一写入链路）
+
+```
+Editor State                客户端 reducer 草稿 + undo/redo（不落库，改字即预览）
+      │
+      ▼  Save Draft / 自动保存（3s 防抖，expectedRev 乐观锁）
+Saved Draft                 homepage_documents.draft（rev+1，draftUpdatedBy/At）
+      │
+      ▼  Validate（POST /admin/homepage/validate，或发布时内联执行）
+Validation                  errors 阻断发布 / warnings 需管理员确认
+      │
+      ▼  Publish（立即或排期；从已保存草稿生成快照）
+Published Version           homepage_versions（versionNo+1，publishAt/unpublishAt，note）
+      │
+      ▼  读取时求值（无 cron；unpublishAt 到期自动回退次新有效版本）
+Effective Version           publishAt <= now < unpublishAt 的最新版本
+      │
+      ▼  GET /storefront/homepage（ISR 120s + publish 时标签失效）
+Storefront                  HeroSlider / Announcement（独立端点）/ 既有区块组件
+```
+
+不存在第二写入链路：旧 `PATCH/PUT /admin/homepage/sections` 在 P1 删除；旧表在迁移后不再被任何写路径触碰。
 
 ## 1. 目标与非目标
 
@@ -53,7 +79,7 @@
 
 ```prisma
 model HomepageDocument {
-  id                 String   @id @default(uuid(7)) @db.Uuid
+  id                 String   @id @db.Uuid         // 固定单例 ID 00000000-0000-0000-0000-000000000001（见下）
   draft              Json                          // 编辑器草稿（完整文档）
   draftRev           Int      @default(1)          // 乐观并发计数
   draftUpdatedById   String?  @db.Uuid
@@ -76,6 +102,16 @@ model HomepageVersion {
   @@map("homepage_versions")
 }
 ```
+
+**数据库级单例保证**（不只靠 service 约定）：
+- 固定 ID `00000000-0000-0000-0000-000000000001`（沿用 `site_settings` 先例），迁移内直接 `INSERT` 该行；所有读写只用这一常量。
+- 迁移内追加原生 SQL 约束：
+  ```sql
+  ALTER TABLE homepage_documents
+    ADD CONSTRAINT homepage_documents_singleton
+    CHECK (id = '00000000-0000-0000-0000-000000000001');
+  ```
+  任何插入第二行的尝试都会被数据库拒绝（固定 ID 撞主键、异 ID 撞 CHECK）。
 
 **生效版本（读取时求值，无 cron）**：
 
@@ -189,9 +225,9 @@ effectiveVersion(now) =
 ### 3.4 迁移策略
 
 一笔迁移 `add_homepage_document_versions`：
-1. 建两张新表。
+1. 建两张新表；`homepage_documents` 插入固定单例行（`id = 00000000-0000-0000-0000-000000000001`）并追加 `homepage_documents_singleton` CHECK 约束（见 §3.1）。
 2. 数据回填：把现有 `homepage_sections`（含 products joins）组装为文档 v1，写入 `homepage_documents.draft` 与 `homepage_versions`（versionNo=1，publishAt=迁移时刻，note="Migrated from homepage_sections"）。
-3. `homepage_sections` / `homepage_section_products` 原样保留（只读回退）。
+3. `homepage_sections` / `homepage_section_products` **只读冻结**保留（emergency rollback 数据源，无任何写路径）。
 
 回填在 SQL 中完成（`jsonb_build_object` / `jsonb_agg`），幂等条件：仅当 `homepage_versions` 为空时执行。迁移后用一个只读比对脚本验证：文档渲染输出与旧接口输出等价（区块数、顺序、payload 深比较）。
 
@@ -209,9 +245,12 @@ effectiveVersion(now) =
 | GET | `/api/v1/admin/homepage/versions/:id` | 单版本完整文档（预览/恢复用） |
 | POST | `/api/v1/admin/homepage/versions/:id/restore` | 把该版本文档写入草稿（不发布） |
 | POST | `/api/v1/admin/homepage/versions/:id/unpublish` | 立即下线（写 `unpublishAt=now`；生效版本自动回退到次新有效版本） |
-| POST | `/api/v1/admin/homepage/preview-token` | 签发短期草稿预览 token（HMAC 签名、30 分钟有效、含当前 `draftRev`），供草稿预览页使用 |
+| POST | `/api/v1/admin/homepage/preview-token` | 签发短期草稿预览 token（安全契约见 §5.2），供草稿预览页使用 |
 
-旧 `GET/PATCH /admin/homepage/sections`、`PUT .../products` 保留不动（回退路径），但新编辑器不再调用。
+旧接口处置（唯一写入链路）：
+- `GET /api/v1/admin/homepage/sections`：**保留**（只读，排查/导出旧数据用，新编辑器不调用）。
+- `PATCH /api/v1/admin/homepage/sections`、`PUT /api/v1/admin/homepage/sections/:id/products`：**P1 删除**（路由 + service 写方法一并移除），杜绝第二套可写数据源；emergency rollback 依靠上一版镜像而非这些接口。
+- 旧表 `homepage_sections` / `homepage_section_products`：迁移后只读冻结，任何写路径都不再触碰。
 
 ### 4.2 Storefront
 
@@ -266,7 +305,15 @@ Warning（管理员确认后可发布）：
 
 - 中间 Preview 直接渲染真实前台组件（`HeroSlider`、`AnnouncementBar`、其余既有区块组件——这些组件无 server-only 依赖，可在客户端复用）；草稿数据客户端水合（商品按 id 经 admin API 拉取摘要，套用与前台一致的过滤规则）。
 - 顶部状态栏常驻：`Last Saved`（草稿保存时间/人）、`Last Published`（生效版本）、`Draft/Published 差异标记`、未保存圆点；按钮：`Save Draft`（也可 Cmd/Ctrl+S）、`Preview Draft`（新标签页草稿预览）、`Publish`（弹出发布面板：立即/排期、下线时间、变更摘要、校验结果）。
-- Preview Draft 实现：后台先调 `POST /admin/homepage/preview-token` 签发短期 token，新标签打开 `/preview/homepage?token=<token>`——独立动态路由（`no-store`，不进入 ISR 缓存），服务端校验签名后以草稿文档渲染同一套区块组件；token 过期/无效返回 404。生产 `/` 完全不受影响（不读 searchParams、不改变 ISR）。
+- Preview Draft 实现与**安全契约**：
+  - 流程：后台调 `POST /admin/homepage/preview-token` 签发 token → 新标签打开 `/preview/homepage?token=<token>` → 独立动态路由（不进 ISR）校验通过后以草稿文档渲染同一套区块组件。生产 `/` 不读 searchParams、不改变 ISR，完全不受影响。
+  - **Token 格式**：`base64url(payload).base64url(HMAC-SHA256(payload, secret))`；payload = `{ scope: "homepage-draft-preview", draftRev, exp, jti }`；secret 为服务端专用密钥（与 JWT/REVALIDATE 密钥隔离，缺失则预览功能整体禁用）。
+  - **TTL**：30 分钟（`exp` 服务端强制校验）；token 不可猜（签名）、不可跨用途复用（scope 校验）。
+  - **拒绝策略**：过期、篡改、scope 不符、缺签名一律返回 **404**（统一响应，不给探测信号）；预览页不可被搜索引擎索引。
+  - **响应头**：`Cache-Control: private, no-store`；页面 metadata `robots: noindex, nofollow`；`Referrer-Policy: no-referrer`。
+  - **零追踪**：预览路由使用独立 layout，**不挂载** Meta Pixel（`MetaPixelInit`）、`HomeTracking`、不触发任何 `data-track-*` 上报、不调用 `/storefront/lp/*/view` 等任何统计端点。
+  - **不落存储**：token 只存在于 URL，绝不写入 localStorage / sessionStorage / cookie；关闭标签即失效。
+  - 测试覆盖：过期拒绝、篡改拒绝、scope 不符拒绝、预览页零追踪（无 Pixel 请求、无追踪事件）、`no-store`/`noindex` 头存在。
 
 ### 5.3 编辑器状态
 
@@ -284,7 +331,13 @@ Warning（管理员确认后可发布）：
 ### 5.5 媒体面板（单素材源）
 
 - 默认只上传一个源（图或视频）；`Use separate mobile media` 开关默认 OFF，开启后可传移动端图片/视频（可选，非必填）。
-- 视频上传流程：选择文件 → 前端校验（`video/mp4`、时长 ≤ 30s、分辨率 ≥ 1280×720、体积 ≤ 100MB，超限即拒绝并说明）→ 上传 → 浏览器 canvas 在 1s 处抽帧生成 Poster（≤5MB PNG/JPG）→ 自动上传 Poster → 表单就绪。抽帧失败时要求手动上传 Poster（发布校验强制）。
+- 视频上传流程（**以浏览器实测为准，不做 codec 声明判断**）：
+  1. 选择文件 → 基础校验：MIME/扩展名 `video/mp4`、体积 ≤ 100MB；
+  2. **浏览器解码探测**：在隐藏 `<video>` 中实际加载该文件——`loadedmetadata` 成功（可读 duration/分辨率）→ `currentTime = 1s` 且 `seeked` 事件成功 → canvas `drawImage` 抽帧成功。三步任一失败即拒绝上传并明确提示（"此视频当前浏览器无法解码/定位，请重新导出 MP4"）；
+  3. 时长 ≤ 30s、分辨率 ≥ 1280×720（以探测读到的真实元数据为准，不以文件声明为准）；
+  4. 抽帧画面作为 Poster（≤5MB PNG/JPG）自动上传；探测通过后允许手动替换 Poster；
+  5. 表单就绪。Poster 缺失（含替换失败）时发布校验强制阻断。
+  说明：MIME 与 `canPlayType` 只用于初筛，**不构成兼容性验证**；P1 无 ffmpeg/codec parser，兼容性结论只来自"能解码、能 seek、能抽帧"这一实测。
 - 焦点/裁切：在媒体预览上点击/拖动十字准星设置 `focal`；逐设备 `objectPosition` 有独立可视化（选择设备后拖动裁切锚点）；`Reset to Focal Point` 一键回退。
 
 ### 5.6 Link Picker（P1 版）
@@ -334,9 +387,9 @@ Warning（管理员确认后可发布）：
 
 ### 6.4 视频约束（已确认策略）
 
-- 仅接受 `video/mp4`（H.264）——上传时前端 `canPlayType` + 元数据校验；不转码。
-- Poster 强制（客户端抽帧或手动上传）；未加载完成显示 Poster 防黑屏。
-- 时长上限 30s、体积上限 100MB（沿用现有上传上限）。
+- 仅接受 `video/mp4`；兼容性以**浏览器实测**为准（加载元数据 + seek + 抽帧成功，见 §5.5），不依赖 MIME/`canPlayType` 声明，也不做服务端 codec 解析；不转码。
+- Poster 强制（上传时自动抽帧，允许手动替换）；未加载完成显示 Poster 防黑屏。
+- 时长上限 30s、分辨率下限 1280×720、体积上限 100MB；判定一律使用浏览器探测读到的真实元数据。
 
 ## 7. 分期与范围
 
@@ -344,7 +397,7 @@ Warning（管理员确认后可发布）：
 - 后端：3.1 表 + 3.4 迁移 + 4.1/4.2/4.3 全部 API 与校验 + 文档 zod schema。
 - 后台：5.1–5.8 全部（三栏编辑器、Hero 幻灯全功能、Announcement 编辑、版本历史、Link Picker、发布面板、自动保存/undo）。
 - 前台：HeroSlider、AnnouncementBar v2、CSS 变量生成、草稿预览模式。
-- 旧 `/admin/homepage` 页面代码被新编辑器替换（同一路由）；旧 sections API 保留可用（回退路径），但新编辑器与前台均不再调用；管理端回退靠上一版镜像。
+- 旧 `/admin/homepage` 页面代码被新编辑器替换（同一路由）；旧 admin `GET sections` 保留（只读），旧 admin `PATCH/PUT` **删除**（唯一写入链路）；emergency rollback = 上一版镜像 + 冻结的旧表数据。
 
 ### P2（后续独立规划）
 - 其余区块接入 Builder（Category / Best Sellers Manual+Dynamic / Hotspot 专用编辑器（拖拽）/ Get Inspired / UGC 弹层 / Why Shop）。
@@ -358,9 +411,9 @@ Warning（管理员确认后可发布）：
 
 ## 8. 测试策略
 
-- **后端 unit/integration**：文档 zod 校验、draft rev 乐观锁、publish 生成版本、effectiveVersion 排期求值（边界含 unpublishAt）、校验规则集、迁移回填等价性（旧表 vs 文档渲染深比较）。
-- **前端 unit/component**：编辑器 reducer（undo/redo/脏标记/自动保存节流）、拖拽百分比换算与吸附、CSS 变量生成（含注入白名单）、LinkPicker、发布面板校验展示、HeroSlider 轮播行为（含 reduced-motion）、AnnouncementBar 轮播与排期。
-- **Playwright（隔离 E2E 库）**：编辑器改文案→预览即时更新；拖拽元素→坐标持久化；Save Draft→刷新仍在；Publish→前台生效；排期版本不生效/到点生效；版本恢复；草稿预览 token 不影响无 token 访问；375/768/1440 三档截图证据。
+- **后端 unit/integration**：文档 zod 校验、draft rev 乐观锁、publish 生成版本、effectiveVersion 排期求值（边界含 unpublishAt 回退）、校验规则集、迁移回填等价性（旧表 vs 文档渲染深比较）、DB 单例约束（插入第二行被拒）、preview token 签发/校验（过期、篡改、scope 不符均 404）、旧写接口已删除（PATCH/PUT 不再可达）。
+- **前端 unit/component**：编辑器 reducer（undo/redo/脏标记/自动保存节流）、拖拽百分比换算与吸附、CSS 变量生成（含注入白名单）、LinkPicker、发布面板校验展示、HeroSlider 轮播行为（含 reduced-motion）、AnnouncementBar 轮播与排期、视频解码探测（元数据/seek/抽帧失败路径）。
+- **Playwright（隔离 E2E 库）**：编辑器改文案→预览即时更新；拖拽元素→坐标持久化；Save Draft→刷新仍在；Publish→前台生效；排期版本不生效/到点生效；版本恢复；预览页零追踪（无 Meta Pixel 请求、无追踪事件）、`no-store`/`noindex` 头存在、过期 token 404、生产 `/` 无 token 行为不变；375/768/1440 三档截图证据。
 - **验证纪律**：每批 RED→GREEN；完整 gate（unit / tsc / lint / build / Chromium 全量回归）；独立审查；部署前 pg_dump 备份 + rollback 镜像。
 
 ## 9. 风险与回退
@@ -369,14 +422,21 @@ Warning（管理员确认后可发布）：
 |---|---|
 | 编辑器复杂度高、状态多 | 单一 reducer + 文档 schema 单一权威；组件全部受控 |
 | 双编辑器互相覆盖 | `draftRev` 乐观锁 + 409 处理 |
-| 迁移后前台渲染不一致 | 回填等价性比对测试；旧表+旧接口保留；回退=回滚镜像 |
-| 服务器 1 核无图片/视频处理 | 本期明确不做转码；Poster 客户端抽帧；媒体库阶段再评估 |
+| 迁移后前台渲染不一致 | 回填等价性比对测试；旧表冻结只读 + emergency rollback 镜像 |
+| 双写/第二数据源 | 旧写接口 P1 删除；旧表无任何写路径；DB 单例约束 |
+| 预览 token 泄露/被索引 | 30min TTL + HMAC 签名 + 统一 404 + `no-store`/`noindex`/`no-referrer` + 预览页零追踪；token 仅存在于 URL |
+| 服务器 1 核无图片/视频处理 | 本期明确不做转码与 codec 解析；兼容性=浏览器实测；Poster 客户端抽帧；媒体库阶段再评估 |
 | 文档体积膨胀 | 图片/视频仅存 URL；版本快照 ≤50 份；单文档上限 512KB 校验 |
 | 排期时区 | 全部 `Timestamptz`，管理端输入按 Asia/Manila 展示（复用落地页日期处理惯例） |
 
-## 10. 实施前检查清单（进入编码前执行）
+## 10. 实施前检查清单（进入编码前执行，逐项留证）
 
-1. 从生产基线 `ac4db0e` 新建 `feature/homepage-builder` 分支与隔离 worktree。
-2. 本地库迁移演练：克隆库应用新迁移，跑回填等价性比对。
-3. 生产部署前：`pg_dump` → `/root/deploy-backups/pre-homepage-p1-<date>.sql.gz` + gzip/SHA 校验；`small-house-prod-{backend,frontend}:rollback-<sha>` 镜像标记。
-4. 迁移仅加性；不删除任何旧表/列；E2E 只在隔离库执行。
+1. **隔离 worktree**：从 `b11595e`（= 生产 `ac4db0e` + 本设计文档 commit，不含任何其他 feature 改动）新建 `feature/homepage-builder` worktree；验证 `git log --oneline ac4db0e..HEAD` 仅输出 `b11595e` 一条。
+2. **Homepage BEFORE baseline（改动前采集，只读）**：
+   - 前台首页整页截图：1440 / 768 / 390 三档；
+   - 现有 Admin Homepage（`/admin/homepage`）截图：列表态 + 区块编辑态；
+   - 旧 homepage 表只读 JSON snapshot：`homepage_sections` + `homepage_section_products` 全量导出；
+   - 产物存 `docs/superpowers/acceptance/2026-09-27-homepage-before/`（截图 + snapshot.json + 采集时间与 HEAD 记录）。
+3. 本地库迁移演练：克隆库应用新迁移，跑回填等价性比对 + DB 单例约束验证。
+4. 生产部署前：`pg_dump` → `/root/deploy-backups/pre-homepage-p1-<date>.sql.gz` + gzip/SHA 校验；`small-house-prod-{backend,frontend}:rollback-<sha>` 镜像标记。
+5. 迁移仅加性；不删除任何旧表/列；E2E 只在隔离库执行。
