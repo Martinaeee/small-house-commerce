@@ -530,6 +530,31 @@ function heroSectionOf(doc: HomepageDocument): HeroSection | undefined {
   return section?.type === "HERO" ? section : undefined;
 }
 
+/**
+ * Index-only slide APIs intentionally use the first HERO. Every API that
+ * receives a slide id must instead use this document-wide lookup so copied
+ * HERO sections remain independently editable.
+ */
+type HeroSlideTarget = {
+  section: HeroSection;
+  index: number;
+  slide: HeroSlide;
+};
+
+function heroSlideTarget(
+  doc: HomepageDocument,
+  slideId: string,
+): HeroSlideTarget | undefined {
+  for (const section of doc.sections) {
+    if (section.type !== "HERO") continue;
+    const index = section.payload.slides.findIndex(({ id }) => id === slideId);
+    if (index >= 0) {
+      return { section, index, slide: section.payload.slides[index] };
+    }
+  }
+  return undefined;
+}
+
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
@@ -569,7 +594,7 @@ function mergeFocal(
   if (!isRecord(patch)) return current;
   const merged = { ...(current ?? {}), ...patch };
   return typeof merged.x === "number" && typeof merged.y === "number"
-    ? { x: merged.x, y: merged.y }
+    ? { x: clampPct(merged.x), y: clampPct(merged.y) }
     : current;
 }
 
@@ -818,11 +843,10 @@ export function duplicateHeroSlide(
   slideId: string,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  if (!section || section.payload.slides.length >= 6) return next;
-  const index = section.payload.slides.findIndex(({ id }) => id === slideId);
-  if (index < 0) return next;
-  const source = section.payload.slides[index];
+  const target = heroSlideTarget(next, slideId);
+  if (!target || target.section.payload.slides.length >= 6) return next;
+  const { section, index } = target;
+  const source = target.slide;
   const suffix = "（副本）";
   const copy = structuredClone(source);
   copy.id = newUuid();
@@ -837,12 +861,10 @@ export function removeHeroSlide(
   slideId: string,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  if (!section || section.payload.slides.length <= 1) return next;
-  const index = section.payload.slides.findIndex(({ id }) => id === slideId);
-  if (index < 0) return next;
-  section.payload.slides.splice(index, 1);
-  renumberSlides(section.payload.slides);
+  const target = heroSlideTarget(next, slideId);
+  if (!target || target.section.payload.slides.length <= 1) return next;
+  target.section.payload.slides.splice(target.index, 1);
+  renumberSlides(target.section.payload.slides);
   return next;
 }
 
@@ -876,9 +898,9 @@ export function updateHeroSlide(
   patch: Partial<Pick<HeroSlide, "name" | "enabled" | "schedule" | "overlay">>,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  const currentSlide = section?.payload.slides.find(({ id }) => id === slideId);
-  if (!currentSlide) return next;
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const currentSlide = target.slide;
   if (patch.name !== undefined) currentSlide.name = patch.name;
   if (patch.enabled !== undefined) currentSlide.enabled = patch.enabled;
   if (patch.schedule !== undefined)
@@ -904,9 +926,9 @@ export function updateHeroMedia(
   patch: HeroMediaPatch,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  const currentSlide = section?.payload.slides.find(({ id }) => id === slideId);
-  if (!currentSlide) return next;
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const currentSlide = target.slide;
 
   if (currentSlide.media === null) {
     const type = patch.type;
@@ -941,9 +963,9 @@ export function updateHeroElement(
   patch: HeroElementPatch,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  const currentSlide = section?.payload.slides.find(({ id }) => id === slideId);
-  if (!currentSlide) return next;
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const currentSlide = target.slide;
   const element = currentSlide.elements[key];
   if (patch.text !== undefined) element.text = patch.text;
   if (patch.link !== undefined) element.link = structuredClone(patch.link);
@@ -995,10 +1017,9 @@ export function setElementOverride(
   } | null,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  const currentSlide = section?.payload.slides.find(({ id }) => id === slideId);
-  if (!currentSlide) return next;
-  const element = currentSlide.elements[key];
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const element = target.slide.elements[key];
   if (patch === null) {
     delete element.overrides[device];
     return next;
@@ -1030,10 +1051,9 @@ export function resetElementLayout(
   key: HeroElementKey,
 ): HomepageDocument {
   const next = cloneDocument(doc);
-  const section = heroSectionOf(next);
-  const currentSlide = section?.payload.slides.find(({ id }) => id === slideId);
-  if (!currentSlide) return next;
-  currentSlide.elements[key].layout = structuredClone(emptyElement(key).layout);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  target.slide.elements[key].layout = structuredClone(emptyElement(key).layout);
   return next;
 }
 
