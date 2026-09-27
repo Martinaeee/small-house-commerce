@@ -14,6 +14,7 @@ import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { errorStatus } from "@/lib/admin-auth";
+import { copyText } from "@/lib/clipboard";
 import {
   adminApi,
   type AdminLandingPageRow,
@@ -74,6 +75,7 @@ function SinglePagesInner() {
   const [presetProduct, setPresetProduct] = useState<{ id: string; name: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyFailedId, setCopyFailedId] = useState<string | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
@@ -202,12 +204,13 @@ function SinglePagesInner() {
 
   async function copyLink(row: AdminLandingPageRow) {
     const url = `${window.location.origin}/lp/${row.slug}`;
-    try {
-      await navigator.clipboard.writeText(url);
+    setCopiedId(null);
+    setCopyFailedId(null);
+    if (await copyText(url)) {
       setCopiedId(row.id);
       window.setTimeout(() => setCopiedId(null), 1500);
-    } catch {
-      /* clipboard blocked: open link still works */
+    } else {
+      setCopyFailedId(row.id);
     }
   }
 
@@ -472,6 +475,14 @@ function SinglePagesInner() {
                           {copiedId === row.id ? "已复制" : "复制"}
                         </button>
                       </div>
+                      {copyFailedId === row.id ? (
+                        <p
+                          role="alert"
+                          className="mt-2 max-w-52 whitespace-normal text-xs font-medium text-admin-error"
+                        >
+                          {t("common_copy_failed_manual")}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-right font-medium text-ink">{row.views}</td>
                     <td className="px-3 py-3 text-right font-medium text-ink">{row.orders}</td>

@@ -150,6 +150,8 @@ export const en: Record<ZhKey, string> = {
   link_builder_copy_variant: "Copy variant link",
   link_builder_copy_campaign: "Copy campaign link",
   link_builder_copied: "Copied",
+  common_copy_failed_manual:
+    "Copy failed. Please select the text and copy it manually.",
   link_builder_waiting: "Enter an AID to generate copyable campaign links.",
   link_builder_error_PRODUCT_INVALID: "Select a real active product.",
   link_builder_error_VARIANT_INVALID: "Select a real variant for this product.",

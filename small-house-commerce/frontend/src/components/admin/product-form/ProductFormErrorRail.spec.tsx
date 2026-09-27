@@ -5,6 +5,9 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { ProductFormErrorRail } from "@/components/admin/product-form/ProductFormErrorRail";
 import type { AdminProductIssue } from "@/lib/admin-product-issues";
 
+const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }));
+vi.mock("@/lib/clipboard", () => ({ copyText: clipboard.copyText }));
+
 /**
  * The rail itself: one line while collapsed, one card per problem when
  * expanded, and a copy action for anything the client cannot explain.
@@ -38,6 +41,8 @@ function renderRail(
 
 beforeEach(() => {
   setAdminLang("zh");
+  clipboard.copyText.mockReset();
+  clipboard.copyText.mockResolvedValue(true);
 });
 
 describe("ProductFormErrorRail", () => {
@@ -90,11 +95,6 @@ describe("ProductFormErrorRail", () => {
 
   it("copies an unexplained problem and confirms it", async () => {
     const user = userEvent.setup();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
     renderRail([
       issue({
         message: "slug: A product with this slug already exists.",
@@ -106,9 +106,27 @@ describe("ProductFormErrorRail", () => {
     await user.click(screen.getByRole("button", { name: "查看" }));
     await user.click(screen.getByRole("button", { name: "复制错误信息" }));
 
-    expect(writeText).toHaveBeenCalledWith(
+    expect(clipboard.copyText).toHaveBeenCalledWith(
       "slug: A product with this slug already exists.",
     );
     expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
+  });
+
+  it("shows a manual-copy message for an unexplained problem when copying fails", async () => {
+    const user = userEvent.setup();
+    clipboard.copyText.mockResolvedValue(false);
+    renderRail([
+      issue({
+        message: "Unexpected save failure",
+        highlightKey: undefined,
+        actions: [{ kind: "copy", label: "复制错误信息" }],
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "查看" }));
+    await user.click(screen.getByRole("button", { name: "复制错误信息" }));
+
+    expect(screen.getByText("复制失败，请手动选择并复制")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "已复制" })).not.toBeInTheDocument();
   });
 });

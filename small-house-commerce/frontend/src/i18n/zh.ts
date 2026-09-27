@@ -147,6 +147,7 @@ export const zh = {
   link_builder_copy_variant: "复制款式链接",
   link_builder_copy_campaign: "复制投放链接",
   link_builder_copied: "已复制",
+  common_copy_failed_manual: "复制失败，请手动选择并复制",
   link_builder_waiting: "填写 AID 后生成可复制的投放链接。",
   link_builder_error_PRODUCT_INVALID: "请选择真实的已上架商品。",
   link_builder_error_VARIANT_INVALID: "请选择属于当前商品的真实款式。",

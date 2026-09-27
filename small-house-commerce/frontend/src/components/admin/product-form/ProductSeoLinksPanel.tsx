@@ -5,6 +5,7 @@ import { Field, Textarea, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
 import type { ProductStatus } from "@/lib/admin-api";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { copyText } from "@/lib/clipboard";
 import { SITE_URL } from "@/lib/product-jsonld";
 
 export interface SavedProductLinkContext {
@@ -50,6 +51,7 @@ export function ProductSeoLinksPanel({
 }: ProductSeoLinksPanelProps): ReactNode {
   const { t } = useAdminI18n();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyFailedKey, setCopyFailedKey] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -79,14 +81,23 @@ export function ProductSeoLinksPanel({
   );
 
   const copy = async (key: string, value: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedKey(key);
-      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopiedKey(null), 1500);
-    } catch {
-      setCopiedKey(null);
+    if (copiedTimer.current !== null) {
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = null;
     }
+    setCopiedKey(null);
+    setCopyFailedKey(null);
+
+    if (!(await copyText(value))) {
+      setCopyFailedKey(key);
+      return;
+    }
+
+    setCopiedKey(key);
+    copiedTimer.current = setTimeout(() => {
+      setCopiedKey(null);
+      copiedTimer.current = null;
+    }, 1500);
   };
 
   return (
@@ -178,6 +189,11 @@ export function ProductSeoLinksPanel({
                     : t("product_links_copy_product")}
                 </Button>
               </div>
+              {copyFailedKey === "product" ? (
+                <p role="alert" className="mt-2 text-xs font-medium text-admin-error">
+                  {t("common_copy_failed_manual")}
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -207,6 +223,14 @@ export function ProductSeoLinksPanel({
                               : t("product_links_copy_variant")}
                           </Button>
                         </div>
+                        {copyFailedKey === key ? (
+                          <p
+                            role="alert"
+                            className="mt-2 text-xs font-medium text-admin-error"
+                          >
+                            {t("common_copy_failed_manual")}
+                          </p>
+                        ) : null}
                       </li>
                     );
                   })}

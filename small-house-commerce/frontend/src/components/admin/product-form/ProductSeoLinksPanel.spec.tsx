@@ -7,6 +7,9 @@ import {
   type SavedProductLinkContext,
 } from "./ProductSeoLinksPanel";
 
+const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }));
+vi.mock("@/lib/clipboard", () => ({ copyText: clipboard.copyText }));
+
 const savedProduct: SavedProductLinkContext = {
   path: "/products/saved-chair",
   status: "ACTIVE",
@@ -51,6 +54,8 @@ function renderPanel(
 
 beforeEach(() => {
   setAdminLang("zh");
+  clipboard.copyText.mockReset();
+  clipboard.copyText.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -97,21 +102,27 @@ describe("ProductSeoLinksPanel", () => {
 
   it("copies without an alert and shows transient copied feedback", async () => {
     const user = userEvent.setup();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
     const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     renderPanel();
 
     await user.click(screen.getByRole("button", { name: "复制商品链接" }));
 
-    expect(writeText).toHaveBeenCalledWith(
+    expect(clipboard.copyText).toHaveBeenCalledWith(
       "https://luwag.ph/products/saved-chair",
     );
     expect(screen.getByText("已复制")).toBeVisible();
     expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("shows a manual-copy message when copying fails", async () => {
+    const user = userEvent.setup();
+    clipboard.copyText.mockResolvedValue(false);
+    renderPanel();
+
+    await user.click(screen.getByRole("button", { name: "复制商品链接" }));
+
+    expect(screen.getByText("复制失败，请手动选择并复制")).toBeVisible();
+    expect(screen.queryByText("已复制")).not.toBeInTheDocument();
   });
 
   it("does not invent public links for an unsaved product", () => {

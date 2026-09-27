@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { copyText } from "@/lib/clipboard";
 import type {
   AdminProductIssue,
   AdminProductIssueAction,
@@ -27,6 +28,7 @@ export function ProductFormErrorRail({
   const { t } = useAdminI18n();
   const [expanded, setExpanded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyFailedId, setCopyFailedId] = useState<string | null>(null);
 
   if (issues.length === 0) return null;
   const first = issues[0];
@@ -39,11 +41,12 @@ export function ProductFormErrorRail({
       onAction(action);
       return;
     }
-    try {
-      await navigator.clipboard.writeText(issue.message);
+    setCopiedId(null);
+    setCopyFailedId(null);
+    if (await copyText(issue.message)) {
       setCopiedId(issue.id);
-    } catch {
-      setCopiedId(null);
+    } else {
+      setCopyFailedId(issue.id);
     }
   };
 
@@ -107,6 +110,11 @@ export function ProductFormErrorRail({
                   </button>
                 ) : null}
               </div>
+              {copyFailedId === issue.id ? (
+                <p className="mt-2 text-xs font-medium text-admin-error">
+                  {t("common_copy_failed_manual")}
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>

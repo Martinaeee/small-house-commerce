@@ -5,6 +5,9 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import type { CampaignLinkContext } from "@/lib/campaign-link-builder";
 import { CampaignLinkBuilder } from "./CampaignLinkBuilder";
 
+const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }));
+vi.mock("@/lib/clipboard", () => ({ copyText: clipboard.copyText }));
+
 const context: CampaignLinkContext = {
   products: [
     {
@@ -50,6 +53,8 @@ function renderBuilder() {
 
 beforeEach(() => {
   setAdminLang("en");
+  clipboard.copyText.mockReset();
+  clipboard.copyText.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -83,11 +88,6 @@ describe("CampaignLinkBuilder", () => {
 
   it("generates and copies product, variant and campaign links without alerts", async () => {
     const user = userEvent.setup();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
     const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     renderBuilder();
 
@@ -112,9 +112,23 @@ describe("CampaignLinkBuilder", () => {
     expect(generated).toHaveTextContent("utm_source=facebook");
 
     await user.click(screen.getByRole("button", { name: "Copy campaign link" }));
-    expect(writeText).toHaveBeenCalledWith(generated.textContent);
+    expect(clipboard.copyText).toHaveBeenCalledWith(generated.textContent);
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
     expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("shows a manual-copy message when copying fails", async () => {
+    const user = userEvent.setup();
+    clipboard.copyText.mockResolvedValue(false);
+    renderBuilder();
+
+    await user.type(screen.getByLabelText(/Optimizer \/ AID/), "optimizer-a");
+    await user.click(screen.getByRole("button", { name: "Generate links" }));
+    await user.click(screen.getByRole("button", { name: "Copy campaign link" }));
+
+    expect(
+      screen.getByText("Copy failed. Please select the text and copy it manually."),
+    ).toBeVisible();
   });
 
   it("uses the selected real landing page as the campaign base", async () => {

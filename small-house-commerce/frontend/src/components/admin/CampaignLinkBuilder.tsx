@@ -16,6 +16,7 @@ import {
   type CampaignLinkInput,
 } from "@/lib/campaign-link-builder";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { copyText } from "@/lib/clipboard";
 
 const ERROR_KEYS: Record<CampaignLinkErrorCode, TKey> = {
   PRODUCT_INVALID: "link_builder_error_PRODUCT_INVALID",
@@ -53,6 +54,7 @@ function LinkRow({
   copyLabel,
   copiedLabel,
   copied,
+  copyError,
   testId,
   onCopy,
 }: {
@@ -61,6 +63,7 @@ function LinkRow({
   copyLabel: string;
   copiedLabel: string;
   copied: boolean;
+  copyError?: string;
   testId?: string;
   onCopy(): void;
 }): ReactNode {
@@ -84,6 +87,11 @@ function LinkRow({
           {copied ? copiedLabel : copyLabel}
         </Button>
       </div>
+      {copyError ? (
+        <p role="alert" className="mt-2 text-xs font-medium text-admin-error">
+          {copyError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -99,6 +107,7 @@ export function CampaignLinkBuilder({
   );
   const [attempted, setAttempted] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyFailedKey, setCopyFailedKey] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -138,14 +147,23 @@ export function CampaignLinkBuilder({
   };
 
   const copy = async (key: string, value: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedKey(key);
-      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopiedKey(null), 1500);
-    } catch {
-      setCopiedKey(null);
+    if (copiedTimer.current !== null) {
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = null;
     }
+    setCopiedKey(null);
+    setCopyFailedKey(null);
+
+    if (!(await copyText(value))) {
+      setCopyFailedKey(key);
+      return;
+    }
+
+    setCopiedKey(key);
+    copiedTimer.current = setTimeout(() => {
+      setCopiedKey(null);
+      copiedTimer.current = null;
+    }, 1500);
   };
 
   return (
@@ -347,6 +365,11 @@ export function CampaignLinkBuilder({
               copyLabel={t("link_builder_copy_product")}
               copiedLabel={t("link_builder_copied")}
               copied={copiedKey === "product"}
+              copyError={
+                copyFailedKey === "product"
+                  ? t("common_copy_failed_manual")
+                  : undefined
+              }
               onCopy={() => void copy("product", result.links.product)}
             />
             {result.links.variant ? (
@@ -356,6 +379,11 @@ export function CampaignLinkBuilder({
                 copyLabel={t("link_builder_copy_variant")}
                 copiedLabel={t("link_builder_copied")}
                 copied={copiedKey === "variant"}
+                copyError={
+                  copyFailedKey === "variant"
+                    ? t("common_copy_failed_manual")
+                    : undefined
+                }
                 onCopy={() => void copy("variant", result.links.variant!)}
               />
             ) : null}
@@ -365,6 +393,11 @@ export function CampaignLinkBuilder({
               copyLabel={t("link_builder_copy_campaign")}
               copiedLabel={t("link_builder_copied")}
               copied={copiedKey === "campaign"}
+              copyError={
+                copyFailedKey === "campaign"
+                  ? t("common_copy_failed_manual")
+                  : undefined
+              }
               testId="generated-campaign-url"
               onCopy={() => void copy("campaign", result.links.campaign)}
             />
