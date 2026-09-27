@@ -387,7 +387,7 @@ function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
 }
 
 describe("PDP conversion hero", () => {
-  it("orders real product facts before the shared purchase actions and truthful service assurances", () => {
+  it("orders real product facts, purchase actions, then truthful service assurances", () => {
     const item: Product = {
       ...product,
       tagline: "A compact chair for flexible homes.",
@@ -433,8 +433,8 @@ describe("PDP conversion hero", () => {
       price,
       options,
       dimensions,
-      deliveryHeading,
       buyRow,
+      deliveryHeading,
     ]);
 
     // Selling points are the real solution tags, each with its own line icon.

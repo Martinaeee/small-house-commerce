@@ -692,31 +692,6 @@ export function PdpClient({
           )}
 
           <div
-            data-testid="pdp-delivery"
-            className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-6"
-          >
-            <div className="flex items-start gap-2.5">
-              <TruckGlyph />
-              <div>
-                <p className="font-semibold text-ink">Estimated delivery</p>
-                <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
-                <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
-              </div>
-            </div>
-            <ul
-              aria-label="Service assurances"
-              className="flex flex-col gap-1.5 text-ink-secondary sm:shrink-0"
-            >
-              {SERVICE_ASSURANCES.map((line) => (
-                <li key={line} className="flex items-center gap-2">
-                  <span className="font-semibold text-cta">✓</span>
-                  {line}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div
             data-testid="pdp-buy-row"
             className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3"
           >
@@ -763,6 +738,31 @@ export function PdpClient({
             >
               ADD TO CART
             </Button>
+          </div>
+
+          <div
+            data-testid="pdp-delivery"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-6"
+          >
+            <div className="flex items-start gap-2.5">
+              <TruckGlyph />
+              <div>
+                <p className="font-semibold text-ink">Estimated delivery</p>
+                <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
+                <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
+              </div>
+            </div>
+            <ul
+              aria-label="Service assurances"
+              className="flex flex-col gap-1.5 text-ink-secondary sm:shrink-0"
+            >
+              {SERVICE_ASSURANCES.map((line) => (
+                <li key={line} className="flex items-center gap-2">
+                  <span className="font-semibold text-cta">✓</span>
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
 
           {resolvedOutOfStock && (

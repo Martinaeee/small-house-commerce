@@ -230,8 +230,8 @@ test.describe("PDP UX Phase 1", () => {
       hero.getByTestId("price").first(),
       hero.getByRole("group", { name: "Color", exact: true }),
       hero.getByTestId("pdp-dimensions-summary"),
-      hero.getByTestId("pdp-delivery"),
       hero.getByTestId("pdp-buy-row"),
+      hero.getByTestId("pdp-delivery"),
     ]);
     await expect(orderNow).toHaveText("ORDER NOW");
     await expect(addToCart).toHaveText("ADD TO CART");
