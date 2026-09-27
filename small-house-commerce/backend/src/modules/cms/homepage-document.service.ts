@@ -113,6 +113,20 @@ export class HomepageDocumentService {
     };
   }
 
+  /** Read only the current draft and revision for a preview request. */
+  async getDraftForPreview(): Promise<{
+    draft: HomepageDocument;
+    draftRev: number;
+  }> {
+    const row = await this.prisma.homepageDocument.findUniqueOrThrow({
+      where: { id: HomepageDocumentService.SINGLETON_ID },
+    });
+    return {
+      draft: normalizeLegacyDocument(row.draft),
+      draftRev: row.draftRev,
+    };
+  }
+
   async saveDraft(
     doc: unknown,
     expectedRev: number,
@@ -371,7 +385,10 @@ export class HomepageDocumentService {
     now: Date,
   ): VersionStatus {
     if (row.publishAt.getTime() > now.getTime()) return 'SCHEDULED';
-    if (row.unpublishAt !== null && row.unpublishAt.getTime() <= now.getTime()) {
+    if (
+      row.unpublishAt !== null &&
+      row.unpublishAt.getTime() <= now.getTime()
+    ) {
       return 'ENDED';
     }
     const superseded = siblings.some(

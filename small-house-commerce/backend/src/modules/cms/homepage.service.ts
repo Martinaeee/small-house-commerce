@@ -1,7 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Optional, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HomepageSectionType, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ProductsService } from '../catalog/products.service.js';
+import {
+  isScheduleActive,
+  normalizeLegacyDocument,
+  type HomepageDocument,
+  type LinkValue,
+  type Schedule,
+} from './homepage-document.js';
+import { HomepageDocumentService } from './homepage-document.service.js';
+import { PrismaLinkLookup } from './homepage-link-lookup.js';
+import { verifyPreviewToken } from './homepage-preview-token.js';
 
 type SectionWithProducts = Prisma.HomepageSectionGetPayload<{
   include: { products: true };
@@ -11,23 +22,199 @@ type HydratedProduct = Awaited<
   ReturnType<ProductsService['storefrontByIds']>
 >[number];
 
+type StorefrontProductJoin = {
+  productId: string;
+  sortOrder: number;
+  badge: string | null;
+};
+
+type StorefrontSection = {
+  id: string;
+  type: HomepageSectionType;
+  title: string | null;
+  subtitle: string | null;
+  enabled: boolean;
+  sortOrder: number;
+  payload: unknown;
+  products: StorefrontProductJoin[];
+  schedule?: Schedule;
+};
+
+type SelectedSource = {
+  document: HomepageDocument | null;
+  sections: StorefrontSection[];
+};
+
+type LinkEntityType = 'PRODUCT' | 'COLLECTION' | 'CATEGORY' | 'LANDING';
+
+type LinkHrefs = Map<string, string | null>;
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LEGACY_NORMALIZATION_ID = '00000000-0000-7000-8000-000000000001';
+const LINK_ENTITY_TYPES: LinkEntityType[] = [
+  'PRODUCT',
+  'COLLECTION',
+  'CATEGORY',
+  'LANDING',
+];
+
 @Injectable()
 export class HomepageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly products: ProductsService,
+    @Optional() private readonly docs?: HomepageDocumentService,
+    @Optional() private readonly links?: PrismaLinkLookup,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   // --- storefront ----------------------------------------------------------
 
-  async storefrontGet() {
+  async storefrontGet(opts?: { previewToken?: string }) {
+    const now = new Date();
+    const source = await this.selectSource(opts?.previewToken, now);
+    const sections = this.activeSections(source.sections, now);
+    const productById = await this.hydrateProducts(sections);
+    const heroLinks = await this.resolveHeroLinks(sections, now);
+
+    return {
+      sections: await Promise.all(
+        sections.map((section) =>
+          this.presentSection(section, productById, heroLinks, now),
+        ),
+      ),
+    };
+  }
+
+  async storefrontGetAnnouncement(opts?: { previewToken?: string }) {
+    const now = new Date();
+    const source = await this.selectSource(opts?.previewToken, now);
+    const announcement = source.document?.announcement;
+    if (!announcement?.enabled) return null;
+
+    const items = announcement.items
+      .filter((item) => item.enabled && isScheduleActive(item.schedule, now))
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+    if (items.length === 0) return null;
+
+    const linkHrefs = await this.resolveLinks(items.map((item) => item.link));
+    return {
+      enabled: true as const,
+      rotationMs: announcement.rotationMs,
+      items: items.map((item) => ({
+        ...item,
+        linkHref: this.hrefForLink(item.link, linkHrefs),
+      })),
+    };
+  }
+
+  private async selectSource(
+    previewToken: string | undefined,
+    now: Date,
+  ): Promise<SelectedSource> {
+    const preview = await this.previewDocument(previewToken, now);
+    if (preview) return this.sourceFromDocument(preview);
+
+    if (this.docs) {
+      const effective = await this.docs.getEffectiveVersion(now);
+      if (effective) {
+        // The document service already normalizes its result, but normalize at
+        // this boundary as well so every source follows the same read contract.
+        return this.sourceFromDocument(
+          normalizeLegacyDocument(effective.document),
+        );
+      }
+    }
+
+    return {
+      document: null,
+      sections: await this.legacyStorefrontGet(),
+    };
+  }
+
+  private async previewDocument(
+    previewToken: string | undefined,
+    now: Date,
+  ): Promise<HomepageDocument | null> {
+    if (!previewToken || !this.docs) return null;
+
+    const secret = this.config?.get<string>('homepagePreviewSecret') ?? '';
+    const verified = verifyPreviewToken(previewToken, secret, now);
+    if (!verified) return null;
+
+    // This read deliberately does not call getDraft(): that method also reads
+    // effective-version metadata with its own clock. Preview needs only the
+    // saved draft and revision, keeping source selection on this request's one
+    // `now` value.
+    const snapshot =
+      typeof (this.docs as { getDraftForPreview?: unknown })
+        .getDraftForPreview === 'function'
+        ? await this.docs.getDraftForPreview()
+        : await this.docs.getDraft();
+    if (snapshot.draftRev !== verified.draftRev) return null;
+    return normalizeLegacyDocument(snapshot.draft);
+  }
+
+  private sourceFromDocument(document: HomepageDocument): SelectedSource {
+    return {
+      document,
+      sections: document.sections.map((section) => ({
+        id: section.id,
+        type: section.type as HomepageSectionType,
+        title: section.title,
+        subtitle: section.subtitle,
+        enabled: section.enabled,
+        sortOrder: section.sortOrder,
+        schedule: section.schedule,
+        payload: section.payload,
+        products: section.products.map((product) => ({ ...product })),
+      })),
+    };
+  }
+
+  /** The frozen legacy table read path used when no document version is live. */
+  private async legacyStorefrontGet(): Promise<StorefrontSection[]> {
     const sections = await this.prisma.homepageSection.findMany({
       where: { enabled: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: { products: { orderBy: { sortOrder: 'asc' } } },
     });
 
-    // One batched product lookup for join products and payload productIds.
+    return sections.map((section) => ({
+      id: section.id,
+      type: section.type,
+      title: section.title,
+      subtitle: section.subtitle,
+      enabled: section.enabled,
+      sortOrder: section.sortOrder,
+      payload:
+        section.type === HomepageSectionType.HERO
+          ? this.normalizeLegacyHeroPayload(section)
+          : (section.payload ?? {}),
+      products: section.products.map((product) => ({
+        productId: product.productId,
+        sortOrder: product.sortOrder,
+        badge: product.badge,
+      })),
+    }));
+  }
+
+  private activeSections(
+    sections: StorefrontSection[],
+    now: Date,
+  ): StorefrontSection[] {
+    return sections.filter(
+      (section) =>
+        section.enabled &&
+        (section.schedule === undefined ||
+          isScheduleActive(section.schedule, now)),
+    );
+  }
+
+  private async hydrateProducts(
+    sections: StorefrontSection[],
+  ): Promise<Map<string, HydratedProduct>> {
     const productIds = new Set<string>();
     for (const section of sections) {
       for (const joinRow of section.products) productIds.add(joinRow.productId);
@@ -38,7 +225,10 @@ export class HomepageService {
       ) {
         productIds.add(payload.productId);
       }
-      if (section.type === HomepageSectionType.UGC && Array.isArray(payload.entries)) {
+      if (
+        section.type === HomepageSectionType.UGC &&
+        Array.isArray(payload.entries)
+      ) {
         for (const entry of payload.entries) {
           if (
             entry &&
@@ -56,18 +246,14 @@ export class HomepageService {
     }
 
     const hydrated = await this.products.storefrontByIds([...productIds]);
-    const productById = new Map(hydrated.map((product) => [product.id, product]));
-
-    return {
-      sections: await Promise.all(
-        sections.map((section) => this.presentSection(section, productById)),
-      ),
-    };
+    return new Map(hydrated.map((product) => [product.id, product]));
   }
 
   private async presentSection(
-    section: SectionWithProducts,
+    section: StorefrontSection,
     productById: Map<string, HydratedProduct>,
+    heroLinks: LinkHrefs,
+    now: Date,
   ) {
     const payload = this.payloadObject(section);
     const base = {
@@ -75,14 +261,23 @@ export class HomepageService {
       type: section.type,
       title: section.title,
       subtitle: section.subtitle,
+      enabled: section.enabled,
       sortOrder: section.sortOrder,
     };
+
+    if (section.type === HomepageSectionType.HERO) {
+      return { ...base, payload: this.presentHero(payload, heroLinks, now) };
+    }
 
     if (section.type === HomepageSectionType.CATEGORY_TILES) {
       const ids = Array.isArray(payload.categoryIds)
         ? payload.categoryIds.filter((x): x is string => typeof x === 'string')
         : [];
-      return { ...base, payload, categories: ids.length > 0 ? await this.categoriesByIds(ids) : [] };
+      return {
+        ...base,
+        payload,
+        categories: ids.length > 0 ? await this.categoriesByIds(ids) : [],
+      };
     }
 
     if (section.type === HomepageSectionType.PRODUCT_GRID) {
@@ -90,10 +285,15 @@ export class HomepageService {
       // still come back so the frontend can render its empty state.
       const products = section.products
         .map((joinRow) => productById.get(joinRow.productId))
-        .filter((product): product is HydratedProduct => !!product && this.isSellable(product))
+        .filter(
+          (product): product is HydratedProduct =>
+            !!product && this.isSellable(product),
+        )
         .map((product) => ({
           ...product,
-          badge: section.products.find((j) => j.productId === product.id)?.badge ?? null,
+          badge:
+            section.products.find((j) => j.productId === product.id)?.badge ??
+            null,
         }));
       return { ...base, payload, products };
     }
@@ -105,9 +305,15 @@ export class HomepageService {
         .filter((product): product is HydratedProduct => product !== undefined)
         .map((product) => ({
           ...product,
-          badge: section.products.find((j) => j.productId === product.id)?.badge ?? null,
+          badge:
+            section.products.find((j) => j.productId === product.id)?.badge ??
+            null,
         }));
-      return { ...base, payload: this.hydrateRoomScenes(payload, productById), products };
+      return {
+        ...base,
+        payload: this.hydrateRoomScenes(payload, productById),
+        products,
+      };
     }
 
     if (section.type === HomepageSectionType.PRODUCT_STORY) {
@@ -135,13 +341,214 @@ export class HomepageService {
     return { ...base, payload };
   }
 
+  private presentHero(
+    payload: Record<string, unknown>,
+    linkHrefs: LinkHrefs,
+    now: Date,
+  ): Record<string, unknown> {
+    const rawSlides = Array.isArray(payload.slides) ? payload.slides : [];
+    const slides = rawSlides
+      .filter((slide): slide is Record<string, unknown> => this.isRecord(slide))
+      .filter(
+        (slide) =>
+          slide.enabled === true &&
+          this.scheduleValueIsActive(slide.schedule, now),
+      )
+      .sort(this.sortByOrder)
+      .map((slide) => {
+        const elements = this.isRecord(slide.elements) ? slide.elements : {};
+        const nextElements: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(elements)) {
+          if (!this.isRecord(value)) {
+            nextElements[key] = value;
+            continue;
+          }
+          const countdownDisabled =
+            key === 'countdown' && value.endsAt === null;
+          nextElements[key] = {
+            ...value,
+            linkHref: countdownDisabled
+              ? null
+              : this.hrefForLink(this.asLink(value.link), linkHrefs),
+          };
+        }
+        return { ...slide, elements: nextElements };
+      });
+
+    return { ...payload, slides };
+  }
+
+  private async resolveHeroLinks(
+    sections: StorefrontSection[],
+    now: Date,
+  ): Promise<LinkHrefs> {
+    const links: Array<LinkValue | null> = [];
+    for (const section of sections) {
+      if (section.type !== HomepageSectionType.HERO) continue;
+      const payload = this.payloadObject(section);
+      const slides = Array.isArray(payload.slides) ? payload.slides : [];
+      for (const slide of slides) {
+        if (!this.isRecord(slide)) continue;
+        if (
+          slide.enabled !== true ||
+          !this.scheduleValueIsActive(slide.schedule, now)
+        ) {
+          continue;
+        }
+        const elements = this.isRecord(slide.elements) ? slide.elements : {};
+        for (const [key, value] of Object.entries(elements)) {
+          if (!this.isRecord(value)) continue;
+          if (key === 'countdown' && value.endsAt === null) continue;
+          links.push(this.asLink(value.link));
+        }
+      }
+    }
+    return this.resolveLinks(links);
+  }
+
+  private async resolveLinks(
+    links: Array<LinkValue | null>,
+  ): Promise<LinkHrefs> {
+    const ids = new Map<LinkEntityType, Set<string>>(
+      LINK_ENTITY_TYPES.map((type) => [type, new Set<string>()]),
+    );
+    for (const link of links) {
+      if (link && link.type !== 'EXTERNAL') ids.get(link.type)?.add(link.id);
+    }
+
+    const slugMaps = new Map<LinkEntityType, Map<string, string>>();
+    if (this.links) {
+      await Promise.all(
+        LINK_ENTITY_TYPES.filter((type) => (ids.get(type)?.size ?? 0) > 0).map(
+          async (type) => {
+            slugMaps.set(
+              type,
+              await this.links!.slugs(type, [...ids.get(type)!]),
+            );
+          },
+        ),
+      );
+    }
+
+    const hrefs: LinkHrefs = new Map();
+    for (const link of links) {
+      if (!link) continue;
+      const key = this.linkKey(link);
+      if (link.type === 'EXTERNAL') {
+        hrefs.set(key, link.url);
+        continue;
+      }
+      const slug = slugMaps.get(link.type)?.get(link.id);
+      hrefs.set(key, slug ? this.internalHref(link.type, slug) : null);
+    }
+    return hrefs;
+  }
+
+  private hrefForLink(link: LinkValue | null, hrefs: LinkHrefs): string | null {
+    if (!link) return null;
+    if (link.type === 'EXTERNAL') return link.url;
+    return hrefs.get(this.linkKey(link)) ?? null;
+  }
+
+  private linkKey(link: LinkValue): string {
+    return link.type === 'EXTERNAL'
+      ? `${link.type}:${link.url}`
+      : `${link.type}:${link.id}`;
+  }
+
+  private internalHref(type: LinkEntityType, slug: string): string {
+    const path =
+      type === 'PRODUCT'
+        ? 'products'
+        : type === 'COLLECTION'
+          ? 'collections'
+          : type === 'CATEGORY'
+            ? 'categories'
+            : 'lp';
+    return `/${path}/${encodeURIComponent(slug)}`;
+  }
+
+  private asLink(value: unknown): LinkValue | null {
+    if (!this.isRecord(value) || typeof value.type !== 'string') return null;
+    if (value.type === 'EXTERNAL' && typeof value.url === 'string') {
+      return { type: 'EXTERNAL', url: value.url };
+    }
+    if (
+      (value.type === 'PRODUCT' ||
+        value.type === 'COLLECTION' ||
+        value.type === 'CATEGORY' ||
+        value.type === 'LANDING') &&
+      typeof value.id === 'string'
+    ) {
+      return { type: value.type, id: value.id };
+    }
+    return null;
+  }
+
+  private scheduleValueIsActive(value: unknown, now: Date): boolean {
+    if (!this.isRecord(value)) return true;
+    if (
+      (value.publishAt !== null && typeof value.publishAt !== 'string') ||
+      (value.unpublishAt !== null && typeof value.unpublishAt !== 'string')
+    ) {
+      return false;
+    }
+    return isScheduleActive(
+      {
+        publishAt: typeof value.publishAt === 'string' ? value.publishAt : null,
+        unpublishAt:
+          typeof value.unpublishAt === 'string' ? value.unpublishAt : null,
+      },
+      now,
+    );
+  }
+
+  private normalizeLegacyHeroPayload(section: SectionWithProducts): unknown {
+    const payload = this.payloadObject(section);
+    const normalized = normalizeLegacyDocument({
+      schemaVersion: 1,
+      sections: [
+        {
+          id: UUID_RE.test(section.id) ? section.id : LEGACY_NORMALIZATION_ID,
+          type: HomepageSectionType.HERO,
+          title: section.title,
+          subtitle: section.subtitle,
+          enabled: section.enabled,
+          sortOrder: section.sortOrder,
+          schedule: { publishAt: null, unpublishAt: null },
+          payload,
+          products: [],
+        },
+      ],
+      announcement: { enabled: false, rotationMs: 5000, items: [] },
+    });
+    return normalized.sections[0].payload;
+  }
+
+  private sortByOrder(
+    left: Record<string, unknown>,
+    right: Record<string, unknown>,
+  ): number {
+    const leftOrder = typeof left.sortOrder === 'number' ? left.sortOrder : 0;
+    const rightOrder =
+      typeof right.sortOrder === 'number' ? right.sortOrder : 0;
+    return leftOrder - rightOrder;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
   /** A homepage grid product is sellable with one priced, in-stock SKU. */
   private isSellable(product: HydratedProduct): boolean {
     // presentStorefront adds availableInventory at runtime through
     // withAvailableInventory; STOREFRONT_SELECT's inferred type does not carry
     // the field, so narrow the enriched SKU shape structurally here.
     return product.variants.some((variant) => {
-      const sku = variant.sku as { price: number | null; availableInventory: number } | null;
+      const sku = variant.sku as {
+        price: number | null;
+        availableInventory: number;
+      } | null;
       return sku !== null && sku.price !== null && sku.availableInventory > 0;
     });
   }
@@ -158,8 +565,12 @@ export class HomepageService {
       .map((row) => ({ ...row, imageUrl: row.imageUrl as string }));
   }
 
-  private payloadObject(section: { payload: Prisma.JsonValue | null }): Record<string, unknown> {
-    return section.payload && typeof section.payload === 'object' && !Array.isArray(section.payload)
+  private payloadObject(section: {
+    payload: unknown;
+  }): Record<string, unknown> {
+    return section.payload &&
+      typeof section.payload === 'object' &&
+      !Array.isArray(section.payload)
       ? (section.payload as Record<string, unknown>)
       : {};
   }
@@ -200,7 +611,8 @@ export class HomepageService {
     const scenes = payload.scenes.flatMap((rawScene) => {
       if (!rawScene || typeof rawScene !== 'object') return [];
       const scene = rawScene as Record<string, unknown>;
-      if (typeof scene.id !== 'string' || typeof scene.imageUrl !== 'string') return [];
+      if (typeof scene.id !== 'string' || typeof scene.imageUrl !== 'string')
+        return [];
 
       const hotspots = Array.isArray(scene.hotspots) ? scene.hotspots : [];
       const nextHotspots = hotspots.flatMap((rawHotspot) => {
@@ -248,11 +660,12 @@ export class HomepageService {
         products: {
           orderBy: { sortOrder: 'asc' },
           include: {
-            product: { select: { id: true, name: true, slug: true, status: true } },
+            product: {
+              select: { id: true, name: true, slug: true, status: true },
+            },
           },
         },
       },
     });
   }
-
 }

@@ -328,6 +328,21 @@ const sectionSchema = z
 // --- exported types ---------------------------------------------------------
 
 export type Schedule = z.infer<typeof scheduleSchema>;
+
+/**
+ * Returns whether a schedule is active at `now`. Windows are half-open:
+ * publishAt is inclusive and unpublishAt is exclusive.
+ */
+export function isScheduleActive(schedule: Schedule, now: Date): boolean {
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) return false;
+
+  const publishAt =
+    schedule.publishAt === null ? -Infinity : Date.parse(schedule.publishAt);
+  const unpublishAt =
+    schedule.unpublishAt === null ? Infinity : Date.parse(schedule.unpublishAt);
+  return publishAt <= nowMs && unpublishAt > nowMs;
+}
 export type LinkValue = z.infer<typeof linkSchema>;
 export type ElementStyle = z.infer<typeof elementStyleSchema>;
 export type ElementLayout = z.infer<typeof elementLayoutSchema>;

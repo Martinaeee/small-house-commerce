@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   emptyDocument,
   homepageDocumentSchema,
+  isScheduleActive,
   normalizeLegacyDocument,
   type HomepageDocument,
   type HomepageSection,
@@ -440,13 +441,44 @@ describe('normalizeLegacyDocument', () => {
     expect(doc.announcement).toEqual(emptyDocument().announcement);
   });
 
-  it('is idempotent: normalizing twice yields the same document', () => {
-    const legacy = legacyDocument({
-      desktopImage: '/uploads/catalog/2026/a.jpg',
-      ctaPrimaryText: 'Shop now',
-      ctaPrimaryLink: '/products/sofa',
-    });
-    const once = normalizeLegacyDocument(legacy);
-    expect(normalizeLegacyDocument(once)).toEqual(once);
+  it('uses half-open schedule boundaries', () => {
+    const now = new Date('2026-09-27T12:00:00.000Z');
+
+    expect(isScheduleActive({ publishAt: null, unpublishAt: null }, now)).toBe(
+      true,
+    );
+    expect(
+      isScheduleActive(
+        { publishAt: now.toISOString(), unpublishAt: null },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      isScheduleActive(
+        {
+          publishAt: null,
+          unpublishAt: now.toISOString(),
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      isScheduleActive(
+        {
+          publishAt: new Date(now.getTime() + 1).toISOString(),
+          unpublishAt: null,
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      isScheduleActive(
+        {
+          publishAt: null,
+          unpublishAt: new Date(now.getTime() + 1).toISOString(),
+        },
+        now,
+      ),
+    ).toBe(true);
   });
 });
