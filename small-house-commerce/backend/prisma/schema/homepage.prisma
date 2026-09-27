@@ -47,3 +47,37 @@ model HomepageSectionProduct {
   @@index([productId])
   @@map("homepage_section_products")
 }
+
+// Homepage V2: the versioned document is the single writable source of truth.
+// `homepage_documents` holds exactly one row (fixed id, enforced by a DB CHECK
+// constraint that Prisma cannot express) with the working draft; every publish
+// snapshots the document into `homepage_versions`. The legacy
+// homepage_sections tables above stay read-only as rollback data.
+// Migrations for these tables are hand-written (see Ruling 3 in the P1 ledger):
+// `prisma migrate dev` would treat the singleton CHECK as drift and drop it.
+
+model HomepageDocument {
+  id                 String   @id @db.Uuid
+  draft              Json
+  draftRev           Int      @default(1)
+  draftUpdatedById   String?  @db.Uuid
+  publishedVersionId String?  @db.Uuid
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("homepage_documents")
+}
+
+model HomepageVersion {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  versionNo   Int       @unique
+  document    Json
+  note        String?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  publishAt   DateTime  @db.Timestamptz(3)
+  unpublishAt DateTime? @db.Timestamptz(3)
+
+  @@index([publishAt])
+  @@map("homepage_versions")
+}
