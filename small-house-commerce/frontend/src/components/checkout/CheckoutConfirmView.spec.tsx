@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { CartItem, Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
 
@@ -191,5 +192,25 @@ describe("CheckoutConfirmView", () => {
     expect(screen.getByTestId("confirm-items")).toHaveTextContent("Qty 2");
     expect(screen.getByAltText("Cover")).toBeInTheDocument();
     expect(screen.getByTestId("confirm-place-order")).toBeEnabled();
+  });
+
+  it("offers the honest promo-code entry without inventing a discount", async () => {
+    const user = userEvent.setup();
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    await screen.findByText("Confirm your order");
+
+    // The totals keep the strikethrough reference and the real total.
+    const totals = screen.getByText("Subtotal").closest("dl");
+    expect(totals).not.toBeNull();
+    expect(within(totals!).getByText("₱260.00")).toBeInTheDocument(); // 130 × 2 compare-at
+    expect(within(totals!).getByText("You save")).toBeInTheDocument();
+
+    // CHECKOUT_SPEC §14: the entry exists, but the backend engine is not
+    // built — it must say so rather than pretend to apply anything.
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "SAVE10");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.getByText("Promo codes are coming soon.")).toBeInTheDocument();
   });
 });

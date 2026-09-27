@@ -196,15 +196,17 @@ test.describe("PDP V1 freeze", () => {
     await expect(page.locator('section[aria-label="Why shop with us"]')).toBeVisible();
 
     // --- Variant + Price + CTA ---------------------------------------------
-    // Nothing is chosen yet: the COD summary points at the inline selector
-    // instead of presenting the default display variant as the ordered one.
+    // Nothing is chosen yet: the COD basket starts empty for every sellable
+    // style instead of presenting the default display variant as the ordered
+    // one, and the submit stays disabled with an honest note.
+    const codEarly = page.getByRole("main").locator("#quick-cod-order");
     await expect(
-      page
-        .getByRole("main")
-        .locator("#quick-cod-order")
-        .getByTestId("quick-cod-variant")
-        .getByRole("link", { name: "Choose options" }),
-    ).toHaveAttribute("href", "#quick-cod-options");
+      codEarly.getByTestId(`quick-cod-row-qty-${redSmall.id}`),
+    ).toHaveText("0");
+    await expect(codEarly.getByTestId("quick-cod-submit")).toBeDisabled();
+    await expect(
+      codEarly.getByText("Select at least one item to order."),
+    ).toBeVisible();
 
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Small");
@@ -297,7 +299,14 @@ test.describe("PDP V1 freeze", () => {
     await expect(
       cod.getByRole("heading", { name: "Order Now — Cash on Delivery" }),
     ).toBeVisible();
-    await expect(cod.getByTestId("quick-cod-variant")).toHaveText("Red / Small");
+    // The basket mirrors the hero's Red / Small selection.
+    await expect(
+      cod.getByTestId(`quick-cod-row-qty-${redSmall.id}`),
+    ).toHaveText("1");
+    await expect(cod.getByTestId("quick-cod-subtotal")).toContainText(
+      "₱1,299.00",
+    );
+    await expect(cod.getByTestId("quick-cod-submit")).toBeEnabled();
     await cod.screenshot({ path: screenshotPath("phase5-inline-cod.png") });
 
     // --- Sticky Buy ---------------------------------------------------------

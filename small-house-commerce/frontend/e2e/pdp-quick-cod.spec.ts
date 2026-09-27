@@ -160,10 +160,15 @@ test.describe("PDP inline COD order", () => {
 
     const section = page.getByRole("main").locator("#quick-cod-order");
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByTestId("quick-cod-variant")).toHaveText(
-      variant.name,
+    // The item list carries the deep-linked combination at the hero quantity.
+    await expect(
+      section.getByTestId(`quick-cod-row-qty-${variant.id}`),
+    ).toHaveText("1");
+    await expect(section.getByTestId("quick-cod-subtotal")).toContainText(
+      Number(variant.sku!.price).toLocaleString("en-PH", {
+        minimumFractionDigits: 2,
+      }),
     );
-    await expect(section.getByTestId("quick-cod-quantity")).toHaveText("1");
 
     await fillInlineAddress(page);
     await page.screenshot({
@@ -204,10 +209,12 @@ test.describe("PDP inline COD order", () => {
         hero.getByRole("button", { name: "Increase quantity" }),
       ).toBeDisabled();
       // The sticky bar intentionally yields to the COD section; the shared
-      // lock stays provable on the inline selector rendered right here.
+      // lock stays provable on the item list rendered right here.
       await expect(page.getByTestId("sticky-buy")).toHaveCount(0);
       await expect(
-        section.getByRole("button", { name: "Red" }),
+        section.getByRole("button", {
+          name: `Increase ${variant.name} quantity`,
+        }),
       ).toBeDisabled();
     } finally {
       releaseOrder();
@@ -289,10 +296,10 @@ test.describe("PDP inline COD order", () => {
     const main = page.getByRole("main");
     const section = main.locator("#quick-cod-order");
     await section.scrollIntoViewIfNeeded();
-    // Nothing chosen yet: the form explains itself instead of ordering.
+    // Nothing chosen yet: the basket is empty and the form explains itself.
     await expect(section.getByTestId("quick-cod-submit")).toBeDisabled();
     await expect(
-      page.getByText("Choose your options to order this item."),
+      page.getByText("Select at least one item to order."),
     ).toBeVisible();
 
     const color = product.options.find((option) => option.name === "Color");
@@ -318,10 +325,10 @@ test.describe("PDP inline COD order", () => {
     await hero.getByRole("button", { name: "Increase quantity" }).click();
 
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByTestId("quick-cod-variant")).toHaveText(
-      target!.name,
-    );
-    await expect(section.getByTestId("quick-cod-quantity")).toHaveText("2");
+    // The list mirrors the hero's combination and quantity.
+    await expect(
+      section.getByTestId(`quick-cod-row-qty-${target!.id}`),
+    ).toHaveText("2");
     await expect(section.getByTestId("quick-cod-total")).toContainText(
       (Number(target!.sku!.price) * 2).toLocaleString("en-PH", {
         minimumFractionDigits: 2,

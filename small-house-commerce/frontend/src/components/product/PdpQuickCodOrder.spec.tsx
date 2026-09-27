@@ -107,7 +107,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
           skuCode: "RED",
           status: "ACTIVE",
           price: 100,
-          compareAtPrice: null,
+          compareAtPrice: 130,
           availableInventory: 5,
         },
       },
@@ -188,18 +188,6 @@ async function chooseFirstOption(
   return label;
 }
 
-/**
- * The inline COD card renders its own instance of the shared option selector
- * (the probe renders a second one), so option buttons are scoped by instance.
- */
-function selectorInstance(instanceId: string): HTMLElement {
-  const root = document.querySelector(`[data-selector-instance="${instanceId}"]`);
-  if (!(root instanceof HTMLElement)) {
-    throw new Error(`selector instance ${instanceId} is not rendered`);
-  }
-  return root;
-}
-
 /** Fills the five required fields through the real controls. */
 async function fillRequiredFields(
   user: ReturnType<typeof userEvent.setup>,
@@ -237,17 +225,10 @@ describe("PdpQuickCodOrder", () => {
     });
     renderQuickOrder();
 
-    // The summary mirrors the hero's resolved variant, quantity and price.
-    const summary = screen.getByTestId("quick-cod-summary");
-    expect(within(summary).getByTestId("quick-cod-variant")).toHaveTextContent(
-      "Red",
-    );
-    expect(within(summary).getByTestId("quick-cod-quantity")).toHaveTextContent(
-      "1",
-    );
-    expect(within(summary).getByTestId("quick-cod-total")).toHaveTextContent(
-      "₱100.00",
-    );
+    // The item list starts from the hero's resolved variant and quantity.
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("1");
+    expect(screen.getByTestId("quick-cod-row-qty-blue")).toHaveTextContent("0");
+    expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱100.00");
 
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
@@ -276,6 +257,63 @@ describe("PdpQuickCodOrder", () => {
     });
     expect(payload.preferredDeliveryDate).toBeNull();
     expect(router.push).toHaveBeenCalledWith("/order-success/PH1001");
+  });
+
+  it("orders several styles with their own quantities in one COD order", async () => {
+    const user = userEvent.setup();
+    api.createOrder.mockResolvedValue({
+      orderNumber: "PH1005",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+    });
+    const base = buildProduct();
+    const product = buildProduct({
+      variants: base.variants.map((variant) =>
+        variant.id === "blue" && variant.sku
+          ? { ...variant, sku: { ...variant.sku, availableInventory: 7 } }
+          : variant,
+      ),
+    });
+    renderQuickOrder(product, null);
+
+    // Nothing is chosen yet: the basket starts empty.
+    expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
+    expect(screen.getByText("Select at least one item to order.")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
+    await user.click(screen.getByRole("button", { name: "Increase Blue quantity" }));
+    await user.click(screen.getByRole("button", { name: "Increase Blue quantity" }));
+
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("1");
+    expect(screen.getByTestId("quick-cod-row-qty-blue")).toHaveTextContent("2");
+    // 100 + 120×2
+    expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱340.00");
+
+    await fillRequiredFields(user);
+    await user.click(screen.getByTestId("quick-cod-submit"));
+
+    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
+    const payload = api.createOrder.mock.calls[0]?.[0] as {
+      items: unknown;
+    };
+    expect(payload.items).toEqual([
+      { skuId: "sku-red", quantity: 1 },
+      { skuId: "sku-blue", quantity: 2 },
+    ]);
+  });
+
+  it("shows the compare-at strikethrough and a saving that is never deducted", () => {
+    renderQuickOrder();
+
+    expect(screen.getByTestId("quick-cod-compare-total")).toHaveTextContent(
+      "₱130.00",
+    );
+    expect(screen.getByTestId("quick-cod-subtotal")).toHaveTextContent(
+      "₱100.00",
+    );
+    expect(screen.getByTestId("quick-cod-save")).toHaveTextContent("−₱30.00");
+    // The total is the selling-price subtotal — the saving is reference only.
+    expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱100.00");
   });
 
   it("stashes the Purchase event before navigating to the existing success page", async () => {
@@ -350,8 +388,8 @@ describe("PdpQuickCodOrder", () => {
     const user = userEvent.setup();
     renderQuickOrder(buildProduct(), "red", true);
 
-    await user.click(screen.getByTestId("quantity-probe"));
-    await user.click(screen.getByTestId("quantity-probe"));
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
     await user.type(screen.getByLabelText("Full Name"), "J");
 
     const checkoutEvent = events.emitCommerceEvent.mock.calls.find(
@@ -364,7 +402,7 @@ describe("PdpQuickCodOrder", () => {
     });
   });
 
-  it("locks the address and shared purchase controls while the order is in flight", async () => {
+  it("locks the address, the item list and the shared purchase controls while the order is in flight", async () => {
     const user = userEvent.setup();
     let resolveOrder: ((value: unknown) => void) | undefined;
     api.createOrder.mockImplementation(
@@ -384,12 +422,16 @@ describe("PdpQuickCodOrder", () => {
     expect(submit).toHaveTextContent("Placing order…");
     expect(screen.getByTestId("psgc-province")).toBeDisabled();
     expect(screen.getByTestId("psgc-city")).toBeDisabled();
-    // Every rendered selector instance locks while the order is in flight.
-    const lockedBlue = screen.getAllByRole("button", { name: "Blue" });
-    expect(lockedBlue.length).toBeGreaterThan(1);
-    for (const button of lockedBlue) expect(button).toBeDisabled();
+    // The hero selector (probe) and the item list lock together.
+    expect(screen.getByRole("button", { name: "Blue" })).toBeDisabled();
     expect(screen.getByTestId("quantity-probe")).toBeDisabled();
-    expect(screen.getByTestId("quick-cod-quantity")).toHaveTextContent("1");
+    expect(
+      screen.getByRole("button", { name: "Increase Red quantity" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Decrease Red quantity" }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("1");
 
     resolveOrder?.({
       orderNumber: "PH1003",
@@ -432,52 +474,55 @@ describe("PdpQuickCodOrder", () => {
     expect(screen.getByTestId("quick-cod-submit")).toBeEnabled();
   });
 
-  it("blocks ordering and says why when the combination is out of stock", async () => {
+  it("marks an out-of-stock style unorderable without blocking the in-stock ones", async () => {
     const user = userEvent.setup();
     const product = buildProduct({ defaultDisplayVariantId: "blue" });
-    renderQuickOrder(product, "blue");
+    renderQuickOrder(product, null);
 
-    expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
+    expect(screen.getByTestId("quick-cod-row-blue")).toHaveTextContent(
+      "Out of stock",
+    );
     expect(
-      screen.getByText(/This combination is out of stock/),
-    ).toBeVisible();
+      screen.getByRole("button", { name: "Increase Blue quantity" }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
+    expect(screen.getByText("Select at least one item to order.")).toBeVisible();
 
+    // The in-stock style still orders normally.
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
-    expect(api.createOrder).not.toHaveBeenCalled();
-    expect(
-      events.emitCommerceEvent.mock.calls.filter(
-        ([event]) => event?.name === "InitiateCheckout",
-      ),
-    ).toHaveLength(0);
+
+    await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
+    const payload = api.createOrder.mock.calls[0]?.[0] as { items: unknown };
+    expect(payload.items).toEqual([{ skuId: "sku-red", quantity: 1 }]);
   });
 
-  it("fires InitiateCheckout on submit after an OOS draft becomes orderable", async () => {
+  it("fires InitiateCheckout when the first item is added after the form was already touched", async () => {
     const user = userEvent.setup();
     api.createOrder.mockResolvedValue({
       orderNumber: "PH1004",
       orderStatus: "NEW",
       confirmationStatus: "UNCONFIRMED",
     });
-    const product = buildProduct({ defaultDisplayVariantId: "blue" });
-    renderQuickOrder(product, "blue", true);
+    renderQuickOrder(buildProduct(), null);
 
     await fillRequiredFields(user);
+    // No items yet: the form touch alone must not fire a checkout.
     expect(
       events.emitCommerceEvent.mock.calls.filter(
         ([event]) => event?.name === "InitiateCheckout",
       ),
     ).toHaveLength(0);
 
-    // The OOS draft becomes orderable by picking the in-stock value in the
-    // inline COD selector — no scroll back to the hero required.
-    await user.click(
-      within(selectorInstance("quick-cod")).getByRole("button", {
-        name: "Red",
-      }),
-    );
-    await user.click(screen.getByTestId("quick-cod-submit"));
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
+    expect(
+      events.emitCommerceEvent.mock.calls.filter(
+        ([event]) => event?.name === "InitiateCheckout",
+      ),
+    ).toHaveLength(1);
 
+    await user.click(screen.getByTestId("quick-cod-submit"));
     await waitFor(() => expect(api.createOrder).toHaveBeenCalledTimes(1));
     expect(
       events.emitCommerceEvent.mock.calls.filter(
@@ -486,36 +531,56 @@ describe("PdpQuickCodOrder", () => {
     ).toHaveLength(1);
   });
 
-  it("never presents the default display variant as the chosen one before a selection", () => {
+  it("starts with an empty basket when the hero has no combination yet", () => {
     renderQuickOrder(buildProduct(), null);
 
-    const variantCell = within(
-      screen.getByTestId("quick-cod-summary"),
-    ).getByTestId("quick-cod-variant");
-    // "Red" is only the default DISPLAY variant; nothing is chosen yet, so the
-    // summary must not claim it as the ordered variant.
-    expect(variantCell).not.toHaveTextContent("Red");
-    expect(
-      within(variantCell).getByRole("link", { name: "Choose options" }),
-    ).toHaveAttribute("href", "#quick-cod-options");
-    // The selector that link points at is rendered inside the same card.
-    expect(selectorInstance("quick-cod")).toBeInTheDocument();
-    expect(document.getElementById("quick-cod-options")).toBeVisible();
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("0");
+    expect(screen.getByTestId("quick-cod-row-qty-blue")).toHaveTextContent("0");
+    expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱0.00");
+    expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
+    expect(screen.getByText("Select at least one item to order.")).toBeVisible();
   });
 
-  it("asks for options instead of ordering before a variant is chosen", async () => {
+  it("mirrors the hero selection until the basket is edited, then leaves it alone", async () => {
+    const user = userEvent.setup();
+    renderQuickOrder(buildProduct(), null, true);
+
+    // Hero unresolved: the basket starts empty.
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("0");
+
+    const heroSelector = document.querySelector(
+      '[data-selector-instance="quick-cod-test"]',
+    );
+    expect(heroSelector).toBeInstanceOf(HTMLElement);
+
+    // The hero resolves -> the basket mirrors the combination.
+    await user.click(
+      within(heroSelector as HTMLElement).getByRole("button", { name: "Red" }),
+    );
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("1");
+
+    // The shopper edits the basket -> later hero changes no longer overwrite
+    // their basket.
+    await user.click(screen.getByRole("button", { name: "Increase Red quantity" }));
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("2");
+
+    await user.click(
+      within(heroSelector as HTMLElement).getByRole("button", { name: "Blue" }),
+    );
+    expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("2");
+    expect(screen.getByTestId("quick-cod-row-qty-blue")).toHaveTextContent("0");
+  });
+
+  it("asks for at least one item instead of ordering an empty basket", async () => {
     const user = userEvent.setup();
     renderQuickOrder(buildProduct(), null);
 
     expect(screen.getByTestId("quick-cod-submit")).toBeDisabled();
-    expect(
-      screen.getByText("Choose your options to order this item."),
-    ).toBeVisible();
 
     await fillRequiredFields(user);
     await user.click(screen.getByTestId("quick-cod-submit"));
     expect(api.createOrder).not.toHaveBeenCalled();
-    // Nothing to initiate: there is no SKU yet.
+    // Nothing to initiate: there is no item yet.
     expect(events.emitCommerceEvent).not.toHaveBeenCalled();
   });
 });
