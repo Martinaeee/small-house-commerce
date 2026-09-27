@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CartItem, Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
@@ -193,6 +193,21 @@ describe("CheckoutConfirmView", () => {
     expect(screen.getByTestId("confirm-items")).toHaveTextContent("Qty 2");
     expect(screen.getByAltText("Cover")).toBeInTheDocument();
     expect(screen.getByTestId("confirm-place-order")).toBeEnabled();
+  });
+
+  it("posts the order only once when final confirmation is triggered twice in the same tick", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockImplementation(() => new Promise(() => {}));
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    const submit = await screen.findByTestId("confirm-place-order");
+    await act(async () => {
+      submit.click();
+      submit.click();
+      await Promise.resolve();
+    });
+
+    expect(apiMock.createOrder).toHaveBeenCalledTimes(1);
   });
 
   it("reviews and submits every PDP inline item through the existing confirmation step", async () => {

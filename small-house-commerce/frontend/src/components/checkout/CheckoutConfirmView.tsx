@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -85,6 +85,7 @@ export function CheckoutConfirmView({
   // Checkout lines carry their own enriched thumbnails (cart summary data /
   // Buy Now product cover) — no product-by-slug image recovery here either.
   const [submitting, setSubmitting] = useState(false);
+  const inFlightRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [promoOpen, setPromoOpen] = useState(false);
   const [promoCode, setPromoCode] = useState("");
@@ -147,7 +148,7 @@ export function CheckoutConfirmView({
     checkout.isBuyNow && checkout.product === null && !checkout.productError;
 
   async function placeOrder() {
-    if (!draft) return;
+    if (!draft || inFlightRef.current) return;
     setError(null);
     if (submitting) return;
     // Selections that never resolved to real, available SKUs can never be
@@ -157,6 +158,7 @@ export function CheckoutConfirmView({
       setError("No items to check out.");
       return;
     }
+    inFlightRef.current = true;
     setSubmitting(true);
     try {
       const payload = {
@@ -199,6 +201,7 @@ export function CheckoutConfirmView({
       clearCheckoutDraft();
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
+      inFlightRef.current = false;
       setError(e instanceof Error ? e.message : "Could not place your order. Please try again.");
       setSubmitting(false);
     }
