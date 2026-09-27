@@ -369,6 +369,32 @@ export const homepageDocumentSchema: z.ZodType<HomepageDocument> = z.object({
   announcement: announcementSchema,
 });
 
+// --- publish validation contract --------------------------------------------
+
+/**
+ * A publish-blocking (ERROR) or publish-warning (WARNING) issue. `sectionId`
+ * / `slideId` carry the editor jump target when the rule can locate one.
+ */
+export type PublishIssue = {
+  severity: 'ERROR' | 'WARNING';
+  code: string;
+  message: string;
+  sectionId?: string;
+  slideId?: string;
+};
+
+/**
+ * Publish gate injected into `HomepageDocumentService`. The implementation
+ * (`HomepageValidator`, P1 task 4) is deliberately decoupled behind this
+ * interface so the service's spec can inject a stub; the validator module is
+ * not imported here.
+ */
+export interface DocumentValidator {
+  validate(
+    doc: HomepageDocument,
+  ): Promise<{ errors: PublishIssue[]; warnings: PublishIssue[] }>;
+}
+
 // --- defaults ---------------------------------------------------------------
 
 /** Fixed ids for the freshly created document (mirrored by the frontend). */
