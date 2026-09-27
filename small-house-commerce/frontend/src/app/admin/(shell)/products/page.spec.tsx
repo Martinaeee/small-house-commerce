@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, within, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
 /**
@@ -9,6 +10,7 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
  */
 
 const navState = vi.hoisted(() => ({ searchParams: "" }));
+const permState = vi.hoisted(() => ({ canManage: true }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
@@ -19,6 +21,7 @@ vi.mock("next/navigation", () => ({
 const listProducts = vi.fn();
 const listCategories = vi.fn();
 const productCounts = vi.fn();
+const deleteProduct = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
   ADMIN_PRODUCT_ATTENTION: [
@@ -33,13 +36,13 @@ vi.mock("@/lib/admin-api", () => ({
     productCounts: (...args: unknown[]) => productCounts(...args),
     getProduct: vi.fn(),
     listProductLandingPages: vi.fn(),
-    deleteProduct: vi.fn(),
+    deleteProduct: (...args: unknown[]) => deleteProduct(...args),
   },
   formatAmount: (value: unknown) => (value === null || value === undefined ? "—" : `₱${value}`),
 }));
 
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
-  useAdminAuth: () => ({ hasPermission: () => true }),
+  useAdminAuth: () => ({ hasPermission: () => permState.canManage }),
 }));
 
 import type { AdminProduct, Paged } from "@/lib/admin-api";
@@ -106,10 +109,20 @@ function renderListPage() {
   );
 }
 
+const ROW2: AdminProduct = {
+  ...ROW,
+  id: "p2",
+  name: "Shelf",
+  slug: "shelf",
+  productCode: "P-000002",
+} as unknown as AdminProduct;
+
 describe("AdminProductsPage localization", () => {
   beforeEach(() => {
     setAdminLang("zh");
     navState.searchParams = "";
+    permState.canManage = true;
+    deleteProduct.mockReset().mockResolvedValue({ ok: true });
     listProducts.mockReset().mockResolvedValue({
       items: [ROW],
       total: 1,
@@ -263,5 +276,149 @@ describe("AdminProductsPage localization", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Edit/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Bulk selection and bulk delete: per-row checkboxes, select-all with an
+ * indeterminate state, the bulk bar, the confirm dialog, and honest
+ * partial-failure reporting (rows with order/stock history cannot be deleted).
+ */
+describe("AdminProductsPage bulk delete", () => {
+  beforeEach(() => {
+    setAdminLang("zh");
+    navState.searchParams = "";
+    permState.canManage = true;
+    listProducts.mockReset().mockResolvedValue({
+      items: [ROW, ROW2],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+    } satisfies Paged<AdminProduct>);
+    listCategories.mockReset().mockResolvedValue([]);
+    productCounts.mockReset().mockResolvedValue({
+      status: { all: 2, active: 0, draft: 2, disabled: 0 },
+      attention: {
+        missing_media: 0,
+        no_priced_sku: 0,
+        incomplete_shipping: 0,
+        stale_draft: 0,
+      },
+    });
+    deleteProduct.mockReset().mockResolvedValue({ ok: true });
+  });
+
+  afterEach(cleanup);
+
+  it("selects individual rows and shows the bulk bar with the count", async () => {
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "选择 Chair" }));
+
+    expect(screen.getByRole("checkbox", { name: "选择 Chair" })).toBeChecked();
+    expect(screen.getByText("已选 1 项")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批量删除" })).toBeInTheDocument();
+  });
+
+  it("selects every row on the page and shows the indeterminate state", async () => {
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    const selectAll = screen.getByRole("checkbox", { name: "全选本页" });
+    await user.click(selectAll);
+
+    expect(screen.getByRole("checkbox", { name: "选择 Chair" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择 Shelf" })).toBeChecked();
+    expect(screen.getByText("已选 2 项")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "选择 Chair" }));
+    expect(selectAll).not.toBeChecked();
+    expect((selectAll as HTMLInputElement).indeterminate).toBe(true);
+  });
+
+  it("bulk deletes the selected products after confirmation and reports success", async () => {
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量删除" }));
+
+    const dialog = screen.getByRole("dialog", { name: "批量删除商品" });
+    expect(
+      within(dialog).getByText(/将永久删除选中的 2 个商品/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+    await waitFor(() => expect(deleteProduct).toHaveBeenCalledTimes(2));
+    expect(deleteProduct).toHaveBeenCalledWith("p1");
+    expect(deleteProduct).toHaveBeenCalledWith("p2");
+    expect(await screen.findByText("已删除 2 个商品。")).toBeInTheDocument();
+    // The list refetches for server truth after the batch.
+    await waitFor(() =>
+      expect(listProducts.mock.calls.length).toBeGreaterThan(1),
+    );
+  });
+
+  it("keeps failed rows and reports them by name when part of the batch fails", async () => {
+    const user = userEvent.setup();
+    deleteProduct.mockImplementation((id: string) =>
+      id === "p1"
+        ? Promise.resolve({ ok: true })
+        : Promise.reject(new Error("Foreign key constraint failed")),
+    );
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量删除" }));
+    const dialog = screen.getByRole("dialog", { name: "批量删除商品" });
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+    expect(
+      await screen.findByText(/已删除 1 个；1 个未删除：/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Shelf：Foreign key constraint failed"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listProducts.mock.calls.length).toBeGreaterThan(1),
+    );
+  });
+
+  it("clears the selection from the bulk bar", async () => {
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    expect(screen.getByText("已选 2 项")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "清除选择" }));
+
+    expect(screen.queryByText(/已选 \d+ 项/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "选择 Chair" }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "全选本页" })).not.toBeChecked();
+  });
+
+  it("hides selection controls without PRODUCT_MANAGE", async () => {
+    permState.canManage = false;
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    expect(
+      screen.queryByRole("checkbox", { name: "全选本页" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: "选择 Chair" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "批量删除" }),
+    ).not.toBeInTheDocument();
   });
 });

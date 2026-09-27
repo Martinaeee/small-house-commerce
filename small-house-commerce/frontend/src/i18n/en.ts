@@ -941,6 +941,17 @@ export const en: Record<ZhKey, string> = {
   products_delete_dialog_title: "Delete product",
   products_delete_dialog_body:
     "Delete {name}? Its variants, SKUs and images are removed. This fails if any order item or reservation references its SKUs.",
+  products_select_all: "Select all on page",
+  products_select_row: "Select {name}",
+  products_selected_count: "{count} selected",
+  products_bulk_delete: "Delete selected",
+  products_clear_selection: "Clear selection",
+  products_bulk_delete_dialog_title: "Delete selected products",
+  products_bulk_delete_dialog_body:
+    "This permanently deletes the {count} selected products. Products with order or stock history cannot be deleted.",
+  products_bulk_result_deleted: "Deleted {count} products.",
+  products_bulk_result_partial: "Deleted {count}; {failed} not deleted:",
+  products_bulk_result_reason: "{name}: {reason}",
   products_working: "Working…",
 
   product_new_title: "New product",

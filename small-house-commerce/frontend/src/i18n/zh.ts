@@ -909,6 +909,17 @@ export const zh = {
   products_delete_dialog_title: "删除商品",
   products_delete_dialog_body:
     "删除「{name}」？其款式、SKU 与图片都会被删除。若有订单明细或库存预留引用其 SKU，删除会失败。",
+  products_select_all: "全选本页",
+  products_select_row: "选择 {name}",
+  products_selected_count: "已选 {count} 项",
+  products_bulk_delete: "批量删除",
+  products_clear_selection: "清除选择",
+  products_bulk_delete_dialog_title: "批量删除商品",
+  products_bulk_delete_dialog_body:
+    "将永久删除选中的 {count} 个商品，此操作不可恢复。有订单或库存记录的商品无法删除。",
+  products_bulk_result_deleted: "已删除 {count} 个商品。",
+  products_bulk_result_partial: "已删除 {count} 个；{failed} 个未删除：",
+  products_bulk_result_reason: "{name}：{reason}",
   products_working: "处理中…",
 
   // --- New product page ---

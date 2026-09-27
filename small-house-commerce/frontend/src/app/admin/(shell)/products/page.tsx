@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -170,14 +171,25 @@ function ProductsPageContent() {
   // Blocked-delete page alert (kept across refetch); declared before the
   // URL-filter callbacks so they can clear it when filters change.
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Bulk selection + batch delete. Selection is page-scoped: pruning on every
+  // refetch keeps only rows still on the current page, so a batch can never
+  // delete products the operator can no longer see.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    deleted: number;
+    failures: { name: string; message: string }[];
+  } | null>(null);
   // Read-only peek at one product; never a second editing surface.
   const [quickView, setQuickView] = useState<AdminProduct | null>(null);
 
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
       // Any filter change (committed search, status, category, page) dismisses
-      // a stale blocked-delete alert.
+      // a stale blocked-delete alert and a stale batch result.
       setDeleteError(null);
+      setBulkResult(null);
       const next = new URLSearchParams(searchParams.toString());
       for (const [key, value] of Object.entries(patch)) {
         if (value === null || value === "") next.delete(key);
@@ -313,6 +325,16 @@ function ProductsPageContent() {
         }
         setData(res);
         setError(null);
+        // Page-scoped selection: keep only ids that survived into this page
+        // (filters, pagination, or a batch delete may have removed the rest).
+        setSelectedIds((current) => {
+          if (current.size === 0) return current;
+          const next = new Set<string>();
+          for (const item of res.items) {
+            if (current.has(item.id)) next.add(item.id);
+          }
+          return next.size === current.size ? current : next;
+        });
         // NOTE: deleteError is intentionally NOT cleared here — the refetch
         // after a blocked delete must restore the row while keeping the
         // page-level failure alert visible.
@@ -391,6 +413,107 @@ function ProductsPageContent() {
     event.preventDefault();
     void submitDelete();
   };
+
+  // --- bulk selection / batch delete ----------------------------------------
+
+  const pageIds = useMemo(
+    () => data?.items.map((product) => product.id) ?? [],
+    [data],
+  );
+  const selectedOnPage = useMemo(
+    () => (data ? data.items.filter((product) => selectedIds.has(product.id)) : []),
+    [data, selectedIds],
+  );
+  const allOnPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someOnPageSelected = pageIds.some((id) => selectedIds.has(id));
+
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate =
+        someOnPageSelected && !allOnPageSelected;
+    }
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  const toggleRowSelected = useCallback((id: string, checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAllOnPage = useCallback(
+    (checked: boolean) => {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        for (const id of pageIds) {
+          if (checked) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+    },
+    [pageIds],
+  );
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const openBulkDelete = useCallback(() => {
+    setBulkResult(null);
+    setBulkOpen(true);
+  }, []);
+
+  const closeBulkDelete = useCallback(() => {
+    // Do not allow dismissal while the batch is in flight.
+    if (bulkPending) return;
+    setBulkOpen(false);
+  }, [bulkPending]);
+
+  const submitBulkDelete = useCallback(async () => {
+    const targets = selectedOnPage;
+    if (targets.length === 0) return;
+    setBulkPending(true);
+    // Optimistic: drop the whole selection from the page immediately; the
+    // refetch after the batch restores anything the backend refused.
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.filter(
+              (product) => !selectedIds.has(product.id),
+            ),
+            total: Math.max(0, prev.total - targets.length),
+          }
+        : prev,
+    );
+    const failures: { name: string; message: string }[] = [];
+    let deleted = 0;
+    // Sequential on purpose: per-row failure attribution stays exact, and a
+    // batch never fires a burst of concurrent deletes at the API.
+    for (const target of targets) {
+      try {
+        await adminApi.deleteProduct(target.id);
+        deleted += 1;
+      } catch (err) {
+        // Same contract as the single delete: show the backend message
+        // verbatim (a blocked delete — order items / reservations — must
+        // never be reported as success).
+        failures.push({
+          name: target.name,
+          message: err instanceof Error ? err.message : "Delete failed.",
+        });
+      }
+    }
+    setBulkPending(false);
+    setBulkOpen(false);
+    setSelectedIds(new Set());
+    setBulkResult({ deleted, failures });
+    // Server truth: restores the failed rows and refreshes the counters.
+    setNonce((n) => n + 1);
+  }, [selectedOnPage, selectedIds]);
 
   // --- render ---------------------------------------------------------------
 
@@ -652,6 +775,80 @@ function ProductsPageContent() {
         </div>
       ) : null}
 
+      {/* Bulk bar: only while rows are selected; page-scoped by design. */}
+      {canManage && selectedIds.size > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3">
+          <span className="text-sm font-semibold text-ink">
+            {t("products_selected_count", { count: selectedIds.size })}
+          </span>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={openBulkDelete}
+            className="bg-red-600 hover:bg-red-700 active:bg-red-700"
+          >
+            {t("products_bulk_delete")}
+          </Button>
+          <Button variant="text" size="md" onClick={clearSelection}>
+            {t("products_clear_selection")}
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Batch result: success is informational, partial failure is an alert
+          that names every row the backend refused and why. */}
+      {bulkResult && !loading && !error ? (
+        <div
+          role={bulkResult.failures.length > 0 ? "alert" : "status"}
+          className={`mt-4 rounded-xl border p-4 text-sm ${
+            bulkResult.failures.length > 0
+              ? "border-sale/40 bg-sale/5 text-red-700"
+              : "border-border bg-card text-ink-secondary"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              {bulkResult.failures.length === 0 ? (
+                <p className="font-semibold">
+                  {t("products_bulk_result_deleted", {
+                    count: bulkResult.deleted,
+                  })}
+                </p>
+              ) : (
+                <>
+                  <p className="font-semibold">
+                    {t("products_bulk_result_partial", {
+                      count: bulkResult.deleted,
+                      failed: bulkResult.failures.length,
+                    })}
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {bulkResult.failures.map((failure) => (
+                      <li key={failure.name}>
+                        {t("products_bulk_result_reason", {
+                          name: failure.name,
+                          reason: failure.message,
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBulkResult(null)}
+              aria-label={t("products_dismiss_error")}
+              className={`-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 ${
+                bulkResult.failures.length > 0 ? "text-red-700" : "text-ink-muted"
+              }`}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* Table / states */}
       <div className="mt-4">
         {loading ? (
@@ -707,6 +904,7 @@ function ProductsPageContent() {
             <table className="w-full min-w-[1080px] table-fixed text-sm">
               <caption className="sr-only">{t("products_title")}</caption>
               <colgroup>
+                {canManage ? <col className="w-[3rem]" /> : null}
                 <col className="w-[5.5rem]" />
                 <col className="w-[17.25rem]" />
                 <col className="w-[5.5rem]" />
@@ -719,6 +917,17 @@ function ProductsPageContent() {
               </colgroup>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  {canManage ? (
+                    <th scope="col" className="px-3 py-3">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        aria-label={t("products_select_all")}
+                        checked={allOnPageSelected}
+                        onChange={(e) => toggleAllOnPage(e.target.checked)}
+                      />
+                    </th>
+                  ) : null}
                   <th scope="col" className="whitespace-nowrap px-3 py-3">{t("products_col_code")}</th>
                   <th scope="col" className="px-3 py-3">{t("products_col_product")}</th>
                   <th scope="col" className="px-3 py-3">{t("products_col_category")}</th>
@@ -739,6 +948,20 @@ function ProductsPageContent() {
                       key={row.id}
                       className="border-b border-border last:border-0"
                     >
+                      {canManage ? (
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label={t("products_select_row", {
+                              name: row.name,
+                            })}
+                            checked={selectedIds.has(row.id)}
+                            onChange={(e) =>
+                              toggleRowSelected(row.id, e.target.checked)
+                            }
+                          />
+                        </td>
+                      ) : null}
                       <td className="whitespace-nowrap px-3 py-3 font-mono text-xs font-medium tracking-wide text-ink-secondary">
                         {row.productCode ?? "—"}
                       </td>
@@ -957,6 +1180,47 @@ function ProductsPageContent() {
             </div>
           </form>
         ) : null}
+      </Dialog>
+
+      <Dialog
+        open={bulkOpen}
+        onClose={closeBulkDelete}
+        title={t("products_bulk_delete_dialog_title")}
+        width="sm"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitBulkDelete();
+          }}
+        >
+          <p className="text-sm text-ink-secondary">
+            {t("products_bulk_delete_dialog_body", {
+              count: selectedIds.size,
+            })}
+          </p>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={closeBulkDelete}
+              disabled={bulkPending}
+            >
+              {t("common_back")}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={bulkPending}
+              aria-busy={bulkPending}
+              className="bg-red-600 hover:bg-red-700 active:bg-red-700"
+            >
+              {bulkPending ? t("products_working") : t("common_delete")}
+            </Button>
+          </div>
+        </form>
       </Dialog>
 
       <ProductQuickView
