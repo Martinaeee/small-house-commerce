@@ -35,6 +35,7 @@ import {
   type ProductStatus,
 } from "@/lib/admin-api";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { errorStatus } from "@/lib/admin-auth";
 
 // ProductStatus union, in declaration order (admin-api.ts).
 const PRODUCT_STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "DISABLED"];
@@ -122,6 +123,31 @@ function priceLabel(row: AdminProduct): string {
  */
 const LOAD_ERROR_FALLBACK = Symbol("products-load-fallback");
 
+/**
+ * A blocked delete (stock/order history, HTTP 409) resolves to a translated
+ * reason at render; anything else keeps the backend message verbatim.
+ */
+type DeleteError = { kind: "blocked" } | { kind: "message"; text: string };
+
+/**
+ * Result of a batch action, resolved at render so no English fallback lives
+ * in state: delete outcomes carry per-row failures, status outcomes carry
+ * the publish/unpublish result.
+ */
+type BulkOutcome =
+  | {
+      kind: "delete";
+      deleted: number;
+      failures: { name: string; blocked: boolean; message: string }[];
+    }
+  | {
+      kind: "status";
+      status: "ACTIVE" | "DISABLED";
+      updated: number;
+      notFound: number;
+      error: string | null;
+    };
+
 type FlatCategory = { id: string; name: string; depth: number };
 
 // Depth-first flatten of the category tree; filter options render depth as
@@ -170,17 +196,18 @@ function ProductsPageContent() {
 
   // Blocked-delete page alert (kept across refetch); declared before the
   // URL-filter callbacks so they can clear it when filters change.
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<DeleteError | null>(null);
   // Bulk selection + batch delete. Selection is page-scoped: pruning on every
   // refetch keeps only rows still on the current page, so a batch can never
   // delete products the operator can no longer see.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkPending, setBulkPending] = useState(false);
-  const [bulkResult, setBulkResult] = useState<{
-    deleted: number;
-    failures: { name: string; message: string }[];
-  } | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkOutcome | null>(null);
+  const [statusAction, setStatusAction] = useState<"ACTIVE" | "DISABLED" | null>(
+    null,
+  );
+  const [statusPending, setStatusPending] = useState(false);
   // Read-only peek at one product; never a second editing surface.
   const [quickView, setQuickView] = useState<AdminProduct | null>(null);
 
@@ -395,13 +422,18 @@ function ProductsPageContent() {
       setDeleteError(null);
       setNonce((n) => n + 1);
     } catch (err) {
-      // A blocked delete (order items / reservations incl. RELEASED) returns
-      // HTTP 500 with a generic Prisma message — spec §14 gap #6. Never
-      // assume 400: show the backend message verbatim as a page alert,
-      // close the dialog, refetch, and keep the row (refetch restores it).
+      // A blocked delete (stock/order history) answers 409 with a stable
+      // code — map it to a translated reason. Anything else keeps the
+      // backend message verbatim. Either way: close the dialog, refetch,
+      // and let the refetch restore the row.
       setDeleteTarget(null);
       setDeleteError(
-        err instanceof Error ? err.message : "Delete failed.",
+        errorStatus(err) === 409
+          ? { kind: "blocked" }
+          : {
+              kind: "message",
+              text: err instanceof Error ? err.message : "Delete failed.",
+            },
       );
       setNonce((n) => n + 1);
     } finally {
@@ -489,7 +521,7 @@ function ProductsPageContent() {
           }
         : prev,
     );
-    const failures: { name: string; message: string }[] = [];
+    const failures: { name: string; blocked: boolean; message: string }[] = [];
     let deleted = 0;
     // Sequential on purpose: per-row failure attribution stays exact, and a
     // batch never fires a burst of concurrent deletes at the API.
@@ -498,11 +530,12 @@ function ProductsPageContent() {
         await adminApi.deleteProduct(target.id);
         deleted += 1;
       } catch (err) {
-        // Same contract as the single delete: show the backend message
-        // verbatim (a blocked delete — order items / reservations — must
-        // never be reported as success).
+        // Same contract as the single delete: a 409 (stock/order history)
+        // resolves to a translated reason, anything else stays verbatim —
+        // and a blocked delete is never reported as success.
         failures.push({
           name: target.name,
+          blocked: errorStatus(err) === 409,
           message: err instanceof Error ? err.message : "Delete failed.",
         });
       }
@@ -510,10 +543,60 @@ function ProductsPageContent() {
     setBulkPending(false);
     setBulkOpen(false);
     setSelectedIds(new Set());
-    setBulkResult({ deleted, failures });
+    setBulkResult({ kind: "delete", deleted, failures });
     // Server truth: restores the failed rows and refreshes the counters.
     setNonce((n) => n + 1);
   }, [selectedOnPage, selectedIds]);
+
+  const openStatusAction = useCallback((status: "ACTIVE" | "DISABLED") => {
+    setBulkResult(null);
+    setStatusAction(status);
+  }, []);
+
+  const closeStatusAction = useCallback(() => {
+    // Do not allow dismissal while the update is in flight.
+    if (statusPending) return;
+    setStatusAction(null);
+  }, [statusPending]);
+
+  const submitStatusAction = useCallback(async () => {
+    const status = statusAction;
+    const targets = selectedOnPage;
+    if (!status || targets.length === 0) return;
+    setStatusPending(true);
+    try {
+      const result = await adminApi.bulkSetProductStatus(
+        targets.map((product) => product.id),
+        status,
+      );
+      setBulkResult({
+        kind: "status",
+        status,
+        updated: result.updated,
+        notFound: result.notFound,
+        error: null,
+      });
+    } catch (err) {
+      setBulkResult({
+        kind: "status",
+        status,
+        updated: 0,
+        notFound: 0,
+        error: err instanceof Error ? err.message : "Update failed.",
+      });
+    } finally {
+      setStatusPending(false);
+      setStatusAction(null);
+      setSelectedIds(new Set());
+      // Server truth: badges and counters refresh from the saved rows.
+      setNonce((n) => n + 1);
+    }
+  }, [statusAction, selectedOnPage]);
+
+  const bulkResultHasProblems =
+    bulkResult !== null &&
+    ((bulkResult.kind === "delete" && bulkResult.failures.length > 0) ||
+      (bulkResult.kind === "status" && bulkResult.error !== null));
 
   // --- render ---------------------------------------------------------------
 
@@ -761,7 +844,11 @@ function ProductsPageContent() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="font-semibold">{t("products_delete_error_title")}</p>
-              <p className="mt-1">{deleteError}</p>
+              <p className="mt-1">
+                {deleteError.kind === "blocked"
+                  ? t("products_delete_blocked_history")
+                  : deleteError.text}
+              </p>
             </div>
             <button
               type="button"
@@ -782,6 +869,20 @@ function ProductsPageContent() {
             {t("products_selected_count", { count: selectedIds.size })}
           </span>
           <Button
+            variant="secondary"
+            size="md"
+            onClick={() => openStatusAction("ACTIVE")}
+          >
+            {t("products_bulk_publish")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => openStatusAction("DISABLED")}
+          >
+            {t("products_bulk_unpublish")}
+          </Button>
+          <Button
             variant="primary"
             size="md"
             onClick={openBulkDelete}
@@ -795,43 +896,73 @@ function ProductsPageContent() {
         </div>
       ) : null}
 
-      {/* Batch result: success is informational, partial failure is an alert
-          that names every row the backend refused and why. */}
+      {/* Batch result: success is informational, failures are alerts that
+          name every row the backend refused and why. */}
       {bulkResult && !loading && !error ? (
         <div
-          role={bulkResult.failures.length > 0 ? "alert" : "status"}
+          role={bulkResultHasProblems ? "alert" : "status"}
           className={`mt-4 rounded-xl border p-4 text-sm ${
-            bulkResult.failures.length > 0
+            bulkResultHasProblems
               ? "border-sale/40 bg-sale/5 text-red-700"
               : "border-border bg-card text-ink-secondary"
           }`}
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              {bulkResult.failures.length === 0 ? (
-                <p className="font-semibold">
-                  {t("products_bulk_result_deleted", {
-                    count: bulkResult.deleted,
-                  })}
-                </p>
+              {bulkResult.kind === "delete" ? (
+                bulkResult.failures.length === 0 ? (
+                  <p className="font-semibold">
+                    {t("products_bulk_result_deleted", {
+                      count: bulkResult.deleted,
+                    })}
+                  </p>
+                ) : (
+                  <>
+                    <p className="font-semibold">
+                      {t("products_bulk_result_partial", {
+                        count: bulkResult.deleted,
+                        failed: bulkResult.failures.length,
+                      })}
+                    </p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      {bulkResult.failures.map((failure) => (
+                        <li key={failure.name}>
+                          {t("products_bulk_result_reason", {
+                            name: failure.name,
+                            reason: failure.blocked
+                              ? t("products_delete_blocked_history")
+                              : failure.message,
+                          })}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )
+              ) : bulkResult.error !== null ? (
+                <>
+                  <p className="font-semibold">
+                    {t("products_bulk_status_error_title")}
+                  </p>
+                  <p className="mt-1">{bulkResult.error}</p>
+                </>
               ) : (
                 <>
                   <p className="font-semibold">
-                    {t("products_bulk_result_partial", {
-                      count: bulkResult.deleted,
-                      failed: bulkResult.failures.length,
-                    })}
-                  </p>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
-                    {bulkResult.failures.map((failure) => (
-                      <li key={failure.name}>
-                        {t("products_bulk_result_reason", {
-                          name: failure.name,
-                          reason: failure.message,
+                    {bulkResult.status === "ACTIVE"
+                      ? t("products_bulk_publish_done", {
+                          count: bulkResult.updated,
+                        })
+                      : t("products_bulk_unpublish_done", {
+                          count: bulkResult.updated,
                         })}
-                      </li>
-                    ))}
-                  </ul>
+                  </p>
+                  {bulkResult.notFound > 0 ? (
+                    <p className="mt-1">
+                      {t("products_bulk_status_missing", {
+                        count: bulkResult.notFound,
+                      })}
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>
@@ -840,7 +971,7 @@ function ProductsPageContent() {
               onClick={() => setBulkResult(null)}
               aria-label={t("products_dismiss_error")}
               className={`-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 ${
-                bulkResult.failures.length > 0 ? "text-red-700" : "text-ink-muted"
+                bulkResultHasProblems ? "text-red-700" : "text-ink-muted"
               }`}
             >
               ✕
@@ -1218,6 +1349,58 @@ function ProductsPageContent() {
               className="bg-red-600 hover:bg-red-700 active:bg-red-700"
             >
               {bulkPending ? t("products_working") : t("common_delete")}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={statusAction !== null}
+        onClose={closeStatusAction}
+        title={
+          statusAction === "ACTIVE"
+            ? t("products_bulk_publish_dialog_title")
+            : t("products_bulk_unpublish_dialog_title")
+        }
+        width="sm"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitStatusAction();
+          }}
+        >
+          <p className="text-sm text-ink-secondary">
+            {statusAction === "ACTIVE"
+              ? t("products_bulk_publish_dialog_body", {
+                  count: selectedIds.size,
+                })
+              : t("products_bulk_unpublish_dialog_body", {
+                  count: selectedIds.size,
+                })}
+          </p>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={closeStatusAction}
+              disabled={statusPending}
+            >
+              {t("common_back")}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={statusPending}
+              aria-busy={statusPending}
+            >
+              {statusPending
+                ? t("products_working")
+                : statusAction === "ACTIVE"
+                  ? t("product_form_status_active")
+                  : t("product_form_status_disabled")}
             </Button>
           </div>
         </form>

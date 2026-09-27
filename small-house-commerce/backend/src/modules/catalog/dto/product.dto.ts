@@ -124,6 +124,16 @@ export const adminProductQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+/**
+ * Bulk status change from the products list: publish/unpublish only — DRAFT
+ * stays an editor action. Bounded to one visible page (50 rows max).
+ */
+export const bulkProductStatusSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(50),
+  status: z.enum(['ACTIVE', 'DISABLED']),
+});
+export type BulkProductStatusInput = z.infer<typeof bulkProductStatusSchema>;
+
 /** Storefront queries force ACTIVE and must never expose cost data. */
 export const storefrontProductQuerySchema = z.object({
   search: z.string().max(255).optional(),

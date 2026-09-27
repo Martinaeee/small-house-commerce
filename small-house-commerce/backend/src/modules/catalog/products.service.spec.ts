@@ -5,6 +5,8 @@ import type {
   StorefrontProductQuery,
 } from './dto/product.dto.js';
 import { ProductsService, formatProductCode } from './products.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import { revalidateCache } from '../../common/revalidation.js';
 
 vi.mock('../../common/revalidation.js', () => ({
   CACHE_TAGS: { STOREFRONT: 'storefront' },
@@ -581,5 +583,124 @@ describe("formatProductCode", () => {
     expect(formatProductCode(999999n)).toBe("P-999999");
     // Past six digits the code simply grows; the sequence stays unique.
     expect(formatProductCode(1234567n)).toBe("P-1234567");
+  });
+});
+
+describe("ProductsService.remove", () => {
+  function createRemoveHarness(deleteImpl: () => Promise<unknown>) {
+    const prisma = {
+      product: {
+        findUnique: vi.fn(async () => ({ id: "p1" })),
+        delete: vi.fn(deleteImpl),
+      },
+    };
+    return {
+      service: new ProductsService(prisma as never, reviewsStub, inventoryStub),
+      prisma,
+    };
+  }
+
+  it("deletes an unreferenced product and revalidates the storefront", async () => {
+    vi.mocked(revalidateCache).mockClear();
+    const harness = createRemoveHarness(async () => ({ id: "p1" }));
+
+    await expect(harness.service.remove("p1")).resolves.toEqual({ ok: true });
+    expect(harness.prisma.product.delete).toHaveBeenCalledWith({
+      where: { id: "p1" },
+    });
+    expect(vi.mocked(revalidateCache)).toHaveBeenCalledWith(["storefront"]);
+  });
+
+  it("answers 404 for a missing product before attempting the delete", async () => {
+    const prisma = {
+      product: {
+        findUnique: vi.fn(async () => null),
+        delete: vi.fn(async () => undefined),
+      },
+    };
+    const service = new ProductsService(
+      prisma as never,
+      reviewsStub,
+      inventoryStub,
+    );
+
+    await expect(service.remove("gone")).rejects.toMatchObject({ status: 404 });
+    expect(prisma.product.delete).not.toHaveBeenCalled();
+  });
+
+  it("maps a foreign-key block to a readable 409 instead of a generic 500", async () => {
+    const harness = createRemoveHarness(async () => {
+      throw new Prisma.PrismaClientKnownRequestError(
+        "Foreign key constraint violated on the constraint: `inventory_movements_sku_id_fkey`",
+        { code: "P2003", clientVersion: "7.10.0" },
+      );
+    });
+
+    await expect(harness.service.remove("p1")).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: "PRODUCT_HAS_HISTORY" }),
+    });
+  });
+
+  it("rethrows unexpected failures untouched", async () => {
+    const harness = createRemoveHarness(async () => {
+      throw new Error("database exploded");
+    });
+
+    await expect(harness.service.remove("p1")).rejects.toThrow(
+      "database exploded",
+    );
+  });
+});
+
+describe("ProductsService.bulkSetStatus", () => {
+  it("updates the status of existing products and reports missing ids", async () => {
+    vi.mocked(revalidateCache).mockClear();
+    const prisma = {
+      product: {
+        findMany: vi.fn(async () => [{ id: "p1" }, { id: "p2" }]),
+        updateMany: vi.fn(async () => ({ count: 2 })),
+      },
+    };
+    const service = new ProductsService(
+      prisma as never,
+      reviewsStub,
+      inventoryStub,
+    );
+
+    const result = await service.bulkSetStatus(
+      ["p1", "p2", "gone"],
+      "DISABLED",
+    );
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["p1", "p2", "gone"] } },
+      select: { id: true },
+    });
+    expect(prisma.product.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["p1", "p2"] } },
+      data: { status: "DISABLED" },
+    });
+    expect(result).toEqual({ updated: 2, notFound: 1 });
+    expect(vi.mocked(revalidateCache)).toHaveBeenCalledWith(["storefront"]);
+  });
+
+  it("skips the write entirely when no id exists and reports them all missing", async () => {
+    const prisma = {
+      product: {
+        findMany: vi.fn(async () => []),
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+    };
+    const service = new ProductsService(
+      prisma as never,
+      reviewsStub,
+      inventoryStub,
+    );
+
+    const result = await service.bulkSetStatus(["gone"], "ACTIVE");
+
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
+    expect(result).toEqual({ updated: 0, notFound: 1 });
   });
 });

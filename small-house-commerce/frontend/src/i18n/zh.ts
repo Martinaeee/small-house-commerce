@@ -920,6 +920,20 @@ export const zh = {
   products_bulk_result_deleted: "已删除 {count} 个商品。",
   products_bulk_result_partial: "已删除 {count} 个；{failed} 个未删除：",
   products_bulk_result_reason: "{name}：{reason}",
+  products_delete_blocked_history:
+    "该商品有库存流水或订单记录，无法删除；请改为下架。",
+  products_bulk_publish: "批量上架",
+  products_bulk_unpublish: "批量下架",
+  products_bulk_publish_dialog_title: "批量上架商品",
+  products_bulk_unpublish_dialog_title: "批量下架商品",
+  products_bulk_publish_dialog_body:
+    "将把选中的 {count} 个商品设为上架，前台立即可见。",
+  products_bulk_unpublish_dialog_body:
+    "将把选中的 {count} 个商品设为下架，前台立即隐藏；已有订单不受影响。",
+  products_bulk_publish_done: "已上架 {count} 个商品。",
+  products_bulk_unpublish_done: "已下架 {count} 个商品。",
+  products_bulk_status_missing: "其中 {count} 个商品已不存在，未处理。",
+  products_bulk_status_error_title: "批量更新状态失败。",
   products_working: "处理中…",
 
   // --- New product page ---

@@ -1280,6 +1280,15 @@ export const adminApi = {
       { method: "DELETE" },
     ),
 
+  bulkSetProductStatus: (
+    ids: string[],
+    status: "ACTIVE" | "DISABLED",
+  ): Promise<{ updated: number; notFound: number }> =>
+    adminAuthedFetch<{ updated: number; notFound: number }>(
+      "/api/v1/admin/products/bulk-status",
+      { method: "POST", body: JSON.stringify({ ids, status }) },
+    ),
+
   // --- product reviews (cold-start admin moderation) ----------------------
 
   listProductReviews: (productId: string): Promise<AdminReview[]> =>

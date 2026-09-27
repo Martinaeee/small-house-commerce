@@ -952,6 +952,20 @@ export const en: Record<ZhKey, string> = {
   products_bulk_result_deleted: "Deleted {count} products.",
   products_bulk_result_partial: "Deleted {count}; {failed} not deleted:",
   products_bulk_result_reason: "{name}: {reason}",
+  products_delete_blocked_history:
+    "This product has stock or order history and cannot be deleted. Disable it instead.",
+  products_bulk_publish: "Publish selected",
+  products_bulk_unpublish: "Unpublish selected",
+  products_bulk_publish_dialog_title: "Publish selected products",
+  products_bulk_unpublish_dialog_title: "Unpublish selected products",
+  products_bulk_publish_dialog_body:
+    "The {count} selected products become visible on the storefront immediately.",
+  products_bulk_unpublish_dialog_body:
+    "The {count} selected products are hidden from the storefront immediately. Existing orders are unaffected.",
+  products_bulk_publish_done: "Published {count} products.",
+  products_bulk_unpublish_done: "Unpublished {count} products.",
+  products_bulk_status_missing: "{count} products no longer exist and were skipped.",
+  products_bulk_status_error_title: "Bulk status update failed.",
   products_working: "Working…",
 
   product_new_title: "New product",

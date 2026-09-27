@@ -16,9 +16,11 @@ import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
   adminProductQuerySchema,
+  bulkProductStatusSchema,
   createProductSchema,
   updateProductSchema,
   type AdminProductQuery,
+  type BulkProductStatusInput,
   type CreateProductInput,
   type UpdateProductInput,
 } from '../dto/product.dto.js';
@@ -59,6 +61,15 @@ export class AdminProductsController {
     @Body(new ZodValidationPipe(createProductSchema)) input: CreateProductInput,
   ) {
     return this.products.create(input);
+  }
+
+  // Bulk publish/unpublish from the products list; literal path, no :id clash.
+  @Post('bulk-status')
+  bulkStatus(
+    @Body(new ZodValidationPipe(bulkProductStatusSchema))
+    input: BulkProductStatusInput,
+  ) {
+    return this.products.bulkSetStatus(input.ids, input.status);
   }
 
   @Patch(':id')

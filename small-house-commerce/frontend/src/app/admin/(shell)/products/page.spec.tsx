@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import { AdminApiError } from "@/lib/admin-auth";
 
 /**
  * Task 3 — the products list joins the admin i18n: status badges and filter
@@ -22,6 +23,7 @@ const listProducts = vi.fn();
 const listCategories = vi.fn();
 const productCounts = vi.fn();
 const deleteProduct = vi.fn();
+const bulkSetProductStatus = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
   ADMIN_PRODUCT_ATTENTION: [
@@ -37,6 +39,7 @@ vi.mock("@/lib/admin-api", () => ({
     getProduct: vi.fn(),
     listProductLandingPages: vi.fn(),
     deleteProduct: (...args: unknown[]) => deleteProduct(...args),
+    bulkSetProductStatus: (...args: unknown[]) => bulkSetProductStatus(...args),
   },
   formatAmount: (value: unknown) => (value === null || value === undefined ? "—" : `₱${value}`),
 }));
@@ -289,6 +292,8 @@ describe("AdminProductsPage bulk delete", () => {
     setAdminLang("zh");
     navState.searchParams = "";
     permState.canManage = true;
+    deleteProduct.mockReset().mockResolvedValue({ ok: true });
+    bulkSetProductStatus.mockReset().mockResolvedValue({ updated: 0, notFound: 0 });
     listProducts.mockReset().mockResolvedValue({
       items: [ROW, ROW2],
       total: 2,
@@ -420,5 +425,99 @@ describe("AdminProductsPage bulk delete", () => {
     expect(
       screen.queryByRole("button", { name: "批量删除" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("maps a 409 delete block to a readable reason for a single delete", async () => {
+    const user = userEvent.setup();
+    deleteProduct.mockRejectedValue(
+      new AdminApiError("Conflict", 409, { code: "PRODUCT_HAS_HISTORY" }),
+    );
+    renderListPage();
+    const table = await screen.findByRole("table", { name: "商品" });
+    const row = within(table)
+      .getByText("Chair", { selector: 'span[title="Chair"]' })
+      .closest("tr");
+    expect(row).not.toBeNull();
+
+    await user.click(within(row!).getByRole("button", { name: "更多操作" }));
+    await user.click(within(row!).getByRole("button", { name: "删除" }));
+    const dialog = screen.getByRole("dialog", { name: "删除商品" });
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+    expect(
+      await screen.findByText("该商品有库存流水或订单记录，无法删除；请改为下架。"),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a blocked batch delete with the readable reason per row", async () => {
+    const user = userEvent.setup();
+    deleteProduct.mockRejectedValue(
+      new AdminApiError("Conflict", 409, { code: "PRODUCT_HAS_HISTORY" }),
+    );
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量删除" }));
+    const dialog = screen.getByRole("dialog", { name: "批量删除商品" });
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+    expect(
+      await screen.findByText(/已删除 0 个；2 个未删除：/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Chair：该商品有库存流水或订单记录，无法删除；请改为下架。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Shelf：该商品有库存流水或订单记录，无法删除；请改为下架。"),
+    ).toBeInTheDocument();
+  });
+
+  it("bulk unpublishes the selected products after confirmation", async () => {
+    const user = userEvent.setup();
+    bulkSetProductStatus.mockResolvedValue({ updated: 2, notFound: 0 });
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量下架" }));
+
+    const dialog = screen.getByRole("dialog", { name: "批量下架商品" });
+    expect(
+      within(dialog).getByText(/将把选中的 2 个商品设为下架/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "下架" }));
+
+    await waitFor(() =>
+      expect(bulkSetProductStatus).toHaveBeenCalledWith(
+        ["p1", "p2"],
+        "DISABLED",
+      ),
+    );
+    expect(await screen.findByText("已下架 2 个商品。")).toBeInTheDocument();
+  });
+
+  it("bulk publishes the selected products and reports rows that vanished", async () => {
+    const user = userEvent.setup();
+    bulkSetProductStatus.mockResolvedValue({ updated: 1, notFound: 1 });
+    renderListPage();
+    await screen.findAllByText("Chair");
+
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量上架" }));
+
+    const dialog = screen.getByRole("dialog", { name: "批量上架商品" });
+    expect(
+      within(dialog).getByText(/将把选中的 2 个商品设为上架/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "上架" }));
+
+    await waitFor(() =>
+      expect(bulkSetProductStatus).toHaveBeenCalledWith(["p1", "p2"], "ACTIVE"),
+    );
+    expect(await screen.findByText("已上架 1 个商品。")).toBeInTheDocument();
+    expect(
+      screen.getByText("其中 1 个商品已不存在，未处理。"),
+    ).toBeInTheDocument();
   });
 });

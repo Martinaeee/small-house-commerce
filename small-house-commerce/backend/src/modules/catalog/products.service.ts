@@ -737,9 +737,45 @@ export class ProductsService {
     }
 
     // Cascade deletes variants, SKUs and images (schema onDelete: Cascade).
-    await this.prisma.product.delete({ where: { id } });
+    // SKUs are RESTRICT-referenced by inventory movements/reservations and
+    // order items, so a product with history cannot be deleted at all —
+    // answer 409 with a readable reason instead of a generic 500.
+    try {
+      await this.prisma.product.delete({ where: { id } });
+    } catch (error) {
+      if (this.isPrismaCode(error, 'P2003')) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          message:
+            'This product has stock or order history and cannot be deleted. Disable it instead.',
+          code: 'PRODUCT_HAS_HISTORY',
+        });
+      }
+      throw error;
+    }
     await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { ok: true };
+  }
+
+  /**
+   * Bulk publish/unpublish from the products list. Ids come from one visible
+   * page; ids that no longer exist are reported, never silently dropped.
+   */
+  async bulkSetStatus(ids: string[], status: 'ACTIVE' | 'DISABLED') {
+    const existing = await this.prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    const foundIds = existing.map((row) => row.id);
+    if (foundIds.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { id: { in: foundIds } },
+        data: { status },
+      });
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    return { updated: foundIds.length, notFound: ids.length - foundIds.length };
   }
 
   // --- storefront ----------------------------------------------------------
