@@ -407,6 +407,33 @@ export function isHeroPayloadView(payload: unknown): payload is HeroPayloadView 
   );
 }
 
+// --- announcement bar (homepage document → storefront layout) ---------------
+//
+// The backend returns the document's `announcement` block with the item list
+// already filtered by enablement + schedule and each item's `link` resolved
+// into a final `linkHref` (same resolution as HERO element links). Colors are
+// whitelisted server-side; the bar re-clamps them through `safeHex` anyway.
+
+export interface AnnouncementItemView {
+  id: string;
+  text: string;
+  /** Resolved by the backend; null = plain-text item (no anchor). */
+  linkHref: string | null;
+  /** CTA suffix rendered after the text when the item is a link. */
+  linkLabel: string | null;
+  /** #rrggbb. */
+  textColor: string;
+  backgroundColor: string;
+  enabled: boolean;
+}
+
+export interface AnnouncementBlockView {
+  enabled: boolean;
+  /** Rotation interval in ms for multi-item bars. */
+  rotationMs: number;
+  items: AnnouncementItemView[];
+}
+
 export interface Collection {
   id: string;
   name: string;
@@ -549,6 +576,24 @@ export async function getHomepage(): Promise<HomepageResponse> {
   });
   await assertOk(res);
   return res.json() as Promise<HomepageResponse>;
+}
+
+/**
+ * Announcement bar data for the storefront layout (global, same ISR contract
+ * as getHomepage). The backend answers 200 with an empty body when no version
+ * is effective or nothing is active, so "no announcement" is a normal null;
+ * non-OK responses throw like every other helper here — the layout catches
+ * and hides the bar.
+ */
+export async function getAnnouncement(): Promise<AnnouncementBlockView | null> {
+  const res = await fetch(serverApiUrl("/api/v1/storefront/announcement"), {
+    next: { revalidate: 120, tags: STOREFRONT_TAGS },
+  });
+  await assertOk(res);
+  const body = await res.text();
+  if (body.trim() === "") return null;
+  const parsed = JSON.parse(body) as AnnouncementBlockView | null;
+  return parsed ?? null;
 }
 
 export const api = {

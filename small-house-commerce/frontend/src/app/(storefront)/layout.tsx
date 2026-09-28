@@ -8,7 +8,13 @@ import { CartDrawer } from "@/components/cart/CartDrawer";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { buildNav } from "@/lib/nav";
-import { serverApiUrl, type Category, type Collection } from "@/lib/api";
+import {
+  getAnnouncement,
+  serverApiUrl,
+  type AnnouncementBlockView,
+  type Category,
+  type Collection,
+} from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 import { DEFAULT_SITE_SETTINGS, fetchSiteSettings, type SiteSettings } from "@/lib/site-settings";
 
@@ -36,19 +42,32 @@ async function getLayoutData(): Promise<{
   }
 }
 
+async function getAnnouncementData(): Promise<AnnouncementBlockView | null> {
+  try {
+    return await getAnnouncement();
+  } catch {
+    // The announcement bar is enhancement; a backend outage must not blank
+    // the site (the bar simply does not render).
+    return null;
+  }
+}
+
 export default async function StorefrontLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { roots, collections, settings } = await getLayoutData();
+  const [{ roots, collections, settings }, announcement] = await Promise.all([
+    getLayoutData(),
+    getAnnouncementData(),
+  ]);
   const navItems = buildNav(roots, collections);
   const footerCollections = collections.filter((c) => c.type === "NAVIGATION");
 
   return (
     <Providers settings={settings}>
       <MetaPixelInit />
-      <AnnouncementBar />
+      <AnnouncementBar data={announcement} />
       <Header navItems={navItems} />
       <main className="flex-1">{children}</main>
       <Footer
