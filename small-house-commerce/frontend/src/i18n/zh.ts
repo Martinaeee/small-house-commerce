@@ -1118,6 +1118,8 @@ export const zh = {
   homepage_builder_media_upload_failed: "媒体上传失败，请重试。",
   homepage_builder_media_video_file: "视频文件",
   homepage_builder_media_mobile_video_file: "移动端视频文件",
+  homepage_builder_media_mobile_requires_primary:
+    "请先添加主媒体，再配置移动端媒体。",
   homepage_builder_media_fit_COVER: "覆盖",
   homepage_builder_media_fit_CONTAIN: "包含",
   homepage_builder_media_object_device: "画面位置设备",

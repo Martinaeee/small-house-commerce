@@ -1153,6 +1153,8 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_media_upload_failed: "Media upload failed. Try again.",
   homepage_builder_media_video_file: "Video file",
   homepage_builder_media_mobile_video_file: "Mobile video file",
+  homepage_builder_media_mobile_requires_primary:
+    "Add primary media before configuring mobile media.",
   homepage_builder_media_fit_COVER: "Cover",
   homepage_builder_media_fit_CONTAIN: "Contain",
   homepage_builder_media_object_device: "Object position device",

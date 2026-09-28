@@ -110,6 +110,23 @@ async function settle(): Promise<void> {
   });
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function EditorActions(): ReactNode {
+  const { dispatch } = useHomepageEditor();
+  return (
+    <button type="button" onClick={() => dispatch({ type: "undo" })}>
+      undo document
+    </button>
+  );
+}
+
 function renderPanel(document: HomepageDocument) {
   return render(
     <AdminI18nProvider>
@@ -117,6 +134,7 @@ function renderPanel(document: HomepageDocument) {
         <Harness document={document} />
         <HeroMediaSettings />
         <StateProbe />
+        <EditorActions />
       </HomepageEditorProvider>
     </AdminI18nProvider>,
   );
@@ -222,6 +240,144 @@ describe("HeroMediaSettings", () => {
     expect(uploadImageMock.mock.calls[1]?.[1]).toBe("video/mp4");
     expect(mediaState()?.type).toBe("VIDEO");
     expect(mediaState()?.video).toMatchObject({ url: "/uploads/video.mp4", poster: "/uploads/poster.jpg" });
+  });
+
+  it("merges primary upload completion into the latest playback settings", async () => {
+    const probe = deferred<ProbeResult>();
+    const posterUpload = deferred<{ url: string; key: string }>();
+    const videoUpload = deferred<{ url: string; key: string }>();
+    probeVideoMock.mockReturnValueOnce(probe.promise);
+    uploadImageMock
+      .mockReturnValueOnce(posterUpload.promise)
+      .mockReturnValueOnce(videoUpload.promise);
+    renderPanel(documentWithMedia(videoMedia()));
+    await settle();
+
+    fireEvent.change(screen.getByLabelText("Video file"), {
+      target: { files: [new File(["video"], "replacement.mp4", { type: "video/mp4" })] },
+    });
+    probe.resolve({
+      ok: true,
+      durationSec: 12,
+      width: 1920,
+      height: 1080,
+      posterBlob: new Blob(["poster"], { type: "image/jpeg" }),
+    });
+    await settle();
+    expect(uploadImageMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Muted" }));
+    posterUpload.resolve({ url: "/uploads/new-poster.jpg", key: "poster" });
+    await settle();
+    videoUpload.resolve({ url: "/uploads/replacement.mp4", key: "video" });
+    await settle();
+
+    expect(mediaState()?.video).toMatchObject({
+      url: "/uploads/replacement.mp4",
+      poster: "/uploads/new-poster.jpg",
+      muted: false,
+      loop: true,
+    });
+  });
+
+  it("keeps a newer mobile source selection while a mobile video upload completes", async () => {
+    const media = videoMedia();
+    media.mobileOverride = {
+      enabled: true,
+      image: null,
+      video: {
+        ...media.video!,
+        url: "/uploads/old-mobile.mp4",
+        poster: "/uploads/old-mobile-poster.jpg",
+        muted: false,
+        loop: false,
+        showSoundToggle: true,
+      },
+    };
+    const probe = deferred<ProbeResult>();
+    const posterUpload = deferred<{ url: string; key: string }>();
+    const videoUpload = deferred<{ url: string; key: string }>();
+    probeVideoMock.mockReturnValueOnce(probe.promise);
+    uploadImageMock
+      .mockReturnValueOnce(posterUpload.promise)
+      .mockReturnValueOnce(videoUpload.promise);
+    renderPanel(documentWithMedia(media));
+    await settle();
+
+    fireEvent.change(screen.getByLabelText("Mobile video file"), {
+      target: { files: [new File(["video"], "mobile-replacement.mp4", { type: "video/mp4" })] },
+    });
+    probe.resolve({
+      ok: true,
+      durationSec: 12,
+      width: 1920,
+      height: 1080,
+      posterBlob: new Blob(["poster"], { type: "image/jpeg" }),
+    });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Mobile image" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Mobile image" }), {
+      target: { value: "/uploads/new-mobile.jpg" },
+    });
+    posterUpload.resolve({ url: "/uploads/new-mobile-poster.jpg", key: "poster" });
+    await settle();
+    videoUpload.resolve({ url: "/uploads/new-mobile.mp4", key: "video" });
+    await settle();
+
+    expect(screen.getByRole("textbox", { name: "Mobile image" })).toHaveValue(
+      "/uploads/new-mobile.jpg",
+    );
+    expect(mediaState()?.mobileOverride.image?.url).toBe("/uploads/new-mobile.jpg");
+    expect(mediaState()?.mobileOverride.video?.url).toBe("/uploads/new-mobile.mp4");
+    expect(mediaState()?.mobileOverride.video).toMatchObject({
+      muted: false,
+      loop: false,
+      showSoundToggle: true,
+    });
+  });
+
+  it("does not reapply a reverted playback setting after undo", async () => {
+    renderPanel(documentWithMedia(videoMedia()));
+    await settle();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Muted" }));
+    expect(mediaState()?.video?.muted).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "undo document" }));
+    expect(mediaState()?.video?.muted).toBe(true);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Loop" }));
+    expect(mediaState()?.video).toMatchObject({ muted: true, loop: false });
+  });
+
+  it("blocks mobile override controls until a complete primary media source exists", async () => {
+    renderPanel(documentWithMedia(null));
+    await settle();
+
+    const toggle = screen.getByRole("checkbox", { name: "Use separate mobile media" });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText("Add primary media before configuring mobile media.")).toBeVisible();
+    fireEvent.click(toggle);
+    expect(screen.queryByLabelText("Mobile video file")).not.toBeInTheDocument();
+    expect(probeVideoMock).not.toHaveBeenCalled();
+    expect(uploadImageMock).not.toHaveBeenCalled();
+  });
+
+  it("clears cached mobile slots when OFF is persisted before turning the override ON again", async () => {
+    const media = imageMedia();
+    media.mobileOverride = {
+      enabled: true,
+      image: { url: "/uploads/mobile.jpg", alt: "Mobile" },
+      video: null,
+    };
+    renderPanel(documentWithMedia(media));
+    await settle();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Use separate mobile media" }));
+    expect(mediaState()?.mobileOverride).toEqual({ enabled: false, image: null, video: null });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Use separate mobile media" }));
+
+    expect(screen.getByRole("textbox", { name: "Mobile image" })).toHaveValue("");
+    expect(mediaState()?.mobileOverride).toEqual({ enabled: true, image: null, video: null });
   });
 
   it("rejects an extracted poster over 5MB before uploading either asset", async () => {

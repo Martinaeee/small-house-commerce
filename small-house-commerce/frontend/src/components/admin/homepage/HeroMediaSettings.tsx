@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useRef,
   useState,
   type PointerEvent,
@@ -51,7 +52,7 @@ type VideoSlotProps = {
   fileLabel: string;
   idPrefix: string;
   slot: HeroVideo | null;
-  onUploaded: (video: HeroVideo) => void;
+  onUploaded: (uploaded: { url: string; poster: string }) => void;
   onError: (messageKey: TKey) => void;
 };
 
@@ -181,13 +182,10 @@ function VideoUploadControl({
       );
       const poster = await adminApi.uploadImage(posterFile, "image/jpeg");
       const video = await adminApi.uploadImage(file, "video/mp4");
-      onUploaded(
-        defaultVideo({
-          ...slot,
-          url: video.url,
-          poster: poster.url,
-        }),
-      );
+      onUploaded({
+        url: video.url,
+        poster: poster.url,
+      });
     } catch {
       onError("homepage_builder_media_upload_failed");
     } finally {
@@ -359,13 +357,70 @@ function HeroMediaPanel({
   );
   const [mobileEnabled, setMobileEnabled] = useState(initialMedia?.mobileOverride.enabled ?? false);
   const [error, setError] = useState<string | null>(null);
+  const mediaTypeIntentRef = useRef<MediaType | null>(null);
+  const mobileTypeIntentRef = useRef<MediaType | null>(null);
 
   const document = state.document;
-  const media = findSlide(document, slideId)?.media ?? initialMedia;
+  const persistedSlide = findSlide(document, slideId);
+  const media = persistedSlide?.media ?? null;
+
+  /* eslint-disable react-hooks/set-state-in-effect -- reducer document is the external source of truth. */
+  useEffect(() => {
+    setImageSlot(media?.image ?? null);
+    setVideoSlot(media?.video ?? null);
+    setMobileImageSlot(media?.mobileOverride.image ?? null);
+    setMobileVideoSlot(media?.mobileOverride.video ?? null);
+    setMobileEnabled(media?.mobileOverride.enabled ?? false);
+
+    if (!media) {
+      setMobileType("IMAGE");
+      mediaTypeIntentRef.current = null;
+      mobileTypeIntentRef.current = null;
+      return;
+    }
+
+    const mediaTypeIntent = mediaTypeIntentRef.current;
+    if (mediaTypeIntent === null || media.type === mediaTypeIntent) {
+      setMediaType(media.type);
+      if (media.type === mediaTypeIntent) mediaTypeIntentRef.current = null;
+    }
+
+    if (!media.mobileOverride.enabled) {
+      setMobileType("IMAGE");
+      mobileTypeIntentRef.current = null;
+      return;
+    }
+
+    const persistedMobileType: MediaType | null = media.mobileOverride.video
+      ? "VIDEO"
+      : media.mobileOverride.image
+        ? "IMAGE"
+        : null;
+    const mobileTypeIntent = mobileTypeIntentRef.current;
+    if (
+      persistedMobileType !== null &&
+      (mobileTypeIntent === null || persistedMobileType === mobileTypeIntent)
+    ) {
+      setMobileType(persistedMobileType);
+      if (persistedMobileType === mobileTypeIntent) {
+        mobileTypeIntentRef.current = null;
+      }
+    }
+  }, [media]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const imageSlotForPanel = media ? media.image : imageSlot;
+  const videoSlotForPanel = media ? media.video : videoSlot;
+  const mobileImageSlotForPanel = media
+    ? media.mobileOverride.image
+    : mobileImageSlot;
+  const mobileVideoSlotForPanel = media
+    ? media.mobileOverride.video
+    : mobileVideoSlot;
   const focal = media?.focal ?? DEFAULT_FOCAL;
   const fit = media?.fit ?? "COVER";
-  const activeVideo = mediaType === "VIDEO" ? videoSlot : null;
-  const activeMobileVideo = mobileType === "VIDEO" ? mobileVideoSlot : null;
+  const activeVideo = mediaType === "VIDEO" ? videoSlotForPanel : null;
+  const activeMobileVideo = mobileType === "VIDEO" ? mobileVideoSlotForPanel : null;
 
   const mutateMedia = (patch: Parameters<typeof updateHeroMedia>[2]): void => {
     dispatch({
@@ -375,13 +430,19 @@ function HeroMediaPanel({
   };
 
   const selectType = (nextType: MediaType): void => {
+    mediaTypeIntentRef.current = nextType;
     setMediaType(nextType);
-    if (nextType === "IMAGE" && imageSlot?.url) {
-      mutateMedia({ type: "IMAGE", image: imageSlot });
+    if (nextType === "IMAGE" && imageSlotForPanel?.url) {
+      mutateMedia({ type: "IMAGE", image: imageSlotForPanel });
     }
-    if (nextType === "VIDEO" && videoSlot?.url) {
-      mutateMedia({ type: "VIDEO", video: videoSlot });
+    if (nextType === "VIDEO" && videoSlotForPanel?.url) {
+      mutateMedia({ type: "VIDEO", video: videoSlotForPanel });
     }
+  };
+
+  const selectMobileType = (nextType: MediaType): void => {
+    mobileTypeIntentRef.current = nextType;
+    setMobileType(nextType);
   };
 
   const updateImage = (next: HeroImage): void => {
@@ -390,6 +451,7 @@ function HeroMediaPanel({
   };
 
   const updateMobileImage = (next: HeroImage): void => {
+    if (!media) return;
     setMobileImageSlot(next);
     if (next.url.trim() !== "") {
       mutateMedia({ mobileOverride: { enabled: true, image: next } });
@@ -397,10 +459,20 @@ function HeroMediaPanel({
   };
 
   const updateVideoSetting = <K extends keyof HeroVideo>(key: K, value: HeroVideo[K]): void => {
-    if (!videoSlot) return;
-    const next = { ...videoSlot, [key]: value } as HeroVideo;
+    if (!videoSlotForPanel) return;
+    const next = { ...videoSlotForPanel, [key]: value } as HeroVideo;
     setVideoSlot(next);
-    if (next.url) mutateMedia({ type: "VIDEO", video: next });
+    dispatch({
+      type: "mutate",
+      mutate: (latest) => {
+        const latestVideo = findSlide(latest, slideId)?.media?.video;
+        if (!latestVideo) return latest;
+        return updateHeroMedia(latest, slideId, {
+          type: "VIDEO",
+          video: { ...latestVideo, [key]: value },
+        });
+      },
+    });
   };
 
   const updateFocal = (next: FocalPoint): void => {
@@ -424,41 +496,87 @@ function HeroMediaPanel({
     setSafeAreaFlags((previous) => ({ ...previous, [key]: checked }));
   };
 
-  const onVideoUploaded = (next: HeroVideo): void => {
-    setError(null);
-    setVideoSlot(next);
-    setMediaType("VIDEO");
-    mutateMedia({
-      type: "VIDEO",
-      video: next,
-      ...(mobileEnabled ? { mobileOverride: { enabled: true } } : {}),
+  const commitUploadedVideo = (
+    uploaded: { url: string; poster: string },
+    mobile: boolean,
+  ): void => {
+    dispatch({
+      type: "mutate",
+      mutate: (latest) => {
+        const latestSlide = findSlide(latest, slideId);
+        const latestMedia = latestSlide?.media;
+        if (mobile && !latestMedia) return latest;
+        const latestVideo = mobile
+          ? latestMedia?.mobileOverride.video
+          : latestMedia?.video;
+        const video = {
+          ...defaultVideo(latestVideo ?? undefined),
+          url: uploaded.url,
+          poster: uploaded.poster,
+        };
+        return mobile
+          ? updateHeroMedia(latest, slideId, {
+              mobileOverride: { video },
+            })
+          : updateHeroMedia(latest, slideId, { type: "VIDEO", video });
+      },
     });
   };
 
-  const onMobileVideoUploaded = (next: HeroVideo): void => {
+  const onVideoUploaded = (uploaded: { url: string; poster: string }): void => {
     setError(null);
-    setMobileVideoSlot(next);
-    setMobileType("VIDEO");
-    setMobileEnabled(true);
-    mutateMedia({ mobileOverride: { enabled: true, video: next } });
+    commitUploadedVideo(uploaded, false);
+  };
+
+  const onMobileVideoUploaded = (uploaded: { url: string; poster: string }): void => {
+    setError(null);
+    commitUploadedVideo(uploaded, true);
   };
 
   const onPosterUrlChange = (url: string): void => {
-    if (!videoSlot) return;
-    const next = { ...videoSlot, poster: url.trim() || null };
+    if (!videoSlotForPanel) return;
+    const next = { ...videoSlotForPanel, poster: url.trim() || null };
     setVideoSlot(next);
-    if (next.url) mutateMedia({ type: "VIDEO", video: next });
+    dispatch({
+      type: "mutate",
+      mutate: (latest) => {
+        const latestVideo = findSlide(latest, slideId)?.media?.video;
+        if (!latestVideo) return latest;
+        return updateHeroMedia(latest, slideId, {
+          type: "VIDEO",
+          video: { ...latestVideo, poster: url.trim() || null },
+        });
+      },
+    });
   };
 
   const onMobilePosterUrlChange = (url: string): void => {
-    if (!mobileVideoSlot) return;
-    const next = { ...mobileVideoSlot, poster: url.trim() || null };
+    if (!mobileVideoSlotForPanel || !media) return;
+    const next = { ...mobileVideoSlotForPanel, poster: url.trim() || null };
     setMobileVideoSlot(next);
-    if (next.url) mutateMedia({ mobileOverride: { enabled: true, video: next } });
+    dispatch({
+      type: "mutate",
+      mutate: (latest) => {
+        const latestVideo = findSlide(latest, slideId)?.media?.mobileOverride.video;
+        if (!latestVideo) return latest;
+        return updateHeroMedia(latest, slideId, {
+          mobileOverride: {
+            enabled: true,
+            video: { ...latestVideo, poster: url.trim() || null },
+          },
+        });
+      },
+    });
   };
 
   const selectMobileEnabled = (checked: boolean): void => {
-    setMobileEnabled(checked);
+    if (!media) return;
+    if (!checked) {
+      setMobileImageSlot(null);
+      setMobileVideoSlot(null);
+      mobileTypeIntentRef.current = null;
+      setMobileType("IMAGE");
+    }
     mutateMedia({ mobileOverride: { enabled: checked } });
   };
 
@@ -487,16 +605,16 @@ function HeroMediaPanel({
         <ImageSlot
           label={t("homepage_builder_media_image")}
           ariaPrefix={t("homepage_builder_media_image")}
-          slot={imageSlot}
-          onUrlChange={(url) => updateImage({ url, alt: imageSlot?.alt ?? "" })}
-          onAltChange={(alt) => updateImage({ url: imageSlot?.url ?? "", alt })}
+          slot={imageSlotForPanel}
+          onUrlChange={(url) => updateImage({ url, alt: imageSlotForPanel?.alt ?? "" })}
+          onAltChange={(alt) => updateImage({ url: imageSlotForPanel?.url ?? "", alt })}
         />
       ) : (
         <Group title={t("homepage_builder_media_video")}>
           <VideoUploadControl
             fileLabel={t("homepage_builder_media_video_file")}
             idPrefix="hero"
-            slot={videoSlot}
+            slot={videoSlotForPanel}
             onUploaded={onVideoUploaded}
             onError={(key) => setError(t(key))}
           />
@@ -565,18 +683,24 @@ function HeroMediaPanel({
             className="h-4 w-4 accent-cta"
             aria-label={t("homepage_builder_media_mobile_override")}
             checked={mobileEnabled}
+            disabled={!media}
             onChange={(event) => selectMobileEnabled(event.target.checked)}
           />
           {t("homepage_builder_media_mobile_override")}
         </label>
-        {mobileEnabled ? (
+        {!media ? (
+          <p className="text-xs text-ink-secondary">
+            {t("homepage_builder_media_mobile_requires_primary")}
+          </p>
+        ) : null}
+        {media && mobileEnabled ? (
           <div className="flex flex-col gap-2">
             <div className="flex gap-1" role="group" aria-label={t("homepage_builder_media_mobile_override")}>
               <button
                 type="button"
                 aria-pressed={mobileType === "IMAGE"}
                 className="rounded border border-border px-2 py-1 text-xs font-semibold text-ink-secondary"
-                onClick={() => setMobileType("IMAGE")}
+                onClick={() => selectMobileType("IMAGE")}
               >
                 {t("homepage_builder_media_mobile_image")}
               </button>
@@ -584,7 +708,7 @@ function HeroMediaPanel({
                 type="button"
                 aria-pressed={mobileType === "VIDEO"}
                 className="rounded border border-border px-2 py-1 text-xs font-semibold text-ink-secondary"
-                onClick={() => setMobileType("VIDEO")}
+                onClick={() => selectMobileType("VIDEO")}
               >
                 {t("homepage_builder_media_mobile_video")}
               </button>
@@ -593,16 +717,16 @@ function HeroMediaPanel({
               <ImageSlot
                 label={t("homepage_builder_media_mobile_image")}
                 ariaPrefix={t("homepage_builder_media_mobile_image")}
-                slot={mobileImageSlot}
-                onUrlChange={(url) => updateMobileImage({ url, alt: mobileImageSlot?.alt ?? "" })}
-                onAltChange={(alt) => updateMobileImage({ url: mobileImageSlot?.url ?? "", alt })}
+                slot={mobileImageSlotForPanel}
+                onUrlChange={(url) => updateMobileImage({ url, alt: mobileImageSlotForPanel?.alt ?? "" })}
+                onAltChange={(alt) => updateMobileImage({ url: mobileImageSlotForPanel?.url ?? "", alt })}
               />
             ) : (
               <>
                 <VideoUploadControl
                   fileLabel={t("homepage_builder_media_mobile_video_file")}
                   idPrefix="mobile"
-                  slot={mobileVideoSlot}
+                  slot={mobileVideoSlotForPanel}
                   onUploaded={onMobileVideoUploaded}
                   onError={(key) => setError(t(key))}
                 />
