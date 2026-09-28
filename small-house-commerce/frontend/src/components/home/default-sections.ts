@@ -1,3 +1,4 @@
+import { emptySlide } from "@/lib/homepage-document";
 import type { HomepageSection } from "@/lib/api";
 
 /**
@@ -5,6 +6,44 @@ import type { HomepageSection } from "@/lib/api";
  * API call fails from the RSC. Category tiles and grids come back empty here;
  * empty-state cards render instead of crashing the page.
  */
+
+/**
+ * The fallback hero loads through the real storefront `HeroSlider`, which reads
+ * the v2 `slides` shape from the document schema. The slide is built from the
+ * editor's own `emptySlide(0)` so it reuses the real default element layouts
+ * (no third shape). CTAs carry the resolved `linkHref` directly — this fallback
+ * bypasses the backend, so it mirrors exactly what the backend's `presentHero`
+ * would have emitted for the storefront payload.
+ */
+const FALLBACK_HERO_SLIDE = (() => {
+  const slide = emptySlide(0);
+  slide.id = "default-hero-slide";
+  slide.name = "Fallback hero";
+  slide.elements.heading.text = "Small Space. Big Luwag.";
+  slide.elements.subheading.text =
+    "Furniture designed for condos, rentals and everyday small-space living.";
+  slide.elements.ctaPrimary.text = "Shop Small-Space Picks";
+  slide.elements.ctaPrimary.link = { type: "EXTERNAL", url: "/collections" };
+  (slide.elements.ctaPrimary as { linkHref?: string | null }).linkHref =
+    "/collections";
+  slide.elements.ctaSecondary.text = "Explore Solutions";
+  slide.elements.ctaSecondary.link = { type: "EXTERNAL", url: "#solutions" };
+  (slide.elements.ctaSecondary as { linkHref?: string | null }).linkHref =
+    "#solutions";
+  return slide;
+})();
+
+// Behaviour mirrors the editor document's DEFAULT_BEHAVIOR (homepage-document.ts).
+const FALLBACK_HERO_BEHAVIOR = {
+  autoplay: true,
+  durationMs: 6000,
+  transition: "FADE",
+  pauseOnHover: true,
+  arrows: true,
+  pagination: "DOTS",
+  manualPauseMs: 12000,
+};
+
 export const DEFAULT_SECTIONS: HomepageSection[] = [
   {
     id: "default-hero",
@@ -13,10 +52,8 @@ export const DEFAULT_SECTIONS: HomepageSection[] = [
     title: "Small Space. Big Luwag.",
     subtitle: "Furniture designed for condos, rentals and everyday small-space living.",
     payload: {
-      ctaPrimaryText: "Shop Small-Space Picks",
-      ctaPrimaryLink: "/collections",
-      ctaSecondaryText: "Explore Solutions",
-      ctaSecondaryLink: "#solutions",
+      behavior: FALLBACK_HERO_BEHAVIOR,
+      slides: [FALLBACK_HERO_SLIDE],
     },
   },
   { id: "default-usp", type: "USP", sortOrder: 10, title: null, subtitle: null, payload: {} },
