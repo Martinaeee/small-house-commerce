@@ -254,6 +254,9 @@ export function HomepageEditorShell(): ReactNode {
 
     const { document, rev } = stateRef.current;
     dispatch({ type: "saving" });
+    // DEFERRED (Task 12 minor ④): a PUT that never settles leaves `saveState`
+    // stuck on "saving" (autosave then waits forever). P1 ships without a
+    // timeout/abort; the operator can still reload or use Load latest.
     const run = (async (): Promise<boolean> => {
       try {
         const result = await adminApi.saveHomepageDraft(document, rev);
@@ -414,6 +417,10 @@ export function HomepageEditorShell(): ReactNode {
     }
   }, [dispatch]);
 
+  // DEFERRED (Task 12 minor ②): "keep mine" fetches the latest rev and
+  // immediately re-saves, so a third writer landing between the GET and the PUT
+  // loses the race and surfaces a second 409 — acceptable for P1 (the conflict
+  // bar simply reappears); a retry loop is deliberately not implemented here.
   const keepMine = useCallback(async (): Promise<void> => {
     const local = stateRef.current.document;
     let latest: HomepageDraftSnapshot;
