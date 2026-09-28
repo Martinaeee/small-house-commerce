@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminShell } from "./AdminShell";
 
@@ -155,5 +155,67 @@ describe("AdminShell hidden permission-backed destinations", () => {
       screen.getByText("No modules available for your account."),
     ).toBeVisible();
     expect(screen.queryByText("Protected route content")).not.toBeInTheDocument();
+  });
+});
+
+describe("AdminShell website navigation group", () => {
+  beforeEach(() => {
+    shellState.pathname = "/admin/homepage";
+    shellState.permissions = ["PRODUCT_MANAGE"];
+    shellState.replace.mockReset();
+    shellState.logout.mockReset();
+  });
+
+  function desktopNav(): HTMLElement {
+    return screen.getByRole("navigation", { name: "Admin navigation" });
+  }
+
+  it("renders the Website group title with Homepage for PRODUCT_MANAGE accounts", () => {
+    renderShell();
+
+    expect(within(desktopNav()).getByText("nav_group_website")).toBeVisible();
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_homepage" }),
+    ).toHaveAttribute("href", "/admin/homepage");
+  });
+
+  it("hides the Website group title and Homepage without PRODUCT_MANAGE", () => {
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
+    expect(
+      within(desktopNav()).queryByText("nav_group_website"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(desktopNav()).queryByRole("link", { name: "nav_homepage" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_orders" }),
+    ).toBeVisible();
+  });
+
+  it("keeps the existing navigation items and their order", () => {
+    shellState.permissions = [
+      "ORDER_VIEW_ALL",
+      "INVENTORY_VIEW",
+      "PRODUCT_MANAGE",
+      "CAMPAIGN_LINK_BUILD",
+      "SYSTEM_SETTINGS_EDIT",
+    ];
+    renderShell();
+
+    const labels = within(desktopNav())
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(labels).toEqual([
+      "nav_orders",
+      "nav_inventory",
+      "nav_products",
+      "nav_groupings",
+      "nav_homepage",
+      "nav_single_pages",
+      "nav_link_builder",
+      "nav_settings",
+    ]);
   });
 });

@@ -7,6 +7,7 @@ export const en: Record<ZhKey, string> = {
   nav_inventory: "Inventory",
   nav_products: "Products",
   nav_groupings: "Groupings",
+  nav_group_website: "Website",
   nav_homepage: "Homepage Builder",
   nav_single_pages: "Single Pages",
   nav_link_builder: "Link Builder",

@@ -5,6 +5,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 /** Labels are optional so the shared preview remains usable outside the admin provider. */
 export interface PreviewPaneLabels {
   desktopDevice: string;
+  /** Tablet frame label (homepage builder switcher); shared previews use desktop/mobile only. */
+  tabletDevice?: string;
   mobileDevice: string;
   refresh: string;
   savedNote: ReactNode;
@@ -15,6 +17,7 @@ export interface PreviewPaneLabels {
 
 const DEFAULT_LABELS: PreviewPaneLabels = {
   desktopDevice: "电脑 1440×900",
+  tabletDevice: "平板 768×1024",
   mobileDevice: "手机 390×844",
   refresh: "刷新预览",
   savedNote: (
@@ -36,6 +39,12 @@ const DEVICES = {
     height: 900,
     scale: 0.42,
   },
+  tablet: {
+    labelKey: "tabletDevice",
+    width: 768,
+    height: 1024,
+    scale: 0.5,
+  },
   mobile: {
     labelKey: "mobileDevice",
     width: 390,
@@ -54,7 +63,10 @@ export function DeviceFrame({
 }: {
   device: DeviceName;
   children: ReactNode;
-  labels?: Pick<PreviewPaneLabels, "desktopDevice" | "mobileDevice">;
+  labels?: Pick<
+    PreviewPaneLabels,
+    "desktopDevice" | "mobileDevice" | "tabletDevice"
+  >;
   /** Extra classes on the outer frame (used for responsive visibility). */
   className?: string;
 }): ReactNode {
@@ -62,7 +74,7 @@ export function DeviceFrame({
   const maxWidth = d.width * d.scale;
   const [frameWidth, setFrameWidth] = useState(maxWidth);
   const frameRef = useRef<HTMLDivElement>(null);
-  const label = labels[d.labelKey];
+  const label = labels[d.labelKey] ?? DEFAULT_LABELS[d.labelKey];
   const scale = Math.min(d.scale, frameWidth / d.width);
   const frameHeight = d.height * scale;
 

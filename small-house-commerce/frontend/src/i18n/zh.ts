@@ -6,6 +6,7 @@ export const zh = {
   nav_inventory: "库存",
   nav_products: "商品",
   nav_groupings: "商品分组",
+  nav_group_website: "网站",
   nav_homepage: "首页装修",
   nav_single_pages: "落地页",
   nav_link_builder: "投放链接",
