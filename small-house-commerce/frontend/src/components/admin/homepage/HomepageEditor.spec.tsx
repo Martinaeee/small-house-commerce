@@ -538,18 +538,37 @@ describe("HomepageEditor", () => {
     const modulesPane = document.querySelector('[data-pane="modules"]');
     const previewPane = document.querySelector('[data-pane="preview"]');
     const settingsPane = document.querySelector('[data-pane="settings"]');
-    expect(modulesPane).not.toHaveAttribute("hidden");
-    expect(previewPane).toHaveAttribute("hidden");
-    expect(settingsPane).toHaveAttribute("hidden");
+    // Narrow layout: only the active pane is visible, through the
+    // `max-[1279px]:hidden` class (Tailwind v4 preflight makes the `hidden`
+    // attribute `!important`, so it can never be used with the desktop grid).
+    expect(modulesPane).not.toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(previewPane).toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(settingsPane).toHaveClass(/max-\[1279px\]\:hidden/);
 
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(modulesPane).toHaveAttribute("hidden");
-    expect(settingsPane).not.toHaveAttribute("hidden");
-    expect(previewPane).toHaveAttribute("hidden");
+    expect(modulesPane).toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(settingsPane).not.toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(previewPane).toHaveClass(/max-\[1279px\]\:hidden/);
     expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+  });
+
+  it("shows every pane in the desktop grid above 1280px, never via the hidden attribute", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    // Tailwind v4 preflight maps `[hidden]` to `display: none !important`
+    // (a bare `min-[1280px]:block` cannot override it), so a pane that keeps
+    // the hidden attribute stays invisible in the desktop three-pane grid.
+    // The desktop layout must rely on classes alone.
+    for (const name of ["modules", "preview", "settings"]) {
+      const pane = document.querySelector(`[data-pane="${name}"]`);
+      expect(pane).not.toBeNull();
+      expect(pane).not.toHaveAttribute("hidden");
+      expect(pane).toHaveClass(/min-\[1280px\]\:block/);
+    }
   });
 
   it("wires the status bar save button and the publish dialog", async () => {

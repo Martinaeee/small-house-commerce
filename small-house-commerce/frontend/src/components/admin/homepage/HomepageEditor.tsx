@@ -679,14 +679,18 @@ export function HomepageEditorShell(): ReactNode {
         ))}
       </div>
 
-      {/* Three panes: stacked switcher below 1280px, 280/1fr/360 grid above */}
+      {/* Three panes: stacked switcher below 1280px, 280/1fr/360 grid above.
+          Tailwind v4 preflight maps `[hidden]` to `display:none !important`,
+          which a bare `min-[1280px]:block` cannot override — so desktop
+          visibility is driven purely by classes here (Ruling 44 fix, Task 22). */}
       <div className="grid min-w-0 gap-4 min-[1280px]:grid-cols-[280px_minmax(0,1fr)_360px]">
         <section
           id="homepage-pane-modules"
           data-pane="modules"
           aria-label={t("homepage_builder_pane_modules")}
-          hidden={activePane !== "modules"}
-          className="min-w-0 min-[1280px]:block"
+          className={`min-w-0 min-[1280px]:block ${
+            activePane !== "modules" ? "max-[1279px]:hidden" : ""
+          }`}
         >
           <ModuleTree />
         </section>
@@ -695,8 +699,9 @@ export function HomepageEditorShell(): ReactNode {
           id="homepage-pane-preview"
           data-pane="preview"
           aria-label={t("homepage_builder_pane_preview")}
-          hidden={activePane !== "preview"}
-          className="min-w-0 min-[1280px]:block"
+          className={`min-w-0 min-[1280px]:block ${
+            activePane !== "preview" ? "max-[1279px]:hidden" : ""
+          }`}
         >
           <div className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-4">
             <div
@@ -735,8 +740,9 @@ export function HomepageEditorShell(): ReactNode {
           id="homepage-pane-settings"
           data-pane="settings"
           aria-label={t("homepage_builder_pane_settings")}
-          hidden={activePane !== "settings"}
-          className="min-w-0 min-[1280px]:block"
+          className={`min-w-0 min-[1280px]:block ${
+            activePane !== "settings" ? "max-[1279px]:hidden" : ""
+          }`}
         >
           {/* Right-pane routing priority (ledger Ruling 31): the announcement
               pseudo-node, then a selected element, then section/slide style. */}
