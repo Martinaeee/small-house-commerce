@@ -26,17 +26,15 @@ import {
   setElementOverride,
   updateHeroElement,
   type ElementLayout,
-  type HeroElement,
   type HeroElementKey,
   type HeroSlide,
   type HomepageDocument,
   type HomepageSection,
 } from "@/lib/homepage-document";
-import {
-  elementInlineVars,
-  overlayCss,
-  safeHex,
-} from "@/lib/homepage-styles";
+import { safeHex } from "@/lib/homepage-styles";
+import { HeroSlider } from "@/components/home/HeroSlider";
+
+export { HeroSlider };
 
 /**
  * Hero canvas (spec: homepage builder P1, Task 16).
@@ -48,10 +46,16 @@ import {
  * Device faithfulness: `heroCss` (Task 10) scopes the `--el-*` variables through
  * viewport media queries, but the editor simulates devices with a frame — not a
  * viewport — so the canvas injects the CURRENT device's effective values as
- * inline custom properties on the stage. Inline custom properties win over the
- * injected stylesheet, so layout, alignment and typography always render the
- * selected device. During a drag the dragged element's `-x`/`-y` variables are
- * overridden with the local preview (never committed to the reducer).
+ * inline custom properties on the stage (read by the tests) AND emits a small
+ * override stylesheet after the real `HeroSlider` that re-asserts those values
+ * on the slide selector for real-browser rendering. The stylesheet is the
+ * authoritative layer (custom-element inheritance loses to the slides' own
+ * custom properties); together they keep layout, alignment and typography
+ * pinned to the selected device. The override also pins `--hp-hero-height` to
+ * 100% so the shared container fills the frame instead of the storefront's
+ * viewport-based 4:5 calc. During a drag the dragged element's `-x`/`-y`
+ * variables are overridden with the local preview (never committed to the
+ * reducer).
  */
 
 /** Element render order; also the Tab cycle order (spec §5.4). */
@@ -147,249 +151,6 @@ export function snapValue(
 }
 
 type HeroSection = Extract<HomepageSection, { type: "HERO" }>;
-
-type HeroSliderEdit = {
-  selectedElementKey: HeroElementKey | null;
-  onSelectElement(key: HeroElementKey): void;
-};
-
-/** Per-element typography fallbacks so an unstyled draft still reads like a hero. */
-const TYPOGRAPHY_FALLBACKS: Record<
-  HeroElementKey,
-  { size: string; weight: string }
-> = {
-  eyebrow: { size: "0.875rem", weight: "500" },
-  heading: { size: "2.25rem", weight: "600" },
-  subheading: { size: "1rem", weight: "400" },
-  offer: { size: "0.875rem", weight: "600" },
-  ctaPrimary: { size: "0.875rem", weight: "600" },
-  ctaSecondary: { size: "0.875rem", weight: "600" },
-  countdown: { size: "1.25rem", weight: "600" },
-};
-
-const HANDLE_CORNERS = ["nw", "ne", "sw", "se"] as const;
-
-const HANDLE_CLASSES: Record<(typeof HANDLE_CORNERS)[number], string> = {
-  nw: "-left-1.5 -top-1.5",
-  ne: "-right-1.5 -top-1.5",
-  sw: "-left-1.5 -bottom-1.5",
-  se: "-right-1.5 -bottom-1.5",
-};
-
-/**
- * Minimal inline HeroSlider with the final Task 19 signature, so Task 19 can
- * replace this export without touching consumers.
- *
- * DOM contract shared with the real Task 19 component:
- *   - root: `id="hp-hero-<sectionId>"` (the scope `heroCss` targets);
- *   - slide wrapper: `[data-slide="<slideId>"]` filling the canvas stage;
- *   - element containers: `[data-hero-element="<key>"]`, absolutely positioned
- *     through `elementInlineVars(key)` (the `--el-*` variables);
- *   - `edit` present → every container is click-selectable and the selected key
- *     renders a 2px dashed outline with four corner handles;
- *   - `edit` absent → zero interaction (storefront / version preview reuse).
- *
- * The canvas narrows `section.payload.slides` to the selected slide; edit mode
- * must render the slides it receives without autoplay or rotation.
- */
-export function HeroSlider({
-  section,
-  edit,
-}: {
-  section: HomepageSection;
-  edit?: HeroSliderEdit;
-}): ReactNode {
-  if (section.type !== "HERO") return null;
-  const slides = section.payload.slides;
-  if (slides.length === 0) return null;
-
-  return (
-    <div
-      id={`hp-hero-${section.id}`}
-      className="absolute inset-0 overflow-hidden text-white"
-    >
-      {slides.map((slide, index) => (
-        <div
-          key={slide.id}
-          data-slide={slide.id}
-          className="absolute inset-0"
-          hidden={index > 0}
-        >
-          <HeroSlideLayer slide={slide} edit={edit} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function HeroSlideLayer({
-  slide,
-  edit,
-}: {
-  slide: HeroSlide;
-  edit?: HeroSliderEdit;
-}): ReactNode {
-  const media = slide.media;
-  const background =
-    media?.type === "IMAGE"
-      ? (media.image?.url ?? null)
-      : (media?.video?.poster ?? null);
-
-  return (
-    <>
-      {background ? (
-        // eslint-disable-next-line @next/next/no-img-element -- editor canvas media layer; admin-only source, no optimizer domain allowlist.
-        <img
-          src={background}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : (
-        <div
-          data-hero-media-fallback
-          aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-br from-primary-light to-cta/30"
-        />
-      )}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0"
-        style={{ backgroundImage: overlayCss(slide.overlay) }}
-      />
-      {ELEMENT_KEYS.map((key) => (
-        <HeroElementContainer
-          key={key}
-          elementKey={key}
-          element={slide.elements[key]}
-          edit={edit}
-        />
-      ))}
-    </>
-  );
-}
-
-function HeroElementContainer({
-  elementKey,
-  element,
-  edit,
-}: {
-  elementKey: HeroElementKey;
-  element: HeroElement;
-  edit?: HeroSliderEdit;
-}): ReactNode {
-  const selected = edit?.selectedElementKey === elementKey;
-  const fallback = TYPOGRAPHY_FALLBACKS[elementKey];
-  const style: CSSProperties = {
-    ...elementInlineVars(elementKey),
-    fontSize: `var(--el-${elementKey}-size, ${fallback.size})`,
-    fontWeight: `var(--el-${elementKey}-weight, ${fallback.weight})`,
-    lineHeight: `var(--el-${elementKey}-lh, inherit)`,
-    letterSpacing: `var(--el-${elementKey}-ls, inherit)`,
-    color: `var(--el-${elementKey}-color, inherit)`,
-    maxWidth: `var(--el-${elementKey}-maxw, none)`,
-  };
-
-  return (
-    <div
-      data-hero-element={elementKey}
-      className={`min-h-[1.5em] ${edit ? "cursor-move" : ""}`}
-      style={style}
-      onClick={edit ? () => edit.onSelectElement(elementKey) : undefined}
-    >
-      <HeroElementContent element={element} elementKey={elementKey} />
-      {selected ? <SelectionChrome /> : null}
-    </div>
-  );
-}
-
-function HeroElementContent({
-  element,
-  elementKey,
-}: {
-  element: HeroElement;
-  elementKey: HeroElementKey;
-}): ReactNode {
-  const text = element.text.trim();
-  const placeholder = (
-    <span data-hero-element-placeholder className="opacity-40">
-      {elementKey}
-    </span>
-  );
-
-  if (elementKey === "countdown" && "endsAt" in element) {
-    // The inline render is static; Task 19's HeroSlideCountdown owns the live
-    // ticking and the "expired hides the element" storefront rule. The editor
-    // keeps the block visible so it stays selectable.
-    if (element.endsAt === null) return placeholder;
-    return <span>{text || "00 : 00 : 00 : 00"}</span>;
-  }
-
-  if (!text) return placeholder;
-
-  if (elementKey === "offer" && "chip" in element) {
-    const { chip } = element;
-    return (
-      <span
-        className="inline-flex items-center"
-        style={{
-          background: safeHex(chip.background, "#F2EFE9"),
-          color: safeHex(chip.textColor, DEFAULT_TEXT_COLOR),
-          borderRadius: `${chip.borderRadius}px`,
-          padding: `${chip.paddingY}px ${chip.paddingX}px`,
-        }}
-      >
-        {text}
-      </span>
-    );
-  }
-
-  if (
-    (elementKey === "ctaPrimary" || elementKey === "ctaSecondary") &&
-    "button" in element
-  ) {
-    const { button } = element;
-    const solid = button.variant === "SOLID";
-    return (
-      <span
-        className="inline-flex items-center justify-center"
-        style={{
-          background: solid ? safeHex(button.background, DEFAULT_TEXT_COLOR) : undefined,
-          color: solid ? safeHex(button.textColor, "#FFFFFF") : undefined,
-          border:
-            button.variant === "OUTLINE"
-              ? `1px solid ${safeHex(button.borderColor, DEFAULT_TEXT_COLOR)}`
-              : undefined,
-          textDecoration: button.variant === "LINK" ? "underline" : undefined,
-          borderRadius: `${button.borderRadius}px`,
-          padding: `${button.paddingY}px ${button.paddingX}px`,
-        }}
-      >
-        {text}
-      </span>
-    );
-  }
-
-  return <span>{text}</span>;
-}
-
-function SelectionChrome(): ReactNode {
-  return (
-    <div
-      data-hero-selection-box
-      aria-hidden="true"
-      className="pointer-events-none absolute -inset-1 border-2 border-dashed border-cta"
-    >
-      {HANDLE_CORNERS.map((corner) => (
-        <span
-          key={corner}
-          data-hero-handle={corner}
-          className={`absolute h-3 w-3 rounded-[2px] border border-cta bg-white ${HANDLE_CLASSES[corner]}`}
-        />
-      ))}
-    </div>
-  );
-}
 
 function firstHero(doc: HomepageDocument): HeroSection | null {
   const section = doc.sections.find(({ type }) => type === "HERO");
@@ -788,12 +549,69 @@ export function HeroCanvas(): ReactNode {
         vars[`--el-${key}-maxw`] = `${style.maxWidthPct}%`;
       }
     }
+    // The shared HeroSlider container reads height:var(--hp-hero-height); in the
+    // editor the stage owns the height, so pin the variable to 100%.
+    vars["--hp-hero-height"] = "100%";
     if (dragPreview) {
       vars[`--el-${dragPreview.key}-x`] = `${dragPreview.xPct}%`;
       vars[`--el-${dragPreview.key}-y`] = `${dragPreview.yPct}%`;
     }
     return vars as CSSProperties;
   }, [slide, device, dragPreview]);
+
+  /**
+   * The inline stage vars above read cleanly from tests, but a real browser
+   * resolves custom properties on the slide element, where `heroCss` (rendered
+   * inside the shared HeroSlider) also sets them - and the slide's own values
+   * win over the stage's inherited ones. Re-assert the same effective values in
+   * a stylesheet emitted AFTER the HeroSlider so equal-specificity rules resolve
+   * to the selected device (and the drag preview) in the real cascade, then pin
+   * the hero height to the frame.
+   */
+  const deviceOverrideCss = useMemo<string>(() => {
+    if (!section || !slide) return "";
+    if (section.type !== "HERO") return "";
+    const rule: string[] = [];
+    for (const key of ELEMENT_KEYS) {
+      const { style, layout } = effectiveElementStyle(slide, key, device);
+      rule.push(`--el-${key}-x: ${layout.xPct}%;`);
+      rule.push(`--el-${key}-y: ${layout.yPct}%;`);
+      rule.push(`--el-${key}-w: ${layout.widthPct}%;`);
+      rule.push(
+        `--el-${key}-align: ${(style.textAlign ?? layout.align).toLowerCase()};`,
+      );
+      if (typeof style.fontSize === "number" && Number.isFinite(style.fontSize)) {
+        rule.push(`--el-${key}-size: ${style.fontSize}px;`);
+      }
+      if (typeof style.fontWeight === "number") {
+        rule.push(`--el-${key}-weight: ${style.fontWeight};`);
+      }
+      if (typeof style.lineHeight === "number") {
+        rule.push(`--el-${key}-lh: ${style.lineHeight};`);
+      }
+      if (typeof style.letterSpacing === "number") {
+        rule.push(`--el-${key}-ls: ${style.letterSpacing}px;`);
+      }
+      if (typeof style.textColor === "string") {
+        rule.push(`--el-${key}-color: ${safeHex(style.textColor, DEFAULT_TEXT_COLOR)};`);
+      }
+      if (typeof style.maxWidthPct === "number") {
+        rule.push(`--el-${key}-maxw: ${style.maxWidthPct}%;`);
+      }
+    }
+    if (dragPreview) {
+      rule.push(`--el-${dragPreview.key}-x: ${dragPreview.xPct}%;`);
+      rule.push(`--el-${dragPreview.key}-y: ${dragPreview.yPct}%;`);
+    }
+    return [
+      `#hp-hero-${section.id} { --hp-hero-height: 100%; }`,
+      rule.length > 0
+        ? `#hp-hero-${section.id} [data-slide="${slide.id}"] { ${rule.join(" ")} }`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }, [section, slide, device, dragPreview]);
 
   const focusCanvas = useCallback((): void => {
     const canvas = canvasRef.current;
@@ -1151,13 +969,24 @@ export function HeroCanvas(): ReactNode {
         style={stageVars}
       >
         {viewSection ? (
-          <HeroSlider
-            section={viewSection}
-            edit={{
-              selectedElementKey,
-              onSelectElement: setSelectedElementKey,
-            }}
-          />
+          <>
+            {/* The real storefront HeroSlider (Task 19) renders heroCss and the
+                element DOM contract; the canvas narrows it to the selected slide
+                and passes the edit handle. The override stylesheet re-asserts the
+                simulated device's vars on the slide selector (see the memo
+                above) so a real browser resolves the selected device and the
+                frame height. */}
+            <HeroSlider
+              section={viewSection}
+              edit={{
+                selectedElementKey,
+                onSelectElement: setSelectedElementKey,
+              }}
+            />
+            {deviceOverrideCss ? (
+              <style data-hero-canvas-device-css>{deviceOverrideCss}</style>
+            ) : null}
+          </>
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-primary-light/20 text-sm text-ink-secondary">
             {t("homepage_builder_pane_preview")}

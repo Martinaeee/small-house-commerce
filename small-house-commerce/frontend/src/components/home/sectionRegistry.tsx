@@ -3,7 +3,7 @@ import type { HomepageSection, HomepageSectionType } from "@/lib/api";
 import { BrandStorySection } from "./BrandStorySection";
 import { CategoryTilesSection } from "./CategoryTilesSection";
 import { ConfidenceSection } from "./ConfidenceSection";
-import { HeroSection } from "./HeroSection";
+import { HeroSlider } from "./HeroSlider";
 import { ProductGridSection } from "./ProductGridSection";
 import { ProductStorySection } from "./ProductStorySection";
 import { RoomInspirationSection } from "./RoomInspirationSection";
@@ -16,7 +16,7 @@ export interface SectionProps {
 }
 
 export const SECTION_REGISTRY: Record<HomepageSectionType, ComponentType<SectionProps>> = {
-  HERO: HeroSection,
+  HERO: HeroSlider,
   USP: UspSection,
   CATEGORY_TILES: CategoryTilesSection,
   PRODUCT_GRID: ProductGridSection,

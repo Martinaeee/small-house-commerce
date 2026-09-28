@@ -102,6 +102,29 @@ describe("heroCss", () => {
     );
   });
 
+  it("emits the responsive --hp-hero-height variable (mobile 4:5, desktop clamp)", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.heading.layout.xPct = 12;
+    const css = heroCss(SECTION_ID, payload);
+    const scope = `#hp-hero-${SECTION_ID}`;
+    const base = cssBlock(css, `${scope} {`, "@media (min-width: 768px)");
+    const desktop = cssBlock(css, "@media (min-width: 1024px)");
+
+    expect(base).toContain("--hp-hero-height: calc(100vw * 1.25);");
+    expect(base).toContain("height: var(--hp-hero-height);");
+    expect(desktop).toContain(
+      "--hp-hero-height: clamp(560px, 72vh, 720px);",
+    );
+    // the height rules live in the desktop range, not the tablet range
+    expect(
+      cssBlock(
+        css,
+        "@media (min-width: 768px) and (max-width: 1023.98px)",
+        "@media (min-width: 1024px)",
+      ),
+    ).not.toContain("clamp(560px, 72vh, 720px)");
+  });
+
   it("lets a mobile override win in the base block while desktop keeps its own value", () => {
     const { payload, slide } = heroFixture();
     slide.elements.heading.layout.xPct = 10;

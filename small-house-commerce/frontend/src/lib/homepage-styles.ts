@@ -194,6 +194,11 @@ function renderMediaBlock(query: string, blocks: string[]): string {
  * Compile hero element values into SSR-safe, section/slide-scoped CSS.
  * Variables cascade mobile-first; optional typography uses exclusive ranges so
  * absent effective values leave the element's class defaults in the cascade.
+ *
+ * Also emits the section-scoped container height as `--hp-hero-height` (.Task 19,
+ * spec §6.1): mobile/tablet default to the 4:5 portrait calc, desktop swaps to
+ * the clamp formula. The HeroSlider root reads `height: var(--hp-hero-height)`
+ * so the canvas can override the variable and the storefront keeps one source.
  */
 export function heroCss(sectionId: string, payload: HeroPayload): string {
   if (!isUuid(sectionId) || !payload || !Array.isArray(payload.slides)) {
@@ -216,7 +221,9 @@ export function heroCss(sectionId: string, payload: HeroPayload): string {
     renderSlideBlock(sectionId, slide, "desktop"),
   );
 
+  const heightScope = `#hp-hero-${sectionId}`;
   return [
+    `${heightScope} {\n  --hp-hero-height: calc(100vw * 1.25);\n  height: var(--hp-hero-height);\n}`,
     ...mobile.map((block) => block.variables),
     renderMediaBlock(
       "(min-width: 768px)",
@@ -230,10 +237,10 @@ export function heroCss(sectionId: string, payload: HeroPayload): string {
       "(min-width: 768px) and (max-width: 1023.98px)",
       tablet.map((block) => block.typography),
     ),
-    renderMediaBlock(
-      "(min-width: 1024px)",
-      desktop.flatMap((block) => [block.variables, block.typography]),
-    ),
+    renderMediaBlock("(min-width: 1024px)", [
+      `${heightScope} {\n  --hp-hero-height: clamp(560px, 72vh, 720px);\n  height: var(--hp-hero-height);\n}`,
+      ...desktop.flatMap((block) => [block.variables, block.typography]),
+    ]),
   ].join("\n");
 }
 
