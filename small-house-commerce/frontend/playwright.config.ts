@@ -48,6 +48,10 @@ const BACKEND_ENV = {
   // Validated at boot (>= 32 chars); the gate never stores real secrets.
   JWT_SECRET: "e2e-gate-jwt-secret-0123456789abcdef0123456789",
   NODE_ENV: "test",
+  // Homepage draft-preview token gate. A fixed >= 32-char TEST secret so the
+  // preview-token scenarios can mint and verify tokens; production uses
+  // `openssl rand -hex 32` written to .env.deploy (Task 22 release prep).
+  HOMEPAGE_PREVIEW_SECRET: "e2e-homepage-preview-secret-0123456789abcdef",
 };
 
 export default defineConfig({
