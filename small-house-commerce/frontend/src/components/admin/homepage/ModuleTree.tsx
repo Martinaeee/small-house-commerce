@@ -18,11 +18,11 @@ import {
 } from "@dnd-kit/sortable";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
+import { SlideList } from "@/components/admin/homepage/SlideList";
 import {
   duplicateSection,
   moveSection,
   removeSection,
-  updateHeroSlide,
   updateSection,
   type HomepageDocument,
   type HomepageSection,
@@ -180,14 +180,9 @@ export function ModuleTree(): ReactNode {
                 section={section}
                 index={index}
                 selected={section.id === selectedSectionId}
-                selectedSlideId={selectedSlideId}
                 onSelectSection={setSelectedSectionId}
-                onSelectSlide={setSelectedSlideId}
                 onToggleSection={(sectionId, enabled) =>
                   commit(updateSection(document, sectionId, { enabled }))
-                }
-                onToggleSlide={(slideId, enabled) =>
-                  commit(updateHeroSlide(document, slideId, { enabled }))
                 }
                 onDuplicate={(sectionId) =>
                   commit(duplicateSection(document, sectionId))
@@ -212,22 +207,16 @@ function SortableSectionRow({
   section,
   index,
   selected,
-  selectedSlideId,
   onSelectSection,
-  onSelectSlide,
   onToggleSection,
-  onToggleSlide,
   onDuplicate,
   onDelete,
 }: {
   section: HomepageSection;
   index: number;
   selected: boolean;
-  selectedSlideId: string | null;
   onSelectSection: (sectionId: string) => void;
-  onSelectSlide: (slideId: string) => void;
   onToggleSection: (sectionId: string, enabled: boolean) => void;
-  onToggleSlide: (slideId: string, enabled: boolean) => void;
   onDuplicate: (sectionId: string) => void;
   onDelete: (section: HomepageSection, index: number) => void;
 }): ReactNode {
@@ -242,7 +231,6 @@ function SortableSectionRow({
     isDragging,
   } = useSortable({ id: section.id });
   const addable = ADDABLE_SECTION_TYPES.has(section.type);
-  const slides = section.type === "HERO" ? section.payload.slides : [];
 
   return (
     <li
@@ -312,42 +300,10 @@ function SortableSectionRow({
         ) : null}
       </div>
 
-      {slides.length > 0 ? (
-        <ul className="flex flex-col gap-0.5 px-1.5 pb-1.5 pl-8">
-          {slides.map((slide, slideIndex) => {
-            const slideSelected = slide.id === selectedSlideId;
-            return (
-              <li
-                key={slide.id}
-                data-slide-row={slide.id}
-                className="flex items-center gap-1"
-              >
-                <button
-                  type="button"
-                  onClick={() => onSelectSlide(slide.id)}
-                  aria-pressed={slideSelected}
-                  className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors ${
-                    slideSelected ? "text-cta" : "text-ink-secondary hover:text-cta"
-                  }`}
-                >
-                  <span className="tabular-nums text-ink-muted">
-                    {String(slideIndex + 1).padStart(2, "0")}
-                  </span>
-                  <span className="truncate">{slide.name}</span>
-                </button>
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-cta"
-                  checked={slide.enabled}
-                  aria-label={t("homepage_builder_slide_enabled")}
-                  onChange={(event) =>
-                    onToggleSlide(slide.id, event.target.checked)
-                  }
-                />
-              </li>
-            );
-          })}
-        </ul>
+      {/* Ledger Ruling 30: the selected HERO expands into the Task 14 slide
+          list (add/duplicate/delete/reorder live there). */}
+      {section.type === "HERO" && selected ? (
+        <SlideList sectionId={section.id} />
       ) : null}
     </li>
   );

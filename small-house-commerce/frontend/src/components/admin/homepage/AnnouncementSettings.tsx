@@ -57,21 +57,25 @@ type BufferedText = {
   reset(next: string): void;
 };
 
-type DocumentMutator = (
+export type DocumentMutator = (
   document: HomepageDocument,
   next: string,
 ) => HomepageDocument;
 
 /**
- * Buffer mechanics for a document-backed text input: local state plus a 300 ms
- * debounce, one commit per typing burst or on blur, never per keystroke.
- * Invalid text is kept while the field has focus (the caller can surface an
- * error) and reverted on blur.
+ * Buffer mechanics for a document-backed text input: local state plus a
+ * debounce (300 ms by default), one commit per typing burst or on blur, never
+ * per keystroke. Invalid text is kept while the field has focus (the caller
+ * can surface an error) and reverted on blur.
+ *
+ * Exported for the element/slide panels (Task 14), which reuse the same
+ * mechanics with their own coalescing windows.
  */
-function useBufferedValue(
+export function useBufferedValue(
   external: string,
   fire: (next: string) => void,
   isValid: (next: string) => boolean = () => true,
+  delayMs: number = TEXT_COMMIT_DELAY_MS,
 ): BufferedText {
   const [value, setValue] = useState(external);
   const [synced, setSynced] = useState(external);
@@ -121,7 +125,7 @@ function useBufferedValue(
       timer.current = setTimeout(() => {
         timer.current = null;
         fireNow(next);
-      }, TEXT_COMMIT_DELAY_MS);
+      }, delayMs);
     },
     blur() {
       clearTimer();
@@ -143,11 +147,14 @@ function useBufferedValue(
  * reducer applies to its latest document: two timers expiring in the same
  * flush therefore cannot drop each other's edit (a document built from a
  * render-captured snapshot would).
+ *
+ * Exported for the element/slide panels (Task 14).
  */
-function useBufferedText(
+export function useBufferedText(
   external: string,
   mutate: DocumentMutator,
   isValid: (next: string) => boolean = () => true,
+  delayMs: number = TEXT_COMMIT_DELAY_MS,
 ): BufferedText {
   const { dispatch } = useHomepageEditor();
   const mutateRef = useRef(mutate);
@@ -164,6 +171,7 @@ function useBufferedText(
       });
     },
     isValid,
+    delayMs,
   );
 }
 

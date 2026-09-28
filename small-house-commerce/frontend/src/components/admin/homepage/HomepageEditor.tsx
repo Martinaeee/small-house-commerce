@@ -20,6 +20,7 @@ import { DeviceFrame } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
 import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
 import { HeroCanvas } from "@/components/admin/homepage/HeroCanvas";
+import { HeroStyleSettings } from "@/components/admin/homepage/HeroStyleSettings";
 import {
   ANNOUNCEMENT_SELECTION_ID,
   ModuleTree,
@@ -176,8 +177,14 @@ export function HomepageEditorProvider({
 
 export function HomepageEditorShell(): ReactNode {
   const { t } = useAdminI18n();
-  const { state, dispatch, device, setDevice, selectedSectionId } =
-    useHomepageEditor();
+  const {
+    state,
+    dispatch,
+    device,
+    setDevice,
+    selectedSectionId,
+    selectedElementKey,
+  } = useHomepageEditor();
 
   const [snapshot, setSnapshot] = useState<HomepageDraftSnapshot | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
@@ -271,6 +278,17 @@ export function HomepageEditorShell(): ReactNode {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
+      // Yield inside text fields (ledger Ruling 33): the browser's native
+      // text undo/redo and its own save handling must keep working there.
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       const key = event.key.toLowerCase();
       if (key === "s") {
         event.preventDefault();
@@ -584,12 +602,14 @@ export function HomepageEditorShell(): ReactNode {
           hidden={activePane !== "settings"}
           className="min-w-0 min-[1280px]:block"
         >
-          {/* The announcement pseudo-node routes this pane to its editor
-              (ledger Ruling 29); Task 14 fills the section/slide settings. */}
+          {/* Right-pane routing priority (ledger Ruling 31): the announcement
+              pseudo-node, then a selected element, then section/slide style. */}
           {selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
             <AnnouncementSettings />
-          ) : (
+          ) : selectedElementKey !== null ? (
             <SettingsPanel />
+          ) : (
+            <HeroStyleSettings />
           )}
         </section>
       </div>

@@ -11,6 +11,7 @@ import {
   HomepageEditorShell,
   useHomepageEditor,
 } from "@/components/admin/homepage/HomepageEditor";
+import { ANNOUNCEMENT_SELECTION_ID } from "@/components/admin/homepage/ModuleTree";
 
 const getHomepageDraft = vi.hoisted(() => vi.fn());
 const saveHomepageDraft = vi.hoisted(() => vi.fn());
@@ -70,7 +71,16 @@ async function advance(ms: number): Promise<void> {
 /** Drives reducer changes through the real context so the shell's autosave
  * and keyboard handling can be exercised end to end. */
 function EditorProbe(): ReactNode {
-  const { state, dispatch } = useHomepageEditor();
+  const {
+    state,
+    dispatch,
+    setSelectedElementKey,
+    setSelectedSectionId,
+    setSelectedSlideId,
+  } = useHomepageEditor();
+  const hero = state.document.sections.find((section) => section.type === "HERO");
+  const firstSlideId =
+    hero && hero.type === "HERO" ? (hero.payload.slides[0]?.id ?? null) : null;
   return (
     <div>
       <span data-testid="rotation">{state.document.announcement.rotationMs}</span>
@@ -83,6 +93,35 @@ function EditorProbe(): ReactNode {
       >
         commit-change
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedSlideId(firstSlideId);
+          setSelectedElementKey("heading");
+        }}
+      >
+        select-element
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedElementKey(null);
+          setSelectedSlideId(firstSlideId);
+        }}
+      >
+        select-slide
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedElementKey(null);
+          setSelectedSlideId(null);
+          setSelectedSectionId(ANNOUNCEMENT_SELECTION_ID);
+        }}
+      >
+        select-announcement
+      </button>
+      <textarea aria-label="probe textarea" />
     </div>
   );
 }
@@ -366,6 +405,62 @@ describe("HomepageEditor", () => {
     await flush();
 
     expect(saveHomepageDraft).not.toHaveBeenCalled();
+  });
+
+  it("yields Cmd/Ctrl+Z, Shift+Z and S inside text fields but keeps them outside", async () => {
+    renderHarness();
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5001");
+
+    const textarea = screen.getByRole("textbox", { name: "probe textarea" });
+    textarea.focus();
+
+    // Inside a text field the shell leaves the event alone so the browser's
+    // native text undo/redo and save handling keep working.
+    expect(fireEvent.keyDown(textarea, { key: "z", ctrlKey: true })).toBe(true);
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5001");
+    expect(
+      fireEvent.keyDown(textarea, { key: "z", ctrlKey: true, shiftKey: true }),
+    ).toBe(true);
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5001");
+    expect(fireEvent.keyDown(textarea, { key: "s", metaKey: true })).toBe(true);
+    await flush();
+    expect(saveHomepageDraft).not.toHaveBeenCalled();
+
+    // Outside a text field the shortcuts still work.
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5000");
+
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await flush();
+    expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the settings pane by selection priority", async () => {
+    renderHarness();
+    await flush();
+
+    const panel = (name: string): Element | null =>
+      document.querySelector(`[data-panel="${name}"]`);
+
+    // Nothing selected yet: the hero style (section/slide) panel is the default.
+    expect(panel("hero-style-settings")).not.toBeNull();
+    expect(panel("settings-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-element" }));
+    expect(panel("settings-panel")).not.toBeNull();
+    expect(panel("hero-style-settings")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-slide" }));
+    expect(panel("hero-style-settings")).not.toBeNull();
+    expect(panel("settings-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-announcement" }));
+    expect(panel("announcement-settings")).not.toBeNull();
+    expect(panel("hero-style-settings")).toBeNull();
+    expect(panel("settings-panel")).toBeNull();
   });
 
   it("switches the preview device including tablet", async () => {

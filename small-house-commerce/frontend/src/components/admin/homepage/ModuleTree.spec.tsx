@@ -357,36 +357,44 @@ describe("ModuleTree", () => {
     expect(screen.queryByRole("button", { name: "Undo delete" })).toBeNull();
   });
 
-  it("selects slides and sections from their rows", async () => {
+  it("selects slides from the expanded HERO and sections from their rows", async () => {
     renderTree();
 
-    fireEvent.click(screen.getByRole("button", { name: /Hero 2/ }));
-    expect(text("selected-slide")).toBe(SLIDE_TWO_ID);
-    expect(text("selected-section")).toBe("");
+    // The slide list only appears for the selected HERO section.
+    expect(document.querySelectorAll("[data-slide-card]")).toHaveLength(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Hero banner" }));
     expect(text("selected-section")).toBe(HERO_ID);
+
+    fireEvent.click(screen.getByRole("button", { name: "Hero 2" }));
+    expect(text("selected-slide")).toBe(SLIDE_TWO_ID);
+    expect(text("selected-section")).toBe(HERO_ID);
   });
 
-  it("indents the HERO slides with name, index and enabled state", async () => {
+  it("renders the slide list for the selected HERO with index, name and enabled state", async () => {
     renderTree();
 
-    const slides = text("slides");
-    expect(slides).toBe(`${SLIDE_ONE_ID}:on,${SLIDE_TWO_ID}:off`);
+    expect(document.querySelectorAll("[data-slide-card]")).toHaveLength(0);
 
-    const heroRow = sectionRow(HERO_ID);
-    const slideButtons = Array.from(
-      heroRow.querySelectorAll('[data-slide-row] button'),
-    );
-    expect(slideButtons.map((button) => button.textContent)).toEqual([
-      "01Hero 1",
-      "02Hero 2",
-    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Hero banner" }));
+
+    const cards = Array.from(
+      document.querySelectorAll("[data-slide-card]"),
+    ) as HTMLElement[];
+    expect(cards).toHaveLength(2);
+    expect(
+      cards.map((card) => card.querySelector("[data-slide-index]")?.textContent),
+    ).toEqual(["01", "02"]);
+    expect(
+      cards.map(
+        (card) =>
+          (card.querySelector('input[aria-label="Slide name"]') as HTMLInputElement)
+            .value,
+      ),
+    ).toEqual(["Hero 1", "Hero 2"]);
 
     fireEvent.click(
-      heroRow.querySelector(
-        `[data-slide-row="${SLIDE_ONE_ID}"] input[type="checkbox"]`,
-      ) as HTMLElement,
+      cards[0].querySelector('input[type="checkbox"]') as HTMLElement,
     );
     expect(text("slides")).toBe(`${SLIDE_ONE_ID}:off,${SLIDE_TWO_ID}:off`);
   });
@@ -438,13 +446,18 @@ describe("ModuleTree in the editor shell", () => {
     expect(
       document.querySelector('[data-panel="announcement-settings"]'),
     ).toBeNull();
-    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(
+      document.querySelector('[data-panel="hero-style-settings"]'),
+    ).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Announcement bar/ }));
 
     expect(
       document.querySelector('[data-panel="announcement-settings"]'),
     ).not.toBeNull();
-    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(
+      document.querySelector('[data-panel="hero-style-settings"]'),
+    ).toBeNull();
   });
 });
