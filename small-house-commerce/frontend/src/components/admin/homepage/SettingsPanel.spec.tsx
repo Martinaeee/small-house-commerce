@@ -11,11 +11,13 @@ import { SettingsPanel } from "@/components/admin/homepage/SettingsPanel";
 import {
   emptyDocument,
   emptyElement,
+  updateHeroElement,
   type HeroElementKey,
   type HomepageDocument,
 } from "@/lib/homepage-document";
 
 const SLIDE_ID = "00000000-0000-7000-8000-000000000111";
+const SLIDE_TWO_ID = "00000000-0000-7000-8000-000000000112";
 const PRODUCT_UUID = "11111111-2222-4333-8444-555555555555";
 
 function panelDocument(): HomepageDocument {
@@ -26,6 +28,31 @@ function panelDocument(): HomepageDocument {
   slide.id = SLIDE_ID;
   slide.elements.heading.text = "Build a calmer home";
   slide.elements.heading.style = { fontSize: 40, textColor: "#292724" };
+  return doc;
+}
+
+function twoSlideDocument(): HomepageDocument {
+  const doc = panelDocument();
+  const hero = doc.sections[0];
+  if (hero.type !== "HERO") throw new Error("fixture expects a HERO section");
+  const second = structuredClone(hero.payload.slides[0]);
+  second.id = SLIDE_TWO_ID;
+  second.name = "Hero 2";
+  second.sortOrder = 10;
+  second.elements.heading.text = "Second slide heading";
+  second.elements.heading.style = { fontSize: 20 };
+  hero.payload.slides.push(second);
+  return doc;
+}
+
+/** Two slides whose heading text is identical (the external value does not
+ *  change across the switch, so only the keyed remount can isolate them). */
+function twinHeadingDocument(): HomepageDocument {
+  const doc = twoSlideDocument();
+  const hero = doc.sections[0];
+  if (hero.type !== "HERO") throw new Error("fixture expects a HERO section");
+  hero.payload.slides[1].elements.heading.text =
+    hero.payload.slides[0].elements.heading.text;
   return doc;
 }
 
@@ -62,13 +89,42 @@ function Harness({
 }
 
 function PanelProbe(): ReactNode {
-  const { state, selectedElementKey, device } = useHomepageEditor();
+  const {
+    state,
+    dispatch,
+    selectedElementKey,
+    device,
+    setDevice,
+    setSelectedSlideId,
+  } = useHomepageEditor();
   return (
     <div>
       <pre data-testid="document">{JSON.stringify(state.document)}</pre>
       <span data-testid="commits">{state.past.length}</span>
       <span data-testid="element-key">{selectedElementKey ?? ""}</span>
       <span data-testid="device">{device}</span>
+      <button
+        type="button"
+        onClick={() => setSelectedSlideId(SLIDE_TWO_ID)}
+      >
+        switch-slide
+      </button>
+      <button type="button" onClick={() => setDevice("mobile")}>
+        switch-device-mobile
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          dispatch({
+            type: "commit",
+            document: updateHeroElement(state.document, SLIDE_ID, "heading", {
+              text: "External edit",
+            }),
+          })
+        }
+      >
+        external-heading-edit
+      </button>
     </div>
   );
 }
@@ -99,12 +155,16 @@ function document_(): HomepageDocument {
   ) as HomepageDocument;
 }
 
-function slideElement(key: HeroElementKey) {
+function slideById(slideId: string) {
   const hero = document_().sections[0];
   if (hero.type !== "HERO") throw new Error("expected a HERO section");
-  const slide = hero.payload.slides.find((candidate) => candidate.id === SLIDE_ID);
-  if (!slide) throw new Error("expected the fixture slide");
-  return slide.elements[key];
+  const slide = hero.payload.slides.find((candidate) => candidate.id === slideId);
+  if (!slide) throw new Error(`expected slide ${slideId}`);
+  return slide;
+}
+
+function slideElement(key: HeroElementKey) {
+  return slideById(SLIDE_ID).elements[key];
 }
 
 function heading() {
@@ -461,5 +521,117 @@ describe("SettingsPanel device targeting", () => {
     expect(heading().overrides.mobile).toBeUndefined();
     expect(heading().style.fontSize).toBe(40);
     expect(screen.getByTestId("device")).toHaveTextContent("mobile");
+  });
+});
+
+describe("SettingsPanel target scoping", () => {
+  beforeEach(() => {
+    setAdminLang("en");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not leak a pending text draft into a newly selected slide", async () => {
+    vi.useFakeTimers();
+    renderPanel({ document: twoSlideDocument() });
+
+    const textarea = screen.getByRole("textbox", { name: "Text" });
+    expect(textarea).toHaveValue("Build a calmer home");
+    fireEvent.change(textarea, { target: { value: "DRAFT FOR SLIDE ONE" } });
+
+    // A selection change without a blur (a programmatic switch or a click on a
+    // non-focusable target) must not carry the pending draft to slide two.
+    fireEvent.click(screen.getByRole("button", { name: "switch-slide" }));
+    await advance(300);
+
+    expect(slideById(SLIDE_TWO_ID).elements.heading.text).toBe(
+      "Second slide heading",
+    );
+    expect(slideById(SLIDE_ID).elements.heading.text).toBe("Build a calmer home");
+    // The remount drops the stale draft instead of showing it on slide two.
+    expect(screen.getByRole("textbox", { name: "Text" })).toHaveValue(
+      "Second slide heading",
+    );
+    expect(commits()).toBe("0");
+  });
+
+  it("isolates two targets that hold the same value while a draft is pending", async () => {
+    vi.useFakeTimers();
+    renderPanel({ document: twinHeadingDocument() });
+
+    const textarea = screen.getByRole("textbox", { name: "Text" });
+    fireEvent.change(textarea, { target: { value: "PENDING DRAFT" } });
+
+    // The external value is identical on both slides, so adoption alone cannot
+    // cancel the timer — only the keyed remount can.
+    fireEvent.click(screen.getByRole("button", { name: "switch-slide" }));
+    await advance(300);
+
+    expect(slideById(SLIDE_TWO_ID).elements.heading.text).toBe(
+      "Build a calmer home",
+    );
+    expect(slideById(SLIDE_ID).elements.heading.text).toBe("Build a calmer home");
+    expect(commits()).toBe("0");
+  });
+
+  it("does not leak a pending numeric draft into a newly selected device", async () => {
+    vi.useFakeTimers();
+    renderPanel({ document: twoSlideDocument() });
+
+    const size = screen.getByRole("textbox", { name: "Font size" });
+    fireEvent.change(size, { target: { value: "99" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "switch-device-mobile" }));
+    await advance(800);
+
+    expect(slideById(SLIDE_ID).elements.heading.style.fontSize).toBe(40);
+    expect(slideById(SLIDE_ID).elements.heading.overrides.mobile).toBeUndefined();
+    // The mobile field now shows the inherited desktop value, not the draft.
+    expect(screen.getByRole("textbox", { name: "Font size" })).toHaveValue("40");
+    expect(commits()).toBe("0");
+  });
+
+  it("still flushes the draft to the original target on blur before a switch", async () => {
+    vi.useFakeTimers();
+    renderPanel({ document: twoSlideDocument() });
+
+    const textarea = screen.getByRole("textbox", { name: "Text" });
+    fireEvent.change(textarea, { target: { value: "Slide one edit" } });
+    fireEvent.blur(textarea);
+
+    expect(slideById(SLIDE_ID).elements.heading.text).toBe("Slide one edit");
+    expect(commits()).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "switch-slide" }));
+    await advance(300);
+
+    expect(slideById(SLIDE_ID).elements.heading.text).toBe("Slide one edit");
+    expect(slideById(SLIDE_TWO_ID).elements.heading.text).toBe(
+      "Second slide heading",
+    );
+    expect(commits()).toBe("1");
+  });
+
+  it("cancels a pending draft when the same field changes externally", async () => {
+    vi.useFakeTimers();
+    renderPanel();
+
+    const textarea = screen.getByRole("textbox", { name: "Text" });
+    fireEvent.change(textarea, { target: { value: "STALE DRAFT" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "external-heading-edit" }));
+    expect(heading().text).toBe("External edit");
+
+    // The adopted external value invalidates the pending draft: the timer must
+    // not fire it over the newer document state.
+    await advance(300);
+
+    expect(heading().text).toBe("External edit");
+    expect(screen.getByRole("textbox", { name: "Text" })).toHaveValue(
+      "External edit",
+    );
+    expect(commits()).toBe("1");
   });
 });

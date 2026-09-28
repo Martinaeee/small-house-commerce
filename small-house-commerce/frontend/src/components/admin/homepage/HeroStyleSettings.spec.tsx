@@ -15,12 +15,25 @@ import {
 } from "@/lib/homepage-document";
 
 const SLIDE_ID = "00000000-0000-7000-8000-000000000111";
+const SLIDE_TWO_ID = "00000000-0000-7000-8000-000000000112";
 
 function styleDocument(): HomepageDocument {
   const doc = emptyDocument();
   const hero = doc.sections[0];
   if (hero.type !== "HERO") throw new Error("fixture expects a HERO section");
   hero.payload.slides[0].id = SLIDE_ID;
+  return doc;
+}
+
+function twoSlideDocument(): HomepageDocument {
+  const doc = styleDocument();
+  const hero = doc.sections[0];
+  if (hero.type !== "HERO") throw new Error("fixture expects a HERO section");
+  const second = structuredClone(hero.payload.slides[0]);
+  second.id = SLIDE_TWO_ID;
+  second.name = "Hero 2";
+  second.sortOrder = 10;
+  hero.payload.slides.push(second);
   return doc;
 }
 
@@ -40,19 +53,25 @@ function Harness({
 }
 
 function StyleProbe(): ReactNode {
-  const { state } = useHomepageEditor();
+  const { state, setSelectedSlideId } = useHomepageEditor();
   const hero = state.document.sections.find((section) => section.type === "HERO");
-  const slide =
-    hero && hero.type === "HERO"
-      ? hero.payload.slides.find((candidate) => candidate.id === SLIDE_ID)
-      : undefined;
+  const slides = hero && hero.type === "HERO" ? hero.payload.slides : [];
+  const overlayOf = (slideId: string) =>
+    slides.find((candidate) => candidate.id === slideId)?.overlay ?? null;
   return (
     <div>
       <pre data-testid="behavior">
         {JSON.stringify(hero && hero.type === "HERO" ? hero.payload.behavior : null)}
       </pre>
-      <pre data-testid="overlay">{JSON.stringify(slide?.overlay ?? null)}</pre>
+      <pre data-testid="overlay">{JSON.stringify(overlayOf(SLIDE_ID))}</pre>
+      <pre data-testid="overlay-two">{JSON.stringify(overlayOf(SLIDE_TWO_ID))}</pre>
       <span data-testid="commits">{state.past.length}</span>
+      <button
+        type="button"
+        onClick={() => setSelectedSlideId(SLIDE_TWO_ID)}
+      >
+        switch-slide
+      </button>
     </div>
   );
 }
@@ -81,6 +100,12 @@ function behavior(): SliderBehavior {
 function overlay(): SlideOverlay | null {
   return JSON.parse(
     screen.getByTestId("overlay").textContent ?? "null",
+  ) as SlideOverlay | null;
+}
+
+function overlayTwo(): SlideOverlay | null {
+  return JSON.parse(
+    screen.getByTestId("overlay-two").textContent ?? "null",
   ) as SlideOverlay | null;
 }
 
@@ -201,5 +226,25 @@ describe("HeroStyleSettings", () => {
     expect(screen.getByText("Behavior")).toBeVisible();
     expect(screen.queryByText("Slide overlay")).toBeNull();
     expect(screen.queryByRole("slider", { name: "Overlay opacity" })).toBeNull();
+  });
+
+  it("does not leak a pending overlay draft into a newly selected slide", async () => {
+    vi.useFakeTimers();
+    renderStyleSettings({ document: twoSlideDocument() });
+
+    const color = screen.getByRole("textbox", { name: "Overlay color" });
+    fireEvent.change(color, { target: { value: "#112233" } });
+
+    // A selection change without a blur must not carry the pending 300 ms
+    // draft to the next slide's overlay.
+    fireEvent.click(screen.getByRole("button", { name: "switch-slide" }));
+    await advance(300);
+
+    expect(overlay()?.color).toBe("#000000");
+    expect(overlayTwo()?.color).toBe("#000000");
+    expect(screen.getByRole("textbox", { name: "Overlay color" })).toHaveValue(
+      "#000000",
+    );
+    expect(commits()).toBe("0");
   });
 });

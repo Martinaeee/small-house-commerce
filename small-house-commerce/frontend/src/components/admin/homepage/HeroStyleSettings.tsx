@@ -256,7 +256,9 @@ export function HeroStyleSettings(): ReactNode {
       ) : null}
 
       {slide ? (
-        <Group title={t("homepage_builder_group_overlay")}>
+        // Keyed by slide id: switching slides remounts the overlay fields so a
+        // pending buffered draft cannot be committed against the new slide.
+        <Group key={slide.id} title={t("homepage_builder_group_overlay")}>
           <div className="grid grid-cols-2 gap-2">
             <ColorField
               label={t("homepage_builder_field_overlay_color")}

@@ -97,6 +97,17 @@ export function useBufferedValue(
     setValue(external);
   }
 
+  // A changed external value invalidates any pending draft (undo/redo, another
+  // panel, a re-keyed target): cancel the timer so a stale draft can never
+  // fire against the newer document state. A real blur still flushes the
+  // current draft to its original target before any switch.
+  useEffect(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, [external]);
+
   useEffect(() => {
     return () => {
       if (timer.current !== null) clearTimeout(timer.current);

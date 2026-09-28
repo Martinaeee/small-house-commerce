@@ -365,7 +365,8 @@ export function SelectField<T extends string>({
 
 export function SettingsPanel(): ReactNode {
   const { t } = useAdminI18n();
-  const { state, selectedSlideId, selectedElementKey } = useHomepageEditor();
+  const { state, device, selectedSlideId, selectedElementKey } =
+    useHomepageEditor();
   const document = state.document;
   const hero = firstHero(document);
   const slide =
@@ -385,8 +386,17 @@ export function SettingsPanel(): ReactNode {
   }
 
   // Mounted only with a resolved element so every hook in the panel below
-  // runs unconditionally (Rules of Hooks).
-  return <ElementSettings slide={slide} elementKey={selectedElementKey} />;
+  // runs unconditionally (Rules of Hooks). The key carries the full target
+  // identity: a slide/element/device switch remounts the panel, whose unmount
+  // cleanup cancels pending buffered drafts, so a stale draft can never be
+  // committed against the new target.
+  return (
+    <ElementSettings
+      key={`${slide.id}:${selectedElementKey}:${device}`}
+      slide={slide}
+      elementKey={selectedElementKey}
+    />
+  );
 }
 
 function ElementSettings({
