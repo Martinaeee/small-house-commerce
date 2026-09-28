@@ -134,6 +134,25 @@ describe("AnnouncementBar", () => {
     expect(visibleText()).toBe("Message 2");
   });
 
+  it("clears a stale hover pause when data swaps to no items and back", async () => {
+    // Minor 2 fix round: the bar unmounts its div (no mouseleave fires) when
+    // data revalidates to zero enabled items while hovered; the pause must
+    // not stick to the same component instance when items come back.
+    const view = render(<AnnouncementBar data={block([item(0), item(1)])} />);
+
+    fireEvent.mouseEnter(bar());
+    await advance(ROTATION_MS * 2);
+    expect(visibleText()).toBe("Message 1"); // hover pause active
+
+    view.rerender(<AnnouncementBar data={null} />);
+    expect(document.querySelector("[data-announcement-bar]")).toBeNull();
+
+    view.rerender(<AnnouncementBar data={block([item(0), item(1)])} />);
+    expect(vi.getTimerCount()).toBe(1);
+    await advance(ROTATION_MS);
+    expect(visibleText()).toBe("Message 2");
+  });
+
   it("shows only the first enabled item under prefers-reduced-motion", async () => {
     vi.stubGlobal("matchMedia", vi.fn(reducedMotionStub()));
     render(<AnnouncementBar data={block([item(0), item(1), item(2)])} />);
@@ -155,9 +174,11 @@ describe("AnnouncementBar", () => {
 
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", "/collections/living-room");
-    // Accessible name = item text + linkLabel.
-    expect(link).toHaveTextContent("Message 1");
-    expect(link).toHaveTextContent("Shop Now");
+    // Minor 1 fix round: the label must be a separate token — an explicit
+    // separator, not a Babel-stripped JSX newline (which rendered the
+    // accessible name as "Message 1Shop Now").
+    expect(link.textContent).toBe("Message 1 Shop Now");
+    expect(screen.getByRole("link", { name: "Message 1 Shop Now" })).toBe(link);
 
     view.rerender(<AnnouncementBar data={block([item(0)])} />);
     expect(screen.queryByRole("link")).toBeNull();

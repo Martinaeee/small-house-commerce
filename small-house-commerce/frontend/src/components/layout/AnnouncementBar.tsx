@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -59,16 +60,24 @@ export function AnnouncementBar({
   const rotationMs = rotationIntervalMs(data?.rotationMs);
   const reducedMotion = usePrefersReducedMotion();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [hovered, setHovered] = useState(false);
+  // Hover pause lives in a ref so the interval can skip ticks without
+  // rescheduling; the effect below clears a stale pause (see Minor 2 fix).
+  const hoveredRef = useRef(false);
 
   useEffect(() => {
-    if (reducedMotion || hovered || items.length < 2) return undefined;
-    const id = setInterval(
-      () => setActiveIndex((current) => (current + 1) % items.length),
-      rotationMs,
-    );
+    if (reducedMotion || items.length < 2) {
+      // The bar shows nothing (or a single static item) and its div is gone,
+      // so a pointer that was over it never fired mouseleave. Clear the stale
+      // pause so rotation resumes when items come back on the same instance.
+      hoveredRef.current = false;
+      return undefined;
+    }
+    const id = setInterval(() => {
+      if (hoveredRef.current) return;
+      setActiveIndex((current) => (current + 1) % items.length);
+    }, rotationMs);
     return () => clearInterval(id);
-  }, [hovered, items.length, reducedMotion, rotationMs]);
+  }, [items.length, reducedMotion, rotationMs]);
 
   if (!data || !data.enabled || items.length === 0) return null;
 
@@ -83,8 +92,12 @@ export function AnnouncementBar({
         backgroundColor: safeHex(item.backgroundColor, DEFAULT_BACKGROUND),
         color: safeHex(item.textColor, DEFAULT_TEXT_COLOR),
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        hoveredRef.current = true;
+      }}
+      onMouseLeave={() => {
+        hoveredRef.current = false;
+      }}
     >
       {item.linkHref ? (
         <a
@@ -93,9 +106,10 @@ export function AnnouncementBar({
         >
           <span>{item.text}</span>
           {linkLabel ? (
-            <span className="ml-1.5 underline underline-offset-2">
-              {linkLabel}
-            </span>
+            <>
+              {" "}
+              <span className="underline underline-offset-2">{linkLabel}</span>
+            </>
           ) : null}
         </a>
       ) : (
