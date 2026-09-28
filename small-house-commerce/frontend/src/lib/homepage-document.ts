@@ -663,9 +663,7 @@ function mergeMediaPatch(current: HeroMedia, patch: HeroMediaPatch): HeroMedia {
     next.type = requestedType;
     if (requestedType === "IMAGE") {
       next.image = structuredClone(source as HeroImage);
-      next.video = null;
     } else {
-      next.image = null;
       next.video = structuredClone(source as HeroVideo);
     }
   } else if (requestedType === "IMAGE") {
@@ -730,12 +728,9 @@ function mergeMediaPatch(current: HeroMedia, patch: HeroMediaPatch): HeroMedia {
     next.mobileOverride = mobile;
   }
 
-  // The backend contract never accepts a source object that disagrees with type.
-  if (next.type === "IMAGE") {
-    next.video = null;
-  } else {
-    next.image = null;
-  }
+  // Both source slots are intentionally retained. The active `type` chooses
+  // which one renders, while keeping the inactive slot lets the builder switch
+  // media type without losing a previously uploaded source.
   return next;
 }
 

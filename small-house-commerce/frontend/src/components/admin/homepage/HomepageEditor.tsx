@@ -20,6 +20,7 @@ import { DeviceFrame } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
 import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
 import { HeroCanvas } from "@/components/admin/homepage/HeroCanvas";
+import { HeroMediaSettings } from "@/components/admin/homepage/HeroMediaSettings";
 import { HeroStyleSettings } from "@/components/admin/homepage/HeroStyleSettings";
 import {
   ANNOUNCEMENT_SELECTION_ID,
@@ -183,6 +184,7 @@ export function HomepageEditorShell(): ReactNode {
     device,
     setDevice,
     selectedSectionId,
+    selectedSlideId,
     selectedElementKey,
   } = useHomepageEditor();
 
@@ -608,6 +610,11 @@ export function HomepageEditorShell(): ReactNode {
             <AnnouncementSettings />
           ) : selectedElementKey !== null ? (
             <SettingsPanel />
+          ) : selectedSlideId !== null ? (
+            <>
+              <HeroMediaSettings />
+              <HeroStyleSettings />
+            </>
           ) : (
             <HeroStyleSettings />
           )}

@@ -329,6 +329,40 @@ describe("homepage document pure mutators", () => {
     expect(slide(video).media?.video?.poster).toBeNull();
   });
 
+  it("retains independent image and video slots across media type switches", () => {
+    let doc = updateHeroMedia(emptyDocument(), SLIDE_ID, imageMedia());
+    const videoSource = {
+      url: "https://cdn.example/hero.mp4",
+      poster: "/uploads/catalog/2026/poster.jpg",
+      autoplay: true,
+      muted: true,
+      loop: true,
+      playsInline: true,
+      showSoundToggle: false,
+      pauseOffscreen: true,
+    };
+
+    doc = updateHeroMedia(doc, SLIDE_ID, {
+      type: "VIDEO",
+      video: videoSource,
+    });
+    expect(slide(doc).media).toMatchObject({
+      type: "VIDEO",
+      image: imageMedia().image,
+      video: videoSource,
+    });
+
+    doc = updateHeroMedia(doc, SLIDE_ID, {
+      type: "IMAGE",
+      image: imageMedia().image,
+    });
+    expect(slide(doc).media).toMatchObject({
+      type: "IMAGE",
+      image: imageMedia().image,
+      video: videoSource,
+    });
+  });
+
   it("merges existing media safely while preserving required sibling fields", () => {
     let doc = updateHeroMedia(emptyDocument(), SLIDE_ID, imageMedia());
     doc = updateHeroMedia(doc, SLIDE_ID, {

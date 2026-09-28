@@ -26,6 +26,31 @@ const ACCEPT_ATTRS = {
 
 type Kind = keyof typeof ACCEPTED_TYPES;
 
+export type ImageUrlInputLabels = {
+  upload: string;
+  uploading: string;
+  invalidType: string;
+  tooLarge: string;
+  uploadFailed: string;
+};
+
+const DEFAULT_LABELS: Record<Kind, ImageUrlInputLabels> = {
+  image: {
+    upload: "上传图片",
+    uploading: "上传中…",
+    invalidType: "仅支持 JPG / PNG / WebP 图片",
+    tooLarge: "图片不能超过 5MB",
+    uploadFailed: "上传失败，请重试",
+  },
+  video: {
+    upload: "上传视频",
+    uploading: "上传中…",
+    invalidType: "仅支持 MP4 / WebM / MOV 视频",
+    tooLarge: "视频不能超过 100MB",
+    uploadFailed: "上传失败，请重试",
+  },
+};
+
 /**
  * The MIME type to upload a picked file as, or null when the file is not one
  * of the accepted types for this field.
@@ -68,6 +93,7 @@ export function ImageUrlInput({
   placeholder = "https://…",
   kind = "image",
   problemFocus = false,
+  labels,
 }: {
   id?: string;
   ariaLabel?: string;
@@ -78,6 +104,8 @@ export function ImageUrlInput({
   kind?: "image" | "video";
   /** Preferred focus target when the sticky problem rail jumps to this row. */
   problemFocus?: boolean;
+  /** Optional localized copy for admin builder surfaces. */
+  labels?: Partial<ImageUrlInputLabels>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -85,18 +113,18 @@ export function ImageUrlInput({
 
   const isVideo = kind === "video";
   const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-  const typeLabel = isVideo ? "MP4 / WebM / MOV 视频" : "JPG / PNG / WebP 图片";
+  const copy = { ...DEFAULT_LABELS[kind], ...labels };
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
     const contentType = resolveUploadType(file.name, file.type, kind);
     if (!contentType) {
-      setError(`仅支持 ${typeLabel}`);
+      setError(copy.invalidType);
       return;
     }
     if (file.size > maxBytes) {
-      setError(isVideo ? "视频不能超过 100MB" : "图片不能超过 5MB");
+      setError(copy.tooLarge);
       return;
     }
     setUploading(true);
@@ -105,8 +133,8 @@ export function ImageUrlInput({
       const { adminApi } = await import("@/lib/admin-api");
       const res = await adminApi.uploadImage(file, contentType);
       onChange(res.url);
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : "上传失败，请重试");
+    } catch {
+      setError(copy.uploadFailed);
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -156,7 +184,7 @@ export function ImageUrlInput({
           onClick={() => fileRef.current?.click()}
           disabled={disabled || uploading}
         >
-          {uploading ? "上传中…" : isVideo ? "上传视频" : "上传图片"}
+          {uploading ? copy.uploading : copy.upload}
         </button>
         <input
           ref={fileRef}

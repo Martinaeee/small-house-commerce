@@ -447,18 +447,22 @@ describe("HomepageEditor", () => {
 
     // Nothing selected yet: the hero style (section/slide) panel is the default.
     expect(panel("hero-style-settings")).not.toBeNull();
+    expect(panel("hero-media-settings")).toBeNull();
     expect(panel("settings-panel")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "select-element" }));
     expect(panel("settings-panel")).not.toBeNull();
+    expect(panel("hero-media-settings")).toBeNull();
     expect(panel("hero-style-settings")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "select-slide" }));
+    expect(panel("hero-media-settings")).not.toBeNull();
     expect(panel("hero-style-settings")).not.toBeNull();
     expect(panel("settings-panel")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "select-announcement" }));
     expect(panel("announcement-settings")).not.toBeNull();
+    expect(panel("hero-media-settings")).toBeNull();
     expect(panel("hero-style-settings")).toBeNull();
     expect(panel("settings-panel")).toBeNull();
   });
