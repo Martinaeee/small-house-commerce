@@ -22,6 +22,14 @@ const ELEMENT_KEYS = [
   "countdown",
 ] as const satisfies readonly HeroElementKey[];
 const ALLOWED_WEIGHTS = [400, 500, 600, 700, 800] as const;
+const OPTIONAL_PROPERTIES = {
+  size: "font-size",
+  weight: "font-weight",
+  lh: "line-height",
+  ls: "letter-spacing",
+  color: "color",
+  maxw: "max-width",
+} as const;
 
 type Device = "desktop" | "tablet" | "mobile";
 
@@ -47,7 +55,11 @@ export function safeHex(
   return isHex(value) ? value : safeFallback;
 }
 
-function inRange(value: unknown, minimum: number, maximum: number): value is number {
+function inRange(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): value is number {
   return (
     typeof value === "number" &&
     Number.isFinite(value) &&
@@ -56,7 +68,9 @@ function inRange(value: unknown, minimum: number, maximum: number): value is num
   );
 }
 
-function allowedWeight(value: unknown): value is (typeof ALLOWED_WEIGHTS)[number] {
+function allowedWeight(
+  value: unknown,
+): value is (typeof ALLOWED_WEIGHTS)[number] {
   return (
     typeof value === "number" &&
     Number.isFinite(value) &&
@@ -85,47 +99,52 @@ function declarationsFor(
   slide: HeroSlide,
   key: HeroElementKey,
   device: Device,
-): Declaration[] {
+): { variables: Declaration[]; typography: string[] } {
   const { style, layout } = effectiveElementStyle(slide, key, device);
-  const declarations: Declaration[] = [];
+  const variables: Declaration[] = [];
+  const typography: string[] = [];
 
-  if (inRange(layout.xPct, 0, 100)) {
-    declarations.push(`--el-${key}-x: ${cssNumber(layout.xPct)}%;`);
-  }
-  if (inRange(layout.yPct, 0, 100)) {
-    declarations.push(`--el-${key}-y: ${cssNumber(layout.yPct)}%;`);
-  }
-  if (inRange(layout.widthPct, 5, 100)) {
-    declarations.push(`--el-${key}-w: ${cssNumber(layout.widthPct)}%;`);
-  }
-  if (inRange(style.fontSize, 8, 200)) {
-    declarations.push(`--el-${key}-size: ${cssNumber(style.fontSize)}px;`);
-  }
-  if (allowedWeight(style.fontWeight)) {
-    declarations.push(`--el-${key}-weight: ${cssNumber(style.fontWeight)};`);
-  }
-  if (inRange(style.lineHeight, 0.8, 3)) {
-    declarations.push(`--el-${key}-lh: ${cssNumber(style.lineHeight)};`);
-  }
-  if (inRange(style.letterSpacing, -5, 20)) {
-    declarations.push(`--el-${key}-ls: ${cssNumber(style.letterSpacing)}px;`);
-  }
-  if (isHex(style.textColor)) {
-    declarations.push(
-      `--el-${key}-color: ${safeHex(style.textColor, SAFE_HEX_FALLBACK)};`,
+  function optional(suffix: keyof typeof OPTIONAL_PROPERTIES, value: string) {
+    variables.push(`--el-${key}-${suffix}: ${value};`);
+    typography.push(
+      `${OPTIONAL_PROPERTIES[suffix]}: var(--el-${key}-${suffix});`,
     );
   }
 
-  const align =
-    safeAlign(style.textAlign) ?? safeAlign(layout.align);
-  if (align !== null) {
-    declarations.push(`--el-${key}-align: ${align};`);
+  if (inRange(layout.xPct, 0, 100)) {
+    variables.push(`--el-${key}-x: ${cssNumber(layout.xPct)}%;`);
   }
-  if (inRange(style.maxWidthPct, 5, 100)) {
-    declarations.push(`--el-${key}-maxw: ${cssNumber(style.maxWidthPct)}%;`);
+  if (inRange(layout.yPct, 0, 100)) {
+    variables.push(`--el-${key}-y: ${cssNumber(layout.yPct)}%;`);
+  }
+  if (inRange(layout.widthPct, 5, 100)) {
+    variables.push(`--el-${key}-w: ${cssNumber(layout.widthPct)}%;`);
+  }
+  if (inRange(style.fontSize, 8, 200)) {
+    optional("size", `${cssNumber(style.fontSize)}px`);
+  }
+  if (allowedWeight(style.fontWeight)) {
+    optional("weight", cssNumber(style.fontWeight));
+  }
+  if (inRange(style.lineHeight, 0.8, 3)) {
+    optional("lh", cssNumber(style.lineHeight));
+  }
+  if (inRange(style.letterSpacing, -5, 20)) {
+    optional("ls", `${cssNumber(style.letterSpacing)}px`);
+  }
+  if (isHex(style.textColor)) {
+    optional("color", safeHex(style.textColor, SAFE_HEX_FALLBACK));
   }
 
-  return declarations;
+  const align = safeAlign(style.textAlign) ?? safeAlign(layout.align);
+  if (align !== null) {
+    variables.push(`--el-${key}-align: ${align};`);
+  }
+  if (inRange(style.maxWidthPct, 5, 100)) {
+    optional("maxw", `${cssNumber(style.maxWidthPct)}%`);
+  }
+
+  return { variables, typography };
 }
 
 function slideSelector(sectionId: string, slideId: string): string {
@@ -136,37 +155,45 @@ function renderSlideBlock(
   sectionId: string,
   slide: HeroSlide,
   device: Device,
-): string {
-  const declarations = ELEMENT_KEYS.flatMap((key) =>
-    declarationsFor(slide, key, device),
-  );
+): { variables: string; typography: string } {
+  const variables: Declaration[] = [];
+  const typography: string[] = [];
   const selector = slideSelector(sectionId, slide.id);
-  return [
-    `${selector} {`,
-    ...declarations.map((declaration) => `  ${declaration}`),
-    "}",
-  ].join("\n");
+  for (const key of ELEMENT_KEYS) {
+    const declarations = declarationsFor(slide, key, device);
+    variables.push(...declarations.variables);
+    if (declarations.typography.length > 0) {
+      typography.push(
+        `${selector} [data-hero-element="${key}"] {`,
+        ...declarations.typography.map((declaration) => `  ${declaration}`),
+        "}",
+      );
+    }
+  }
+  return {
+    variables: [
+      `${selector} {`,
+      ...variables.map((declaration) => `  ${declaration}`),
+      "}",
+    ].join("\n"),
+    typography: typography.join("\n"),
+  };
 }
 
-function renderMediaBlock(
-  query: string,
-  sectionId: string,
-  slides: readonly HeroSlide[],
-  device: Device,
-): string {
-  const blocks = slides
-    .map((slide) => renderSlideBlock(sectionId, slide, device))
-    .join("\n");
+function renderMediaBlock(query: string, blocks: string[]): string {
   const indented = blocks
+    .filter(Boolean)
+    .join("\n")
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");
-  return [`@media (min-width: ${query}) {`, indented, "}"].join("\n");
+  return [`@media ${query} {`, indented, "}"].join("\n");
 }
 
 /**
  * Compile hero element values into SSR-safe, section/slide-scoped CSS.
- * The base cascade is mobile-first, then tablet and desktop overrides.
+ * Variables cascade mobile-first; optional typography uses exclusive ranges so
+ * absent effective values leave the element's class defaults in the cascade.
  */
 export function heroCss(sectionId: string, payload: HeroPayload): string {
   if (!isUuid(sectionId) || !payload || !Array.isArray(payload.slides)) {
@@ -179,13 +206,35 @@ export function heroCss(sectionId: string, payload: HeroPayload): string {
   );
   if (slides.length === 0) return "";
 
-  const base = slides
-    .map((slide) => renderSlideBlock(sectionId, slide, "mobile"))
-    .join("\n");
-  const tablet = renderMediaBlock("768px", sectionId, slides, "tablet");
-  const desktop = renderMediaBlock("1024px", sectionId, slides, "desktop");
+  const mobile = slides.map((slide) =>
+    renderSlideBlock(sectionId, slide, "mobile"),
+  );
+  const tablet = slides.map((slide) =>
+    renderSlideBlock(sectionId, slide, "tablet"),
+  );
+  const desktop = slides.map((slide) =>
+    renderSlideBlock(sectionId, slide, "desktop"),
+  );
 
-  return [base, tablet, desktop].join("\n");
+  return [
+    ...mobile.map((block) => block.variables),
+    renderMediaBlock(
+      "(min-width: 768px)",
+      tablet.map((block) => block.variables),
+    ),
+    renderMediaBlock(
+      "(max-width: 767.98px)",
+      mobile.map((block) => block.typography),
+    ),
+    renderMediaBlock(
+      "(min-width: 768px) and (max-width: 1023.98px)",
+      tablet.map((block) => block.typography),
+    ),
+    renderMediaBlock(
+      "(min-width: 1024px)",
+      desktop.flatMap((block) => [block.variables, block.typography]),
+    ),
+  ].join("\n");
 }
 
 type InlineVars = Omit<CSSProperties, "textAlign"> & {
@@ -198,91 +247,49 @@ const INLINE_VARS: Record<HeroElementKey, InlineVars> = {
     left: "var(--el-eyebrow-x)",
     top: "var(--el-eyebrow-y)",
     width: "var(--el-eyebrow-w)",
-    fontSize: "var(--el-eyebrow-size)",
-    fontWeight: "var(--el-eyebrow-weight)",
-    lineHeight: "var(--el-eyebrow-lh)",
-    letterSpacing: "var(--el-eyebrow-ls)",
-    color: "var(--el-eyebrow-color)",
     textAlign: "var(--el-eyebrow-align)",
-    maxWidth: "var(--el-eyebrow-maxw)",
   },
   heading: {
     position: "absolute",
     left: "var(--el-heading-x)",
     top: "var(--el-heading-y)",
     width: "var(--el-heading-w)",
-    fontSize: "var(--el-heading-size)",
-    fontWeight: "var(--el-heading-weight)",
-    lineHeight: "var(--el-heading-lh)",
-    letterSpacing: "var(--el-heading-ls)",
-    color: "var(--el-heading-color)",
     textAlign: "var(--el-heading-align)",
-    maxWidth: "var(--el-heading-maxw)",
   },
   subheading: {
     position: "absolute",
     left: "var(--el-subheading-x)",
     top: "var(--el-subheading-y)",
     width: "var(--el-subheading-w)",
-    fontSize: "var(--el-subheading-size)",
-    fontWeight: "var(--el-subheading-weight)",
-    lineHeight: "var(--el-subheading-lh)",
-    letterSpacing: "var(--el-subheading-ls)",
-    color: "var(--el-subheading-color)",
     textAlign: "var(--el-subheading-align)",
-    maxWidth: "var(--el-subheading-maxw)",
   },
   offer: {
     position: "absolute",
     left: "var(--el-offer-x)",
     top: "var(--el-offer-y)",
     width: "var(--el-offer-w)",
-    fontSize: "var(--el-offer-size)",
-    fontWeight: "var(--el-offer-weight)",
-    lineHeight: "var(--el-offer-lh)",
-    letterSpacing: "var(--el-offer-ls)",
-    color: "var(--el-offer-color)",
     textAlign: "var(--el-offer-align)",
-    maxWidth: "var(--el-offer-maxw)",
   },
   ctaPrimary: {
     position: "absolute",
     left: "var(--el-ctaPrimary-x)",
     top: "var(--el-ctaPrimary-y)",
     width: "var(--el-ctaPrimary-w)",
-    fontSize: "var(--el-ctaPrimary-size)",
-    fontWeight: "var(--el-ctaPrimary-weight)",
-    lineHeight: "var(--el-ctaPrimary-lh)",
-    letterSpacing: "var(--el-ctaPrimary-ls)",
-    color: "var(--el-ctaPrimary-color)",
     textAlign: "var(--el-ctaPrimary-align)",
-    maxWidth: "var(--el-ctaPrimary-maxw)",
   },
   ctaSecondary: {
     position: "absolute",
     left: "var(--el-ctaSecondary-x)",
     top: "var(--el-ctaSecondary-y)",
     width: "var(--el-ctaSecondary-w)",
-    fontSize: "var(--el-ctaSecondary-size)",
-    fontWeight: "var(--el-ctaSecondary-weight)",
-    lineHeight: "var(--el-ctaSecondary-lh)",
-    letterSpacing: "var(--el-ctaSecondary-ls)",
-    color: "var(--el-ctaSecondary-color)",
     textAlign: "var(--el-ctaSecondary-align)",
-    maxWidth: "var(--el-ctaSecondary-maxw)",
   },
   countdown: {
     position: "absolute",
     left: "var(--el-countdown-x)",
     top: "var(--el-countdown-y)",
     width: "var(--el-countdown-w)",
-    fontSize: "var(--el-countdown-size)",
-    fontWeight: "var(--el-countdown-weight)",
-    lineHeight: "var(--el-countdown-lh)",
-    letterSpacing: "var(--el-countdown-ls)",
-    color: "var(--el-countdown-color)",
     textAlign: "var(--el-countdown-align)",
-    maxWidth: "var(--el-countdown-maxw)",
   },
 };
 
