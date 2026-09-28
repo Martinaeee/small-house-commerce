@@ -15,9 +15,23 @@ import { ANNOUNCEMENT_SELECTION_ID } from "@/components/admin/homepage/ModuleTre
 
 const getHomepageDraft = vi.hoisted(() => vi.fn());
 const saveHomepageDraft = vi.hoisted(() => vi.fn());
+const createHomepagePreviewToken = vi.hoisted(() => vi.fn());
+const validateHomepage = vi.hoisted(() => vi.fn());
+const publishHomepage = vi.hoisted(() => vi.fn());
+const hasPermission = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/admin-api", () => ({
-  adminApi: { getHomepageDraft, saveHomepageDraft },
+  adminApi: {
+    getHomepageDraft,
+    saveHomepageDraft,
+    createHomepagePreviewToken,
+    validateHomepage,
+    publishHomepage,
+  },
+}));
+
+vi.mock("@/components/admin/AdminAuthProvider", () => ({
+  useAdminAuth: () => ({ status: "authed", hasPermission }),
 }));
 
 const DRAFT_REV = 5;
@@ -150,11 +164,26 @@ describe("HomepageEditor", () => {
     setAdminLang("en");
     getHomepageDraft.mockReset();
     saveHomepageDraft.mockReset();
+    createHomepagePreviewToken.mockReset();
+    validateHomepage.mockReset();
+    publishHomepage.mockReset();
+    hasPermission.mockReset();
     getHomepageDraft.mockResolvedValue(draftSnapshot());
     saveHomepageDraft.mockResolvedValue(savedResponse());
+    createHomepagePreviewToken.mockResolvedValue({
+      token: "tok-abc",
+      expiresInMs: 1_800_000,
+    });
+    validateHomepage.mockResolvedValue({ errors: [], warnings: [] });
+    publishHomepage.mockResolvedValue({
+      versionNo: 8,
+      publishAt: "2026-10-01T09:30:00.000Z",
+    });
+    hasPermission.mockReturnValue(true);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -188,7 +217,7 @@ describe("HomepageEditor", () => {
     expect(screen.getByText("Published")).toBeVisible();
 
     expect(screen.getByRole("button", { name: "Save Draft" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview Draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview Draft" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Versions" })).toHaveAttribute(
       "href",
@@ -532,6 +561,161 @@ describe("HomepageEditor", () => {
     expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(
+      screen.getByRole("dialog", { name: "Publish homepage" }),
+    ).toBeVisible();
+  });
+
+  // --- Task 17: preview draft, permission gate, publish integration --------
+
+  it("does not save emptyDocument rev 0 when Cmd+S fires during the initial load (R44/①)", async () => {
+    let resolveDraft: (snapshot: HomepageDraftSnapshot) => void = () => {};
+    getHomepageDraft.mockReturnValue(
+      new Promise<HomepageDraftSnapshot>((resolve) => {
+        resolveDraft = resolve;
+      }),
+    );
+    renderHarness();
+    await flush();
+
+    expect(screen.getByText("Loading the homepage editor…")).toBeVisible();
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await flush();
+
+    expect(saveHomepageDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveDraft(draftSnapshot());
+      await Promise.resolve();
+    });
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await flush();
+
+    expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
+    expect(saveHomepageDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ schemaVersion: 1 }),
+      DRAFT_REV,
+    );
+  });
+
+  it("opens the draft preview with a fresh token in a new tab", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    createHomepagePreviewToken.mockResolvedValue({
+      token: "tok a/b+c=",
+      expiresInMs: 1_800_000,
+    });
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Draft" }));
+    await flush();
+
+    expect(createHomepagePreviewToken).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const [url, target, features] = openSpy.mock.calls[0];
+    expect(url).toBe(
+      `/preview/homepage?token=${encodeURIComponent("tok a/b+c=")}`,
+    );
+    expect(target).toBe("_blank");
+    expect(features).toContain("noopener");
+    expect(features).toContain("noreferrer");
+    openSpy.mockRestore();
+  });
+
+  it("disables the preview button for the session when the token endpoint answers 503", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    createHomepagePreviewToken.mockRejectedValue(
+      new AdminApiError("Homepage preview is not configured", 503),
+    );
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    const button = screen.getByRole("button", { name: "Preview Draft" });
+    fireEvent.click(button);
+    await flush();
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Preview is not configured");
+
+    fireEvent.click(button);
+    await flush();
+    expect(createHomepagePreviewToken).toHaveBeenCalledTimes(1);
+    openSpy.mockRestore();
+  });
+
+  it("keeps preview enabled with a readable inline error on non-503 token failures", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    createHomepagePreviewToken.mockRejectedValue(
+      new AdminApiError("Token service exploded", 500),
+    );
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Draft" }));
+    await flush();
+
+    expect(screen.getByText("Token service exploded")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Preview Draft" })).toBeEnabled();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it("shows a readable permission message instead of a load error without PRODUCT_MANAGE (R44/⑦)", async () => {
+    hasPermission.mockReturnValue(false);
+    renderEditor();
+    await flush();
+
+    expect(
+      screen.getByText("Your account cannot access the homepage builder."),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "PRODUCT_MANAGE permission is required — ask a super admin to grant it.",
+      ),
+    ).toBeVisible();
+    expect(getHomepageDraft).not.toHaveBeenCalled();
+  });
+
+  it("saves the dirty draft before validating when the publish dialog opens", async () => {
+    renderHarness();
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await flush();
+
+    expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
+    const [savedDocument, savedRev] = saveHomepageDraft.mock.calls[0];
+    expect(
+      (savedDocument as HomepageDocument).announcement.rotationMs,
+    ).toBe(5001);
+    expect(savedRev).toBe(DRAFT_REV);
+    expect(validateHomepage).toHaveBeenCalledTimes(1);
+    expect(saveHomepageDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      validateHomepage.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("aborts publishing with an error when the pre-publish save fails", async () => {
+    saveHomepageDraft.mockRejectedValue(
+      new AdminApiError("Server exploded", 500),
+    );
+    renderHarness();
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await flush();
+
+    expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
+    expect(validateHomepage).not.toHaveBeenCalled();
+    expect(publishHomepage).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "The draft could not be saved, so publishing was cancelled.",
+      ),
+    ).toBeVisible();
     expect(
       screen.getByRole("dialog", { name: "Publish homepage" }),
     ).toBeVisible();

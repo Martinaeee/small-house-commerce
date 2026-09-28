@@ -1216,6 +1216,26 @@ export const zh = {
   homepage_builder_version_unpublish: "下线",
   homepage_builder_version_unpublish_confirm:
     "下线该版本？前台将不再展示它。",
+
+  // --- Homepage builder: Task 17 additions (preview, permission, panel copy) ---
+  homepage_builder_permission_denied: "当前账户无权访问首页装修。",
+  homepage_builder_permission_denied_hint:
+    "需要商品管理（PRODUCT_MANAGE）权限，请联系超级管理员开通。",
+  homepage_builder_publish_checking: "正在保存并检查草稿…",
+  homepage_builder_publish_save_failed: "草稿保存失败，无法发布。",
+  homepage_builder_publish_invalid_date: "时间格式无效，请重新选择。",
+  homepage_builder_publish_rejected: "发布未通过检查，请查看下方校验结果。",
+  homepage_builder_version_preview_title: "版本预览（只读）",
+  homepage_builder_version_preview_loading: "正在加载版本…",
+  homepage_builder_version_preview_invalid: "版本数据格式异常，无法预览。",
+  homepage_builder_version_preview_note:
+    "只读快照：P1 仅完整渲染 Hero 与公告栏，其余区块以摘要列出。",
+  homepage_builder_version_restore_go_editor: "返回编辑器查看草稿",
+  homepage_builder_version_schedule: "排期",
+  homepage_builder_version_summary_only: "仅摘要",
+  homepage_builder_version_number: "版本",
+  homepage_builder_version_status: "状态",
+  homepage_builder_actions: "操作",
 } as const;
 
 export type ZhKey = keyof typeof zh;

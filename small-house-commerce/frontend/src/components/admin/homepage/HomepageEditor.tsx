@@ -16,8 +16,10 @@ import {
 import Link from "next/link";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
+import { EmptyState } from "@/components/admin/EmptyState";
 import { DeviceFrame } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
+import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
 import { HeroCanvas } from "@/components/admin/homepage/HeroCanvas";
 import { HeroMediaSettings } from "@/components/admin/homepage/HeroMediaSettings";
@@ -178,6 +180,7 @@ export function HomepageEditorProvider({
 
 export function HomepageEditorShell(): ReactNode {
   const { t } = useAdminI18n();
+  const { status, hasPermission } = useAdminAuth();
   const {
     state,
     dispatch,
@@ -196,6 +199,9 @@ export function HomepageEditorShell(): ReactNode {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<BuilderPane>("modules");
   const [publishOpen, setPublishOpen] = useState(false);
+  const [previewPending, setPreviewPending] = useState(false);
+  const [previewDisabled, setPreviewDisabled] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Latest committed state for event handlers that outlive a render
   // (keyboard shortcuts, autosave timers).
@@ -204,12 +210,23 @@ export function HomepageEditorShell(): ReactNode {
     stateRef.current = state;
   });
 
+  // Ruling 44/①: until the draft has actually loaded, `stateRef` still holds
+  // `emptyDocument` at rev 0 — the save path must refuse to PUT that.
+  const draftReadyRef = useRef(false);
+  // The in-flight save, so a publish flow can join it instead of racing it.
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+
+  const canManage = status === "authed" && hasPermission("PRODUCT_MANAGE");
+
   useEffect(() => {
+    if (!canManage) return;
     let active = true;
+    draftReadyRef.current = false;
     adminApi
       .getHomepageDraft()
       .then((data) => {
         if (!active) return;
+        draftReadyRef.current = true;
         setSnapshot(data);
         setSaveError(null);
         dispatch({
@@ -226,39 +243,114 @@ export function HomepageEditorShell(): ReactNode {
     return () => {
       active = false;
     };
-  }, [loadNonce, dispatch]);
+  }, [loadNonce, dispatch, canManage]);
 
-  const save = useCallback(async (): Promise<void> => {
-    const current = stateRef.current;
-    if (current.saveState === "saving") return;
-    const { document, rev } = current;
+  const save = useCallback(async (): Promise<boolean> => {
+    // Ruling 44/①: never save before the draft loaded (see draftReadyRef).
+    if (!draftReadyRef.current) return false;
+    // Join an in-flight save instead of starting a second PUT: callers get the
+    // settled result of the save that is actually running.
+    if (saveInFlightRef.current) return saveInFlightRef.current;
+
+    const { document, rev } = stateRef.current;
     dispatch({ type: "saving" });
+    const run = (async (): Promise<boolean> => {
+      try {
+        const result = await adminApi.saveHomepageDraft(document, rev);
+        setSaveError(null);
+        dispatch({
+          type: "saved",
+          rev: result.draftRev,
+          savedAt: result.draftUpdatedAt,
+        });
+        setSnapshot((previous) =>
+          previous
+            ? {
+                ...previous,
+                draftRev: result.draftRev,
+                draftUpdatedAt: result.draftUpdatedAt,
+              }
+            : previous,
+        );
+        return true;
+      } catch (error: unknown) {
+        if (errorStatus(error) === 409) {
+          dispatch({ type: "conflict" });
+          return false;
+        }
+        setSaveError(error instanceof Error ? error.message : String(error));
+        dispatch({ type: "saveError" });
+        return false;
+      }
+    })();
+    saveInFlightRef.current = run;
     try {
-      const result = await adminApi.saveHomepageDraft(document, rev);
-      setSaveError(null);
-      dispatch({
-        type: "saved",
-        rev: result.draftRev,
-        savedAt: result.draftUpdatedAt,
-      });
+      return await run;
+    } finally {
+      saveInFlightRef.current = null;
+    }
+  }, [dispatch]);
+
+  /**
+   * Publish precondition: the server draft must hold the local document.
+   * Waits out an in-flight save, saves when dirty, and verifies the saved
+   * snapshot is still the live document (the `dirty` flag lags the reducer by
+   * one render, so reference equality is the reliable check; one retry covers
+   * edits made while the PUT was in flight).
+   */
+  const saveForPublish = useCallback(async (): Promise<boolean> => {
+    if (saveInFlightRef.current) {
+      await saveInFlightRef.current;
+    }
+    if (!draftReadyRef.current) return false;
+    if (!stateRef.current.dirty) return true;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const document = stateRef.current.document;
+      const saved = await save();
+      if (!saved) return false;
+      if (stateRef.current.document === document) return true;
+    }
+    return false;
+  }, [save]);
+
+  const openPreview = useCallback(async (): Promise<void> => {
+    setPreviewPending(true);
+    setPreviewError(null);
+    try {
+      const { token } = await adminApi.createHomepagePreviewToken();
+      window.open(
+        `/preview/homepage?token=${encodeURIComponent(token)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } catch (error: unknown) {
+      if (errorStatus(error) === 503) {
+        // Server secret unset: preview stays unavailable for this session.
+        setPreviewDisabled(true);
+        return;
+      }
+      setPreviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPreviewPending(false);
+    }
+  }, []);
+
+  const handlePublished = useCallback(
+    (result: { versionNo: number; publishAt: string }): void => {
       setSnapshot((previous) =>
         previous
           ? {
               ...previous,
-              draftRev: result.draftRev,
-              draftUpdatedAt: result.draftUpdatedAt,
+              published: {
+                versionNo: result.versionNo,
+                publishAt: result.publishAt,
+              },
             }
           : previous,
       );
-    } catch (error: unknown) {
-      if (errorStatus(error) === 409) {
-        dispatch({ type: "conflict" });
-        return;
-      }
-      setSaveError(error instanceof Error ? error.message : String(error));
-      dispatch({ type: "saveError" });
-    }
-  }, [dispatch]);
+    },
+    [],
+  );
 
   // Autosave: 3s debounce after a change. Skipped while a save is in flight
   // and after a failed save or a conflict — both wait for an explicit user
@@ -357,6 +449,31 @@ export function HomepageEditorShell(): ReactNode {
       dispatch({ type: "saveError" });
     }
   }, [dispatch]);
+
+  // Ruling 44/⑦: a direct URL without PRODUCT_MANAGE must show a readable
+  // permission message, not the generic draft-load error. While auth is still
+  // resolving (or a guest is being bounced by AdminShell) keep the loader so
+  // the permission notice never flashes.
+  if (status !== "authed") {
+    return (
+      <div className="px-4 py-6 md:px-8">
+        <p className="text-sm text-ink-secondary">
+          {t("homepage_builder_loading")}
+        </p>
+      </div>
+    );
+  }
+
+  if (!hasPermission("PRODUCT_MANAGE")) {
+    return (
+      <div className="px-4 py-6 md:px-8">
+        <EmptyState
+          title={t("homepage_builder_permission_denied")}
+          hint={t("homepage_builder_permission_denied_hint")}
+        />
+      </div>
+    );
+  }
 
   if (loadState === "loading") {
     return (
@@ -474,11 +591,21 @@ export function HomepageEditorShell(): ReactNode {
           <Button
             variant="secondary"
             size="md"
-            disabled
-            title={t("homepage_builder_preview_unconfigured")}
+            disabled={previewDisabled || previewPending}
+            title={
+              previewDisabled
+                ? t("homepage_builder_preview_unconfigured")
+                : undefined
+            }
+            onClick={() => void openPreview()}
           >
             {t("homepage_builder_preview_draft")}
           </Button>
+          {previewError ? (
+            <span role="alert" className="text-xs text-sale">
+              {previewError}
+            </span>
+          ) : null}
           <Button size="md" onClick={() => setPublishOpen(true)}>
             {t("homepage_builder_publish")}
           </Button>
@@ -626,7 +753,11 @@ export function HomepageEditorShell(): ReactNode {
         onClose={() => setPublishOpen(false)}
         title={t("homepage_builder_publish_title")}
       >
-        <PublishPanel />
+        <PublishPanel
+          onClose={() => setPublishOpen(false)}
+          save={saveForPublish}
+          onPublished={handlePublished}
+        />
       </Dialog>
     </div>
   );

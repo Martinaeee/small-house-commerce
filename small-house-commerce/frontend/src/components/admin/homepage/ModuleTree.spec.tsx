@@ -26,6 +26,11 @@ vi.mock("@/lib/admin-api", () => ({
   adminApi: { getHomepageDraft, saveHomepageDraft },
 }));
 
+// The full-editor test below mounts the shell, which gates on PRODUCT_MANAGE.
+vi.mock("@/components/admin/AdminAuthProvider", () => ({
+  useAdminAuth: () => ({ status: "authed", hasPermission: () => true }),
+}));
+
 const HERO_ID = "00000000-0000-7000-8000-000000000101";
 const SLIDE_ONE_ID = "00000000-0000-7000-8000-000000000111";
 const SLIDE_TWO_ID = "00000000-0000-7000-8000-000000000112";

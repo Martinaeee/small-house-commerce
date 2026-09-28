@@ -1256,4 +1256,30 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_version_unpublish: "Unpublish",
   homepage_builder_version_unpublish_confirm:
     "Take this version offline? The storefront will stop serving it.",
+
+  // --- Homepage builder: Task 17 additions (preview, permission, panel copy) ---
+  homepage_builder_permission_denied:
+    "Your account cannot access the homepage builder.",
+  homepage_builder_permission_denied_hint:
+    "PRODUCT_MANAGE permission is required — ask a super admin to grant it.",
+  homepage_builder_publish_checking: "Saving and checking the draft…",
+  homepage_builder_publish_save_failed:
+    "The draft could not be saved, so publishing was cancelled.",
+  homepage_builder_publish_invalid_date:
+    "Invalid date/time — please pick the value again.",
+  homepage_builder_publish_rejected:
+    "Publishing was rejected; review the check results below.",
+  homepage_builder_version_preview_title: "Version preview (read-only)",
+  homepage_builder_version_preview_loading: "Loading the version…",
+  homepage_builder_version_preview_invalid:
+    "This version's document has an unexpected shape and cannot be previewed.",
+  homepage_builder_version_preview_note:
+    "Read-only snapshot: P1 fully renders only the hero and the announcement bar; other sections are listed as summaries.",
+  homepage_builder_version_restore_go_editor:
+    "Open the editor to review the draft",
+  homepage_builder_version_schedule: "Schedule",
+  homepage_builder_version_summary_only: "summary only",
+  homepage_builder_version_number: "Version",
+  homepage_builder_version_status: "Status",
+  homepage_builder_actions: "Actions",
 };
