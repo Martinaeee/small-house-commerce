@@ -19,11 +19,12 @@ import {
  * attributes baked into section components — without the delegation they are
  * inert.
  *
- * Gate (Ruling 49): the URL carries `?token=…`; a missing or empty token 404s,
- * and any non-200 answer from either preview fetch 404s. A present-but-invalid
- * token is NOT detectable here by design — the backend's silent fallback
- * answers 200 with the live document and this page renders whatever came back
- * (no client-side validation, no second fetch to compare versions).
+ * Gate (Ruling 49, refined by Ruling 51): the URL carries `?token=…`; a
+ * missing, empty, or whitespace-only token 404s, and any non-200 answer from
+ * either preview fetch 404s. A present-but-invalid non-blank token is NOT
+ * detectable here by design — the backend's silent fallback answers 200 with
+ * the live document and this page renders whatever came back (no client-side
+ * validation, no second fetch to compare versions).
  *
  * Hygiene: the token only ever appears in the server-side fetch URL. It is
  * never rendered, logged, or persisted (no cookie / localStorage /
@@ -91,9 +92,10 @@ export default async function HomepagePreviewPage({
 }) {
   const params = await searchParams;
   const rawToken = params.token;
-  // Only a single non-empty string is a token. Anything else (absent, empty,
-  // repeated params) is the missing/empty case and 404s before any fetch.
-  if (typeof rawToken !== "string" || rawToken === "") notFound();
+  // Only a single non-blank string is a token. Anything else (absent, empty,
+  // whitespace-only, repeated params) is the missing/empty case and 404s
+  // before any fetch.
+  if (typeof rawToken !== "string" || rawToken.trim() === "") notFound();
 
   const data = await fetchPreview(rawToken);
   if (!data) notFound();

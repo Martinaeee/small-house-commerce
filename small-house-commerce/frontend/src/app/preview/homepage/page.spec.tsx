@@ -162,6 +162,32 @@ describe("HomepagePreviewPage token gate", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("404s with a whitespace-only token search param", async () => {
+    // Ruling 51: `?token=%20` must not reach the backend. A whitespace-only
+    // token would otherwise pass the empty-string check, fetch with
+    // `previewToken=%20`, get the backend's silent-fallback 200 (the live
+    // document) and render it under the draft banner — misleading.
+    await expect(loadPreview({ token: " " })).rejects.toThrow(
+      "NEXT_HTTP_ERROR_FALLBACK;404",
+    );
+    expect(notFoundMock).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("404s with a tabs/spaces/nbsp-only token search param", async () => {
+    // `trim()` also clears tab, vertical tab _and_ non-breaking space
+    // (Unicode WhiteSpace), so each of these must land in the missing/empty
+    // 404 branch too, again before any fetch.
+    const whitespaceVariants = ["\t", " \t ", "  ", "  \t "];
+    for (const token of whitespaceVariants) {
+      await expect(loadPreview({ token })).rejects.toThrow(
+        "NEXT_HTTP_ERROR_FALLBACK;404",
+      );
+    }
+    expect(notFoundMock).toHaveBeenCalledTimes(whitespaceVariants.length);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("404s when either preview API answers non-200 (401 / 404)", async () => {
     stubFetch((url) =>
       url.includes("/storefront/homepage")
