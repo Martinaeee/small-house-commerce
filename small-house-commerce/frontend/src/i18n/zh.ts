@@ -1013,6 +1013,8 @@ export const zh = {
   homepage_builder_section_delete_confirm: "删除该模块及其内容？",
   homepage_builder_section_undo_delete: "撤销删除",
   homepage_builder_section_drag: "拖动排序",
+  homepage_builder_status_enabled: "已启用",
+  homepage_builder_status_disabled: "已停用",
   homepage_builder_slides_header: "幻灯",
   homepage_builder_slide_add: "添加幻灯",
   homepage_builder_slide_name: "幻灯名称",
@@ -1118,6 +1120,7 @@ export const zh = {
   homepage_builder_announcement_end: "结束时间",
   homepage_builder_announcement_rotation: "轮播间隔（毫秒）",
   homepage_builder_announcement_empty: "暂无公告条目",
+  homepage_builder_announcement_item_enabled: "启用此条",
   homepage_builder_announcement_item_delete: "删除此条",
 
   // --- Homepage builder: link picker ---

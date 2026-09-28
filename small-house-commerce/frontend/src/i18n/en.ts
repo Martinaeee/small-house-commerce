@@ -1048,6 +1048,8 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_section_delete_confirm: "Delete this section and its content?",
   homepage_builder_section_undo_delete: "Undo delete",
   homepage_builder_section_drag: "Drag to reorder",
+  homepage_builder_status_enabled: "Enabled",
+  homepage_builder_status_disabled: "Disabled",
   homepage_builder_slides_header: "Slides",
   homepage_builder_slide_add: "Add slide",
   homepage_builder_slide_name: "Slide name",
@@ -1156,6 +1158,7 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_announcement_end: "End time",
   homepage_builder_announcement_rotation: "Rotation interval (ms)",
   homepage_builder_announcement_empty: "No announcement items",
+  homepage_builder_announcement_item_enabled: "Item enabled",
   homepage_builder_announcement_item_delete: "Delete item",
 
   // --- Homepage builder: link picker ---

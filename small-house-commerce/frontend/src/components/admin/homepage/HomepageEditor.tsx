@@ -18,8 +18,12 @@ import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { DeviceFrame } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
+import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
 import { HeroCanvas } from "@/components/admin/homepage/HeroCanvas";
-import { ModuleTree } from "@/components/admin/homepage/ModuleTree";
+import {
+  ANNOUNCEMENT_SELECTION_ID,
+  ModuleTree,
+} from "@/components/admin/homepage/ModuleTree";
 import { PublishPanel } from "@/components/admin/homepage/PublishPanel";
 import { SettingsPanel } from "@/components/admin/homepage/SettingsPanel";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -172,7 +176,8 @@ export function HomepageEditorProvider({
 
 export function HomepageEditorShell(): ReactNode {
   const { t } = useAdminI18n();
-  const { state, dispatch, device, setDevice } = useHomepageEditor();
+  const { state, dispatch, device, setDevice, selectedSectionId } =
+    useHomepageEditor();
 
   const [snapshot, setSnapshot] = useState<HomepageDraftSnapshot | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
@@ -579,7 +584,13 @@ export function HomepageEditorShell(): ReactNode {
           hidden={activePane !== "settings"}
           className="min-w-0 min-[1280px]:block"
         >
-          <SettingsPanel />
+          {/* The announcement pseudo-node routes this pane to its editor
+              (ledger Ruling 29); Task 14 fills the section/slide settings. */}
+          {selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
+            <AnnouncementSettings />
+          ) : (
+            <SettingsPanel />
+          )}
         </section>
       </div>
 
