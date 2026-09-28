@@ -87,6 +87,107 @@ describe("homepage editor reducer", () => {
     expect(next.saveState).toBe(state.saveState);
   });
 
+  it("mutate installs the mutation result with the same history and dirty semantics as commit", () => {
+    const initial = makeDocument("initial");
+    const mutated = makeDocument("mutated");
+    const state = loadedState(initial);
+
+    const next = editorReducer(state, {
+      type: "mutate",
+      mutate: () => mutated,
+    });
+
+    expect(next.document).toBe(mutated);
+    expect(next.past).toEqual([initial]);
+    expect(next.past[0]).toBe(initial);
+    expect(next.future).toEqual([]);
+    expect(next.savedDocument).toBe(initial);
+    expect(next.dirty).toBe(true);
+    expect(next.rev).toBe(state.rev);
+    expect(next.saveState).toBe(state.saveState);
+    expect(next.conflict).toBe(state.conflict);
+    expect(next.lastSavedAt).toBe(state.lastSavedAt);
+  });
+
+  it("mutate applies to the latest document so queued mutations cannot drop each other's edit", () => {
+    const initial = makeDocument("initial");
+    let state = loadedState(initial);
+
+    // Both callers captured the same pre-edit snapshot; each mutation must
+    // still see the document produced by the mutation before it.
+    state = editorReducer(state, {
+      type: "mutate",
+      mutate: (document) => ({
+        ...document,
+        announcement: { ...document.announcement, rotationMs: 4000 },
+      }),
+    });
+    state = editorReducer(state, {
+      type: "mutate",
+      mutate: (document) => ({
+        ...document,
+        announcement: { ...document.announcement, enabled: true },
+      }),
+    });
+
+    expect(state.document.announcement.rotationMs).toBe(4000);
+    expect(state.document.announcement.enabled).toBe(true);
+    expect(state.past).toHaveLength(2);
+    expect(state.past[0]).toBe(initial);
+  });
+
+  it("mutate recomputes dirty and undo walks back over its history entries", () => {
+    const initial = makeDocument("initial");
+    const first = makeDocument("first");
+    let state = loadedState(initial);
+
+    state = editorReducer(state, { type: "mutate", mutate: () => first });
+    state = editorReducer(state, {
+      type: "mutate",
+      mutate: () => makeDocument("second"),
+    });
+
+    const undone = editorReducer(state, { type: "undo" });
+    expect(undone.document).toBe(first);
+    expect(undone.dirty).toBe(true);
+
+    const undoneAgain = editorReducer(undone, { type: "undo" });
+    expect(undoneAgain.document).toBe(initial);
+    expect(undoneAgain.dirty).toBe(false);
+  });
+
+  it("mutate returning the same document reference is a no-op", () => {
+    const state = loadedState(makeDocument("initial"));
+
+    const next = editorReducer(state, {
+      type: "mutate",
+      mutate: (document) => document,
+    });
+
+    expect(next).toBe(state);
+    expect(next.past).toEqual([]);
+  });
+
+  it("mutate leaves a frozen state untouched and installs a new document", () => {
+    const initial = deepFreeze(makeDocument("initial"));
+    const state = deepFreeze(loadedState(initial));
+
+    const next = editorReducer(state, {
+      type: "mutate",
+      mutate: (document) => ({
+        ...document,
+        announcement: { ...document.announcement, rotationMs: 6000 },
+      }),
+    });
+
+    expect(next).not.toBe(state);
+    expect(state.document).toBe(initial);
+    expect(state.past).toEqual([]);
+    expect(next.document).not.toBe(initial);
+    expect(next.document.announcement.rotationMs).toBe(6000);
+    expect(next.dirty).toBe(true);
+  });
+
   it("undo and redo walk history and clear dirty when returning to the saved reference", () => {
     const initial = makeDocument("initial");
     const edited = makeDocument("edited");

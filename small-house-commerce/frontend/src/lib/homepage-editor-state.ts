@@ -25,6 +25,17 @@ export type EditorAction =
       savedAt: string | null;
     }
   | { type: "commit"; document: HomepageDocument }
+  /**
+   * Applies a mutation to the reducer's latest document. Async producers
+   * (debounced text buffers, coalesced inputs) must use this instead of
+   * pre-building a document from a render-captured snapshot: two timers that
+   * expire in the same flush would otherwise each install a document built
+   * from the same stale snapshot and silently drop the other's edit.
+   */
+  | {
+      type: "mutate";
+      mutate: (document: HomepageDocument) => HomepageDocument;
+    }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "saving" }
@@ -78,6 +89,20 @@ function isDirty(
   return document !== savedDocument;
 }
 
+/** Shared history/dirty transition for `commit` and `mutate`. */
+function applyDocument(
+  state: EditorState,
+  document: HomepageDocument,
+): EditorState {
+  return {
+    ...state,
+    document,
+    past: capPast([...state.past, state.document]),
+    future: [],
+    dirty: isDirty(document, state.savedDocument),
+  };
+}
+
 export function initEditorState(snapshot: EditorSnapshot): EditorState {
   return createLoadedState(snapshot);
 }
@@ -91,13 +116,16 @@ export function editorReducer(
       return createLoadedState(action);
 
     case "commit":
-      return {
-        ...state,
-        document: action.document,
-        past: capPast([...state.past, state.document]),
-        future: [],
-        dirty: isDirty(action.document, state.savedDocument),
-      };
+      return applyDocument(state, action.document);
+
+    case "mutate": {
+      const document = action.mutate(state.document);
+      // A mutation that returns the same reference changed nothing: keep the
+      // exact state so no history entry and no dirty flag are produced.
+      return document === state.document
+        ? state
+        : applyDocument(state, document);
+    }
 
     case "undo": {
       if (state.past.length === 0) {

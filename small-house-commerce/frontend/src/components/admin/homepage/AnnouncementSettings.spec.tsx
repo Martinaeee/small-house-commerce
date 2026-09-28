@@ -253,6 +253,61 @@ describe("AnnouncementSettings", () => {
     expect(commits()).toBe("1");
   });
 
+  it("keeps both edits when two debounce timers expire in the same flush", async () => {
+    vi.useFakeTimers();
+    renderSettings();
+
+    const first = within(itemCard(ITEM_ONE_ID)).getByRole("textbox", {
+      name: "Announcement text",
+    });
+    const second = within(itemCard(ITEM_TWO_ID)).getByRole("textbox", {
+      name: "Announcement text",
+    });
+
+    fireEvent.change(first, { target: { value: "EDITED ONE" } });
+    await advance(100);
+    fireEvent.change(second, { target: { value: "EDITED TWO" } });
+
+    // One advance expires both 300 ms timers before React re-renders, so both
+    // commits were prepared from the same pre-edit snapshot.
+    await advance(300);
+
+    expect(announcement().items[0].text).toBe("EDITED ONE");
+    expect(announcement().items[1].text).toBe("EDITED TWO");
+    expect(commits()).toBe("2");
+  });
+
+  it("keeps a buffered link edit and a buffered hex edit when both timers expire together", async () => {
+    vi.useFakeTimers();
+    renderSettings();
+
+    fireEvent.change(
+      within(itemCard(ITEM_ONE_ID)).getByRole("combobox", {
+        name: "Link type",
+      }),
+      { target: { value: "PRODUCT" } },
+    );
+    const idInput = within(itemCard(ITEM_ONE_ID)).getByRole("textbox", {
+      name: "Product ID",
+    });
+    const hexInput = within(itemCard(ITEM_TWO_ID)).getByRole("textbox", {
+      name: "Text color",
+    });
+
+    fireEvent.change(idInput, { target: { value: PRODUCT_UUID } });
+    await advance(100);
+    fireEvent.change(hexInput, { target: { value: "#112233" } });
+
+    await advance(300);
+
+    expect(announcement().items[0].link).toEqual({
+      type: "PRODUCT",
+      id: PRODUCT_UUID,
+    });
+    expect(announcement().items[1].textColor).toBe("#112233");
+    expect(commits()).toBe("2");
+  });
+
   it("commits a hex colour on a valid value and reverts invalid input on blur", async () => {
     vi.useFakeTimers();
     renderSettings();

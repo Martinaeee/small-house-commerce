@@ -57,25 +57,33 @@ type BufferedText = {
   reset(next: string): void;
 };
 
+type DocumentMutator = (
+  document: HomepageDocument,
+  next: string,
+) => HomepageDocument;
+
 /**
- * Local buffer for a document-backed text input: one commit per typing burst
- * (300 ms) or on blur, never per keystroke. Invalid text is kept while the
- * field has focus (the caller can surface an error) and reverted on blur.
+ * Buffer mechanics for a document-backed text input: local state plus a 300 ms
+ * debounce, one commit per typing burst or on blur, never per keystroke.
+ * Invalid text is kept while the field has focus (the caller can surface an
+ * error) and reverted on blur.
  */
-function useBufferedText(
+function useBufferedValue(
   external: string,
-  commit: (next: string) => void,
+  fire: (next: string) => void,
   isValid: (next: string) => boolean = () => true,
 ): BufferedText {
   const [value, setValue] = useState(external);
   const [synced, setSynced] = useState(external);
-  const commitRef = useRef(commit);
+  const fireRef = useRef(fire);
+  const isValidRef = useRef(isValid);
   const externalRef = useRef(external);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Latest values for callbacks that outlive a render (debounce timers).
+  // Latest callbacks for debounce timers that outlive a render.
   useEffect(() => {
-    commitRef.current = commit;
+    fireRef.current = fire;
+    isValidRef.current = isValid;
     externalRef.current = external;
   });
 
@@ -98,10 +106,10 @@ function useBufferedText(
     }
   };
 
-  const fire = (next: string): void => {
+  const fireNow = (next: string): void => {
     clearTimer();
-    if (isValid(next) && next !== externalRef.current) {
-      commitRef.current(next);
+    if (isValidRef.current(next) && next !== externalRef.current) {
+      fireRef.current(next);
     }
   };
 
@@ -112,15 +120,13 @@ function useBufferedText(
       clearTimer();
       timer.current = setTimeout(() => {
         timer.current = null;
-        fire(next);
+        fireNow(next);
       }, TEXT_COMMIT_DELAY_MS);
     },
     blur() {
       clearTimer();
-      if (isValid(value)) {
-        if (value !== externalRef.current) {
-          commitRef.current(value);
-        }
+      if (isValidRef.current(value)) {
+        fireNow(value);
       } else {
         setValue(externalRef.current);
       }
@@ -130,6 +136,35 @@ function useBufferedText(
       setValue(next);
     },
   };
+}
+
+/**
+ * Buffered text that commits by dispatching a `mutate` action, which the
+ * reducer applies to its latest document: two timers expiring in the same
+ * flush therefore cannot drop each other's edit (a document built from a
+ * render-captured snapshot would).
+ */
+function useBufferedText(
+  external: string,
+  mutate: DocumentMutator,
+  isValid: (next: string) => boolean = () => true,
+): BufferedText {
+  const { dispatch } = useHomepageEditor();
+  const mutateRef = useRef(mutate);
+  useEffect(() => {
+    mutateRef.current = mutate;
+  });
+
+  return useBufferedValue(
+    external,
+    (next) => {
+      dispatch({
+        type: "mutate",
+        mutate: (document) => mutateRef.current(document, next),
+      });
+    },
+    isValid,
+  );
 }
 
 function linkTextOf(value: LinkValue | null): string {
@@ -183,7 +218,10 @@ export function InlineLinkControl({
     onChange(next);
   };
 
-  const text = useBufferedText(linkTextOf(value), (next) => {
+  // The buffered id/url text fires through `onChange`, which the owning panel
+  // wires to a `mutate` dispatch — the same race-safe path as the other
+  // buffered fields, with the control's fixed Task 18 interface intact.
+  const text = useBufferedValue(linkTextOf(value), (next) => {
     const candidate = next.trim();
     if (candidate === "") {
       commitLink(null);
@@ -284,13 +322,17 @@ export function InlineLinkControl({
 function ColorField({
   label,
   value,
-  onChange,
+  mutate,
+  onPick,
 }: {
   label: string;
   value: string;
-  onChange: (hex: string) => void;
+  /** Buffered hex text path: race-safe `mutate` applied to the latest document. */
+  mutate: DocumentMutator;
+  /** Swatch click path: immediate synchronous commit. */
+  onPick: (hex: string) => void;
 }): ReactNode {
-  const hex = useBufferedText(value, onChange, (next) =>
+  const hex = useBufferedText(value, mutate, (next) =>
     HEX_COLOR_PATTERN.test(next),
   );
 
@@ -316,7 +358,7 @@ function ColorField({
               value.toUpperCase() === color ? "border-cta" : "border-border"
             }`}
             style={{ backgroundColor: color }}
-            onClick={() => onChange(color)}
+            onClick={() => onPick(color)}
           />
         ))}
       </div>
@@ -332,6 +374,16 @@ export function AnnouncementSettings(): ReactNode {
 
   const commit = (next: HomepageDocument): void => {
     dispatch({ type: "commit", document: next });
+  };
+
+  /**
+   * Race-safe commit for async/buffered producers: the reducer applies the
+   * mutation to its latest document (see `EditorAction.mutate`).
+   */
+  const applyMutation = (
+    mutate: (document: HomepageDocument) => HomepageDocument,
+  ): void => {
+    dispatch({ type: "mutate", mutate });
   };
 
   const items = [...announcement.items].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -404,6 +456,7 @@ export function AnnouncementSettings(): ReactNode {
               index={index}
               count={items.length}
               commit={commit}
+              applyMutation={applyMutation}
             />
           ))}
         </ul>
@@ -427,24 +480,26 @@ function AnnouncementItemCard({
   index,
   count,
   commit,
+  applyMutation,
 }: {
   document: HomepageDocument;
   item: AnnouncementItem;
   index: number;
   count: number;
   commit: (next: HomepageDocument) => void;
+  applyMutation: (
+    mutate: (document: HomepageDocument) => HomepageDocument,
+  ) => void;
 }): ReactNode {
   const { t } = useAdminI18n();
 
-  const text = useBufferedText(item.text, (next) =>
-    commit(updateAnnouncementItem(document, item.id, { text: next })),
+  const text = useBufferedText(item.text, (current, next) =>
+    updateAnnouncementItem(current, item.id, { text: next }),
   );
-  const linkLabel = useBufferedText(item.linkLabel ?? "", (next) =>
-    commit(
-      updateAnnouncementItem(document, item.id, {
-        linkLabel: next === "" ? null : next,
-      }),
-    ),
+  const linkLabel = useBufferedText(item.linkLabel ?? "", (current, next) =>
+    updateAnnouncementItem(current, item.id, {
+      linkLabel: next === "" ? null : next,
+    }),
   );
 
   const changeSchedule = (
@@ -555,7 +610,9 @@ function AnnouncementItemCard({
           value={item.link}
           allowExternal
           onChange={(next) =>
-            commit(updateAnnouncementItem(document, item.id, { link: next }))
+            applyMutation((current) =>
+              updateAnnouncementItem(current, item.id, { link: next }),
+            )
           }
         />
       </div>
@@ -564,7 +621,10 @@ function AnnouncementItemCard({
         <ColorField
           label={t("homepage_builder_field_text_color")}
           value={item.textColor}
-          onChange={(hex) =>
+          mutate={(current, hex) =>
+            updateAnnouncementItem(current, item.id, { textColor: hex })
+          }
+          onPick={(hex) =>
             commit(
               updateAnnouncementItem(document, item.id, { textColor: hex }),
             )
@@ -573,7 +633,12 @@ function AnnouncementItemCard({
         <ColorField
           label={t("homepage_builder_field_background")}
           value={item.backgroundColor}
-          onChange={(hex) =>
+          mutate={(current, hex) =>
+            updateAnnouncementItem(current, item.id, {
+              backgroundColor: hex,
+            })
+          }
+          onPick={(hex) =>
             commit(
               updateAnnouncementItem(document, item.id, {
                 backgroundColor: hex,
