@@ -190,6 +190,17 @@ describe("HomepagePreviewPage token gate", () => {
       "NEXT_HTTP_ERROR_FALLBACK;404",
     );
   });
+
+  it("404s with repeated token search params before any fetch", async () => {
+    // `?token=a&token=b` arrives as an array. A String() coercion would send
+    // "a,b" to the backend, whose silent fallback would then render the live
+    // document under the draft banner — the gate must reject it first.
+    await expect(loadPreview({ token: ["a", "b"] })).rejects.toThrow(
+      "NEXT_HTTP_ERROR_FALLBACK;404",
+    );
+    expect(notFoundMock).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("HomepagePreviewPage rendering", () => {
@@ -226,6 +237,39 @@ describe("HomepagePreviewPage rendering", () => {
     stubFetch((url) =>
       url.includes("/storefront/announcement")
         ? new Response("", { status: 200 })
+        : jsonResponse({ sections: [draftHeroSection()] }),
+    );
+
+    await renderPreview();
+
+    expect(document.querySelector("[data-announcement-bar]")).toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 1, name: DRAFT_HEADING }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the bar for a literal null 200 body", async () => {
+    // Nest serializes a null service result as the JSON literal `null`.
+    stubFetch((url) =>
+      url.includes("/storefront/announcement")
+        ? new Response("null", { status: 200, headers: { "Content-Type": "application/json" } })
+        : jsonResponse({ sections: [draftHeroSection()] }),
+    );
+
+    await renderPreview();
+
+    expect(document.querySelector("[data-announcement-bar]")).toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 1, name: DRAFT_HEADING }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the bar for a malformed JSON 200 body without failing the preview", async () => {
+    // The bar is enhancement (same contract as the storefront layout): a 200
+    // whose body cannot be parsed must not 404 the preview or crash it.
+    stubFetch((url) =>
+      url.includes("/storefront/announcement")
+        ? new Response("{not-json", { status: 200 })
         : jsonResponse({ sections: [draftHeroSection()] }),
     );
 
