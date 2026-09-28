@@ -3,8 +3,8 @@
 import type { ReactNode } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { useHomepageEditor, type BuilderDevice } from "@/components/admin/homepage/HomepageEditor";
+import { LinkPicker } from "@/components/admin/homepage/LinkPicker";
 import {
-  InlineLinkControl,
   useBufferedText,
   useBufferedValue,
 } from "@/components/admin/homepage/AnnouncementSettings";
@@ -175,7 +175,7 @@ function clearStyleProperty(
 
 /**
  * Field primitives shared with `HeroStyleSettings` (same reuse pattern as
- * `InlineLinkControl`): `Group`, `NumberField`, `ColorField`, `SelectField`.
+ * `LinkPicker`): `Group`, `NumberField`, `ColorField`, `SelectField`.
  * The `ClearButton` stays private to this panel.
  */
 export function Group({
@@ -502,7 +502,7 @@ function ElementSettings({
             <span className="text-xs font-medium text-ink-secondary">
               {t("homepage_builder_field_link")}
             </span>
-            <InlineLinkControl
+            <LinkPicker
               value={element.link}
               allowExternal
               onChange={(next) =>

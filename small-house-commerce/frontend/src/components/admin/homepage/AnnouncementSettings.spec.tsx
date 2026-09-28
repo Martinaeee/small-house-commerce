@@ -13,10 +13,42 @@ import {
   type AnnouncementItem,
   type HomepageDocument,
 } from "@/lib/homepage-document";
+import type { AdminProduct } from "@/lib/admin-api";
+
+const listProducts = vi.hoisted(() => vi.fn());
+const listCategories = vi.hoisted(() => vi.fn());
+const listCollections = vi.hoisted(() => vi.fn());
+const listLandingPages = vi.hoisted(() => vi.fn());
+const getProduct = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/admin-api", () => ({
+  adminApi: {
+    listProducts,
+    listCategories,
+    listCollections,
+    listLandingPages,
+    getProduct,
+  },
+}));
 
 const ITEM_ONE_ID = "00000000-0000-7000-8000-000000000201";
 const ITEM_TWO_ID = "00000000-0000-7000-8000-000000000202";
 const PRODUCT_UUID = "11111111-2222-4333-8444-555555555555";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+  listCollections.mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 100,
+  });
+  listCategories.mockResolvedValue([]);
+  listLandingPages.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+  getProduct.mockReset();
+  getProduct.mockRejectedValue(new Error("not found"));
+});
 
 function announcementItem(
   id: string,
@@ -277,7 +309,7 @@ describe("AnnouncementSettings", () => {
     expect(commits()).toBe("2");
   });
 
-  it("keeps a buffered link edit and a buffered hex edit when both timers expire together", async () => {
+  it("keeps a buffered external link and a buffered hex edit when both timers expire together", async () => {
     vi.useFakeTimers();
     renderSettings();
 
@@ -285,24 +317,26 @@ describe("AnnouncementSettings", () => {
       within(itemCard(ITEM_ONE_ID)).getByRole("combobox", {
         name: "Link type",
       }),
-      { target: { value: "PRODUCT" } },
+      { target: { value: "EXTERNAL" } },
     );
-    const idInput = within(itemCard(ITEM_ONE_ID)).getByRole("textbox", {
-      name: "Product ID",
+    const urlInput = within(itemCard(ITEM_ONE_ID)).getByRole("textbox", {
+      name: "External URL (https only)",
     });
     const hexInput = within(itemCard(ITEM_TWO_ID)).getByRole("textbox", {
       name: "Text color",
     });
 
-    fireEvent.change(idInput, { target: { value: PRODUCT_UUID } });
+    fireEvent.change(urlInput, {
+      target: { value: "https://example.com/sale" },
+    });
     await advance(100);
     fireEvent.change(hexInput, { target: { value: "#112233" } });
 
     await advance(300);
 
     expect(announcement().items[0].link).toEqual({
-      type: "PRODUCT",
-      id: PRODUCT_UUID,
+      type: "EXTERNAL",
+      url: "https://example.com/sale",
     });
     expect(announcement().items[1].textColor).toBe("#112233");
     expect(commits()).toBe("2");
@@ -374,32 +408,54 @@ describe("AnnouncementSettings", () => {
     expect(announcement().rotationMs).toBe(30000);
   });
 
-  it("switches link types, validates https external URLs and clears the link", async () => {
+  it("commits an item link through the LinkPicker entity picker", async () => {
+    vi.useFakeTimers();
+    listProducts.mockResolvedValue({
+      items: [
+        {
+          id: PRODUCT_UUID,
+          name: "Oak Side Table",
+        } as AdminProduct,
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    renderSettings();
+
+    fireEvent.change(
+      within(itemCard(ITEM_ONE_ID)).getByRole("combobox", {
+        name: "Link type",
+      }),
+      { target: { value: "PRODUCT" } },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(
+      within(screen.getByLabelText("Pick a Product")).getByRole("button", {
+        name: "Oak Side Table",
+      }),
+    );
+
+    expect(announcement().items[0].link).toEqual({
+      type: "PRODUCT",
+      id: PRODUCT_UUID,
+    });
+  });
+
+  it("switches to external, validates https URLs and clears the link", async () => {
     renderSettings();
 
     const card = itemCard(ITEM_ONE_ID);
     const typeSelect = within(card).getByRole("combobox", { name: "Link type" });
     expect(typeSelect).toHaveValue("");
 
-    fireEvent.change(typeSelect, { target: { value: "PRODUCT" } });
-    expect(announcement().items[0].link).toBeNull();
-
-    const idInput = within(card).getByRole("textbox", { name: "Product ID" });
-    fireEvent.change(idInput, { target: { value: PRODUCT_UUID } });
-    await act(async () => {});
-    fireEvent.blur(idInput);
-
-    expect(announcement().items[0].link).toEqual({
-      type: "PRODUCT",
-      id: PRODUCT_UUID,
-    });
-
     fireEvent.change(typeSelect, { target: { value: "EXTERNAL" } });
-    expect(announcement().items[0].link).toBeNull();
-
     const urlInput = within(card).getByRole("textbox", {
       name: "External URL (https only)",
     });
+
     fireEvent.change(urlInput, { target: { value: "http://insecure.example" } });
     fireEvent.blur(urlInput);
 

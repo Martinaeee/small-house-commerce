@@ -1213,8 +1213,12 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_link_type_PRODUCT: "Product",
   homepage_builder_link_type_COLLECTION: "Collection",
   homepage_builder_link_type_CATEGORY: "Category",
-  homepage_builder_link_type_LANDING_PAGE: "Landing page",
+  homepage_builder_link_type_LANDING: "Landing page",
   homepage_builder_link_type_EXTERNAL: "External URL",
+  homepage_builder_link_search_placeholder:
+    "Search products, collections, categories or landing pages",
+  homepage_builder_link_pick_title: "Pick a {type}",
+  homepage_builder_link_empty_results: "No items match.",
   homepage_builder_link_external_url: "External URL (https only)",
   homepage_builder_link_external_invalid: "Only https:// links are allowed.",
   homepage_builder_link_resolved: "{name} (resolves to a storefront link)",

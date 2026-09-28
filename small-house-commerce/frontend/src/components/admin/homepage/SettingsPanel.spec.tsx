@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -15,6 +15,38 @@ import {
   type HeroElementKey,
   type HomepageDocument,
 } from "@/lib/homepage-document";
+import type { AdminProduct } from "@/lib/admin-api";
+
+const listProducts = vi.hoisted(() => vi.fn());
+const listCategories = vi.hoisted(() => vi.fn());
+const listCollections = vi.hoisted(() => vi.fn());
+const listLandingPages = vi.hoisted(() => vi.fn());
+const getProduct = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/admin-api", () => ({
+  adminApi: {
+    listProducts,
+    listCategories,
+    listCollections,
+    listLandingPages,
+    getProduct,
+  },
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+  listCollections.mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 100,
+  });
+  listCategories.mockResolvedValue([]);
+  listLandingPages.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+  getProduct.mockReset();
+  getProduct.mockRejectedValue(new Error("not found"));
+});
 
 const SLIDE_ID = "00000000-0000-7000-8000-000000000111";
 const SLIDE_TWO_ID = "00000000-0000-7000-8000-000000000112";
@@ -442,15 +474,32 @@ describe("SettingsPanel", () => {
     expect(countdownElement().endsAt).toBeNull();
   });
 
-  it("commits a CTA link through the inline link control", async () => {
+  it("commits a CTA link through the LinkPicker entity picker", async () => {
+    vi.useFakeTimers();
+    listProducts.mockResolvedValue({
+      items: [
+        {
+          id: PRODUCT_UUID,
+          name: "Oak Side Table",
+        } as AdminProduct,
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
     renderPanel({ elementKey: "ctaPrimary" });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Link type" }), {
       target: { value: "PRODUCT" },
     });
-    const idInput = screen.getByRole("textbox", { name: "Product ID" });
-    fireEvent.change(idInput, { target: { value: PRODUCT_UUID } });
-    fireEvent.blur(idInput);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(
+      within(screen.getByLabelText("Pick a Product")).getByRole("button", {
+        name: "Oak Side Table",
+      }),
+    );
 
     const cta = slideElement("ctaPrimary");
     expect(cta.link).toEqual({ type: "PRODUCT", id: PRODUCT_UUID });

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { useAdminI18n } from "@/lib/admin-i18n";
 import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
+import { LinkPicker } from "@/components/admin/homepage/LinkPicker";
 import { isoToLocalInput } from "@/lib/datetime-input";
 import {
   addAnnouncementItem,
@@ -12,7 +13,6 @@ import {
   updateAnnouncementItem,
   type AnnouncementItem,
   type HomepageDocument,
-  type LinkValue,
 } from "@/lib/homepage-document";
 
 /**
@@ -35,19 +35,6 @@ const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 /** Preset palette (design spec §3.2): 浅蓝灰 / 淡绿 / 暖米. */
 const PALETTE_COLORS = ["#E8EEF4", "#E7F0E7", "#F2EFE9"] as const;
-
-const LINK_TYPES = ["PRODUCT", "COLLECTION", "CATEGORY", "LANDING"] as const;
-type InternalLinkType = (typeof LINK_TYPES)[number];
-type LinkType = InternalLinkType | "EXTERNAL";
-
-/** Static mapping: `LANDING` stores as `homepage_builder_link_type_LANDING_PAGE`. */
-const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
-  PRODUCT: "homepage_builder_link_type_PRODUCT",
-  COLLECTION: "homepage_builder_link_type_COLLECTION",
-  CATEGORY: "homepage_builder_link_type_CATEGORY",
-  LANDING: "homepage_builder_link_type_LANDING_PAGE",
-  EXTERNAL: "homepage_builder_link_type_EXTERNAL",
-};
 
 type BufferedText = {
   value: string;
@@ -183,158 +170,6 @@ export function useBufferedText(
     },
     isValid,
     delayMs,
-  );
-}
-
-function linkTextOf(value: LinkValue | null): string {
-  if (value === null) return "";
-  return value.type === "EXTERNAL" ? value.url : value.id;
-}
-
-function isHttpsUrl(text: string): boolean {
-  try {
-    return new URL(text).protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-export type LinkControlProps = {
-  value: LinkValue | null;
-  onChange(value: LinkValue | null): void;
-  allowExternal: boolean;
-};
-
-/**
- * Minimal inline link control (ledger Ruling 27): type select, id/url input
- * and clear. It keeps the exact interface Task 18's full `LinkPicker` will
- * implement, and is replaced by that component in AnnouncementSettings and
- * SettingsPanel.
- *
- * Incomplete drafts (a type without an id/url yet) stay local — the document
- * only ever receives complete links or `null`.
- */
-export function InlineLinkControl({
-  value,
-  onChange,
-  allowExternal,
-}: LinkControlProps): ReactNode {
-  const { t } = useAdminI18n();
-  const [type, setType] = useState<LinkType | "">(value?.type ?? "");
-  const [lastSeenType, setLastSeenType] = useState<LinkType | "">(
-    value?.type ?? "",
-  );
-
-  // Adopt a committed link that arrived from elsewhere (undo, parent patch).
-  const committedType = value?.type ?? "";
-  if (value !== null && committedType !== lastSeenType) {
-    setLastSeenType(committedType);
-    setType(committedType);
-  }
-
-  const commitLink = (next: LinkValue | null): void => {
-    if (JSON.stringify(next) === JSON.stringify(value)) return;
-    onChange(next);
-  };
-
-  // The buffered id/url text fires through `onChange`, which the owning panel
-  // wires to a `mutate` dispatch — the same race-safe path as the other
-  // buffered fields, with the control's fixed Task 18 interface intact.
-  const text = useBufferedValue(linkTextOf(value), (next) => {
-    const candidate = next.trim();
-    if (candidate === "") {
-      commitLink(null);
-      return;
-    }
-    if (type === "EXTERNAL") {
-      if (isHttpsUrl(candidate)) commitLink({ type: "EXTERNAL", url: candidate });
-      return;
-    }
-    if (type !== "") commitLink({ type, id: candidate });
-  });
-
-  const switchType = (nextType: LinkType | ""): void => {
-    setType(nextType);
-    if (nextType === "") {
-      text.reset("");
-      commitLink(null);
-      return;
-    }
-    const carried =
-      value !== null && value.type === nextType ? linkTextOf(value) : "";
-    text.reset(carried);
-    if (carried === "") {
-      commitLink(null);
-      return;
-    }
-    commitLink(
-      nextType === "EXTERNAL"
-        ? { type: "EXTERNAL", url: carried }
-        : { type: nextType, id: carried },
-    );
-  };
-
-  const external = type === "EXTERNAL";
-  const trimmed = text.value.trim();
-  const invalidExternal =
-    external && trimmed !== "" && !isHttpsUrl(trimmed);
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
-        <select
-          className="rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-ink"
-          aria-label={t("homepage_builder_link_type")}
-          value={type}
-          onChange={(event) => switchType(event.target.value as LinkType | "")}
-        >
-          <option value="">—</option>
-          {LINK_TYPES.map((option) => (
-            <option key={option} value={option}>
-              {t(LINK_TYPE_LABEL_KEYS[option])}
-            </option>
-          ))}
-          {allowExternal ? (
-            <option value="EXTERNAL">{t(LINK_TYPE_LABEL_KEYS.EXTERNAL)}</option>
-          ) : null}
-        </select>
-        {type !== "" ? (
-          <input
-            type="text"
-            className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-xs text-ink"
-            aria-label={
-              external
-                ? t("homepage_builder_link_external_url")
-                : `${t(LINK_TYPE_LABEL_KEYS[type])} ID`
-            }
-            placeholder={external ? "https://…" : "UUID"}
-            value={text.value}
-            onChange={(event) => text.change(event.target.value)}
-            onBlur={text.blur}
-          />
-        ) : null}
-        {value !== null ? (
-          <button
-            type="button"
-            className="shrink-0 rounded px-1.5 py-1 text-sm text-ink-muted hover:text-sale"
-            aria-label={t("homepage_builder_link_clear")}
-            onClick={() => {
-              text.reset("");
-              setType("");
-              setLastSeenType("");
-              commitLink(null);
-            }}
-          >
-            ✕
-          </button>
-        ) : null}
-      </div>
-      {invalidExternal ? (
-        <p className="text-xs text-sale">
-          {t("homepage_builder_link_external_invalid")}
-        </p>
-      ) : null}
-    </div>
   );
 }
 
@@ -625,7 +460,7 @@ function AnnouncementItemCard({
         <span className="text-xs font-medium text-ink-secondary">
           {t("homepage_builder_field_link")}
         </span>
-        <InlineLinkControl
+        <LinkPicker
           value={item.link}
           allowExternal
           onChange={(next) =>
