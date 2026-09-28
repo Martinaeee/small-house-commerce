@@ -1,7 +1,11 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SECTION_REGISTRY } from "./sectionRegistry";
-import { DEFAULT_SECTIONS } from "./default-sections";
+import {
+  DEFAULT_HERO_SECTION_ID,
+  DEFAULT_HERO_SLIDE_ID,
+  DEFAULT_SECTIONS,
+} from "./default-sections";
 import type { HomepageSection } from "@/lib/api";
 
 /**
@@ -19,6 +23,11 @@ const heroSection = (): HomepageSection => {
   return hero;
 };
 
+// Fix-round-2 expectation: the fallback hero must use UUID-scoped ids so
+// heroCss (Task 10 strict-UUID whitelist) actually emits layout rules for it.
+const EXPECTED_SECTION_ID = DEFAULT_HERO_SECTION_ID;
+const EXPECTED_SLIDE_ID = DEFAULT_HERO_SLIDE_ID;
+
 describe("DEFAULT_SECTIONS fallback hero", () => {
   it("renders the fallback hero's heading and both CTAs through the real storefront path", () => {
     const Hero = SECTION_REGISTRY.HERO;
@@ -27,7 +36,10 @@ describe("DEFAULT_SECTIONS fallback hero", () => {
     // The real HeroSlider mount, not a blank section.
     expect(document.querySelector("[data-hero-slider]")).not.toBeNull();
     expect(
-      document.querySelector(`[data-slide="default-hero-slide"]`),
+      document.querySelector(`#hp-hero-${EXPECTED_SECTION_ID}`),
+    ).not.toBeNull();
+    expect(
+      document.querySelector(`[data-slide="${EXPECTED_SLIDE_ID}"]`),
     ).not.toBeNull();
 
     const heading = document.querySelector('[data-hero-element="heading"]');
@@ -43,6 +55,25 @@ describe("DEFAULT_SECTIONS fallback hero", () => {
       '[data-hero-element="ctaSecondary"] a',
     );
     expect(secondary?.getAttribute("href")).toBe("#solutions");
+  });
+
+  it("emits scoped heroCss layout rules for the fallback hero (UUID scope)", () => {
+    const Hero = SECTION_REGISTRY.HERO;
+    render(<Hero section={heroSection()} />);
+
+    const cssText = Array.from(
+      document.querySelectorAll("[data-hero-slider] style"),
+    )
+      .map((node) => node.textContent ?? "")
+      .join("");
+
+    expect(cssText).toContain(`#hp-hero-${EXPECTED_SECTION_ID}`);
+    expect(cssText).toContain(`[data-slide="${EXPECTED_SLIDE_ID}"]`);
+    // position/layout vars are always emitted for default elements (Ruling 26:
+    // `[data-hero-element]` typography rules are optional, position vars are not)
+    expect(cssText).toContain(`--el-heading-x:`);
+    expect(cssText).toContain(`--el-ctaPrimary-x:`);
+    expect(cssText).toContain("--hp-hero-height: calc(100vw * 1.25);");
   });
 
   it("keeps the other nine default sections byte-identical", () => {

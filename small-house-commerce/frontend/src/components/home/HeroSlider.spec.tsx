@@ -393,6 +393,77 @@ describe("HeroSlider", () => {
     expect(document.querySelector("[data-hero-media]")).not.toBeNull();
   });
 
+  it("marks non-active slide wrappers inert so they are not focusable", async () => {
+    render(<HeroSlider section={section(threeSlides())} />);
+    const slides = slideWrappers();
+    expect(slides[0].hasAttribute("inert")).toBe(false);
+    expect(slides[1].hasAttribute("inert")).toBe(true);
+    expect(slides[2].hasAttribute("inert")).toBe(true);
+    // aria-hidden contract is kept alongside inert
+    expect(slides[1].getAttribute("aria-hidden")).toBe("true");
+
+    // rotating moves inert to the new non-active set
+    await advance(DURATION_MS);
+    const after = slideWrappers();
+    expect(after[0].hasAttribute("inert")).toBe(true);
+    expect(after[1].hasAttribute("inert")).toBe(false);
+  });
+
+  it("renders the heading element as an h1 in read-only mode (storefront)", () => {
+    render(<HeroSlider section={section([slide(0)])} />);
+    const heading = element("heading");
+    const h1 = heading.querySelector("h1");
+    expect(h1).not.toBeNull();
+    expect(h1?.textContent).toContain("Heading 1");
+    // the CTA anchors are links, not headings; the subheading is not an h1
+    expect(element("subheading").querySelector("h1")).toBeNull();
+  });
+
+  it("keeps the heading render as a non-h1 in edit mode (admin canvas)", () => {
+    render(
+      <HeroSlider
+        section={section([slide(0)])}
+        edit={{ selectedElementKey: null, onSelectElement: () => undefined }}
+      />,
+    );
+    expect(element("heading").querySelector("h1")).toBeNull();
+  });
+
+  it("resets the unmuted sound state when the slide rotates", async () => {
+    const videoSlide = (index: number): HomepageHeroSlide =>
+      slide(index, {
+        media: {
+          type: "VIDEO",
+          image: null,
+          video: {
+            url: "/uploads/hero.mp4",
+            poster: "/uploads/hero-poster.jpg",
+            autoplay: true,
+            muted: true,
+            loop: true,
+            playsInline: true,
+            showSoundToggle: true,
+            pauseOffscreen: true,
+          },
+          mobileOverride: { enabled: false, image: null, video: null },
+          fit: "COVER",
+        },
+      });
+    render(<HeroSlider section={section([videoSlide(0), videoSlide(1)])} />);
+
+    const toggle = document.querySelector("[data-hero-sound-toggle]");
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle as HTMLElement);
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(slideWrappers()[0].querySelector("video")?.muted).toBe(false);
+
+    // rotate to slide B: the unmute must not leak over
+    await advance(DURATION_MS);
+    const nextToggle = document.querySelector("[data-hero-sound-toggle]");
+    expect(nextToggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(slideWrappers()[1].querySelector("video")?.muted).toBe(true);
+  });
+
   it("leaves the slider interactive in read-only mode (arrows advance slides)", async () => {
     render(<HeroSlider section={section(threeSlides())} />);
     fireEvent.click(document.querySelector("[data-hero-prev]") as HTMLElement);

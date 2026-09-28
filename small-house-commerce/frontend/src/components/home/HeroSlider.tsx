@@ -116,6 +116,7 @@ export function HeroSlider({
     (next: number): void => {
       if (slides.length === 0) return;
       setActiveIndex(((next % slides.length) + slides.length) % slides.length);
+      setUnmuted(false); // sound state is per-slide; never leak across slides
       manualPauseUntilRef.current = Date.now() + behavior.manualPauseMs;
     },
     [behavior.manualPauseMs, slides.length],
@@ -131,6 +132,7 @@ export function HeroSlider({
       if (hovered && behavior.pauseOnHover) return;
       if (Date.now() < manualPauseUntilRef.current) return;
       setActiveIndex((current) => (current + 1) % slides.length);
+      setUnmuted(false); // reset the sound toggle on rotation (Fix round 2)
     }, behavior.durationMs);
     return () => clearInterval(id);
   }, [
@@ -183,6 +185,7 @@ export function HeroSlider({
             data-slide={slide.id}
             data-slide-id={slide.id}
             aria-hidden={active ? undefined : "true"}
+            inert={active ? undefined : true}
             className="absolute inset-0"
             style={slideTransitionStyle(index, activeIndex, behavior.transition, reducedMotion)}
           >
@@ -631,6 +634,15 @@ function HeroElementContent({
         {text}
       </span>
     );
+  }
+
+  // The storefront home has exactly one page-level heading; the legacy
+  // `HeroSection` rendered it as <h1> and the semantic tag must survive the
+  // builder swap. Edit mode keeps a span so the admin canvas never injects a
+  // stray page h1. Styling is fully builder-controlled (Task 19) — only the
+  // tag is restored. Fix round 2 (Important 3).
+  if (elementKey === "heading") {
+    return edit ? <span>{text}</span> : <h1>{text}</h1>;
   }
 
   return <span>{text}</span>;

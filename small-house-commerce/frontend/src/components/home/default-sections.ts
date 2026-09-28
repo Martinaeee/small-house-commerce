@@ -2,6 +2,16 @@ import { emptySlide } from "@/lib/homepage-document";
 import type { HomepageSection } from "@/lib/api";
 
 /**
+ * Fixed UUIDs for the fallback HERO (Fix round 2). `heroCss` enforces a strict
+ * UUID selector whitelist (Task 10), so the fallback hero must use UUID-shaped
+ * ids or it renders with zero layout CSS (all elements pile up top-left). These
+ * follow the migration file's `00000000-0000-7000-8000-…` style and stay stable
+ * across builds.
+ */
+export const DEFAULT_HERO_SECTION_ID = "00000000-0000-7000-8000-00000000d001";
+export const DEFAULT_HERO_SLIDE_ID = "00000000-0000-7000-8000-00000000d002";
+
+/**
  * Fallback composition mirroring the Task 4 seed. Used only when the homepage
  * API call fails from the RSC. Category tiles and grids come back empty here;
  * empty-state cards render instead of crashing the page.
@@ -17,7 +27,7 @@ import type { HomepageSection } from "@/lib/api";
  */
 const FALLBACK_HERO_SLIDE = (() => {
   const slide = emptySlide(0);
-  slide.id = "default-hero-slide";
+  slide.id = DEFAULT_HERO_SLIDE_ID;
   slide.name = "Fallback hero";
   slide.elements.heading.text = "Small Space. Big Luwag.";
   slide.elements.subheading.text =
@@ -46,7 +56,7 @@ const FALLBACK_HERO_BEHAVIOR = {
 
 export const DEFAULT_SECTIONS: HomepageSection[] = [
   {
-    id: "default-hero",
+    id: DEFAULT_HERO_SECTION_ID,
     type: "HERO",
     sortOrder: 0,
     title: "Small Space. Big Luwag.",
