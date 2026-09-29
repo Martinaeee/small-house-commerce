@@ -8,13 +8,15 @@ import {
   createInitialSelection,
   resolveSelection,
 } from "@/lib/product-selection";
+import { RatingStars } from "./RatingStars";
 
 /**
  * DESIGN_SYSTEM §12 Product Card — the core reusable component.
- * Structure: image (4:5) → badge → name → price → CTA.
+ * Structure: image (4:5) → badge → name → rating → price → CTA.
  * Used on Homepage, Collection and Related Products.
  * Media and price come from the backend's effective cover and the shared
  * selection contract — never from positional images[0]/variants[0] picks.
+ * The rating row renders only from real review data (average + count > 0).
  */
 
 interface ProductCardProps {
@@ -72,6 +74,16 @@ export function ProductCard({ product, badge }: ProductCardProps) {
             {product.name}
           </Link>
         </h3>
+
+        {product.ratingAverage != null && product.reviewCount > 0 ? (
+          <div className="flex items-center gap-1" data-testid="card-rating">
+            <RatingStars value={product.ratingAverage} className="text-xs" />
+            <span className="text-xs font-medium text-ink-secondary">
+              {product.ratingAverage.toFixed(1)}
+            </span>
+            <span className="text-xs text-ink-muted">({product.reviewCount})</span>
+          </div>
+        ) : null}
 
         {price ? (
           price.kind === "exact" ? (
