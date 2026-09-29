@@ -252,12 +252,21 @@ export interface HydratedRoomScene extends Omit<RoomScene, "hotspots"> {
   hotspots: RoomSceneHotspot[];
 }
 
+export type HomepageSectionStyle = {
+  backgroundColor?: string;
+  textColor?: string;
+  contentWidth?: "FULL" | "STANDARD" | "NARROW";
+  paddingTop?: number;
+  paddingBottom?: number;
+};
+
 export interface HomepageSection {
   id: string;
   type: HomepageSectionType;
   title: string | null;
   subtitle: string | null;
   sortOrder: number;
+  style?: HomepageSectionStyle;
   payload: Record<string, unknown>;
   // Present only on the types hydrated by the backend.
   products?: HomepageSectionProduct[];

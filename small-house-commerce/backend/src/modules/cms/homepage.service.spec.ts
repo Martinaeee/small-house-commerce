@@ -512,6 +512,25 @@ describe('HomepageService versioned storefront source', () => {
     vi.useRealTimers();
   });
 
+  it('passes persisted non-HERO section styles through the storefront projection', async () => {
+    const document = structuredClone(emptyDocument());
+    const usp = structuredClone(document.sections[0]);
+    usp.id = '00000000-0000-7000-8000-000000000002';
+    usp.type = 'USP';
+    usp.style = {
+      backgroundColor: '#112233',
+      textColor: '#fefefe',
+      contentWidth: 'NARROW',
+      paddingTop: 18,
+      paddingBottom: 26,
+    };
+    document.sections = [usp];
+
+    const result = await versionedService(versionedContext(document)).storefrontGet();
+
+    expect(result.sections[0]).toMatchObject({ style: usp.style });
+  });
+
   it('uses document products for non-HERO hydration without querying legacy joins', async () => {
     const document = structuredClone(emptyDocument());
     const grid = structuredClone(document.sections[0]);

@@ -45,14 +45,14 @@ export function UspSection({ section }: { section: HomepageSection }) {
   const items = Array.isArray(section.payload?.items) ? section.payload.items : [];
   if (items.length === 0) {
     return (
-      <SectionShell className="py-10">
+      <SectionShell className="py-10" style={section.style}>
         <TrustBar />
       </SectionShell>
     );
   }
 
   return (
-    <SectionShell className="py-10">
+    <SectionShell style={section.style} className="py-10">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {items.slice(0, 4).map((item, index) => (
           <div key={index} className="flex flex-col items-center gap-2 text-center">

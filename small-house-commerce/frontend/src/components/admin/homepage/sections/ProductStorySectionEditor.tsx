@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type { ProductStoryPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
-import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import {
+  BufferedImageUrlInput,
+  BufferedTextInput,
+} from "@/components/admin/homepage/BufferedSectionField";
 import { SectionProductPicker } from "@/components/admin/homepage/sections/SectionProductPicker";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,11 +81,12 @@ export function ProductStorySectionEditor({
       <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-ink-secondary">
           {t("homepage_builder_product_story_image")}
-          <ImageUrlInput
+          <BufferedImageUrlInput
             ariaLabel={t("homepage_builder_product_story_image")}
             value={safeString(payload.imageUrl)}
             placeholder={t("homepage_builder_media_url_placeholder")}
-            onChange={(value) => updateField("imageUrl", value)}
+            isValid={(value) => value === "" || isMediaUrl(value)}
+            onCommit={(value) => updateField("imageUrl", value)}
             labels={{
               upload: t("homepage_builder_media_upload_image"),
               uploading: t("homepage_builder_media_uploading"),
@@ -128,13 +132,15 @@ export function ProductStorySectionEditor({
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
           {t("homepage_builder_product_story_cta_link")}
-          <input
+          <BufferedTextInput
             type="text"
             className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
             aria-label={t("homepage_builder_product_story_cta_link")}
             maxLength={2048}
             value={safeString(payload.ctaLink)}
-            onChange={(event) => updateField("ctaLink", event.target.value)}
+            isValid={(value) => value === "" || isInAppOrHttps(value)}
+            commitValidImmediately
+            onCommit={(value) => updateField("ctaLink", value)}
           />
         </label>
       </div>

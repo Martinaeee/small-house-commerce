@@ -12,7 +12,7 @@ export function ProductGridSection({ section }: { section: HomepageSection }) {
     : "grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4";
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       {products.length === 0 ? (
         <SectionPlaceholder

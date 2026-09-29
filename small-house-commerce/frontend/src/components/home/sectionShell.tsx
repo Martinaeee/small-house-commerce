@@ -1,21 +1,92 @@
 import Link from "next/link";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
+import type { AnchorHTMLAttributes, CSSProperties, ReactNode } from "react";
+import type { HomepageSectionStyle } from "@/lib/api";
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+function finitePadding(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(240, value))
+    : undefined;
+}
+
+export function normalizeSectionStyle(value: unknown): HomepageSectionStyle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const style = value as Record<string, unknown>;
+  const paddingTop = finitePadding(style.paddingTop);
+  const paddingBottom = finitePadding(style.paddingBottom);
+  return {
+    ...(typeof style.backgroundColor === "string" && HEX_COLOR.test(style.backgroundColor)
+      ? { backgroundColor: style.backgroundColor }
+      : {}),
+    ...(typeof style.textColor === "string" && HEX_COLOR.test(style.textColor)
+      ? { textColor: style.textColor }
+      : {}),
+    ...(style.contentWidth === "FULL" ||
+    style.contentWidth === "STANDARD" ||
+    style.contentWidth === "NARROW"
+      ? { contentWidth: style.contentWidth }
+      : {}),
+    ...(paddingTop !== undefined ? { paddingTop } : {}),
+    ...(paddingBottom !== undefined ? { paddingBottom } : {}),
+  };
+}
+
+export function sectionStylePresentation(value: unknown): {
+  style: CSSProperties;
+  widthClass: string;
+  textColorClass: string;
+} {
+  const style = normalizeSectionStyle(value);
+  const widthClass =
+    style.contentWidth === "FULL"
+      ? "max-w-none"
+      : style.contentWidth === "NARROW"
+        ? "max-w-[840px]"
+        : "max-w-[1200px]";
+  const textColorClass = style.textColor
+    ? "[&_*]:!text-[var(--section-text-color)]"
+    : "";
+  const inlineStyle: CSSProperties = {
+    ...(style.backgroundColor ? { backgroundColor: style.backgroundColor } : {}),
+    ...(style.textColor
+      ? { color: style.textColor, "--section-text-color": style.textColor }
+      : {}),
+    ...(style.paddingTop !== undefined ? { paddingTop: style.paddingTop } : {}),
+    ...(style.paddingBottom !== undefined ? { paddingBottom: style.paddingBottom } : {}),
+  };
+  return { style: inlineStyle, widthClass, textColorClass };
+}
 
 /** Standard horizontal rhythm for homepage sections (mirrors the old page). */
 export function SectionShell({
   children,
   className = "",
   bleed = false,
+  style,
 }: {
   children: ReactNode;
   className?: string;
   bleed?: boolean;
+  style?: unknown;
 }) {
+  const presentation = sectionStylePresentation(style);
+
   if (bleed) {
-    return <section className={className}>{children}</section>;
+    return (
+      <section
+        className={`${presentation.textColorClass} ${className}`.trim()}
+        style={presentation.style}
+      >
+        {children}
+      </section>
+    );
   }
   return (
-    <section className={`mx-auto max-w-[1200px] px-4 py-10 sm:px-6 ${className}`.trim()}>
+    <section
+      className={`mx-auto ${presentation.widthClass} px-4 py-10 sm:px-6 ${presentation.textColorClass} ${className}`.trim()}
+      style={presentation.style}
+    >
       {children}
     </section>
   );

@@ -124,6 +124,35 @@ describe("SolutionsSectionEditor", () => {
     });
   });
 
+  it("keeps an optional blurb edit focused", () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ items: [{ title: "Small spaces", link: "/small" }] }} />
+      </AdminI18nProvider>,
+    );
+
+    const blurb = screen.getByRole("textbox", { name: "Solution blurb 1" });
+    blurb.focus();
+    fireEvent.change(blurb, { target: { value: "A" } });
+
+    expect(document.activeElement).toBe(blurb);
+  });
+
+  it("keeps an incomplete solution link visible while it is being typed", () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ items: [{ title: "Small spaces", link: "" }] }} />
+      </AdminI18nProvider>,
+    );
+
+    const link = screen.getByRole("textbox", { name: "Solution link 1" });
+    fireEvent.change(link, { target: { value: "h" } });
+
+    expect(link).toHaveValue("h");
+  });
+
   it("removes a row without rewriting other rows", () => {
     setAdminLang("en");
     render(

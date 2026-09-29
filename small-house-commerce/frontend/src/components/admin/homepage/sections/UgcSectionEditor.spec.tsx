@@ -7,7 +7,8 @@ import type { SectionOf } from "@/components/admin/homepage/section-editor-regis
 import type { SectionPayloadMap } from "@/lib/homepage-section-payloads";
 
 const listProducts = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts } }));
+const uploadImage = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts, uploadImage } }));
 
 type UgcSection = SectionOf<"UGC">;
 const UGC_ID = "00000000-0000-7000-8000-000000000107";
@@ -158,6 +159,118 @@ describe("UgcSectionEditor", () => {
         { name: "Mia Santos", productId: PRODUCT_ID },
       ],
     });
+  });
+
+  it("preserves optional fields when editing an unrelated identity field", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: [
+              {
+                name: "Mia",
+                location: "Manila",
+                comment: "Love it.",
+                imageUrl: "/mia.jpg",
+                productId: PRODUCT_ID,
+              },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "UGC name 1" }), {
+      target: { value: "Mia Santos" },
+    });
+
+    expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}")).toEqual({
+      entries: [
+        {
+          name: "Mia Santos",
+          location: "Manila",
+          comment: "Love it.",
+          imageUrl: "/mia.jpg",
+          productId: PRODUCT_ID,
+        },
+      ],
+    });
+  });
+
+  it("keeps an existing product option visible when search results exclude it", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: [{ name: "Mia", comment: "Love it.", productId: PRODUCT_ID }],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("option", { name: PRODUCT_ID })).toBeVisible());
+    expect(screen.getByRole("combobox", { name: "UGC product 1" })).toHaveValue(PRODUCT_ID);
+  });
+
+  it("keeps an in-progress location edit focused", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ entries: [{ name: "Mia", comment: "Love it." }] }} />
+      </AdminI18nProvider>,
+    );
+
+    const location = screen.getByRole("textbox", { name: "UGC location 1" });
+    location.focus();
+    fireEvent.change(location, { target: { value: "M" } });
+
+    expect(document.activeElement).toBe(location);
+  });
+
+  it("applies a completed image upload to the row after it moves", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    let resolveUpload: ((value: { url: string }) => void) | undefined;
+    uploadImage.mockReturnValue(
+      new Promise<{ url: string }>((resolve) => {
+        resolveUpload = resolve;
+      }),
+    );
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: [
+              { name: "Mia", comment: "Love it." },
+              { name: "Noah", comment: "Useful." },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    const file = new File(["image"], "mia.jpg", { type: "image/jpeg" });
+    const fileInput = screen
+      .getByTestId("ugc-row-0")
+      .querySelector('input[type="file"]');
+    if (!(fileInput instanceof HTMLInputElement)) throw new Error("missing file input");
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Move UGC row 1 down" }));
+    resolveUpload?.({ url: "/uploads/mia.jpg" });
+
+    await waitFor(() =>
+      expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}")).toMatchObject({
+        entries: [
+          { name: "Noah", comment: "Useful." },
+          { name: "Mia", comment: "Love it.", imageUrl: "/uploads/mia.jpg" },
+        ],
+      }),
+    );
   });
 
   it("removes an entry and preserves unrelated values", () => {

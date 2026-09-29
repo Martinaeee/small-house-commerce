@@ -167,7 +167,63 @@ describe("ProductStorySectionEditor", () => {
     expect(await screen.findByRole("button", { name: "Beyond page" })).toBeVisible();
   });
 
-  it("keeps the call to action optional and clears only the edited field", () => {
+  it("keeps an incomplete CTA URL visible while it is being typed", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Product story CTA link" });
+    fireEvent.change(input, { target: { value: "h" } });
+
+    expect(input).toHaveValue("h");
+  });
+
+  it("keeps an incomplete image URL visible while it is being typed", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Product story image URL" });
+    fireEvent.change(input, { target: { value: "/" } });
+
+    expect(input).toHaveValue("/");
+  });
+
+  it("keeps the clear action available when product results are empty", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ productId: product.id }} />
+      </AdminI18nProvider>,
+    );
+
+    const clear = await screen.findByRole("button", { name: "Clear featured product" });
+    fireEvent.click(clear);
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toEqual({});
+  });
+
+  it("keeps the selected product visible outside the current search results", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ productId: product.id }} />
+      </AdminI18nProvider>,
+    );
+
+    expect(await screen.findByText(product.id)).toBeVisible();
+  });
+
+  it("uses the existing product story clear behavior", () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     render(

@@ -228,6 +228,44 @@ describe("homepage document pure mutators", () => {
     expect(doc.sections).toHaveLength(1);
   });
 
+  it("regenerates Room Inspiration scene ids when duplicating a section", () => {
+    const source = defaultSection(
+      "ROOM_INSPIRATION",
+      "00000000-0000-7000-8000-000000000120",
+      10,
+    );
+    if (source.type !== "ROOM_INSPIRATION") throw new Error("expected room section");
+    source.payload.scenes = [
+      {
+        id: "scene00000001",
+        imageUrl: "/room.jpg",
+        hotspots: [
+          {
+            productId: "00000000-0000-7000-8000-000000000121",
+            xPct: 50,
+            yPct: 50,
+          },
+        ],
+      },
+    ];
+    const document: HomepageDocument = {
+      ...emptyDocument(),
+      sections: [...emptyDocument().sections, source],
+    };
+
+    const duplicated = duplicateSection(document, source.id);
+    const original = duplicated.sections.find(({ id }) => id === source.id);
+    const copy = duplicated.sections.find(({ id }) => id !== source.id && id !== heroSection(document).id);
+    if (!original || original.type !== "ROOM_INSPIRATION") throw new Error("missing original");
+    if (!copy || copy.type !== "ROOM_INSPIRATION") throw new Error("missing copy");
+
+    const originalScene = original.payload.scenes?.[0];
+    const copiedScene = copy.payload.scenes?.[0];
+    if (!originalScene || !copiedScene) throw new Error("missing room scene");
+    expect(copiedScene.id).not.toBe(originalScene.id);
+    expect(copiedScene.hotspots).toEqual(originalScene.hotspots);
+  });
+
   it.each(SECTION_TYPES)(
     "duplicates %s sections without sharing payload or product rows",
     (type) => {

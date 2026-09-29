@@ -9,7 +9,7 @@ export function SolutionsSection({ section }: { section: HomepageSection }) {
   const items = Array.isArray(section.payload?.items) ? section.payload.items : [];
 
   return (
-    <SectionShell className="scroll-mt-20">
+    <SectionShell className="scroll-mt-20" style={section.style}>
       <div id="solutions" className="scroll-mt-20" />
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       {items.length === 0 ? (

@@ -137,10 +137,23 @@ export function HomepageEditorProvider({
     null,
   );
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
-  const [selectedElementKey, setSelectedElementKey] =
+  const [selectedElementKey, setSelectedElementKeyState] =
     useState<HeroElementKey | null>(null);
   const heroSectionId =
     state.document.sections.find((section) => section.type === "HERO")?.id ?? null;
+  const setSelectedElementKey = useCallback<
+    Dispatch<SetStateAction<HeroElementKey | null>>
+  >(
+    (value) => {
+      const nextElementKey =
+        typeof value === "function" ? value(selectedElementKey) : value;
+      setSelectedElementKeyState(nextElementKey);
+      if (nextElementKey !== null && heroSectionId !== null) {
+        setSelectedSectionIdState(heroSectionId);
+      }
+    },
+    [heroSectionId, selectedElementKey],
+  );
   const setSelectedSectionId = useCallback<
     Dispatch<SetStateAction<string | null>>
   >(
@@ -150,7 +163,7 @@ export function HomepageEditorProvider({
       setSelectedSectionIdState(nextSectionId);
       if (nextSectionId !== heroSectionId) {
         setSelectedSlideId(null);
-        setSelectedElementKey(null);
+        setSelectedElementKeyState(null);
       }
     },
     [heroSectionId, selectedSectionId],
@@ -185,6 +198,7 @@ export function HomepageEditorProvider({
       setSelectedSectionId,
       selectedSlideId,
       selectedElementKey,
+      setSelectedElementKey,
       safeAreaFlags,
     ],
   );

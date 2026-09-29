@@ -36,6 +36,7 @@ type StorefrontSection = {
   enabled: boolean;
   sortOrder: number;
   payload: unknown;
+  style?: Record<string, unknown>;
   products: StorefrontProductJoin[];
   schedule?: Schedule;
 };
@@ -167,6 +168,10 @@ export class HomepageService {
         enabled: section.enabled,
         sortOrder: section.sortOrder,
         schedule: section.schedule,
+        style:
+          section.style && typeof section.style === 'object' && !Array.isArray(section.style)
+            ? { ...section.style }
+            : undefined,
         payload: section.payload,
         products: section.products
           .map((product) => ({ ...product }))
@@ -265,6 +270,7 @@ export class HomepageService {
       subtitle: section.subtitle,
       enabled: section.enabled,
       sortOrder: section.sortOrder,
+      ...(section.style ? { style: { ...section.style } } : {}),
     };
 
     if (section.type === HomepageSectionType.HERO) {

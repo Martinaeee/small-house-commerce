@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type { SolutionItem, SolutionsPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import { BufferedTextInput } from "@/components/admin/homepage/BufferedSectionField";
 
 const MAX_ITEMS = 6;
 
@@ -52,18 +53,10 @@ export function SolutionsSectionEditor({
   const { t } = useAdminI18n();
   const payload = safePayload(section.payload);
   const items = safeItems(payload.items);
-  const snapshotSignature = `${section.id}:${JSON.stringify(items)}`;
-  const localSnapshotSignature = useRef(snapshotSignature);
   const [rowIds, setRowIds] = useState<string[]>(() => items.map(() => newRowId()));
   const visibleRowIds = items.map(
     (_, index) => rowIds[index] ?? `solution-${section.id}-${index}`,
   );
-
-  useEffect(() => {
-    if (snapshotSignature === localSnapshotSignature.current) return;
-    localSnapshotSignature.current = snapshotSignature;
-    setRowIds(items.map(() => newRowId()));
-  }, [items, section.id, snapshotSignature]);
 
   const updateItem = (rowId: string, patch: SolutionPatch): void => {
     onPayloadChange((payload) => {
@@ -76,7 +69,6 @@ export function SolutionsSectionEditor({
         if ("blurb" in patch && patch.blurb === undefined) delete next.blurb;
         return next;
       });
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return { ...safePayload(payload), items: nextItems };
     });
   };
@@ -89,7 +81,6 @@ export function SolutionsSectionEditor({
       if (index < 0 || target < 0 || target >= currentItems.length) return payload;
       const nextItems = [...currentItems];
       [nextItems[index], nextItems[target]] = [nextItems[target], nextItems[index]];
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return { ...safePayload(payload), items: nextItems };
     });
     setRowIds((current) => {
@@ -108,7 +99,6 @@ export function SolutionsSectionEditor({
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0) return payload;
       const nextItems = currentItems.filter((_, itemIndex) => itemIndex !== index);
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return { ...safePayload(payload), items: nextItems };
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
@@ -120,7 +110,6 @@ export function SolutionsSectionEditor({
       const currentItems = safeItems(safePayload(payload).items);
       if (currentItems.length >= MAX_ITEMS) return payload;
       const nextItems = [...currentItems, { title: "", link: "" }];
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return { ...safePayload(payload), items: nextItems };
     });
     if (items.length < MAX_ITEMS) setRowIds((current) => [...current, nextRowId]);
@@ -216,13 +205,15 @@ export function SolutionsSectionEditor({
                 </label>
                 <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                   {t("homepage_builder_solutions_link", { index: index + 1 })}
-                  <input
+                  <BufferedTextInput
                     type="text"
                     className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
                     aria-label={t("homepage_builder_solutions_link", { index: index + 1 })}
                     maxLength={2048}
                     value={item.link}
-                    onChange={(event) => updateItem(rowId, { link: event.target.value })}
+                    isValid={(value) => value === "" || isInAppOrHttps(value)}
+                    commitValidImmediately
+                    onCommit={(value) => updateItem(rowId, { link: value })}
                   />
                 </label>
               </div>

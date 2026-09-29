@@ -21,7 +21,7 @@ export function RoomInspirationSection({ section }: SectionProps) {
   // imageUrl / joins stay in the DB but are not rendered while scenes exist.
   if (scenes) {
     return (
-      <SectionShell>
+      <SectionShell style={section.style}>
         <SectionHeading title={heading} />
         <RoomSceneGallery
           section={{ id: section.id, title: section.title }}
@@ -33,11 +33,17 @@ export function RoomInspirationSection({ section }: SectionProps) {
   }
 
   if (!image && products.length === 0 && !body) {
-    return <SectionPlaceholder title={section.title} message="Room inspiration coming soon." />;
+    return (
+      <SectionPlaceholder
+        title={section.title}
+        message="Room inspiration coming soon."
+        style={section.style}
+      />
+    );
   }
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={heading} />
       <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
         <div>

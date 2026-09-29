@@ -405,6 +405,10 @@ function newUuid(): string {
   throw new Error("A platform cryptographic UUID source is required");
 }
 
+function newRoomSceneId(): string {
+  return newUuid().replaceAll("-", "").slice(0, 12);
+}
+
 function cloneDocument(doc: HomepageDocument): HomepageDocument {
   return structuredClone(doc);
 }
@@ -825,6 +829,12 @@ export function duplicateSection(
         sortOrder: slideIndex * 10,
       }),
     );
+  }
+  if (copy.type === "ROOM_INSPIRATION" && copy.payload.scenes) {
+    copy.payload.scenes = copy.payload.scenes.map((scene) => ({
+      ...scene,
+      id: newRoomSceneId(),
+    }));
   }
   next.sections.splice(index + 1, 0, copy);
   renumberSections(next.sections);

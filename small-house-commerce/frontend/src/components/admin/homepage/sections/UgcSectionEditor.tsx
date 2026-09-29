@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type { UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
-import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import { BufferedImageUrlInput } from "@/components/admin/homepage/BufferedSectionField";
 import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
 
 const MAX_ENTRIES = 6;
@@ -58,33 +58,28 @@ export function UgcSectionEditor({
   const { products, loading } = useProductOptions(productSearch);
   const payload = safePayload(section.payload);
   const entries = safeEntries(payload.entries);
-  const snapshotSignature = `${section.id}:${JSON.stringify(entries)}`;
-  const localSnapshotSignature = useRef(snapshotSignature);
   const [rowIds, setRowIds] = useState<string[]>(() => entries.map(() => newRowId()));
   const visibleRowIds = entries.map(
     (_, index) => rowIds[index] ?? `ugc-${section.id}-${index}`,
   );
-
+  const rowIdsRef = useRef(visibleRowIds);
   useEffect(() => {
-    if (snapshotSignature === localSnapshotSignature.current) return;
-    localSnapshotSignature.current = snapshotSignature;
-    setRowIds(entries.map(() => newRowId()));
-  }, [entries, section.id, snapshotSignature]);
+    rowIdsRef.current = visibleRowIds;
+  }, [visibleRowIds]);
 
   const updateEntry = (rowId: string, patch: Partial<UgcEntry>): void => {
     onPayloadChange((payload) => {
       const currentEntries = safeEntries(safePayload(payload).entries);
-      const index = visibleRowIds.indexOf(rowId);
+      const index = rowIdsRef.current.indexOf(rowId);
       if (index < 0 || index >= currentEntries.length) return payload;
       const nextEntries = currentEntries.map((entry, entryIndex) => {
         if (entryIndex !== index) return entry;
         const next = { ...entry, ...patch };
         for (const field of ["imageUrl", "location", "productId"] as const) {
-          if (patch[field] === undefined) delete next[field];
+          if (field in patch && patch[field] === undefined) delete next[field];
         }
         return next;
       });
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
       return { ...safePayload(payload), entries: nextEntries };
     });
   };
@@ -97,7 +92,6 @@ export function UgcSectionEditor({
       if (index < 0 || target < 0 || target >= currentEntries.length) return payload;
       const nextEntries = [...currentEntries];
       [nextEntries[index], nextEntries[target]] = [nextEntries[target], nextEntries[index]];
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
       return { ...safePayload(payload), entries: nextEntries };
     });
     setRowIds((current) => {
@@ -116,7 +110,6 @@ export function UgcSectionEditor({
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0) return payload;
       const nextEntries = currentEntries.filter((_, entryIndex) => entryIndex !== index);
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
       return { ...safePayload(payload), entries: nextEntries };
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
@@ -128,7 +121,6 @@ export function UgcSectionEditor({
       const currentEntries = safeEntries(safePayload(payload).entries);
       if (currentEntries.length >= MAX_ENTRIES) return payload;
       const nextEntries = [...currentEntries, { name: "", comment: "" }];
-      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
       return { ...safePayload(payload), entries: nextEntries };
     });
     if (entries.length < MAX_ENTRIES) setRowIds((current) => [...current, nextRowId]);
@@ -215,11 +207,12 @@ export function UgcSectionEditor({
                 </div>
                 <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                   {t("homepage_builder_ugc_image", { index: index + 1 })}
-                  <ImageUrlInput
+                  <BufferedImageUrlInput
                     ariaLabel={t("homepage_builder_ugc_image", { index: index + 1 })}
                     value={entry.imageUrl ?? ""}
                     placeholder={t("homepage_builder_media_url_placeholder")}
-                    onChange={(value) => updateEntry(rowId, { imageUrl: value || undefined })}
+                    isValid={(value) => value === "" || isMediaUrl(value)}
+                    onCommit={(value) => updateEntry(rowId, { imageUrl: value || undefined })}
                     labels={{
                       upload: t("homepage_builder_media_upload_image"),
                       uploading: t("homepage_builder_media_uploading"),
@@ -274,7 +267,12 @@ export function UgcSectionEditor({
                     disabled={loading}
                     onChange={(event) => updateEntry(rowId, { productId: event.target.value || undefined })}
                   >
-                    <option value="">{loading ? t("homepage_builder_product_loading") : t("homepage_builder_product_no_results")}</option>
+                    <option value="">
+                      {loading ? t("homepage_builder_product_loading") : t("homepage_builder_product_no_results")}
+                    </option>
+                    {entry.productId && !products.some((product) => product.id === entry.productId) ? (
+                      <option value={entry.productId}>{entry.productId}</option>
+                    ) : null}
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name}

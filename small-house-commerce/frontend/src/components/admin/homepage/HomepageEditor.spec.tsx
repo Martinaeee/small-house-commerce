@@ -561,6 +561,20 @@ describe("HomepageEditor", () => {
     expect(document.querySelector('[data-panel="hero-style-settings"]')).toBeNull();
   });
 
+  it("switches back to Hero settings when selecting a Hero element from a non-Hero section", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-nonhero" }));
+    expect(document.querySelector('[data-testid="section-editor-panel"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-element" }));
+
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("heading");
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="section-editor-panel"]')).toBeNull();
+  });
+
   it("keeps Hero element selection when reselecting the same Hero section", async () => {
     renderHarness();
     await flush();

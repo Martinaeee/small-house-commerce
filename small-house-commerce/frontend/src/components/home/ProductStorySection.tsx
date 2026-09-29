@@ -20,14 +20,14 @@ export function ProductStorySection({ section }: { section: HomepageSection }) {
   const ctaText = str(p.ctaText) || (product ? "Shop this pick" : "");
 
   if (!image && !body && !product) {
-    return <SectionPlaceholder title={section.title} message="Story coming soon." />;
+    return <SectionPlaceholder title={section.title} message="Story coming soon." style={section.style} />;
   }
 
   // sortOrder 40 -> image left; sortOrder 60 -> image right.
   const reversed = section.sortOrder >= 55;
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-2">
         <div className={reversed ? "md:order-2" : ""}>
           {image ? (

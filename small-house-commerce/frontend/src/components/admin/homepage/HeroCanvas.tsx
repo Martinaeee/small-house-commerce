@@ -478,6 +478,7 @@ export function HeroCanvas(): ReactNode {
     device,
     selectedSlideId,
     selectedElementKey,
+    setSelectedSectionId,
     setSelectedElementKey,
     safeAreaFlags,
   } = useHomepageEditor();
@@ -742,6 +743,7 @@ export function HeroCanvas(): ReactNode {
 
     event.preventDefault();
     suppressClickRef.current = false;
+    if (section) setSelectedSectionId(section.id);
     setSelectedElementKey(elementKey);
     focusCanvas();
 

@@ -9,11 +9,17 @@ export function CategoryTilesSection({ section }: { section: HomepageSection }) 
   const categories = section.categories ?? [];
 
   if (categories.length === 0) {
-    return <SectionPlaceholder title={section.title} message="Categories are being prepared — check back soon." />;
+    return (
+      <SectionPlaceholder
+        title={section.title}
+        message="Categories are being prepared — check back soon."
+        style={section.style}
+      />
+    );
   }
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         {categories.map((category, index) => (

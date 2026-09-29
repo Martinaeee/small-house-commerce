@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type FocusEventHandler } from "react";
 import { inputCls } from "./Field";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -89,6 +89,7 @@ export function ImageUrlInput({
   ariaLabel,
   value,
   onChange,
+  onBlur,
   disabled = false,
   placeholder = "https://…",
   kind = "image",
@@ -99,6 +100,7 @@ export function ImageUrlInput({
   ariaLabel?: string;
   value: string;
   onChange: (url: string) => void;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   disabled?: boolean;
   placeholder?: string;
   kind?: "image" | "video";
@@ -175,6 +177,7 @@ export function ImageUrlInput({
             setError(null);
             onChange(e.target.value);
           }}
+          onBlur={onBlur}
           disabled={disabled || uploading}
           autoComplete="off"
         />

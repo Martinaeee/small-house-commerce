@@ -11,11 +11,11 @@ export function UgcSection({ section }: { section: HomepageSection }) {
   const entries = Array.isArray(section.payload?.entries) ? section.payload.entries : [];
 
   if (entries.length === 0) {
-    return <SectionPlaceholder title={section.title} message="Real home photos coming soon." />;
+    return <SectionPlaceholder title={section.title} message="Real home photos coming soon." style={section.style} />;
   }
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {entries.slice(0, 6).map((entry, index) => {

@@ -67,7 +67,7 @@ export function SectionProductPicker({
           <span className="text-xs font-medium text-ink-secondary">{label}</span>
           {loading ? (
             <p className="text-xs text-ink-muted">{t("homepage_builder_product_loading")}</p>
-          ) : products.length > 0 ? (
+          ) : (
             <div className="flex flex-wrap gap-1">
               {products.map((product) => (
                 <button
@@ -81,18 +81,31 @@ export function SectionProductPicker({
                   {product.name}
                 </button>
               ))}
+              {value && !products.some((product) => product.id === value) ? (
+                <button
+                  type="button"
+                  className="rounded-lg border border-border px-2 py-1.5 text-left text-sm text-ink"
+                  aria-label={value}
+                  aria-pressed
+                  onClick={() => onChange(value)}
+                >
+                  {value}
+                </button>
+              ) : null}
               {value ? (
                 <button
                   type="button"
                   className="rounded-lg px-2 py-1.5 text-xs text-sale hover:bg-sale/10"
+                  aria-label={clearLabel ?? t("homepage_builder_product_story_product_clear")}
                   onClick={() => onChange(undefined)}
                 >
                   {clearLabel ?? t("homepage_builder_product_story_product_clear")}
                 </button>
               ) : null}
+              {products.length === 0 && !value ? (
+                <p className="text-xs text-ink-muted">{t("homepage_builder_product_no_results")}</p>
+              ) : null}
             </div>
-          ) : (
-            <p className="text-xs text-ink-muted">{t("homepage_builder_product_no_results")}</p>
           )}
         </div>
       ) : (
