@@ -39,6 +39,9 @@ export function ProductCard({ product, badge }: ProductCardProps) {
     sellable.length === 0 ||
     (directSku !== null && directSku.availableInventory <= 0);
   const price = cardPricePresentation(derived);
+  // The chip shows only an honest derived discount — never on "From" prices.
+  const discountPercent =
+    price?.kind === "exact" ? price.discountPercent : null;
 
   const image = cover ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -61,11 +64,26 @@ export function ProductCard({ product, badge }: ProductCardProps) {
             {badge}
           </span>
         ) : null}
-        {outOfStock && (
-          <span className="absolute left-3 top-3 rounded bg-ink/80 px-2 py-1 text-xs font-semibold text-white">
-            Out of Stock
+        {outOfStock || discountPercent !== null ? (
+          <span
+            className="absolute left-3 top-3 flex flex-col items-start gap-1"
+            data-testid="card-left-chips"
+          >
+            {outOfStock ? (
+              <span className="rounded bg-ink/80 px-2 py-1 text-xs font-semibold text-white">
+                Out of Stock
+              </span>
+            ) : null}
+            {discountPercent !== null ? (
+              <span
+                className="rounded bg-cta px-2 py-1 text-xs font-semibold text-white"
+                data-testid="card-discount"
+              >
+                {discountPercent}% OFF
+              </span>
+            ) : null}
           </span>
-        )}
+        ) : null}
       </Link>
 
       <div className="flex flex-1 flex-col gap-2 p-4">

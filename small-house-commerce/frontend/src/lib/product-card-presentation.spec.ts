@@ -123,6 +123,7 @@ describe("cardPricePresentation uniform-price branch", () => {
       kind: "exact",
       price: 100,
       compareAtPrice: 150,
+      discountPercent: 33,
     });
   });
 
@@ -149,6 +150,86 @@ describe("cardPricePresentation uniform-price branch", () => {
       kind: "exact",
       price: 100,
       compareAtPrice: null,
+      discountPercent: null,
+    });
+  });
+});
+
+describe("cardPricePresentation discount percent", () => {
+  /** A single sellable SKU auto-resolves, which is the exact-price branch. */
+  function exactProduct(
+    price: number,
+    compareAtPrice: number | null,
+  ): ReturnType<typeof cardPricePresentation> {
+    const product = productFixture({
+      variants: [
+        variant("variant-red-small", ["red", "small"], {
+          id: "sku-red-small",
+          skuCode: "RS",
+          status: "ACTIVE",
+          price,
+          compareAtPrice,
+          availableInventory: 4,
+        }),
+      ],
+    });
+    const derived = resolveSelection(product, createInitialSelection(product));
+    expect(derived.resolvedVariant).not.toBeNull();
+    return cardPricePresentation(derived);
+  }
+
+  it("derives the integer percent off from a strictly higher compare-at price", () => {
+    expect(exactProduct(100, 125)?.discountPercent).toBe(20);
+  });
+
+  it("rounds the percent to the nearest integer", () => {
+    expect(exactProduct(100, 130)?.discountPercent).toBe(23); // 23.07…%
+    expect(exactProduct(100, 126)?.discountPercent).toBe(21); // 20.63…%
+  });
+
+  it("ignores an equal, lower, or absent compare-at price", () => {
+    expect(exactProduct(100, 100)?.discountPercent).toBeNull();
+    expect(exactProduct(100, 80)?.discountPercent).toBeNull();
+    expect(exactProduct(100, null)?.discountPercent).toBeNull();
+  });
+
+  it("ignores non-positive and malformed inputs", () => {
+    expect(exactProduct(100, 0)?.discountPercent).toBeNull();
+    expect(exactProduct(100, -50)?.discountPercent).toBeNull();
+    expect(exactProduct(0, 100)?.discountPercent).toBeNull();
+    expect(exactProduct(100, Number.NaN)?.discountPercent).toBeNull();
+    expect(exactProduct(100, Number.POSITIVE_INFINITY)?.discountPercent).toBeNull();
+  });
+
+  it("suppresses a discount that would round to zero percent", () => {
+    expect(exactProduct(1000, 1001)?.discountPercent).toBeNull();
+  });
+
+  it("never derives a discount on a From price", () => {
+    const product = productFixture({
+      variants: [
+        variant("variant-red-small", ["red", "small"], {
+          id: "sku-red-small",
+          skuCode: "RS",
+          status: "ACTIVE",
+          price: 100,
+          compareAtPrice: 150,
+          availableInventory: 4,
+        }),
+        variant("variant-red-large", ["red", "large"], {
+          id: "sku-red-large",
+          skuCode: "RL",
+          status: "ACTIVE",
+          price: 120,
+          compareAtPrice: null,
+          availableInventory: 4,
+        }),
+      ],
+    });
+
+    expect(cardPricePresentation(derivedFor(product))).toMatchObject({
+      kind: "from",
+      discountPercent: null,
     });
   });
 });

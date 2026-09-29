@@ -167,3 +167,63 @@ describe("ProductCard rating row", () => {
     ).toEqual(["★", "★", "★", "★", "⯨"]);
   });
 });
+
+describe("ProductCard discount chip", () => {
+  const discountedProduct = buildProduct({
+    options: [styleOption(["Oak"])],
+    variants: [singleVariant({ price: 100, compareAtPrice: 125 })],
+    defaultDisplayVariantId: "v-single",
+  });
+
+  it("shows the derived percent-off chip in the top-left slot", () => {
+    render(<ProductCard product={discountedProduct} />);
+
+    const chip = screen.getByTestId("card-discount");
+    expect(chip).toHaveTextContent("20% OFF");
+    expect(screen.getByTestId("card-left-chips")).toContainElement(chip);
+    expect(screen.queryByText("Out of Stock")).toBeNull();
+  });
+
+  it("stacks the discount chip directly below the Out of Stock chip", () => {
+    render(
+      <ProductCard
+        product={buildProduct({
+          ...discountedProduct,
+          variants: [
+            singleVariant({
+              price: 100,
+              compareAtPrice: 125,
+              availableInventory: 0,
+            }),
+          ],
+        })}
+      />,
+    );
+
+    const left = screen.getByTestId("card-left-chips");
+    const outOfStock = screen.getByText("Out of Stock");
+    const chip = screen.getByTestId("card-discount");
+    expect(left).toContainElement(outOfStock);
+    expect(left).toContainElement(chip);
+    // Out of Stock keeps the top-left slot; the discount stacks below it.
+    expect(
+      outOfStock.compareDocumentPosition(chip) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the section badge in the top-right slot next to the discount chip", () => {
+    render(<ProductCard product={discountedProduct} badge="New" />);
+
+    const badge = screen.getByText("New");
+    expect(screen.getByTestId("card-discount")).toBeVisible();
+    expect(screen.getByTestId("card-left-chips")).not.toContainElement(badge);
+    expect(badge).toHaveClass("right-3");
+  });
+
+  it("renders no discount chip without a strictly higher compare-at price", () => {
+    render(<ProductCard product={singleSkuProduct} />);
+
+    expect(screen.queryByTestId("card-discount")).toBeNull();
+  });
+});
