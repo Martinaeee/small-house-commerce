@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -22,9 +22,10 @@ import { SECTION_TYPES } from "@/lib/homepage-section-factory";
 
 const getHomepageDraft = vi.hoisted(() => vi.fn());
 const saveHomepageDraft = vi.hoisted(() => vi.fn());
+const listProducts = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/admin-api", () => ({
-  adminApi: { getHomepageDraft, saveHomepageDraft },
+  adminApi: { getHomepageDraft, saveHomepageDraft, listProducts },
 }));
 
 // The full-editor test below mounts the shell, which gates on PRODUCT_MANAGE.
@@ -597,6 +598,12 @@ describe("ModuleTree in the editor shell", () => {
       published: null,
     };
     getHomepageDraft.mockResolvedValue(snapshot);
+    listProducts.mockResolvedValue({
+      items: [{ id: "product-1", name: "Oak table" }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
   });
 
   afterEach(() => {
@@ -629,5 +636,68 @@ describe("ModuleTree in the editor shell", () => {
     expect(
       document.querySelector('[data-panel="hero-style-settings"]'),
     ).toBeNull();
+  });
+
+  it("saves a newly added USP through the shell with its typed payload", async () => {
+    saveHomepageDraft.mockResolvedValue({
+      draftRev: DRAFT_REV + 1,
+      draftUpdatedAt: "2026-09-29T03:00:00.000Z",
+    });
+
+    render(
+      <AdminI18nProvider>
+        <HomepageEditor />
+      </AdminI18nProvider>,
+    );
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+    fireEvent.click(screen.getByRole("button", { name: "USP" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add trust point" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "USP label 1" }), {
+      target: { value: "Nationwide delivery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
+
+    await waitFor(() => expect(saveHomepageDraft).toHaveBeenCalledTimes(1));
+    const [draft, expectedRev] = saveHomepageDraft.mock.calls[0];
+    const savedSection = (draft as HomepageDocument).sections.find(
+      (section) => section.type === "USP" && section.id !== USP_ID,
+    );
+    expect(expectedRev).toBe(DRAFT_REV);
+    expect(savedSection).toMatchObject({
+      type: "USP",
+      payload: { items: [{ icon: "shield", label: "Nationwide delivery" }] },
+    });
+  });
+
+  it("saves Product Grid presentation changes through the existing draft path", async () => {
+    saveHomepageDraft.mockResolvedValue({
+      draftRev: DRAFT_REV + 1,
+      draftUpdatedAt: "2026-09-29T03:00:00.000Z",
+    });
+
+    render(
+      <AdminI18nProvider>
+        <HomepageEditor />
+      </AdminI18nProvider>,
+    );
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Featured grid" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Grid columns" }), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
+
+    await waitFor(() => expect(saveHomepageDraft).toHaveBeenCalledTimes(1));
+    const [draft] = saveHomepageDraft.mock.calls[0];
+    const savedGrid = (draft as HomepageDocument).sections.find(
+      (section) => section.id === GRID_ID,
+    );
+    expect(savedGrid).toMatchObject({
+      type: "PRODUCT_GRID",
+      payload: { columns: 2 },
+    });
   });
 });
