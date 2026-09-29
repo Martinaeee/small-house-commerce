@@ -83,6 +83,57 @@ describe("RoomInspirationSectionEditor", () => {
     expect(screen.getByRole("button", { name: "Add scene" })).toBeDisabled();
   });
 
+  it("creates backend-valid unique ids for new and duplicate legacy scenes", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: products, total: products.length, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            scenes: [
+              { id: "scene001", imageUrl: "https://example.com/one.jpg", hotspots: [] },
+              { id: "scene001", imageUrl: "https://example.com/two.jpg", hotspots: [] },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getAllByTestId(/room-scene-row-/)).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Remove scene 2" }));
+    const afterRemove = JSON.parse(screen.getByTestId("room-payload").textContent ?? "{}");
+    expect(afterRemove.scenes).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add scene" }));
+    const nextId = JSON.parse(screen.getByTestId("room-payload").textContent ?? "{}").scenes.at(-1).id;
+    expect(nextId).toMatch(/^[a-z0-9]{8,16}$/);
+  });
+
+  it("sanitizes capped scenes and coordinates when an unrelated field is edited", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: products, total: products.length, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            scenes: Array.from({ length: 6 }, (_, index) => ({
+              id: `scene${String(index + 1).padStart(3, "0")}`,
+              imageUrl: "https://example.com/room.jpg",
+              hotspots: [{ productId: PRODUCT_ONE, xPct: -20, yPct: 180 }],
+            })),
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Room inspiration heading" }), {
+      target: { value: "Sanitized room" },
+    });
+    const payload = JSON.parse(screen.getByTestId("room-payload").textContent ?? "{}");
+    expect(payload.scenes).toHaveLength(5);
+    expect(payload.scenes[0].hotspots[0]).toMatchObject({ xPct: 0, yPct: 100 });
+  });
+
   it("adds hotspots, clamps coordinates, and prevents a duplicate product in one scene", async () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: products, total: products.length, page: 1, pageSize: 20 });

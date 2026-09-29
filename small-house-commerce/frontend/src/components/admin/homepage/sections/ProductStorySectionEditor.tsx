@@ -4,16 +4,51 @@ import type { ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type { ProductStoryPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { SectionProductPicker } from "@/components/admin/homepage/sections/SectionProductPicker";
 
-function safeString(value: unknown): string {
-  return typeof value === "string" ? value : "";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isMediaUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    (/^https?:\/\/.+/i.test(value) ||
+      (value.startsWith("/") && !value.startsWith("//") && value.length > 1))
+  );
+}
+
+function isInAppOrHttps(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    ((value.startsWith("/") && !value.startsWith("//")) ||
+      value.startsWith("#") ||
+      /^https:\/\/.+/.test(value))
+  );
+}
+
+function safeText(value: unknown, maxLength: number): string | undefined {
+  return typeof value === "string" ? value.slice(0, maxLength) : undefined;
 }
 
 function safePayload(value: unknown): ProductStoryPayload {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as ProductStoryPayload)
-    : {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const payload = value as Record<string, unknown>;
+  return {
+    ...(isMediaUrl(payload.imageUrl) ? { imageUrl: payload.imageUrl } : {}),
+    ...(safeText(payload.heading, 120) !== undefined ? { heading: safeText(payload.heading, 120) } : {}),
+    ...(safeText(payload.body, 2000) !== undefined ? { body: safeText(payload.body, 2000) } : {}),
+    ...(safeText(payload.ctaText, 120) !== undefined ? { ctaText: safeText(payload.ctaText, 120) } : {}),
+    ...(isInAppOrHttps(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
+    ...(typeof payload.productId === "string" && UUID_PATTERN.test(payload.productId)
+      ? { productId: payload.productId }
+      : {}),
+  };
+}
+
+function safeString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 export function ProductStorySectionEditor({
@@ -43,14 +78,18 @@ export function ProductStorySectionEditor({
       <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-ink-secondary">
           {t("homepage_builder_product_story_image")}
-          <input
-            type="url"
-            className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-            aria-label={t("homepage_builder_product_story_image")}
-            placeholder={t("homepage_builder_media_url_placeholder")}
-            maxLength={2048}
+          <ImageUrlInput
+            ariaLabel={t("homepage_builder_product_story_image")}
             value={safeString(payload.imageUrl)}
-            onChange={(event) => updateField("imageUrl", event.target.value)}
+            placeholder={t("homepage_builder_media_url_placeholder")}
+            onChange={(value) => updateField("imageUrl", value)}
+            labels={{
+              upload: t("homepage_builder_media_upload_image"),
+              uploading: t("homepage_builder_media_uploading"),
+              invalidType: t("homepage_builder_media_image_invalid"),
+              tooLarge: t("homepage_builder_media_image_too_large"),
+              uploadFailed: t("homepage_builder_media_upload_failed"),
+            }}
           />
         </label>
       </div>
@@ -90,7 +129,7 @@ export function ProductStorySectionEditor({
         <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
           {t("homepage_builder_product_story_cta_link")}
           <input
-            type="url"
+            type="text"
             className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
             aria-label={t("homepage_builder_product_story_cta_link")}
             maxLength={2048}

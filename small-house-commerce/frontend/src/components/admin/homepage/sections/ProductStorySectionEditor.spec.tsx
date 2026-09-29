@@ -134,9 +134,37 @@ describe("ProductStorySectionEditor", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: product.name })).toBeVisible());
     fireEvent.click(screen.getByRole("button", { name: product.name }));
 
-    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toMatchObject({
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toEqual({
       productId: product.id,
     });
+  });
+
+  it("searches the full product catalogue instead of only the first page", async () => {
+    setAdminLang("en");
+    listProducts.mockImplementation(({ search }: { search?: string }) =>
+      Promise.resolve({
+        items: search ? [{ ...product, name: "Beyond page" }] : [],
+        total: search ? 1 : 21,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const search = await screen.findByRole("searchbox", { name: "Search products" });
+    fireEvent.change(search, { target: { value: "Beyond" } });
+    await waitFor(() =>
+      expect(listProducts).toHaveBeenLastCalledWith({
+        search: "Beyond",
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Beyond page" })).toBeVisible();
   });
 
   it("keeps the call to action optional and clears only the edited field", () => {

@@ -68,6 +68,30 @@ describe("UgcSectionEditor", () => {
     expect(screen.getByText("The backend accepts up to 6 UGC entries.")).toBeVisible();
   });
 
+  it("sanitizes malformed oversized entries before writing another field", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: Array.from({ length: 7 }, (_, index) => ({
+              name: `Name ${index + 1}`,
+              comment: `Comment ${index + 1}`,
+            })),
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "UGC name 1" }), {
+      target: { value: "Updated name" },
+    });
+    const payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries).toHaveLength(6);
+    expect(payload.entries[0].name).toBe("Updated name");
+  });
+
   it("edits identity fields, reorders rows, and selects a related product", async () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({

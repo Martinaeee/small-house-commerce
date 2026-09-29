@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type {
   RoomHotspot,
@@ -8,13 +8,28 @@ import type {
   RoomScene,
 } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
 
 const MAX_SCENES = 5;
 const MAX_HOTSPOTS = 8;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isMediaUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    (/^https?:\/\/.+/i.test(value) ||
+      (value.startsWith("/") && !value.startsWith("//") && value.length > 1))
+  );
+}
+
+function safeText(value: unknown, maxLength: number): string | undefined {
+  return typeof value === "string" ? value.slice(0, maxLength) : undefined;
 }
 
 function clampPercent(value: unknown): number {
@@ -22,45 +37,78 @@ function clampPercent(value: unknown): number {
   return Math.min(100, Math.max(0, number));
 }
 
-function newSceneId(): string {
-  const random = globalThis.crypto?.randomUUID?.().replace(/-/g, "") ?? `${Date.now()}${Math.random()}`;
-  return `scene${random.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 13)}`;
+function fallbackSceneId(index: number, used: Set<string>): string {
+  let candidateIndex = index + 1;
+  let candidate = `legacy${String(candidateIndex).padStart(7, "0")}`;
+  while (used.has(candidate)) {
+    candidateIndex += 1;
+    candidate = `legacy${String(candidateIndex).padStart(7, "0")}`;
+  }
+  return candidate;
+}
+
+function newSceneId(used: Set<string>): string {
+  let candidate = "";
+  do {
+    const random = globalThis.crypto?.randomUUID?.().replace(/-/g, "") ?? `${Date.now()}${Math.random()}`;
+    candidate = `scene${random.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 11)}`;
+  } while (used.has(candidate));
+  return candidate;
 }
 
 function safeHotspots(value: unknown): RoomHotspot[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
-  return value.filter(isRecord).map((hotspot) => {
-    const productId = typeof hotspot.productId === "string" ? hotspot.productId : "";
-    if (productId !== "" && seen.has(productId)) return null;
-    if (productId !== "") seen.add(productId);
-    return {
-      productId,
-      xPct: clampPercent(hotspot.xPct),
-      yPct: clampPercent(hotspot.yPct),
-    };
-  }).filter((hotspot): hotspot is RoomHotspot => hotspot !== null).slice(0, MAX_HOTSPOTS);
+  return value
+    .filter(isRecord)
+    .map((hotspot) => {
+      const productId = typeof hotspot.productId === "string" ? hotspot.productId : "";
+      if (productId !== "" && !UUID_PATTERN.test(productId)) return null;
+      if (productId !== "" && seen.has(productId)) return null;
+      if (productId !== "") seen.add(productId);
+      return {
+        productId,
+        xPct: clampPercent(hotspot.xPct),
+        yPct: clampPercent(hotspot.yPct),
+      };
+    })
+    .filter((hotspot): hotspot is RoomHotspot => hotspot !== null)
+    .slice(0, MAX_HOTSPOTS);
 }
 
 function safeScenes(value: unknown): RoomScene[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isRecord).map((scene, index) => ({
-    id:
-      typeof scene.id === "string" && /^[a-z0-9]{8,16}$/.test(scene.id)
-        ? scene.id
-        : `legacy${String(index + 1).padStart(7, "0")}`,
-    imageUrl: typeof scene.imageUrl === "string" ? scene.imageUrl : "",
-    ...(typeof scene.alt === "string" ? { alt: scene.alt } : {}),
-    hotspots: safeHotspots(scene.hotspots),
-  })).slice(0, MAX_SCENES);
+  const used = new Set<string>();
+  return value
+    .filter(isRecord)
+    .map((scene, index) => {
+      const requestedId =
+        typeof scene.id === "string" && /^[a-z0-9]{8,16}$/.test(scene.id) && !used.has(scene.id)
+          ? scene.id
+          : fallbackSceneId(index, used);
+      used.add(requestedId);
+      return {
+        id: requestedId,
+        imageUrl: isMediaUrl(scene.imageUrl) ? scene.imageUrl : "",
+        ...(safeText(scene.alt, 120) !== undefined ? { alt: safeText(scene.alt, 120) } : {}),
+        hotspots: safeHotspots(scene.hotspots),
+      };
+    })
+    .slice(0, MAX_SCENES);
+}
+
+function safePayload(value: unknown): RoomInspirationPayload {
+  if (!isRecord(value)) return {};
+  return {
+    ...(isMediaUrl(value.imageUrl) ? { imageUrl: value.imageUrl } : {}),
+    ...(safeText(value.heading, 120) !== undefined ? { heading: safeText(value.heading, 120) } : {}),
+    ...(safeText(value.body, 2000) !== undefined ? { body: safeText(value.body, 2000) } : {}),
+    ...(Array.isArray(value.scenes) ? { scenes: safeScenes(value.scenes) } : {}),
+  };
 }
 
 function safeString(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function safePayload(value: unknown): RoomInspirationPayload {
-  return isRecord(value) ? (value as RoomInspirationPayload) : {};
 }
 
 export function RoomInspirationSectionEditor({
@@ -68,7 +116,8 @@ export function RoomInspirationSectionEditor({
   onPayloadChange,
 }: SectionPayloadEditorProps<"ROOM_INSPIRATION">): ReactNode {
   const { t } = useAdminI18n();
-  const { products, loading } = useProductOptions();
+  const [productSearch, setProductSearch] = useState("");
+  const { products, loading } = useProductOptions(productSearch);
   const payload = safePayload(section.payload);
   const scenes = safeScenes(payload.scenes);
 
@@ -114,11 +163,11 @@ export function RoomInspirationSectionEditor({
 
   const addScene = (): void => {
     if (scenes.length >= MAX_SCENES) return;
-    updateScenes((current) =>
-      current.length >= MAX_SCENES
-        ? current
-        : [...current, { id: newSceneId(), imageUrl: "", hotspots: [] }],
-    );
+    updateScenes((current) => {
+      if (current.length >= MAX_SCENES) return current;
+      const used = new Set(current.map((scene) => scene.id));
+      return [...current, { id: newSceneId(used), imageUrl: "", hotspots: [] }];
+    });
   };
 
   const addHotspot = (sceneId: string): void => {
@@ -184,13 +233,19 @@ export function RoomInspirationSectionEditor({
         <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_room_inspiration_content")}</h2>
         <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
           {t("homepage_builder_room_inspiration_image")}
-          <input
-            type="url"
-            className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-            aria-label={t("homepage_builder_room_inspiration_image")}
-            value={safeString(payload.imageUrl)}
-            onChange={(event) => updatePayloadField("imageUrl", event.target.value)}
-          />
+        <ImageUrlInput
+          ariaLabel={t("homepage_builder_room_inspiration_image")}
+          value={safeString(payload.imageUrl)}
+          placeholder={t("homepage_builder_media_url_placeholder")}
+          onChange={(value) => updatePayloadField("imageUrl", value)}
+          labels={{
+            upload: t("homepage_builder_media_upload_image"),
+            uploading: t("homepage_builder_media_uploading"),
+            invalidType: t("homepage_builder_media_image_invalid"),
+            tooLarge: t("homepage_builder_media_image_too_large"),
+            uploadFailed: t("homepage_builder_media_upload_failed"),
+          }}
+        />
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
           {t("homepage_builder_room_inspiration_heading")}
@@ -214,6 +269,18 @@ export function RoomInspirationSectionEditor({
           />
         </label>
       </div>
+
+      <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+        {t("homepage_builder_product_search")}
+        <input
+          type="search"
+          className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+          aria-label={t("homepage_builder_product_search")}
+          placeholder={t("homepage_builder_product_search")}
+          value={productSearch}
+          onChange={(event) => setProductSearch(event.target.value)}
+        />
+      </label>
 
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -279,12 +346,18 @@ export function RoomInspirationSectionEditor({
               </div>
               <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                 {t("homepage_builder_room_inspiration_scene_image", { index: sceneIndex + 1 })}
-                <input
-                  type="url"
-                  className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-                  aria-label={t("homepage_builder_room_inspiration_scene_image", { index: sceneIndex + 1 })}
+                <ImageUrlInput
+                  ariaLabel={t("homepage_builder_room_inspiration_scene_image", { index: sceneIndex + 1 })}
                   value={scene.imageUrl}
-                  onChange={(event) => updateScene(scene.id, { imageUrl: event.target.value })}
+                  placeholder={t("homepage_builder_media_url_placeholder")}
+                  onChange={(value) => updateScene(scene.id, { imageUrl: value })}
+                  labels={{
+                    upload: t("homepage_builder_media_upload_image"),
+                    uploading: t("homepage_builder_media_uploading"),
+                    invalidType: t("homepage_builder_media_image_invalid"),
+                    tooLarge: t("homepage_builder_media_image_too_large"),
+                    uploadFailed: t("homepage_builder_media_upload_failed"),
+                  }}
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">

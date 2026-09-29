@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import type { UgcEntry } from "@/lib/homepage-section-payloads";
+import type { UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
 
 const MAX_ENTRIES = 6;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function newRowId(): string {
   const random = globalThis.crypto?.randomUUID?.();
@@ -17,19 +19,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function safeEntries(value: unknown): UgcEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(isRecord).map((entry) => ({
-    ...(typeof entry.imageUrl === "string" ? { imageUrl: entry.imageUrl } : {}),
-    name: typeof entry.name === "string" ? entry.name : "",
-    ...(typeof entry.location === "string" ? { location: entry.location } : {}),
-    comment: typeof entry.comment === "string" ? entry.comment : "",
-    ...(typeof entry.productId === "string" ? { productId: entry.productId } : {}),
-  }));
+function isMediaUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    (/^https?:\/\/.+/i.test(value) ||
+      (value.startsWith("/") && !value.startsWith("//") && value.length > 1))
+  );
 }
 
-function payloadEntries(value: unknown): unknown {
-  return isRecord(value) ? value.entries : undefined;
+function safeEntries(value: unknown): UgcEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      ...(isMediaUrl(entry.imageUrl) ? { imageUrl: entry.imageUrl } : {}),
+      name: typeof entry.name === "string" ? entry.name.slice(0, 120) : "",
+      ...(typeof entry.location === "string" ? { location: entry.location.slice(0, 120) } : {}),
+      comment: typeof entry.comment === "string" ? entry.comment.slice(0, 1000) : "",
+      ...(typeof entry.productId === "string" && UUID_PATTERN.test(entry.productId)
+        ? { productId: entry.productId }
+        : {}),
+    }))
+    .slice(0, MAX_ENTRIES);
+}
+
+function safePayload(value: unknown): UgcPayload {
+  if (!isRecord(value)) return {};
+  return Array.isArray(value.entries) ? { entries: safeEntries(value.entries) } : {};
 }
 
 export function UgcSectionEditor({
@@ -37,8 +54,10 @@ export function UgcSectionEditor({
   onPayloadChange,
 }: SectionPayloadEditorProps<"UGC">): ReactNode {
   const { t } = useAdminI18n();
-  const { products, loading } = useProductOptions();
-  const entries = safeEntries(payloadEntries(section.payload));
+  const [productSearch, setProductSearch] = useState("");
+  const { products, loading } = useProductOptions(productSearch);
+  const payload = safePayload(section.payload);
+  const entries = safeEntries(payload.entries);
   const snapshotSignature = `${section.id}:${JSON.stringify(entries)}`;
   const localSnapshotSignature = useRef(snapshotSignature);
   const [rowIds, setRowIds] = useState<string[]>(() => entries.map(() => newRowId()));
@@ -54,7 +73,7 @@ export function UgcSectionEditor({
 
   const updateEntry = (rowId: string, patch: Partial<UgcEntry>): void => {
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(payloadEntries(payload));
+      const currentEntries = safeEntries(safePayload(payload).entries);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0 || index >= currentEntries.length) return payload;
       const nextEntries = currentEntries.map((entry, entryIndex) => {
@@ -66,20 +85,20 @@ export function UgcSectionEditor({
         return next;
       });
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
-      return { ...payload, entries: nextEntries };
+      return { ...safePayload(payload), entries: nextEntries };
     });
   };
 
   const moveEntry = (rowId: string, delta: -1 | 1): void => {
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(payloadEntries(payload));
+      const currentEntries = safeEntries(safePayload(payload).entries);
       const index = visibleRowIds.indexOf(rowId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= currentEntries.length) return payload;
       const nextEntries = [...currentEntries];
       [nextEntries[index], nextEntries[target]] = [nextEntries[target], nextEntries[index]];
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
-      return { ...payload, entries: nextEntries };
+      return { ...safePayload(payload), entries: nextEntries };
     });
     setRowIds((current) => {
       const index = current.indexOf(rowId);
@@ -93,12 +112,12 @@ export function UgcSectionEditor({
 
   const removeEntry = (rowId: string): void => {
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(payloadEntries(payload));
+      const currentEntries = safeEntries(safePayload(payload).entries);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0) return payload;
       const nextEntries = currentEntries.filter((_, entryIndex) => entryIndex !== index);
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
-      return { ...payload, entries: nextEntries };
+      return { ...safePayload(payload), entries: nextEntries };
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
   };
@@ -106,11 +125,11 @@ export function UgcSectionEditor({
   const addEntry = (): void => {
     const nextRowId = newRowId();
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(payloadEntries(payload));
+      const currentEntries = safeEntries(safePayload(payload).entries);
       if (currentEntries.length >= MAX_ENTRIES) return payload;
       const nextEntries = [...currentEntries, { name: "", comment: "" }];
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextEntries)}`;
-      return { ...payload, entries: nextEntries };
+      return { ...safePayload(payload), entries: nextEntries };
     });
     if (entries.length < MAX_ENTRIES) setRowIds((current) => [...current, nextRowId]);
   };
@@ -134,6 +153,18 @@ export function UgcSectionEditor({
           {t("homepage_builder_ugc_add")}
         </button>
       </div>
+
+      <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+        {t("homepage_builder_product_search")}
+        <input
+          type="search"
+          className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+          aria-label={t("homepage_builder_product_search")}
+          placeholder={t("homepage_builder_product_search")}
+          value={productSearch}
+          onChange={(event) => setProductSearch(event.target.value)}
+        />
+      </label>
 
       {entries.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-ink-muted">
@@ -184,13 +215,18 @@ export function UgcSectionEditor({
                 </div>
                 <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                   {t("homepage_builder_ugc_image", { index: index + 1 })}
-                  <input
-                    type="url"
-                    className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-                    aria-label={t("homepage_builder_ugc_image", { index: index + 1 })}
-                    maxLength={2048}
+                  <ImageUrlInput
+                    ariaLabel={t("homepage_builder_ugc_image", { index: index + 1 })}
                     value={entry.imageUrl ?? ""}
-                    onChange={(event) => updateEntry(rowId, { imageUrl: event.target.value || undefined })}
+                    placeholder={t("homepage_builder_media_url_placeholder")}
+                    onChange={(value) => updateEntry(rowId, { imageUrl: value || undefined })}
+                    labels={{
+                      upload: t("homepage_builder_media_upload_image"),
+                      uploading: t("homepage_builder_media_uploading"),
+                      invalidType: t("homepage_builder_media_image_invalid"),
+                      tooLarge: t("homepage_builder_media_image_too_large"),
+                      uploadFailed: t("homepage_builder_media_upload_failed"),
+                    }}
                   />
                 </label>
                 <div className="grid gap-2 sm:grid-cols-2">

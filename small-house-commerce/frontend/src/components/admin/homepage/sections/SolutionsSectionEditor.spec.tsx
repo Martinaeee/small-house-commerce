@@ -63,6 +63,30 @@ describe("SolutionsSectionEditor", () => {
     expect(screen.getByText("The backend accepts up to 6 solution rows.")).toBeVisible();
   });
 
+  it("sanitizes malformed oversized rows before writing another field", () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            items: Array.from({ length: 7 }, (_, index) => ({
+              title: `Solution ${index + 1}`,
+              blurb: `Blurb ${index + 1}`,
+              link: `/solution-${index + 1}`,
+            })),
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Solution title 1" }), {
+      target: { value: "Updated solution" },
+    });
+    const payload = JSON.parse(screen.getByTestId("solutions-payload").textContent ?? "{}");
+    expect(payload.items).toHaveLength(6);
+    expect(payload.items[0]).toMatchObject({ title: "Updated solution" });
+  });
+
   it("edits fields through the typed callback and reorders by stable row identity", () => {
     setAdminLang("en");
     render(
@@ -95,7 +119,7 @@ describe("SolutionsSectionEditor", () => {
     expect(JSON.parse(screen.getByTestId("solutions-payload").textContent ?? "{}")).toMatchObject({
       items: [
         { title: "Warm homes", link: "/warm" },
-        { title: "Small-space storage", link: "https://example.com/storage" },
+        { title: "Small-space storage", link: "https://example.com/storage", blurb: "For apartments" },
       ],
     });
   });

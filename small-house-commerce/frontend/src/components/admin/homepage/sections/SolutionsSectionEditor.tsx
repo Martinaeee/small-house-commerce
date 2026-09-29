@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import type { SolutionItem } from "@/lib/homepage-section-payloads";
+import type { SolutionItem, SolutionsPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 
 const MAX_ITEMS = 6;
@@ -18,17 +18,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function safeItems(value: unknown): SolutionItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(isRecord).map((item) => ({
-    title: typeof item.title === "string" ? item.title : "",
-    ...(typeof item.blurb === "string" ? { blurb: item.blurb } : {}),
-    link: typeof item.link === "string" ? item.link : "",
-  }));
+function isInAppOrHttps(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    ((value.startsWith("/") && !value.startsWith("//")) ||
+      value.startsWith("#") ||
+      /^https:\/\/.+/.test(value))
+  );
 }
 
-function payloadItems(value: unknown): unknown {
-  return isRecord(value) ? value.items : undefined;
+function safeItems(value: unknown): SolutionItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((item) => ({
+      title: typeof item.title === "string" ? item.title.slice(0, 120) : "",
+      ...(typeof item.blurb === "string" ? { blurb: item.blurb.slice(0, 300) } : {}),
+      link: isInAppOrHttps(item.link) ? item.link : "",
+    }))
+    .slice(0, MAX_ITEMS);
+}
+
+function safePayload(value: unknown): SolutionsPayload {
+  if (!isRecord(value)) return {};
+  return Array.isArray(value.items) ? { items: safeItems(value.items) } : {};
 }
 
 export function SolutionsSectionEditor({
@@ -36,7 +50,8 @@ export function SolutionsSectionEditor({
   onPayloadChange,
 }: SectionPayloadEditorProps<"SOLUTIONS">): ReactNode {
   const { t } = useAdminI18n();
-  const items = safeItems(payloadItems(section.payload));
+  const payload = safePayload(section.payload);
+  const items = safeItems(payload.items);
   const snapshotSignature = `${section.id}:${JSON.stringify(items)}`;
   const localSnapshotSignature = useRef(snapshotSignature);
   const [rowIds, setRowIds] = useState<string[]>(() => items.map(() => newRowId()));
@@ -52,30 +67,30 @@ export function SolutionsSectionEditor({
 
   const updateItem = (rowId: string, patch: SolutionPatch): void => {
     onPayloadChange((payload) => {
-      const currentItems = safeItems(payloadItems(payload));
+      const currentItems = safeItems(safePayload(payload).items);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0 || index >= currentItems.length) return payload;
       const nextItems = currentItems.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const next = { ...item, ...patch };
-        if (patch.blurb === undefined) delete next.blurb;
+        if ("blurb" in patch && patch.blurb === undefined) delete next.blurb;
         return next;
       });
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
-      return { ...payload, items: nextItems };
+      return { ...safePayload(payload), items: nextItems };
     });
   };
 
   const moveItem = (rowId: string, delta: -1 | 1): void => {
     onPayloadChange((payload) => {
-      const currentItems = safeItems(payloadItems(payload));
+      const currentItems = safeItems(safePayload(payload).items);
       const index = visibleRowIds.indexOf(rowId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= currentItems.length) return payload;
       const nextItems = [...currentItems];
       [nextItems[index], nextItems[target]] = [nextItems[target], nextItems[index]];
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
-      return { ...payload, items: nextItems };
+      return { ...safePayload(payload), items: nextItems };
     });
     setRowIds((current) => {
       const index = current.indexOf(rowId);
@@ -89,12 +104,12 @@ export function SolutionsSectionEditor({
 
   const removeItem = (rowId: string): void => {
     onPayloadChange((payload) => {
-      const currentItems = safeItems(payloadItems(payload));
+      const currentItems = safeItems(safePayload(payload).items);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0) return payload;
       const nextItems = currentItems.filter((_, itemIndex) => itemIndex !== index);
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
-      return { ...payload, items: nextItems };
+      return { ...safePayload(payload), items: nextItems };
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
   };
@@ -102,11 +117,11 @@ export function SolutionsSectionEditor({
   const addItem = (): void => {
     const nextRowId = newRowId();
     onPayloadChange((payload) => {
-      const currentItems = safeItems(payloadItems(payload));
+      const currentItems = safeItems(safePayload(payload).items);
       if (currentItems.length >= MAX_ITEMS) return payload;
       const nextItems = [...currentItems, { title: "", link: "" }];
       localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
-      return { ...payload, items: nextItems };
+      return { ...safePayload(payload), items: nextItems };
     });
     if (items.length < MAX_ITEMS) setRowIds((current) => [...current, nextRowId]);
   };
@@ -202,7 +217,7 @@ export function SolutionsSectionEditor({
                 <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                   {t("homepage_builder_solutions_link", { index: index + 1 })}
                   <input
-                    type="url"
+                    type="text"
                     className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
                     aria-label={t("homepage_builder_solutions_link", { index: index + 1 })}
                     maxLength={2048}
