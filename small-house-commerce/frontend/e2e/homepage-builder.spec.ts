@@ -60,6 +60,26 @@ const PREVIEW_SECRET = "e2e-homepage-preview-secret-0123456789abcdef";
 const PREVIEW_SCOPE = "homepage-draft-preview";
 const MEDIA_URL = "/uploads/e2e/color-only-shared-1.svg";
 
+/**
+ * The migrated version v1 (seeded by the `add_homepage_document_versions`
+ * migration) and the content that migration writes into its document. On a
+ * freshly recreated database the legacy `homepage_sections` tables are empty
+ * at migration time, so v1 carries NO hero section — this announcement item
+ * (deterministic id + copy from the migration SQL) is the migrated content
+ * the version routes must round-trip.
+ */
+const MIGRATED_VERSION_NO = 1;
+const MIGRATED_ANNOUNCEMENT_ID = "00000000-0000-7000-8000-0000000000a1";
+const MIGRATED_ANNOUNCEMENT_FRAGMENT = "Free Metro Manila delivery on orders";
+/**
+ * uuid v7 (RFC 9562): version nibble 7, variant bits 10xx. This is the exact
+ * shape `ParseUUIDPipe({ version: "7" })` accepts on EVERY `/versions/:id`
+ * route (detail / restore / unpublish), matching Prisma's `@default(uuid(7))`
+ * for app-published versions.
+ */
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const zh = {
   saveDraft: "保存草稿",
   saved: "已保存",
@@ -73,6 +93,7 @@ const zh = {
   yPct: "Y（%）",
   confirmWarnings: "确认风险并发布",
   publishSuccess: "已发布版本",
+  versionPreview: "预览",
   versionRestore: "恢复到草稿",
   versionRestoreSuccess: "已恢复到草稿，发布后生效。",
   confirm: "确认",
@@ -477,6 +498,71 @@ function signToken(overrides: Partial<{ scope: string; draftRev: number; exp: nu
 }
 
 test.describe("homepage builder (P1 Task 22)", () => {
+  test("the migrated version v1 stays addressable through the uuid-v7 version routes", async ({ page }) => {
+    // Regression guard for the migration seed: `add_homepage_document_versions`
+    // writes version v1 with a DETERMINISTIC uuid v7 id (same convention as the
+    // singleton document id). Every `/versions/:id` route validates
+    // `ParseUUIDPipe({ version: "7" })`, so a non-v7 seed — e.g.
+    // `gen_random_uuid()`, which is v4 — makes detail/restore/unpublish answer
+    // 400 `Validation failed (uuid v7 is expected)` for the migrated row.
+    // The rest of this suite only ever restores app-published v7 versions, so
+    // this scenario is the ONLY guard against that regression. It is read-only
+    // on purpose (no draft PUT, no publish, no restore/unpublish): the shared
+    // uuid gate is what all three routes enforce, so the detail 200 plus the
+    // id assertion pin them without mutating any state, which keeps the
+    // scenario order-independent for the write scenarios that follow.
+    const versions = await adminGet<
+      { id: string; versionNo: number; note: string | null }[]
+    >("/admin/homepage/versions");
+    const migrated = versions.find((row) => row.versionNo === MIGRATED_VERSION_NO);
+    expect(migrated, `migrated version v${MIGRATED_VERSION_NO} is listed`).toBeTruthy();
+    expect(migrated!.note ?? "", "migrated row note").toContain("Migrated");
+
+    // The live regression surface: the detail route must answer 200 for the
+    // migrated id. Inline `withAdmin` (not `adminGet`) so the failure message
+    // carries the response body — the exact ParseUUIDPipe error on RED.
+    const detail = await withAdmin(async (token, context) => {
+      const response = await context.get(
+        `${API}/admin/homepage/versions/${migrated!.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(
+        response.ok(),
+        `GET migrated version detail (${response.status()}): ${await response.text()}`,
+      ).toBeTruthy();
+      return (await response.json()) as {
+        versionNo: number;
+        document: HomepageDocument;
+      };
+    });
+
+    // The id itself satisfies the uuid-v7 gate shared by detail/restore/unpublish.
+    expect(migrated!.id, "migrated version id is a uuid v7").toMatch(UUID_V7);
+    expect(detail.versionNo).toBe(MIGRATED_VERSION_NO);
+    // The migrated document round-trips: schemaVersion plus the announcement
+    // item the migration SQL writes (the only seeded content on a fresh db).
+    expect(detail.document.schemaVersion).toBe(1);
+    const migratedItem = detail.document.announcement.items.find(
+      (item) => item.id === MIGRATED_ANNOUNCEMENT_ID,
+    );
+    expect(migratedItem, "migrated announcement item present").toBeTruthy();
+    expect(migratedItem!.text).toContain(MIGRATED_ANNOUNCEMENT_FRAGMENT);
+
+    // The user-visible failure mode: the versions-page 预览 dialog must render
+    // the migrated document instead of the load-error alert.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openAdmin(page, "/admin/homepage/versions");
+    const row = page.locator(`tr[data-version-row="${migrated!.id}"]`);
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: zh.versionPreview }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("[data-version-announcement]")).toContainText(
+      MIGRATED_ANNOUNCEMENT_FRAGMENT,
+    );
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  });
+
   test("edits hero text and sees the live preview update without saving", async ({ page }) => {
     // Establish a known hero in the draft first: on a freshly recreated
     // database the migration backfill writes an EMPTY document (sections: []),
