@@ -30,6 +30,7 @@ import {
 } from "@/components/admin/homepage/ModuleTree";
 import { PublishPanel } from "@/components/admin/homepage/PublishPanel";
 import { SettingsPanel } from "@/components/admin/homepage/SettingsPanel";
+import { SectionEditorPanel } from "@/components/admin/homepage/SectionEditorPanel";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { errorStatus } from "@/lib/admin-auth";
 import { adminApi, type HomepageDraftSnapshot } from "@/lib/admin-api";
@@ -132,12 +133,21 @@ export function HomepageEditorProvider({
     initEditorState({ document: emptyDocument(), rev: 0, savedAt: null }),
   );
   const [device, setDevice] = useState<BuilderDevice>("desktop");
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
+  const [selectedSectionId, setSelectedSectionIdState] = useState<string | null>(
     null,
   );
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [selectedElementKey, setSelectedElementKey] =
     useState<HeroElementKey | null>(null);
+  const setSelectedSectionId = useCallback<
+    Dispatch<SetStateAction<string | null>>
+  >((value) => {
+    setSelectedSectionIdState(value);
+    // A section selection is a new editing target. Clear Hero-only targets so
+    // a buffered Hero field cannot commit against the newly selected section.
+    setSelectedSlideId(null);
+    setSelectedElementKey(null);
+  }, []);
   const [safeAreaFlags, setSafeAreaFlags] = useState<SafeAreaFlags>(() => ({
     header: false,
     text: false,
@@ -165,6 +175,7 @@ export function HomepageEditorProvider({
       state,
       device,
       selectedSectionId,
+      setSelectedSectionId,
       selectedSlideId,
       selectedElementKey,
       safeAreaFlags,
@@ -517,6 +528,11 @@ export function HomepageEditorShell(): ReactNode {
   const heroSection = state.document.sections.find(
     (section): section is HeroSection => section.type === "HERO",
   );
+  const selectedSection = selectedSectionId
+    ? state.document.sections.find((section) => section.id === selectedSectionId)
+    : undefined;
+  const selectedNonHeroSection =
+    selectedSection && selectedSection.type !== "HERO" ? selectedSection : null;
   const deviceLabels = {
     desktopDevice: t("homepage_builder_device_desktop"),
     tabletDevice: t("homepage_builder_device_tablet"),
@@ -744,10 +760,15 @@ export function HomepageEditorShell(): ReactNode {
             activePane !== "settings" ? "max-[1279px]:hidden" : ""
           }`}
         >
-          {/* Right-pane routing priority (ledger Ruling 31): the announcement
-              pseudo-node, then a selected element, then section/slide style. */}
+          {/* Right-pane routing priority: the announcement pseudo-node, then a
+              selected non-HERO section, then a selected Hero element/slide. */}
           {selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
             <AnnouncementSettings />
+          ) : selectedNonHeroSection ? (
+            <SectionEditorPanel
+              key={selectedNonHeroSection.id}
+              sectionId={selectedNonHeroSection.id}
+            />
           ) : selectedElementKey !== null ? (
             <SettingsPanel />
           ) : selectedSlideId !== null ? (

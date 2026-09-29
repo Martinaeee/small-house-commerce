@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { AdminApiError } from "@/lib/admin-auth";
-import { emptyDocument, type HomepageDocument } from "@/lib/homepage-document";
+import { emptyDocument, type HomepageDocument, type HomepageSection } from "@/lib/homepage-document";
 import type { HomepageDraftSnapshot } from "@/lib/admin-api";
 import {
   HomepageEditor,
@@ -38,6 +38,7 @@ const DRAFT_REV = 5;
 const DRAFT_UPDATED_AT = "2026-09-28T02:00:00.000Z";
 const PUBLISHED_AT = "2026-09-27T10:00:00.000Z";
 const HERO_SECTION_ID = "00000000-0000-7000-8000-000000000001";
+const USP_SECTION_ID = "00000000-0000-7000-8000-000000000902";
 
 function draftSnapshot(
   overrides: Partial<HomepageDraftSnapshot> = {},
@@ -50,6 +51,23 @@ function draftSnapshot(
     published: { versionNo: 3, publishAt: PUBLISHED_AT },
     ...overrides,
   };
+}
+
+function documentWithUsp(): HomepageDocument {
+  const document = emptyDocument();
+  const usp: HomepageSection = {
+    id: USP_SECTION_ID,
+    type: "USP",
+    title: "Trust strip",
+    subtitle: null,
+    enabled: true,
+    sortOrder: 10,
+    schedule: { publishAt: null, unpublishAt: null },
+    products: [],
+    payload: {},
+  } as HomepageSection;
+  document.sections.push(usp);
+  return document;
 }
 
 function withRotation(doc: HomepageDocument, rotationMs: number): HomepageDocument {
@@ -91,6 +109,7 @@ function EditorProbe(): ReactNode {
     setSelectedElementKey,
     setSelectedSectionId,
     setSelectedSlideId,
+    selectedElementKey,
   } = useHomepageEditor();
   const hero = state.document.sections.find((section) => section.type === "HERO");
   const firstSlideId =
@@ -135,12 +154,33 @@ function EditorProbe(): ReactNode {
       >
         select-announcement
       </button>
+      <span data-testid="selected-element">{selectedElementKey ?? ""}</span>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedSectionId(USP_SECTION_ID);
+        }}
+      >
+        select-nonhero
+      </button>
       <textarea aria-label="probe textarea" />
     </div>
   );
 }
 
 function renderHarness() {
+  return render(
+    <AdminI18nProvider>
+      <HomepageEditorProvider>
+        <HomepageEditorShell />
+        <EditorProbe />
+      </HomepageEditorProvider>
+    </AdminI18nProvider>,
+  );
+}
+
+function renderHarnessWithDocument(document: HomepageDocument) {
+  getHomepageDraft.mockResolvedValueOnce(draftSnapshot({ draft: document }));
   return render(
     <AdminI18nProvider>
       <HomepageEditorProvider>
@@ -494,6 +534,23 @@ describe("HomepageEditor", () => {
     expect(panel("hero-media-settings")).toBeNull();
     expect(panel("hero-style-settings")).toBeNull();
     expect(panel("settings-panel")).toBeNull();
+  });
+
+  it("routes a selected non-HERO section to the typed section editor and clears Hero selection", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-element" }));
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("heading");
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-nonhero" }));
+
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("");
+    expect(document.querySelector('[data-testid="section-editor-panel"]')).not.toBeNull();
+    expect(document.querySelector('[data-section-editor-type="USP"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(document.querySelector('[data-panel="hero-style-settings"]')).toBeNull();
   });
 
   it("switches the preview device including tablet", async () => {
