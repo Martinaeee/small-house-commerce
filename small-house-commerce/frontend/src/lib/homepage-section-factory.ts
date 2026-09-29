@@ -28,6 +28,26 @@ const EMPTY_SCHEDULE = {
   unpublishAt: null,
 } as const;
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertSectionId(id: string): void {
+  if (!UUID_PATTERN.test(id)) {
+    throw new Error("Section id must be a UUID");
+  }
+}
+
+function assertSectionSortOrder(sortOrder: number): void {
+  if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 999) {
+    throw new Error("Section sortOrder must be an integer from 0 to 999");
+  }
+}
+
+function assertSectionIdentity(section: HomepageSection): void {
+  assertSectionId(section.id);
+  assertSectionSortOrder(section.sortOrder);
+}
+
 function defaultPayload<T extends NonHeroSectionType>(
   type: T,
 ): SectionPayloadMap[T] {
@@ -66,6 +86,9 @@ export function defaultSection<T extends NonHeroSectionType>(
   id: string,
   sortOrder: number,
 ): SectionOf<T> {
+  assertSectionId(id);
+  assertSectionSortOrder(sortOrder);
+
   return {
     id,
     type,
@@ -91,6 +114,7 @@ export function insertSection(
   section: HomepageSection,
   afterId?: string | null,
 ): HomepageDocument {
+  assertSectionIdentity(section);
   const next = structuredClone(document);
   const copy = structuredClone(section);
   const afterIndex = afterId
@@ -103,30 +127,32 @@ export function insertSection(
   return next;
 }
 
-export type SectionPayloadUpdater = (
-  payload: Record<string, unknown>,
-) => Record<string, unknown>;
+export type SectionPayloadUpdater<T extends NonHeroSectionType> = (
+  payload: SectionPayloadMap[T],
+) => SectionPayloadMap[T];
 
 /**
  * Updates one non-HERO payload while preserving its product rows and sibling
- * sections. Unknown ids and HERO sections are intentionally no-ops.
+ * sections. Unknown ids, HERO sections, and mismatched section types are no-ops.
  */
-export function updateSectionPayload(
+export function updateSectionPayload<T extends NonHeroSectionType>(
   document: HomepageDocument,
   sectionId: string,
-  updater: SectionPayloadUpdater,
+  type: T,
+  updater: SectionPayloadUpdater<T>,
 ): HomepageDocument {
   const section = document.sections.find(({ id }) => id === sectionId);
-  if (!section || section.type === "HERO") {
+  if (!section || section.type === "HERO" || section.type !== type) {
     return document;
   }
 
-  const payload = structuredClone(section.payload) as Record<string, unknown>;
+  const typedSection = section as Extract<NonHeroHomepageSection, { type: T }>;
+  const payload = structuredClone(typedSection.payload) as SectionPayloadMap[T];
   const updatedPayload = updater(payload);
   const updatedSection = {
-    ...section,
+    ...typedSection,
     payload: structuredClone(updatedPayload),
-  } as unknown as NonHeroHomepageSection;
+  } as Extract<NonHeroHomepageSection, { type: T }>;
 
   return {
     ...document,

@@ -231,7 +231,11 @@ describe("homepage document pure mutators", () => {
   it.each(SECTION_TYPES)(
     "duplicates %s sections without sharing payload or product rows",
     (type) => {
-      const source = defaultSection(type, `source-${type}`, 10);
+      const source = defaultSection(
+        type,
+        "00000000-0000-7000-8000-000000000110",
+        10,
+      );
       source.products = [
         {
           productId: "00000000-0000-7000-8000-000000000101",
