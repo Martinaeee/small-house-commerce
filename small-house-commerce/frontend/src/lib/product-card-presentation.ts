@@ -34,7 +34,9 @@ function discountPercentFor(
   if (price <= 0 || compareAtPrice <= 0) return null;
   if (compareAtPrice <= price) return null;
   const percent = Math.round(((compareAtPrice - price) / compareAtPrice) * 100);
-  return percent > 0 ? percent : null;
+  // A discount chip must never claim 100% OFF on a positive price: 99.5+%
+  // rounds to 100, so cap the integer at 99.
+  return percent > 0 ? Math.min(percent, 99) : null;
 }
 
 export function cardPricePresentation(

@@ -205,6 +205,14 @@ describe("cardPricePresentation discount percent", () => {
     expect(exactProduct(1000, 1001)?.discountPercent).toBeNull();
   });
 
+  it("caps the percent at 99 so a paid product never claims 100% off", () => {
+    // 99.5% (price 50, compare-at 10,000) rounds to 100; the chip must cap
+    // at 99 — a non-free product can never honestly be "100% OFF".
+    expect(exactProduct(50, 10000)?.discountPercent).toBe(99);
+    // The rounding still applies below the cap: 99.49…% → 99.
+    expect(exactProduct(100, 19900)?.discountPercent).toBe(99);
+  });
+
   it("never derives a discount on a From price", () => {
     const product = productFixture({
       variants: [

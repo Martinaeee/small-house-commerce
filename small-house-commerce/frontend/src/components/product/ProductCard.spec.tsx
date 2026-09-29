@@ -226,4 +226,107 @@ describe("ProductCard discount chip", () => {
 
     expect(screen.queryByTestId("card-discount")).toBeNull();
   });
+
+  it("renders no discount chip when the price presentation is From", () => {
+    // Two sellable SKUs at different prices resolve to kind "from"; even the
+    // SKU that carries a compare-at must not look discounted on the card.
+    const fromPricedProduct = buildProduct({
+      options: [
+        {
+          id: "size-opt",
+          kind: "SIZE",
+          name: "Size",
+          position: 0,
+          presentation: "TEXT",
+          isMediaDriver: false,
+          values: [
+            {
+              id: "size-s",
+              label: "S",
+              position: 0,
+              swatchHex: null,
+              thumbnailUrl: null,
+              thumbnailAlt: null,
+            },
+            {
+              id: "size-l",
+              label: "L",
+              position: 1,
+              swatchHex: null,
+              thumbnailUrl: null,
+              thumbnailAlt: null,
+            },
+          ],
+        },
+      ],
+      variants: [
+        {
+          id: "v-s",
+          name: "S",
+          position: 0,
+          combinationKey: "size-opt:size-s",
+          optionValueIds: ["size-s"],
+          sku: {
+            id: "sku-s",
+            skuCode: "S",
+            status: "ACTIVE",
+            price: 100,
+            compareAtPrice: 125,
+            availableInventory: 4,
+          },
+        },
+        {
+          id: "v-l",
+          name: "L",
+          position: 1,
+          combinationKey: "size-opt:size-l",
+          optionValueIds: ["size-l"],
+          sku: {
+            id: "sku-l",
+            skuCode: "L",
+            status: "ACTIVE",
+            price: 120,
+            compareAtPrice: null,
+            availableInventory: 4,
+          },
+        },
+      ],
+    });
+
+    render(<ProductCard product={fromPricedProduct} />);
+
+    expect(screen.getByTestId("price")).toHaveTextContent("From");
+    expect(screen.queryByTestId("card-discount")).toBeNull();
+  });
+
+  it("renders no discount chip when the card has no sellable price", () => {
+    render(
+      <ProductCard
+        product={buildProduct({
+          options: [styleOption(["Oak"])],
+          // sku.price null → nothing sellable → cardPricePresentation returns
+          // null; the kind guard must not fall through to an "undefined% OFF".
+          variants: [
+            {
+              id: "v-unpriced",
+              name: "Oak",
+              position: 0,
+              combinationKey: "style-opt:style-val-1",
+              optionValueIds: ["style-val-1"],
+              sku: {
+                id: "sku-unpriced",
+                skuCode: "OAK-UNPRICED",
+                status: "ACTIVE",
+                price: null,
+                compareAtPrice: null,
+                availableInventory: 0,
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId("card-discount")).toBeNull();
+  });
 });
