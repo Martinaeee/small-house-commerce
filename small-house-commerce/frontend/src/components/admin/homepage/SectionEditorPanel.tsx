@@ -13,6 +13,7 @@ import type {
   NonHeroSectionType,
   SectionPayloadMap,
 } from "@/lib/homepage-section-payloads";
+import type { SectionProduct } from "@/lib/homepage-document";
 import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
 import {
   SECTION_EDITOR_REGISTRY,
@@ -41,9 +42,16 @@ function renderSectionEditor<T extends NonHeroSectionType>(
   definition: SectionEditorDefinition<T>,
   section: SectionOf<T>,
   onPayloadChange: SectionPayloadEditorProps<T>["onPayloadChange"],
+  onProductsChange?: SectionPayloadEditorProps<T>["onProductsChange"],
 ): ReactNode {
   const Editor = definition.editor;
-  return <Editor section={section} onPayloadChange={onPayloadChange} />;
+  return (
+    <Editor
+      section={section}
+      onPayloadChange={onPayloadChange}
+      onProductsChange={onProductsChange}
+    />
+  );
 }
 
 export function SectionEditorPanel({
@@ -95,6 +103,28 @@ export function SectionEditorPanel({
     });
   }
 
+  function applyProductsPatch(
+    patch: SectionProduct[] | ((products: SectionProduct[]) => SectionProduct[]),
+  ): void {
+    dispatch({
+      type: "mutate",
+      mutate: (document) => {
+        const next = structuredClone(document);
+        const target = next.sections.find((candidate) => candidate.id === sectionId);
+        if (!target || target.type !== "PRODUCT_GRID") return document;
+        const products = [...(Array.isArray(target.products) ? target.products : [])].sort(
+          (left, right) => left.sortOrder - right.sortOrder,
+        );
+        const updated = typeof patch === "function" ? patch(products) : patch;
+        target.products = structuredClone(updated).map((product, index) => ({
+          ...product,
+          sortOrder: index,
+        }));
+        return next;
+      },
+    });
+  }
+
   const renderPayloadEditor = (): ReactNode => {
     switch (section.type) {
       case "USP":
@@ -114,6 +144,7 @@ export function SectionEditorPanel({
           SECTION_EDITOR_REGISTRY.PRODUCT_GRID,
           section,
           (patch) => applyPayloadPatch("PRODUCT_GRID", patch),
+          applyProductsPatch,
         );
       case "SOLUTIONS":
         return renderSectionEditor(

@@ -4,11 +4,14 @@ import {
   defaultSection,
   type AddableSectionType,
 } from "@/lib/homepage-section-factory";
-import type { NonHeroHomepageSection } from "@/lib/homepage-document";
+import type { NonHeroHomepageSection, SectionProduct } from "@/lib/homepage-document";
 import type {
   NonHeroSectionType,
   SectionPayloadMap,
 } from "@/lib/homepage-section-payloads";
+import { UspSectionEditor } from "@/components/admin/homepage/sections/UspSectionEditor";
+import { CategoryTilesSectionEditor } from "@/components/admin/homepage/sections/CategoryTilesSectionEditor";
+import { ProductGridSectionEditor } from "@/components/admin/homepage/sections/ProductGridSectionEditor";
 
 export type SectionOf<T extends NonHeroSectionType> = Extract<
   NonHeroHomepageSection,
@@ -21,6 +24,9 @@ export type SectionPayloadEditorProps<T extends NonHeroSectionType> = {
     patch:
       | Partial<SectionPayloadMap[T]>
       | ((payload: SectionPayloadMap[T]) => SectionPayloadMap[T]),
+  ) => void;
+  onProductsChange?: (
+    patch: SectionProduct[] | ((products: SectionProduct[]) => SectionProduct[]),
   ) => void;
 };
 
@@ -65,9 +71,9 @@ function createDefault<T extends AddableSectionType>(
   return (id, sortOrder) => defaultSection(type, id, sortOrder) as SectionOf<T>;
 }
 
-const uspEditor = makeEditor("USP");
-const categoryTilesEditor = makeEditor("CATEGORY_TILES");
-const productGridEditor = makeEditor("PRODUCT_GRID");
+const uspEditor = UspSectionEditor;
+const categoryTilesEditor = CategoryTilesSectionEditor;
+const productGridEditor = ProductGridSectionEditor;
 const solutionsEditor = makeEditor("SOLUTIONS");
 const productStoryEditor = makeEditor("PRODUCT_STORY");
 const roomInspirationEditor = makeEditor("ROOM_INSPIRATION");
