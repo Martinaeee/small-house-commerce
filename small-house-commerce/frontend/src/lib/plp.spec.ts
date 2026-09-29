@@ -84,7 +84,12 @@ describe("productCardPrice", () => {
         variants: [variant("v1", "", { price: 1299 })],
       }),
     );
-    expect(result).toEqual({ kind: "exact", price: 1299, compareAtPrice: null });
+    expect(result).toEqual({
+      kind: "exact",
+      price: 1299,
+      compareAtPrice: null,
+      discountPercent: null,
+    });
   });
 
   it("shows the lowest sellable price as a from-floor when prices differ", () => {
@@ -96,7 +101,12 @@ describe("productCardPrice", () => {
         ],
       }),
     );
-    expect(result).toEqual({ kind: "from", price: 899, compareAtPrice: null });
+    expect(result).toEqual({
+      kind: "from",
+      price: 899,
+      compareAtPrice: null,
+      discountPercent: null,
+    });
   });
 
   it("ignores DISABLED or unpriced SKUs instead of positionally picking them", () => {
@@ -109,7 +119,12 @@ describe("productCardPrice", () => {
         ],
       }),
     );
-    expect(result).toEqual({ kind: "exact", price: 899, compareAtPrice: null });
+    expect(result).toEqual({
+      kind: "exact",
+      price: 899,
+      compareAtPrice: null,
+      discountPercent: null,
+    });
   });
 
   it("returns null when nothing is sellable", () => {
