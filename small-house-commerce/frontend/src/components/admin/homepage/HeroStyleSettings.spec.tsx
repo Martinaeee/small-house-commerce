@@ -247,4 +247,17 @@ describe("HeroStyleSettings", () => {
     );
     expect(commits()).toBe("0");
   });
+
+  it("picks the overlay colour through the shared colour swatch", () => {
+    renderStyleSettings();
+
+    const swatch = screen.getByLabelText("Overlay color: Pick color");
+    expect(swatch).toHaveAttribute("type", "color");
+    expect(swatch).toHaveValue("#000000");
+
+    fireEvent.change(swatch, { target: { value: "#112233" } });
+
+    expect(overlay()?.color).toBe("#112233");
+    expect(commits()).toBe("1");
+  });
 });

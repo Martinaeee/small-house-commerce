@@ -33,6 +33,21 @@ const ROTATION_MAX_MS = 30000;
 const ROTATION_STEP_MS = 500;
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
+/** Neutral swatch colour shown while a nullable colour field is unset. */
+const NEUTRAL_SWATCH_COLOR = "#808080";
+
+/**
+ * A native `<input type="color">` needs a concrete `#rrggbb` (and lowercases
+ * it): unset or invalid values render the neutral default — without writing
+ * anything until the operator actually picks — and stored values are
+ * lowercased so React's value matches the control's own normalisation.
+ */
+export function swatchColor(value: string | null): string {
+  return value !== null && HEX_COLOR_PATTERN.test(value)
+    ? value.toLowerCase()
+    : NEUTRAL_SWATCH_COLOR;
+}
+
 /** Preset palette (design spec §3.2): 浅蓝灰 / 淡绿 / 暖米. */
 const PALETTE_COLORS = ["#E8EEF4", "#E7F0E7", "#F2EFE9"] as const;
 
@@ -42,6 +57,8 @@ type BufferedText = {
   blur(): void;
   /** Replaces the buffer without committing (used by type switches). */
   reset(next: string): void;
+  /** Commits a discrete pick immediately through the same fire path. */
+  flush(next: string): void;
 };
 
 export type DocumentMutator = (
@@ -137,6 +154,10 @@ export function useBufferedValue(
       clearTimer();
       setValue(next);
     },
+    flush(next) {
+      setValue(next);
+      fireNow(next);
+    },
   };
 }
 
@@ -183,17 +204,27 @@ function ColorField({
   value: string;
   /** Buffered hex text path: race-safe `mutate` applied to the latest document. */
   mutate: DocumentMutator;
-  /** Swatch click path: immediate synchronous commit. */
+  /** Palette click path: immediate synchronous commit. */
   onPick: (hex: string) => void;
 }): ReactNode {
+  const { t } = useAdminI18n();
   const hex = useBufferedText(value, mutate, (next) =>
     HEX_COLOR_PATTERN.test(next),
   );
+  const swatchLabel = `${label}: ${t("homepage_builder_pick_color")}`;
 
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium text-ink-secondary">{label}</span>
       <div className="flex items-center gap-1.5">
+        <input
+          type="color"
+          className="h-7 w-9 shrink-0 cursor-pointer rounded-lg border border-border bg-card p-0.5"
+          aria-label={swatchLabel}
+          title={swatchLabel}
+          value={swatchColor(value)}
+          onChange={(event) => hex.flush(event.target.value)}
+        />
         <input
           type="text"
           className="w-24 rounded-lg border border-border bg-card px-2 py-1 font-mono text-xs text-ink"

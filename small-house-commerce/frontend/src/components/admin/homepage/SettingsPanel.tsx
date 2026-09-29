@@ -5,6 +5,7 @@ import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { useHomepageEditor, type BuilderDevice } from "@/components/admin/homepage/HomepageEditor";
 import { LinkPicker } from "@/components/admin/homepage/LinkPicker";
 import {
+  swatchColor,
   useBufferedText,
   useBufferedValue,
 } from "@/components/admin/homepage/AnnouncementSettings";
@@ -285,17 +286,30 @@ export function ColorField({
   mutate: (document: HomepageDocument, hex: string) => HomepageDocument;
   onClear?: () => void;
 }): ReactNode {
+  const { t } = useAdminI18n();
   const field = useBufferedText(
     value ?? "",
     mutate,
     (next) => HEX_COLOR_PATTERN.test(next),
     TEXT_COMMIT_DELAY_MS,
   );
+  const swatchLabel = `${label}: ${t("homepage_builder_pick_color")}`;
 
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium text-ink-secondary">{label}</span>
       <div className="flex items-center gap-1">
+        {/* The swatch is the primary control; an unset (inherited) value shows
+            a neutral default and is only written on an actual pick. A pick is
+            discrete, so it flushes the same buffered `mutate` path at once. */}
+        <input
+          type="color"
+          className="h-7 w-9 shrink-0 cursor-pointer rounded-lg border border-border bg-card p-0.5"
+          aria-label={swatchLabel}
+          title={swatchLabel}
+          value={swatchColor(value)}
+          onChange={(event) => field.flush(event.target.value)}
+        />
         <input
           type="text"
           className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-xs text-ink"

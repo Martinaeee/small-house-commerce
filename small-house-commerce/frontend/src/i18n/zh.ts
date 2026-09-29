@@ -1052,6 +1052,7 @@ export const zh = {
   homepage_builder_field_vertical_align: "垂直对齐",
   homepage_builder_field_max_width: "最大宽度（%）",
   homepage_builder_clear_inherit: "恢复继承",
+  homepage_builder_pick_color: "选择颜色",
   homepage_builder_field_x: "X（%）",
   homepage_builder_field_y: "Y（%）",
   homepage_builder_field_width: "宽度（%）",

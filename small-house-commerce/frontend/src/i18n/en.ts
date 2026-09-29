@@ -1087,6 +1087,7 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_field_vertical_align: "Vertical align",
   homepage_builder_field_max_width: "Max width (%)",
   homepage_builder_clear_inherit: "Reset to inherit",
+  homepage_builder_pick_color: "Pick color",
   homepage_builder_field_x: "X (%)",
   homepage_builder_field_y: "Y (%)",
   homepage_builder_field_width: "Width (%)",

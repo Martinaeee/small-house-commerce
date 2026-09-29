@@ -684,3 +684,93 @@ describe("SettingsPanel target scoping", () => {
     expect(commits()).toBe("1");
   });
 });
+
+describe("SettingsPanel colour picker", () => {
+  beforeEach(() => {
+    setAdminLang("en");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("renders the swatch with the stored colour and commits a pick once through mutate", () => {
+    renderPanel();
+
+    const swatch = screen.getByLabelText("Text color: Pick color");
+    expect(swatch).toHaveAttribute("type", "color");
+    expect(swatch).toHaveValue("#292724");
+
+    fireEvent.change(swatch, { target: { value: "#112233" } });
+
+    // A pick is discrete: exactly one synchronous commit, no debounce flush.
+    expect(heading().style.textColor).toBe("#112233");
+    expect(commits()).toBe("1");
+
+    // Picking the already stored colour is a no-op: still one history entry.
+    fireEvent.change(swatch, { target: { value: "#112233" } });
+    expect(commits()).toBe("1");
+  });
+
+  it("shows the neutral default for an inherited colour without committing on mount", () => {
+    renderPanel({ elementKey: "ctaPrimary" });
+
+    // CTA button colours default to null (inherit): the swatch must show a
+    // concrete neutral without writing anything.
+    const swatch = screen.getByLabelText("Background: Pick color");
+    expect(swatch).toHaveValue("#808080");
+    expect(ctaButton().background).toBeNull();
+    expect(commits()).toBe("0");
+
+    fireEvent.change(swatch, { target: { value: "#445566" } });
+
+    expect(ctaButton().background).toBe("#445566");
+    expect(commits()).toBe("1");
+  });
+
+  it("keeps a pending text draft when a swatch pick commits first", async () => {
+    vi.useFakeTimers();
+    renderPanel();
+
+    const textarea = screen.getByRole("textbox", { name: "Text" });
+    fireEvent.change(textarea, { target: { value: "PENDING TEXT" } });
+
+    const swatch = screen.getByLabelText("Text color: Pick color");
+    fireEvent.change(swatch, { target: { value: "#112233" } });
+
+    // The pick commits immediately through mutate; the still-pending text
+    // draft must survive (it applies to the latest document, not a pre-pick
+    // snapshot — ledger Ruling 32).
+    expect(heading().style.textColor).toBe("#112233");
+    expect(commits()).toBe("1");
+
+    await advance(300);
+
+    expect(heading().text).toBe("PENDING TEXT");
+    expect(heading().style.textColor).toBe("#112233");
+    expect(commits()).toBe("2");
+  });
+
+  it("keeps the hex text path and returns the swatch to the neutral default on clear", async () => {
+    vi.useFakeTimers();
+    renderPanel({ elementKey: "ctaPrimary" });
+
+    const hex = screen.getByRole("textbox", { name: "Background" });
+    fireEvent.change(hex, { target: { value: "#445566" } });
+    await advance(300);
+    expect(ctaButton().background).toBe("#445566");
+    expect(screen.getByLabelText("Background: Pick color")).toHaveValue(
+      "#445566",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Background: Reset to inherit" }),
+    );
+
+    expect(ctaButton().background).toBeNull();
+    expect(screen.getByLabelText("Background: Pick color")).toHaveValue(
+      "#808080",
+    );
+    expect(commits()).toBe("2");
+  });
+});

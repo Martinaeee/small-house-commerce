@@ -482,4 +482,30 @@ describe("AnnouncementSettings", () => {
     expect(announcement().items[0].link).toBeNull();
     expect(typeSelect).toHaveValue("");
   });
+
+  it("picks item colours through the native colour input beside the palette", () => {
+    renderSettings();
+
+    const textSwatch = within(itemCard(ITEM_ONE_ID)).getByLabelText(
+      "Text color: Pick color",
+    );
+    expect(textSwatch).toHaveAttribute("type", "color");
+    expect(textSwatch).toHaveValue("#292724");
+
+    fireEvent.change(textSwatch, { target: { value: "#112233" } });
+
+    expect(announcement().items[0].textColor).toBe("#112233");
+    expect(commits()).toBe("1");
+
+    const backgroundSwatch = within(itemCard(ITEM_TWO_ID)).getByLabelText(
+      "Background: Pick color",
+    );
+    // Stored "#F2EFE9" renders lowercase (native colour inputs are lowercase).
+    expect(backgroundSwatch).toHaveValue("#f2efe9");
+
+    fireEvent.change(backgroundSwatch, { target: { value: "#e8eef4" } });
+
+    expect(announcement().items[1].backgroundColor).toBe("#e8eef4");
+    expect(commits()).toBe("2");
+  });
 });
