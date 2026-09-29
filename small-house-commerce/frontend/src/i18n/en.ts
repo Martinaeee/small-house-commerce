@@ -1201,11 +1201,14 @@ export const en: Record<ZhKey, string> = {
 
   // --- Homepage builder: settings groups & element fields ---
   homepage_builder_group_content: "Content",
+  homepage_builder_group_advanced: "Advanced",
   homepage_builder_section_title: "Section title",
   homepage_builder_section_subtitle: "Section subtitle",
   homepage_builder_section_enabled: "Section enabled",
   homepage_builder_section_start: "Start time",
   homepage_builder_section_end: "End time",
+  homepage_builder_section_schedule_order_error:
+    "End time must be later than start time.",
   homepage_builder_group_typography: "Typography",
   homepage_builder_group_position: "Position",
   homepage_builder_group_responsive: "Responsive",
@@ -1217,6 +1220,10 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_style_padding_top: "Top spacing (px)",
   homepage_builder_style_padding_bottom: "Bottom spacing (px)",
   homepage_builder_style_inherit: "Inherited",
+  homepage_builder_style_reset: "Reset",
+  homepage_builder_style_content_width_FULL: "Full width",
+  homepage_builder_style_content_width_STANDARD: "Standard",
+  homepage_builder_style_content_width_NARROW: "Narrow",
   homepage_builder_style_reset_background: "Reset background color",
   homepage_builder_style_reset_text: "Reset text color",
   homepage_builder_style_reset_content_width: "Reset content width",

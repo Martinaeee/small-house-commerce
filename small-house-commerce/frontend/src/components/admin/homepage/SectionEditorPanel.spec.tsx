@@ -100,6 +100,7 @@ describe("SectionEditorPanel", () => {
     expect(screen.getByText("Trust points and service promises")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Content" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Style" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Advanced" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Section title" })).toHaveValue(
       "Trust strip",
     );

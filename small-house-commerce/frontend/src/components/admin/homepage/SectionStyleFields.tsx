@@ -48,9 +48,11 @@ function numberValue(value: string): number | undefined {
 
 function ResetButton({
   label,
+  text,
   onReset,
 }: {
   label: string;
+  text: string;
   onReset: () => void;
 }): ReactNode {
   return (
@@ -60,7 +62,7 @@ function ResetButton({
       aria-label={label}
       onClick={onReset}
     >
-      Reset
+      {text}
     </button>
   );
 }
@@ -74,17 +76,19 @@ export function SectionStyleFields({
 }): ReactNode {
   const { t } = useAdminI18n();
   const style = readStyle(section);
+  const resetLabel = t("homepage_builder_style_reset");
 
   return (
     <section
       data-panel="section-style-fields"
-      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
+      className="flex min-w-0 flex-col gap-3 overflow-x-hidden rounded-lg border border-border bg-card p-3"
     >
       <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_group_style")}</h2>
-      <div className="grid gap-3">
+      <div className="grid min-w-0 gap-3">
         <Field label={t("homepage_builder_style_background_color")}>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <TextInput
+              className="min-w-0 flex-1"
               aria-label={t("homepage_builder_style_background_color")}
               value={style.backgroundColor ?? ""}
               placeholder={t("homepage_builder_style_inherit")}
@@ -92,13 +96,15 @@ export function SectionStyleFields({
             />
             <ResetButton
               label={t("homepage_builder_style_reset_background")}
+              text={resetLabel}
               onReset={() => onChange({ backgroundColor: undefined })}
             />
           </div>
         </Field>
         <Field label={t("homepage_builder_style_text_color")}>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <TextInput
+              className="min-w-0 flex-1"
               aria-label={t("homepage_builder_style_text_color")}
               value={style.textColor ?? ""}
               placeholder={t("homepage_builder_style_inherit")}
@@ -106,13 +112,15 @@ export function SectionStyleFields({
             />
             <ResetButton
               label={t("homepage_builder_style_reset_text")}
+              text={resetLabel}
               onReset={() => onChange({ textColor: undefined })}
             />
           </div>
         </Field>
         <Field label={t("homepage_builder_style_content_width")}>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <Select
+              className="min-w-0 flex-1"
               aria-label={t("homepage_builder_style_content_width")}
               value={style.contentWidth ?? ""}
               onChange={(event) =>
@@ -123,20 +131,22 @@ export function SectionStyleFields({
               }
             >
               <option value="">{t("homepage_builder_style_inherit")}</option>
-              <option value="FULL">Full width</option>
-              <option value="STANDARD">Standard</option>
-              <option value="NARROW">Narrow</option>
+              <option value="FULL">{t("homepage_builder_style_content_width_FULL")}</option>
+              <option value="STANDARD">{t("homepage_builder_style_content_width_STANDARD")}</option>
+              <option value="NARROW">{t("homepage_builder_style_content_width_NARROW")}</option>
             </Select>
             <ResetButton
               label={t("homepage_builder_style_reset_content_width")}
+              text={resetLabel}
               onReset={() => onChange({ contentWidth: undefined })}
             />
           </div>
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <Field label={t("homepage_builder_style_padding_top")}>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <TextInput
+                className="min-w-0 flex-1"
                 type="number"
                 min={0}
                 max={240}
@@ -147,13 +157,15 @@ export function SectionStyleFields({
               />
               <ResetButton
                 label={t("homepage_builder_style_reset_padding_top")}
+                text={resetLabel}
                 onReset={() => onChange({ paddingTop: undefined })}
               />
             </div>
           </Field>
           <Field label={t("homepage_builder_style_padding_bottom")}>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <TextInput
+                className="min-w-0 flex-1"
                 type="number"
                 min={0}
                 max={240}
@@ -164,6 +176,7 @@ export function SectionStyleFields({
               />
               <ResetButton
                 label={t("homepage_builder_style_reset_padding_bottom")}
+                text={resetLabel}
                 onReset={() => onChange({ paddingBottom: undefined })}
               />
             </div>

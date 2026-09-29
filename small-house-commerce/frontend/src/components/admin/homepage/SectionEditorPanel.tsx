@@ -210,7 +210,7 @@ export function SectionEditorPanel({
     <div
       data-testid="section-editor-panel"
       data-section-editor-type={section.type}
-      className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
+      className="flex min-w-0 min-h-[320px] flex-col gap-3 overflow-x-hidden rounded-xl border border-border bg-card p-4"
     >
       <header className="flex flex-col gap-1">
         <h2 className="text-sm font-semibold text-ink">
