@@ -109,6 +109,25 @@ describe("CategoryTilesSectionEditor", () => {
     expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
   });
 
+  it("renders a safe empty state when the stored category ids are malformed", async () => {
+    setAdminLang("en");
+    listCategories.mockResolvedValue([]);
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            categoryIds: {} as unknown as SectionPayloadMap["CATEGORY_TILES"]["categoryIds"],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("No categories selected yet.")).toBeVisible(),
+    );
+    expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
+  });
+
   it("reorders and removes by category id, with the six-category maximum disabling add", async () => {
     setAdminLang("en");
     listCategories.mockResolvedValue([]);

@@ -64,6 +64,81 @@ describe("UspSectionEditor", () => {
     expect(screen.getByRole("button", { name: "Add trust point" })).toBeDisabled();
   });
 
+  it("uses safe items when the stored payload is malformed", () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            items: {} as unknown as SectionPayloadMap["USP"]["items"],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByText("No trust points yet.")).toBeVisible();
+    expect(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Add trust point" })),
+    ).not.toThrow();
+    expect(screen.getByTestId("usp-item-row-0")).toBeVisible();
+  });
+
+  it("resets row validation when a new document snapshot replaces the section payload", () => {
+    setAdminLang("en");
+
+    function SnapshotHarness(): ReactNode {
+      const [payload, setPayload] = useState<SectionPayloadMap["USP"]>({
+        items: [{ label: "Local" }],
+      });
+      return (
+        <>
+          <UspSectionEditor
+            section={makeSection(payload)}
+            onPayloadChange={(patch) =>
+              setPayload((current) =>
+                typeof patch === "function" ? patch(current) : { ...current, ...patch },
+              )
+            }
+          />
+          <button
+            type="button"
+            onClick={() => setPayload({ items: [{ label: "Remote" }] })}
+          >
+            load-latest
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setPayload({ items: [{ label: "Remote" }, { label: "" }] })
+            }
+          >
+            remote-empty-row
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <AdminI18nProvider>
+        <SnapshotHarness />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add trust point" }));
+    const secondLabel = screen.getByRole("textbox", { name: "USP label 2" });
+    fireEvent.blur(secondLabel);
+    expect(screen.getByText("Label is required.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "load-latest" }));
+    fireEvent.click(screen.getByRole("button", { name: "remote-empty-row" }));
+
+    expect(screen.getByRole("textbox", { name: "USP label 2" })).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.queryByText("Label is required.")).not.toBeInTheDocument();
+  });
+
   it("validates non-empty labels and writes icon and label edits through the payload callback", () => {
     setAdminLang("en");
     render(

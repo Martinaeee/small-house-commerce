@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import type { UspIcon, UspItem } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
@@ -25,12 +25,31 @@ function newRowId(): string {
  * keys follow a row without adding non-schema data to the document.
  */
 
+function safeUspItems(value: unknown): UspItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null && !Array.isArray(item),
+  ).map((item) => ({
+    ...(item.icon === "shield" ||
+    item.icon === "home" ||
+    item.icon === "lock" ||
+    item.icon === "truck"
+      ? { icon: item.icon }
+      : {}),
+    label: typeof item.label === "string" ? item.label : "",
+    ...(typeof item.sub === "string" ? { sub: item.sub } : {}),
+  }));
+}
+
 export function UspSectionEditor({
   section,
   onPayloadChange,
 }: SectionPayloadEditorProps<"USP">): ReactNode {
   const { t } = useAdminI18n();
-  const items = section.payload.items ?? [];
+  const items = safeUspItems(section.payload.items);
+  const snapshotSignature = `${section.id}:${JSON.stringify(items)}`;
+  const localSnapshotSignature = useRef(snapshotSignature);
   const [rowIds, setRowIds] = useState<string[]>(() =>
     items.map(() => newRowId()),
   );
@@ -39,29 +58,39 @@ export function UspSectionEditor({
   );
   const [touchedRows, setTouchedRows] = useState<Set<string>>(() => new Set());
 
+  useEffect(() => {
+    if (snapshotSignature === localSnapshotSignature.current) return;
+    localSnapshotSignature.current = snapshotSignature;
+    setRowIds(items.map(() => newRowId()));
+    setTouchedRows(new Set());
+  }, [items, section.id, snapshotSignature]);
+
   const updateItem = (rowId: string, patch: Partial<UspItem>): void => {
     onPayloadChange((payload) => {
-      const currentItems = payload.items ?? [];
+      const currentItems = safeUspItems(payload.items);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0 || index >= currentItems.length) return payload;
+      const nextItems = currentItems.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      );
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return {
         ...payload,
-        items: currentItems.map((item, itemIndex) =>
-          itemIndex === index ? { ...item, ...patch } : item,
-        ),
+        items: nextItems,
       };
     });
   };
 
   const moveItem = (rowId: string, delta: -1 | 1): void => {
     onPayloadChange((payload) => {
-      const currentItems = payload.items ?? [];
+      const currentItems = safeUspItems(payload.items);
       const index = visibleRowIds.indexOf(rowId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= currentItems.length) return payload;
-      const next = [...currentItems];
-      [next[index], next[target]] = [next[target], next[index]];
-      return { ...payload, items: next };
+      const nextItems = [...currentItems];
+      [nextItems[index], nextItems[target]] = [nextItems[target], nextItems[index]];
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
+      return { ...payload, items: nextItems };
     });
     setRowIds((current) => {
       const index = current.indexOf(rowId);
@@ -75,12 +104,14 @@ export function UspSectionEditor({
 
   const removeItem = (rowId: string): void => {
     onPayloadChange((payload) => {
-      const currentItems = payload.items ?? [];
+      const currentItems = safeUspItems(payload.items);
       const index = visibleRowIds.indexOf(rowId);
       if (index < 0) return payload;
+      const nextItems = currentItems.filter((_, itemIndex) => itemIndex !== index);
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return {
         ...payload,
-        items: currentItems.filter((_, itemIndex) => itemIndex !== index),
+        items: nextItems,
       };
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
@@ -94,11 +125,16 @@ export function UspSectionEditor({
   const addItem = (): void => {
     const nextRowId = newRowId();
     onPayloadChange((payload) => {
-      const currentItems = payload.items ?? [];
+      const currentItems = safeUspItems(payload.items);
       if (currentItems.length >= MAX_ITEMS) return payload;
+      const nextItems: UspItem[] = [
+        ...currentItems,
+        { icon: "shield", label: "" },
+      ];
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
       return {
         ...payload,
-        items: [...currentItems, { icon: "shield", label: "" }],
+        items: nextItems,
       };
     });
     setRowIds((current) => [...current, nextRowId]);

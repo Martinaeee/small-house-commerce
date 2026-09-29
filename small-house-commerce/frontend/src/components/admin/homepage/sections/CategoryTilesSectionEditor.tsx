@@ -23,6 +23,12 @@ function flattenCategories(nodes: AdminCategoryNode[]): CategoryOption[] {
   return result;
 }
 
+function safeCategoryIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === "string")
+    : [];
+}
+
 export function CategoryTilesSectionEditor({
   section,
   onPayloadChange,
@@ -50,7 +56,7 @@ export function CategoryTilesSectionEditor({
     };
   }, []);
 
-  const categoryIds = section.payload.categoryIds ?? [];
+  const categoryIds = safeCategoryIds(section.payload.categoryIds);
   const optionById = useMemo(
     () => new Map(options.map((option) => [option.id, option.name])),
     [options],
@@ -65,7 +71,7 @@ export function CategoryTilesSectionEditor({
 
   const addCategory = (categoryId: string): void => {
     onPayloadChange((payload) => {
-      const current = payload.categoryIds ?? [];
+      const current = safeCategoryIds(payload.categoryIds);
       if (current.length >= MAX_CATEGORIES || current.includes(categoryId)) {
         return payload;
       }
@@ -82,7 +88,7 @@ export function CategoryTilesSectionEditor({
 
   const moveCategory = (categoryId: string, delta: -1 | 1): void => {
     onPayloadChange((payload) => {
-      const current = payload.categoryIds ?? [];
+      const current = safeCategoryIds(payload.categoryIds);
       const index = current.indexOf(categoryId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= current.length) return payload;
