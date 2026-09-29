@@ -28,6 +28,7 @@ import {
   type HeroMedia,
   type HomepageDocument,
 } from "@/lib/homepage-document";
+import { SECTION_TYPES, defaultSection } from "@/lib/homepage-section-factory";
 
 const SECTION_ID = "00000000-0000-7000-8000-000000000001";
 const SLIDE_ID = "00000000-0000-7000-8000-000000000010";
@@ -226,6 +227,39 @@ describe("homepage document pure mutators", () => {
     ]);
     expect(doc.sections).toHaveLength(1);
   });
+
+  it.each(SECTION_TYPES)(
+    "duplicates %s sections without sharing payload or product rows",
+    (type) => {
+      const source = defaultSection(type, `source-${type}`, 10);
+      source.products = [
+        {
+          productId: "00000000-0000-7000-8000-000000000101",
+          sortOrder: 0,
+          badge: "Featured",
+        },
+      ];
+      const document: HomepageDocument = {
+        ...emptyDocument(),
+        sections: [...emptyDocument().sections, source],
+      };
+
+      const duplicated = duplicateSection(document, source.id);
+      const copy = duplicated.sections[2];
+
+      expect(copy.id).toMatch(UUID_RE);
+      expect(copy.id).not.toBe(source.id);
+      expect(copy.type).toBe(type);
+      expect(copy.sortOrder).toBe(20);
+      expect(copy.payload).toEqual(source.payload);
+      expect(copy.payload).not.toBe(source.payload);
+      expect(copy.products).toEqual(source.products);
+      expect(copy.products).not.toBe(source.products);
+      expect(copy.products[0]).not.toBe(source.products[0]);
+      expect(duplicated.sections[0]).toEqual(document.sections[0]);
+      expect(duplicated.sections[1]).toEqual(source);
+    },
+  );
 
   it("prevents removing the last remaining slide", () => {
     const doc = emptyDocument();

@@ -19,7 +19,7 @@ function makeDocument(id: string): HomepageDocument {
         schedule: { publishAt: null, unpublishAt: null },
         products: [],
         type: "BRAND_STORY",
-        payload: { id },
+        payload: { bullets: [id] },
       },
     ],
     announcement: {

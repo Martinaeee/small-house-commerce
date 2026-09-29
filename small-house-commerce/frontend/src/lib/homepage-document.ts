@@ -1,3 +1,8 @@
+import type {
+  NonHeroSectionType,
+  SectionPayloadMap,
+} from "./homepage-section-payloads";
+
 export const SCHEMA_VERSION = 1 as const;
 
 export type HorizontalAlign = "LEFT" | "CENTER" | "RIGHT";
@@ -214,7 +219,7 @@ export type AnnouncementBlock = {
   items: AnnouncementItem[];
 };
 
-type SectionProduct = {
+export type SectionProduct = {
   productId: string;
   sortOrder: number;
   badge: string | null;
@@ -236,12 +241,17 @@ type HeroSection = HomepageSectionBase & {
   payload: HeroPayload;
 };
 
-type OpaqueHomepageSection = HomepageSectionBase & {
-  type: Exclude<SectionType, "HERO">;
-  payload: Record<string, unknown>;
-};
+type TypedNonHeroHomepageSection = {
+  [T in NonHeroSectionType]: HomepageSectionBase & {
+    type: T;
+    payload: SectionPayloadMap[T];
+  };
+}[NonHeroSectionType];
 
-export type HomepageSection = HeroSection | OpaqueHomepageSection;
+export type NonHeroHomepageSection = TypedNonHeroHomepageSection;
+export type HomepageSection = HeroSection | NonHeroHomepageSection;
+
+export type HomepageSectionPayload = NonHeroHomepageSection["payload"];
 
 export type HomepageDocument = {
   schemaVersion: typeof SCHEMA_VERSION;
