@@ -525,6 +525,8 @@ function clampLayoutPatch(
   return next;
 }
 
+const MAX_SECTION_COUNT = 100;
+
 function renumberSections(sections: HomepageSection[]): void {
   sections.forEach((section, index) => {
     section.sortOrder = index * 10;
@@ -809,6 +811,7 @@ export function duplicateSection(
   sectionId: string,
 ): HomepageDocument {
   const next = cloneDocument(doc);
+  if (next.sections.length >= MAX_SECTION_COUNT) return next;
   const index = next.sections.findIndex(({ id }) => id === sectionId);
   if (index < 0) return next;
   const source = next.sections[index];

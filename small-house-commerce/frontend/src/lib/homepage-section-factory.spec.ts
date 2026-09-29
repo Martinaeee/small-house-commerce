@@ -85,6 +85,34 @@ describe("homepage section factories", () => {
       "Section sortOrder must be an integer from 0 to 999",
     );
   });
+  it("does not insert a section when backend sort-order capacity is full", () => {
+    const document = emptyDocument();
+    for (let index = 1; index < 100; index += 1) {
+      document.sections.push(
+        defaultSection(
+          "PRODUCT_GRID",
+          `00000000-0000-7000-8000-${String(1000 + index).padStart(12, "0")}`,
+          index * 10,
+        ),
+      );
+    }
+
+    const next = insertSection(
+      document,
+      defaultSection(
+        "USP",
+        "00000000-0000-7000-8000-000000002000",
+        999,
+      ),
+    );
+
+    expect(next).toBe(document);
+    expect(next.sections).toHaveLength(100);
+    expect(Math.max(...next.sections.map(({ sortOrder }) => sortOrder))).toBe(
+      990,
+    );
+  });
+
   it("inserts after the selected section and renumbers only section sortOrder", () => {
     const document = documentFixture();
     const sourceGrid = document.sections.find(({ id }) => id === GRID_ID);

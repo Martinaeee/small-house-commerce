@@ -265,6 +265,26 @@ describe("homepage document pure mutators", () => {
     },
   );
 
+  it("does not duplicate a section when backend sort-order capacity is full", () => {
+    const document = emptyDocument();
+    for (let index = 1; index < 100; index += 1) {
+      document.sections.push(
+        defaultSection(
+          "PRODUCT_GRID",
+          `00000000-0000-7000-8000-${String(2000 + index).padStart(12, "0")}`,
+          index * 10,
+        ),
+      );
+    }
+
+    const next = duplicateSection(document, document.sections[1].id);
+
+    expect(next.sections).toHaveLength(100);
+    expect(next.sections.map(({ sortOrder }) => sortOrder)).toEqual(
+      document.sections.map(({ sortOrder }) => sortOrder),
+    );
+  });
+
   it("prevents removing the last remaining slide", () => {
     const doc = emptyDocument();
     const output = removeHeroSlide(doc, SLIDE_ID);

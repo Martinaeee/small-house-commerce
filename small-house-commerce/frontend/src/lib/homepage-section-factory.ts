@@ -102,6 +102,8 @@ export function defaultSection<T extends NonHeroSectionType>(
   } as unknown as SectionOf<T>;
 }
 
+const MAX_SECTION_COUNT = 100;
+
 function renumberSections(sections: HomepageSection[]): void {
   sections.forEach((section, index) => {
     section.sortOrder = index * 10;
@@ -115,6 +117,10 @@ export function insertSection(
   afterId?: string | null,
 ): HomepageDocument {
   assertSectionIdentity(section);
+  if (document.sections.length >= MAX_SECTION_COUNT) {
+    return document;
+  }
+
   const next = structuredClone(document);
   const copy = structuredClone(section);
   const afterIndex = afterId

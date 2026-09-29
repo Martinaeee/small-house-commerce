@@ -134,10 +134,13 @@ export function ModuleTree(): ReactNode {
         999,
       );
       const section = defaultSection(type, newSectionId(), nextSortOrder);
+      const next = insertSection(document, section, afterId);
+      setAddSectionOpen(false);
+      if (next === document) return;
 
       dispatch({
         type: "commit",
-        document: insertSection(document, section, afterId),
+        document: next,
       });
       setSelectedSectionId(section.id);
       setSelectedSlideId(null);
