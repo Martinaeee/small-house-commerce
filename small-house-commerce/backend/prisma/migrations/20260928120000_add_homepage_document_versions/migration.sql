@@ -83,6 +83,10 @@ INSERT INTO "homepage_documents" ("id", "draft", "draftRev", "updatedAt")
 SELECT '00000000-0000-0000-0000-000000000001', doc.document, 1, CURRENT_TIMESTAMP FROM doc;
 
 INSERT INTO "homepage_versions" ("id", "versionNo", "document", "note", "publishAt")
-SELECT gen_random_uuid(), 1, d."draft", 'Migrated from homepage_sections', CURRENT_TIMESTAMP
+SELECT '00000000-0000-7000-8000-000000000001', 1, d."draft", 'Migrated from homepage_sections', CURRENT_TIMESTAMP
 FROM "homepage_documents" d WHERE d."id" = '00000000-0000-0000-0000-000000000001';
--- publishAt=迁移时刻使 v1 立即生效（PostgreSQL 13+ 内置 gen_random_uuid()）。
+-- publishAt=迁移时刻使 v1 立即生效。
+-- id 使用确定性 UUIDv7 字面量（与单例文档 id 同一约定）：Prisma schema 的
+-- @default(uuid(7)) 只作用于应用侧写入，路由以 ParseUUIDPipe({version:'7'})
+-- 校验版本 id，因此迁移种下的行必须同样是 v7——gen_random_uuid() 产出 v4，
+-- 会让 v1 的详情/恢复/下线全部 400。字面量同时避免依赖 PG 18 的 uuidv7()。
