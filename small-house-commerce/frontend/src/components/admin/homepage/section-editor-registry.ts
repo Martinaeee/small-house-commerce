@@ -12,6 +12,11 @@ import type {
 import { UspSectionEditor } from "@/components/admin/homepage/sections/UspSectionEditor";
 import { CategoryTilesSectionEditor } from "@/components/admin/homepage/sections/CategoryTilesSectionEditor";
 import { ProductGridSectionEditor } from "@/components/admin/homepage/sections/ProductGridSectionEditor";
+import { SolutionsSectionEditor } from "@/components/admin/homepage/sections/SolutionsSectionEditor";
+import { ProductStorySectionEditor } from "@/components/admin/homepage/sections/ProductStorySectionEditor";
+import { RoomInspirationSectionEditor } from "@/components/admin/homepage/sections/RoomInspirationSectionEditor";
+import { UgcSectionEditor } from "@/components/admin/homepage/sections/UgcSectionEditor";
+import { TextBlockSectionEditor } from "@/components/admin/homepage/sections/TextBlockSectionEditor";
 
 export type SectionOf<T extends NonHeroSectionType> = Extract<
   NonHeroHomepageSection,
@@ -46,25 +51,6 @@ export type SectionEditorRegistry = {
   [T in NonHeroSectionType]: SectionEditorDefinition<T>;
 };
 
-function PayloadEditorNotice<T extends NonHeroSectionType>({
-  type,
-}: {
-  type: T;
-}): ReactNode {
-  return createElement("div", {
-    "data-section-payload-editor": type,
-    className: "hidden",
-  });
-}
-
-function makeEditor<T extends NonHeroSectionType>(
-  type: T,
-): SectionEditorComponent<T> {
-  return function TypedSectionPayloadEditor() {
-    return createElement(PayloadEditorNotice, { type });
-  };
-}
-
 function createDefault<T extends AddableSectionType>(
   type: T,
 ): SectionEditorDefinition<T>["createDefault"] {
@@ -74,12 +60,14 @@ function createDefault<T extends AddableSectionType>(
 const uspEditor = UspSectionEditor;
 const categoryTilesEditor = CategoryTilesSectionEditor;
 const productGridEditor = ProductGridSectionEditor;
-const solutionsEditor = makeEditor("SOLUTIONS");
-const productStoryEditor = makeEditor("PRODUCT_STORY");
-const roomInspirationEditor = makeEditor("ROOM_INSPIRATION");
-const ugcEditor = makeEditor("UGC");
-const brandStoryEditor = makeEditor("BRAND_STORY");
-const confidenceEditor = makeEditor("CONFIDENCE");
+const solutionsEditor = SolutionsSectionEditor;
+const productStoryEditor = ProductStorySectionEditor;
+const roomInspirationEditor = RoomInspirationSectionEditor;
+const ugcEditor = UgcSectionEditor;
+const brandStoryEditor: SectionEditorComponent<"BRAND_STORY"> = (props): ReactNode =>
+  createElement(TextBlockSectionEditor, props);
+const confidenceEditor: SectionEditorComponent<"CONFIDENCE"> = (props): ReactNode =>
+  createElement(TextBlockSectionEditor, props);
 
 const createUspDefault = createDefault("USP");
 const createCategoryTilesDefault = createDefault("CATEGORY_TILES");

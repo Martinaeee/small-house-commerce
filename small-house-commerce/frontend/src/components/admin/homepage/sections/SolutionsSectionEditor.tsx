@@ -1,0 +1,220 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useAdminI18n } from "@/lib/admin-i18n";
+import type { SolutionItem } from "@/lib/homepage-section-payloads";
+import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+
+const MAX_ITEMS = 6;
+
+type SolutionPatch = Partial<SolutionItem>;
+
+function newRowId(): string {
+  const random = globalThis.crypto?.randomUUID?.();
+  return random ? `solution-${random}` : `solution-${Date.now()}-${Math.random()}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeItems(value: unknown): SolutionItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item) => ({
+    title: typeof item.title === "string" ? item.title : "",
+    ...(typeof item.blurb === "string" ? { blurb: item.blurb } : {}),
+    link: typeof item.link === "string" ? item.link : "",
+  }));
+}
+
+function payloadItems(value: unknown): unknown {
+  return isRecord(value) ? value.items : undefined;
+}
+
+export function SolutionsSectionEditor({
+  section,
+  onPayloadChange,
+}: SectionPayloadEditorProps<"SOLUTIONS">): ReactNode {
+  const { t } = useAdminI18n();
+  const items = safeItems(payloadItems(section.payload));
+  const snapshotSignature = `${section.id}:${JSON.stringify(items)}`;
+  const localSnapshotSignature = useRef(snapshotSignature);
+  const [rowIds, setRowIds] = useState<string[]>(() => items.map(() => newRowId()));
+  const visibleRowIds = items.map(
+    (_, index) => rowIds[index] ?? `solution-${section.id}-${index}`,
+  );
+
+  useEffect(() => {
+    if (snapshotSignature === localSnapshotSignature.current) return;
+    localSnapshotSignature.current = snapshotSignature;
+    setRowIds(items.map(() => newRowId()));
+  }, [items, section.id, snapshotSignature]);
+
+  const updateItem = (rowId: string, patch: SolutionPatch): void => {
+    onPayloadChange((payload) => {
+      const currentItems = safeItems(payloadItems(payload));
+      const index = visibleRowIds.indexOf(rowId);
+      if (index < 0 || index >= currentItems.length) return payload;
+      const nextItems = currentItems.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const next = { ...item, ...patch };
+        if (patch.blurb === undefined) delete next.blurb;
+        return next;
+      });
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
+      return { ...payload, items: nextItems };
+    });
+  };
+
+  const moveItem = (rowId: string, delta: -1 | 1): void => {
+    onPayloadChange((payload) => {
+      const currentItems = safeItems(payloadItems(payload));
+      const index = visibleRowIds.indexOf(rowId);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= currentItems.length) return payload;
+      const nextItems = [...currentItems];
+      [nextItems[index], nextItems[target]] = [nextItems[target], nextItems[index]];
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
+      return { ...payload, items: nextItems };
+    });
+    setRowIds((current) => {
+      const index = current.indexOf(rowId);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const removeItem = (rowId: string): void => {
+    onPayloadChange((payload) => {
+      const currentItems = safeItems(payloadItems(payload));
+      const index = visibleRowIds.indexOf(rowId);
+      if (index < 0) return payload;
+      const nextItems = currentItems.filter((_, itemIndex) => itemIndex !== index);
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
+      return { ...payload, items: nextItems };
+    });
+    setRowIds((current) => current.filter((id) => id !== rowId));
+  };
+
+  const addItem = (): void => {
+    const nextRowId = newRowId();
+    onPayloadChange((payload) => {
+      const currentItems = safeItems(payloadItems(payload));
+      if (currentItems.length >= MAX_ITEMS) return payload;
+      const nextItems = [...currentItems, { title: "", link: "" }];
+      localSnapshotSignature.current = `${section.id}:${JSON.stringify(nextItems)}`;
+      return { ...payload, items: nextItems };
+    });
+    if (items.length < MAX_ITEMS) setRowIds((current) => [...current, nextRowId]);
+  };
+
+  return (
+    <section
+      data-section-content-editor="SOLUTIONS"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_solutions_items")}</h2>
+          <p className="text-xs text-ink-muted">{t("homepage_builder_solutions_limit", { max: MAX_ITEMS })}</p>
+        </div>
+        <button
+          type="button"
+          className="rounded-lg border border-cta/40 px-3 py-1.5 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:border-border disabled:text-ink-muted"
+          disabled={items.length >= MAX_ITEMS}
+          onClick={addItem}
+        >
+          {t("homepage_builder_solutions_add")}
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-ink-muted">
+          {t("homepage_builder_solutions_empty")}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((item, index) => {
+            const rowId = visibleRowIds[index];
+            return (
+              <div
+                key={rowId}
+                data-testid={`solutions-row-${index}`}
+                className="flex flex-col gap-2 rounded-lg border border-border p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-ink-secondary">
+                    {t("homepage_builder_solutions_row", { index: index + 1 })}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface disabled:cursor-not-allowed disabled:text-ink-muted"
+                      aria-label={t("homepage_builder_solutions_move_up", { index: index + 1 })}
+                      disabled={index === 0}
+                      onClick={() => moveItem(rowId, -1)}
+                    >
+                      {t("homepage_builder_move_up")}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface disabled:cursor-not-allowed disabled:text-ink-muted"
+                      aria-label={t("homepage_builder_solutions_move_down", { index: index + 1 })}
+                      disabled={index === items.length - 1}
+                      onClick={() => moveItem(rowId, 1)}
+                    >
+                      {t("homepage_builder_move_down")}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded px-2 py-1 text-xs text-sale hover:bg-sale/10"
+                      aria-label={t("homepage_builder_solutions_remove", { index: index + 1 })}
+                      onClick={() => removeItem(rowId)}
+                    >
+                      {t("homepage_builder_solutions_remove", { index: index + 1 })}
+                    </button>
+                  </div>
+                </div>
+                <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+                  {t("homepage_builder_solutions_title", { index: index + 1 })}
+                  <input
+                    type="text"
+                    className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+                    aria-label={t("homepage_builder_solutions_title", { index: index + 1 })}
+                    maxLength={120}
+                    value={item.title}
+                    onChange={(event) => updateItem(rowId, { title: event.target.value })}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+                  {t("homepage_builder_solutions_blurb", { index: index + 1 })}
+                  <textarea
+                    className="min-h-16 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+                    aria-label={t("homepage_builder_solutions_blurb", { index: index + 1 })}
+                    maxLength={300}
+                    value={item.blurb ?? ""}
+                    onChange={(event) => updateItem(rowId, { blurb: event.target.value || undefined })}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+                  {t("homepage_builder_solutions_link", { index: index + 1 })}
+                  <input
+                    type="url"
+                    className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+                    aria-label={t("homepage_builder_solutions_link", { index: index + 1 })}
+                    maxLength={2048}
+                    value={item.link}
+                    onChange={(event) => updateItem(rowId, { link: event.target.value })}
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
