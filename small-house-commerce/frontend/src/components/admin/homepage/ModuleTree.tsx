@@ -2,6 +2,19 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
+  AddSectionDialog,
+  sectionTypeLabelKey,
+} from "@/components/admin/homepage/AddSectionDialog";
+import { useAdminI18n } from "@/lib/admin-i18n";
+import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
+import { SlideList } from "@/components/admin/homepage/SlideList";
+import {
+  SECTION_TYPES,
+  defaultSection,
+  insertSection,
+  type AddableSectionType,
+} from "@/lib/homepage-section-factory";
+import {
   DndContext,
   KeyboardSensor,
   PointerSensor,
@@ -16,9 +29,6 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useAdminI18n } from "@/lib/admin-i18n";
-import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
-import { SlideList } from "@/components/admin/homepage/SlideList";
 import {
   duplicateSection,
   moveSection,
@@ -46,11 +56,27 @@ import {
  */
 export const ANNOUNCEMENT_SELECTION_ID = "__announcement__";
 
-/** Sections the operator may duplicate/delete; every other type is fixed. */
-const ADDABLE_SECTION_TYPES: ReadonlySet<SectionType> = new Set<SectionType>([
-  "PRODUCT_GRID",
-  "PRODUCT_STORY",
-]);
+function newSectionId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  throw new Error("A platform cryptographic UUID source is required");
+}
+
+/** Sections the operator may duplicate/delete; every non-HERO type is editable. */
+const ADDABLE_SECTION_TYPES: ReadonlySet<SectionType> = new Set<SectionType>(
+  SECTION_TYPES,
+);
 
 type LastRemoved = { section: HomepageSection; index: number };
 
@@ -63,8 +89,10 @@ export function ModuleTree(): ReactNode {
     setSelectedSectionId,
     selectedSlideId,
     setSelectedSlideId,
+    setSelectedElementKey,
   } = useHomepageEditor();
   const [lastRemoved, setLastRemoved] = useState<LastRemoved | null>(null);
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
 
   const document = state.document;
   const sections = useMemo(
@@ -88,6 +116,42 @@ export function ModuleTree(): ReactNode {
       dispatch({ type: "commit", document: next });
     },
     [dispatch],
+  );
+
+  const handleAddSection = useCallback(
+    (type: AddableSectionType): void => {
+      const afterId =
+        selectedSectionId &&
+        selectedSectionId !== ANNOUNCEMENT_SELECTION_ID &&
+        document.sections.some((section) => section.id === selectedSectionId)
+          ? selectedSectionId
+          : null;
+      const nextSortOrder = Math.min(
+        document.sections.reduce(
+          (highest, section) => Math.max(highest, section.sortOrder),
+          -10,
+        ) + 10,
+        999,
+      );
+      const section = defaultSection(type, newSectionId(), nextSortOrder);
+
+      dispatch({
+        type: "commit",
+        document: insertSection(document, section, afterId),
+      });
+      setSelectedSectionId(section.id);
+      setSelectedSlideId(null);
+      setSelectedElementKey(null);
+      setAddSectionOpen(false);
+    },
+    [
+      dispatch,
+      document,
+      selectedSectionId,
+      setSelectedElementKey,
+      setSelectedSectionId,
+      setSelectedSlideId,
+    ],
   );
 
   const handleDragEnd = useCallback(
@@ -145,9 +209,19 @@ export function ModuleTree(): ReactNode {
       data-panel="module-tree"
       className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
     >
-      <h2 className="text-sm font-semibold text-ink">
-        {t("homepage_builder_pane_modules")}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink">
+          {t("homepage_builder_pane_modules")}
+        </h2>
+        <button
+          type="button"
+          data-add-section-trigger
+          onClick={() => setAddSectionOpen(true)}
+          className="shrink-0 rounded-lg border border-cta/50 px-2.5 py-1.5 text-xs font-semibold text-cta transition-colors hover:bg-primary-light/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+        >
+          {t("homepage_builder_add_section")}
+        </button>
+      </div>
 
       {lastRemoved ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-admin-warning bg-admin-warning-soft px-3 py-2">
@@ -198,6 +272,12 @@ export function ModuleTree(): ReactNode {
         selected={selectedSectionId === ANNOUNCEMENT_SELECTION_ID}
         enabled={document.announcement.enabled}
         onSelect={() => setSelectedSectionId(ANNOUNCEMENT_SELECTION_ID)}
+      />
+
+      <AddSectionDialog
+        open={addSectionOpen}
+        onClose={() => setAddSectionOpen(false)}
+        onSelect={handleAddSection}
       />
     </div>
   );
@@ -265,7 +345,10 @@ function SortableSectionRow({
             selected ? "text-cta" : "text-ink hover:text-cta"
           }`}
         >
-          {section.title ?? section.type}
+          {section.title ??
+            (section.type === "HERO"
+              ? section.type
+              : t(sectionTypeLabelKey(section.type)))}
         </button>
         <input
           type="checkbox"

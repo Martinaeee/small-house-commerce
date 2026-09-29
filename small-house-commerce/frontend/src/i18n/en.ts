@@ -1041,6 +1041,35 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_error_generic: "Action failed: {message}",
 
   // --- Homepage builder: module tree & slides ---
+  homepage_builder_add_section: "Add section",
+  homepage_builder_add_section_title: "Add section",
+  homepage_builder_section_type_USP: "USP",
+  homepage_builder_section_description_USP:
+    "Trust points and service promises",
+  homepage_builder_section_type_CATEGORY_TILES: "Category Tiles",
+  homepage_builder_section_description_CATEGORY_TILES:
+    "Shop by category tiles",
+  homepage_builder_section_type_PRODUCT_GRID: "Product Grid",
+  homepage_builder_section_description_PRODUCT_GRID:
+    "Curated products in a grid",
+  homepage_builder_section_type_SOLUTIONS: "Solutions",
+  homepage_builder_section_description_SOLUTIONS:
+    "Shop by room or need",
+  homepage_builder_section_type_PRODUCT_STORY: "Product Story",
+  homepage_builder_section_description_PRODUCT_STORY:
+    "Story-led product feature",
+  homepage_builder_section_type_ROOM_INSPIRATION: "Room Inspiration",
+  homepage_builder_section_description_ROOM_INSPIRATION:
+    "Rooms and inspiration scenes",
+  homepage_builder_section_type_UGC: "UGC / Real Homes",
+  homepage_builder_section_description_UGC:
+    "Customer homes and reviews",
+  homepage_builder_section_type_BRAND_STORY: "Brand Story",
+  homepage_builder_section_description_BRAND_STORY:
+    "Brand mission and values",
+  homepage_builder_section_type_CONFIDENCE: "Confidence",
+  homepage_builder_section_description_CONFIDENCE:
+    "Delivery and purchase confidence",
   homepage_builder_section_show: "Show section",
   homepage_builder_section_hide: "Hide section",
   homepage_builder_section_duplicate: "Duplicate section",

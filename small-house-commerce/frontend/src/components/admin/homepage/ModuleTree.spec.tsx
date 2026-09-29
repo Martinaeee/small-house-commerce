@@ -18,6 +18,7 @@ import {
   type SectionType,
 } from "@/lib/homepage-document";
 import type { HomepageDraftSnapshot } from "@/lib/admin-api";
+import { SECTION_TYPES } from "@/lib/homepage-section-factory";
 
 const getHomepageDraft = vi.hoisted(() => vi.fn());
 const saveHomepageDraft = vi.hoisted(() => vi.fn());
@@ -149,6 +150,31 @@ function treeDocument(): HomepageDocument {
 
 const DOCUMENT = treeDocument();
 
+function documentWithData(): HomepageDocument {
+  const document = structuredClone(DOCUMENT);
+  const grid = document.sections.find((section) => section.id === GRID_ID);
+  if (!grid) throw new Error("grid fixture missing");
+  grid.products = [{ productId: "product-1", sortOrder: 0, badge: "Featured" }];
+  document.announcement = {
+    enabled: true,
+    rotationMs: 7000,
+    items: [
+      {
+        id: "announcement-1",
+        text: "Free delivery",
+        link: null,
+        linkLabel: null,
+        textColor: "#fff",
+        backgroundColor: "#000",
+        schedule: { publishAt: null, unpublishAt: null },
+        enabled: true,
+        sortOrder: 0,
+      },
+    ],
+  };
+  return document;
+}
+
 function Loader({ document }: { document: HomepageDocument }): ReactNode {
   const { dispatch } = useHomepageEditor();
   useEffect(() => {
@@ -182,20 +208,41 @@ function TreeProbe(): ReactNode {
       <span data-testid="selected-section">{selectedSectionId ?? ""}</span>
       <span data-testid="selected-slide">{selectedSlideId ?? ""}</span>
       <span data-testid="commits">{state.past.length}</span>
+      <span data-testid="grid-products">
+        {state.document.sections
+          .find((section) => section.id === GRID_ID)
+          ?.products.map((product) => product.productId)
+          .join(",")}
+      </span>
+      <span data-testid="announcement-data">
+        {state.document.announcement.items.map((item) => item.id).join(",")}
+      </span>
     </div>
   );
 }
 
-function renderTree() {
+function renderTree(document: HomepageDocument = DOCUMENT) {
   return render(
     <AdminI18nProvider>
       <HomepageEditorProvider>
-        <Loader document={DOCUMENT} />
+        <Loader document={document} />
         <ModuleTree />
         <TreeProbe />
       </HomepageEditorProvider>
     </AdminI18nProvider>,
   );
+}
+
+function addSectionTrigger(): HTMLElement {
+  const trigger = screen.getByRole("button", { name: "Add section" });
+  if (!(trigger instanceof HTMLElement)) {
+    throw new Error("Add section trigger not found");
+  }
+  return trigger;
+}
+
+function openAddSectionDialog(): void {
+  fireEvent.click(addSectionTrigger());
 }
 
 function text(testId: string): string {
@@ -299,12 +346,12 @@ describe("ModuleTree", () => {
 
     expect(
       screen.getAllByRole("button", { name: "Duplicate section" }),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: "Delete section" })).toHaveLength(
-      2,
+      3,
     );
     expect(sectionRow(HERO_ID).querySelector('[aria-label="Delete section"]')).toBeNull();
-    expect(sectionRow(USP_ID).querySelector('[aria-label="Duplicate section"]')).toBeNull();
+    expect(sectionRow(USP_ID).querySelector('[aria-label="Duplicate section"]')).not.toBeNull();
     expect(
       sectionRow(GRID_ID).querySelector('[aria-label="Duplicate section"]'),
     ).not.toBeNull();
@@ -318,6 +365,124 @@ describe("ModuleTree", () => {
     expect(order[2]).toBe(GRID_ID);
     expect(order[3]).not.toBe(GRID_ID);
     expect(text("sort-orders")).toBe("0,10,20,30,40");
+  });
+
+  it("offers duplicate/delete controls for every non-HERO section type", () => {
+    const allTypesDocument: HomepageDocument = {
+      ...treeDocument(),
+      sections: [
+        heroSection(),
+        ...SECTION_TYPES.map((type, index) =>
+          opaqueSection(
+            type,
+            `00000000-0000-7000-8000-0000000002${String(index + 1).padStart(2, "0")}`,
+            type,
+            (index + 1) * 10,
+          ),
+        ),
+      ],
+    };
+
+    renderTree(allTypesDocument);
+
+    expect(screen.getAllByRole("button", { name: "Duplicate section" })).toHaveLength(9);
+    expect(screen.getAllByRole("button", { name: "Delete section" })).toHaveLength(9);
+    expect(document.querySelectorAll('[data-section-row]')).toHaveLength(10);
+  });
+
+  it("exposes a keyboard-reachable Add section trigger", () => {
+    renderTree();
+
+    const trigger = addSectionTrigger();
+    expect(trigger).toBeVisible();
+    expect(trigger).toHaveAttribute("type", "button");
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("opens an accessible dialog with nine localized section choices and closes explicitly", () => {
+    renderTree();
+    openAddSectionDialog();
+
+    expect(screen.getByRole("dialog", { name: "Add section" })).toBeVisible();
+    expect(screen.getAllByRole("button").filter((button) =>
+      SECTION_TYPES.some((type) => button.getAttribute("data-section-type") === type),
+    )).toHaveLength(9);
+    for (const label of [
+      "USP",
+      "Category Tiles",
+      "Product Grid",
+      "Solutions",
+      "Product Story",
+      "Room Inspiration",
+      "UGC / Real Homes",
+      "Brand Story",
+      "Confidence",
+    ]) {
+      expect(screen.getByRole("button", { name: label })).toBeVisible();
+    }
+    expect(screen.getByRole("button", { name: "Close" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Add section" })).toBeNull();
+  });
+
+  it("inserts USP after the selected module, selects it, and commits once", () => {
+    renderTree();
+    fireEvent.click(screen.getByRole("button", { name: "Featured grid" }));
+    openAddSectionDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "USP" }));
+
+    const order = text("order").split(",");
+    expect(order).toEqual([HERO_ID, USP_ID, GRID_ID, order[3], STORY_ID]);
+    expect(order[3]).not.toBe(GRID_ID);
+    expect(text("selected-section")).toBe(order[3]);
+    expect(text("commits")).toBe("1");
+    expect(screen.queryByRole("dialog", { name: "Add section" })).toBeNull();
+  });
+
+  it("appends and selects a section when no module is selected", () => {
+    renderTree();
+    openAddSectionDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confidence" }));
+
+    const order = text("order").split(",");
+    expect(order).toHaveLength(5);
+    expect(order[4]).not.toBe(STORY_ID);
+    expect(text("selected-section")).toBe(order[4]);
+    expect(text("commits")).toBe("1");
+  });
+
+  it("restores focus to the trigger after close and Escape", () => {
+    renderTree();
+    const trigger = addSectionTrigger();
+
+    trigger.focus();
+    openAddSectionDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(document.activeElement).toBe(trigger);
+
+    openAddSectionDialog();
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Add section" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("preserves existing product rows and announcement data while adding a section", () => {
+    renderTree(documentWithData());
+    expect(text("grid-products")).toBe("product-1");
+    expect(text("announcement-data")).toBe("announcement-1");
+
+    openAddSectionDialog();
+    fireEvent.click(screen.getByRole("button", { name: "USP" }));
+
+    expect(text("grid-products")).toBe("product-1");
+    expect(text("announcement-data")).toBe("announcement-1");
+    expect(screen.getByRole("button", { name: /Announcement bar/ })).toHaveTextContent(
+      "Enabled",
+    );
   });
 
   it("toggles a section's enabled state from its row", async () => {
