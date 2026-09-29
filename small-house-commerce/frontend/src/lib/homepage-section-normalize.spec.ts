@@ -125,6 +125,48 @@ describe("normalizeSectionForEditor", () => {
     expect(normalized.style).not.toBe(section.style);
   });
 
+  it("drops malformed known scalar payload values", () => {
+    const productStory = malformedSection("PRODUCT_STORY") as Extract<
+      HomepageSection,
+      { type: "PRODUCT_STORY" }
+    >;
+    productStory.payload = {
+      imageUrl: 123,
+      heading: {},
+      body: [],
+      ctaText: false,
+      ctaLink: 42,
+      productId: {},
+    } as unknown as typeof productStory.payload;
+
+    const room = malformedSection("ROOM_INSPIRATION") as Extract<
+      HomepageSection,
+      { type: "ROOM_INSPIRATION" }
+    >;
+    room.payload = {
+      imageUrl: 123,
+      heading: {},
+      body: [],
+      scenes: [],
+    } as unknown as typeof room.payload;
+
+    const brand = malformedSection("BRAND_STORY") as Extract<
+      HomepageSection,
+      { type: "BRAND_STORY" }
+    >;
+    brand.payload = {
+      heading: {},
+      body: 42,
+      bullets: ["valid", 3, null],
+    } as unknown as typeof brand.payload;
+
+    expect(normalizeSectionForEditor(productStory).payload).toEqual({});
+    expect(normalizeSectionForEditor(room).payload).toEqual({ scenes: [] });
+    expect(normalizeSectionForEditor(brand).payload).toEqual({
+      bullets: ["valid"],
+    });
+  });
+
   it("leaves HERO documents outside the non-HERO editor normalization path", () => {
     const hero = emptyDocument().sections[0];
     const normalized = normalizeSectionForEditor(hero);

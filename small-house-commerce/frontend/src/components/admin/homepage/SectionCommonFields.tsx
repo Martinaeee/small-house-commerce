@@ -6,9 +6,10 @@ import { useAdminI18n } from "@/lib/admin-i18n";
 import { isoToLocalInput } from "@/lib/datetime-input";
 import type { NonHeroHomepageSection, Schedule } from "@/lib/homepage-document";
 
-export type SectionCommonPatch = Partial<
-  Pick<NonHeroHomepageSection, "title" | "subtitle" | "enabled" | "schedule">
->;
+export type SectionCommonPatch =
+  Partial<Omit<Pick<NonHeroHomepageSection, "title" | "subtitle" | "enabled" | "schedule">, "schedule">> & {
+    schedule?: Partial<Schedule>;
+  };
 
 function toIso(value: string): string | null {
   if (!value) return null;
@@ -27,7 +28,6 @@ export function SectionCommonFields({
   const changeSchedule = (field: keyof Schedule, value: string): void => {
     onChange({
       schedule: {
-        ...section.schedule,
         [field]: toIso(value),
       },
     });

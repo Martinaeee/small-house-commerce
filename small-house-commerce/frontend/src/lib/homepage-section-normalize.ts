@@ -6,6 +6,7 @@ import type {
   CategoryTilesPayload,
   NonHeroSectionType,
   ProductGridPayload,
+  ProductStoryPayload,
   RoomInspirationPayload,
   SectionPayloadMap,
   SolutionItem,
@@ -82,14 +83,34 @@ function safeRoomPayload(payload: Record<string, unknown>): RoomInspirationPaylo
       }))
     : [];
   return {
-    ...payload,
     ...(typeof payload.imageUrl === "string"
       ? { imageUrl: payload.imageUrl }
       : {}),
     ...(typeof payload.heading === "string" ? { heading: payload.heading } : {}),
     ...(typeof payload.body === "string" ? { body: payload.body } : {}),
     scenes,
-  } as RoomInspirationPayload;
+  };
+}
+
+function safeProductStoryPayload(
+  payload: Record<string, unknown>,
+): ProductStoryPayload {
+  return {
+    ...(typeof payload.imageUrl === "string"
+      ? { imageUrl: payload.imageUrl }
+      : {}),
+    ...(typeof payload.heading === "string" ? { heading: payload.heading } : {}),
+    ...(typeof payload.body === "string" ? { body: payload.body } : {}),
+    ...(typeof payload.ctaText === "string"
+      ? { ctaText: payload.ctaText }
+      : {}),
+    ...(typeof payload.ctaLink === "string"
+      ? { ctaLink: payload.ctaLink }
+      : {}),
+    ...(typeof payload.productId === "string"
+      ? { productId: payload.productId }
+      : {}),
+  };
 }
 
 function safeUgcPayload(payload: Record<string, unknown>): UgcPayload {
@@ -108,12 +129,11 @@ function safeUgcPayload(payload: Record<string, unknown>): UgcPayload {
           : {}),
       }))
     : [];
-  return { ...payload, entries } as UgcPayload;
+  return { entries };
 }
 
 function safeTextPayload(payload: Record<string, unknown>): TextBlockPayload {
   return {
-    ...payload,
     ...(typeof payload.heading === "string" ? { heading: payload.heading } : {}),
     ...(typeof payload.body === "string" ? { body: payload.body } : {}),
     bullets: Array.isArray(payload.bullets)
@@ -129,10 +149,9 @@ function normalizePayload<T extends NonHeroSectionType>(
   const payload = safeRecord(value);
   switch (type) {
     case "USP":
-      return { ...payload, items: safeUspItems(payload.items) } as SectionPayloadMap[T];
+      return { items: safeUspItems(payload.items) } as SectionPayloadMap[T];
     case "CATEGORY_TILES":
       return {
-        ...payload,
         categoryIds: Array.isArray(payload.categoryIds)
           ? payload.categoryIds.filter((id): id is string => typeof id === "string")
           : [],
@@ -140,15 +159,14 @@ function normalizePayload<T extends NonHeroSectionType>(
     case "PRODUCT_GRID": {
       const columns: ProductGridPayload["columns"] =
         payload.columns === 2 || payload.columns === 4 ? payload.columns : 4;
-      return { ...payload, columns } as SectionPayloadMap[T];
+      return { columns } as SectionPayloadMap[T];
     }
     case "SOLUTIONS":
       return {
-        ...payload,
         items: safeSolutionItems(payload.items),
       } as SolutionsPayload as SectionPayloadMap[T];
     case "PRODUCT_STORY":
-      return payload as SectionPayloadMap[T];
+      return safeProductStoryPayload(payload) as SectionPayloadMap[T];
     case "ROOM_INSPIRATION":
       return safeRoomPayload(payload) as SectionPayloadMap[T];
     case "UGC":

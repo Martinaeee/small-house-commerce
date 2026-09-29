@@ -4,10 +4,7 @@ import {
   defaultSection,
   type AddableSectionType,
 } from "@/lib/homepage-section-factory";
-import type {
-  NonHeroHomepageSection,
-  HomepageSection,
-} from "@/lib/homepage-document";
+import type { NonHeroHomepageSection } from "@/lib/homepage-document";
 import type {
   NonHeroSectionType,
   SectionPayloadMap,
@@ -156,8 +153,8 @@ export const SECTION_EDITOR_REGISTRY: SectionEditorRegistry = {
 
 export const sectionEditorRegistry = SECTION_EDITOR_REGISTRY;
 
-export function getSectionEditorDefinition(
-  type: Exclude<HomepageSection["type"], "HERO">,
-): SectionEditorDefinition<NonHeroSectionType> {
-  return SECTION_EDITOR_REGISTRY[type] as SectionEditorDefinition<NonHeroSectionType>;
+export function getSectionEditorDefinition<T extends NonHeroSectionType>(
+  type: T,
+): SectionEditorDefinition<T> {
+  return SECTION_EDITOR_REGISTRY[type] as SectionEditorDefinition<T>;
 }

@@ -16,8 +16,10 @@ import type {
 import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
 import {
   SECTION_EDITOR_REGISTRY,
-  type SectionEditorComponent,
+  getSectionEditorDefinition,
+  type SectionEditorDefinition,
   type SectionOf,
+  type SectionPayloadEditorProps,
 } from "@/components/admin/homepage/section-editor-registry";
 import {
   SectionCommonFields,
@@ -35,6 +37,15 @@ function nonHeroSection(
   return normalizeSectionForEditor(section) as NonHeroHomepageSection;
 }
 
+function renderSectionEditor<T extends NonHeroSectionType>(
+  definition: SectionEditorDefinition<T>,
+  section: SectionOf<T>,
+  onPayloadChange: SectionPayloadEditorProps<T>["onPayloadChange"],
+): ReactNode {
+  const Editor = definition.editor;
+  return <Editor section={section} onPayloadChange={onPayloadChange} />;
+}
+
 export function SectionEditorPanel({
   sectionId,
 }: {
@@ -48,38 +59,99 @@ export function SectionEditorPanel({
 
   if (!section) return null;
 
-  const definition = SECTION_EDITOR_REGISTRY[section.type];
-  const Editor = definition.editor as SectionEditorComponent<NonHeroSectionType>;
-  const typedSection = section as SectionOf<NonHeroSectionType>;
+  const definition = getSectionEditorDefinition(section.type);
 
   const applyCommonPatch = (patch: SectionCommonPatch): void => {
     dispatch({
       type: "mutate",
-      mutate: (document) => updateSection(document, sectionId, patch),
+      mutate: (document) => {
+        const target = document.sections.find(({ id }) => id === sectionId);
+        if (!target || target.type === "HERO") return document;
+        const { schedule, ...fields } = patch;
+        return updateSection(document, sectionId, {
+          ...fields,
+          ...(schedule
+            ? { schedule: { ...target.schedule, ...schedule } }
+            : {}),
+        });
+      },
     });
   };
 
-  const applyPayloadPatch = (
+  function applyPayloadPatch<T extends NonHeroSectionType>(
+    type: T,
     patch:
-      | Partial<SectionPayloadMap[NonHeroSectionType]>
-      | ((payload: SectionPayloadMap[NonHeroSectionType]) => SectionPayloadMap[NonHeroSectionType]),
-  ): void => {
+      | Partial<SectionPayloadMap[T]>
+      | ((payload: SectionPayloadMap[T]) => SectionPayloadMap[T]),
+  ): void {
     dispatch({
       type: "mutate",
       mutate: (document) =>
-        updateSectionPayload(
-          document,
-          sectionId,
-          section.type,
-          (payload) => {
-            const next =
-              typeof patch === "function"
-                ? patch(payload as SectionPayloadMap[typeof section.type])
-                : { ...payload, ...patch };
-            return next as SectionPayloadMap[typeof section.type];
-          },
+        updateSectionPayload(document, sectionId, type, (payload) =>
+          typeof patch === "function"
+            ? patch(payload)
+            : { ...payload, ...patch },
         ),
     });
+  }
+
+  const renderPayloadEditor = (): ReactNode => {
+    switch (section.type) {
+      case "USP":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.USP,
+          section,
+          (patch) => applyPayloadPatch("USP", patch),
+        );
+      case "CATEGORY_TILES":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.CATEGORY_TILES,
+          section,
+          (patch) => applyPayloadPatch("CATEGORY_TILES", patch),
+        );
+      case "PRODUCT_GRID":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.PRODUCT_GRID,
+          section,
+          (patch) => applyPayloadPatch("PRODUCT_GRID", patch),
+        );
+      case "SOLUTIONS":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.SOLUTIONS,
+          section,
+          (patch) => applyPayloadPatch("SOLUTIONS", patch),
+        );
+      case "PRODUCT_STORY":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.PRODUCT_STORY,
+          section,
+          (patch) => applyPayloadPatch("PRODUCT_STORY", patch),
+        );
+      case "ROOM_INSPIRATION":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.ROOM_INSPIRATION,
+          section,
+          (patch) => applyPayloadPatch("ROOM_INSPIRATION", patch),
+        );
+      case "UGC":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.UGC,
+          section,
+          (patch) => applyPayloadPatch("UGC", patch),
+        );
+      case "BRAND_STORY":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.BRAND_STORY,
+          section,
+          (patch) => applyPayloadPatch("BRAND_STORY", patch),
+        );
+      case "CONFIDENCE":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.CONFIDENCE,
+          section,
+          (patch) => applyPayloadPatch("CONFIDENCE", patch),
+        );
+    }
   };
 
   const applyStylePatch = (patch: SectionStylePatch): void => {
@@ -123,10 +195,7 @@ export function SectionEditorPanel({
 
       <SectionCommonFields section={section} onChange={applyCommonPatch} />
       <SectionStyleFields section={section} onChange={applyStylePatch} />
-      <Editor
-        section={typedSection}
-        onPayloadChange={applyPayloadPatch}
-      />
+      {renderPayloadEditor()}
     </div>
   );
 }

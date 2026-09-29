@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { createElement, useEffect, type ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
@@ -6,8 +6,16 @@ import {
   HomepageEditorProvider,
   useHomepageEditor,
 } from "@/components/admin/homepage/HomepageEditor";
+import { SectionCommonFields } from "@/components/admin/homepage/SectionCommonFields";
 import { SectionEditorPanel } from "@/components/admin/homepage/SectionEditorPanel";
-import { emptyDocument, type HomepageDocument, type HomepageSection } from "@/lib/homepage-document";
+import { getSectionEditorDefinition } from "@/components/admin/homepage/section-editor-registry";
+import {
+  emptyDocument,
+  type HomepageDocument,
+  type HomepageSection,
+  type NonHeroHomepageSection,
+} from "@/lib/homepage-document";
+import { defaultSection } from "@/lib/homepage-section-factory";
 
 const USP_ID = "00000000-0000-7000-8000-000000000902";
 
@@ -67,6 +75,23 @@ function section(): Record<string, unknown> {
 }
 
 describe("SectionEditorPanel", () => {
+  it("keeps registry editor props tied to the requested section type", () => {
+    const editor = getSectionEditorDefinition("USP").editor;
+    const productGrid = defaultSection(
+      "PRODUCT_GRID",
+      "00000000-0000-7000-8000-000000000903",
+      20,
+    );
+
+    const element = createElement(editor, {
+      // @ts-expect-error A USP editor cannot receive a Product Grid section.
+      section: productGrid,
+      onPayloadChange: () => undefined,
+    });
+
+    expect(element).toBeDefined();
+  });
+
   it("routes a selected typed section into the shared editor shell", () => {
     renderPanel();
 
@@ -117,6 +142,32 @@ describe("SectionEditorPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Reset background color" }));
     expect(section().style).toEqual({ customKey: "preserve" });
+  });
+
+  it("emits only the changed schedule field", () => {
+    const source = sectionDocument().sections[1] as NonHeroHomepageSection;
+    let received: unknown;
+
+    render(
+      <AdminI18nProvider>
+        <SectionCommonFields
+          section={source}
+          onChange={(patch) => {
+            received = patch;
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Start time"), {
+      target: { value: "2026-10-01T09:30" },
+    });
+
+    expect(received).toEqual({
+      schedule: {
+        publishAt: new Date("2026-10-01T09:30").toISOString(),
+      },
+    });
   });
 
   it("does not commit a pending Hero editor buffer when the selected section changes", () => {

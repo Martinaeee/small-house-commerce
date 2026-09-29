@@ -139,15 +139,22 @@ export function HomepageEditorProvider({
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [selectedElementKey, setSelectedElementKey] =
     useState<HeroElementKey | null>(null);
+  const heroSectionId =
+    state.document.sections.find((section) => section.type === "HERO")?.id ?? null;
   const setSelectedSectionId = useCallback<
     Dispatch<SetStateAction<string | null>>
-  >((value) => {
-    setSelectedSectionIdState(value);
-    // A section selection is a new editing target. Clear Hero-only targets so
-    // a buffered Hero field cannot commit against the newly selected section.
-    setSelectedSlideId(null);
-    setSelectedElementKey(null);
-  }, []);
+  >(
+    (value) => {
+      const nextSectionId =
+        typeof value === "function" ? value(selectedSectionId) : value;
+      setSelectedSectionIdState(nextSectionId);
+      if (nextSectionId !== heroSectionId) {
+        setSelectedSlideId(null);
+        setSelectedElementKey(null);
+      }
+    },
+    [heroSectionId, selectedSectionId],
+  );
   const [safeAreaFlags, setSafeAreaFlags] = useState<SafeAreaFlags>(() => ({
     header: false,
     text: false,

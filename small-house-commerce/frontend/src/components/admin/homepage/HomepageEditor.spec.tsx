@@ -163,6 +163,14 @@ function EditorProbe(): ReactNode {
       >
         select-nonhero
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedSectionId(HERO_SECTION_ID);
+        }}
+      >
+        select-hero
+      </button>
       <textarea aria-label="probe textarea" />
     </div>
   );
@@ -551,6 +559,20 @@ describe("HomepageEditor", () => {
     expect(document.querySelector('[data-section-editor-type="USP"]')).not.toBeNull();
     expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
     expect(document.querySelector('[data-panel="hero-style-settings"]')).toBeNull();
+  });
+
+  it("keeps Hero element selection when reselecting the same Hero section", async () => {
+    renderHarness();
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-element" }));
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("heading");
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-hero" }));
+
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("heading");
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
   });
 
   it("switches the preview device including tablet", async () => {
