@@ -122,6 +122,7 @@ describe("homepage document mirror defaults", () => {
       paddingX: 28,
       paddingY: 14,
       size: "MD",
+      arrow: false,
     });
     expect(currentSlide.elements.countdown).not.toHaveProperty("enabled");
     expect(currentSlide.elements.countdown.endsAt).toBeNull();
@@ -150,6 +151,23 @@ describe("homepage document mirror defaults", () => {
     expect(first.elements.offer).toHaveProperty("chip");
     expect(first.elements.ctaPrimary).toHaveProperty("button");
     expect(first.elements.countdown).toHaveProperty("endsAt", null);
+  });
+
+  it("defaults fresh CTA buttons to arrow: false and merges arrow patches", () => {
+    const freshSlide = heroPayload(emptyDocument()).slides[0];
+    expect(freshSlide.elements.ctaPrimary.button.arrow).toBe(false);
+    expect(freshSlide.elements.ctaSecondary.button.arrow).toBe(false);
+
+    const on = updateHeroElement(emptyDocument(), SLIDE_ID, "ctaPrimary", {
+      button: { arrow: true },
+    });
+    expect(slide(on).elements.ctaPrimary.button.arrow).toBe(true);
+
+    // Untoggling writes false (a defined value is merged, not skipped).
+    const off = updateHeroElement(emptyDocument(), SLIDE_ID, "ctaPrimary", {
+      button: { arrow: false },
+    });
+    expect(slide(off).elements.ctaPrimary.button.arrow).toBe(false);
   });
 });
 

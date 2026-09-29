@@ -355,6 +355,28 @@ describe("SettingsPanel", () => {
     expect(heading().locked).toBe(false);
   });
 
+  it("toggles the CTA trailing arrow through one commit per click", () => {
+    renderPanel({ elementKey: "ctaPrimary" });
+
+    const arrow = screen.getByRole("checkbox", { name: "Show arrow" });
+    expect(arrow).not.toBeChecked();
+    // The fresh default is false (arrow: false), not merely absent.
+    expect(ctaButton().arrow).toBe(false);
+
+    fireEvent.click(arrow);
+
+    // A discrete toggle commits once through the same mutate/commit path.
+    expect(ctaButton().arrow).toBe(true);
+    expect(commits()).toBe("1");
+    expect(screen.getByRole("checkbox", { name: "Show arrow" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show arrow" }));
+
+    // Untoggling writes false (a defined falsy value is merged, not skipped).
+    expect(ctaButton().arrow).toBe(false);
+    expect(commits()).toBe("2");
+  });
+
   it("writes mobile edits to the device override and resets it to the desktop value", async () => {
     vi.useFakeTimers();
     renderPanel({ device: "mobile" });

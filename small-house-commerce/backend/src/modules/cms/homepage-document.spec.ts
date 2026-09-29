@@ -261,6 +261,33 @@ describe('homepage document schema v1', () => {
     expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
   });
 
+  it('keeps stored buttons without the arrow field schema-valid', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const elements = slide.elements as Record<string, Record<string, unknown>>;
+    // Legacy stored documents (the migrated v1 included) predate the optional
+    // `arrow` flag: their buttons carry no field and must keep validating.
+    delete (elements.ctaPrimary.button as Record<string, unknown>).arrow;
+    delete (elements.ctaSecondary.button as Record<string, unknown>).arrow;
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it('writes arrow: false on fresh buttons and accepts true once toggled', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const elements = slide.elements as Record<string, Record<string, unknown>>;
+    expect((elements.ctaPrimary.button as Record<string, unknown>).arrow).toBe(
+      false,
+    );
+    expect((elements.ctaSecondary.button as Record<string, unknown>).arrow).toBe(
+      false,
+    );
+
+    // The builder writes true when the operator toggles the trailing arrow on.
+    (elements.ctaPrimary.button as Record<string, unknown>).arrow = true;
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
   it('passes non-hero payloads through untouched', () => {
     const doc = emptyDocument();
     const usp: HomepageSection = {

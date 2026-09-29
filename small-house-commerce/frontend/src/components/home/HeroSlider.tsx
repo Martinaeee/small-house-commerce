@@ -623,6 +623,7 @@ function HeroElementContent({
           )}
         >
           {text}
+          {button?.arrow === true ? <HeroButtonArrow /> : null}
         </a>
       );
     }
@@ -632,6 +633,7 @@ function HeroElementContent({
         style={linkStyle}
       >
         {text}
+        {button?.arrow === true ? <HeroButtonArrow /> : null}
       </span>
     );
   }
@@ -781,6 +783,32 @@ function SpeakerOffIcon(): ReactNode {
     <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true" fill="currentColor">
       <path d="M2 6v4h2.5L8 13V3L4.5 6H2Z" />
       <path d="m11 6 2.5 2.5L16 6l-.7-.7L12.7 7.8 10.3 5.3 9.6 6l2.1 2.1L9.6 10Z" />
+    </svg>
+  );
+}
+
+/**
+ * The reference design's trailing arrow on CTA buttons (rendered only when the
+ * button's `arrow` is explicitly true). The glyph scales with the button label
+ * (`em`), sits one gap after it, and is aria-hidden like every decorative icon
+ * here. It renders in read-only AND edit mode so the admin canvas matches the
+ * storefront exactly.
+ */
+function HeroButtonArrow(): ReactNode {
+  return (
+    <svg
+      data-hero-btn-arrow
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="ml-1.5 inline-block h-[0.9em] w-[0.9em] shrink-0"
+    >
+      <path d="M2 8h11.5" />
+      <path d="m9.5 3.5 4.5 4.5-4.5 4.5" />
     </svg>
   );
 }

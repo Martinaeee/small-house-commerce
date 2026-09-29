@@ -133,6 +133,10 @@ const heroButtonSchema = z.object({
   paddingX: z.number().min(4).max(48),
   paddingY: z.number().min(2).max(32),
   size: z.enum(['SM', 'MD', 'LG']),
+  // Optional: the reference design trails the primary CTA with an arrow. Kept
+  // optional so existing stored documents (the migrated v1 included) keep
+  // validating; absence renders on the storefront as "no arrow".
+  arrow: z.boolean().optional(),
 });
 
 const heroOfferElementSchema = heroElementBaseSchema.extend({
@@ -512,6 +516,7 @@ const DEFAULT_BUTTON: HeroButton = {
   paddingX: 28,
   paddingY: 14,
   size: 'MD',
+  arrow: false,
 };
 
 function defaultElement(

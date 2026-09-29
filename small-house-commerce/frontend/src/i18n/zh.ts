@@ -1094,6 +1094,7 @@ export const zh = {
   homepage_builder_button_size_SM: "小",
   homepage_builder_button_size_MD: "中",
   homepage_builder_button_size_LG: "大",
+  homepage_builder_button_arrow: "显示箭头",
 
   // --- Homepage builder: media & video ---
   homepage_builder_media_image: "图片",

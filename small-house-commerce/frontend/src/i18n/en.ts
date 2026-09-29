@@ -1129,6 +1129,7 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_button_size_SM: "Small",
   homepage_builder_button_size_MD: "Medium",
   homepage_builder_button_size_LG: "Large",
+  homepage_builder_button_arrow: "Show arrow",
 
   // --- Homepage builder: media & video ---
   homepage_builder_media_image: "Image",

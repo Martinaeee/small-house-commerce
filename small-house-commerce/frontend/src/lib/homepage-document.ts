@@ -76,6 +76,13 @@ export type HeroButton = {
   paddingX: number;
   paddingY: number;
   size: "SM" | "MD" | "LG";
+  /**
+   * Trailing arrow after the label (reference design's primary CTA). Optional so
+   * legacy stored buttons (without the field) stay readable; the renderer and
+   * editor treat absence as false. Newly written buttons store `arrow: false`
+   * explicitly via DEFAULT_BUTTON.
+   */
+  arrow?: boolean;
 };
 
 export type HeroImage = {
@@ -366,6 +373,7 @@ const DEFAULT_BUTTON: HeroButton = {
   paddingX: 28,
   paddingY: 14,
   size: "MD",
+  arrow: false,
 };
 
 const DEFAULT_ANNOUNCEMENT_TEXT =

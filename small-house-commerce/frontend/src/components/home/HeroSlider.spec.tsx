@@ -316,6 +316,45 @@ describe("HeroSlider", () => {
     expect(element("offer").textContent).toContain("Limited offer");
   });
 
+  it("renders no trailing arrow when the CTA button lacks the arrow flag (legacy shape)", () => {
+    // A legacy stored button predates the optional `arrow` field; the renderer
+    // must treat absence as false and keep the label-free layout.
+    const legacy = slide(0, {
+      elements: {
+        ...slide(0).elements,
+        ctaPrimary: {
+          ...slide(0).elements!.ctaPrimary!,
+          button: { variant: "SOLID" },
+        },
+      },
+    });
+    render(<HeroSlider section={section([legacy])} />);
+    const cta = element("ctaPrimary").querySelector("a");
+    expect(cta?.querySelector("[data-hero-btn-arrow]")).toBeNull();
+  });
+
+  it("renders a trailing arrow glyph on the CTA when arrow is true (storefront read-only)", () => {
+    const arrowed = slide(0, {
+      elements: {
+        ...slide(0).elements,
+        ctaPrimary: {
+          ...slide(0).elements!.ctaPrimary!,
+          button: {
+            ...(slide(0).elements!.ctaPrimary!.button ?? {}),
+            arrow: true,
+          },
+        },
+      },
+    });
+    render(<HeroSlider section={section([arrowed])} />);
+    const cta = element("ctaPrimary").querySelector("a");
+    const glyph = cta?.querySelector("[data-hero-btn-arrow]");
+    expect(glyph).not.toBeNull();
+    expect(glyph?.getAttribute("aria-hidden")).toBe("true");
+    // The glyph trails the label (last element inside the anchor).
+    expect(cta?.lastElementChild?.getAttribute("data-hero-btn-arrow")).not.toBeNull();
+  });
+
   it("keeps the gradient fallback for a slide without media", () => {
     const noMedia = slide(0, { media: null });
     render(<HeroSlider section={section([noMedia])} />);
@@ -513,6 +552,30 @@ describe("HeroSlider", () => {
       );
       expect(element("ctaPrimary").querySelector("a")).toBeNull();
       expect(element("ctaPrimary").querySelector("span")).not.toBeNull();
+    });
+
+    it("renders the arrow in edit mode so the canvas matches the storefront", () => {
+      const arrowed = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          ctaPrimary: {
+            ...slide(0).elements!.ctaPrimary!,
+            button: {
+              ...(slide(0).elements!.ctaPrimary!.button ?? {}),
+              arrow: true,
+            },
+          },
+        },
+      });
+      render(
+        <HeroSlider
+          section={section([arrowed])}
+          edit={{ selectedElementKey: null, onSelectElement: () => undefined }}
+        />,
+      );
+      const cta = element("ctaPrimary");
+      expect(cta.querySelector("a")).toBeNull();
+      expect(cta.querySelector("[data-hero-btn-arrow]")).not.toBeNull();
     });
   });
 });

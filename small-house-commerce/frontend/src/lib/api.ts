@@ -357,6 +357,8 @@ export interface HomepageHeroButton {
   paddingX?: number;
   paddingY?: number;
   size?: "SM" | "MD" | "LG";
+  /** Optional trailing arrow after the label (mirrors the editor HeroButton). */
+  arrow?: boolean;
 }
 
 export interface HomepageHeroSlide {

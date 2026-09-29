@@ -836,6 +836,23 @@ function ElementSettings({
               }
             />
           </div>
+          {/* Trailing arrow: a discrete toggle → one commit (Task 14 pattern). */}
+          <label className="flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-cta"
+              checked={slide.elements[key].button.arrow === true}
+              aria-label={t("homepage_builder_button_arrow")}
+              onChange={(event) =>
+                commit(
+                  elementDocument(document, {
+                    button: { arrow: event.target.checked },
+                  }),
+                )
+              }
+            />
+            {t("homepage_builder_button_arrow")}
+          </label>
         </Group>
       ) : null}
     </div>
