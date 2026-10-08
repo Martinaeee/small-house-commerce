@@ -2,6 +2,7 @@ import type {
   HomepageSection,
   NonHeroHomepageSection,
 } from "./homepage-document";
+import { isBannerHref } from "./banner-href";
 import type {
   CategoryTilesPayload,
   CountdownBannerPayload,
@@ -144,23 +145,12 @@ function safeTextPayload(payload: Record<string, unknown>): TextBlockPayload {
   };
 }
 
-/** Non-Hero CTA links: /path, #anchor, or https://… (backend is the gate). */
-function isInAppOrHttps(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= 2048 &&
-    ((value.startsWith("/") && !value.startsWith("//")) ||
-      value.startsWith("#") ||
-      /^https:\/\/.+/.test(value))
-  );
-}
-
 function safePromoBannerPayload(
   payload: Record<string, unknown>,
 ): PromoBannerPayload {
   return {
     ...(typeof payload.ctaText === "string" ? { ctaText: payload.ctaText } : {}),
-    ...(isInAppOrHttps(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
+    ...(isBannerHref(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
   };
 }
 

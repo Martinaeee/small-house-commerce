@@ -99,6 +99,16 @@ const zh = {
   confirm: "确认",
   cancel: "取消",
   previewBanner: "草稿预览 · 未发布",
+  addSection: "添加模块",
+  promoBanner: "促销横幅",
+  countdownBanner: "倒计时横幅",
+  bannerCtaText: "按钮文案",
+  bannerEndsAt: "截止时间",
+  sectionTitle: "模块标题",
+  sectionDuplicate: "复制模块",
+  sectionDelete: "删除模块",
+  sectionUndoDelete: "撤销删除",
+  sectionDrag: "拖动排序",
 };
 
 let adminAccessToken: string | null = null;
@@ -252,31 +262,43 @@ async function getDraft(): Promise<DraftSnapshot> {
 }
 
 async function putDraft(snapshot: DraftSnapshot): Promise<void> {
-  const current = await getDraft();
-  await withAdmin(async (token, context) => {
-    const response = await context.put(`${API}/admin/homepage/draft`, {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: { draft: snapshot.draft, expectedRev: current.draftRev },
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = await getDraft();
+    const result = await withAdmin(async (token, context) => {
+      const response = await context.put(`${API}/admin/homepage/draft`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: { draft: snapshot.draft, expectedRev: current.draftRev },
+      });
+      return { ok: response.ok(), status: response.status(), body: await response.text() };
     });
-    expect(response.ok(), `restore draft (${response.status()}): ${await response.text()}`).toBeTruthy();
-  });
+    if (result.ok) return;
+    if (result.status !== 409) {
+      throw new Error(`restore draft (${result.status}): ${result.body}`);
+    }
+  }
+  throw new Error("restore draft failed: the draft kept changing concurrently");
 }
 
-async function unpublishVersion(versionNo: number): Promise<void> {
-  const versions = await adminGet<
-    { id: string; versionNo: number; unpublishAt: string | null }[]
-  >("/admin/homepage/versions");
-  const version = versions.find((candidate) => candidate.versionNo === versionNo);
-  if (!version || version.unpublishAt !== null) return;
-  await adminPost(`/admin/homepage/versions/${version.id}/unpublish`);
-}
-
-async function restoreHomepageSnapshot(
-  snapshot: DraftSnapshot,
-  publishedVersionNo: number | null,
-): Promise<void> {
-  if (publishedVersionNo !== null) await unpublishVersion(publishedVersionNo);
-  await putDraft(snapshot);
+async function restoreHomepageSnapshot(snapshot: DraftSnapshot): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    const versions = await adminGet<
+      { id: string; note: string | null; unpublishAt: string | null }[]
+    >("/admin/homepage/versions");
+    for (const version of versions) {
+      if (version.note === "live countdown" && version.unpublishAt === null) {
+        await adminPost(`/admin/homepage/versions/${version.id}/unpublish`);
+      }
+    }
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await putDraft(snapshot);
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length > 0) throw failures[0];
 }
 
 /**
@@ -628,6 +650,8 @@ test.describe("homepage builder (P1 Task 22)", () => {
 
   test("drags a hero element and persists the percentage after Save Draft", async ({ page }) => {
     await savePublishableDraft(unique("E2E DRAG SEED"));
+    // Reset before moving right so repeated suite runs cannot pin xPct at 100.
+    await seedHeroHeadingXPct(40);
     await page.setViewportSize({ width: 1440, height: 900 });
     await openBuilder(page);
     await revealPreviewPane(page, 1440);
@@ -908,12 +932,103 @@ test.describe("homepage builder (P1 Task 22)", () => {
     }
   });
 
+  test("adds, edits, duplicates, reorders, deletes, restores, and reloads banners", async ({ page }) => {
+    const original = await getDraft();
+    const promoTitle = unique("E2E UI PROMO");
+    const countdownTitle = unique("E2E UI COUNTDOWN");
+    try {
+      await openAdmin(page, "/admin/homepage");
+      await expect(page.getByRole("button", { name: zh.saveDraft })).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await page.getByRole("button", { name: zh.addSection }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("button", { name: zh.promoBanner })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: zh.countdownBanner })).toBeVisible();
+      await expect(dialog.locator("[data-section-type]")).toHaveCount(11);
+      await dialog.getByRole("button", { name: zh.promoBanner }).click();
+
+      await expect(
+        page.locator('[data-section-content-editor="PROMO_BANNER"]'),
+      ).toBeVisible();
+      await page.getByRole("textbox", { name: zh.sectionTitle }).fill(promoTitle);
+      await page.getByRole("textbox", { name: zh.bannerCtaText }).fill("Shop now");
+
+      const promoRows = page.locator("[data-section-row]").filter({ hasText: promoTitle });
+      await expect(promoRows).toHaveCount(1);
+      await promoRows.first().getByRole("button", { name: zh.sectionDuplicate }).click();
+      await expect(promoRows).toHaveCount(2);
+
+      const originalId = await promoRows.first().getAttribute("data-section-row");
+      const duplicateId = await promoRows.nth(1).getAttribute("data-section-row");
+      expect(originalId).not.toBeNull();
+      expect(duplicateId).not.toBeNull();
+      const originalRow = page.locator(`[data-section-row="${originalId}"]`);
+      const duplicateRow = page.locator(`[data-section-row="${duplicateId}"]`);
+
+      await duplicateRow.getByRole("button", { name: zh.sectionDelete }).click();
+      await expect(promoRows).toHaveCount(1);
+      await page.getByRole("button", { name: zh.sectionUndoDelete }).click();
+      await expect(promoRows).toHaveCount(2);
+
+      await page.getByRole("button", { name: zh.addSection }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: zh.countdownBanner })
+        .click();
+      await expect(
+        page.locator('[data-section-content-editor="COUNTDOWN_BANNER"]'),
+      ).toBeVisible();
+      await page.getByRole("textbox", { name: zh.sectionTitle }).fill(countdownTitle);
+      await page.getByLabel(zh.bannerEndsAt).fill("2099-12-31T23:59");
+
+      const targetIndex = await originalRow.evaluate((row) =>
+        Array.from(row.parentElement?.children ?? []).indexOf(row),
+      );
+      const dragHandle = duplicateRow.getByRole("button", { name: zh.sectionDrag });
+      const sourceBox = await dragHandle.boundingBox();
+      const targetBox = await originalRow.boundingBox();
+      expect(sourceBox).not.toBeNull();
+      expect(targetBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(sourceBox!.x + 8, sourceBox!.y - 8, { steps: 4 });
+      await page.mouse.move(
+        targetBox!.x + targetBox!.width / 2,
+        targetBox!.y + targetBox!.height / 2,
+        { steps: 12 },
+      );
+      await page.mouse.up();
+      await expect.poll(async () =>
+        duplicateRow.evaluate((row) =>
+          Array.from(row.parentElement?.children ?? []).indexOf(row),
+        ),
+      ).toBe(targetIndex);
+
+      await page.keyboard.press("Control+s");
+      await expect(page.getByText(zh.saved)).toBeVisible({ timeout: 6000 });
+      await navigateAdmin(page, "/admin/homepage");
+      await expect(
+        page.locator("[data-section-row]").filter({ hasText: promoTitle }),
+      ).toHaveCount(2);
+      await expect(
+        page.locator("[data-section-row]").filter({ hasText: countdownTitle }),
+      ).toHaveCount(1);
+    } finally {
+      if (!page.isClosed()) await page.close();
+      await restoreHomepageSnapshot(original);
+    }
+  });
+
   test("countdown banner blocks an expired publish, then renders and expires on the storefront", async ({ page }) => {
     const heading = unique("E2E BANNER HERO");
     const promoTitle = unique("E2E PROMO");
     const countdownTitle = unique("E2E COUNTDOWN");
     const original = await getDraft();
-    let publishedVersionNo: number | null = null;
 
     try {
       await savePublishableDraft(heading);
@@ -968,13 +1083,13 @@ test.describe("homepage builder (P1 Task 22)", () => {
         expect(await response.text()).toContain("countdown end time");
       });
 
-      // Move the end time slightly into the future and publish for real.
+      // Leave enough time for a cold next-dev compile with retries disabled.
       const live = await getDraft();
       const countdown = live.draft.sections.find(
         (section) => section.type === "COUNTDOWN_BANNER",
       );
       if (!countdown) throw new Error("draft is missing the countdown banner");
-      countdown.payload.endsAt = new Date(Date.now() + 15_000).toISOString();
+      countdown.payload.endsAt = new Date(Date.now() + 30_000).toISOString();
       await withAdmin(async (token, context) => {
         const response = await context.put(`${API}/admin/homepage/draft`, {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -982,13 +1097,12 @@ test.describe("homepage builder (P1 Task 22)", () => {
         });
         expect(response.ok(), `PUT draft (${response.status()}): ${await response.text()}`).toBeTruthy();
       });
-      const published = await adminPost<{ versionNo: number }>("/admin/homepage/publish", {
+      await adminPost("/admin/homepage/publish", {
         note: "live countdown",
         publishAt: null,
         unpublishAt: null,
         confirmWarnings: true,
       });
-      publishedVersionNo = published.versionNo;
       await pollValue(async () => {
         const storefront = await adminGet<{ sections: { type: string }[] }>("/storefront/homepage");
         return storefront.sections.some((section) => section.type === "COUNTDOWN_BANNER")
@@ -996,21 +1110,33 @@ test.describe("homepage builder (P1 Task 22)", () => {
           : null;
       }, "storefront serves the countdown banner");
 
-      // The storefront page renders both banners; the countdown reads the clock
-      // only after hydration (server HTML carries no digits).
+      // Scope the timer so a future Hero countdown cannot make it ambiguous.
       await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
       await page.goto(`${FRONTEND}/`);
       await expect(page.getByText(promoTitle)).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(countdownTitle)).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByRole("timer")).toBeVisible();
+      await expect(page.getByRole("timer", { name: "Time left" })).toBeVisible();
+
+      // Verify live banners at all supported preview widths.
+      for (const width of [375, 768, 1440]) {
+        await page.setViewportSize({ width, height: width === 375 ? 800 : 1024 });
+        const state = collectConsoleIssues(page);
+        await page.goto(`${FRONTEND}/`);
+        await expect(page.getByText(promoTitle)).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText(countdownTitle)).toBeVisible({ timeout: 15_000 });
+        await assertNoPageOverflow(page, `banner storefront @ ${width}`);
+        const issues = state();
+        expect(issues.errors, `banner console errors @ ${width}`).toHaveLength(0);
+        expect(issues.pageErrors, `banner pageerrors @ ${width}`).toHaveLength(0);
+      }
 
       // At the deadline the countdown removes itself entirely, without a reload;
       // the promo banner stays.
-      await expect(page.getByText(countdownTitle)).toBeHidden({ timeout: 25_000 });
-      await expect(page.getByRole("timer")).toHaveCount(0);
+      await expect(page.getByText(countdownTitle)).toBeHidden({ timeout: 35_000 });
+      await expect(page.getByRole("timer", { name: "Time left" })).toHaveCount(0);
       await expect(page.getByText(promoTitle)).toBeVisible();
     } finally {
-      await restoreHomepageSnapshot(original, publishedVersionNo);
+      await restoreHomepageSnapshot(original);
     }
   });
 });
@@ -1023,4 +1149,19 @@ async function draftHeroSnapshotHeadingLayout(): Promise<{ xPct: number }> {
   const xPct = hero?.payload?.slides?.[0]?.elements?.heading?.layout?.xPct;
   if (typeof xPct !== "number") throw new Error("draft has no hero heading layout to read");
   return { xPct };
+}
+
+async function seedHeroHeadingXPct(xPct: number): Promise<void> {
+  const snapshot = await getDraft();
+  const hero = snapshot.draft.sections.find((section) => section.type === "HERO");
+  const layout = hero?.payload?.slides?.[0]?.elements?.heading?.layout;
+  if (!layout) throw new Error("draft has no hero heading layout to seed");
+  layout.xPct = xPct;
+  await withAdmin(async (token, context) => {
+    const response = await context.put(`${API}/admin/homepage/draft`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { draft: snapshot.draft, expectedRev: snapshot.draftRev },
+    });
+    expect(response.ok(), `seed heading xPct (${response.status()}): ${await response.text()}`).toBeTruthy();
+  });
 }

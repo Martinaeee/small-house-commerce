@@ -5,7 +5,8 @@ import { useAdminI18n } from "@/lib/admin-i18n";
 import { isoToLocalInput, localInputToIso } from "@/lib/datetime-input";
 import type { CountdownBannerPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
-import { isInAppOrHttps, BannerCtaFields } from "@/components/admin/homepage/sections/BannerCtaFields";
+import { isBannerHref } from "@/lib/banner-href";
+import { BannerCtaFields } from "@/components/admin/homepage/sections/BannerCtaFields";
 
 function safePayload(value: unknown): CountdownBannerPayload {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -19,7 +20,7 @@ function safePayload(value: unknown): CountdownBannerPayload {
       : null;
   return {
     ...(typeof payload.ctaText === "string" ? { ctaText: payload.ctaText } : {}),
-    ...(isInAppOrHttps(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
+    ...(isBannerHref(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
     endsAt,
   };
 }
@@ -42,6 +43,15 @@ export function CountdownBannerSectionEditor({
     return () => clearInterval(id);
   }, []);
   const expired = endsAtMs !== null && endsAtMs <= nowMs;
+
+  const publishAtMs = section.schedule?.publishAt
+    ? Date.parse(section.schedule.publishAt)
+    : Number.NaN;
+  const beforeSectionStart =
+    endsAtMs !== null &&
+    endsAtMs > nowMs &&
+    Number.isFinite(publishAtMs) &&
+    endsAtMs <= publishAtMs;
 
   const updateField = (
     field: keyof CountdownBannerPayload,
@@ -84,6 +94,11 @@ export function CountdownBannerSectionEditor({
       {expired ? (
         <p role="status" className="text-xs text-sale">
           {t("homepage_builder_banner_ends_at_past")}
+        </p>
+      ) : null}
+      {beforeSectionStart ? (
+        <p role="status" className="text-xs text-sale">
+          {t("homepage_builder_banner_ends_at_before_start")}
         </p>
       ) : null}
       <BannerCtaFields

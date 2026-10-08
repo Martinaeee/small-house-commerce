@@ -156,6 +156,24 @@ describe("normalizeSectionForEditor", () => {
     });
   });
 
+  it("mirrors the backend banner href contract instead of a stricter regex", () => {
+    const promo = malformedSection("PROMO_BANNER") as Extract<
+      HomepageSection,
+      { type: "PROMO_BANNER" }
+    >;
+
+    promo.payload = { ctaLink: "HTTPS://EXAMPLE.COM/SALE" };
+    expect(normalizeSectionForEditor(promo).payload).toEqual({
+      ctaLink: "HTTPS://EXAMPLE.COM/SALE",
+    });
+
+    promo.payload = { ctaLink: "https://exa mple.com" };
+    expect(normalizeSectionForEditor(promo).payload).toEqual({});
+
+    promo.payload = { ctaLink: "https://example.com\\evil" };
+    expect(normalizeSectionForEditor(promo).payload).toEqual({});
+  });
+
   it("keeps valid optional payload values and unknown style keys", () => {
     const section = malformedSection("PRODUCT_GRID") as Extract<
       HomepageSection,

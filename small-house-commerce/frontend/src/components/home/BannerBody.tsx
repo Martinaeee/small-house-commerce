@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { isBannerHref } from "@/lib/banner-href";
 import { SmartLink } from "./sectionShell";
 import type { SectionPreviewDevice } from "./sectionRegistry";
 
@@ -9,16 +10,6 @@ export type BannerCtaPayload = {
   ctaLink?: string;
 };
 
-function isInAppOrHttps(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= 2048 &&
-    ((value.startsWith("/") && !value.startsWith("//")) ||
-      value.startsWith("#") ||
-      /^https:\/\/.+/.test(value))
-  );
-}
-
 export function normalizeBannerCta(payload: unknown): BannerCtaPayload {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return {};
@@ -26,7 +17,7 @@ export function normalizeBannerCta(payload: unknown): BannerCtaPayload {
   const record = payload as Record<string, unknown>;
   return {
     ...(typeof record.ctaText === "string" ? { ctaText: record.ctaText } : {}),
-    ...(isInAppOrHttps(record.ctaLink) ? { ctaLink: record.ctaLink } : {}),
+    ...(isBannerHref(record.ctaLink) ? { ctaLink: record.ctaLink } : {}),
   };
 }
 

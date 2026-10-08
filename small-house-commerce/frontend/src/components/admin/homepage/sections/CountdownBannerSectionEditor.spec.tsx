@@ -10,8 +10,10 @@ const SECTION_ID = "00000000-0000-7000-8000-000000000302";
 
 function Harness({
   initial = { endsAt: null },
+  publishAt = null,
 }: {
   initial?: CountdownBannerPayload;
+  publishAt?: string | null;
 }): ReactNode {
   const [payload, setPayload] = useState<CountdownBannerPayload>(initial);
   const section = {
@@ -21,7 +23,7 @@ function Harness({
     subtitle: null,
     enabled: true,
     sortOrder: 0,
-    schedule: { publishAt: null, unpublishAt: null },
+    schedule: { publishAt, unpublishAt: null },
     products: [],
     payload,
   } as SectionOf<"COUNTDOWN_BANNER">;
@@ -87,6 +89,37 @@ describe("CountdownBannerSectionEditor", () => {
     expect(
       screen.getByText("This time has passed; the banner will not show."),
     ).toBeVisible();
+  });
+
+  it("warns when the end time is not after the section start time", () => {
+    setAdminLang("en");
+    const publishAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const beforeStart = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const afterStart = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const warning =
+      "The end time is not after this section's start time; publishing will be blocked.";
+
+    const { rerender } = render(
+      <AdminI18nProvider>
+        <Harness
+          key="before-start"
+          initial={{ endsAt: beforeStart }}
+          publishAt={publishAt}
+        />
+      </AdminI18nProvider>,
+    );
+    expect(screen.getByText(warning)).toBeVisible();
+
+    rerender(
+      <AdminI18nProvider>
+        <Harness
+          key="after-start"
+          initial={{ endsAt: afterStart }}
+          publishAt={publishAt}
+        />
+      </AdminI18nProvider>,
+    );
+    expect(screen.queryByText(warning)).toBeNull();
   });
 
   it("edits the optional CTA fields through the same payload updater", () => {

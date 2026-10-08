@@ -1085,6 +1085,8 @@ export const en: Record<ZhKey, string> = {
     "Drafts may leave this empty; publishing requires a future time.",
   homepage_builder_banner_ends_at_past:
     "This time has passed; the banner will not show.",
+  homepage_builder_banner_ends_at_before_start:
+    "The end time is not after this section's start time; publishing will be blocked.",
   homepage_builder_section_show: "Show section",
   homepage_builder_section_hide: "Hide section",
   homepage_builder_section_duplicate: "Duplicate section",

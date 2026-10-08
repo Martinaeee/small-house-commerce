@@ -1037,6 +1037,8 @@ export const zh = {
   homepage_builder_banner_ends_at: "截止时间",
   homepage_builder_banner_ends_at_hint: "草稿可留空；发布前必须填写未来的时间。",
   homepage_builder_banner_ends_at_past: "该时间已过，前台不会显示此模块。",
+  homepage_builder_banner_ends_at_before_start:
+    "截止时间不晚于该模块的开始时间，发布时会被拦截。",
   homepage_builder_section_show: "显示模块",
   homepage_builder_section_hide: "隐藏模块",
   homepage_builder_section_duplicate: "复制模块",

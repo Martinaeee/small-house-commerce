@@ -2,18 +2,8 @@
 
 import type { ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { isBannerHref } from "@/lib/banner-href";
 import { BufferedTextInput } from "@/components/admin/homepage/BufferedSectionField";
-
-/** Non-Hero CTA links: /path, #anchor, or https://… (backend is the gate). */
-export function isInAppOrHttps(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= 2048 &&
-    ((value.startsWith("/") && !value.startsWith("//")) ||
-      value.startsWith("#") ||
-      /^https:\/\/.+/.test(value))
-  );
-}
 
 /**
  * The shared CTA row for PROMO_BANNER and COUNTDOWN_BANNER editors: one label
@@ -51,7 +41,7 @@ export function BannerCtaFields({
           aria-label={t("homepage_builder_banner_cta_link")}
           maxLength={2048}
           value={ctaLink}
-          isValid={(value) => value === "" || isInAppOrHttps(value)}
+          isValid={(value) => value === "" || isBannerHref(value)}
           commitValidImmediately
           onCommit={(value) => onChange("ctaLink", value)}
         />

@@ -77,6 +77,24 @@ describe("PromoBannerSectionEditor", () => {
     expect(payload()).toEqual({ ctaLink: "/collections/sale" });
   });
 
+  it("commits links the backend accepts and buffers links it would reject", () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const link = screen.getByRole("textbox", { name: "Banner CTA link" });
+
+    fireEvent.change(link, { target: { value: "HTTPS://EXAMPLE.COM/SALE" } });
+    expect(payload()).toEqual({ ctaLink: "HTTPS://EXAMPLE.COM/SALE" });
+
+    fireEvent.change(link, { target: { value: "https://exa mple.com" } });
+    expect(link).toHaveValue("https://exa mple.com");
+    expect(payload()).toEqual({ ctaLink: "HTTPS://EXAMPLE.COM/SALE" });
+  });
+
   it("renders a safe empty state for malformed payload values", () => {
     setAdminLang("en");
     const malformed = {

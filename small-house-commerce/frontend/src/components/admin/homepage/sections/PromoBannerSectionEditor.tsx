@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { isBannerHref } from "@/lib/banner-href";
 import type { PromoBannerPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
-import { isInAppOrHttps, BannerCtaFields } from "@/components/admin/homepage/sections/BannerCtaFields";
+import { BannerCtaFields } from "@/components/admin/homepage/sections/BannerCtaFields";
 
 function safePayload(value: unknown): PromoBannerPayload {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -12,7 +13,7 @@ function safePayload(value: unknown): PromoBannerPayload {
   const payload = value as Record<string, unknown>;
   return {
     ...(typeof payload.ctaText === "string" ? { ctaText: payload.ctaText } : {}),
-    ...(isInAppOrHttps(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
+    ...(isBannerHref(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
   };
 }
 
