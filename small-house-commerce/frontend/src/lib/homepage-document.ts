@@ -17,7 +17,9 @@ export type SectionType =
   | "ROOM_INSPIRATION"
   | "UGC"
   | "BRAND_STORY"
-  | "CONFIDENCE";
+  | "CONFIDENCE"
+  | "PROMO_BANNER"
+  | "COUNTDOWN_BANNER";
 
 export type Schedule = {
   publishAt: string | null;

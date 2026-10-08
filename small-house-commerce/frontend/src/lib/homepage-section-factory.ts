@@ -19,6 +19,8 @@ export const SECTION_TYPES = [
   "UGC",
   "BRAND_STORY",
   "CONFIDENCE",
+  "PROMO_BANNER",
+  "COUNTDOWN_BANNER",
 ] as const satisfies readonly NonHeroSectionType[];
 
 export type AddableSectionType = (typeof SECTION_TYPES)[number];
@@ -48,28 +50,27 @@ function assertSectionIdentity(section: HomepageSection): void {
   assertSectionSortOrder(section.sortOrder);
 }
 
+/** One factory per type so every call gets a fresh, precisely typed payload. */
+const DEFAULT_PAYLOADS: {
+  [K in NonHeroSectionType]: () => SectionPayloadMap[K];
+} = {
+  USP: () => ({ items: [] }),
+  CATEGORY_TILES: () => ({ categoryIds: [] }),
+  PRODUCT_GRID: () => ({}),
+  SOLUTIONS: () => ({ items: [] }),
+  PRODUCT_STORY: () => ({}),
+  ROOM_INSPIRATION: () => ({ scenes: [] }),
+  UGC: () => ({ entries: [] }),
+  BRAND_STORY: () => ({ bullets: [] }),
+  CONFIDENCE: () => ({ bullets: [] }),
+  PROMO_BANNER: () => ({}),
+  COUNTDOWN_BANNER: () => ({ endsAt: null }),
+};
+
 function defaultPayload<T extends NonHeroSectionType>(
   type: T,
 ): SectionPayloadMap[T] {
-  switch (type) {
-    case "USP":
-      return { items: [] } as SectionPayloadMap[T];
-    case "CATEGORY_TILES":
-      return { categoryIds: [] } as SectionPayloadMap[T];
-    case "PRODUCT_GRID":
-      return {} as SectionPayloadMap[T];
-    case "SOLUTIONS":
-      return { items: [] } as SectionPayloadMap[T];
-    case "PRODUCT_STORY":
-      return {} as SectionPayloadMap[T];
-    case "ROOM_INSPIRATION":
-      return { scenes: [] } as SectionPayloadMap[T];
-    case "UGC":
-      return { entries: [] } as SectionPayloadMap[T];
-    case "BRAND_STORY":
-    case "CONFIDENCE":
-      return { bullets: [] } as SectionPayloadMap[T];
-  }
+  return DEFAULT_PAYLOADS[type]();
 }
 
 type SectionOf<T extends NonHeroSectionType> = Extract<

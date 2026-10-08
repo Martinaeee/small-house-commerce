@@ -433,6 +433,55 @@ describe("HomepageLivePreview", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("renders promo and countdown banners through the storefront registry with inert links", async () => {
+    const promo = section("PROMO_BANNER", {
+      title: "Free delivery week",
+      payload: { ctaText: "Shop now", ctaLink: "/collections/sale" },
+    });
+    const countdown = section("COUNTDOWN_BANNER", {
+      title: "Flash sale",
+      payload: {
+        endsAt: new Date(Date.now() + 60_000).toISOString(),
+        ctaText: "Grab it",
+        ctaLink: "/collections/sale",
+      },
+    });
+    render(
+      <HomepageLivePreview
+        document={documentWith(promo, countdown)}
+        device="desktop"
+        selectedSectionId={null}
+      />,
+    );
+    await flush();
+
+    expect(screen.getByText("Free delivery week")).toBeVisible();
+    expect(screen.getByText("Flash sale")).toBeVisible();
+    expect(screen.getByRole("timer")).toBeVisible();
+
+    const link = screen.getByRole("link", { name: "Shop now" });
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    expect(link.dispatchEvent(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("hides an expired countdown banner in the live preview", async () => {
+    const countdown = section("COUNTDOWN_BANNER", {
+      title: "Expired flash sale",
+      payload: { endsAt: new Date(Date.now() - 1000).toISOString() },
+    });
+    render(
+      <HomepageLivePreview
+        document={documentWith(countdown)}
+        device="desktop"
+        selectedSectionId={null}
+      />,
+    );
+    await flush();
+
+    expect(screen.queryByText("Expired flash sale")).toBeNull();
+  });
+
   it("uses the selected preview device instead of outer-window breakpoints", async () => {
     listCategories.mockResolvedValue([category()]);
     const draft = documentWith(categoryTiles());

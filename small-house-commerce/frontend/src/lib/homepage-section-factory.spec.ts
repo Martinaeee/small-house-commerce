@@ -68,7 +68,26 @@ describe("homepage section factories", () => {
       case "CONFIDENCE":
         expect(section.payload).toEqual({ bullets: [] });
         break;
+      case "PROMO_BANNER":
+        expect(section.payload).toEqual({});
+        break;
+      case "COUNTDOWN_BANNER":
+        expect(section.payload).toEqual({ endsAt: null });
+        break;
     }
+  });
+
+  it("creates banner defaults with their smallest valid payloads and no products", () => {
+    const promo = defaultSection("PROMO_BANNER", NEW_ID, 30);
+    expect(promo.type).toBe("PROMO_BANNER");
+    expect(promo.payload).toEqual({});
+    expect(promo.products).toEqual([]);
+    expect(promo).not.toHaveProperty("style");
+
+    const countdown = defaultSection("COUNTDOWN_BANNER", NEW_ID, 40);
+    expect(countdown.type).toBe("COUNTDOWN_BANNER");
+    expect(countdown.payload).toEqual({ endsAt: null });
+    expect(countdown.products).toEqual([]);
   });
 
   it("rejects section ids that are not UUIDs and sort orders outside the backend bounds", () => {

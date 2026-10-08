@@ -17,6 +17,8 @@ import { ProductStorySectionEditor } from "@/components/admin/homepage/sections/
 import { RoomInspirationSectionEditor } from "@/components/admin/homepage/sections/RoomInspirationSectionEditor";
 import { UgcSectionEditor } from "@/components/admin/homepage/sections/UgcSectionEditor";
 import { TextBlockSectionEditor } from "@/components/admin/homepage/sections/TextBlockSectionEditor";
+import { PromoBannerSectionEditor } from "@/components/admin/homepage/sections/PromoBannerSectionEditor";
+import { CountdownBannerSectionEditor } from "@/components/admin/homepage/sections/CountdownBannerSectionEditor";
 
 export type SectionOf<T extends NonHeroSectionType> = Extract<
   NonHeroHomepageSection,
@@ -68,6 +70,8 @@ const brandStoryEditor: SectionEditorComponent<"BRAND_STORY"> = (props): ReactNo
   createElement(TextBlockSectionEditor, props);
 const confidenceEditor: SectionEditorComponent<"CONFIDENCE"> = (props): ReactNode =>
   createElement(TextBlockSectionEditor, props);
+const promoBannerEditor = PromoBannerSectionEditor;
+const countdownBannerEditor = CountdownBannerSectionEditor;
 
 const createUspDefault = createDefault("USP");
 const createCategoryTilesDefault = createDefault("CATEGORY_TILES");
@@ -78,6 +82,8 @@ const createRoomInspirationDefault = createDefault("ROOM_INSPIRATION");
 const createUgcDefault = createDefault("UGC");
 const createBrandStoryDefault = createDefault("BRAND_STORY");
 const createConfidenceDefault = createDefault("CONFIDENCE");
+const createPromoBannerDefault = createDefault("PROMO_BANNER");
+const createCountdownBannerDefault = createDefault("COUNTDOWN_BANNER");
 
 export const SECTION_EDITOR_REGISTRY: SectionEditorRegistry = {
   USP: {
@@ -142,6 +148,20 @@ export const SECTION_EDITOR_REGISTRY: SectionEditorRegistry = {
     descriptionKey: "homepage_builder_section_description_CONFIDENCE",
     createDefault: createConfidenceDefault,
     editor: confidenceEditor,
+  },
+  PROMO_BANNER: {
+    type: "PROMO_BANNER",
+    labelKey: "homepage_builder_section_type_PROMO_BANNER",
+    descriptionKey: "homepage_builder_section_description_PROMO_BANNER",
+    createDefault: createPromoBannerDefault,
+    editor: promoBannerEditor,
+  },
+  COUNTDOWN_BANNER: {
+    type: "COUNTDOWN_BANNER",
+    labelKey: "homepage_builder_section_type_COUNTDOWN_BANNER",
+    descriptionKey: "homepage_builder_section_description_COUNTDOWN_BANNER",
+    createDefault: createCountdownBannerDefault,
+    editor: countdownBannerEditor,
   },
 };
 

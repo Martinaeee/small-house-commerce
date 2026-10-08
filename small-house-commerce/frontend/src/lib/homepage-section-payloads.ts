@@ -82,6 +82,17 @@ export type TextBlockPayload = {
 export type BrandStoryPayload = TextBlockPayload;
 export type ConfidencePayload = TextBlockPayload;
 
+/** Non-Hero CTA links are stored strings: /path, #anchor, or https://… . */
+export type PromoBannerPayload = {
+  ctaText?: string;
+  ctaLink?: string;
+};
+
+export type CountdownBannerPayload = PromoBannerPayload & {
+  /** null = draft-only; publish requires a future ISO datetime. */
+  endsAt: string | null;
+};
+
 export type SectionPayloadMap = {
   USP: UspPayload;
   CATEGORY_TILES: CategoryTilesPayload;
@@ -92,6 +103,8 @@ export type SectionPayloadMap = {
   UGC: UgcPayload;
   BRAND_STORY: BrandStoryPayload;
   CONFIDENCE: ConfidencePayload;
+  PROMO_BANNER: PromoBannerPayload;
+  COUNTDOWN_BANNER: CountdownBannerPayload;
 };
 
 export type NonHeroSectionType = keyof SectionPayloadMap;

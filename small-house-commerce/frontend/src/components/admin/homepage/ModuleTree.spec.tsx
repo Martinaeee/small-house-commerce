@@ -124,6 +124,8 @@ function opaqueSection(
   title: string,
   sortOrder: number,
 ): HomepageSection {
+  // Deliberately opaque fixtures: the tree never reads payloads, and the
+  // discriminated union cannot be satisfied by a shared `{}` payload.
   return {
     id,
     type,
@@ -134,7 +136,7 @@ function opaqueSection(
     schedule: { publishAt: null, unpublishAt: null },
     products: [],
     payload: {},
-  };
+  } as unknown as HomepageSection;
 }
 
 function treeDocument(): HomepageDocument {
@@ -387,9 +389,9 @@ describe("ModuleTree", () => {
 
     renderTree(allTypesDocument);
 
-    expect(screen.getAllByRole("button", { name: "Duplicate section" })).toHaveLength(9);
-    expect(screen.getAllByRole("button", { name: "Delete section" })).toHaveLength(9);
-    expect(document.querySelectorAll('[data-section-row]')).toHaveLength(10);
+    expect(screen.getAllByRole("button", { name: "Duplicate section" })).toHaveLength(SECTION_TYPES.length);
+    expect(screen.getAllByRole("button", { name: "Delete section" })).toHaveLength(SECTION_TYPES.length);
+    expect(document.querySelectorAll('[data-section-row]')).toHaveLength(SECTION_TYPES.length + 1);
   });
 
   it("exposes a keyboard-reachable Add section trigger", () => {
@@ -402,14 +404,14 @@ describe("ModuleTree", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("opens an accessible dialog with nine localized section choices and closes explicitly", () => {
+  it("opens an accessible dialog with every localized section choice and closes explicitly", () => {
     renderTree();
     openAddSectionDialog();
 
     expect(screen.getByRole("dialog", { name: "Add section" })).toBeVisible();
     expect(screen.getAllByRole("button").filter((button) =>
       SECTION_TYPES.some((type) => button.getAttribute("data-section-type") === type),
-    )).toHaveLength(9);
+    )).toHaveLength(SECTION_TYPES.length);
     for (const label of [
       "USP",
       "Category Tiles",
@@ -420,6 +422,8 @@ describe("ModuleTree", () => {
       "UGC / Real Homes",
       "Brand Story",
       "Confidence",
+      "Promo Banner",
+      "Countdown Banner",
     ]) {
       expect(screen.getByRole("button", { name: label })).toBeVisible();
     }

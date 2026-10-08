@@ -3,9 +3,11 @@ import type { HomepageSection, HomepageSectionType } from "@/lib/api";
 import { BrandStorySection } from "./BrandStorySection";
 import { CategoryTilesSection } from "./CategoryTilesSection";
 import { ConfidenceSection } from "./ConfidenceSection";
+import { CountdownBannerSection } from "./CountdownBannerSection";
 import { HeroSlider } from "./HeroSlider";
 import { ProductGridSection } from "./ProductGridSection";
 import { ProductStorySection } from "./ProductStorySection";
+import { PromoBannerSection } from "./PromoBannerSection";
 import { RoomInspirationSection } from "./RoomInspirationSection";
 import { SolutionsSection } from "./SolutionsSection";
 import { UgcSection } from "./UgcSection";
@@ -29,4 +31,6 @@ export const SECTION_REGISTRY: Record<HomepageSectionType, ComponentType<Section
   UGC: UgcSection,
   BRAND_STORY: BrandStorySection,
   CONFIDENCE: ConfidenceSection,
+  PROMO_BANNER: PromoBannerSection,
+  COUNTDOWN_BANNER: CountdownBannerSection,
 };

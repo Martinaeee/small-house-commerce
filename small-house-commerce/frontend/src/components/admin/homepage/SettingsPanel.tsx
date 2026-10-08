@@ -9,7 +9,7 @@ import {
   useBufferedText,
   useBufferedValue,
 } from "@/components/admin/homepage/AnnouncementSettings";
-import { isoToLocalInput } from "@/lib/datetime-input";
+import { isoToLocalInput, localInputToIso } from "@/lib/datetime-input";
 import {
   resetElementLayout,
   setElementOverride,
@@ -136,12 +136,6 @@ function findElement(
 ): HeroElement | null {
   const slide = findSlide(document, slideId);
   return slide ? slide.elements[key] : null;
-}
-
-function localInputToIso(value: string): string | null {
-  if (value === "") return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 /**

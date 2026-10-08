@@ -53,6 +53,16 @@ export const ADD_SECTION_OPTIONS = [
     labelKey: "homepage_builder_section_type_CONFIDENCE",
     descriptionKey: "homepage_builder_section_description_CONFIDENCE",
   },
+  {
+    type: "PROMO_BANNER",
+    labelKey: "homepage_builder_section_type_PROMO_BANNER",
+    descriptionKey: "homepage_builder_section_description_PROMO_BANNER",
+  },
+  {
+    type: "COUNTDOWN_BANNER",
+    labelKey: "homepage_builder_section_type_COUNTDOWN_BANNER",
+    descriptionKey: "homepage_builder_section_description_COUNTDOWN_BANNER",
+  },
 ] as const satisfies ReadonlyArray<{
   type: AddableSectionType;
   labelKey: TKey;

@@ -214,7 +214,9 @@ export type HomepageSectionType =
   | "ROOM_INSPIRATION"
   | "UGC"
   | "BRAND_STORY"
-  | "CONFIDENCE";
+  | "CONFIDENCE"
+  | "PROMO_BANNER"
+  | "COUNTDOWN_BANNER";
 
 export interface HomepageCategoryTile {
   id: string;
@@ -267,6 +269,11 @@ export interface HomepageSection {
   subtitle: string | null;
   sortOrder: number;
   style?: HomepageSectionStyle;
+  /**
+   * Present only on the V2 banner sections; lets a cached page still honor an
+   * earlier `unpublishAt` at runtime.
+   */
+  schedule?: { publishAt: string | null; unpublishAt: string | null };
   payload: Record<string, unknown>;
   // Present only on the types hydrated by the backend.
   products?: HomepageSectionProduct[];

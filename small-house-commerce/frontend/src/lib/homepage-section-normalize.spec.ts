@@ -101,6 +101,8 @@ describe("normalizeSectionForEditor", () => {
       UGC: { entries: [] },
       BRAND_STORY: { bullets: [] },
       CONFIDENCE: { bullets: [] },
+      PROMO_BANNER: {},
+      COUNTDOWN_BANNER: { endsAt: null },
     };
 
     for (const type of SECTION_TYPES) {
@@ -108,6 +110,50 @@ describe("normalizeSectionForEditor", () => {
       expect(normalizeSectionForEditor(section).payload).toEqual(expected[type]);
       expect(section.payload).toEqual({});
     }
+  });
+
+  it("keeps valid banner payload values and drops malformed ones", () => {
+    const promo = malformedSection("PROMO_BANNER") as Extract<
+      HomepageSection,
+      { type: "PROMO_BANNER" }
+    >;
+    promo.payload = {
+      ctaText: "Shop now",
+      ctaLink: "/collections/sale",
+    };
+    expect(normalizeSectionForEditor(promo).payload).toEqual({
+      ctaText: "Shop now",
+      ctaLink: "/collections/sale",
+    });
+
+    promo.payload = {
+      ctaText: 42,
+      ctaLink: {},
+      imageUrl: "/uploads/catalog/banner.jpg",
+    } as unknown as typeof promo.payload;
+    expect(normalizeSectionForEditor(promo).payload).toEqual({});
+
+    const countdown = malformedSection("COUNTDOWN_BANNER") as Extract<
+      HomepageSection,
+      { type: "COUNTDOWN_BANNER" }
+    >;
+    countdown.payload = {
+      endsAt: "2026-12-31T23:59:00.000Z",
+      ctaText: "Ends soon",
+    };
+    expect(normalizeSectionForEditor(countdown).payload).toEqual({
+      endsAt: "2026-12-31T23:59:00.000Z",
+      ctaText: "Ends soon",
+    });
+
+    countdown.payload = {
+      endsAt: "not-a-date",
+      ctaText: "Go",
+    } as unknown as typeof countdown.payload;
+    expect(normalizeSectionForEditor(countdown).payload).toEqual({
+      endsAt: null,
+      ctaText: "Go",
+    });
   });
 
   it("keeps valid optional payload values and unknown style keys", () => {

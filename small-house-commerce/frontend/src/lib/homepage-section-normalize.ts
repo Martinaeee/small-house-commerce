@@ -4,9 +4,11 @@ import type {
 } from "./homepage-document";
 import type {
   CategoryTilesPayload,
+  CountdownBannerPayload,
   NonHeroSectionType,
   ProductGridPayload,
   ProductStoryPayload,
+  PromoBannerPayload,
   RoomInspirationPayload,
   SectionPayloadMap,
   SolutionItem,
@@ -142,6 +144,37 @@ function safeTextPayload(payload: Record<string, unknown>): TextBlockPayload {
   };
 }
 
+/** Non-Hero CTA links: /path, #anchor, or https://… (backend is the gate). */
+function isInAppOrHttps(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 2048 &&
+    ((value.startsWith("/") && !value.startsWith("//")) ||
+      value.startsWith("#") ||
+      /^https:\/\/.+/.test(value))
+  );
+}
+
+function safePromoBannerPayload(
+  payload: Record<string, unknown>,
+): PromoBannerPayload {
+  return {
+    ...(typeof payload.ctaText === "string" ? { ctaText: payload.ctaText } : {}),
+    ...(isInAppOrHttps(payload.ctaLink) ? { ctaLink: payload.ctaLink } : {}),
+  };
+}
+
+function safeCountdownBannerPayload(
+  payload: Record<string, unknown>,
+): CountdownBannerPayload {
+  const endsAt =
+    typeof payload.endsAt === "string" &&
+    Number.isFinite(Date.parse(payload.endsAt))
+      ? payload.endsAt
+      : null;
+  return { ...safePromoBannerPayload(payload), endsAt };
+}
+
 function normalizePayload<T extends NonHeroSectionType>(
   type: T,
   value: unknown,
@@ -174,6 +207,10 @@ function normalizePayload<T extends NonHeroSectionType>(
     case "BRAND_STORY":
     case "CONFIDENCE":
       return safeTextPayload(payload) as SectionPayloadMap[T];
+    case "PROMO_BANNER":
+      return safePromoBannerPayload(payload) as SectionPayloadMap[T];
+    case "COUNTDOWN_BANNER":
+      return safeCountdownBannerPayload(payload) as SectionPayloadMap[T];
   }
 }
 

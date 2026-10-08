@@ -1071,6 +1071,20 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_section_type_CONFIDENCE: "Confidence",
   homepage_builder_section_description_CONFIDENCE:
     "Delivery and purchase confidence",
+  homepage_builder_section_type_PROMO_BANNER: "Promo Banner",
+  homepage_builder_section_description_PROMO_BANNER:
+    "A standing promo message with one call to action",
+  homepage_builder_section_type_COUNTDOWN_BANNER: "Countdown Banner",
+  homepage_builder_section_description_COUNTDOWN_BANNER:
+    "A timed offer that hides itself at its end time",
+  homepage_builder_banner_cta_text: "Banner CTA text",
+  homepage_builder_banner_cta_link: "Banner CTA link",
+  homepage_builder_banner_cta_link_hint: "/path, #anchor, or https://…",
+  homepage_builder_banner_ends_at: "Countdown end time",
+  homepage_builder_banner_ends_at_hint:
+    "Drafts may leave this empty; publishing requires a future time.",
+  homepage_builder_banner_ends_at_past:
+    "This time has passed; the banner will not show.",
   homepage_builder_section_show: "Show section",
   homepage_builder_section_hide: "Hide section",
   homepage_builder_section_duplicate: "Duplicate section",
