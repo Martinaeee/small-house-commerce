@@ -1105,6 +1105,8 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_slide_delete: "Delete slide",
   homepage_builder_slide_delete_last_blocked: "At least one slide is required",
   homepage_builder_slide_no_media: "No media",
+  homepage_builder_slide_add_media: "Add image or video",
+  homepage_builder_slide_replace_media: "Replace media",
   homepage_builder_move_up: "Move up",
   homepage_builder_move_down: "Move down",
   homepage_builder_usp_items: "Trust points",

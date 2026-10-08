@@ -749,6 +749,27 @@ describe("HomepageEditor", () => {
     expect(panel("settings-panel")).toBeNull();
   });
 
+  it("opens Hero media settings when a thumbnail is clicked after editing a Hero element", async () => {
+    const draftDocument = emptyDocument();
+    draftDocument.sections = draftDocument.sections.map((section) =>
+      section.type === "HERO" ? { ...section, title: "Hero banner" } : section,
+    );
+    renderHarnessWithDocument(draftDocument);
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hero banner" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-element" }));
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Hero 1: Add image or video" }),
+    );
+
+    expect(screen.getByTestId("selected-element")).toHaveTextContent("");
+    expect(document.querySelector('[data-panel="hero-media-settings"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+  });
+
   it("routes a selected non-HERO section to the typed section editor and clears Hero selection", async () => {
     renderHarnessWithDocument(documentWithUsp());
     await flush();
@@ -998,6 +1019,24 @@ describe("HomepageEditor", () => {
 
     expect(screen.getByTestId("selected-element")).toHaveTextContent("heading");
     expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
+  });
+
+  it("uses the storefront-equivalent Hero height for each preview device", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Live Preview" }));
+
+    const hero = document.querySelector<HTMLElement>(
+      '[data-preview-section="HERO"]',
+    );
+    expect(hero).toHaveStyle({ height: "648px" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
+    expect(hero).toHaveStyle({ height: "960px" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+    expect(hero).toHaveStyle({ height: "487.5px" });
   });
 
   it("switches the full-width preview device without a device frame", async () => {

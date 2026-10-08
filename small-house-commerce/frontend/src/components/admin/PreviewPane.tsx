@@ -81,8 +81,12 @@ export function DeviceFrame({
   const [frameWidth, setFrameWidth] = useState(maxWidth);
   const frameRef = useRef<HTMLDivElement>(null);
   const label = labels[d.labelKey] ?? DEFAULT_LABELS[d.labelKey];
-  const scale = Math.min(d.scale, frameWidth / d.width);
+  const scaleCap = flat && device === "desktop" ? 1 : d.scale;
+  const scale = Math.min(scaleCap, frameWidth / d.width);
   const frameHeight = d.height * scale;
+  const viewportLeft = flat
+    ? Math.max(0, (frameWidth - d.width * scale) / 2)
+    : 0;
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -127,6 +131,7 @@ export function DeviceFrame({
           data-preview-viewport
           className={scrollable ? "relative left-0 top-0" : "absolute left-0 top-0"}
           style={{
+            left: viewportLeft,
             width: d.width,
             height: d.height,
             transform: `scale(${scale})`,

@@ -29,6 +29,13 @@ const DEVICE_HEIGHTS: Record<PreviewDevice, number> = {
   mobile: 844,
 };
 
+/** Mirrors the storefront Hero height rules inside each simulated viewport. */
+const HERO_HEIGHTS: Record<PreviewDevice, number> = {
+  desktop: Math.min(720, Math.max(560, DEVICE_HEIGHTS.desktop * 0.72)),
+  tablet: 768 * 1.25,
+  mobile: 390 * 1.25,
+};
+
 function previewStyle(value: unknown): HomepageSectionStyle | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const style = value as Record<string, unknown>;
@@ -606,7 +613,7 @@ export function HomepageLivePreview({
             data-preview-section="HERO"
             data-preview-section-id={section.id}
             className="relative min-w-0 shrink-0"
-            style={{ height: DEVICE_HEIGHTS[device] }}
+            style={{ height: HERO_HEIGHTS[device] }}
           >
             <HeroCanvas style={mergedPreviewStyle(document.defaults, section.style)} />
           </div>

@@ -115,6 +115,20 @@ function videoSlide(): HeroSlide {
   };
 }
 
+function posterlessVideoSlide(): HeroSlide {
+  const slide = videoSlide();
+  if (slide.media?.type !== "VIDEO" || !slide.media.video) {
+    throw new Error("fixture expects a VIDEO slide");
+  }
+  return {
+    ...slide,
+    media: {
+      ...slide.media,
+      video: { ...slide.media.video, poster: null },
+    },
+  };
+}
+
 function emptyMediaSlide(): HeroSlide {
   return {
     ...baseSlide(),
@@ -278,6 +292,36 @@ describe("SlideList", () => {
 
     fireEvent.click(within(card(SLIDE_TWO_ID)).getByRole("button", { name: "Hero 2" }));
     expect(screen.getByTestId("selected-slide")).toHaveTextContent(SLIDE_TWO_ID);
+  });
+
+  it("selects a slide from its media thumbnail or empty-media area", () => {
+    renderSlides();
+
+    const replaceMedia = within(card(SLIDE_ONE_ID)).getByRole("button", {
+      name: "Hero 1: Replace media",
+    });
+    expect(within(replaceMedia).getByRole("img", { name: "Hero 1" })).toBeVisible();
+
+    fireEvent.click(replaceMedia);
+    expect(screen.getByTestId("selected-slide")).toHaveTextContent(SLIDE_ONE_ID);
+
+    const addMedia = within(card(SLIDE_THREE_ID)).getByRole("button", {
+      name: "Hero 3: Add image or video",
+    });
+    expect(within(addMedia).getByText("No media")).toBeVisible();
+
+    fireEvent.click(addMedia);
+    expect(screen.getByTestId("selected-slide")).toHaveTextContent(SLIDE_THREE_ID);
+  });
+
+  it("treats a posterless video as configured media", () => {
+    renderSlides(slideDocument([posterlessVideoSlide()]));
+
+    const mediaButton = within(card(SLIDE_TWO_ID)).getByRole("button", {
+      name: "Hero 2: Replace media",
+    });
+    expect(within(mediaButton).getByText("Video")).toBeVisible();
+    expect(within(mediaButton).queryByText("No media")).toBeNull();
   });
 
   it("adds slides up to the backend cap of six", () => {

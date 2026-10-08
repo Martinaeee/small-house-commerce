@@ -129,6 +129,76 @@ describe("ProductPreviewPanel", () => {
     },
   );
 
+  it("lets a flat desktop preview use the full observed width", () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    class MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    }
+
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    render(
+      <DeviceFrame device="desktop" flat scrollable>
+        <p>Flat desktop</p>
+      </DeviceFrame>,
+    );
+
+    const viewport = screen.getByText("Flat desktop").closest("[data-preview-viewport]");
+    const frame = viewport?.closest("[data-preview-frame]");
+    act(() => {
+      resizeCallback?.(
+        [{ contentRect: { width: 864 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    expect(viewport).toHaveStyle({ transform: "scale(0.6)", left: "0px" });
+    expect(frame).toHaveStyle({ height: "540px" });
+  });
+
+  it.each([
+    ["tablet", "0.5", "240px"],
+    ["mobile", "0.52", "330.6px"],
+  ] as const)(
+    "keeps a flat %s preview at its device scale and centers it",
+    (device, scale, left) => {
+      let resizeCallback: ResizeObserverCallback | undefined;
+      class MockResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallback = callback;
+        }
+
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      }
+
+      vi.stubGlobal("ResizeObserver", MockResizeObserver);
+      render(
+        <DeviceFrame device={device} flat scrollable>
+          <p>{`Flat ${device}`}</p>
+        </DeviceFrame>,
+      );
+
+      const viewport = screen
+        .getByText(`Flat ${device}`)
+        .closest("[data-preview-viewport]");
+      act(() => {
+        resizeCallback?.(
+          [{ contentRect: { width: 864 } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        );
+      });
+
+      expect(viewport).toHaveStyle({ transform: `scale(${scale})`, left });
+    },
+  );
+
   it("keeps a device frame within its container width", () => {
     render(
       <DeviceFrame device="desktop">

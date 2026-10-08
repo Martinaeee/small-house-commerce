@@ -1057,6 +1057,8 @@ export const zh = {
   homepage_builder_slide_delete: "删除幻灯",
   homepage_builder_slide_delete_last_blocked: "至少保留一张幻灯",
   homepage_builder_slide_no_media: "未设置媒体",
+  homepage_builder_slide_add_media: "添加图片或视频",
+  homepage_builder_slide_replace_media: "更换媒体",
   homepage_builder_move_up: "上移",
   homepage_builder_move_down: "下移",
   homepage_builder_usp_items: "信任要点",

@@ -70,10 +70,23 @@ function thumbnailUrl(slide: HeroSlide): string | null {
   return media.video?.poster ?? null;
 }
 
+function hasConfiguredMedia(slide: HeroSlide): boolean {
+  const media = slide.media;
+  if (!media) return false;
+  if (media.type === "IMAGE") return Boolean(media.image?.url.trim());
+  return Boolean(media.video?.url.trim());
+}
+
 export function SlideList({ sectionId }: { sectionId: string }): ReactNode {
   const { t } = useAdminI18n();
-  const { state, dispatch, selectedSlideId, setSelectedSlideId } =
-    useHomepageEditor();
+  const {
+    state,
+    dispatch,
+    selectedSlideId,
+    setSelectedSlideId,
+    setSelectedSectionId,
+    setSelectedElementKey,
+  } = useHomepageEditor();
   const document = state.document;
   const section = heroSectionById(document, sectionId);
 
@@ -82,6 +95,15 @@ export function SlideList({ sectionId }: { sectionId: string }): ReactNode {
       dispatch({ type: "commit", document: next });
     },
     [dispatch],
+  );
+
+  const selectSlide = useCallback(
+    (slideId: string): void => {
+      setSelectedSectionId(sectionId);
+      setSelectedElementKey(null);
+      setSelectedSlideId(slideId);
+    },
+    [sectionId, setSelectedElementKey, setSelectedSectionId, setSelectedSlideId],
   );
 
   const slides = useMemo(
@@ -154,7 +176,7 @@ export function SlideList({ sectionId }: { sectionId: string }): ReactNode {
                 index={index}
                 count={slides.length}
                 selected={slide.id === selectedSlideId}
-                onSelect={setSelectedSlideId}
+                onSelect={selectSlide}
                 commit={commit}
               />
             ))}
@@ -198,6 +220,10 @@ function SortableSlideCard({
   );
 
   const thumbnail = thumbnailUrl(slide);
+  const configuredMedia = hasConfiguredMedia(slide);
+  const mediaActionKey = configuredMedia
+    ? "homepage_builder_slide_replace_media"
+    : "homepage_builder_slide_add_media";
   const scheduled =
     slide.schedule.publishAt !== null || slide.schedule.unpublishAt !== null;
   const deleteBlocked = count <= 1;
@@ -305,18 +331,38 @@ function SortableSlideCard({
       </div>
 
       <div className="flex items-center gap-2 px-1.5 pb-1.5 pl-8">
-        {thumbnail ? (
-          // eslint-disable-next-line @next/next/no-img-element -- admin-only external media thumbs; no optimizer domain allowlist.
-          <img
-            src={thumbnail}
-            alt={slide.name}
-            className="h-10 w-16 shrink-0 rounded border border-border object-cover"
-          />
-        ) : (
-          <span className="flex h-10 w-16 shrink-0 items-center justify-center rounded border border-dashed border-border text-[10px] text-ink-muted">
-            {t("homepage_builder_slide_no_media")}
+        <button
+          type="button"
+          aria-label={`${slide.name}: ${t(mediaActionKey)}`}
+          aria-pressed={selected}
+          onClick={() => onSelect(slide.id)}
+          className={`group relative h-10 w-16 shrink-0 overflow-hidden rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-1 ${
+            selected
+              ? "border-cta ring-1 ring-cta"
+              : "border-border hover:border-cta"
+          }`}
+        >
+          {thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element -- admin-only external media thumbs; no optimizer domain allowlist.
+            <img
+              src={thumbnail}
+              alt={slide.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center border border-dashed border-border text-[10px] text-ink-muted">
+              {configuredMedia && slide.media?.type === "VIDEO"
+                ? t("homepage_builder_media_video")
+                : t("homepage_builder_slide_no_media")}
+            </span>
+          )}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 px-1 text-center text-[9px] font-semibold leading-tight text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            {t(mediaActionKey)}
           </span>
-        )}
+        </button>
         {scheduled ? (
           <span className="rounded-full bg-admin-warning-soft px-2 py-0.5 text-[10px] font-semibold text-ink-secondary">
             {t("homepage_builder_slide_scheduled")}
