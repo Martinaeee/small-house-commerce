@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { HomepageSection, HydratedRoomScene } from "@/lib/api";
+import type { SectionPreviewDevice } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
@@ -24,6 +25,10 @@ const CARD_WIDTH = 240;
 // price wraps measures ~125px tall, so 130 keeps the flipped card on screen.
 const CARD_HEIGHT = 130;
 
+function sceneFailureKey(scene: Pick<HydratedRoomScene, "id" | "imageUrl">): string {
+  return `${scene.id}\u0000${scene.imageUrl}`;
+}
+
 interface OpenCard {
   sceneId: string;
   index: number;
@@ -32,9 +37,11 @@ interface OpenCard {
 export function RoomSceneGallery({
   section,
   scenes,
+  previewDevice,
 }: {
   section: Pick<HomepageSection, "id" | "title">;
   scenes: HydratedRoomScene[];
+  previewDevice?: SectionPreviewDevice;
 }) {
   const railRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -92,7 +99,9 @@ export function RoomSceneGallery({
           });
           // The 0.6 threshold alone drives thumbnail/indicator highlighting.
           if (entry.intersectionRatio < 0.6) continue;
-          const idx = scenes.filter((s) => !failed.has(s.id)).findIndex((s) => s.id === id);
+          const idx = scenes
+            .filter((scene) => !failed.has(sceneFailureKey(scene)))
+            .findIndex((scene) => scene.id === id);
           if (idx >= 0) setActive(idx);
         }
       },
@@ -159,7 +168,19 @@ export function RoomSceneGallery({
     setOpenCard({ sceneId, index });
   }, []);
 
-  const visibleScenes = scenes.filter((s) => !failed.has(s.id));
+  const visibleScenes = scenes.filter(
+    (scene) => !failed.has(sceneFailureKey(scene)),
+  );
+  const thumbnailClass = previewDevice
+    ? previewDevice === "desktop"
+      ? "mt-3 flex justify-center gap-2"
+      : "hidden"
+    : "mt-3 hidden justify-center gap-2 lg:flex";
+  const indicatorClass = previewDevice
+    ? previewDevice === "desktop"
+      ? "hidden"
+      : "mt-3 flex justify-center gap-1.5"
+    : "mt-3 flex justify-center gap-1.5 lg:hidden";
 
   if (visibleScenes.length === 0) {
     return (
@@ -207,7 +228,7 @@ export function RoomSceneGallery({
                 onError={() =>
                   setFailed((prev) => {
                     const next = new Set(prev);
-                    next.add(scene.id);
+                    next.add(sceneFailureKey(scene));
                     return next;
                   })
                 }
@@ -276,7 +297,7 @@ export function RoomSceneGallery({
 
       {/* Desktop thumbnail selector */}
       {visibleScenes.length > 1 ? (
-        <div className="mt-3 hidden justify-center gap-2 lg:flex">
+        <div className={thumbnailClass}>
           {visibleScenes.map((scene, index) => (
             <button
               key={scene.id}
@@ -304,7 +325,7 @@ export function RoomSceneGallery({
                 onError={() =>
                   setFailed((prev) => {
                     const next = new Set(prev);
-                    next.add(scene.id);
+                    next.add(sceneFailureKey(scene));
                     return next;
                   })
                 }
@@ -316,7 +337,7 @@ export function RoomSceneGallery({
 
       {/* Mobile indicator dots */}
       {visibleScenes.length > 1 ? (
-        <div className="mt-3 flex justify-center gap-1.5 lg:hidden" aria-hidden>
+        <div className={indicatorClass} aria-hidden>
           {visibleScenes.map((scene, index) => (
             <span
               key={scene.id}
