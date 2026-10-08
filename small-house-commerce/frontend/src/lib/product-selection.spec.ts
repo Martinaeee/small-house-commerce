@@ -210,6 +210,18 @@ describe("combinationKeyForSelection", () => {
   });
 });
 
+describe("malformed storefront products", () => {
+  it("does not throw when a legacy collection response omits options", () => {
+    const product = productFixture({ options: undefined as never });
+
+    expect(() => resolveSelection(product, createInitialSelection(product))).not.toThrow();
+    expect(resolveSelection(product, createInitialSelection(product))).toMatchObject({
+      missingOptionIds: [],
+      resolvedVariant: null,
+    });
+  });
+});
+
 describe("selection initialization", () => {
   it("prefills a valid deep link without confirming purchase", () => {
     const product = productFixture();

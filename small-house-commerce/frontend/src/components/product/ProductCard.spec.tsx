@@ -164,7 +164,9 @@ describe("ProductCard rating row", () => {
     const row = screen.getByRole("img", { name: "Rated 4.5 out of 5" });
     expect(
       Array.from(row.querySelectorAll("span")).map((glyph) => glyph.textContent),
-    ).toEqual(["★", "★", "★", "★", "⯨"]);
+    ).toEqual(["★", "★", "★", "★", "★"]);
+    expect(row.querySelector('[data-rating-star="half"]')).toHaveTextContent("★");
+    expect(row).not.toHaveTextContent("⯨");
   });
 });
 
