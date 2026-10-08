@@ -10,6 +10,7 @@ import type {
   PublishIssue,
   Schedule,
 } from './homepage-document.js';
+import { bannerPayloadSchemas } from './homepage-document.js';
 import { homepagePayloadSchemas } from './dto/homepage-section.dto.js';
 
 /**
@@ -97,6 +98,7 @@ export class HomepageValidator implements DocumentValidator {
 
     const errors: PublishIssue[] = [];
     const warnings: PublishIssue[] = [];
+    const now = new Date();
 
     // Issues come out in document order: sections as stored, then the
     // announcement (which has no section to jump to).
@@ -105,6 +107,9 @@ export class HomepageValidator implements DocumentValidator {
         checkHeroSection(section, results, errors, warnings);
       } else {
         checkSectionPayload(section, errors);
+        if (section.type === 'COUNTDOWN_BANNER') {
+          checkCountdownBanner(section, now, errors);
+        }
         if (section.type === 'PRODUCT_GRID') {
           checkProductGrid(section, results, warnings);
         }
@@ -391,7 +396,24 @@ function checkSectionPayload(
   section: HomepageSection,
   errors: PublishIssue[],
 ): void {
-  const parsed = homepagePayloadSchemas[section.type].safeParse(section.payload);
+  const schema =
+    section.type === 'PROMO_BANNER' || section.type === 'COUNTDOWN_BANNER'
+      ? bannerPayloadSchemas[section.type]
+      : homepagePayloadSchemas[
+          section.type as keyof typeof homepagePayloadSchemas
+        ];
+  if (schema === undefined) {
+    errors.push(
+      issue(
+        'ERROR',
+        'SECTION_PAYLOAD_INVALID',
+        `Section type "${section.type}" has no payload schema.`,
+        section.id,
+      ),
+    );
+    return;
+  }
+  const parsed = schema.safeParse(section.payload);
   if (parsed.success) return;
   const first = parsed.error.issues[0];
   const path = first.path.join('.');
@@ -403,6 +425,61 @@ function checkSectionPayload(
       section.id,
     ),
   );
+}
+
+function checkCountdownBanner(
+  section: HomepageSection,
+  now: Date,
+  errors: PublishIssue[],
+): void {
+  if (!section.enabled) return;
+
+  const payload = section.payload as { endsAt?: unknown };
+  if (payload.endsAt === null || payload.endsAt === undefined) {
+    errors.push(
+      issue(
+        'ERROR',
+        'COUNTDOWN_END_REQUIRED',
+        'Enabled countdown banners need an end time before publishing.',
+        section.id,
+      ),
+    );
+    return;
+  }
+
+  const endsAt =
+    typeof payload.endsAt === 'string' ? Date.parse(payload.endsAt) : Number.NaN;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(endsAt) || endsAt <= nowMs) {
+    errors.push(
+      issue(
+        'ERROR',
+        'COUNTDOWN_END_NOT_FUTURE',
+        'The countdown end time must be in the future.',
+        section.id,
+      ),
+    );
+    return;
+  }
+
+  const publishAt =
+    section.schedule.publishAt === null
+      ? nowMs
+      : Date.parse(section.schedule.publishAt);
+  const unpublishAt =
+    section.schedule.unpublishAt === null
+      ? Number.POSITIVE_INFINITY
+      : Date.parse(section.schedule.unpublishAt);
+  if (Math.min(endsAt, unpublishAt) <= Math.max(nowMs, publishAt)) {
+    errors.push(
+      issue(
+        'ERROR',
+        'COUNTDOWN_WINDOW_EMPTY',
+        'The countdown must remain active after its section start time.',
+        section.id,
+      ),
+    );
+  }
 }
 
 function checkProductGrid(

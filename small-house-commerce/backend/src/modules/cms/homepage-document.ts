@@ -37,6 +37,8 @@ const sectionTypeSchema = z.enum([
   'UGC',
   'BRAND_STORY',
   'CONFIDENCE',
+  'PROMO_BANNER',
+  'COUNTDOWN_BANNER',
 ]);
 
 // --- shared value objects ---------------------------------------------------
@@ -314,6 +316,35 @@ const sectionProductSchema = z.object({
   badge: z.string().max(20).nullable(),
 });
 
+const bannerHrefSchema = z.string().max(2048).refine(
+  (value) => {
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      if (code <= 0x1f || code === 0x7f || value[index] === '\\') return false;
+    }
+    if (value.startsWith('/') && !value.startsWith('//')) return true;
+    if (value.startsWith('#')) return true;
+    return z.url({ protocol: /^https$/ }).safeParse(value).success;
+  },
+  { message: 'Expected a site path, anchor, or HTTPS URL' },
+);
+
+const promoBannerPayloadSchema = z
+  .object({
+    ctaText: z.string().max(120).optional(),
+    ctaLink: bannerHrefSchema.optional(),
+  })
+  .strict();
+
+const countdownBannerPayloadSchema = promoBannerPayloadSchema
+  .extend({ endsAt: z.iso.datetime().nullable() })
+  .strict();
+
+export const bannerPayloadSchemas = {
+  PROMO_BANNER: promoBannerPayloadSchema,
+  COUNTDOWN_BANNER: countdownBannerPayloadSchema,
+} as const;
+
 const sectionSchema = z
   .object({
     id: z.string().uuid(),
@@ -330,8 +361,32 @@ const sectionSchema = z
     style: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((section, ctx) => {
-    // HERO payloads are validated strictly; every other type stays opaque and
-    // is validated by the legacy per-type DTOs at publish time.
+    if (
+      section.type === 'PROMO_BANNER' ||
+      section.type === 'COUNTDOWN_BANNER'
+    ) {
+      const banner = bannerPayloadSchemas[section.type].safeParse(section.payload);
+      if (!banner.success) {
+        for (const issue of banner.error.issues) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['payload', ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+      if (section.products.length > 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['products'],
+          message: 'Banner sections cannot contain product joins',
+        });
+      }
+      return;
+    }
+
+    // HERO payloads are validated strictly; existing non-HERO types stay opaque
+    // and are validated by the legacy per-type DTOs at publish time.
     if (section.type !== 'HERO') return;
     const hero = heroPayloadSchema.safeParse(section.payload);
     if (hero.success) return;
@@ -388,6 +443,10 @@ export type HeroElement =
   | z.infer<typeof heroCountdownElementSchema>;
 export type HeroSlide = z.infer<typeof heroSlideSchema>;
 export type HeroPayload = z.infer<typeof heroPayloadSchema>;
+export type PromoBannerPayload = z.infer<typeof promoBannerPayloadSchema>;
+export type CountdownBannerPayload = z.infer<
+  typeof countdownBannerPayloadSchema
+>;
 export type AnnouncementItem = z.infer<typeof announcementItemSchema>;
 export type AnnouncementBlock = z.infer<typeof announcementSchema>;
 export type HomepageSection = z.infer<typeof sectionSchema>;

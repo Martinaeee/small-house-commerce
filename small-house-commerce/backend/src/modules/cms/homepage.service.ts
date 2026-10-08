@@ -29,9 +29,14 @@ type StorefrontProductJoin = {
   badge: string | null;
 };
 
+type StorefrontSectionType =
+  | HomepageSectionType
+  | 'PROMO_BANNER'
+  | 'COUNTDOWN_BANNER';
+
 type StorefrontSection = {
   id: string;
-  type: HomepageSectionType;
+  type: StorefrontSectionType;
   title: string | null;
   subtitle: string | null;
   enabled: boolean;
@@ -183,7 +188,7 @@ export class HomepageService {
         const style = mergeSectionStyle(defaults, section.style);
         return {
           id: section.id,
-          type: section.type as HomepageSectionType,
+          type: section.type as StorefrontSectionType,
           title: section.title,
           subtitle: section.subtitle,
           enabled: section.enabled,
@@ -234,8 +239,23 @@ export class HomepageService {
       (section) =>
         section.enabled &&
         (section.schedule === undefined ||
-          isScheduleActive(section.schedule, now)),
+          isScheduleActive(section.schedule, now)) &&
+        this.countdownIsActive(section, now),
     );
+  }
+
+  /**
+   * COUNTDOWN_BANNER hides itself at/after its payload `endsAt` (half-open,
+   * same convention as schedule windows). Null/invalid ends fail closed so a
+   * broken payload never leaks an expired banner; other section types are
+   * unaffected.
+   */
+  private countdownIsActive(section: StorefrontSection, now: Date): boolean {
+    if (section.type !== 'COUNTDOWN_BANNER') return true;
+    const payload = this.payloadObject(section);
+    const endsAt =
+      typeof payload.endsAt === 'string' ? Date.parse(payload.endsAt) : Number.NaN;
+    return Number.isFinite(endsAt) && endsAt > now.getTime();
   }
 
   private async hydrateProducts(
@@ -289,6 +309,11 @@ export class HomepageService {
       subtitle: section.subtitle,
       enabled: section.enabled,
       sortOrder: section.sortOrder,
+      // Banner sections keep their schedule so an already-open or cached page
+      // can still honor an earlier `unpublishAt` at runtime.
+      ...(section.type === 'PROMO_BANNER' || section.type === 'COUNTDOWN_BANNER'
+        ? { schedule: { ...section.schedule } }
+        : {}),
       ...(section.style ? { style: { ...section.style } } : {}),
     };
 

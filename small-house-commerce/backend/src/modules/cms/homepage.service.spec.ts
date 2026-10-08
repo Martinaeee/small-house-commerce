@@ -512,6 +512,77 @@ describe('HomepageService versioned storefront source', () => {
     vi.useRealTimers();
   });
 
+  it('treats countdown endsAt as an exclusive storefront boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    try {
+      const document = structuredClone(emptyDocument());
+      const countdown = structuredClone(document.sections[0]);
+      countdown.id = '00000000-0000-7000-8000-000000000002';
+      countdown.type = 'COUNTDOWN_BANNER' as never;
+      countdown.title = 'Ends soon';
+      countdown.schedule = { publishAt: NOW.toISOString(), unpublishAt: null };
+      countdown.payload = {
+        endsAt: new Date(NOW.getTime() + 1).toISOString(),
+        ctaText: 'Shop now',
+        ctaLink: '/collections/sale',
+      };
+      countdown.products = [];
+      document.sections = [countdown];
+
+      const ctx = versionedContext(document);
+      const service = versionedService(ctx);
+      const active = await service.storefrontGet();
+
+      expect(active.sections).toHaveLength(1);
+      expect(active.sections[0]).toMatchObject({
+        type: 'COUNTDOWN_BANNER',
+        schedule: countdown.schedule,
+      });
+      // Banners carry no product joins, so hydration asks for zero ids.
+      expect(ctx.products.storefrontByIds).toHaveBeenCalledWith([]);
+
+      countdown.payload = { endsAt: NOW.toISOString() };
+      await expect(service.storefrontGet()).resolves.toMatchObject({ sections: [] });
+
+      countdown.payload = {
+        endsAt: new Date(NOW.getTime() + 60_000).toISOString(),
+      };
+      countdown.schedule = {
+        publishAt: null,
+        unpublishAt: NOW.toISOString(),
+      };
+      await expect(service.storefrontGet()).resolves.toMatchObject({ sections: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('filters an expired countdown from a token-based draft preview', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    try {
+      const effective = structuredClone(emptyDocument());
+      const draft = structuredClone(emptyDocument());
+      const countdown = structuredClone(draft.sections[0]);
+      countdown.id = '00000000-0000-7000-8000-000000000002';
+      countdown.type = 'COUNTDOWN_BANNER' as never;
+      countdown.schedule = { publishAt: null, unpublishAt: null };
+      countdown.payload = { endsAt: NOW.toISOString() };
+      countdown.products = [];
+      draft.sections = [countdown];
+
+      const ctx = versionedContext(effective, draft, 7);
+      const token = signPreviewToken(7, SECRET, NOW);
+
+      await expect(
+        versionedService(ctx).storefrontGet({ previewToken: token }),
+      ).resolves.toMatchObject({ sections: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('passes persisted non-HERO section styles through the storefront projection', async () => {
     const document = structuredClone(emptyDocument());
     const usp = structuredClone(document.sections[0]);

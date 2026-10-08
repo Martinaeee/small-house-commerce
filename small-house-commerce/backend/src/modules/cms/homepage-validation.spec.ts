@@ -524,6 +524,83 @@ describe('HomepageValidator non-hero sections', () => {
     expect(errors).toEqual([]);
   });
 
+  it('requires an enabled countdown banner to end in the future', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-10-08T12:00:00.000Z');
+    vi.setSystemTime(now);
+    try {
+      const cases: Array<{
+        endsAt: string | null;
+        expectedCode: string;
+      }> = [
+        { endsAt: null, expectedCode: 'COUNTDOWN_END_REQUIRED' },
+        { endsAt: now.toISOString(), expectedCode: 'COUNTDOWN_END_NOT_FUTURE' },
+        {
+          endsAt: new Date(now.getTime() - 1).toISOString(),
+          expectedCode: 'COUNTDOWN_END_NOT_FUTURE',
+        },
+      ];
+
+      for (const testCase of cases) {
+        const doc = validDoc();
+        const section = addSection(
+          doc,
+          'COUNTDOWN_BANNER' as HomepageSection['type'],
+          { payload: { endsAt: testCase.endsAt } },
+        );
+        const { errors } = await makeValidator(createLookup()).validate(doc);
+        expect(codes(errors)).toEqual([testCase.expectedCode]);
+        expect(errors[0]).toMatchObject({ sectionId: section.id });
+      }
+
+      const future = validDoc();
+      addSection(future, 'COUNTDOWN_BANNER' as HomepageSection['type'], {
+        payload: { endsAt: new Date(now.getTime() + 60_000).toISOString() },
+      });
+      await expect(
+        makeValidator(createLookup()).validate(future),
+      ).resolves.toMatchObject({ errors: [] });
+
+      const disabled = validDoc();
+      addSection(disabled, 'COUNTDOWN_BANNER' as HomepageSection['type'], {
+        enabled: false,
+        payload: { endsAt: null },
+      });
+      await expect(
+        makeValidator(createLookup()).validate(disabled),
+      ).resolves.toMatchObject({ errors: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a countdown that ends before its section can become active', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-10-08T12:00:00.000Z');
+    vi.setSystemTime(now);
+    try {
+      const doc = validDoc();
+      const section = addSection(
+        doc,
+        'COUNTDOWN_BANNER' as HomepageSection['type'],
+        {
+          schedule: {
+            publishAt: new Date(now.getTime() + 120_000).toISOString(),
+            unpublishAt: null,
+          },
+          payload: { endsAt: new Date(now.getTime() + 60_000).toISOString() },
+        },
+      );
+
+      const { errors } = await makeValidator(createLookup()).validate(doc);
+
+      expect(codes(errors)).toEqual(['COUNTDOWN_WINDOW_EMPTY']);
+      expect(errors[0]).toMatchObject({ sectionId: section.id });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports issues in document order', async () => {
     const doc = validDoc();
     slidesOf(doc)[0].media = null; // HERO error first

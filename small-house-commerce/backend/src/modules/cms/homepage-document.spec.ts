@@ -288,7 +288,115 @@ describe('homepage document schema v1', () => {
     expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
   });
 
-  it('passes non-hero payloads through untouched', () => {
+  it('strictly validates V2 banner payloads while keeping schema version 1', () => {
+    for (const ctaLink of [
+      '/collections/sale',
+      '#featured',
+      'https://example.com/sale',
+    ]) {
+      const doc = emptyDocument();
+      doc.sections.push({
+        id: uuid(2),
+        type: 'PROMO_BANNER',
+        title: 'Sale',
+        subtitle: null,
+        enabled: true,
+        sortOrder: 10,
+        schedule: { publishAt: null, unpublishAt: null },
+        payload: { ctaText: 'Shop now', ctaLink },
+        products: [],
+      } as unknown as HomepageSection);
+      doc.sections.push({
+        id: uuid(3),
+        type: 'COUNTDOWN_BANNER',
+        title: 'Ends soon',
+        subtitle: null,
+        enabled: true,
+        sortOrder: 20,
+        schedule: { publishAt: null, unpublishAt: null },
+        payload: { endsAt: null },
+        products: [],
+      } as unknown as HomepageSection);
+
+      const parsed = homepageDocumentSchema.parse(doc);
+      expect(parsed.schemaVersion).toBe(1);
+      expect(parsed.sections[1].payload).toEqual({
+        ctaText: 'Shop now',
+        ctaLink,
+      });
+      expect(parsed.sections[2].payload).toEqual({ endsAt: null });
+    }
+  });
+
+  it('rejects unsafe banner links, unsupported payload fields, and product joins', () => {
+    const invalidLinks = [
+      'http://example.com/sale',
+      '//example.com/sale',
+      'javascript:alert(1)',
+      'data:text/html,bad',
+      'https://',
+      '/sale\nnext',
+    ];
+    for (const ctaLink of invalidLinks) {
+      const doc = emptyDocument();
+      doc.sections.push({
+        id: uuid(2),
+        type: 'PROMO_BANNER',
+        title: null,
+        subtitle: null,
+        enabled: true,
+        sortOrder: 10,
+        schedule: { publishAt: null, unpublishAt: null },
+        payload: { ctaLink },
+        products: [],
+      } as unknown as HomepageSection);
+      expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+    }
+
+    const unsupported = emptyDocument();
+    unsupported.sections.push({
+      id: uuid(2),
+      type: 'PROMO_BANNER',
+      title: null,
+      subtitle: null,
+      enabled: true,
+      sortOrder: 10,
+      schedule: { publishAt: null, unpublishAt: null },
+      payload: { imageUrl: '/uploads/catalog/banner.jpg' },
+      products: [],
+    } as unknown as HomepageSection);
+    expect(homepageDocumentSchema.safeParse(unsupported).success).toBe(false);
+
+    const joined = emptyDocument();
+    joined.sections.push({
+      id: uuid(2),
+      type: 'COUNTDOWN_BANNER',
+      title: null,
+      subtitle: null,
+      enabled: true,
+      sortOrder: 10,
+      schedule: { publishAt: null, unpublishAt: null },
+      payload: { endsAt: '2026-10-10T00:00:00.000Z' },
+      products: [{ productId: uuid(100), sortOrder: 0, badge: null }],
+    } as unknown as HomepageSection);
+    expect(homepageDocumentSchema.safeParse(joined).success).toBe(false);
+
+    const malformedEnd = emptyDocument();
+    malformedEnd.sections.push({
+      id: uuid(2),
+      type: 'COUNTDOWN_BANNER',
+      title: null,
+      subtitle: null,
+      enabled: true,
+      sortOrder: 10,
+      schedule: { publishAt: null, unpublishAt: null },
+      payload: { endsAt: 'tomorrow' },
+      products: [],
+    } as unknown as HomepageSection);
+    expect(homepageDocumentSchema.safeParse(malformedEnd).success).toBe(false);
+  });
+
+  it('passes existing non-hero payloads through untouched', () => {
     const doc = emptyDocument();
     const usp: HomepageSection = {
       id: uuid(2),
