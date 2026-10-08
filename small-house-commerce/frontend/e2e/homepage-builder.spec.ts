@@ -251,6 +251,34 @@ async function getDraft(): Promise<DraftSnapshot> {
   return adminGet<DraftSnapshot>("/admin/homepage/draft");
 }
 
+async function putDraft(snapshot: DraftSnapshot): Promise<void> {
+  const current = await getDraft();
+  await withAdmin(async (token, context) => {
+    const response = await context.put(`${API}/admin/homepage/draft`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { draft: snapshot.draft, expectedRev: current.draftRev },
+    });
+    expect(response.ok(), `restore draft (${response.status()}): ${await response.text()}`).toBeTruthy();
+  });
+}
+
+async function unpublishVersion(versionNo: number): Promise<void> {
+  const versions = await adminGet<
+    { id: string; versionNo: number; unpublishAt: string | null }[]
+  >("/admin/homepage/versions");
+  const version = versions.find((candidate) => candidate.versionNo === versionNo);
+  if (!version || version.unpublishAt !== null) return;
+  await adminPost(`/admin/homepage/versions/${version.id}/unpublish`);
+}
+
+async function restoreHomepageSnapshot(
+  snapshot: DraftSnapshot,
+  publishedVersionNo: number | null,
+): Promise<void> {
+  if (publishedVersionNo !== null) await unpublishVersion(publishedVersionNo);
+  await putDraft(snapshot);
+}
+
 /**
  * Saves a draft whose hero is valid to publish: media (SVG served from the
  * E2E backend uploads), heading text, and EXTERNAL https CTA links so the
@@ -877,6 +905,112 @@ test.describe("homepage builder (P1 Task 22)", () => {
       const builderIssues = builderState();
       expect(builderIssues.errors, `builder console errors @ ${width}`).toHaveLength(0);
       expect(builderIssues.pageErrors, `builder pageerrors @ ${width}`).toHaveLength(0);
+    }
+  });
+
+  test("countdown banner blocks an expired publish, then renders and expires on the storefront", async ({ page }) => {
+    const heading = unique("E2E BANNER HERO");
+    const promoTitle = unique("E2E PROMO");
+    const countdownTitle = unique("E2E COUNTDOWN");
+    const original = await getDraft();
+    let publishedVersionNo: number | null = null;
+
+    try {
+      await savePublishableDraft(heading);
+
+      // Append a promo banner and a countdown banner whose end time has passed.
+      const snapshot = await getDraft();
+      const doc = snapshot.draft;
+      doc.sections = [
+        ...doc.sections,
+        {
+          id: cryptoRandomUuid(),
+          type: "PROMO_BANNER",
+          title: promoTitle,
+          subtitle: null,
+          enabled: true,
+          sortOrder: 500,
+          schedule: { publishAt: null, unpublishAt: null },
+          payload: { ctaText: "Shop now", ctaLink: "/collections/sale" },
+          products: [],
+        },
+        {
+          id: cryptoRandomUuid(),
+          type: "COUNTDOWN_BANNER",
+          title: countdownTitle,
+          subtitle: null,
+          enabled: true,
+          sortOrder: 510,
+          schedule: { publishAt: null, unpublishAt: null },
+          payload: {
+            endsAt: new Date(Date.now() - 60_000).toISOString(),
+            ctaText: "Grab it",
+            ctaLink: "#featured",
+          },
+          products: [],
+        },
+      ] as typeof doc.sections;
+      await withAdmin(async (token, context) => {
+        const response = await context.put(`${API}/admin/homepage/draft`, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          data: { draft: doc, expectedRev: snapshot.draftRev },
+        });
+        expect(response.ok(), `PUT draft (${response.status()}): ${await response.text()}`).toBeTruthy();
+      });
+
+      // The publish gate refuses an enabled countdown whose end time has passed.
+      await withAdmin(async (token, context) => {
+        const response = await context.post(`${API}/admin/homepage/publish`, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          data: { note: "expired countdown", publishAt: null, unpublishAt: null, confirmWarnings: true },
+        });
+        expect(response.status(), "expired countdown blocks publish").toBe(422);
+        expect(await response.text()).toContain("countdown end time");
+      });
+
+      // Move the end time slightly into the future and publish for real.
+      const live = await getDraft();
+      const countdown = live.draft.sections.find(
+        (section) => section.type === "COUNTDOWN_BANNER",
+      );
+      if (!countdown) throw new Error("draft is missing the countdown banner");
+      countdown.payload.endsAt = new Date(Date.now() + 15_000).toISOString();
+      await withAdmin(async (token, context) => {
+        const response = await context.put(`${API}/admin/homepage/draft`, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          data: { draft: live.draft, expectedRev: live.draftRev },
+        });
+        expect(response.ok(), `PUT draft (${response.status()}): ${await response.text()}`).toBeTruthy();
+      });
+      const published = await adminPost<{ versionNo: number }>("/admin/homepage/publish", {
+        note: "live countdown",
+        publishAt: null,
+        unpublishAt: null,
+        confirmWarnings: true,
+      });
+      publishedVersionNo = published.versionNo;
+      await pollValue(async () => {
+        const storefront = await adminGet<{ sections: { type: string }[] }>("/storefront/homepage");
+        return storefront.sections.some((section) => section.type === "COUNTDOWN_BANNER")
+          ? true
+          : null;
+      }, "storefront serves the countdown banner");
+
+      // The storefront page renders both banners; the countdown reads the clock
+      // only after hydration (server HTML carries no digits).
+      await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
+      await page.goto(`${FRONTEND}/`);
+      await expect(page.getByText(promoTitle)).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(countdownTitle)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("timer")).toBeVisible();
+
+      // At the deadline the countdown removes itself entirely, without a reload;
+      // the promo banner stays.
+      await expect(page.getByText(countdownTitle)).toBeHidden({ timeout: 25_000 });
+      await expect(page.getByRole("timer")).toHaveCount(0);
+      await expect(page.getByText(promoTitle)).toBeVisible();
+    } finally {
+      await restoreHomepageSnapshot(original, publishedVersionNo);
     }
   });
 });
