@@ -1,6 +1,6 @@
 import { createElement, useEffect, type ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
   HomepageEditorProvider,
@@ -15,7 +15,31 @@ import {
   type HomepageSection,
   type NonHeroHomepageSection,
 } from "@/lib/homepage-document";
-import { defaultSection } from "@/lib/homepage-section-factory";
+import { SECTION_TYPES, defaultSection } from "@/lib/homepage-section-factory";
+
+// Editors only fetch on demand; the routing regression below mounts every
+// type, so the API surface they may touch is stubbed out.
+vi.mock("@/lib/admin-api", () => ({
+  AdminApiError: class AdminApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+    }
+  },
+  adminApi: {
+    listCategories: vi.fn(async () => []),
+    listCollections: vi.fn(async () => ({ items: [], total: 0, page: 1, pageSize: 20 })),
+    listLandingPages: vi.fn(async () => ({ items: [], total: 0, page: 1, pageSize: 20 })),
+    listProducts: vi.fn(async () => ({ items: [], total: 0, page: 1, pageSize: 20 })),
+    getProduct: vi.fn(async () => {
+      throw new Error("not found");
+    }),
+    uploadImage: vi.fn(async () => {
+      throw new Error("not configured");
+    }),
+  },
+}));
 
 const USP_ID = "00000000-0000-7000-8000-000000000902";
 
@@ -115,6 +139,31 @@ describe("SectionEditorPanel", () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("heading", { name: "Style" })).toBeVisible();
+  });
+
+  it("renders the type-specific payload editor for every addable section type", () => {
+    setAdminLang("en");
+    const sectionId = "00000000-0000-7000-8000-000000000910";
+
+    for (const type of SECTION_TYPES) {
+      const doc: HomepageDocument = {
+        ...emptyDocument(),
+        sections: [emptyDocument().sections[0], defaultSection(type, sectionId, 10)],
+      };
+      const { unmount } = render(
+        <AdminI18nProvider>
+          <HomepageEditorProvider>
+            <Loader document={doc} />
+            <SectionEditorPanel sectionId={sectionId} />
+          </HomepageEditorProvider>
+        </AdminI18nProvider>,
+      );
+
+      expect(
+        document.querySelector(`[data-section-content-editor="${type}"]`),
+      ).not.toBeNull();
+      unmount();
+    }
   });
 
   it("summarises the override count in the collapsed header", () => {

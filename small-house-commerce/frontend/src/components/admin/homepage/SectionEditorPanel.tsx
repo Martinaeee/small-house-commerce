@@ -184,6 +184,18 @@ export function SectionEditorPanel({
           section,
           (patch) => applyPayloadPatch("CONFIDENCE", patch),
         );
+      case "PROMO_BANNER":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.PROMO_BANNER,
+          section,
+          (patch) => applyPayloadPatch("PROMO_BANNER", patch),
+        );
+      case "COUNTDOWN_BANNER":
+        return renderSectionEditor(
+          SECTION_EDITOR_REGISTRY.COUNTDOWN_BANNER,
+          section,
+          (patch) => applyPayloadPatch("COUNTDOWN_BANNER", patch),
+        );
     }
   };
 
