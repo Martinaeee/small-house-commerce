@@ -559,14 +559,32 @@ export function HomepageLivePreview({
   const catalog = usePreviewCatalog(sections);
 
   useEffect(() => {
-    if (!selectedSectionId) return;
+    const preview = previewRef.current;
+    if (!selectedSectionId || !preview) return;
     const target = Array.from(
-      previewRef.current?.querySelectorAll<HTMLElement>(
-        "[data-preview-section-id]",
-      ) ?? [],
+      preview.querySelectorAll<HTMLElement>("[data-preview-section-id]"),
     ).find((section) => section.dataset.previewSectionId === selectedSectionId);
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedSectionId]);
+    if (!target) return;
+
+    const previewRect = preview.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const viewportTop = preview.scrollTop;
+    const viewportBottom = viewportTop + preview.clientHeight;
+    const measuredScale = previewRect.height / preview.clientHeight;
+    const scale = Number.isFinite(measuredScale) && measuredScale > 0 ? measuredScale : 1;
+    const targetTop = (targetRect.top - previewRect.top) / scale + viewportTop;
+    const targetHeight = targetRect.height / scale;
+    const targetBottom = targetTop + targetHeight;
+    if (targetTop >= viewportTop && targetBottom <= viewportBottom) return;
+
+    const visibleTargetHeight = Math.min(targetHeight, preview.clientHeight);
+    const centeredTop = targetTop - (preview.clientHeight - visibleTargetHeight) / 2;
+    const maxScrollTop = Math.max(0, preview.scrollHeight - preview.clientHeight);
+    preview.scrollTo({
+      behavior: "smooth",
+      top: Math.min(Math.max(centeredTop, 0), maxScrollTop),
+    });
+  }, [device, selectedSectionId]);
 
   return (
     <div

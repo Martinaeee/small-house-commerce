@@ -85,6 +85,62 @@ function documentWithHeroAfterUsp(): HomepageDocument {
   return document;
 }
 
+function mockRect(top: number, height: number): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    top,
+    bottom: top + height,
+    left: 0,
+    right: 700,
+    width: 700,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function mockPreviewScrollGeometry({
+  preview,
+  target,
+  scrollTop,
+  scrollHeight = 3000,
+  clientHeight = 900,
+  targetTop,
+  targetHeight,
+  scale = 1,
+}: {
+  preview: HTMLElement;
+  target: HTMLElement;
+  scrollTop: number;
+  scrollHeight?: number;
+  clientHeight?: number;
+  targetTop: number;
+  targetHeight: number;
+  scale?: number;
+}): { scrollTo: ReturnType<typeof vi.fn>; scrollIntoView: ReturnType<typeof vi.fn> } {
+  const scrollTo = vi.fn();
+  const scrollIntoView = vi.fn();
+  Object.defineProperties(preview, {
+    scrollTop: { configurable: true, value: scrollTop, writable: true },
+    scrollHeight: { configurable: true, value: scrollHeight },
+    clientHeight: { configurable: true, value: clientHeight },
+    scrollTo: { configurable: true, value: scrollTo },
+    getBoundingClientRect: {
+      configurable: true,
+      value: () => mockRect(100, clientHeight * scale),
+    },
+  });
+  Object.defineProperties(target, {
+    scrollIntoView: { configurable: true, value: scrollIntoView },
+    getBoundingClientRect: {
+      configurable: true,
+      value: () =>
+        mockRect(100 + (targetTop - scrollTop) * scale, targetHeight * scale),
+    },
+  });
+  return { scrollTo, scrollIntoView };
+}
+
 const PREVIEW_PRODUCT_ID = "00000000-0000-7000-8000-000000000701";
 const PREVIEW_CATEGORY_ID = "00000000-0000-7000-8000-000000000702";
 
@@ -756,42 +812,109 @@ describe("HomepageEditor", () => {
     });
   });
 
-  it("scrolls the live preview to the selected module", async () => {
-    const scrollIntoView = vi.fn();
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
+  it("centers a selected preview module within the internal viewport", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    const preview = document.querySelector<HTMLElement>("[data-homepage-live-preview]");
+    const target = preview?.querySelector<HTMLElement>(
+      `[data-preview-section-id="${USP_SECTION_ID}"]`,
+    );
+    expect(preview).not.toBeNull();
+    expect(target).not.toBeNull();
+    const { scrollTo } = mockPreviewScrollGeometry({
+      preview: preview!,
+      target: target!,
+      scrollTop: 0,
+      targetTop: 1400,
+      targetHeight: 200,
     });
 
-    try {
-      renderHarnessWithDocument(documentWithUsp());
-      await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
 
-      const preview = document.querySelector("[data-homepage-live-preview]");
-      expect(
-        preview?.querySelector(`[data-preview-section-id="${USP_SECTION_ID}"]`),
-      ).not.toBeNull();
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 1050 });
+  });
 
-      fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
+  it("clamps a selected final module to the bottom of the complete preview", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
 
-      expect(scrollIntoView).toHaveBeenCalledWith({
-        behavior: "smooth",
-        block: "start",
-      });
-    } finally {
-      if (originalScrollIntoView) {
-        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-          configurable: true,
-          value: originalScrollIntoView,
-        });
-      } else {
-        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-          configurable: true,
-          value: undefined,
-        });
-      }
-    }
+    const preview = document.querySelector<HTMLElement>("[data-homepage-live-preview]");
+    const target = preview?.querySelector<HTMLElement>(
+      `[data-preview-section-id="${USP_SECTION_ID}"]`,
+    );
+    expect(preview).not.toBeNull();
+    expect(target).not.toBeNull();
+    const { scrollTo } = mockPreviewScrollGeometry({
+      preview: preview!,
+      target: target!,
+      scrollTop: 0,
+      targetTop: 2800,
+      targetHeight: 100,
+      scale: 0.42,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 2100 });
+  });
+
+  it("keeps the complete preview still when the selected module is visible", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    const preview = document.querySelector<HTMLElement>("[data-homepage-live-preview]");
+    const target = preview?.querySelector<HTMLElement>(
+      `[data-preview-section-id="${USP_SECTION_ID}"]`,
+    );
+    expect(preview).not.toBeNull();
+    expect(target).not.toBeNull();
+    const { scrollTo, scrollIntoView } = mockPreviewScrollGeometry({
+      preview: preview!,
+      target: target!,
+      scrollTop: 1000,
+      targetTop: 1150,
+      targetHeight: 100,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("repositions the selected module when the preview device changes", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    const preview = document.querySelector<HTMLElement>("[data-homepage-live-preview]");
+    const target = preview?.querySelector<HTMLElement>(
+      `[data-preview-section-id="${USP_SECTION_ID}"]`,
+    );
+    expect(preview).not.toBeNull();
+    expect(target).not.toBeNull();
+    mockPreviewScrollGeometry({
+      preview: preview!,
+      target: target!,
+      scrollTop: 0,
+      targetTop: 1400,
+      targetHeight: 200,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
+
+    const { scrollTo } = mockPreviewScrollGeometry({
+      preview: preview!,
+      target: target!,
+      scrollTop: 1050,
+      scrollHeight: 4000,
+      clientHeight: 844,
+      targetTop: 2500,
+      targetHeight: 100,
+      scale: 0.42,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 2128 });
   });
 
   it("keeps live preview sections in draft sort order", async () => {
