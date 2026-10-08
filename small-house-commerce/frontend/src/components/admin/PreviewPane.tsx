@@ -60,6 +60,8 @@ export function DeviceFrame({
   children,
   labels = DEFAULT_LABELS,
   className,
+  scrollable = false,
+  flat = false,
 }: {
   device: DeviceName;
   children: ReactNode;
@@ -69,6 +71,10 @@ export function DeviceFrame({
   >;
   /** Extra classes on the outer frame (used for responsive visibility). */
   className?: string;
+  /** Keep the device viewport in flow so a full-page child can scroll. */
+  scrollable?: boolean;
+  /** Preserve device scaling while removing the visible device chrome. */
+  flat?: boolean;
 }): ReactNode {
   const d = DEVICES[device];
   const maxWidth = d.width * d.scale;
@@ -101,18 +107,25 @@ export function DeviceFrame({
 
   return (
     <div
-      className={`flex min-w-0 w-full max-w-full flex-col gap-2${className ? ` ${className}` : ""}`}
-      style={{ width: maxWidth }}
+      className={`flex min-w-0 w-full max-w-full flex-col${flat ? " gap-0" : " gap-2"}${className ? ` ${className}` : ""}`}
+      style={{ width: flat ? "100%" : maxWidth }}
     >
-      <span className="text-xs font-semibold text-ink-secondary">{label}</span>
+      {flat ? null : <span className="text-xs font-semibold text-ink-secondary">{label}</span>}
       <div
         ref={frameRef}
-        className="relative min-h-0 w-full overflow-hidden rounded-lg border border-border bg-white"
-        style={{ maxWidth, height: frameHeight, aspectRatio: `${d.width} / ${d.height}` }}
+        data-preview-frame={flat ? "flat" : "device"}
+        className={`relative min-h-0 w-full overflow-hidden${
+          flat ? "" : " rounded-lg border border-border bg-white"
+        }`}
+        style={{
+          maxWidth: flat ? "100%" : maxWidth,
+          height: frameHeight,
+          aspectRatio: `${d.width} / ${d.height}`,
+        }}
       >
         <div
           data-preview-viewport
-          className="absolute left-0 top-0"
+          className={scrollable ? "relative left-0 top-0" : "absolute left-0 top-0"}
           style={{
             width: d.width,
             height: d.height,

@@ -315,6 +315,44 @@ describe('homepage document schema v1', () => {
     } as Record<string, unknown>;
     expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
   });
+
+  it('accepts homepage default section styles and whitelists their values', () => {
+    const doc = emptyDocument();
+    expect(doc.defaults).toEqual({});
+
+    doc.defaults = {
+      backgroundColor: '#F2EFE9',
+      textColor: '#292724',
+      contentWidth: 'STANDARD',
+      paddingTop: 24,
+      paddingBottom: 24,
+    };
+    expect(homepageDocumentSchema.parse(doc).defaults).toEqual(doc.defaults);
+
+    // Injected CSS never reaches the document.
+    expect(
+      homepageDocumentSchema.safeParse({
+        ...doc,
+        defaults: { backgroundColor: 'red; background:url(x)' },
+      }).success,
+    ).toBe(false);
+
+    // Unknown enum + out-of-range padding are rejected.
+    expect(
+      homepageDocumentSchema.safeParse({ ...doc, defaults: { contentWidth: 'WIDE' } })
+        .success,
+    ).toBe(false);
+    expect(
+      homepageDocumentSchema.safeParse({ ...doc, defaults: { paddingTop: 300 } })
+        .success,
+    ).toBe(false);
+  });
+
+  it('keeps a stored document without defaults schema-valid', () => {
+    const legacy: Record<string, unknown> = structuredClone(emptyDocument());
+    delete legacy.defaults;
+    expect(homepageDocumentSchema.safeParse(legacy).success).toBe(true);
+  });
 });
 
 describe('normalizeLegacyDocument', () => {

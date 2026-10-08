@@ -293,6 +293,21 @@ const announcementSchema = z.object({
 
 // --- section / document -----------------------------------------------------
 
+/**
+ * The per-section style block, reused as the homepage-wide default. Every
+ * field is optional: a section may override any single field, and an unset
+ * field falls back to the document default (then to the built-in class).
+ */
+const sectionStyleSchema = z
+  .object({
+    backgroundColor: hexColor,
+    textColor: hexColor,
+    contentWidth: z.enum(['FULL', 'STANDARD', 'NARROW']),
+    paddingTop: z.number().min(0).max(240),
+    paddingBottom: z.number().min(0).max(240),
+  })
+  .partial();
+
 const sectionProductSchema = z.object({
   productId: z.string().uuid(),
   sortOrder: z.number().int().min(0).max(999),
@@ -376,16 +391,19 @@ export type HeroPayload = z.infer<typeof heroPayloadSchema>;
 export type AnnouncementItem = z.infer<typeof announcementItemSchema>;
 export type AnnouncementBlock = z.infer<typeof announcementSchema>;
 export type HomepageSection = z.infer<typeof sectionSchema>;
+export type SectionStyle = z.infer<typeof sectionStyleSchema>;
 export type HomepageDocument = {
   schemaVersion: typeof SCHEMA_VERSION;
   sections: HomepageSection[];
   announcement: AnnouncementBlock;
+  defaults?: SectionStyle;
 };
 
 export const homepageDocumentSchema: z.ZodType<HomepageDocument> = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   sections: z.array(sectionSchema),
   announcement: announcementSchema,
+  defaults: sectionStyleSchema.optional(),
 });
 
 // --- publish validation contract --------------------------------------------
@@ -575,6 +593,7 @@ export function emptyDocument(): HomepageDocument {
       },
     ],
     announcement: { enabled: false, rotationMs: 5000, items: [] },
+    defaults: {},
   };
 }
 

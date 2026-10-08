@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import type { HeroPayload } from "@/lib/homepage-document";
 import { HeroSlideCountdown } from "./HeroSlideCountdown";
+import { sectionStylePresentation } from "./sectionShell";
 
 /**
  * Storefront hero slider for the homepage document (spec §6.1 / plan Task 19).
@@ -159,13 +160,14 @@ export function HeroSlider({
     return null;
   }
   const cssText = heroCss(section.id, payload as unknown as HeroPayload) || "";
+  const presentation = sectionStylePresentation(section.style);
 
   return (
     <div
       id={`hp-hero-${section.id}`}
       data-hero-slider
-      className="relative w-full overflow-hidden text-white"
-      style={{ height: "var(--hp-hero-height, 560px)" }}
+      className={`relative mx-auto w-full overflow-hidden text-white ${presentation.widthClass} ${presentation.textColorClass}`.trim()}
+      style={{ height: "var(--hp-hero-height, 560px)", ...presentation.style }}
       onMouseEnter={behavior.pauseOnHover && !editing ? () => setHovered(true) : undefined}
       onMouseLeave={behavior.pauseOnHover && !editing ? () => setHovered(false) : undefined}
     >
@@ -269,6 +271,7 @@ type HeroSliderSection = {
   subtitle: string | null;
   sortOrder: number;
   payload: Record<string, unknown>;
+  style?: unknown;
 };
 
 type SliderBehavior = {

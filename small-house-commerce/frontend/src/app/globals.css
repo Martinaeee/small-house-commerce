@@ -95,6 +95,18 @@
   --color-success: var(--color-admin-success);
 }
 
+.storefront-theme {
+  --color-background: #faf8f5;
+  --color-card: #ffffff;
+  --color-border: #e8e2d9;
+  --color-primary: #c9a77b;
+  --color-primary-dark: #b8946a;
+  --color-primary-light: #e8dccb;
+  --color-cta: #6b4f3a;
+  --color-cta-hover: #5a4130;
+  --color-success: #217a3c;
+}
+
 .admin-app {
   min-height: calc(100vh - 3.5rem);
   background: var(--color-background);

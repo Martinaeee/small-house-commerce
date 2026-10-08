@@ -170,22 +170,21 @@ describe("AdminShell website navigation group", () => {
     return screen.getByRole("navigation", { name: "Admin navigation" });
   }
 
-  it("renders the Website group title with Homepage for PRODUCT_MANAGE accounts", () => {
+  it("renders Homepage as a top-level nav item for PRODUCT_MANAGE accounts", () => {
     renderShell();
 
-    expect(within(desktopNav()).getByText("nav_group_website")).toBeVisible();
     expect(
       within(desktopNav()).getByRole("link", { name: "nav_homepage" }),
     ).toHaveAttribute("href", "/admin/homepage");
-  });
-
-  it("hides the Website group title and Homepage without PRODUCT_MANAGE", () => {
-    shellState.permissions = ["ORDER_VIEW_ALL"];
-    renderShell();
-
     expect(
       within(desktopNav()).queryByText("nav_group_website"),
     ).not.toBeInTheDocument();
+  });
+
+  it("hides Homepage without PRODUCT_MANAGE", () => {
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
     expect(
       within(desktopNav()).queryByRole("link", { name: "nav_homepage" }),
     ).not.toBeInTheDocument();

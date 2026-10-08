@@ -99,11 +99,31 @@ describe("SectionEditorPanel", () => {
     expect(screen.getByTestId("section-editor-type")).toHaveTextContent("USP");
     expect(screen.getByText("Trust points and service promises")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Content" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Style" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Advanced" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Section title" })).toHaveValue(
       "Trust strip",
     );
+
+    // The style override block is collapsed by default and only renders the
+    // fields once expanded.
+    const toggle = screen.getByRole("button", {
+      name: /Advanced: individual override/,
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "Style" })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("heading", { name: "Style" })).toBeVisible();
+  });
+
+  it("summarises the override count in the collapsed header", () => {
+    renderPanel();
+
+    // The fixture sets only `backgroundColor` among the whitelisted keys.
+    expect(
+      screen.getByRole("button", { name: /1 overridden/ }),
+    ).toBeVisible();
   });
 
   it("writes common fields through latest-document mutations while preserving payload and products", () => {
@@ -133,6 +153,9 @@ describe("SectionEditorPanel", () => {
   it("preserves unrelated style keys and removes a style override back to inheritance", () => {
     renderPanel();
 
+    fireEvent.click(
+      screen.getByRole("button", { name: /Advanced: individual override/ }),
+    );
     fireEvent.change(screen.getByRole("textbox", { name: "Background color" }), {
       target: { value: "#445566" },
     });

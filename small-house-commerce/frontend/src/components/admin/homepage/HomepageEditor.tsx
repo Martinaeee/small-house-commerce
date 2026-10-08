@@ -9,6 +9,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -21,11 +22,13 @@ import { DeviceFrame } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
-import { HeroCanvas } from "@/components/admin/homepage/HeroCanvas";
+import { HomepageDefaultsPanel } from "@/components/admin/homepage/HomepageDefaultsPanel";
+import { HomepageLivePreview } from "@/components/admin/homepage/HomepageLivePreview";
 import { HeroMediaSettings } from "@/components/admin/homepage/HeroMediaSettings";
 import { HeroStyleSettings } from "@/components/admin/homepage/HeroStyleSettings";
 import {
   ANNOUNCEMENT_SELECTION_ID,
+  HOMEPAGE_DEFAULTS_SELECTION_ID,
   ModuleTree,
 } from "@/components/admin/homepage/ModuleTree";
 import { PublishPanel } from "@/components/admin/homepage/PublishPanel";
@@ -52,7 +55,7 @@ import {
  *
  * Three-pane editor over the single homepage draft document:
  *   - left   Modules  → ModuleTree (Task 13 fills the tree)
- *   - middle Preview  → device frame + `heroCss` style injection + HeroCanvas
+ *   - middle Preview  → full-width live preview + `heroCss` + full draft live preview
  *   - right  Settings → SettingsPanel (Task 14 fills the groups)
  *
  * The provider owns the reducer-backed editor state and the shared selection
@@ -63,6 +66,14 @@ import {
  */
 
 const AUTOSAVE_DELAY_MS = 3000;
+const SETTINGS_WIDTH_DEFAULT = 440;
+const SETTINGS_WIDTH_MIN = 360;
+const SETTINGS_WIDTH_MAX = 560;
+const SETTINGS_WIDTH_STEP = 16;
+
+function clampSettingsWidth(value: number): number {
+  return Math.min(SETTINGS_WIDTH_MAX, Math.max(SETTINGS_WIDTH_MIN, value));
+}
 
 export type BuilderDevice = "desktop" | "tablet" | "mobile";
 
@@ -230,6 +241,8 @@ export function HomepageEditorShell(): ReactNode {
   const [loadNonce, setLoadNonce] = useState(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<BuilderPane>("modules");
+  const [settingsWidth, setSettingsWidth] = useState(SETTINGS_WIDTH_DEFAULT);
+  const settingsResizeStart = useRef<{ clientX: number; width: number } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [previewPending, setPreviewPending] = useState(false);
   const [previewDisabled, setPreviewDisabled] = useState(false);
@@ -554,16 +567,16 @@ export function HomepageEditorShell(): ReactNode {
     : undefined;
   const selectedNonHeroSection =
     selectedSection && selectedSection.type !== "HERO" ? selectedSection : null;
-  const deviceLabels = {
-    desktopDevice: t("homepage_builder_device_desktop"),
-    tabletDevice: t("homepage_builder_device_tablet"),
-    mobileDevice: t("homepage_builder_device_mobile"),
-  };
-
   return (
-    <div className="flex min-w-0 flex-col gap-3 px-4 py-4 md:px-6">
+    <div
+      data-homepage-editor-shell
+      className="flex min-w-0 flex-col gap-3 px-4 py-4 md:px-6 min-[1280px]:h-[calc(100vh-3.5rem)] min-[1280px]:min-h-0 min-[1280px]:overflow-hidden"
+    >
       {/* Status bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-3">
+      <div
+        data-testid="homepage-status-bar"
+        className="sticky top-14 min-[1280px]:top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-3"
+      >
         <Badge value={t("homepage_builder_draft_badge")} tone="amber" />
         {published ? (
           <Badge value={t("homepage_builder_published_badge")} tone="green" />
@@ -716,16 +729,16 @@ export function HomepageEditorShell(): ReactNode {
         ))}
       </div>
 
-      {/* Three panes: stacked switcher below 1280px, 280/1fr/360 grid above.
-          Tailwind v4 preflight maps `[hidden]` to `display:none !important`,
-          which a bare `min-[1280px]:block` cannot override — so desktop
-          visibility is driven purely by classes here (Ruling 44 fix, Task 22). */}
-      <div className="grid min-w-0 gap-4 min-[1280px]:grid-cols-[280px_minmax(0,1fr)_360px]">
+      {/* Three panes: stacked switcher below 1280px, resizable settings rail above. */}
+      <div
+        style={{ "--homepage-settings-width": `${settingsWidth}px` } as CSSProperties}
+        className="grid min-w-0 gap-4 min-[1280px]:min-h-0 min-[1280px]:flex-1 min-[1280px]:grid-cols-[280px_minmax(0,1fr)_12px_var(--homepage-settings-width)]"
+      >
         <section
           id="homepage-pane-modules"
           data-pane="modules"
           aria-label={t("homepage_builder_pane_modules")}
-          className={`min-w-0 min-[1280px]:block ${
+          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
             activePane !== "modules" ? "max-[1279px]:hidden" : ""
           }`}
         >
@@ -736,15 +749,15 @@ export function HomepageEditorShell(): ReactNode {
           id="homepage-pane-preview"
           data-pane="preview"
           aria-label={t("homepage_builder_pane_preview")}
-          className={`min-w-0 min-[1280px]:block ${
+          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
             activePane !== "preview" ? "max-[1279px]:hidden" : ""
           }`}
         >
-          <div className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-4">
+          <div data-preview-surface className="flex min-w-0 flex-col gap-3">
             <div
               role="group"
               aria-label={t("homepage_builder_device_switch")}
-              className="flex flex-wrap gap-1"
+              className="flex flex-wrap items-center gap-1"
             >
               {DEVICE_OPTIONS.map((option) => (
                 <button
@@ -762,28 +775,81 @@ export function HomepageEditorShell(): ReactNode {
                 </button>
               ))}
             </div>
-            <div className="flex min-w-0 justify-center">
-              <DeviceFrame device={device} labels={deviceLabels}>
+            <div
+              data-preview-device={device}
+              data-full-width-preview="true"
+              className="min-w-0 w-full overflow-hidden bg-background"
+              style={{ width: "100%" }}
+            >
+              <DeviceFrame device={device} flat scrollable>
                 {heroSection ? (
                   <style>{heroCss(heroSection.id, heroSection.payload)}</style>
                 ) : null}
-                <HeroCanvas />
+                <HomepageLivePreview
+                  document={state.document}
+                  device={device}
+                  selectedSectionId={selectedSectionId}
+                />
               </DeviceFrame>
             </div>
           </div>
         </section>
 
+        <div
+          role="separator"
+          aria-label={t("homepage_builder_resize_settings")}
+          aria-orientation="vertical"
+          aria-valuemin={SETTINGS_WIDTH_MIN}
+          aria-valuemax={SETTINGS_WIDTH_MAX}
+          aria-valuenow={settingsWidth}
+          data-pane-resizer="settings"
+          tabIndex={0}
+          className="hidden min-h-12 cursor-col-resize touch-none items-stretch justify-center rounded-full bg-border/60 outline-none transition-colors hover:bg-cta focus-visible:bg-cta min-[1280px]:flex"
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              setSettingsWidth((value) => clampSettingsWidth(value + SETTINGS_WIDTH_STEP));
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              setSettingsWidth((value) => clampSettingsWidth(value - SETTINGS_WIDTH_STEP));
+            }
+          }}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            settingsResizeStart.current = {
+              clientX: event.clientX,
+              width: settingsWidth,
+            };
+          }}
+          onPointerMove={(event) => {
+            const start = settingsResizeStart.current;
+            if (!start) return;
+            setSettingsWidth(
+              clampSettingsWidth(start.width + start.clientX - event.clientX),
+            );
+          }}
+          onPointerUp={() => {
+            settingsResizeStart.current = null;
+          }}
+          onPointerCancel={() => {
+            settingsResizeStart.current = null;
+          }}
+        />
+
         <section
           id="homepage-pane-settings"
           data-pane="settings"
           aria-label={t("homepage_builder_pane_settings")}
-          className={`min-w-0 min-[1280px]:block ${
+          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
             activePane !== "settings" ? "max-[1279px]:hidden" : ""
           }`}
         >
-          {/* Right-pane routing priority: the announcement pseudo-node, then a
-              selected non-HERO section, then a selected Hero element/slide. */}
-          {selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
+          {/* Right-pane routing priority: the homepage-defaults pseudo-node,
+              then the announcement pseudo-node, then a selected non-HERO
+              section, then a selected Hero element/slide. */}
+          {selectedSectionId === HOMEPAGE_DEFAULTS_SELECTION_ID ? (
+            <HomepageDefaultsPanel />
+          ) : selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
             <AnnouncementSettings />
           ) : selectedNonHeroSection ? (
             <SectionEditorPanel

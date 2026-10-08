@@ -11,8 +11,11 @@ import { SolutionsSection } from "./SolutionsSection";
 import { UgcSection } from "./UgcSection";
 import { UspSection } from "./UspSection";
 
+export type SectionPreviewDevice = "desktop" | "tablet" | "mobile";
+
 export interface SectionProps {
   section: HomepageSection;
+  previewDevice?: SectionPreviewDevice;
 }
 
 export const SECTION_REGISTRY: Record<HomepageSectionType, ComponentType<SectionProps>> = {

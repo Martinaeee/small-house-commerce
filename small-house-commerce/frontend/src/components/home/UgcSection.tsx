@@ -2,13 +2,22 @@ import Link from "next/link";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell } from "./sectionShell";
-import type { HomepageSection, Product } from "@/lib/api";
+import type { Product } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function UgcSection({ section }: { section: HomepageSection }) {
+export function UgcSection({ section, previewDevice }: SectionProps) {
   const entries = Array.isArray(section.payload?.entries) ? section.payload.entries : [];
+  const gridClass =
+    previewDevice === "desktop"
+      ? "grid grid-cols-3 gap-4"
+      : previewDevice === "tablet"
+        ? "grid grid-cols-2 gap-4"
+        : previewDevice === "mobile"
+          ? "grid grid-cols-1 gap-4"
+          : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3";
 
   if (entries.length === 0) {
     return <SectionPlaceholder title={section.title} message="Real home photos coming soon." style={section.style} />;
@@ -17,7 +26,7 @@ export function UgcSection({ section }: { section: HomepageSection }) {
   return (
     <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={gridClass}>
         {entries.slice(0, 6).map((entry, index) => {
           const row = entry as {
             imageUrl?: unknown;

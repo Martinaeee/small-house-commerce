@@ -155,6 +155,31 @@ describe("HeroSlider", () => {
     vi.useRealTimers();
   });
 
+  it("applies inherited section presentation to the Hero root", () => {
+    render(
+      <HeroSlider
+        section={{
+          ...section([slide(0)]),
+          style: {
+            backgroundColor: "#F2EFE9",
+            textColor: "#112233",
+            contentWidth: "NARROW",
+            paddingTop: 40,
+            paddingBottom: 24,
+          },
+        }}
+      />,
+    );
+
+    expect(wrapper()).toHaveClass("mx-auto", "max-w-[840px]");
+    expect(wrapper()).toHaveStyle({
+      backgroundColor: "#F2EFE9",
+      color: "#112233",
+      paddingTop: "40px",
+      paddingBottom: "24px",
+    });
+  });
+
   it("renders only the first slide's media eagerly and marks the rest aria-hidden", () => {
     render(<HeroSlider section={section(threeSlides())} />);
     const slides = slideWrappers();

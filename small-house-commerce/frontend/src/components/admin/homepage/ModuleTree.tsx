@@ -56,6 +56,13 @@ import {
  */
 export const ANNOUNCEMENT_SELECTION_ID = "__announcement__";
 
+/**
+ * Selection sentinel for the homepage-defaults pseudo-node. Like the
+ * announcement sentinel it travels through `selectedSectionId`; the shell
+ * routes the right pane to `HomepageDefaultsPanel` on this value.
+ */
+export const HOMEPAGE_DEFAULTS_SELECTION_ID = "__homepage_defaults__";
+
 function newSectionId(): string {
   const cryptoApi = globalThis.crypto;
   if (typeof cryptoApi?.randomUUID === "function") {
@@ -271,11 +278,17 @@ export function ModuleTree(): ReactNode {
         </SortableContext>
       </DndContext>
 
-      <AnnouncementNode
-        selected={selectedSectionId === ANNOUNCEMENT_SELECTION_ID}
-        enabled={document.announcement.enabled}
-        onSelect={() => setSelectedSectionId(ANNOUNCEMENT_SELECTION_ID)}
-      />
+      <div className="mt-auto flex flex-col gap-2">
+        <DefaultsNode
+          selected={selectedSectionId === HOMEPAGE_DEFAULTS_SELECTION_ID}
+          onSelect={() => setSelectedSectionId(HOMEPAGE_DEFAULTS_SELECTION_ID)}
+        />
+        <AnnouncementNode
+          selected={selectedSectionId === ANNOUNCEMENT_SELECTION_ID}
+          enabled={document.announcement.enabled}
+          onSelect={() => setSelectedSectionId(ANNOUNCEMENT_SELECTION_ID)}
+        />
+      </div>
 
       <AddSectionDialog
         open={addSectionOpen}
@@ -395,6 +408,31 @@ function SortableSectionRow({
   );
 }
 
+function DefaultsNode({
+  selected,
+  onSelect,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+}): ReactNode {
+  const { t } = useAdminI18n();
+  return (
+    <button
+      type="button"
+      data-defaults-node
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+        selected
+          ? "border-cta text-cta"
+          : "border-border text-ink hover:border-cta/60"
+      }`}
+    >
+      <span className="truncate">{t("homepage_builder_defaults_title")}</span>
+    </button>
+  );
+}
+
 function AnnouncementNode({
   selected,
   enabled,
@@ -411,7 +449,7 @@ function AnnouncementNode({
       data-announcement-node
       onClick={onSelect}
       aria-pressed={selected}
-      className={`mt-auto flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+      className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
         selected
           ? "border-cta text-cta"
           : "border-border text-ink hover:border-cta/60"

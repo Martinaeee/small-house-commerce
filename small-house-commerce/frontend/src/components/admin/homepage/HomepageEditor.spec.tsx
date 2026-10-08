@@ -1,19 +1,24 @@
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { AdminApiError } from "@/lib/admin-auth";
 import { emptyDocument, type HomepageDocument, type HomepageSection } from "@/lib/homepage-document";
-import type { HomepageDraftSnapshot } from "@/lib/admin-api";
+import type { HomepageDraftSnapshot, AdminCategoryNode, AdminProduct } from "@/lib/admin-api";
 import {
   HomepageEditor,
   HomepageEditorProvider,
   HomepageEditorShell,
   useHomepageEditor,
 } from "@/components/admin/homepage/HomepageEditor";
-import { ANNOUNCEMENT_SELECTION_ID } from "@/components/admin/homepage/ModuleTree";
+import {
+  ANNOUNCEMENT_SELECTION_ID,
+  HOMEPAGE_DEFAULTS_SELECTION_ID,
+} from "@/components/admin/homepage/ModuleTree";
 
 const getHomepageDraft = vi.hoisted(() => vi.fn());
+const getProduct = vi.hoisted(() => vi.fn());
+const listCategories = vi.hoisted(() => vi.fn());
 const saveHomepageDraft = vi.hoisted(() => vi.fn());
 const createHomepagePreviewToken = vi.hoisted(() => vi.fn());
 const validateHomepage = vi.hoisted(() => vi.fn());
@@ -23,6 +28,8 @@ const hasPermission = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/admin-api", () => ({
   adminApi: {
     getHomepageDraft,
+    getProduct,
+    listCategories,
     saveHomepageDraft,
     createHomepagePreviewToken,
     validateHomepage,
@@ -67,6 +74,105 @@ function documentWithUsp(): HomepageDocument {
     payload: {},
   } as HomepageSection;
   document.sections.push(usp);
+  return document;
+}
+
+function documentWithHeroAfterUsp(): HomepageDocument {
+  const document = documentWithUsp();
+  document.sections = document.sections.map((section) =>
+    section.type === "HERO" ? { ...section, sortOrder: 20 } : section,
+  );
+  return document;
+}
+
+const PREVIEW_PRODUCT_ID = "00000000-0000-7000-8000-000000000701";
+const PREVIEW_CATEGORY_ID = "00000000-0000-7000-8000-000000000702";
+
+function previewProduct(): AdminProduct {
+  return {
+    id: PREVIEW_PRODUCT_ID,
+    name: "Preview product",
+    slug: "preview-product",
+    productCode: null,
+    description: null,
+    tagline: null,
+    seoTitle: null,
+    metaDescription: null,
+    categoryId: PREVIEW_CATEGORY_ID,
+    status: "ACTIVE",
+    room: null,
+    internalRole: null,
+    solutions: [],
+    width: null,
+    height: null,
+    depth: null,
+    foldedWidth: null,
+    foldedHeight: null,
+    foldedDepth: null,
+    materials: null,
+    features: null,
+    createdAt: DRAFT_UPDATED_AT,
+    updatedAt: DRAFT_UPDATED_AT,
+    catalogGraphVersion: 1,
+    defaultDisplayVariantId: null,
+    images: [],
+    detailBlocks: [],
+    variants: [
+      {
+        id: "00000000-0000-7000-8000-000000000705",
+        name: "Default",
+        position: 0,
+        sku: {
+          id: "00000000-0000-7000-8000-000000000706",
+          skuCode: "PREVIEW-1",
+          status: "ACTIVE",
+          price: "1200",
+          compareAtPrice: null,
+          supplierSku: null,
+          supplierCost: null,
+          costCurrency: null,
+          landedCost: null,
+          productWeight: null,
+          packageWidth: null,
+          packageHeight: null,
+          packageDepth: null,
+          packageWeight: null,
+          volumetricWeight: null,
+          onHand: 4,
+          reserved: 0,
+          availableInventory: 4,
+        },
+      },
+    ],
+  };
+}
+
+function documentWithCatalogJoins(): HomepageDocument {
+  const document = emptyDocument();
+  document.sections.push(
+    {
+      id: "00000000-0000-7000-8000-000000000703",
+      type: "PRODUCT_GRID",
+      title: "Selected products",
+      subtitle: null,
+      enabled: true,
+      sortOrder: 10,
+      schedule: { publishAt: null, unpublishAt: null },
+      products: [{ productId: PREVIEW_PRODUCT_ID, sortOrder: 0, badge: null }],
+      payload: { columns: 2 },
+    } as HomepageSection,
+    {
+      id: "00000000-0000-7000-8000-000000000704",
+      type: "CATEGORY_TILES",
+      title: "Selected categories",
+      subtitle: null,
+      enabled: true,
+      sortOrder: 20,
+      schedule: { publishAt: null, unpublishAt: null },
+      products: [],
+      payload: { categoryIds: [PREVIEW_CATEGORY_ID] },
+    } as HomepageSection,
+  );
   return document;
 }
 
@@ -154,6 +260,16 @@ function EditorProbe(): ReactNode {
       >
         select-announcement
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedElementKey(null);
+          setSelectedSlideId(null);
+          setSelectedSectionId(HOMEPAGE_DEFAULTS_SELECTION_ID);
+        }}
+      >
+        select-defaults
+      </button>
       <span data-testid="selected-element">{selectedElementKey ?? ""}</span>
       <button
         type="button"
@@ -170,6 +286,24 @@ function EditorProbe(): ReactNode {
         }}
       >
         select-hero
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          dispatch({
+            type: "mutate",
+            mutate: (document) => ({
+              ...document,
+              sections: document.sections.map((section) =>
+                section.type === "USP"
+                  ? { ...section, title: "Updated trust strip" }
+                  : section,
+              ),
+            }),
+          });
+        }}
+      >
+        change-usp-title
       </button>
       <textarea aria-label="probe textarea" />
     </div>
@@ -211,12 +345,15 @@ describe("HomepageEditor", () => {
   beforeEach(() => {
     setAdminLang("en");
     getHomepageDraft.mockReset();
+    getProduct.mockReset();
+    listCategories.mockReset();
     saveHomepageDraft.mockReset();
     createHomepagePreviewToken.mockReset();
     validateHomepage.mockReset();
     publishHomepage.mockReset();
     hasPermission.mockReset();
     getHomepageDraft.mockResolvedValue(draftSnapshot());
+    listCategories.mockResolvedValue([]);
     saveHomepageDraft.mockResolvedValue(savedResponse());
     createHomepagePreviewToken.mockResolvedValue({
       token: "tok-abc",
@@ -270,6 +407,12 @@ describe("HomepageEditor", () => {
     expect(screen.getByRole("link", { name: "Versions" })).toHaveAttribute(
       "href",
       "/admin/homepage/versions",
+    );
+
+    expect(screen.getByTestId("homepage-status-bar")).toHaveClass(
+      "sticky",
+      "top-14",
+      "z-10",
     );
 
     const style = document.querySelector("style");
@@ -542,6 +685,12 @@ describe("HomepageEditor", () => {
     expect(panel("hero-media-settings")).toBeNull();
     expect(panel("hero-style-settings")).toBeNull();
     expect(panel("settings-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "select-defaults" }));
+    expect(panel("homepage-defaults")).not.toBeNull();
+    expect(panel("announcement-settings")).toBeNull();
+    expect(panel("hero-style-settings")).toBeNull();
+    expect(panel("settings-panel")).toBeNull();
   });
 
   it("routes a selected non-HERO section to the typed section editor and clears Hero selection", async () => {
@@ -559,6 +708,145 @@ describe("HomepageEditor", () => {
     expect(document.querySelector('[data-section-editor-type="USP"]')).not.toBeNull();
     expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
     expect(document.querySelector('[data-panel="hero-style-settings"]')).toBeNull();
+  });
+
+  it("renders the whole draft in a scrollable live preview", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    const preview = document.querySelector('[data-homepage-live-preview]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveClass(/overflow-y-auto/);
+    expect(preview?.querySelector('[data-preview-section="HERO"]')).not.toBeNull();
+    expect(preview?.querySelector('[data-preview-section="USP"]')).not.toBeNull();
+    expect(within(preview as HTMLElement).getByText("Trust strip")).toBeVisible();
+  });
+
+  it("applies homepage defaults to sections in the live preview", async () => {
+    const draft = documentWithUsp();
+    draft.defaults = { backgroundColor: "#F2EFE9", paddingTop: 40 };
+    renderHarnessWithDocument(draft);
+    await flush();
+
+    const preview = document.querySelector('[data-homepage-live-preview]');
+    const usp = preview?.querySelector('[data-preview-section="USP"]');
+    const shell = usp?.querySelector("section");
+    expect(shell).toHaveStyle({ backgroundColor: "#F2EFE9", paddingTop: "40px" });
+  });
+
+  it("applies homepage defaults to Hero in the live preview", async () => {
+    const draft = emptyDocument();
+    draft.defaults = {
+      backgroundColor: "#F2EFE9",
+      textColor: "#112233",
+      contentWidth: "NARROW",
+      paddingTop: 40,
+      paddingBottom: 24,
+    };
+    renderHarnessWithDocument(draft);
+    await flush();
+
+    const hero = document.querySelector('[data-preview-section="HERO"] [data-hero-slider]');
+    expect(hero).toHaveClass("mx-auto", "max-w-[840px]");
+    expect(hero).toHaveStyle({
+      backgroundColor: "#F2EFE9",
+      color: "#112233",
+      paddingTop: "40px",
+      paddingBottom: "24px",
+    });
+  });
+
+  it("scrolls the live preview to the selected module", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderHarnessWithDocument(documentWithUsp());
+      await flush();
+
+      const preview = document.querySelector("[data-homepage-live-preview]");
+      expect(
+        preview?.querySelector(`[data-preview-section-id="${USP_SECTION_ID}"]`),
+      ).not.toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Trust strip" }));
+
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "smooth",
+        block: "start",
+      });
+    } finally {
+      if (originalScrollIntoView) {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+          configurable: true,
+          value: originalScrollIntoView,
+        });
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+          configurable: true,
+          value: undefined,
+        });
+      }
+    }
+  });
+
+  it("keeps live preview sections in draft sort order", async () => {
+    renderHarnessWithDocument(documentWithHeroAfterUsp());
+    await flush();
+
+    const preview = document.querySelector("[data-homepage-live-preview]");
+    const types = [...(preview?.querySelectorAll("[data-preview-section]") ?? [])].map(
+      (section) => section.getAttribute("data-preview-section"),
+    );
+
+    expect(types.slice(0, 2)).toEqual(["USP", "HERO"]);
+  });
+
+  it("hydrates selected product and category joins for the live preview", async () => {
+    getProduct.mockResolvedValue(previewProduct());
+    const category: AdminCategoryNode = {
+      id: PREVIEW_CATEGORY_ID,
+      parentId: null,
+      name: "Preview category",
+      slug: "preview-category",
+      sortOrder: 0,
+      imageUrl: "https://example.com/category.jpg",
+      status: "ACTIVE",
+      heroStyle: null,
+      children: [],
+    };
+    listCategories.mockResolvedValue([category]);
+
+    renderHarnessWithDocument(documentWithCatalogJoins());
+    await flush();
+    await flush();
+
+    const preview = document.querySelector("[data-homepage-live-preview]");
+    expect(within(preview as HTMLElement).getAllByText("Preview product").length).toBeGreaterThan(0);
+    expect(
+      within(preview as HTMLElement).getByText("Preview category"),
+    ).toBeVisible();
+    expect(within(preview as HTMLElement).queryByText(PREVIEW_PRODUCT_ID)).toBeNull();
+    expect(within(preview as HTMLElement).queryByText(PREVIEW_CATEGORY_ID)).toBeNull();
+  });
+
+
+  it("updates the full preview from an unsaved section mutation", async () => {
+    renderHarnessWithDocument(documentWithUsp());
+    await flush();
+
+    const preview = document.querySelector("[data-homepage-live-preview]");
+    expect(preview).not.toBeNull();
+    expect(within(preview as HTMLElement).getByText("Trust strip")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "change-usp-title" }));
+
+    expect(within(preview as HTMLElement).getByText("Updated trust strip")).toBeVisible();
+    expect(within(preview as HTMLElement).queryByText("Trust strip")).toBeNull();
   });
 
   it("switches back to Hero settings when selecting a Hero element from a non-Hero section", async () => {
@@ -589,28 +877,28 @@ describe("HomepageEditor", () => {
     expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
   });
 
-  it("switches the preview device including tablet", async () => {
+  it("switches the full-width preview device without a device frame", async () => {
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
-    // The preview pane only carries the device switcher once it is the
-    // active narrow-layout pane (below 1280px it starts on Modules).
     fireEvent.click(screen.getByRole("tab", { name: "Live Preview" }));
 
-    expect(document.querySelector("[data-preview-viewport]")).toHaveStyle({
-      width: "1440px",
-    });
+    const surface = document.querySelector("[data-full-width-preview]");
+    expect(surface).toHaveStyle({ width: "100%" });
+    expect(surface).toHaveAttribute("data-preview-device", "desktop");
+    expect(surface).toHaveAttribute("data-full-width-preview", "true");
+
+    const viewport = surface?.querySelector("[data-preview-viewport]");
+    expect(viewport).toHaveStyle({ width: "1440px", height: "900px" });
+    expect(viewport).toHaveStyle({ transform: "scale(0.42)" });
 
     fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
-    expect(document.querySelector("[data-preview-viewport]")).toHaveStyle({
-      width: "768px",
-    });
-    expect(screen.getAllByText("Tablet").length).toBeGreaterThan(0);
+    expect(viewport).toHaveStyle({ width: "768px", height: "1024px" });
+    expect(surface).toHaveAttribute("data-preview-device", "tablet");
 
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
-    expect(document.querySelector("[data-preview-viewport]")).toHaveStyle({
-      width: "390px",
-    });
+    expect(viewport).toHaveStyle({ width: "390px", height: "844px" });
+    expect(surface).toHaveAttribute("data-preview-device", "mobile");
   });
 
   it("switches panes with the narrow-layout tab switcher", async () => {
@@ -646,6 +934,40 @@ describe("HomepageEditor", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("gives each desktop pane an independent scroll container", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    const shell = document.querySelector("[data-homepage-editor-shell]");
+    expect(shell).not.toBeNull();
+    expect(shell).toHaveClass("min-[1280px]:h-[calc(100vh-3.5rem)]");
+    expect(shell).toHaveClass("min-[1280px]:overflow-hidden");
+
+    const status = screen.getByTestId("homepage-status-bar");
+    expect(status).toHaveClass("min-[1280px]:top-0");
+
+    for (const name of ["modules", "preview", "settings"]) {
+      const pane = document.querySelector(`[data-pane="${name}"]`);
+      expect(pane).toHaveClass("min-[1280px]:min-h-0");
+      expect(pane).toHaveClass("min-[1280px]:overflow-y-auto");
+      expect(pane).toHaveClass("min-[1280px]:overscroll-contain");
+    }
+  });
+
+  it("resizes the settings pane and keeps the preview surface flat", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    const separator = screen.getByRole("separator", { name: "Resize settings panel" });
+    expect(separator).toHaveAttribute("aria-valuenow", "440");
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(separator).toHaveAttribute("aria-valuenow", "456");
+
+    const surface = document.querySelector("[data-preview-surface]");
+    expect(surface).not.toBeNull();
+    expect(surface).not.toHaveClass("rounded-xl", "border", "bg-card");
   });
 
   it("shows every pane in the desktop grid above 1280px, never via the hidden attribute", async () => {

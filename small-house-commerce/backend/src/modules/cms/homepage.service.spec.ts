@@ -531,6 +531,52 @@ describe('HomepageService versioned storefront source', () => {
     expect(result.sections[0]).toMatchObject({ style: usp.style });
   });
 
+  it('merges homepage default styles under each section, letting the section override single fields', async () => {
+    const document = structuredClone(emptyDocument());
+    document.defaults = {
+      backgroundColor: '#F2EFE9',
+      textColor: '#292724',
+      contentWidth: 'STANDARD',
+      paddingTop: 40,
+      paddingBottom: 40,
+    };
+    const inherited = structuredClone(document.sections[0]);
+    inherited.id = '00000000-0000-7000-8000-000000000002';
+    inherited.type = 'USP';
+    inherited.payload = {};
+    const overriding = structuredClone(inherited);
+    overriding.id = '00000000-0000-7000-8000-000000000003';
+    overriding.style = { contentWidth: 'NARROW', paddingTop: 8 };
+    document.sections = [inherited, overriding];
+
+    const result = await versionedService(versionedContext(document)).storefrontGet();
+
+    expect(result.sections[0]).toMatchObject({ style: document.defaults });
+    expect(result.sections[1]).toMatchObject({
+      style: {
+        backgroundColor: '#F2EFE9',
+        textColor: '#292724',
+        contentWidth: 'NARROW',
+        paddingTop: 8,
+        paddingBottom: 40,
+      },
+    });
+  });
+
+  it('omits the style block when neither the section nor the homepage defaults set anything', async () => {
+    const document = structuredClone(emptyDocument());
+    document.defaults = {};
+    const usp = structuredClone(document.sections[0]);
+    usp.id = '00000000-0000-7000-8000-000000000002';
+    usp.type = 'USP';
+    usp.payload = {};
+    document.sections = [usp];
+
+    const result = await versionedService(versionedContext(document)).storefrontGet();
+
+    expect(result.sections[0]).not.toHaveProperty('style');
+  });
+
   it('uses document products for non-HERO hydration without querying legacy joins', async () => {
     const document = structuredClone(emptyDocument());
     const grid = structuredClone(document.sections[0]);

@@ -51,10 +51,22 @@ const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
   },
 ];
 
-export function TrustBar() {
+export function TrustBar({
+  previewDevice,
+}: {
+  previewDevice?: "desktop" | "tablet" | "mobile";
+} = {}) {
+  const gridClass =
+    previewDevice === "desktop"
+      ? "grid grid-cols-4 gap-4"
+      : previewDevice === "tablet"
+        ? "grid grid-cols-2 gap-4"
+        : previewDevice === "mobile"
+          ? "grid grid-cols-1 gap-4"
+          : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4";
   return (
     <section aria-label="Why shop with us">
-      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <ul className={gridClass}>
         {ITEMS.map((item) => (
           <li
             key={item.label}

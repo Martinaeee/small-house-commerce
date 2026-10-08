@@ -3,22 +3,16 @@
 import type { ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import type { NonHeroHomepageSection } from "@/lib/homepage-document";
+import type { SectionStyle } from "@/lib/homepage-document";
 
-export type SectionContentWidth = "FULL" | "STANDARD" | "NARROW";
-
-export type SectionStyle = {
-  backgroundColor?: string;
-  textColor?: string;
-  contentWidth?: SectionContentWidth;
-  paddingTop?: number;
-  paddingBottom?: number;
-};
-
+export type { SectionContentWidth } from "@/lib/homepage-document";
 export type SectionStylePatch = Partial<SectionStyle>;
 
-function readStyle(section: NonHeroHomepageSection): SectionStyle {
-  const value = section.style;
+/**
+ * Narrow a stored (opaque) style record to the whitelisted section style keys.
+ * Shared by the per-section override editor and the homepage defaults panel.
+ */
+export function readSectionStyle(value: unknown): SectionStyle {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const style = value as Record<string, unknown>;
   return {
@@ -68,15 +62,18 @@ function ResetButton({
 }
 
 export function SectionStyleFields({
-  section,
+  value,
   onChange,
+  inheritText,
 }: {
-  section: NonHeroHomepageSection;
+  value: SectionStyle;
   onChange: (patch: SectionStylePatch) => void;
+  /** Placeholder for an unset field; the homepage defaults panel overrides it. */
+  inheritText?: string;
 }): ReactNode {
   const { t } = useAdminI18n();
-  const style = readStyle(section);
   const resetLabel = t("homepage_builder_style_reset");
+  const inherit = inheritText ?? t("homepage_builder_style_inherit");
 
   return (
     <section
@@ -88,10 +85,10 @@ export function SectionStyleFields({
         <Field label={t("homepage_builder_style_background_color")}>
           <div className="flex min-w-0 items-center gap-2">
             <TextInput
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 text-sm py-2"
               aria-label={t("homepage_builder_style_background_color")}
-              value={style.backgroundColor ?? ""}
-              placeholder={t("homepage_builder_style_inherit")}
+              value={value.backgroundColor ?? ""}
+              placeholder={inherit}
               onChange={(event) => onChange({ backgroundColor: event.target.value || undefined })}
             />
             <ResetButton
@@ -104,10 +101,10 @@ export function SectionStyleFields({
         <Field label={t("homepage_builder_style_text_color")}>
           <div className="flex min-w-0 items-center gap-2">
             <TextInput
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 text-sm py-2"
               aria-label={t("homepage_builder_style_text_color")}
-              value={style.textColor ?? ""}
-              placeholder={t("homepage_builder_style_inherit")}
+              value={value.textColor ?? ""}
+              placeholder={inherit}
               onChange={(event) => onChange({ textColor: event.target.value || undefined })}
             />
             <ResetButton
@@ -120,17 +117,17 @@ export function SectionStyleFields({
         <Field label={t("homepage_builder_style_content_width")}>
           <div className="flex min-w-0 items-center gap-2">
             <Select
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 text-sm py-2"
               aria-label={t("homepage_builder_style_content_width")}
-              value={style.contentWidth ?? ""}
+              value={value.contentWidth ?? ""}
               onChange={(event) =>
                 onChange({
                   contentWidth:
-                    (event.target.value || undefined) as SectionContentWidth | undefined,
+                    (event.target.value || undefined) as SectionStyle["contentWidth"],
                 })
               }
             >
-              <option value="">{t("homepage_builder_style_inherit")}</option>
+              <option value="">{inherit}</option>
               <option value="FULL">{t("homepage_builder_style_content_width_FULL")}</option>
               <option value="STANDARD">{t("homepage_builder_style_content_width_STANDARD")}</option>
               <option value="NARROW">{t("homepage_builder_style_content_width_NARROW")}</option>
@@ -146,13 +143,13 @@ export function SectionStyleFields({
           <Field label={t("homepage_builder_style_padding_top")}>
             <div className="flex min-w-0 items-center gap-2">
               <TextInput
-                className="min-w-0 flex-1"
+                className="min-w-0 flex-1 text-sm py-2"
                 type="number"
                 min={0}
                 max={240}
                 aria-label={t("homepage_builder_style_padding_top")}
-                value={style.paddingTop ?? ""}
-                placeholder={t("homepage_builder_style_inherit")}
+                value={value.paddingTop ?? ""}
+                placeholder={inherit}
                 onChange={(event) => onChange({ paddingTop: numberValue(event.target.value) })}
               />
               <ResetButton
@@ -165,13 +162,13 @@ export function SectionStyleFields({
           <Field label={t("homepage_builder_style_padding_bottom")}>
             <div className="flex min-w-0 items-center gap-2">
               <TextInput
-                className="min-w-0 flex-1"
+                className="min-w-0 flex-1 text-sm py-2"
                 type="number"
                 min={0}
                 max={240}
                 aria-label={t("homepage_builder_style_padding_bottom")}
-                value={style.paddingBottom ?? ""}
-                placeholder={t("homepage_builder_style_inherit")}
+                value={value.paddingBottom ?? ""}
+                placeholder={inherit}
                 onChange={(event) => onChange({ paddingBottom: numberValue(event.target.value) })}
               />
               <ResetButton

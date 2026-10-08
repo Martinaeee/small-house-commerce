@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   updateSection,
@@ -28,6 +28,7 @@ import {
 } from "@/components/admin/homepage/SectionCommonFields";
 import {
   SectionStyleFields,
+  readSectionStyle,
   type SectionStylePatch,
 } from "@/components/admin/homepage/SectionStyleFields";
 
@@ -61,6 +62,7 @@ export function SectionEditorPanel({
 }): ReactNode {
   const { t } = useAdminI18n();
   const { state, dispatch } = useHomepageEditor();
+  const [styleOpen, setStyleOpen] = useState(false);
   const section = nonHeroSection(
     state.document.sections.find((candidate) => candidate.id === sectionId),
   );
@@ -206,6 +208,9 @@ export function SectionEditorPanel({
     });
   };
 
+  const style = readSectionStyle(section.style);
+  const overrideCount = Object.keys(style).length;
+
   return (
     <div
       data-testid="section-editor-panel"
@@ -225,7 +230,30 @@ export function SectionEditorPanel({
       </header>
 
       <SectionCommonFields section={section} onChange={applyCommonPatch} />
-      <SectionStyleFields section={section} onChange={applyStylePatch} />
+      <div
+        data-panel="section-style-override"
+        className="flex min-w-0 flex-col gap-2"
+      >
+        <button
+          type="button"
+          data-style-override-toggle
+          aria-expanded={styleOpen}
+          onClick={() => setStyleOpen((open) => !open)}
+          className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm font-semibold text-ink transition-colors hover:border-cta/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+        >
+          <span className="truncate">
+            {t("homepage_builder_style_override_group")}
+          </span>
+          <span className="shrink-0 text-xs font-normal text-ink-muted">
+            {overrideCount > 0
+              ? t("homepage_builder_style_override_count", { count: overrideCount })
+              : t("homepage_builder_style_override_inherited")}
+          </span>
+        </button>
+        {styleOpen ? (
+          <SectionStyleFields value={style} onChange={applyStylePatch} />
+        ) : null}
+      </div>
       {renderPayloadEditor()}
     </div>
   );

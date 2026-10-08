@@ -9,13 +9,19 @@ import { trackAttrs } from "@/lib/home-tracking";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function RoomInspirationSection({ section }: SectionProps) {
+export function RoomInspirationSection({ section, previewDevice }: SectionProps) {
   const p = section.payload ?? {};
   const scenes = parseScenes(p);
   const image = str(p.imageUrl);
   const heading = str(p.heading) || section.title || "";
   const body = str(p.body);
   const products = section.products ?? [];
+  const legacyGridClass =
+    previewDevice === "mobile"
+      ? "grid grid-cols-1 gap-8"
+      : previewDevice
+        ? "grid grid-cols-2 gap-8"
+        : "grid grid-cols-1 gap-8 md:grid-cols-2";
 
   // New gallery mode: a non-empty scenes array owns the section; legacy
   // imageUrl / joins stay in the DB but are not rendered while scenes exist.
@@ -26,6 +32,7 @@ export function RoomInspirationSection({ section }: SectionProps) {
         <RoomSceneGallery
           section={{ id: section.id, title: section.title }}
           scenes={scenes}
+          previewDevice={previewDevice}
         />
         {body ? <p className="mt-4 text-ink-secondary">{body}</p> : null}
       </SectionShell>
@@ -45,7 +52,7 @@ export function RoomInspirationSection({ section }: SectionProps) {
   return (
     <SectionShell style={section.style}>
       <SectionHeading title={heading} />
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+      <div className={legacyGridClass}>
         <div>
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element

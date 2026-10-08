@@ -9,6 +9,7 @@ import {
 } from "@/components/admin/homepage/HomepageEditor";
 import {
   ANNOUNCEMENT_SELECTION_ID,
+  HOMEPAGE_DEFAULTS_SELECTION_ID,
   ModuleTree,
 } from "@/components/admin/homepage/ModuleTree";
 import {
@@ -580,6 +581,18 @@ describe("ModuleTree", () => {
     fireEvent.click(node);
 
     expect(text("selected-section")).toBe(ANNOUNCEMENT_SELECTION_ID);
+    expect(node).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows the homepage defaults pseudo-node and selects it", () => {
+    renderTree();
+
+    const node = screen.getByRole("button", { name: /Homepage defaults/ });
+    expect(node).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(node);
+
+    expect(text("selected-section")).toBe(HOMEPAGE_DEFAULTS_SELECTION_ID);
     expect(node).toHaveAttribute("aria-pressed", "true");
   });
 });

@@ -9,6 +9,7 @@ import {
   type HomepageDocument,
   type LinkValue,
   type Schedule,
+  type SectionStyle,
 } from './homepage-document.js';
 import { HomepageDocumentService } from './homepage-document.service.js';
 import { PrismaLinkLookup } from './homepage-link-lookup.js';
@@ -59,6 +60,23 @@ const LINK_ENTITY_TYPES: LinkEntityType[] = [
   'CATEGORY',
   'LANDING',
 ];
+
+/**
+ * Overlay a section's own style on the homepage defaults, field by field.
+ * Returns undefined when neither side sets anything, so a document with no
+ * defaults keeps emitting no `style` key (the storefront's built-in classes
+ * then apply, exactly as before).
+ */
+function mergeSectionStyle(
+  defaults: SectionStyle,
+  style: unknown,
+): Record<string, unknown> | undefined {
+  const merged: Record<string, unknown> = { ...defaults };
+  if (style && typeof style === 'object' && !Array.isArray(style)) {
+    Object.assign(merged, style);
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
 
 @Injectable()
 export class HomepageService {
@@ -158,25 +176,26 @@ export class HomepageService {
   }
 
   private sourceFromDocument(document: HomepageDocument): SelectedSource {
+    const defaults = document.defaults ?? {};
     return {
       document,
-      sections: document.sections.map((section) => ({
-        id: section.id,
-        type: section.type as HomepageSectionType,
-        title: section.title,
-        subtitle: section.subtitle,
-        enabled: section.enabled,
-        sortOrder: section.sortOrder,
-        schedule: section.schedule,
-        style:
-          section.style && typeof section.style === 'object' && !Array.isArray(section.style)
-            ? { ...section.style }
-            : undefined,
-        payload: section.payload,
-        products: section.products
-          .map((product) => ({ ...product }))
-          .sort((left, right) => left.sortOrder - right.sortOrder),
-      })),
+      sections: document.sections.map((section) => {
+        const style = mergeSectionStyle(defaults, section.style);
+        return {
+          id: section.id,
+          type: section.type as HomepageSectionType,
+          title: section.title,
+          subtitle: section.subtitle,
+          enabled: section.enabled,
+          sortOrder: section.sortOrder,
+          schedule: section.schedule,
+          ...(style ? { style } : {}),
+          payload: section.payload,
+          products: section.products
+            .map((product) => ({ ...product }))
+            .sort((left, right) => left.sortOrder - right.sortOrder),
+        };
+      }),
     };
   }
 

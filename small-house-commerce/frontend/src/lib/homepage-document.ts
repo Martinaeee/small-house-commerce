@@ -24,6 +24,21 @@ export type Schedule = {
   unpublishAt: string | null;
 };
 
+export type SectionContentWidth = "FULL" | "STANDARD" | "NARROW";
+
+/**
+ * The per-section style block, reused as the homepage-wide default. Every
+ * field is optional: a section overrides only the fields it sets, and an unset
+ * field falls back to the document default (then to the built-in class).
+ */
+export type SectionStyle = {
+  backgroundColor?: string;
+  textColor?: string;
+  contentWidth?: SectionContentWidth;
+  paddingTop?: number;
+  paddingBottom?: number;
+};
+
 export type LinkValue =
   | {
       type: "PRODUCT" | "COLLECTION" | "CATEGORY" | "LANDING";
@@ -257,6 +272,7 @@ export type HomepageDocument = {
   schemaVersion: typeof SCHEMA_VERSION;
   sections: HomepageSection[];
   announcement: AnnouncementBlock;
+  defaults?: SectionStyle;
 };
 
 export type HeroElementPatch = {
@@ -494,6 +510,7 @@ export function emptyDocument(): HomepageDocument {
       },
     ],
     announcement: { enabled: false, rotationMs: 5000, items: [] },
+    defaults: {},
   };
 }
 
@@ -776,12 +793,30 @@ export function updateSection(
   return next;
 }
 
+/**
+ * Merge a homepage-default style patch. Fields left undefined or blank are
+ * removed, so "reset" clears the default (matching the per-section override
+ * editor). Works on a legacy document that carries no `defaults` field yet.
+ */
+export function updateDefaults(
+  doc: HomepageDocument,
+  patch: Partial<SectionStyle>,
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const defaults: Record<string, unknown> = { ...(next.defaults ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined || value === "") delete defaults[key];
+    else defaults[key] = value;
+  }
+  next.defaults = defaults as SectionStyle;
+  return next;
+}
+
 export function moveSection(
   doc: HomepageDocument,
   fromIndex: number,
   toIndex: number,
-): HomepageDocument {
-  const next = cloneDocument(doc);
+): HomepageDocument {  const next = cloneDocument(doc);
   if (
     !Number.isInteger(fromIndex) ||
     !Number.isInteger(toIndex) ||

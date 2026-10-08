@@ -1,12 +1,20 @@
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell, SmartLink } from "./sectionShell";
-import type { HomepageSection } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function SolutionsSection({ section }: { section: HomepageSection }) {
+export function SolutionsSection({ section, previewDevice }: SectionProps) {
   const items = Array.isArray(section.payload?.items) ? section.payload.items : [];
+  const gridClass =
+    previewDevice === "desktop"
+      ? "grid grid-cols-3 gap-4"
+      : previewDevice === "tablet"
+        ? "grid grid-cols-2 gap-4"
+        : previewDevice === "mobile"
+          ? "grid grid-cols-1 gap-4"
+          : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3";
 
   return (
     <SectionShell className="scroll-mt-20" style={section.style}>
@@ -15,7 +23,7 @@ export function SolutionsSection({ section }: { section: HomepageSection }) {
       {items.length === 0 ? (
         <SectionPlaceholder inside message="Solution collections are being prepared." />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={gridClass}>
           {items.slice(0, 6).map((item, index) => {
             const row = item as { title?: unknown; blurb?: unknown; link?: unknown };
             return (

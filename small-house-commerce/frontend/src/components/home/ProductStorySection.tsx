@@ -3,12 +3,13 @@ import { ButtonLink } from "@/components/ui/Button";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionShell } from "./sectionShell";
-import type { HomepageSection, Product } from "@/lib/api";
+import type { Product } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function ProductStorySection({ section }: { section: HomepageSection }) {
+export function ProductStorySection({ section, previewDevice }: SectionProps) {
   const p = section.payload ?? {};
   const product = (p.product ?? null) as Product | null;
   // Effective cover media from the backend contract — never images[0].
@@ -25,11 +26,29 @@ export function ProductStorySection({ section }: { section: HomepageSection }) {
 
   // sortOrder 40 -> image left; sortOrder 60 -> image right.
   const reversed = section.sortOrder >= 55;
+  const stackedPreview = previewDevice === "mobile";
+  const gridClass = previewDevice
+    ? `grid items-center gap-8 ${stackedPreview ? "grid-cols-1" : "grid-cols-2"}`
+    : "grid grid-cols-1 items-center gap-8 md:grid-cols-2";
+  const imageOrderClass = reversed
+    ? stackedPreview
+      ? ""
+      : previewDevice
+        ? "order-2"
+        : "md:order-2"
+    : "";
+  const copyOrderClass = reversed
+    ? stackedPreview
+      ? ""
+      : previewDevice
+        ? "order-1"
+        : "md:order-1"
+    : "";
 
   return (
     <SectionShell style={section.style}>
-      <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-2">
-        <div className={reversed ? "md:order-2" : ""}>
+      <div className={gridClass}>
+        <div className={imageOrderClass}>
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={image} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" />
@@ -37,7 +56,7 @@ export function ProductStorySection({ section }: { section: HomepageSection }) {
             <PlaceholderImage label="" className="aspect-[4/3] w-full rounded-xl" />
           )}
         </div>
-        <div className={`flex flex-col gap-4 ${reversed ? "md:order-1" : ""}`}>
+        <div className={`flex flex-col gap-4 ${copyOrderClass}`}>
           {heading ? <h2 className="text-3xl font-semibold text-ink">{heading}</h2> : null}
           {body ? <p className="whitespace-pre-line text-ink-secondary">{body}</p> : null}
           {product ? (

@@ -83,17 +83,10 @@ const NAV_ITEMS: NavEntry[] = [
     permission: "PRODUCT_MANAGE",
   },
   {
-    kind: "group",
-    labelKey: "nav_group_website",
+    kind: "item",
+    href: "/admin/homepage",
+    labelKey: "nav_homepage",
     permission: "PRODUCT_MANAGE",
-    items: [
-      {
-        kind: "item",
-        href: "/admin/homepage",
-        labelKey: "nav_homepage",
-        permission: "PRODUCT_MANAGE",
-      },
-    ],
   },
   {
     kind: "item",

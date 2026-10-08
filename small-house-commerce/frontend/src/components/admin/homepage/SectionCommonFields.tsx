@@ -51,6 +51,7 @@ export function SectionCommonFields({
         <div className="grid min-w-0 gap-3">
           <Field label={t("homepage_builder_section_title")} htmlFor={`section-title-${section.id}`}>
             <TextInput
+              className="text-sm py-2"
               id={`section-title-${section.id}`}
               aria-label={t("homepage_builder_section_title")}
               value={section.title ?? ""}
@@ -63,6 +64,7 @@ export function SectionCommonFields({
             htmlFor={`section-subtitle-${section.id}`}
           >
             <TextInput
+              className="text-sm py-2"
               id={`section-subtitle-${section.id}`}
               aria-label={t("homepage_builder_section_subtitle")}
               value={section.subtitle ?? ""}
@@ -91,6 +93,7 @@ export function SectionCommonFields({
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <Field label={t("homepage_builder_section_start")} htmlFor={`section-start-${section.id}`}>
             <TextInput
+              className="text-sm py-2"
               id={`section-start-${section.id}`}
               type="datetime-local"
               aria-label={t("homepage_builder_section_start")}
@@ -104,6 +107,7 @@ export function SectionCommonFields({
             error={scheduleError}
           >
             <TextInput
+              className="text-sm py-2"
               id={`section-end-${section.id}`}
               type="datetime-local"
               aria-label={t("homepage_builder_section_end")}

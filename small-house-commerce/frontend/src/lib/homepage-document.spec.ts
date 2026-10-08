@@ -20,6 +20,7 @@ import {
   setElementOverride,
   updateAnnouncement,
   updateAnnouncementItem,
+  updateDefaults,
   updateHeroBehavior,
   updateHeroElement,
   updateHeroMedia,
@@ -1070,5 +1071,45 @@ describe("homepage document pure mutators", () => {
       text: "Updated announcement",
       enabled: false,
     });
+  });
+});
+
+describe("updateDefaults", () => {
+  it("starts with empty defaults and merges patches field by field", () => {
+    const doc = emptyDocument();
+    expect(doc.defaults).toEqual({});
+
+    const withBackground = updateDefaults(doc, { backgroundColor: "#F2EFE9" });
+    expectFreshChanged(doc, structuredClone(doc), withBackground);
+    expect(withBackground.defaults).toEqual({ backgroundColor: "#F2EFE9" });
+
+    const withPadding = updateDefaults(withBackground, {
+      paddingTop: 32,
+      contentWidth: "NARROW",
+    });
+    expect(withPadding.defaults).toEqual({
+      backgroundColor: "#F2EFE9",
+      paddingTop: 32,
+      contentWidth: "NARROW",
+    });
+  });
+
+  it("clears a field when the patch value is undefined or an empty string", () => {
+    const doc = updateDefaults(emptyDocument(), {
+      backgroundColor: "#F2EFE9",
+      textColor: "#292724",
+    });
+
+    const cleared = updateDefaults(doc, { backgroundColor: undefined, textColor: "" });
+    expect(cleared.defaults).toEqual({});
+  });
+
+  it("creates defaults on a legacy document that has no defaults field", () => {
+    const legacy = structuredClone(emptyDocument()) as HomepageDocument;
+    delete legacy.defaults;
+    const next = updateDefaults(legacy, {
+      paddingBottom: 12,
+    });
+    expect(next.defaults).toEqual({ paddingBottom: 12 });
   });
 });

@@ -470,7 +470,7 @@ function LockIcon({ locked }: { locked: boolean }): ReactNode {
 const TOOLBAR_BUTTON_CLASS =
   "flex h-7 min-w-7 items-center justify-center gap-1 rounded border border-transparent px-1.5 text-xs font-semibold text-ink-secondary transition-colors hover:border-border hover:text-cta aria-pressed:border-cta aria-pressed:text-cta";
 
-export function HeroCanvas(): ReactNode {
+export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
   const { t } = useAdminI18n();
   const {
     state,
@@ -979,7 +979,10 @@ export function HeroCanvas(): ReactNode {
                 above) so a real browser resolves the selected device and the
                 frame height. */}
             <HeroSlider
-              section={viewSection}
+              section={{
+                ...viewSection,
+                ...(style !== undefined ? { style } : {}),
+              }}
               edit={{
                 selectedElementKey,
                 onSelectElement: setSelectedElementKey,
