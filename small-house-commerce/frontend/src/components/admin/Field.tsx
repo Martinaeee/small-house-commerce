@@ -13,6 +13,14 @@ import type {
 export const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
 
+/**
+ * Compact admin density (~38px tall, 14px text) for the back-office
+ * workbench. `inputCls` stays the larger storefront-sized control for the
+ * checkout/login/account importers.
+ */
+export const inputClsCompact =
+  "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
+
 export function Field({
   label,
   error,
@@ -52,7 +60,7 @@ export function TextInput({
   return (
     <input
       ref={inputRef}
-      className={`${inputCls} ${className}`.trim()}
+      className={`${inputClsCompact} ${className}`.trim()}
       {...props}
     />
   );
@@ -64,7 +72,7 @@ export function Select({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & { children: ReactNode }): ReactNode {
   return (
-    <select className={`${inputCls} ${className}`.trim()} {...props}>
+    <select className={`${inputClsCompact} ${className}`.trim()} {...props}>
       {children}
     </select>
   );
@@ -74,5 +82,5 @@ export function Textarea({
   className = "",
   ...props
 }: TextareaHTMLAttributes<HTMLTextAreaElement>): ReactNode {
-  return <textarea className={`${inputCls} ${className}`.trim()} {...props} />;
+  return <textarea className={`${inputClsCompact} ${className}`.trim()} {...props} />;
 }

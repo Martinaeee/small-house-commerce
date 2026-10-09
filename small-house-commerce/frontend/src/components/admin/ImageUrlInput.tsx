@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { inputCls } from "./Field";
+import { useRef, useState, type FocusEventHandler } from "react";
+import { inputClsCompact } from "./Field";
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 const ACCEPTED_TYPES = {
@@ -19,12 +19,37 @@ const ACCEPTED_TYPES = {
   },
 } as const;
 
-const ACCEPT_ATTRS = {
+export const ACCEPT_ATTRS = {
   image: "image/jpeg,image/png,image/webp",
   video: "video/mp4,video/webm,video/quicktime",
 } as const;
 
 type Kind = keyof typeof ACCEPTED_TYPES;
+
+export type ImageUrlInputLabels = {
+  upload: string;
+  uploading: string;
+  invalidType: string;
+  tooLarge: string;
+  uploadFailed: string;
+};
+
+const DEFAULT_LABELS: Record<Kind, ImageUrlInputLabels> = {
+  image: {
+    upload: "上传图片",
+    uploading: "上传中…",
+    invalidType: "仅支持 JPG / PNG / WebP 图片",
+    tooLarge: "图片不能超过 5MB",
+    uploadFailed: "上传失败，请重试",
+  },
+  video: {
+    upload: "上传视频",
+    uploading: "上传中…",
+    invalidType: "仅支持 MP4 / WebM / MOV 视频",
+    tooLarge: "视频不能超过 100MB",
+    uploadFailed: "上传失败，请重试",
+  },
+};
 
 /**
  * The MIME type to upload a picked file as, or null when the file is not one
@@ -64,20 +89,25 @@ export function ImageUrlInput({
   ariaLabel,
   value,
   onChange,
+  onBlur,
   disabled = false,
   placeholder = "https://…",
   kind = "image",
   problemFocus = false,
+  labels,
 }: {
   id?: string;
   ariaLabel?: string;
   value: string;
   onChange: (url: string) => void;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   disabled?: boolean;
   placeholder?: string;
   kind?: "image" | "video";
   /** Preferred focus target when the sticky problem rail jumps to this row. */
   problemFocus?: boolean;
+  /** Optional localized copy for admin builder surfaces. */
+  labels?: Partial<ImageUrlInputLabels>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -85,18 +115,18 @@ export function ImageUrlInput({
 
   const isVideo = kind === "video";
   const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-  const typeLabel = isVideo ? "MP4 / WebM / MOV 视频" : "JPG / PNG / WebP 图片";
+  const copy = { ...DEFAULT_LABELS[kind], ...labels };
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
     const contentType = resolveUploadType(file.name, file.type, kind);
     if (!contentType) {
-      setError(`仅支持 ${typeLabel}`);
+      setError(copy.invalidType);
       return;
     }
     if (file.size > maxBytes) {
-      setError(isVideo ? "视频不能超过 100MB" : "图片不能超过 5MB");
+      setError(copy.tooLarge);
       return;
     }
     setUploading(true);
@@ -105,8 +135,8 @@ export function ImageUrlInput({
       const { adminApi } = await import("@/lib/admin-api");
       const res = await adminApi.uploadImage(file, contentType);
       onChange(res.url);
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : "上传失败，请重试");
+    } catch {
+      setError(copy.uploadFailed);
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -123,14 +153,14 @@ export function ImageUrlInput({
               muted
               playsInline
               preload="metadata"
-              className="h-11 w-11 shrink-0 rounded-lg border border-border bg-black object-cover"
+              className="h-9 w-9 shrink-0 rounded-lg border border-border bg-black object-cover"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element -- admin-only external R2/URL thumbs; no optimizer domain allowlist.
             <img
               src={value}
               alt=""
-              className="h-11 w-11 shrink-0 rounded-lg border border-border object-cover"
+              className="h-9 w-9 shrink-0 rounded-lg border border-border object-cover"
               referrerPolicy="no-referrer"
             />
           )
@@ -139,7 +169,7 @@ export function ImageUrlInput({
           id={id}
           aria-label={ariaLabel}
           data-problem-focus={problemFocus || undefined}
-          className={`${inputCls} min-w-0 flex-1`}
+          className={`${inputClsCompact} min-w-0 flex-1`}
           value={value}
           placeholder={placeholder}
           onChange={(e) => {
@@ -147,16 +177,17 @@ export function ImageUrlInput({
             setError(null);
             onChange(e.target.value);
           }}
+          onBlur={onBlur}
           disabled={disabled || uploading}
           autoComplete="off"
         />
         <button
           type="button"
-          className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-cta/40 px-3 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted disabled:border-border"
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-cta/40 px-3 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted disabled:border-border"
           onClick={() => fileRef.current?.click()}
           disabled={disabled || uploading}
         >
-          {uploading ? "上传中…" : isVideo ? "上传视频" : "上传图片"}
+          {uploading ? copy.uploading : copy.upload}
         </button>
         <input
           ref={fileRef}
