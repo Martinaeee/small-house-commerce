@@ -510,6 +510,15 @@ export const en: Record<ZhKey, string> = {
   product_media_sort_aria: "Media {number} sort order",
   product_media_add_image: "Add photo",
   product_media_add_video: "Add video",
+  product_media_batch_upload: "Upload photos",
+  product_media_batch_uploading: "Uploading {done}/{total}…",
+  product_media_batch_input_aria: "Choose images to upload",
+  product_media_batch_invalid_type: "Only JPG / PNG / WebP images are supported",
+  product_media_batch_too_large: "Images must be 5MB or smaller",
+  product_media_batch_upload_failed: "Upload failed, please retry",
+  product_media_batch_failure: "{name}: {reason}",
+  product_media_url_add: "Add URL",
+  product_media_url_add_aria: "Image URL to add",
 
   product_detail_title: "Detail content (images / videos)",
   product_detail_scope_explanation:

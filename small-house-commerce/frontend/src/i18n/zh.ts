@@ -506,6 +506,15 @@ export const zh = {
   product_media_sort_aria: "媒体 {number} 的排序",
   product_media_add_image: "添加图片",
   product_media_add_video: "添加视频",
+  product_media_batch_upload: "上传图片（可多选）",
+  product_media_batch_uploading: "上传中 {done}/{total}…",
+  product_media_batch_input_aria: "选择要批量上传的图片",
+  product_media_batch_invalid_type: "仅支持 JPG / PNG / WebP 图片",
+  product_media_batch_too_large: "图片不能超过 5MB",
+  product_media_batch_upload_failed: "上传失败，请重试",
+  product_media_batch_failure: "{name}：{reason}",
+  product_media_url_add: "添加",
+  product_media_url_add_aria: "要添加的图片 URL",
 
   // --- Product form: detail blocks ---
   product_detail_title: "详情内容（图片 / 视频）",

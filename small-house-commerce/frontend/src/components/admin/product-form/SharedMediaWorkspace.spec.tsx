@@ -38,6 +38,7 @@ function renderWorkspace(
     onSetCover: vi.fn(),
     onRemove: vi.fn(),
     onAdd: vi.fn(),
+    onAddImageUrl: vi.fn(),
     ...overrides,
   };
   const view = render(
@@ -97,6 +98,19 @@ describe("SharedMediaWorkspace", () => {
     expect(
       screen.getAllByRole("button", { name: "Move media 1 right" }),
     ).toHaveLength(1);
+  });
+
+  it("forwards the add row to the gallery owner", () => {
+    const { props } = renderWorkspace();
+
+    fireEvent.change(screen.getByLabelText("Image URL to add"), {
+      target: { value: "https://cdn.example.com/new.jpg" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add URL" }));
+
+    expect(props.onAddImageUrl).toHaveBeenCalledWith(
+      "https://cdn.example.com/new.jpg",
+    );
   });
 
   it("blocks drag and action callbacks while editing is pending", () => {
