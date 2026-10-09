@@ -63,6 +63,22 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.CAMPAIGN_LINK_BUILD,
     description: 'Build public product, variant and attribution links.',
   },
+  {
+    code: PermissionCode.MARKETING_VIEW_OWN,
+    description: 'View the marketing pages, links and spend the account owns.',
+  },
+  {
+    code: PermissionCode.MARKETING_MANAGE_OWN,
+    description: 'Create, edit, publish and disable the account’s own marketing.',
+  },
+  {
+    code: PermissionCode.MARKETING_VIEW_ALL,
+    description: 'View every optimizer’s marketing pages, links and spend.',
+  },
+  {
+    code: PermissionCode.MARKETING_MANAGE_ALL,
+    description: 'Manage every optimizer’s marketing pages, links and spend.',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -86,13 +102,20 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.PRODUCT_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,
+    PermissionCode.MARKETING_VIEW_OWN,
+    PermissionCode.MARKETING_MANAGE_OWN,
+    PermissionCode.MARKETING_VIEW_ALL,
+    PermissionCode.MARKETING_MANAGE_ALL,
     // deliberately not SYSTEM_SETTINGS_EDIT
   ],
 
   [RoleCode.OPTIMIZER]: [
     PermissionCode.ORDER_VIEW_OWN,
     PermissionCode.CAMPAIGN_LINK_BUILD,
-    // deliberately not REPORT_PROFIT_VIEW, not ORDER_VIEW_ALL
+    PermissionCode.MARKETING_VIEW_OWN,
+    PermissionCode.MARKETING_MANAGE_OWN,
+    // deliberately not REPORT_PROFIT_VIEW, not ORDER_VIEW_ALL,
+    // not MARKETING_VIEW_ALL
   ],
 
   [RoleCode.CONFIRMOR]: [
@@ -114,6 +137,9 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
   [RoleCode.FINANCE]: [
     PermissionCode.ORDER_VIEW_ALL,
     PermissionCode.REPORT_PROFIT_VIEW,
+    // Read-only over every optimizer's spend and returns: finance reconciles
+    // ad cost against collected COD, it does not edit marketing pages.
+    PermissionCode.MARKETING_VIEW_ALL,
     // deliberately no write permissions
   ],
 };
