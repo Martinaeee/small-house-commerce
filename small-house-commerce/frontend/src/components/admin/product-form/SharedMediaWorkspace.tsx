@@ -21,8 +21,8 @@ export interface SharedMediaWorkspaceProps {
   onAdd(type: "IMAGE" | "VIDEO"): void;
 }
 
-const compactActionCls =
-  "inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-border bg-card px-2 text-xs font-semibold text-ink-secondary hover:border-primary hover:text-ink disabled:cursor-not-allowed disabled:text-ink-muted";
+const overlayActionCls =
+  "inline-flex h-6 min-w-6 items-center justify-center rounded bg-white/90 px-1 text-[11px] font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40";
 
 function belongsToImage(highlightKey: string | null, index: number): boolean {
   return (
@@ -132,7 +132,7 @@ export function SharedMediaWorkspace({
       ) : (
         <ul
           aria-label={t("product_media_cards_aria")}
-          className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(140px,160px))] justify-start gap-3"
+          className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(88px,104px))] justify-start gap-2"
         >
           {images.map((image, index) => {
             const sortOrder = Number(image.sortOrder.trim() || "0") || 0;
@@ -169,7 +169,7 @@ export function SharedMediaWorkspace({
                   }
                   dragFrom.current = null;
                 }}
-                className={`overflow-hidden rounded-lg bg-background ${
+                className={`group relative overflow-hidden rounded-lg bg-background ${
                   highlighted || isCover
                     ? "ring-2 ring-cta ring-offset-1"
                     : "border border-border"
@@ -233,54 +233,56 @@ export function SharedMediaWorkspace({
                         ▶
                       </span>
                     ) : null}
-                    <span className="absolute bottom-1.5 left-1.5 rounded-full bg-ink/75 px-2 py-0.5 text-[11px] font-semibold text-white">
+                    <span className="absolute left-1 top-1 rounded-full bg-ink/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                       {t("product_media_order", { position: index + 1 })}
                     </span>
                     {isCover ? (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-cta px-2 py-0.5 text-[11px] font-semibold text-white">
+                      <span className="absolute right-1 top-1 rounded-full bg-cta px-1.5 py-0.5 text-[10px] font-semibold text-white">
                         {t("product_media_cover")}
                       </span>
                     ) : null}
                   </button>
 
-                  <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        className={compactActionCls}
-                        onClick={() => {
-                          setActiveIndex((current) =>
-                            indexAfterMove(current, index, index - 1),
-                          );
-                          onMove(index, -1);
-                        }}
-                        disabled={pending || index === 0}
-                        aria-label={t("product_media_move_left", {
-                          number: index + 1,
-                        })}
-                      >
-                        ←
-                      </button>
-                      <button
-                        type="button"
-                        className={compactActionCls}
-                        onClick={() => {
-                          setActiveIndex((current) =>
-                            indexAfterMove(current, index, index + 1),
-                          );
-                          onMove(index, 1);
-                        }}
-                        disabled={pending || index === images.length - 1}
-                        aria-label={t("product_media_move_right", {
-                          number: index + 1,
-                        })}
-                      >
-                        →
-                      </button>
-                    </div>
+                  <div
+                    data-media-actions
+                    className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-ink/70 px-0.5 py-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                  >
+                    <button
+                      type="button"
+                      className={overlayActionCls}
+                      onClick={() => {
+                        setActiveIndex((current) =>
+                          indexAfterMove(current, index, index - 1),
+                        );
+                        onMove(index, -1);
+                      }}
+                      disabled={pending || index === 0}
+                      aria-label={t("product_media_move_left", {
+                        number: index + 1,
+                      })}
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      className={overlayActionCls}
+                      onClick={() => {
+                        setActiveIndex((current) =>
+                          indexAfterMove(current, index, index + 1),
+                        );
+                        onMove(index, 1);
+                      }}
+                      disabled={pending || index === images.length - 1}
+                      aria-label={t("product_media_move_right", {
+                        number: index + 1,
+                      })}
+                    >
+                      →
+                    </button>
                     {!isCover ? (
                       <button
                         type="button"
+                        className={overlayActionCls}
                         onClick={() => {
                           setActiveIndex((current) =>
                             indexAfterMove(current, index, 0),
@@ -288,14 +290,14 @@ export function SharedMediaWorkspace({
                           onSetCover(index);
                         }}
                         disabled={pending}
-                        className="text-[11px] font-semibold text-cta hover:underline disabled:text-ink-muted disabled:no-underline"
+                        aria-label={t("product_media_set_cover")}
                       >
-                        {t("product_media_set_cover")}
+                        ★
                       </button>
                     ) : null}
                     <button
                       type="button"
-                      className={compactActionCls}
+                      className={overlayActionCls}
                       onClick={() => {
                         setActiveIndex((current) => {
                           if (current === null) return null;
@@ -305,8 +307,9 @@ export function SharedMediaWorkspace({
                         onRemove(index);
                       }}
                       disabled={pending}
+                      aria-label={t("product_media_remove")}
                     >
-                      {t("product_media_remove")}
+                      ✕
                     </button>
                   </div>
                 </div>

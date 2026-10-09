@@ -65,7 +65,7 @@ describe("SharedMediaWorkspace", () => {
 
     const list = screen.getByRole("list", { name: "Shared media cards" });
     expect(list).toHaveClass(
-      "grid-cols-[repeat(auto-fill,minmax(140px,160px))]",
+      "grid-cols-[repeat(auto-fill,minmax(88px,104px))]",
     );
     const cards = within(list).getAllByRole("listitem");
     expect(cards).toHaveLength(3);
@@ -77,6 +77,26 @@ describe("SharedMediaWorkspace", () => {
     expect(screen.getByText("Order 3")).toBeInTheDocument();
     expect(screen.getByText("Cover")).toBeInTheDocument();
     expect(screen.getByText("No image yet")).toBeInTheDocument();
+  });
+
+  it("reveals per-card actions on hover and focus without removing them from the DOM", () => {
+    renderWorkspace();
+
+    const actions = document.querySelectorAll("[data-media-actions]");
+    expect(actions).toHaveLength(3);
+    for (const action of actions) {
+      expect(action).toHaveClass(
+        "opacity-0",
+        "group-hover:opacity-100",
+        "group-focus-within:opacity-100",
+      );
+    }
+    expect(
+      screen.getAllByRole("button", { name: "Remove media" }),
+    ).toHaveLength(3);
+    expect(
+      screen.getAllByRole("button", { name: "Move media 1 right" }),
+    ).toHaveLength(1);
   });
 
   it("blocks drag and action callbacks while editing is pending", () => {

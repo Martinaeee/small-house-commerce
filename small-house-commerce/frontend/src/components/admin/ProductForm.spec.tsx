@@ -1196,7 +1196,7 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.getByRole("button", { name: "设为封面" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "移除媒体" })).toHaveLength(2);
     expect(screen.getByText("封面")).toBeInTheDocument();
-    expect(moveLeft.closest("div.flex-wrap")?.className).toContain("flex-wrap");
+    expect(moveLeft.closest("[data-media-actions]")).not.toBeNull();
   });
 
   it("renders a coherent English basic tab", () => {
