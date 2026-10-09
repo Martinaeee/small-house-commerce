@@ -54,6 +54,17 @@ beforeEach(() => {
 });
 
 describe("SharedMediaWorkspace", () => {
+  it("offers a larger selected preview and visible cover/remove actions without hover", async () => {
+    const { container } = renderWorkspace();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Media 2" }));
+    const editor = container.querySelector("#shared-media-editor")!;
+    expect(editor.querySelector("[data-selected-media-preview] video")).not.toBeNull();
+    expect(within(editor as HTMLElement).getByRole("button", { name: "Set as cover" })).toBeEnabled();
+    expect(within(editor as HTMLElement).getByRole("button", { name: "Remove media" })).toBeEnabled();
+    expect(container.querySelector("#product-media-image-1 [data-media-actions]")).toHaveClass("opacity-100", "pointer-events-auto");
+  });
+
   it("shows compact cards and a factual summary without dropping blank rows", () => {
     renderWorkspace({ highlightKey: "images.2.url" });
 

@@ -2,75 +2,47 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { TextInput } from "@/components/admin/Field";
-import {
-  ACCEPT_ATTRS,
-  MAX_IMAGE_BYTES,
-  resolveUploadType,
-} from "@/components/admin/ImageUrlInput";
+import { ACCEPT_ATTRS } from "@/components/admin/ImageUrlInput";
+import { useMediaBatchUpload, type MediaBatchUpload } from "@/components/admin/product-form/useMediaBatchUpload";
 import { useAdminI18n } from "@/lib/admin-i18n";
 
-type BatchFailure = { name: string; reason: string };
+const STATUS_KEYS = {
+  waiting: "product_media_batch_waiting",
+  uploading: "product_media_batch_active",
+  uploaded: "product_media_batch_uploaded",
+  failed: "product_media_batch_failed",
+} as const;
 
-/**
- * One compact row for adding images to the shared gallery: pick several local
- * files at once (sequential uploads through the existing single-file endpoint,
- * failures reported per file and never aborting the batch), or paste a public
- * image URL. Every success appends through `onAddImageUrl` in picker order.
- */
+/** One compact row; product forms pass their persistent batch task. */
 export function MediaAddRow({
   disabled = false,
   onAddImageUrl,
+  batchUpload,
 }: {
   disabled?: boolean;
   onAddImageUrl: (url: string) => void;
+  batchUpload?: MediaBatchUpload;
 }): ReactNode {
   const { t } = useAdminI18n();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
-  const [failures, setFailures] = useState<BatchFailure[]>([]);
+  const localBatch = useMediaBatchUpload({ disabled, onAddImageUrl });
+  const batch = batchUpload ?? localBatch;
   const [urlDraft, setUrlDraft] = useState("");
+  const busy = batch.uploading;
+  const failures = batch.files.filter((file) => file.status === "failed");
+  const done = batch.files.filter((file) => file.status === "uploaded" || file.status === "failed").length;
 
   async function handleFiles(files: FileList | null): Promise<void> {
-    const picked = files ? Array.from(files) : [];
-    if (picked.length === 0) return;
-    setFailures([]);
-    setProgress({ done: 0, total: picked.length });
-    // Lazy import keeps the admin API module out of non-upload bundles.
-    const { adminApi } = await import("@/lib/admin-api");
-    let done = 0;
-    for (const file of picked) {
-      const contentType = resolveUploadType(file.name, file.type, "image");
-      if (!contentType) {
-        setFailures((current) => [
-          ...current,
-          { name: file.name, reason: t("product_media_batch_invalid_type") },
-        ]);
-      } else if (file.size > MAX_IMAGE_BYTES) {
-        setFailures((current) => [
-          ...current,
-          { name: file.name, reason: t("product_media_batch_too_large") },
-        ]);
-      } else {
-        try {
-          const res = await adminApi.uploadImage(file, contentType);
-          onAddImageUrl(res.url);
-        } catch {
-          setFailures((current) => [
-            ...current,
-            { name: file.name, reason: t("product_media_batch_upload_failed") },
-          ]);
-        }
-      }
-      done += 1;
-      setProgress({ done, total: picked.length });
-    }
-    setProgress(null);
+    await batch.upload(files ? Array.from(files) : []);
     if (fileRef.current) fileRef.current.value = "";
   }
-
-  const busy = progress !== null;
+  function addUrl(): void {
+    if (disabled || busy) return;
+    const url = urlDraft.trim();
+    if (!url) return;
+    onAddImageUrl(url);
+    setUrlDraft("");
+  }
 
   return (
     <div className="mt-3 flex flex-col gap-2">
@@ -80,12 +52,10 @@ export function MediaAddRow({
           className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-cta/40 px-3 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:border-border disabled:text-ink-muted"
           onClick={() => fileRef.current?.click()}
           disabled={disabled || busy}
+          aria-busy={busy}
         >
           {busy
-            ? t("product_media_batch_uploading", {
-                done: progress.done,
-                total: progress.total,
-              })
+            ? t("product_media_batch_uploading", { done, total: batch.files.length })
             : t("product_media_batch_upload")}
         </button>
         <input
@@ -104,32 +74,39 @@ export function MediaAddRow({
             value={urlDraft}
             placeholder="https://…"
             onChange={(event) => setUrlDraft(event.target.value)}
-            disabled={disabled}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              addUrl();
+            }}
+            disabled={disabled || busy}
             autoComplete="off"
           />
           <button
             type="button"
             className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-border px-3 text-sm font-semibold text-ink-secondary hover:border-primary hover:text-ink disabled:cursor-not-allowed disabled:text-ink-muted"
-            onClick={() => {
-              const url = urlDraft.trim();
-              if (!url) return;
-              onAddImageUrl(url);
-              setUrlDraft("");
-            }}
-            disabled={disabled || urlDraft.trim() === ""}
+            onClick={addUrl}
+            disabled={disabled || busy || urlDraft.trim() === ""}
           >
             {t("product_media_url_add")}
           </button>
         </div>
       </div>
+      {batch.files.length > 0 ? (
+        <ul aria-label={t("product_media_batch_queue")} className="max-h-24 overflow-y-auto text-xs text-ink-secondary">
+          {batch.files.map((file, index) => (
+            <li key={index} className="flex items-center justify-between gap-3 py-0.5">
+              <span className="truncate">{file.name}</span>
+              <span className="shrink-0">{t(STATUS_KEYS[file.status])}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {failures.length > 0 ? (
         <ul role="alert" className="text-xs text-red-700">
-          {failures.map((failure) => (
-            <li key={failure.name}>
-              {t("product_media_batch_failure", {
-                name: failure.name,
-                reason: failure.reason,
-              })}
+          {failures.map((failure, index) => (
+            <li key={index}>
+              {t("product_media_batch_failure", { name: failure.name, reason: failure.reason ?? "" })}
             </li>
           ))}
         </ul>

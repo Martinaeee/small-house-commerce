@@ -41,6 +41,8 @@ export interface ProductFormHeaderProps {
   currentStatus: ProductStatus;
   savedStatus: ProductStatus | null;
   pending: boolean;
+  /** Blocks saving while an editor task is still changing the draft. */
+  saveDisabledReason?: string | null;
   currentTab: ProductFormTabKey;
   tabIndicators: Partial<
     Record<ProductFormTabKey, { blocking: number; warning: number }>
@@ -92,6 +94,7 @@ export function ProductFormHeader({
   currentStatus,
   savedStatus,
   pending,
+  saveDisabledReason = null,
   currentTab,
   tabIndicators,
   labels,
@@ -104,7 +107,7 @@ export function ProductFormHeader({
   dirty = false,
 }: ProductFormHeaderProps): ReactNode {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const submitLabel = pending ? labels.saving : saveLabel(currentStatus, savedStatus, labels);
+  const submitLabel = pending ? labels.saving : saveDisabledReason ?? saveLabel(currentStatus, savedStatus, labels);
 
   const focusTab = (index: number): void => {
     const tab = PRODUCT_FORM_TABS[index];
@@ -217,8 +220,8 @@ export function ProductFormHeader({
           <button
             type="submit"
             onClick={onSubmitIntent}
-            disabled={pending}
-            aria-busy={pending}
+            disabled={pending || Boolean(saveDisabledReason)}
+            aria-busy={pending || Boolean(saveDisabledReason)}
             className="h-9 min-w-[9rem] rounded-lg bg-cta px-5 text-sm font-semibold text-white hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-ink-muted"
           >
             {submitLabel}
