@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Select, TextInput } from "@/components/admin/Field";
-import { ImageUrlInput } from "./ImageUrlInput";
+import { MediaAddRow } from "./product-form/MediaAddRow";
+import { MediaGallery } from "./product-form/MediaGallery";
+import { useMediaBatchUpload, type MediaBatchUpload, type UploadedMedia } from "./product-form/useMediaBatchUpload";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   entityRowKey as rowKey,
@@ -87,6 +88,8 @@ export function ProductMediaScopesEditor({
   onChange,
   pending = false,
   highlightKey = null,
+  highlightNonce = 0,
+  batchUpload,
 }: {
   draft: AdminCatalogGraphDraft;
   sharedMedia?: readonly SharedSummaryMediaRow[] | null;
@@ -94,8 +97,14 @@ export function ProductMediaScopesEditor({
   pending?: boolean;
   /** Media row the problem rail asked to highlight. */
   highlightKey?: string | null;
+  /** Bumped by every problem-rail jump so a repeat jump reopens the editor. */
+  highlightNonce?: number;
+  batchUpload?: MediaBatchUpload;
 }): ReactNode {
   const { t } = useAdminI18n();
+  const localBatch = useMediaBatchUpload({ disabled: pending });
+  const uploadTask = batchUpload ?? localBatch;
+  const mediaBusy = pending || uploadTask.uploading;
   const persistedShared = draft.media.filter(
     (row) => row.optionValueRef === null && row.variantRef === null,
   );
@@ -154,48 +163,29 @@ export function ProductMediaScopesEditor({
       if (option) option.isMediaDriver = true;
     });
 
-  const addValueMedia = (value: AdminOptionValueDraft): void =>
+  const addScopedMedia = (scope: "value" | "variant", key: string, media: UploadedMedia): void =>
     onChange((next) => {
-      const current = next.options
-        .find((option) => option.isActive && option.isMediaDriver)
-        ?.values.find((candidate) => rowKey(candidate) === rowKey(value));
-      if (!current) return;
+      const entity = scope === "value"
+        ? next.options.flatMap((option) => option.values).find((value) => rowKey(value) === key)
+        : next.variants.find((variant) => rowKey(variant) === key);
+      if (!entity) return;
+      const ref = entity.id !== undefined ? { id: entity.id } : { clientKey: entity.clientKey! };
+      const rows = next.media.filter((row) => rowKey(scope === "value" ? row.optionValueRef ?? {} : row.variantRef ?? {}) === key);
       next.media.push({
         clientKey: freshClientKey("media", next),
-        url: "",
-        type: "IMAGE",
+        ...media,
         altText: null,
-        sortOrder: 0,
-        optionValueRef:
-          current.id !== undefined
-            ? { id: current.id }
-            : { clientKey: current.clientKey! },
-        variantRef: null,
+        sortOrder: rows.reduce((maximum, row) => Math.max(maximum, row.sortOrder), -1) + 1,
+        optionValueRef: scope === "value" ? ref : null,
+        variantRef: scope === "variant" ? ref : null,
       });
-      renumberScopes(next);
     });
 
-  const addVariantMedia = (): void =>
-    onChange((next) => {
-      const variant = next.variants.find(
-        (item) =>
-          variantSemanticKey(next, item) === openVariantSemanticKey,
-      );
-      if (!variant) return;
-      next.media.push({
-        clientKey: freshClientKey("media", next),
-        url: "",
-        type: "IMAGE",
-        altText: null,
-        sortOrder: 0,
-        optionValueRef: null,
-        variantRef:
-          variant.id !== undefined
-            ? { id: variant.id }
-            : { clientKey: variant.clientKey! },
-      });
-      renumberScopes(next);
-    });
+  const addValueMedia = (value: AdminOptionValueDraft): void =>
+    addScopedMedia("value", rowKey(value), { url: "", type: "IMAGE" });
+
+  const addVariantMedia = (variant: AdminVariantDraft): void =>
+    addScopedMedia("variant", rowKey(variant), { url: "", type: "IMAGE" });
 
   const setMedia = (key: string, patch: Partial<AdminMediaDraft>): void =>
     onChange((next) => {
@@ -240,106 +230,32 @@ export function ProductMediaScopesEditor({
       renumberScopes(next);
     });
 
-  const renderMediaRow = (
-    row: AdminMediaDraft,
-    scopeLabel: string,
-    index: number,
-    total: number,
-  ): ReactNode => {
-    const key = rowKey(row);
-    return (
-      <li
-        key={key}
-        id={`pf-row-${key}`}
-        className={`rounded-lg border border-border bg-card p-3 ${
-          highlightKey === key ? "ring-2 ring-sale ring-offset-2" : ""
-        }`}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="text-sm font-semibold text-cta disabled:text-ink-muted"
-            onClick={() => moveMedia(key, -1)}
-            disabled={pending || index === 0}
-            aria-label={t("product_media_move_up", {
-              scope: scopeLabel,
-              number: index + 1,
-            })}
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            className="text-sm font-semibold text-cta disabled:text-ink-muted"
-            onClick={() => moveMedia(key, 1)}
-            disabled={pending || index === total - 1}
-            aria-label={t("product_media_move_down", {
-              scope: scopeLabel,
-              number: index + 1,
-            })}
-          >
-            ↓
-          </button>
-          <span className="text-xs font-semibold text-ink-secondary">
-            {scopeLabel} {index + 1}
-          </span>
-          <Select
-            aria-label={t("product_media_media_type", {
-              scope: scopeLabel,
-              number: index + 1,
-            })}
-            className="ml-auto w-auto py-1.5 text-sm"
-            value={row.type}
-            onChange={(event) =>
-              setMedia(key, {
-                type: event.target.value as AdminMediaDraft["type"],
-              })
-            }
-            disabled={pending}
-          >
-            <option value="IMAGE">{t("product_media_type_image")}</option>
-            <option value="VIDEO">{t("product_media_type_video")}</option>
-          </Select>
-          <button
-            type="button"
-            className="text-sm font-semibold text-red-700 hover:underline"
-            onClick={() => removeMedia(key)}
-            disabled={pending}
-          >
-            {t("product_media_remove")}
-          </button>
-        </div>
-        <div className="mt-2">
-          <ImageUrlInput
-            ariaLabel={t("product_media_url", {
-              scope: scopeLabel,
-              number: index + 1,
-            })}
-            kind={row.type === "VIDEO" ? "video" : "image"}
-            value={row.url}
-            onChange={(url) => setMedia(key, { url })}
-            problemFocus={highlightKey === key}
-            disabled={pending}
-          />
-        </div>
-        <TextInput
-          className="mt-2"
-          value={row.altText ?? ""}
-          placeholder={t("product_media_alt_placeholder")}
-          aria-label={t("product_media_alt", {
-            scope: scopeLabel,
-            number: index + 1,
-          })}
-          maxLength={255}
-          onChange={(event) =>
-            setMedia(key, { altText: event.target.value || null })
-          }
-          autoComplete="off"
-          disabled={pending}
-        />
-      </li>
-    );
-  };
+  const renderGallery = (rows: AdminMediaDraft[], scopeLabel: string): ReactNode => (
+    <MediaGallery
+      items={rows.map((row) => ({ ...row, key: rowKey(row), domId: `pf-row-${rowKey(row)}`, altText: row.altText ?? "" }))}
+      scope={scopeLabel}
+      pending={mediaBusy}
+      highlightedKey={rows.some((row) => rowKey(row) === highlightKey) ? highlightKey : null}
+      highlightNonce={highlightNonce}
+      problemKey={rows.some((row) => rowKey(row) === highlightKey) ? highlightKey : null}
+      labels={{
+        type: (number) => t("product_media_media_type", { scope: scopeLabel, number }),
+        url: (number) => t("product_media_url", { scope: scopeLabel, number }),
+        alt: (number) => t("product_media_alt", { scope: scopeLabel, number }),
+        previous: (number) => t("product_media_move_up", { scope: scopeLabel, number }),
+        next: (number) => t("product_media_move_down", { scope: scopeLabel, number }),
+        remove: t("product_media_remove"),
+      }}
+      onUpload={async (key, file) => {
+        const row = rows.find((candidate) => rowKey(candidate) === key)!;
+        const target = row.optionValueRef ? `value:${rowKey(row.optionValueRef)}` : `variant:${rowKey(row.variantRef!)}`;
+        await uploadTask.upload([file], { key: target, kind: row.type === "VIDEO" ? "video" : "image", operation: "REPLACE", onAddMedia: ({ url }) => setMedia(key, { url }) });
+      }}
+      onPatch={(key, patch) => setMedia(key, { ...patch, ...(patch.altText !== undefined ? { altText: patch.altText || null } : {}) })}
+      onMove={moveMedia}
+      onRemove={removeMedia}
+    />
+  );
 
   const currentScopeKeys = new Set<string>();
   const activeScopes: OptionValueScope[] = activeDriver
@@ -359,7 +275,8 @@ export function ProductMediaScopesEditor({
     option.values.flatMap((value) => {
       const key = rowKey(value);
       const rows = rowsForValue(key);
-      return rows.length > 0 && !currentScopeKeys.has(key)
+      const pendingUploads = (uploadTask.results[`value:${key}`]?.length ?? 0) > 0;
+      return (rows.length > 0 || pendingUploads) && !currentScopeKeys.has(key)
         ? [{ option, value, rows, active: false }]
         : [];
     }),
@@ -578,7 +495,7 @@ export function ProductMediaScopesEditor({
                           type="button"
                           className="ml-auto h-8 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-ink hover:border-primary disabled:text-ink-muted"
                           onClick={() => addValueMedia(value)}
-                          disabled={pending}
+                          disabled={mediaBusy}
                         >
                           {t("product_media_add_value", { name: valueName })}
                         </button>
@@ -587,23 +504,19 @@ export function ProductMediaScopesEditor({
                           type="button"
                           className="ml-auto text-sm font-semibold text-red-700 hover:underline"
                           onClick={() => removeScope("option", valueKey)}
-                          disabled={pending}
+                          disabled={mediaBusy}
                         >
                           {t("product_media_remove_scope")}
                         </button>
                       )}
                     </div>
-                    {rows.length > 0 ? (
-                      <ul className="mt-3 flex flex-col gap-2">
-                        {rows.map((row, index) =>
-                          renderMediaRow(row, valueName, index, rows.length),
-                        )}
-                      </ul>
-                    ) : (
+                    {active || uploadTask.results[`value:${valueKey}`]?.length ? <MediaAddRow targetKey={`value:${valueKey}`} disabled={pending || !active} batchUpload={uploadTask} onAddMedia={(media) => addScopedMedia("value", valueKey, media)} /> : null}
+                    {renderGallery(rows, valueName)}
+                    {rows.length === 0 ? (
                       <p className="mt-3 text-xs text-ink-muted">
                         {t("product_media_no_value_media")}
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </details>
               );
@@ -706,28 +619,19 @@ export function ProductMediaScopesEditor({
                         <button
                           type="button"
                           className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-ink hover:border-primary disabled:text-ink-muted"
-                          onClick={addVariantMedia}
-                          disabled={pending}
+                          onClick={() => addVariantMedia(variant)}
+                          disabled={mediaBusy}
                         >
                           {t("product_media_add_variant")}
                         </button>
                       </div>
-                      {rows.length > 0 ? (
-                        <ul className="mt-3 flex flex-col gap-2">
-                          {rows.map((row, index) =>
-                            renderMediaRow(
-                              row,
-                              variant.name || t("product_media_exact_title"),
-                              index,
-                              rows.length,
-                            ),
-                          )}
-                        </ul>
-                      ) : (
+                      <MediaAddRow targetKey={`variant:${variantKey}`} disabled={pending} batchUpload={uploadTask} onAddMedia={(media) => addScopedMedia("variant", variantKey, media)} />
+                      {renderGallery(rows, variant.name || t("product_media_exact_title"))}
+                      {rows.length === 0 ? (
                         <p className="mt-3 text-xs text-ink-muted">
                           {t("product_media_exact_empty")}
                         </p>
-                      )}
+                      ) : null}
                     </div>
                   </details>
                 </li>

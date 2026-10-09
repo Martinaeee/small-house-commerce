@@ -8,16 +8,14 @@ const uploadImage = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/admin-api", () => ({ adminApi: { uploadImage } }));
 
 function file(name: string, type = "image/jpeg", size = 1024): File {
-  return new File([new Uint8Array(size)], name, { type });
+  const result = new File(["media"], name, { type });
+  Object.defineProperty(result, "size", { value: size });
+  return result;
 }
 
-function renderRow(onAddImageUrl = vi.fn()) {
-  const view = render(
-    <AdminI18nProvider>
-      <MediaAddRow onAddImageUrl={onAddImageUrl} />
-    </AdminI18nProvider>,
-  );
-  return { ...view, onAddImageUrl };
+function renderRow(onAddMedia = vi.fn()) {
+  const view = render(<AdminI18nProvider><MediaAddRow onAddMedia={onAddMedia} /></AdminI18nProvider>);
+  return { ...view, onAddMedia };
 }
 
 beforeEach(() => {
@@ -26,36 +24,53 @@ beforeEach(() => {
 });
 
 describe("MediaAddRow", () => {
-  it("adds the URL on Enter instead of submitting the surrounding product form", async () => {
-    const onAddImageUrl = vi.fn();
-    const onSubmit = vi.fn((event) => event.preventDefault());
-    const user = userEvent.setup();
-    render(
-      <form onSubmit={onSubmit}>
-        <AdminI18nProvider><MediaAddRow onAddImageUrl={onAddImageUrl} /></AdminI18nProvider>
-        <button type="submit">Save product</button>
-      </form>,
-    );
-    await user.type(screen.getByLabelText("Image URL to add"), "https://cdn.example.com/enter.jpg");
-    await user.keyboard("{Enter}");
-    expect(onAddImageUrl).toHaveBeenCalledWith("https://cdn.example.com/enter.jpg");
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Image URL to add")).toHaveValue("");
+  it("accepts JPEG filenames with no MIME and advertises extension-based video picking", async () => {
+    const { onAddMedia } = renderRow();
+    uploadImage.mockResolvedValueOnce({ url: "/uploads/photo.jpeg" });
+    const input = screen.getByLabelText("Choose media to upload");
+    fireEvent.change(input, { target: { files: [file("photo.JPEG", "")] } });
+    await waitFor(() => expect(onAddMedia).toHaveBeenCalledWith({ url: "/uploads/photo.jpeg", type: "IMAGE" }));
+    expect(input.getAttribute("accept")).toContain(".mov");
   });
 
-  it("shows each file's waiting, uploading and uploaded states", async () => {
+  it("collapses completed filenames behind a dismissible receipt", async () => {
+    const user = userEvent.setup();
+    uploadImage.mockResolvedValueOnce({ url: "/uploads/a.jpg" }).mockResolvedValueOnce({ url: "/uploads/b.jpg" });
+    const { onAddMedia } = renderRow();
+    fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [file("a.jpg"), file("b.jpg")] } });
+    await waitFor(() => expect(onAddMedia).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("status")).toHaveTextContent("Added 2 items");
+    expect(screen.queryByRole("list", { name: "Media upload queue" })).not.toBeInTheDocument();
+    await user.click(screen.getByText("View details"));
+    expect(screen.getByRole("list", { name: "Media upload queue" })).toHaveTextContent("a.jpg");
+    expect(screen.getByRole("list", { name: "Media upload queue" })).toHaveTextContent("b.jpg");
+    await user.click(screen.getByRole("button", { name: "Dismiss upload receipt" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(onAddMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it("adds the URL on Enter instead of submitting the surrounding product form", async () => {
+    const onAddMedia = vi.fn();
+    const onSubmit = vi.fn((event) => event.preventDefault());
+    const user = userEvent.setup();
+    render(<form onSubmit={onSubmit}><AdminI18nProvider><MediaAddRow onAddMedia={onAddMedia} /></AdminI18nProvider><button type="submit">Save product</button></form>);
+    await user.type(screen.getByLabelText("Media URL to add"), "https://cdn.example.com/enter.jpg");
+    await user.keyboard("{Enter}");
+    expect(onAddMedia).toHaveBeenCalledWith({ url: "https://cdn.example.com/enter.jpg", type: "IMAGE" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Media URL to add")).toHaveValue("");
+  });
+
+  it("shows per-file progress only when details are requested", async () => {
     let finishFirst!: (result: { url: string }) => void;
     let finishSecond!: (result: { url: string }) => void;
-    uploadImage
-      .mockReturnValueOnce(new Promise((resolve) => { finishFirst = resolve; }))
-      .mockReturnValueOnce(new Promise((resolve) => { finishSecond = resolve; }));
+    uploadImage.mockReturnValueOnce(new Promise((resolve) => { finishFirst = resolve; })).mockReturnValueOnce(new Promise((resolve) => { finishSecond = resolve; }));
     renderRow();
-    fireEvent.change(screen.getByLabelText("Choose images to upload"), {
-      target: { files: [file("a.jpg"), file("b.jpg")] },
-    });
-    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1));
-    const queue = screen.getByRole("list", { name: "Photo upload queue" });
-    const rows = within(queue).getAllByRole("listitem");
+    fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [file("a.jpg"), file("b.jpg")] } });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Uploading 1/2 · a.jpg"));
+    expect(screen.queryByRole("list", { name: "Media upload queue" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("View details"));
+    const rows = within(screen.getByRole("list", { name: "Media upload queue" })).getAllByRole("listitem");
     expect(rows[0]).toHaveTextContent("a.jpg");
     expect(rows[0]).toHaveTextContent("Uploading");
     expect(rows[1]).toHaveTextContent("b.jpg");
@@ -63,113 +78,66 @@ describe("MediaAddRow", () => {
     await act(async () => finishFirst({ url: "/uploads/a.jpg" }));
     await waitFor(() => expect(rows[0]).toHaveTextContent("Uploaded"));
     expect(rows[1]).toHaveTextContent("Uploading");
+    expect(screen.getByRole("status")).toHaveTextContent("Uploading 2/2 · b.jpg");
     await act(async () => finishSecond({ url: "/uploads/b.jpg" }));
     await waitFor(() => expect(rows[1]).toHaveTextContent("Uploaded"));
   });
 
-  it("uploads several files in picker order and appends each URL", async () => {
-    uploadImage
-      .mockResolvedValueOnce({ url: "/uploads/a.jpg" })
-      .mockResolvedValueOnce({ url: "/uploads/b.jpg" })
-      .mockResolvedValueOnce({ url: "/uploads/c.jpg" });
-    const { onAddImageUrl } = renderRow();
-
-    fireEvent.change(screen.getByLabelText("Choose images to upload"), {
-      target: { files: [file("a.jpg"), file("b.jpg"), file("c.jpg")] },
-    });
-
-    await waitFor(() => expect(onAddImageUrl).toHaveBeenCalledTimes(3));
-    expect(uploadImage).toHaveBeenNthCalledWith(1, expect.any(File), "image/jpeg");
-    expect(onAddImageUrl.mock.calls.map((call) => call[0])).toEqual([
-      "/uploads/a.jpg",
-      "/uploads/b.jpg",
-      "/uploads/c.jpg",
+  it("uploads mixed files in picker order with per-kind limits and MIME fallback", async () => {
+    uploadImage.mockResolvedValueOnce({ url: "/uploads/a.jpg" }).mockResolvedValueOnce({ url: "/uploads/b.mp4" }).mockResolvedValueOnce({ url: "/uploads/c.mov" }).mockResolvedValueOnce({ url: "/uploads/d.webp" });
+    const { onAddMedia } = renderRow();
+    fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [
+      file("a.jpg"), file("huge.jpg", "image/jpeg", 5 * 1024 * 1024 + 1),
+      file("b.mp4", "video/mp4", 100 * 1024 * 1024), file("notes.txt", "text/plain"),
+      file("huge.mp4", "video/mp4", 100 * 1024 * 1024 + 1), file("c.MOV", ""), file("d.webp", "image/webp"),
+    ] } });
+    await waitFor(() => expect(onAddMedia).toHaveBeenCalledTimes(4));
+    expect(onAddMedia.mock.calls.map((call) => call[0])).toEqual([
+      { url: "/uploads/a.jpg", type: "IMAGE" }, { url: "/uploads/b.mp4", type: "VIDEO" },
+      { url: "/uploads/c.mov", type: "VIDEO" }, { url: "/uploads/d.webp", type: "IMAGE" },
     ]);
-  });
-
-  it("keeps valid files in order around wrong-type and oversized files", async () => {
-    uploadImage
-      .mockResolvedValueOnce({ url: "/uploads/a.jpg" })
-      .mockResolvedValueOnce({ url: "/uploads/b.png" })
-      .mockResolvedValueOnce({ url: "/uploads/c.webp" });
-    const { onAddImageUrl } = renderRow();
-    fireEvent.change(screen.getByLabelText("Choose images to upload"), {
-      target: { files: [
-        file("a.jpg"),
-        file("notes.txt", "text/plain"),
-        file("huge.jpg", "image/jpeg", 6 * 1024 * 1024),
-        file("b.png", ""),
-        file("c.webp", "image/webp"),
-      ] },
-    });
-    await waitFor(() => expect(onAddImageUrl).toHaveBeenCalledTimes(3));
-    expect(onAddImageUrl.mock.calls.map((call) => call[0])).toEqual([
-      "/uploads/a.jpg", "/uploads/b.png", "/uploads/c.webp",
-    ]);
-    expect(uploadImage.mock.calls.map((call) => call[1])).toEqual([
-      "image/jpeg", "image/png", "image/webp",
-    ]);
+    expect(uploadImage.mock.calls.map((call) => call[1])).toEqual(["image/jpeg", "video/mp4", "video/quicktime", "image/webp"]);
     const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("huge.jpg: Images must be 5MB or smaller");
+    expect(alert).toHaveTextContent("huge.mp4: Videos must be 100MB or smaller");
     expect(alert).toHaveTextContent("notes.txt");
-    expect(alert).toHaveTextContent("huge.jpg");
-    expect(within(alert).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByRole("status")).toHaveTextContent("Added 4 items, 3 failed");
   });
 
-  it("reports one failed file and still appends the others", async () => {
-    uploadImage
-      .mockResolvedValueOnce({ url: "/uploads/ok-1.jpg" })
-      .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce({ url: "/uploads/ok-2.jpg" });
-    const { onAddImageUrl } = renderRow();
-
-    fireEvent.change(screen.getByLabelText("Choose images to upload"), {
-      target: { files: [file("ok-1.jpg"), file("bad.jpg"), file("ok-2.jpg")] },
-    });
-
-    await waitFor(() => expect(onAddImageUrl).toHaveBeenCalledTimes(2));
-    expect(onAddImageUrl.mock.calls.map((call) => call[0])).toEqual([
-      "/uploads/ok-1.jpg",
-      "/uploads/ok-2.jpg",
-    ]);
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("bad.jpg");
+  it("reports one failed file without repeating successes and continues", async () => {
+    uploadImage.mockResolvedValueOnce({ url: "/uploads/ok-1.jpg" }).mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({ url: "/uploads/ok-2.jpg" });
+    const { onAddMedia } = renderRow();
+    fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [file("ok-1.jpg"), file("bad.jpg"), file("ok-2.jpg")] } });
+    await waitFor(() => expect(onAddMedia).toHaveBeenCalledTimes(2));
+    expect(onAddMedia.mock.calls.map((call) => call[0])).toEqual([{ url: "/uploads/ok-1.jpg", type: "IMAGE" }, { url: "/uploads/ok-2.jpg", type: "IMAGE" }]);
+    expect(screen.getByRole("alert")).toHaveTextContent("bad.jpg");
+    expect(screen.queryByText("ok-1.jpg")).not.toBeInTheDocument();
+    expect(screen.queryByText("ok-2.jpg")).not.toBeInTheDocument();
   });
 
   it("rejects an oversized file without calling the upload endpoint", async () => {
-    const { onAddImageUrl } = renderRow();
-
-    fireEvent.change(screen.getByLabelText("Choose images to upload"), {
-      target: { files: [file("huge.jpg", "image/jpeg", 6 * 1024 * 1024)] },
-    });
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("huge.jpg");
+    const { onAddMedia } = renderRow();
+    fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [file("huge.jpg", "image/jpeg", 6 * 1024 * 1024)] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("huge.jpg");
     expect(uploadImage).not.toHaveBeenCalled();
-    expect(onAddImageUrl).not.toHaveBeenCalled();
+    expect(onAddMedia).not.toHaveBeenCalled();
   });
 
-  it("adds a pasted image URL and clears the draft", () => {
-    const { onAddImageUrl } = renderRow();
-
-    const urlInput = screen.getByLabelText("Image URL to add");
-    fireEvent.change(urlInput, {
-      target: { value: "https://cdn.example.com/x.jpg" },
-    });
+  it("adds a pasted video URL with its selected type and clears the draft", async () => {
+    const { onAddMedia } = renderRow();
+    await userEvent.selectOptions(screen.getByLabelText("New media type"), "VIDEO");
+    const urlInput = screen.getByLabelText("Media URL to add");
+    fireEvent.change(urlInput, { target: { value: "https://cdn.example.com/x.mp4" } });
     fireEvent.click(screen.getByRole("button", { name: "Add URL" }));
-
-    expect(onAddImageUrl).toHaveBeenCalledWith("https://cdn.example.com/x.jpg");
+    expect(onAddMedia).toHaveBeenCalledWith({ url: "https://cdn.example.com/x.mp4", type: "VIDEO" });
     expect(urlInput).toHaveValue("");
   });
 
   it("disables both add paths while editing is pending", () => {
-    render(
-      <AdminI18nProvider>
-        <MediaAddRow disabled onAddImageUrl={vi.fn()} />
-      </AdminI18nProvider>,
-    );
-
-    expect(screen.getByRole("button", { name: "Upload photos" })).toBeDisabled();
+    render(<AdminI18nProvider><MediaAddRow disabled onAddMedia={vi.fn()} /></AdminI18nProvider>);
+    expect(screen.getByRole("button", { name: "Upload images / videos (multiple)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add URL" })).toBeDisabled();
-    expect(screen.getByLabelText("Choose images to upload")).toBeDisabled();
+    expect(screen.getByLabelText("Choose media to upload")).toBeDisabled();
   });
 });

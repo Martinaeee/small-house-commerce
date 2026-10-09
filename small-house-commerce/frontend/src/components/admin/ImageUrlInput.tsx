@@ -4,7 +4,7 @@ import { useRef, useState, type FocusEventHandler } from "react";
 import { inputClsCompact } from "./Field";
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 const ACCEPTED_TYPES = {
   image: {
@@ -71,6 +71,7 @@ export function resolveUploadType(
   if (fileType in accepted) return fileType;
 
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
+  if (kind === "image" && ext === "jpeg") return "image/jpeg";
   for (const [mime, knownExt] of Object.entries(accepted)) {
     if (knownExt === ext) return mime;
   }
@@ -89,6 +90,7 @@ export function ImageUrlInput({
   ariaLabel,
   value,
   onChange,
+  onUpload,
   onBlur,
   disabled = false,
   placeholder = "https://…",
@@ -100,6 +102,7 @@ export function ImageUrlInput({
   ariaLabel?: string;
   value: string;
   onChange: (url: string) => void;
+  onUpload?: (file: File) => Promise<void>;
   onBlur?: FocusEventHandler<HTMLInputElement>;
   disabled?: boolean;
   placeholder?: string;
@@ -118,7 +121,7 @@ export function ImageUrlInput({
   const copy = { ...DEFAULT_LABELS[kind], ...labels };
 
   async function handleFile(file: File | undefined) {
-    if (!file) return;
+    if (!file || disabled || uploading) return;
     setError(null);
     const contentType = resolveUploadType(file.name, file.type, kind);
     if (!contentType) {
@@ -131,10 +134,13 @@ export function ImageUrlInput({
     }
     setUploading(true);
     try {
-      // Lazy import keeps the admin API module out of any non-upload bundle path.
-      const { adminApi } = await import("@/lib/admin-api");
-      const res = await adminApi.uploadImage(file, contentType);
-      onChange(res.url);
+      if (onUpload) {
+        await onUpload(file);
+      } else {
+        const { adminApi } = await import("@/lib/admin-api");
+        const res = await adminApi.uploadImage(file, contentType);
+        onChange(res.url);
+      }
     } catch {
       setError(copy.uploadFailed);
     } finally {

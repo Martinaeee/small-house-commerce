@@ -4,7 +4,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
-import type { MediaBatchUpload } from "@/components/admin/product-form/useMediaBatchUpload";
+import { useMediaBatchUpload, type MediaBatchUpload } from "@/components/admin/product-form/useMediaBatchUpload";
 import type { ImageFormValue } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -22,7 +22,7 @@ export interface SharedMediaWorkspaceProps {
   onSetCover(index: number): void;
   onRemove(index: number): void;
   onAdd(type: "IMAGE" | "VIDEO"): void;
-  onAddImageUrl(url: string): void;
+  onAddMedia(media: { url: string; type: "IMAGE" | "VIDEO" }): void;
 }
 
 const overlayActionCls =
@@ -54,7 +54,7 @@ function indexAfterMove(
  */
 export function SharedMediaWorkspace({
   images,
-  pending,
+  pending: locked,
   highlightKey = null,
   fieldErrors = {},
   batchUpload,
@@ -64,9 +64,12 @@ export function SharedMediaWorkspace({
   onSetCover,
   onRemove,
   onAdd,
-  onAddImageUrl,
+  onAddMedia,
 }: SharedMediaWorkspaceProps): ReactNode {
   const { t } = useAdminI18n();
+  const localBatch = useMediaBatchUpload({ disabled: locked });
+  const uploadTask = batchUpload ?? localBatch;
+  const pending = locked || uploadTask.uploading;
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const dragFrom = useRef<number | null>(null);
   const summary = summarizeAdminMedia(
@@ -142,7 +145,7 @@ export function SharedMediaWorkspace({
         </div>
       </div>
 
-      <MediaAddRow disabled={pending} onAddImageUrl={onAddImageUrl} batchUpload={batchUpload} />
+      <MediaAddRow disabled={pending} onAddMedia={onAddMedia} batchUpload={uploadTask} />
 
       {images.length === 0 ? (
         <p className="mt-4 text-sm text-ink-muted">
@@ -434,6 +437,7 @@ export function SharedMediaWorkspace({
               error={fieldErrors[`images.${editorIndex}.url`]}
             >
               <ImageUrlInput
+                key={`${editorIndex}:${activeImage.type}`}
                 id={`pf-images-${editorIndex}-url`}
                 ariaLabel={t("product_media_url_aria", {
                   number: editorIndex + 1,
@@ -441,6 +445,7 @@ export function SharedMediaWorkspace({
                 kind={activeImage.type === "VIDEO" ? "video" : "image"}
                 value={activeImage.url}
                 onChange={(url) => onPatch(editorIndex, { url })}
+                onUpload={(file) => uploadTask.upload([file], { key: "shared", kind: activeImage.type === "VIDEO" ? "video" : "image", operation: "REPLACE", onAddMedia: ({ url }) => onPatch(editorIndex, { url }) })}
                 disabled={pending}
               />
             </Field>

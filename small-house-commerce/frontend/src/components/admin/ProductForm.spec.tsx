@@ -1085,6 +1085,7 @@ describe("ProductForm Task 3 localization and structure", () => {
     );
     await user.click(screen.getByRole("tab", { name: "Media" }));
 
+    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
     fireEvent.change(screen.getByLabelText("Detail block 1 alt text"), {
       target: { value: "Detail A updated" },
     });
