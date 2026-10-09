@@ -4,6 +4,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
+import type { MediaBatchUpload } from "@/components/admin/product-form/useMediaBatchUpload";
 import type { ImageFormValue } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -14,6 +15,7 @@ export interface SharedMediaWorkspaceProps {
   pending: boolean;
   highlightKey?: string | null;
   fieldErrors?: Readonly<Record<string, string>>;
+  batchUpload?: MediaBatchUpload;
   onPatch(index: number, patch: Partial<ImageFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onReorder(from: number, to: number): void;
@@ -24,7 +26,7 @@ export interface SharedMediaWorkspaceProps {
 }
 
 const overlayActionCls =
-  "inline-flex h-6 min-w-6 items-center justify-center rounded bg-white/90 px-1 text-[11px] font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex h-6 min-w-0 flex-1 items-center justify-center rounded bg-white/90 px-1 text-[11px] font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40";
 
 function belongsToImage(highlightKey: string | null, index: number): boolean {
   return (
@@ -55,6 +57,7 @@ export function SharedMediaWorkspace({
   pending,
   highlightKey = null,
   fieldErrors = {},
+  batchUpload,
   onPatch,
   onMove,
   onReorder,
@@ -94,6 +97,17 @@ export function SharedMediaWorkspace({
     editorIndex !== null && editorIndex < images.length
       ? images[editorIndex]
       : null;
+  const setCover = (index: number): void => {
+    setActiveIndex((current) => indexAfterMove(current, index, 0));
+    onSetCover(index);
+  };
+  const remove = (index: number): void => {
+    setActiveIndex((current) => {
+      if (current === null || current === index) return null;
+      return current > index ? current - 1 : current;
+    });
+    onRemove(index);
+  };
 
   return (
     <section>
@@ -128,7 +142,7 @@ export function SharedMediaWorkspace({
         </div>
       </div>
 
-      <MediaAddRow disabled={pending} onAddImageUrl={onAddImageUrl} />
+      <MediaAddRow disabled={pending} onAddImageUrl={onAddImageUrl} batchUpload={batchUpload} />
 
       {images.length === 0 ? (
         <p className="mt-4 text-sm text-ink-muted">
@@ -250,7 +264,7 @@ export function SharedMediaWorkspace({
 
                   <div
                     data-media-actions
-                    className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-ink/70 px-0.5 py-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    className={`absolute inset-x-0 bottom-0 flex items-center justify-center gap-px bg-ink/70 px-px py-0.5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
                   >
                     <button
                       type="button"
@@ -288,12 +302,7 @@ export function SharedMediaWorkspace({
                       <button
                         type="button"
                         className={overlayActionCls}
-                        onClick={() => {
-                          setActiveIndex((current) =>
-                            indexAfterMove(current, index, 0),
-                          );
-                          onSetCover(index);
-                        }}
+                        onClick={() => setCover(index)}
                         disabled={pending}
                         aria-label={t("product_media_set_cover")}
                       >
@@ -303,14 +312,7 @@ export function SharedMediaWorkspace({
                     <button
                       type="button"
                       className={overlayActionCls}
-                      onClick={() => {
-                        setActiveIndex((current) => {
-                          if (current === null) return null;
-                          if (current === index) return null;
-                          return current > index ? current - 1 : current;
-                        });
-                        onRemove(index);
-                      }}
+                      onClick={() => remove(index)}
                       disabled={pending}
                       aria-label={t("product_media_remove")}
                     >
@@ -329,6 +331,36 @@ export function SharedMediaWorkspace({
           id="shared-media-editor"
           className="mt-4 grid gap-3 rounded-xl border border-border bg-background p-4 md:grid-cols-2"
         >
+          <div className="md:col-span-2">
+            {activeImage.url.trim() ? (
+              <div data-selected-media-preview className="mb-3 overflow-hidden rounded-lg bg-card">
+                {activeImage.type === "VIDEO" ? (
+                  <video src={activeImage.url} controls playsInline preload="metadata" className="h-48 w-full object-contain" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element -- admin-only external URL preview.
+                  <img src={activeImage.url} alt={activeImage.altText} referrerPolicy="no-referrer" className="h-48 w-full object-contain" />
+                )}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="h-9 rounded-lg border border-border px-3 text-sm font-semibold text-cta disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={() => setCover(editorIndex)}
+                disabled={pending || (Number(activeImage.sortOrder.trim() || "0") || 0) === coverSortOrder}
+              >
+                {t("product_media_set_cover")}
+              </button>
+              <button
+                type="button"
+                className="h-9 rounded-lg border border-border px-3 text-sm font-semibold text-ink-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={() => remove(editorIndex)}
+                disabled={pending}
+              >
+                {t("product_media_remove")}
+              </button>
+            </div>
+          </div>
           <div
             id={
               highlightKey === `images.${editorIndex}.type`

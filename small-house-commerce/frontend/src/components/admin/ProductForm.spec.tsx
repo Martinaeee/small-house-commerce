@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
   ProductForm,
+  appendImage,
   appendImageUrl,
   emptyProductFormValue,
   serializeFormValue,
@@ -1213,6 +1214,16 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.queryByText(/上架流程/)).not.toBeInTheDocument();
   });
 
+  it("pairs identity and category fields before the compact full-width description", () => {
+    const { container } = renderForm(baseValue());
+    const grid = container.querySelector("#pf-name")?.closest(".grid");
+    expect([...grid!.querySelectorAll("input, select, textarea")].map((control) => control.id)).toEqual([
+      "pf-name", "pf-product-code", "pf-category", "pf-tagline", "pf-description",
+    ]);
+    expect(container.querySelector("#pf-product-code")).toHaveAttribute("readonly");
+    expect(container.querySelector("#pf-description")).toHaveAttribute("rows", "3");
+  });
+
   it("gives the editing column the remaining width beside a fixed 280px rail", () => {
     const { container } = renderForm(baseValue());
 
@@ -1226,6 +1237,22 @@ describe("ProductForm Task 3 localization and structure", () => {
 });
 
 describe("ProductForm media add helpers", () => {
+  it.each([
+    [[1], "2"],
+    [[2], "3"],
+    [[10, 20], "21"],
+  ])("appends after existing sort orders %j without changing the cover", (orders, expected) => {
+    const images = orders.map((order) => ({
+      url: `/uploads/${order}.jpg`, type: "IMAGE" as const,
+      altText: "", sortOrder: String(order),
+    }));
+    for (const next of [appendImageUrl(images, "/uploads/new.jpg"), appendImage(images, "IMAGE")]) {
+      expect(next.slice(0, -1)).toEqual(images);
+      expect(next.at(-1)?.sortOrder).toBe(expected);
+      expect(Math.min(...next.map((image) => Number(image.sortOrder)))).toBe(orders[0]);
+    }
+  });
+
   it("appends an uploaded image row with the next sort order", () => {
     const rows = appendImageUrl([], "/uploads/a.jpg");
     expect(rows).toEqual([

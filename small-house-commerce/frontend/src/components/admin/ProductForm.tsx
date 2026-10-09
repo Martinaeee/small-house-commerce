@@ -52,6 +52,7 @@ import {
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
+import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { en } from "@/i18n/en";
 
@@ -147,18 +148,22 @@ export type ImageFormValue = ProductFormValue["images"][number];
 export type DetailBlockFormValue = ProductFormValue["detailBlocks"][number];
 export type VariantFormValue = ProductFormValue["variants"][number];
 
-/**
- * Appends a media card with the next sortOrder. A blank sortOrder serializes
- * to 0, which would make every newly added card claim the cover slot (the grid
- * badges the lowest sortOrder as 封面).
- */
+function nextImageSortOrder(images: readonly ImageFormValue[]): string {
+  const maximum = images.reduce((max, image) => {
+    const order = Number(image.sortOrder.trim() || "0");
+    return Math.max(max, Number.isFinite(order) ? order : 0);
+  }, -1);
+  return String(maximum + 1);
+}
+
+/** Appends after existing orders, preserving the cover even after deletions. */
 export function appendImage(
   images: ImageFormValue[],
   type: ImageFormValue["type"],
 ): ImageFormValue[] {
   return [
     ...images,
-    { url: "", type, altText: "", sortOrder: String(images.length) },
+    { url: "", type, altText: "", sortOrder: nextImageSortOrder(images) },
   ];
 }
 
@@ -169,7 +174,7 @@ export function appendImageUrl(
 ): ImageFormValue[] {
   return [
     ...images,
-    { url, type: "IMAGE", altText: "", sortOrder: String(images.length) },
+    { url, type: "IMAGE", altText: "", sortOrder: nextImageSortOrder(images) },
   ];
 }
 
@@ -1079,6 +1084,7 @@ export function ProductForm({
     }));
     clearValidation();
   };
+  const batchUpload = useMediaBatchUpload({ disabled: pending || graphLocked, onAddImageUrl: addImageWithUrl });
   const removeImage = (i: number): void => {
     setValue((prev) => ({
       ...prev,
@@ -1282,6 +1288,7 @@ export function ProductForm({
 
   /** Serializes + submits the one form value using its selected wire status. */
   const submitForm = (): void => {
+    if (pending || batchUpload.uploading) return;
     const target = value;
     // Task 11: typed-graph validation runs BEFORE the legacy serializer so a
     // graph problem jumps straight to the editors even when basics are fine.
@@ -1441,6 +1448,7 @@ export function ProductForm({
         currentStatus={value.status}
         savedStatus={savedPreview?.status ?? null}
         pending={pending}
+        saveDisabledReason={batchUpload.uploading ? t("product_media_batch_wait") : null}
         currentTab={activeTab}
         tabIndicators={tabIndicators}
         labels={{
@@ -1521,92 +1529,86 @@ export function ProductForm({
                     {t("product_basic_group_storefront")}
                   </h3>
                   <div className="grid gap-4 md:grid-cols-2">
-                <Field
-                  label={t("product_basic_name_label")}
-                  htmlFor="pf-name"
-                  error={err("name")}
-                  hint={
-                    <span title={t("product_basic_name_tooltip")}>
-                      {t("product_basic_name_hint")}
-                    </span>
-                  }
-                >
-                  <TextInput
-                    id="pf-name"
-                    value={value.name}
-                    maxLength={255}
-                    onChange={(e) => patch({ name: e.target.value })}
-                    autoComplete="off"
-                  />
-                </Field>
-
-                <Field
-                  label={t("product_basic_tagline_label")}
-                  htmlFor="pf-tagline"
-                  error={err("tagline")}
-                  hint={
-                    <span title={t("product_basic_tagline_tooltip")}>
-                      {t("product_basic_tagline_hint")}
-                    </span>
-                  }
-                >
-                  <TextInput
-                    id="pf-tagline"
-                    value={value.tagline}
-                    maxLength={200}
-                    placeholder="Space-saving 3-tier cabinet with clear doors"
-                    onChange={(e) => patch({ tagline: e.target.value })}
-                    autoComplete="off"
-                  />
-                </Field>
-
-                <div className="md:col-span-2">
-                  <Field
-                    label={t("product_basic_description_label")}
-                    htmlFor="pf-description"
-                    error={err("description")}
-                    hint={
-                      <span title={t("product_basic_description_tooltip")}>
-                        {t("product_basic_description_hint")}
-                      </span>
-                    }
-                  >
-                    <Textarea
-                      id="pf-description"
-                      rows={6}
-                      value={value.description}
-                      onChange={(e) => patch({ description: e.target.value })}
-                    />
-                  </Field>
-                </div>
-
-                <Field
-                  label={t("product_basic_category_label")}
-                  htmlFor="pf-category"
-                  error={err("categoryId")}
-                  hint={
-                    <span title={t("product_basic_category_tooltip")}>
-                      {t("product_basic_category_hint")}
-                    </span>
-                  }
-                >
-                  <Select
-                    id="pf-category"
-                    value={value.categoryId}
-                    onChange={(e) => patch({ categoryId: e.target.value })}
-                  >
-                    <option value="" disabled>
-                      {t("product_basic_category_placeholder")}
-                    </option>
-                    {flatCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {"  ".repeat(cat.depth)}
-                        {cat.depth > 0 ? "– " : ""}
-                        {cat.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                    <Field
+                      label={t("product_basic_name_label")}
+                      htmlFor="pf-name"
+                      error={err("name")}
+                      hint={<span title={t("product_basic_name_tooltip")}>{t("product_basic_name_hint")}</span>}
+                    >
+                      <TextInput
+                        id="pf-name"
+                        value={value.name}
+                        maxLength={255}
+                        onChange={(e) => patch({ name: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <Field
+                      label={t("product_basic_code_label")}
+                      htmlFor="pf-product-code"
+                      hint={t("product_basic_code_hint")}
+                    >
+                      <TextInput
+                        id="pf-product-code"
+                        aria-label={t("product_basic_code_label")}
+                        value={identity?.productCode ?? t("product_basic_code_pending")}
+                        readOnly
+                        className="bg-background font-mono text-ink-secondary"
+                      />
+                    </Field>
+                    <Field
+                      label={t("product_basic_category_label")}
+                      htmlFor="pf-category"
+                      error={err("categoryId")}
+                      hint={<span title={t("product_basic_category_tooltip")}>{t("product_basic_category_hint")}</span>}
+                    >
+                      <Select
+                        id="pf-category"
+                        value={value.categoryId}
+                        onChange={(e) => patch({ categoryId: e.target.value })}
+                      >
+                        <option value="" disabled>
+                          {t("product_basic_category_placeholder")}
+                        </option>
+                        {flatCategories.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {"  ".repeat(cat.depth)}
+                            {cat.depth > 0 ? "– " : ""}
+                            {cat.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field
+                      label={t("product_basic_tagline_label")}
+                      htmlFor="pf-tagline"
+                      error={err("tagline")}
+                      hint={<span title={t("product_basic_tagline_tooltip")}>{t("product_basic_tagline_hint")}</span>}
+                    >
+                      <TextInput
+                        id="pf-tagline"
+                        value={value.tagline}
+                        maxLength={200}
+                        placeholder="Space-saving 3-tier cabinet with clear doors"
+                        onChange={(e) => patch({ tagline: e.target.value })}
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <div className="md:col-span-2">
+                      <Field
+                        label={t("product_basic_description_label")}
+                        htmlFor="pf-description"
+                        error={err("description")}
+                        hint={<span title={t("product_basic_description_tooltip")}>{t("product_basic_description_hint")}</span>}
+                      >
+                        <Textarea
+                          id="pf-description"
+                          rows={3}
+                          value={value.description}
+                          onChange={(e) => patch({ description: e.target.value })}
+                        />
+                      </Field>
+                    </div>
                   </div>
                 </section>
 
@@ -1670,20 +1672,6 @@ export function ProductForm({
                   </Select>
                 </Field>
 
-                <Field
-                  label={t("product_basic_code_label")}
-                  htmlFor="pf-product-code"
-                  hint={t("product_basic_code_hint")}
-                >
-                  <TextInput
-                    id="pf-product-code"
-                    aria-label={t("product_basic_code_label")}
-                    value={identity?.productCode ?? t("product_basic_code_pending")}
-                    readOnly
-                    className="bg-background font-mono text-ink-secondary"
-                  />
-                </Field>
-
                 <fieldset className="md:col-span-2">
                   <legend className="text-sm font-medium text-ink">
                     {t("product_basic_solutions_legend")}
@@ -1735,6 +1723,7 @@ export function ProductForm({
               onRemove: removeImage,
               onAdd: addImage,
               onAddImageUrl: addImageWithUrl,
+              batchUpload,
             }}
             detailMedia={{
               blocks: value.detailBlocks,
