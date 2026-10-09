@@ -162,6 +162,17 @@ export function appendImage(
   ];
 }
 
+/** Appends an image row that already carries its uploaded/pasted URL. */
+export function appendImageUrl(
+  images: ImageFormValue[],
+  url: string,
+): ImageFormValue[] {
+  return [
+    ...images,
+    { url, type: "IMAGE", altText: "", sortOrder: String(images.length) },
+  ];
+}
+
 /**
  * Adds a detail block, numbered by position so a later ↑/↓ reorder stays
  * consistent.
@@ -1061,6 +1072,13 @@ export function ProductForm({
     setValue((prev) => ({ ...prev, images: appendImage(prev.images, type) }));
     clearValidation();
   };
+  const addImageWithUrl = (url: string): void => {
+    setValue((prev) => ({
+      ...prev,
+      images: appendImageUrl(prev.images, url),
+    }));
+    clearValidation();
+  };
   const removeImage = (i: number): void => {
     setValue((prev) => ({
       ...prev,
@@ -1716,6 +1734,7 @@ export function ProductForm({
               onSetCover: setCoverImage,
               onRemove: removeImage,
               onAdd: addImage,
+              onAddImageUrl: addImageWithUrl,
             }}
             detailMedia={{
               blocks: value.detailBlocks,

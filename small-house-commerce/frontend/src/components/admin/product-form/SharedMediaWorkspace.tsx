@@ -3,6 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
+import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
 import type { ImageFormValue } from "@/components/admin/ProductForm";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -19,6 +20,7 @@ export interface SharedMediaWorkspaceProps {
   onSetCover(index: number): void;
   onRemove(index: number): void;
   onAdd(type: "IMAGE" | "VIDEO"): void;
+  onAddImageUrl(url: string): void;
 }
 
 const overlayActionCls =
@@ -59,6 +61,7 @@ export function SharedMediaWorkspace({
   onSetCover,
   onRemove,
   onAdd,
+  onAddImageUrl,
 }: SharedMediaWorkspaceProps): ReactNode {
   const { t } = useAdminI18n();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -124,6 +127,8 @@ export function SharedMediaWorkspace({
           </span>
         </div>
       </div>
+
+      <MediaAddRow disabled={pending} onAddImageUrl={onAddImageUrl} />
 
       {images.length === 0 ? (
         <p className="mt-4 text-sm text-ink-muted">

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
   ProductForm,
+  appendImageUrl,
   emptyProductFormValue,
   serializeFormValue,
   type ProductFormValue,
@@ -1221,5 +1222,23 @@ describe("ProductForm Task 3 localization and structure", () => {
     const grid = panel?.parentElement;
     expect(grid).toHaveClass("xl:grid-cols-[minmax(0,1fr)_280px]");
     expect(grid?.querySelector("aside")).not.toBeNull();
+  });
+});
+
+describe("ProductForm media add helpers", () => {
+  it("appends an uploaded image row with the next sort order", () => {
+    const rows = appendImageUrl([], "/uploads/a.jpg");
+    expect(rows).toEqual([
+      { url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0" },
+    ]);
+
+    const next = appendImageUrl(rows, "/uploads/b.jpg");
+    expect(next).toHaveLength(2);
+    expect(next[1]).toEqual({
+      url: "/uploads/b.jpg",
+      type: "IMAGE",
+      altText: "",
+      sortOrder: "1",
+    });
   });
 });
