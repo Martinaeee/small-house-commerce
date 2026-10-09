@@ -51,12 +51,15 @@ export function DeviceFrame({
   children,
   labels = DEFAULT_LABELS,
   className,
+  scrollable = false,
 }: {
   device: DeviceName;
   children: ReactNode;
   labels?: Pick<PreviewPaneLabels, "desktopDevice" | "mobileDevice">;
   /** Extra classes on the outer frame (used for responsive visibility). */
   className?: string;
+  /** Keep the device viewport in flow so a full-page child can scroll. */
+  scrollable?: boolean;
 }): ReactNode {
   const d = DEVICES[device];
   const maxWidth = d.width * d.scale;
@@ -100,7 +103,7 @@ export function DeviceFrame({
       >
         <div
           data-preview-viewport
-          className="absolute left-0 top-0"
+          className={scrollable ? "relative left-0 top-0" : "absolute left-0 top-0"}
           style={{
             width: d.width,
             height: d.height,
