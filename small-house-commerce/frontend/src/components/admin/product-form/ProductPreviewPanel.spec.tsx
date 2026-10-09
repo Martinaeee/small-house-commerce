@@ -155,7 +155,7 @@ describe("ProductPreviewPanel", () => {
     const scrollers = document.querySelectorAll("[data-preview-scroll]");
     expect(scrollers).toHaveLength(2);
     for (const scroller of scrollers) {
-      expect(scroller).toHaveClass("h-full", "overflow-y-auto");
+      expect(scroller).toHaveClass("h-full", "overflow-y-auto", "overscroll-contain");
     }
     for (const viewport of document.querySelectorAll("[data-preview-viewport]")) {
       expect(viewport).toHaveClass("relative");
