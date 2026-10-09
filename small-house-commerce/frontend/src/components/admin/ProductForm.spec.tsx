@@ -1211,4 +1211,15 @@ describe("ProductForm Task 3 localization and structure", () => {
     expect(screen.getByRole("button", { name: "Save draft" })).toBeInTheDocument();
     expect(screen.queryByText(/上架流程/)).not.toBeInTheDocument();
   });
+
+  it("gives the editing column the remaining width beside a fixed 280px rail", () => {
+    const { container } = renderForm(baseValue());
+
+    const panel = container.querySelector("#pf-panel-basic");
+    expect(panel).not.toBeNull();
+    expect(panel).toHaveClass("gap-6");
+    const grid = panel?.parentElement;
+    expect(grid).toHaveClass("xl:grid-cols-[minmax(0,1fr)_280px]");
+    expect(grid?.querySelector("aside")).not.toBeNull();
+  });
 });

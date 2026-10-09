@@ -1483,12 +1483,12 @@ export function ProductForm({
 
       {/* Wide workspace: the form takes the room it needs. At desktop widths,
           the read-only rail stays visible below the sticky editor header. */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,72fr)_minmax(20rem,28fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div
         role="tabpanel"
         id={`pf-panel-${activeTab}`}
         aria-labelledby={`pf-tab-${activeTab}`}
-        className="flex min-w-0 flex-col gap-8"
+        className="flex min-w-0 flex-col gap-6"
       >
 
         {activeTab === "basic" && (
