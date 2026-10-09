@@ -197,11 +197,16 @@ export function LivePreview({
           device="desktop"
           labels={labels}
           className={preferMobileOnNarrow ? "max-[719px]:hidden" : undefined}
+          scrollable
         >
-          {children}
+          <div data-preview-scroll className="h-full overflow-y-auto">
+            {children}
+          </div>
         </DeviceFrame>
-        <DeviceFrame device="mobile" labels={labels}>
-          {children}
+        <DeviceFrame device="mobile" labels={labels} scrollable>
+          <div data-preview-scroll className="h-full overflow-y-auto">
+            {children}
+          </div>
         </DeviceFrame>
       </PreviewRow>
     </div>

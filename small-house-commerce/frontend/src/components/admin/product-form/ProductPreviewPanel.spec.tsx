@@ -148,4 +148,17 @@ describe("ProductPreviewPanel", () => {
     expect(desktopFrame?.className).toContain("max-[719px]:hidden");
     expect(mobileFrame?.className).not.toContain("max-[719px]:hidden");
   });
+
+  it("scrolls the full page inside the live preview frames", () => {
+    renderPanel(null);
+
+    const scrollers = document.querySelectorAll("[data-preview-scroll]");
+    expect(scrollers).toHaveLength(2);
+    for (const scroller of scrollers) {
+      expect(scroller).toHaveClass("h-full", "overflow-y-auto");
+    }
+    for (const viewport of document.querySelectorAll("[data-preview-viewport]")) {
+      expect(viewport).toHaveClass("relative");
+    }
+  });
 });
