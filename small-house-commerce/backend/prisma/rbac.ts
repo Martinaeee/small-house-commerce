@@ -79,6 +79,10 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.MARKETING_MANAGE_ALL,
     description: 'Manage every optimizer’s marketing pages, links and spend.',
   },
+  {
+    code: PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
+    description: 'Edit the site-wide shared FAQ library every product may use.',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -100,6 +104,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.SHIPMENT_CREATE,
     PermissionCode.REPORT_PROFIT_VIEW,
     PermissionCode.PRODUCT_MANAGE,
+    // Editing one product must not silently rewrite every product's FAQ.
+    PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,
     PermissionCode.MARKETING_VIEW_OWN,
