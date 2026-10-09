@@ -1870,8 +1870,8 @@ test.describe("Scoped media + gallery driver", () => {
         const card = sharedList.getByRole("listitem").first();
         const box = await card.boundingBox();
         expect(box, `${viewport.label}: shared card box`).not.toBeNull();
-        expect(box!.width, `${viewport.label}: shared card minimum`).toBeGreaterThanOrEqual(139);
-        expect(box!.width, `${viewport.label}: shared card maximum`).toBeLessThanOrEqual(161);
+        expect(box!.width, `${viewport.label}: shared card minimum`).toBeGreaterThanOrEqual(87);
+        expect(box!.width, `${viewport.label}: shared card maximum`).toBeLessThanOrEqual(105);
 
         const addShared = page.getByRole("button", { name: "添加图片", exact: true });
         expect(
@@ -1937,6 +1937,8 @@ test.describe("Scoped media + gallery driver", () => {
       await page.getByRole("button", { name: "添加图片", exact: true }).click();
       await page.getByLabel("媒体 2 的网址", { exact: true }).fill(SHARED_MEDIA_URL);
       await page.getByLabel("媒体 2 的 Alt 文本", { exact: true }).fill("E2E shared added");
+      await sharedList.getByRole("listitem").nth(1).hover();
+      await expect(sharedList.getByRole("listitem").nth(1).locator("[data-media-actions]")).toHaveCSS("opacity", "1");
       await page.getByRole("button", { name: "将媒体 2 左移", exact: true }).click();
       await expect(sharedSection.getByText(ZH.sharedRows(2), { exact: true })).toBeVisible();
       await expect(sharedSection.getByText("顺序 2", { exact: true })).toBeVisible();
