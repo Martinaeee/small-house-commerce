@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { inputCls } from "@/components/admin/Field";
+import { inputClsCompact } from "@/components/admin/Field";
 import { DecimalInput } from "@/components/admin/DecimalInput";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
@@ -232,7 +232,7 @@ export function VariantMatrix({
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input
             aria-label={t("product_matrix_bulk_price_aria")}
-            className={`${inputCls} w-32`}
+            className={`${inputClsCompact} w-32`}
             inputMode="decimal"
             value={bulkPrice}
             placeholder={t("product_matrix_bulk_price_placeholder")}
@@ -250,7 +250,7 @@ export function VariantMatrix({
           </button>
           <input
             aria-label={t("product_matrix_bulk_stock_aria")}
-            className={`${inputCls} w-32`}
+            className={`${inputClsCompact} w-32`}
             inputMode="numeric"
             value={bulkStock}
             placeholder={t("product_matrix_bulk_stock_placeholder")}
@@ -367,7 +367,7 @@ export function VariantMatrix({
                           aria-label={t("product_matrix_sku_code_aria", {
                             name: candidate.name,
                           })}
-                          className={`${inputCls} w-36`}
+                          className={`${inputClsCompact} w-36`}
                           value={sku?.skuCode ?? ""}
                           onChange={(e) =>
                             editSku(candidate, { skuCode: e.target.value })
@@ -381,7 +381,7 @@ export function VariantMatrix({
                           aria-label={t("product_matrix_price_aria", {
                             name: candidate.name,
                           })}
-                          className={`${inputCls} w-28`}
+                          className={`${inputClsCompact} w-28`}
                           inputMode="decimal"
                           value={sku?.price ?? null}
                           onValueChange={(price) => {
@@ -403,7 +403,7 @@ export function VariantMatrix({
                           aria-label={t("product_matrix_compare_at_aria", {
                             name: candidate.name,
                           })}
-                          className={`${inputCls} w-28`}
+                          className={`${inputClsCompact} w-28`}
                           inputMode="decimal"
                           value={sku?.compareAtPrice ?? null}
                           onValueChange={(compareAtPrice) => {
@@ -427,7 +427,7 @@ export function VariantMatrix({
                           aria-label={t("product_matrix_stock_aria", {
                             name: candidate.name,
                           })}
-                          className={`${inputCls} w-24`}
+                          className={`${inputClsCompact} w-24`}
                           inputMode="numeric"
                           value={sku === null ? "" : String(sku.onHand)}
                           onChange={(e) => {
@@ -455,7 +455,7 @@ export function VariantMatrix({
                             aria-label={t("product_matrix_status_aria", {
                               name: candidate.name,
                             })}
-                            className={`${inputCls} w-32`}
+                            className={`${inputClsCompact} w-32`}
                             value={sku.status}
                             onChange={(e) =>
                               editSku(candidate, {

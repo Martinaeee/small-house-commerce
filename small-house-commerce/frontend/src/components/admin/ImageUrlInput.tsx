@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState, type FocusEventHandler } from "react";
-import { inputCls } from "./Field";
+import { inputClsCompact } from "./Field";
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 const ACCEPTED_TYPES = {
@@ -19,7 +19,7 @@ const ACCEPTED_TYPES = {
   },
 } as const;
 
-const ACCEPT_ATTRS = {
+export const ACCEPT_ATTRS = {
   image: "image/jpeg,image/png,image/webp",
   video: "video/mp4,video/webm,video/quicktime",
 } as const;
@@ -153,14 +153,14 @@ export function ImageUrlInput({
               muted
               playsInline
               preload="metadata"
-              className="h-11 w-11 shrink-0 rounded-lg border border-border bg-black object-cover"
+              className="h-9 w-9 shrink-0 rounded-lg border border-border bg-black object-cover"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element -- admin-only external R2/URL thumbs; no optimizer domain allowlist.
             <img
               src={value}
               alt=""
-              className="h-11 w-11 shrink-0 rounded-lg border border-border object-cover"
+              className="h-9 w-9 shrink-0 rounded-lg border border-border object-cover"
               referrerPolicy="no-referrer"
             />
           )
@@ -169,7 +169,7 @@ export function ImageUrlInput({
           id={id}
           aria-label={ariaLabel}
           data-problem-focus={problemFocus || undefined}
-          className={`${inputCls} min-w-0 flex-1`}
+          className={`${inputClsCompact} min-w-0 flex-1`}
           value={value}
           placeholder={placeholder}
           onChange={(e) => {
@@ -183,7 +183,7 @@ export function ImageUrlInput({
         />
         <button
           type="button"
-          className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-cta/40 px-3 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted disabled:border-border"
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-cta/40 px-3 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted disabled:border-border"
           onClick={() => fileRef.current?.click()}
           disabled={disabled || uploading}
         >
