@@ -1,0 +1,30 @@
+// Marketing domain: optimizer identity, campaign links, ad spend and the
+// attribution touch records behind them.
+//
+// Sources: docs/DATABASE.md §7-8 (optimizer / AID), §49-53 (attribution
+// architecture, source types, AID snapshot), §77-79 (cost entries, product
+// cost snapshot, advertising cost). The AID is a business identifier for
+// "which optimizer owns this order" — never an ad, post or campaign id.
+
+/// DATABASE.md §8 optimizers, implemented as a profile row keyed to the admin
+/// user. The AID is generated once and never follows a display-name change;
+/// `optimizer_id` on orders and attributions stores User.id, so this row is the
+/// mapping between the two, not a second identity for orders to point at.
+model OptimizerProfile {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  aid         String   @unique
+  displayName String   @map("display_name")
+  status      OptimizerStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("optimizer_profiles")
+}
+
+enum OptimizerStatus {
+  ACTIVE
+  DISABLED
+}
