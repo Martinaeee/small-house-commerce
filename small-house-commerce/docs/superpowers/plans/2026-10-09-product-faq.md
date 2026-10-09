@@ -16,7 +16,7 @@
 - 三种模式：`SHARED`（共享）、`EXTEND`（共享＋专属）、`CUSTOM`（仅专属）；切换模式不删除另一种模式的已保存内容。
 - 缺失 `ProductFaq` 行一律解析为 `SHARED`，不能解释为隐藏。
 - 编辑商品专属 FAQ 沿用 `PRODUCT_MANAGE`；修改全品共享 FAQ 需新的 `PRODUCT_FAQ_SHARED_MANAGE`（默认 SUPER_ADMIN/ADMIN）。
-- 回答为受控结构化内容（段落/列表/链接），不接受可执行 HTML、脚本、iframe、任意 CSS。
+- 回答为受控结构化内容（段落/项目符号/受控链接），**不存 HTML**，因此不需要 `sanitize-html` 等新依赖。
 - 标题最多 200 字符；单个回答最多 8,000 字符；共享与专属各最多 30 条。
 - 顾客可见内容为英文；后台控件中英双语。
 - 保留 `#shipping-faq` 锚点与原生 `<details>/<summary>` 折叠交互。
@@ -136,24 +136,25 @@ git commit -m "feat(faq): add shared and per-product faq tables"
 
 ---
 
-### Task 2: 内容校验、净化与解析
+### Task 2: 内容校验、解析与渲染数据
 
 **Files:**
 - Create: `backend/src/modules/catalog/faq/faq-content.ts`, `faq-content.spec.ts`, `backend/src/modules/catalog/faq/faq-resolver.ts`, `faq-resolver.spec.ts`
 
 **Interfaces:**
-- Produces: `FAQ_MODES`、`MAX_FAQ_ITEMS = 30`、`faqItemsSchema`、`sanitizeFaqAnswer(html): string`、`resolveEffectiveFaq({ mode, productItems, sharedItems, contact }): EffectiveFaqItem[]`、`FaqContact { supportEmail, supportHours }`
+- Produces: `FAQ_MODES`、`MAX_FAQ_ITEMS = 30`、`MAX_FAQ_TITLE = 200`、`MAX_FAQ_ANSWER = 8000`、`faqItemsSchema`、`blocksFromPlainText(raw): FaqAnswerBlock[]`、`resolveEffectiveFaq({ mode, productItems, sharedItems, contact }): EffectiveFaqItem[]`、`FaqContact { supportEmail, supportHours }`
+- Types: `FaqAnswerBlock = { kind:'paragraph'; text:string } | { kind:'bullets'; items:string[] }`
 
 - [ ] **Step 1: 写失败测试**
 
 ```ts
 // faq-resolver.spec.ts
 const shared = [
-  { id: 's1', title: 'How does COD work?', answerHtml: '<p>Pay the rider.</p>', enabled: true, position: 0, defaultOpen: true },
-  { id: 's2', title: 'Returns', answerHtml: '<p>48 hours.</p>', enabled: false, position: 1, defaultOpen: false },
+  { id: 's1', title: 'How does COD work?', answer: [{ kind: 'paragraph', text: 'Pay the rider.' }], enabled: true, position: 0, defaultOpen: true },
+  { id: 's2', title: 'Returns', answer: [{ kind: 'paragraph', text: '48 hours.' }], enabled: false, position: 1, defaultOpen: false },
 ];
 const own = [
-  { id: 'p1', title: 'Does it fit a 60cm gap?', answerHtml: '<p>Yes.</p>', enabled: true, position: 0, defaultOpen: false },
+  { id: 'p1', title: 'Does it fit a 60cm gap?', answer: [{ kind: 'paragraph', text: 'Yes.' }], enabled: true, position: 0, defaultOpen: false },
 ];
 
 it('SHARED returns only enabled shared items', () => {
@@ -171,37 +172,48 @@ it('treats a missing row as SHARED', () => {
   expect(resolveEffectiveFaq({ mode: undefined, productItems: [], sharedItems: shared, contact })
     .map((i) => i.id)).toEqual(['s1']);
 });
-it('resolves the support email placeholder from settings', () => {
-  const out = resolveEffectiveFaq({ mode: 'SHARED', productItems: [], contact,
-    sharedItems: [{ id: 's3', title: 'Contact', answerHtml: '<p>Email {{supportEmail}}</p>', enabled: true, position: 0, defaultOpen: false }] });
-  expect(out[0].answerHtml).toContain('support@luwag.ph');
+it('re-sorts by position rather than trusting storage order', () => {
+  const shuffled = [shared[1], shared[0]];
+  expect(resolveEffectiveFaq({ mode: 'SHARED', productItems: [], sharedItems: shuffled, contact })
+    .map((i) => i.id)).toEqual(['s1']);
 });
 ```
 
 ```ts
 // faq-content.spec.ts
-it('strips scripts, event handlers and javascript: links', () => {
-  const out = sanitizeFaqAnswer('<p onclick="x()">hi</p><script>bad()</script><a href="javascript:bad()">l</a>');
-  expect(out).not.toMatch(/script|onclick|javascript:/i);
+it('splits blank lines into paragraphs and dash lines into bullets', () => {
+  expect(blocksFromPlainText('First para.\n\n- one\n- two')).toEqual([
+    { kind: 'paragraph', text: 'First para.' },
+    { kind: 'bullets', items: ['one', 'two'] },
+  ]);
+});
+it('joins wrapped lines inside one paragraph', () => {
+  expect(blocksFromPlainText('one\ntwo')).toEqual([{ kind: 'paragraph', text: 'one two' }]);
 });
 it('rejects a half-filled item', () => {
-  expect(faqItemsSchema.safeParse([{ id: 'a', title: 'Only a title', answerHtml: '', enabled: true, position: 0, defaultOpen: false }]).success).toBe(false);
+  expect(faqItemsSchema.safeParse([{ id: 'a', title: 'Only a title', answer: [], enabled: true, position: 0, defaultOpen: false }]).success).toBe(false);
 });
-it('caps items at 30 and titles at 200 characters', () => {
-  expect(faqItemsSchema.safeParse(Array(31).fill(VALID_ITEM)).success).toBe(false);
+it('rejects an answer over the byte budget and a title over 200 characters', () => {
+  expect(faqItemsSchema.safeParse([{ ...VALID_ITEM, answer: [{ kind: 'paragraph', text: 'x'.repeat(8001) }] }]).success).toBe(false);
   expect(faqItemsSchema.safeParse([{ ...VALID_ITEM, title: 'x'.repeat(201) }]).success).toBe(false);
+});
+it('caps items at 30', () => {
+  expect(faqItemsSchema.safeParse(Array(31).fill(VALID_ITEM)).success).toBe(false);
+});
+it('has no field that can carry executable markup', () => {
+  expect(faqItemsSchema.safeParse([{ ...VALID_ITEM, answer: [{ kind: 'html', html: '<script>x()</script>' }] }]).success).toBe(false);
 });
 ```
 
 - [ ] **Step 2: 运行确认失败** — `pnpm --dir small-house-commerce/backend test faq-` → FAIL
 
-- [ ] **Step 3: 实现**：复用 Task 4（投放计划）同款 `sanitize-html` 白名单；`{{supportEmail}}` / `{{supportHours}}` 只作为固定字段占位，用文本/链接节点替换，不做任意模板求值。
+- [ ] **Step 3: 实现**。回答只有 `paragraph` 与 `bullets` 两种块，纯文本字段，**没有 HTML 字段**；`faqItemsSchema` 用 `z.discriminatedUnion('kind', ...)`，未知 kind 直接拒绝。**不要引入 `sanitize-html`。**
 
 - [ ] **Step 4: 运行确认通过并提交**
 
 ```bash
 git add backend/src/modules/catalog/faq
-git commit -m "feat(faq): validate, sanitize and resolve faq content"
+git commit -m "feat(faq): validate and resolve structured faq content"
 ```
 
 ---
