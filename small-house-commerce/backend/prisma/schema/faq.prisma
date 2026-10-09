@@ -1,0 +1,45 @@
+// Product FAQ content.
+//
+// Two boundaries: one site-wide shared library, and one configuration per
+// product. Answers are stored as structured blocks (paragraphs and bullet
+// lists) rather than HTML, so nothing an operator types is ever executed or
+// needs sanitising — the storefront renders the blocks as React nodes.
+//
+// A product with no row here resolves to SHARED. "No row" means "use the
+// shared library", never "hide the section".
+
+enum FaqMode {
+  SHARED
+  EXTEND
+  CUSTOM
+}
+
+/// Exactly one row exists, with the fixed id below; the migration seeds it from
+/// the copy that used to be hard-coded in the PDP. `version` is the optimistic
+/// lock for concurrent edits of the whole library.
+model SharedFaqSet {
+  id              String   @id @db.Uuid
+  items           Json     @default("[]")
+  version         Int      @default(0)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("shared_faq_sets")
+}
+
+/// Per-product FAQ configuration. `items` holds this product's own questions,
+/// which are kept even while the mode hides them, so switching SHARED -> CUSTOM
+/// -> SHARED never loses work.
+model ProductFaq {
+  productId String   @id @map("product_id") @db.Uuid
+  mode      FaqMode  @default(SHARED)
+  items     Json     @default("[]")
+  version   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_faqs")
+}
