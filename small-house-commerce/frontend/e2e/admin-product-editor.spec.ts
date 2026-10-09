@@ -1204,8 +1204,8 @@ async function scrollBelowSticky(page: Page, selector: string): Promise<void> {
 
 const SAVE_BUTTON = 'button[type="submit"][aria-busy]';
 
-function scopedMediaUrlInputs(page: Page) {
-  return page.locator('input[aria-label$="的媒体 URL"]');
+function scopedMediaCards(page: Page) {
+  return page.locator('details [data-media-gallery] > ul > li');
 }
 
 /** The option group <li> that owns the given option's name input. */
@@ -1956,6 +1956,7 @@ test.describe("Scoped media + gallery driver", () => {
 
       // Inactive rows are still editable; switching the driver never drops them.
       await redScopeSummary.click();
+      await page.getByRole("button", { name: "编辑 Red 的媒体 1", exact: true }).click();
       await page
         .getByLabel("Red 1 的 Alt 文本", { exact: true })
         .fill("Red scope preserved E2E");
@@ -1996,7 +1997,7 @@ test.describe("Scoped media + gallery driver", () => {
       // --- C. exact override + PDP detail edits ------------------------------
       await selectTab(page, "media");
       expect(
-        await scopedMediaUrlInputs(page).count(),
+        await scopedMediaCards(page).count(),
         "the selector thumbnail is not a gallery row",
       ).toBe(4); // inactive Red (image + video)/Blue + active Size/Small
       await expect(
@@ -2027,7 +2028,7 @@ test.describe("Scoped media + gallery driver", () => {
         .getByLabel("Blue / Small 1 的 Alt 文本", { exact: true })
         .fill("Blue Small exact E2E");
       await expect(blueSmallSummary).toContainText(ZH.exactSourceExact(1));
-      expect(await scopedMediaUrlInputs(page).count()).toBe(5);
+      expect(await scopedMediaCards(page).count()).toBe(5);
 
       await page.setViewportSize({ width: 1920, height: 1080 });
       await blueSmallSummary.scrollIntoViewIfNeeded();
@@ -2037,6 +2038,8 @@ test.describe("Scoped media + gallery driver", () => {
 
       // Reorder the separately-owned PDP detail blocks and edit the moved row.
       await page.setViewportSize({ width: 1440, height: 900 });
+      await page.locator("#product-detail-block-1").hover();
+      await expect(page.locator("#product-detail-block-1 [data-media-actions]")).toHaveCSS("opacity", "1");
       await page
         .getByRole("button", { name: "将详情块 2 上移", exact: true })
         .click();

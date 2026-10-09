@@ -130,6 +130,63 @@ beforeEach(() => {
 });
 
 describe("ProductMediaScopesEditor", () => {
+  it("reopens the highlighted media editor when the problem rail jumps again", async () => {
+    const user = userEvent.setup();
+    const initial = draft({
+      options: [optionDraft({ isMediaDriver: true })],
+      media: [mediaDraft({ id: "photo", optionValueRef: { id: "value-1" } })],
+    });
+    const view = render(
+      <AdminI18nProvider>
+        <ProductMediaScopesEditor draft={initial} onChange={vi.fn()} highlightKey="photo" highlightNonce={1} />
+      </AdminI18nProvider>,
+    );
+    expect(screen.getByLabelText("Media URL for Red 1")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Close media editor" }));
+    expect(screen.queryByLabelText("Media URL for Red 1")).not.toBeInTheDocument();
+    view.rerender(
+      <AdminI18nProvider>
+        <ProductMediaScopesEditor draft={initial} onChange={vi.fn()} highlightKey="photo" highlightNonce={2} />
+      </AdminI18nProvider>,
+    );
+    expect(screen.getByLabelText("Media URL for Red 1")).toBeVisible();
+  });
+
+  it("keeps a scope visible while its upload receipt still has filenames", async () => {
+    const user = userEvent.setup();
+    const size = optionDraft({ id: "option-size", name: "Size", kind: "SIZE", position: 1, values: [valueDraft({ id: "value-m", label: "M" })] });
+    const batchUpload = { results: { "value:value-1": [{ name: "failed.png", operation: "ADD" as const, status: "failed" as const, reason: "Upload failed, please retry" }] }, targetKey: null, uploading: false, upload: async () => undefined, dismiss: () => undefined };
+    render(
+      <AdminI18nProvider>
+        <GraphDraftHarness
+          initial={draft({ options: [optionDraft({ isMediaDriver: true }), size], media: [] })}
+          render={(current, onChange) => (
+            <ProductMediaScopesEditor draft={current} onChange={onChange} batchUpload={batchUpload} />
+          )}
+        />
+      </AdminI18nProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Size" }));
+    const summary = screen.getByLabelText("Color / Red media summary");
+    expect(summary).toHaveTextContent("Inactive / legacy");
+    await user.click(summary);
+    expect(screen.getByRole("alert")).toHaveTextContent("failed.png");
+  });
+
+  it("shows compact scoped thumbnails and opens only the selected media editor", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={draft({ options: [optionDraft({ isMediaDriver: true })], media: [
+      mediaDraft({ id: "photo", optionValueRef: { id: "value-1" } }),
+      mediaDraft({ id: "video", url: "/uploads/demo.mp4", type: "VIDEO", sortOrder: 1, optionValueRef: { id: "value-1" } }),
+    ] })} />);
+    await user.click(screen.getByLabelText("Color / Red media summary"));
+    expect(screen.queryByLabelText("Media URL for Red 1")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Red media 2" }));
+    expect(screen.getByLabelText("Media URL for Red 2")).toHaveValue("/uploads/demo.mp4");
+    expect(screen.queryByLabelText("Media URL for Red 1")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-selected-media-preview] video')).not.toBeNull();
+  });
+
   it("lists shared media read-only and points at the gallery tab", () => {
     render(<Harness initial={draft()} />);
 
@@ -384,11 +441,12 @@ describe("ProductMediaScopesEditor", () => {
     expect(greenDetails).not.toHaveAttribute("open");
     await user.click(greenSummary);
     expect(greenDetails).toHaveAttribute("open");
+    await user.click(within(greenDetails).getByRole("button", { name: "Edit Green media 1" }));
     expect(
       within(greenDetails).getByLabelText("Media URL for Green 1"),
     ).toHaveValue("");
     expect(
-      within(greenDetails).getByRole("button", { name: "Remove media" }),
+      within(greenDetails.querySelector("[data-media-editor]") as HTMLElement).getByRole("button", { name: "Remove media" }),
     ).toBeInTheDocument();
 
     const grayDetails = graySummary.closest("details") as HTMLDetailsElement;
@@ -587,6 +645,7 @@ describe("ProductMediaScopesEditor", () => {
       "details",
     ) as HTMLDetailsElement;
     expect(adoptedBlueDetails).toHaveAttribute("open");
+    await user.click(within(adoptedBlueDetails).getByRole("button", { name: "Edit Blue / M media 1" }));
     expect(
       within(adoptedBlueDetails).getByLabelText("Media URL for Blue / M 1"),
     ).toHaveValue("/uploads/blue-m.jpg");
@@ -833,6 +892,7 @@ describe("ProductMediaScopesEditor", () => {
     await user.click(exactSummary);
     const exactDetails = exactSummary.closest("details") as HTMLDetailsElement;
     expect(exactDetails).toHaveAttribute("open");
+    await user.click(within(exactDetails).getByRole("button", { name: "Edit Exact / M media 1" }));
     expect(
       within(exactDetails).getByLabelText("Media URL for Exact / M 1"),
     ).toHaveValue("/uploads/exact-1.jpg");
@@ -891,6 +951,7 @@ describe("ProductMediaScopesEditor", () => {
     expect(advanced).not.toHaveAttribute("open");
     await user.click(summary);
     expect(advanced).toHaveAttribute("open");
+    await user.click(within(advanced).getByRole("button", { name: "Edit Red / M media 1" }));
     expect(
       within(advanced).getByLabelText("Media URL for Red / M 1"),
     ).toHaveValue("/uploads/variant.jpg");
@@ -915,6 +976,7 @@ describe("ProductMediaScopesEditor", () => {
     );
 
     await user.click(screen.getByLabelText("Color / Red media summary"));
+    await user.click(screen.getByRole("button", { name: "Edit Red media 1" }));
     await user.type(screen.getByLabelText("Alt text for Red 1"), "Red chair");
     const media = (draftJson() as AdminCatalogGraphDraft).media;
     expect(media[0].altText).toBe("Red chair");

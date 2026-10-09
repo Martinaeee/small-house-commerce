@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProductForm, emptyProductFormValue } from "@/components/admin/ProductForm";
@@ -39,7 +39,7 @@ function renderForm() {
 }
 
 function pickFiles() {
-  fireEvent.change(screen.getByLabelText("Choose images to upload"), {
+  fireEvent.change(within(screen.getByRole("heading", { name: "Shared product gallery" }).closest("section")!).getByLabelText("Choose media to upload"), {
     target: { files: [new File(["a"], "a.jpg", { type: "image/jpeg" }), new File(["b"], "b.jpg", { type: "image/jpeg" })] },
   });
 }
@@ -48,6 +48,31 @@ beforeEach(() => setAdminLang("en"));
 afterEach(() => vi.restoreAllMocks());
 
 describe("ProductForm upload lifecycle", () => {
+  it("saves a mixed gallery in picker order with the detected media types", async () => {
+    vi.spyOn(adminApi, "uploadImage")
+      .mockResolvedValueOnce({ url: "/uploads/a.jpg", key: "a" })
+      .mockResolvedValueOnce({ url: "/uploads/demo.mp4", key: "demo" })
+      .mockResolvedValueOnce({ url: "/uploads/clip.mov", key: "clip" });
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm();
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+    fireEvent.change(within(screen.getByRole("heading", { name: "Shared product gallery" }).closest("section")!).getByLabelText(/Choose (images|media) to upload/), {
+      target: { files: [
+        new File(["a"], "a.jpg", { type: "image/jpeg" }),
+        new File(["demo"], "demo.mp4", { type: "video/mp4" }),
+        new File(["clip"], "clip.MOV", { type: "" }),
+      ] },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0].images).toEqual([
+      { url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0" },
+      { url: "/uploads/demo.mp4", type: "VIDEO", altText: "", sortOrder: "1" },
+      { url: "/uploads/clip.mov", type: "VIDEO", altText: "", sortOrder: "2" },
+    ]);
+  });
+
   it("blocks button and direct form submission until the complete batch settles", async () => {
     const first = deferredUpload();
     const second = deferredUpload();
@@ -89,8 +114,10 @@ describe("ProductForm upload lifecycle", () => {
     await user.click(screen.getByRole("tab", { name: "Basic Info" }));
     await user.click(screen.getByRole("tab", { name: "Media" }));
 
-    expect(screen.getByLabelText("Choose images to upload")).toBeDisabled();
-    expect(screen.getByRole("list", { name: "Photo upload queue" })).toHaveTextContent("a.jpg");
+    expect(within(screen.getByRole("heading", { name: "Shared product gallery" }).closest("section")!).getByLabelText("Choose media to upload")).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Uploading 2/2 · b.jpg");
+    await user.click(screen.getByText("View details"));
+    expect(screen.getByRole("list", { name: "Media upload queue" })).toHaveTextContent("a.jpg");
     await act(async () => second.reject(new Error("deliberate failure")));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("b.jpg"));
     await user.click(screen.getByRole("tab", { name: "Preview" }));

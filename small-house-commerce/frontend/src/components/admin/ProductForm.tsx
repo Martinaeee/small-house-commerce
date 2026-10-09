@@ -1077,14 +1077,23 @@ export function ProductForm({
     setValue((prev) => ({ ...prev, images: appendImage(prev.images, type) }));
     clearValidation();
   };
-  const addImageWithUrl = (url: string): void => {
+  const addMediaWithUrl = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
     setValue((prev) => ({
       ...prev,
-      images: appendImageUrl(prev.images, url),
+      images: [...prev.images, { ...media, altText: "", sortOrder: nextImageSortOrder(prev.images) }],
     }));
     clearValidation();
   };
-  const batchUpload = useMediaBatchUpload({ disabled: pending || graphLocked, onAddImageUrl: addImageWithUrl });
+  const uploadTargets = new Set([
+    "shared", "detail",
+    ...(value.graph?.options.flatMap((option) => option.values.map((row) => `value:${entityRowKey(row)}`)) ?? []),
+    ...(value.graph?.variants.map((row) => `variant:${entityRowKey(row)}`) ?? []),
+  ]);
+  const batchUpload = useMediaBatchUpload({ disabled: pending, isTargetAvailable: (key) => uploadTargets.has(key) });
+  // Scoped receipts live inside their option-value/variant details, which can be
+  // collapsed or disappear with the active driver, so their failures are also
+  // surfaced here — a failed filename must never be hidden by a closed scope.
+  const scopedUploadReceipts = Object.entries(batchUpload.results).filter(([key, files]) => key !== "shared" && key !== "detail" && files.some((file) => file.status === "failed"));
   const removeImage = (i: number): void => {
     setValue((prev) => ({
       ...prev,
@@ -1169,6 +1178,13 @@ export function ProductForm({
     setValue((prev) => ({
       ...prev,
       detailBlocks: appendDetailBlock(prev.detailBlocks, type),
+    }));
+    clearValidation();
+  };
+  const addDetailMedia = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
+    setValue((prev) => ({
+      ...prev,
+      detailBlocks: [...prev.detailBlocks, { ...media, altText: "", sortOrder: nextImageSortOrder(prev.detailBlocks) }],
     }));
     clearValidation();
   };
@@ -1497,6 +1513,14 @@ export function ProductForm({
         }
       />
 
+      {scopedUploadReceipts.map(([key, files]) => (
+        <div key={key} className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-sale/30 bg-sale/5 p-3 text-xs text-red-700">
+          <ul role="alert" className="max-h-24 overflow-y-auto break-words">
+            {files.filter((file) => file.status === "failed").map((file, index) => <li key={index}>{t("product_media_batch_failure", { name: file.name, reason: file.reason ?? "" })}</li>)}
+          </ul>
+          <button type="button" aria-label={t("product_media_batch_dismiss")} onClick={() => batchUpload.dismiss(key)} className="shrink-0">×</button>
+        </div>
+      ))}
       <details className="mb-5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-ink-secondary">
         <summary className="cursor-pointer list-none font-semibold text-cta">
           {t("product_form_help_summary")}
@@ -1711,6 +1735,7 @@ export function ProductForm({
             graphDraft={graphDraft}
             onGraphChange={typed && graphDraft ? updateGraph : null}
             highlightKey={highlight?.key ?? null}
+            highlightNonce={highlight?.nonce ?? 0}
             sharedMedia={{
               images: value.images,
               pending,
@@ -1722,7 +1747,7 @@ export function ProductForm({
               onSetCover: setCoverImage,
               onRemove: removeImage,
               onAdd: addImage,
-              onAddImageUrl: addImageWithUrl,
+              onAddMedia: addMediaWithUrl,
               batchUpload,
             }}
             detailMedia={{
@@ -1734,6 +1759,8 @@ export function ProductForm({
               onMove: moveDetailBlock,
               onRemove: removeDetailBlock,
               onAdd: addDetailBlock,
+              onAddMedia: addDetailMedia,
+              batchUpload,
             }}
           />
         )}
@@ -1863,7 +1890,7 @@ export function ProductForm({
             <ProductOptionsEditor
               draft={graphDraft}
               onChange={updateGraph}
-              pending={pending}
+              pending={pending || batchUpload.uploading}
               highlightKey={highlight?.key ?? null}
             />
             <div className="mt-8">
@@ -1871,7 +1898,7 @@ export function ProductForm({
                 candidates={candidates}
                 draft={graphDraft}
                 onChange={updateGraph}
-                pending={pending}
+                pending={pending || batchUpload.uploading}
                 highlightKey={highlight?.key ?? null}
                 requestedSkuCode={requestedSkuCode}
               />

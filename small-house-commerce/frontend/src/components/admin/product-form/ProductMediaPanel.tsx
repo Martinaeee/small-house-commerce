@@ -23,6 +23,8 @@ export interface ProductMediaPanelProps {
   detailMedia: DetailMediaWorkspaceProps;
   /** Row the problem rail asked to highlight (media row key). */
   highlightKey?: string | null;
+  /** Bumped by every problem-rail jump so a repeat jump reopens the editor. */
+  highlightNonce?: number;
 }
 
 /**
@@ -40,6 +42,7 @@ export function ProductMediaPanel({
   sharedMedia,
   detailMedia,
   highlightKey = null,
+  highlightNonce = 0,
 }: ProductMediaPanelProps): ReactNode {
   const { t } = useAdminI18n();
   return (
@@ -69,6 +72,8 @@ export function ProductMediaPanel({
               onChange={onGraphChange}
               pending={pending}
               highlightKey={highlightKey}
+              highlightNonce={highlightNonce}
+              batchUpload={sharedMedia.batchUpload}
             />
           </div>
         </section>

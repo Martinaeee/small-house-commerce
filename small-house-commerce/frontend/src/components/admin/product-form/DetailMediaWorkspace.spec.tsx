@@ -30,6 +30,7 @@ function renderWorkspace(
     onMove: vi.fn(),
     onRemove: vi.fn(),
     onAdd: vi.fn(),
+    onAddMedia: vi.fn(),
     ...overrides,
   };
   const view = render(
@@ -45,6 +46,27 @@ beforeEach(() => {
 });
 
 describe("DetailMediaWorkspace", () => {
+  it("does not carry a replacement error into another selected block", async () => {
+    renderWorkspace();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
+    fireEvent.change(document.querySelector('input[type="file"]:not([multiple])')!, { target: { files: [new File(["pdf"], "notes.pdf", { type: "application/pdf" })] } });
+    expect(screen.getByText("仅支持 JPG / PNG / WebP 图片")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
+    expect(screen.queryByText("仅支持 JPG / PNG / WebP 图片")).not.toBeInTheDocument();
+  });
+
+  it("keeps detail media as thumbnails until a single block is selected", async () => {
+    renderWorkspace();
+    expect(screen.queryByLabelText("Detail block 1 URL")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Detail block 2 URL")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
+    expect(screen.getByLabelText("Detail block 2 URL")).toHaveValue("/uploads/detail-2.mp4");
+    expect(screen.queryByLabelText("Detail block 1 URL")).not.toBeInTheDocument();
+    expect(document.querySelector("[data-selected-media-preview] video")).not.toBeNull();
+    expect(document.querySelector('input[type="file"][multiple]')).not.toBeNull();
+    expect(document.querySelectorAll('input[type="file"]:not([multiple])')).toHaveLength(1);
+  });
+
   it("separates PDP-only media with factual summaries and narrow-safe rows", () => {
     renderWorkspace({ highlightKey: "detailBlocks.1.url" });
 
@@ -66,10 +88,8 @@ describe("DetailMediaWorkspace", () => {
     const list = screen.getByRole("list", { name: "PDP detail media blocks" });
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveClass("grid-cols-1");
-    expect(rows[0]).toHaveClass(
-      "xl:grid-cols-[120px_minmax(0,1fr)_minmax(180px,240px)_auto]",
-    );
+    expect(list).toHaveClass("grid-cols-[repeat(auto-fill,minmax(88px,104px))]");
+    expect(rows[0].querySelector("input")).toBeNull();
     expect(rows[1]).toHaveClass("ring-2");
     expect(rows[1]).toHaveAttribute("id", "product-detail-block-1");
     expect(document.getElementById("pf-row-detailBlocks.1.url")).not.toBeNull();
@@ -79,8 +99,11 @@ describe("DetailMediaWorkspace", () => {
     const user = userEvent.setup();
     const { props, rerender } = renderWorkspace();
 
+    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
     expect(screen.getByRole("button", { name: "上传图片" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
     expect(screen.getByRole("button", { name: "上传视频" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
 
     await user.selectOptions(screen.getByLabelText("Detail block 1 type"), "VIDEO");
     expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO" });
@@ -122,6 +145,7 @@ describe("DetailMediaWorkspace", () => {
         <DetailMediaWorkspace {...props} />
       </AdminI18nProvider>,
     );
+    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
     expect(screen.getByLabelText("Detail block 1 type")).toHaveValue("IMAGE");
     expect(screen.getByLabelText("Detail block 1 URL")).toHaveValue(
       "/uploads/detail-1.jpg",
