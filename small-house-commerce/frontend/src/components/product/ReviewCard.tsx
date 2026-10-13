@@ -32,6 +32,7 @@ function rememberVote(id: string) {
 
 function formatReviewDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "long",
     day: "numeric",
