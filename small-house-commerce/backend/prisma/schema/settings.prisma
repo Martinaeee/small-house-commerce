@@ -12,6 +12,10 @@ model SiteSetting {
   newsletterPopupDelaySeconds Int     @default(5) @map("newsletter_popup_delay_seconds")
   newsletterOfferTitle        String  @default("") @map("newsletter_offer_title")
   newsletterOfferBody         String  @default("") @map("newsletter_offer_body")
+  newsletterEyebrow           String  @default("The LUWAG edit") @map("newsletter_eyebrow")
+  newsletterFormTitle         String  @default("Subscribe by email") @map("newsletter_form_title")
+  newsletterEmailPlaceholder  String  @default("Your email address") @map("newsletter_email_placeholder")
+  newsletterConsentText       String  @default("By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.") @map("newsletter_consent_text")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

@@ -792,6 +792,10 @@ export interface AdminSiteSettings {
   newsletterPopupDelaySeconds: number;
   newsletterOfferTitle: string;
   newsletterOfferBody: string;
+  newsletterEyebrow: string;
+  newsletterFormTitle: string;
+  newsletterEmailPlaceholder: string;
+  newsletterConsentText: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -805,6 +809,10 @@ export interface UpdateSiteSettingsInput {
   newsletterPopupDelaySeconds?: number;
   newsletterOfferTitle?: string;
   newsletterOfferBody?: string;
+  newsletterEyebrow?: string;
+  newsletterFormTitle?: string;
+  newsletterEmailPlaceholder?: string;
+  newsletterConsentText?: string;
 }
 
 /** Hero appearance payload (see the backend heroStyle input contract).

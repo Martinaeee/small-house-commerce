@@ -159,14 +159,14 @@ export function NewsletterPopup() {
           </div>
 
           <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.24em] text-[#a7654b]">
-            Member welcome reward
+            {settings.newsletterEyebrow}
           </p>
 
           <h2
             id="newsletter-popup-title"
             className="mt-2 text-[1.7rem] font-semibold leading-tight tracking-[-0.03em] text-[#2f241f]"
           >
-            Subscribe now
+            {settings.newsletterFormTitle}
           </h2>
 
           <p className="mx-auto mt-2 max-w-[19rem] text-sm leading-6 text-[#735f54]">
@@ -194,6 +194,7 @@ export function NewsletterPopup() {
             <SubscribeEmailForm
               source="POPUP"
               variant="popup"
+              placeholder={settings.newsletterEmailPlaceholder}
               onSuccess={(promoCode) => {
                 markSeen();
                 setSuccessCode(promoCode);
@@ -202,8 +203,7 @@ export function NewsletterPopup() {
           </div>
 
           <p className="mx-auto mt-4 max-w-[20rem] text-[10px] leading-4 text-[#8d786d]">
-            By subscribing, you agree to receive LUWAG offers and updates.
-            Unsubscribe anytime.
+            {settings.newsletterConsentText}
           </p>
         </div>
       </div>

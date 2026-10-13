@@ -17,6 +17,10 @@ interface SettingsForm {
   newsletterPopupDelaySeconds: string;
   newsletterOfferTitle: string;
   newsletterOfferBody: string;
+  newsletterEyebrow: string;
+  newsletterFormTitle: string;
+  newsletterEmailPlaceholder: string;
+  newsletterConsentText: string;
 }
 
 type SettingsErrors = Partial<Record<keyof SettingsForm, string>>;
@@ -64,6 +68,22 @@ function validateSettings(values: SettingsForm): SettingsErrors {
   if (values.newsletterOfferBody.trim().length > 500) {
     errors.newsletterOfferBody = "优惠正文不能超过 500 个字符。";
   }
+  const eyebrow = values.newsletterEyebrow.trim();
+  if (eyebrow.length < 1 || eyebrow.length > 80) {
+    errors.newsletterEyebrow = "订阅区小标签需为 1–80 个字符。";
+  }
+  const formTitle = values.newsletterFormTitle.trim();
+  if (formTitle.length < 1 || formTitle.length > 120) {
+    errors.newsletterFormTitle = "表单标题需为 1–120 个字符。";
+  }
+  const placeholder = values.newsletterEmailPlaceholder.trim();
+  if (placeholder.length < 1 || placeholder.length > 120) {
+    errors.newsletterEmailPlaceholder = "邮箱占位文案需为 1–120 个字符。";
+  }
+  const consent = values.newsletterConsentText.trim();
+  if (consent.length < 1 || consent.length > 500) {
+    errors.newsletterConsentText = "同意与退订说明需为 1–500 个字符。";
+  }
   return errors;
 }
 
@@ -77,6 +97,10 @@ function toForm(row: AdminSiteSettings): SettingsForm {
     newsletterPopupDelaySeconds: String(row.newsletterPopupDelaySeconds),
     newsletterOfferTitle: row.newsletterOfferTitle,
     newsletterOfferBody: row.newsletterOfferBody,
+    newsletterEyebrow: row.newsletterEyebrow,
+    newsletterFormTitle: row.newsletterFormTitle,
+    newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
+    newsletterConsentText: row.newsletterConsentText,
   };
 }
 
@@ -142,6 +166,10 @@ export default function SiteSettingsPage(): ReactNode {
         newsletterPopupDelaySeconds: Number(data.newsletterPopupDelaySeconds),
         newsletterOfferTitle: data.newsletterOfferTitle.trim(),
         newsletterOfferBody: data.newsletterOfferBody.trim(),
+        newsletterEyebrow: data.newsletterEyebrow.trim(),
+        newsletterFormTitle: data.newsletterFormTitle.trim(),
+        newsletterEmailPlaceholder: data.newsletterEmailPlaceholder.trim(),
+        newsletterConsentText: data.newsletterConsentText.trim(),
       })
       .then((row) => {
         setData(toForm(row));
@@ -297,6 +325,72 @@ export default function SiteSettingsPage(): ReactNode {
                 onChange={(event) =>
                   updateField("newsletterPopupDelaySeconds", event.target.value)
                 }
+              />
+            </Field>
+
+            <Field
+              label="订阅区小标签"
+              htmlFor="settings-newsletter-eyebrow"
+              error={errors.newsletterEyebrow}
+              hint="显示在页脚订阅区和弹窗主标题上方，不受优惠活动状态影响。"
+            >
+              <TextInput
+                id="settings-newsletter-eyebrow"
+                value={data.newsletterEyebrow}
+                onChange={(event) =>
+                  updateField("newsletterEyebrow", event.target.value)
+                }
+                maxLength={80}
+              />
+            </Field>
+
+            <Field
+              label="表单标题"
+              htmlFor="settings-newsletter-form-title"
+              error={errors.newsletterFormTitle}
+              hint="显示在页脚邮箱表单上方，同时作为订阅弹窗主标题。"
+            >
+              <TextInput
+                id="settings-newsletter-form-title"
+                value={data.newsletterFormTitle}
+                onChange={(event) =>
+                  updateField("newsletterFormTitle", event.target.value)
+                }
+                maxLength={120}
+              />
+            </Field>
+
+            <Field
+              label="邮箱占位文案"
+              htmlFor="settings-newsletter-email-placeholder"
+              error={errors.newsletterEmailPlaceholder}
+              hint="页脚与弹窗共用的邮箱输入框提示。"
+            >
+              <TextInput
+                id="settings-newsletter-email-placeholder"
+                value={data.newsletterEmailPlaceholder}
+                onChange={(event) =>
+                  updateField("newsletterEmailPlaceholder", event.target.value)
+                }
+                maxLength={120}
+              />
+            </Field>
+
+            <Field
+              label="同意与退订说明"
+              htmlFor="settings-newsletter-consent"
+              error={errors.newsletterConsentText}
+              hint="显示在页脚与弹窗表单下方；建议明确说明可随时退订。"
+            >
+              <textarea
+                id="settings-newsletter-consent"
+                value={data.newsletterConsentText}
+                onChange={(event) =>
+                  updateField("newsletterConsentText", event.target.value)
+                }
+                maxLength={500}
+                rows={3}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink focus:border-cta focus:outline-none"
               />
             </Field>
 

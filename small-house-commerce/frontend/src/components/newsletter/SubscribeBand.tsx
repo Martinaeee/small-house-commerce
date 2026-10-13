@@ -34,7 +34,7 @@ export function SubscribeBand() {
         <div data-testid={showOffer ? "newsletter-band-offer" : undefined}>
           <p className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.26em] text-[#d9c2b5]">
             <span className="h-px w-8 bg-[#d6b6a4]" aria-hidden="true" />
-            {showOffer ? "Subscriber welcome offer" : "The LUWAG edit"}
+            {settings.newsletterEyebrow}
           </p>
           <h2 className="mt-2.5 max-w-[24rem] font-serif text-2xl leading-[1.12] tracking-[-0.02em] text-white sm:text-[1.75rem]">
             {showOffer && settings.newsletterOfferTitle
@@ -49,9 +49,16 @@ export function SubscribeBand() {
         </div>
 
         <div className="mt-5">
+          <p
+            data-testid="newsletter-form-title"
+            className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-[#ead7ca]"
+          >
+            {settings.newsletterFormTitle}
+          </p>
           <SubscribeEmailForm
             source="FOOTER"
             variant="band"
+            placeholder={settings.newsletterEmailPlaceholder}
             onSuccess={(promoCode) => {
               try {
                 window.localStorage.setItem(POPUP_SEEN_KEY, "1");
@@ -62,8 +69,7 @@ export function SubscribeBand() {
             }}
           />
           <p className="mt-2 max-w-[26rem] text-[10px] leading-4 text-[#d9c2b5]">
-            By subscribing, you agree to receive LUWAG offers and updates.
-            Unsubscribe anytime.
+            {settings.newsletterConsentText}
           </p>
         </div>
       </div>

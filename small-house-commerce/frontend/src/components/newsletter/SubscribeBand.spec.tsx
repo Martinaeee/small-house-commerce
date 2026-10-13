@@ -31,12 +31,25 @@ describe("SubscribeBand", () => {
       newsletterOfferAvailable: true,
       newsletterOfferTitle: "Subscribe and save",
       newsletterOfferBody: "Enjoy a welcome discount.",
+      newsletterEyebrow: "Furniture notes",
+      newsletterFormTitle: "Ideas by email",
+      newsletterEmailPlaceholder: "name@example.com",
+      newsletterConsentText: "Occasional updates. Unsubscribe whenever you like.",
     });
 
     expect(screen.getByTestId("newsletter-band")).toBeInTheDocument();
     expect(screen.getByTestId("newsletter-band-offer")).toHaveTextContent(
       "Subscribe and save",
     );
+    expect(screen.getByText("Furniture notes")).toBeInTheDocument();
+    expect(screen.getByText("Ideas by email")).toBeInTheDocument();
+    expect(screen.getByTestId("newsletter-subscribe-email")).toHaveAttribute(
+      "placeholder",
+      "name@example.com",
+    );
+    expect(
+      screen.getByText("Occasional updates. Unsubscribe whenever you like."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Subscribe and save")).toBeInTheDocument();
     expect(screen.getByText("Enjoy a welcome discount.")).toBeInTheDocument();
     expect(

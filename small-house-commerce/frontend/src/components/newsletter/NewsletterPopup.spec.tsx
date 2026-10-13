@@ -23,6 +23,10 @@ const live = {
   newsletterOfferAvailable: true,
   newsletterPopupDelaySeconds: 5,
   newsletterOfferTitle: "Subscribe and save",
+  newsletterEyebrow: "Member furniture notes",
+  newsletterFormTitle: "Join by email",
+  newsletterEmailPlaceholder: "you@example.com",
+  newsletterConsentText: "Useful updates only. Unsubscribe anytime.",
 };
 
 describe("NewsletterPopup", () => {
@@ -63,6 +67,17 @@ describe("NewsletterPopup", () => {
       vi.advanceTimersByTime(5_000);
     });
     expect(screen.getByTestId("newsletter-popup")).toBeInTheDocument();
+    expect(screen.getByText("Member furniture notes")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Join by email" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("newsletter-subscribe-email")).toHaveAttribute(
+      "placeholder",
+      "you@example.com",
+    );
+    expect(
+      screen.getByText("Useful updates only. Unsubscribe anytime."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Subscribe and save")).toBeInTheDocument();
     const ticket = screen.getByTestId("newsletter-offer-ticket");
     expect(ticket).toHaveTextContent("Subscribe and save");

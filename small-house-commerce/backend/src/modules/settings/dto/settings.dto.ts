@@ -30,6 +30,10 @@ export const updateSettingsSchema = z.object({
   newsletterPopupDelaySeconds: z.coerce.number().int().min(0).max(120).optional(),
   newsletterOfferTitle: z.string().trim().max(120).optional(),
   newsletterOfferBody: z.string().trim().max(500).optional(),
+  newsletterEyebrow: z.string().trim().min(1).max(80).optional(),
+  newsletterFormTitle: z.string().trim().min(1).max(120).optional(),
+  newsletterEmailPlaceholder: z.string().trim().min(1).max(120).optional(),
+  newsletterConsentText: z.string().trim().min(1).max(500).optional(),
 });
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

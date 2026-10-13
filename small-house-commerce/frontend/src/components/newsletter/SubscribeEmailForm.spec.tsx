@@ -43,7 +43,17 @@ describe("SubscribeEmailForm", () => {
       }),
     );
 
-    render(<SubscribeEmailForm source="FOOTER" onSuccess={onSuccess} />);
+    render(
+      <SubscribeEmailForm
+        source="FOOTER"
+        placeholder="Inbox for LUWAG offers"
+        onSuccess={onSuccess}
+      />,
+    );
+    expect(screen.getByTestId("newsletter-subscribe-email")).toHaveAttribute(
+      "placeholder",
+      "Inbox for LUWAG offers",
+    );
     submit("shopper@example.com");
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith("WELCOME10"));
@@ -62,7 +72,7 @@ describe("SubscribeEmailForm", () => {
     vi.mocked(fetch).mockResolvedValue(
       okResponse({ ok: true, promoCode: "WELCOME10" }),
     );
-    render(<SubscribeEmailForm source="POPUP" />);
+    render(<SubscribeEmailForm source="POPUP" placeholder="Email address" />);
     submit("shopper@example.com");
 
     await user.click(await screen.findByTestId("newsletter-copy-code"));
@@ -76,7 +86,7 @@ describe("SubscribeEmailForm", () => {
       okResponse({ ok: true, promoCode: null, offerTitle: "", offerBody: "" }),
     );
 
-    render(<SubscribeEmailForm source="POPUP" />);
+    render(<SubscribeEmailForm source="POPUP" placeholder="Email address" />);
     submit("shopper@example.com");
 
     await waitFor(() =>
@@ -88,7 +98,7 @@ describe("SubscribeEmailForm", () => {
   });
 
   it("does not post an invalid email", async () => {
-    render(<SubscribeEmailForm source="FOOTER" />);
+    render(<SubscribeEmailForm source="FOOTER" placeholder="Email address" />);
     submit("not-an-email");
 
     await waitFor(() =>
@@ -104,7 +114,7 @@ describe("SubscribeEmailForm", () => {
       new Response("nope", { status: 500 }),
     );
 
-    render(<SubscribeEmailForm source="FOOTER" />);
+    render(<SubscribeEmailForm source="FOOTER" placeholder="Email address" />);
     submit("shopper@example.com");
 
     await waitFor(() =>

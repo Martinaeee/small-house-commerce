@@ -11,6 +11,10 @@ export interface SiteSettings {
   newsletterPopupDelaySeconds: number;
   newsletterOfferTitle: string;
   newsletterOfferBody: string;
+  newsletterEyebrow: string;
+  newsletterFormTitle: string;
+  newsletterEmailPlaceholder: string;
+  newsletterConsentText: string;
   /** Computed by the server; never infer offer availability from copy. */
   newsletterOfferAvailable: boolean;
 }
@@ -25,6 +29,11 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   newsletterPopupDelaySeconds: 5,
   newsletterOfferTitle: "",
   newsletterOfferBody: "",
+  newsletterEyebrow: "The LUWAG edit",
+  newsletterFormTitle: "Subscribe by email",
+  newsletterEmailPlaceholder: "Your email address",
+  newsletterConsentText:
+    "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
   newsletterOfferAvailable: false,
 };
 
@@ -53,6 +62,22 @@ function coerce(data: Partial<SiteSettings> | null): SiteSettings {
       typeof data?.newsletterOfferBody === "string"
         ? data.newsletterOfferBody
         : DEFAULT_SITE_SETTINGS.newsletterOfferBody,
+    newsletterEyebrow:
+      typeof data?.newsletterEyebrow === "string"
+        ? data.newsletterEyebrow
+        : DEFAULT_SITE_SETTINGS.newsletterEyebrow,
+    newsletterFormTitle:
+      typeof data?.newsletterFormTitle === "string"
+        ? data.newsletterFormTitle
+        : DEFAULT_SITE_SETTINGS.newsletterFormTitle,
+    newsletterEmailPlaceholder:
+      typeof data?.newsletterEmailPlaceholder === "string"
+        ? data.newsletterEmailPlaceholder
+        : DEFAULT_SITE_SETTINGS.newsletterEmailPlaceholder,
+    newsletterConsentText:
+      typeof data?.newsletterConsentText === "string"
+        ? data.newsletterConsentText
+        : DEFAULT_SITE_SETTINGS.newsletterConsentText,
     newsletterOfferAvailable:
       typeof data?.newsletterOfferAvailable === "boolean"
         ? data.newsletterOfferAvailable

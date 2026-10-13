@@ -6,6 +6,7 @@ import { copyText } from "@/lib/clipboard";
 export interface SubscribeEmailFormProps {
   source: "POPUP" | "FOOTER";
   variant?: "band" | "popup";
+  placeholder: string;
   onSuccess?: (promoCode: string | null) => void;
 }
 
@@ -25,6 +26,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function SubscribeEmailForm({
   source,
   variant = "band",
+  placeholder,
   onSuccess,
 }: SubscribeEmailFormProps) {
   const [email, setEmail] = useState("");
@@ -175,7 +177,7 @@ export function SubscribeEmailForm({
             setEmail(event.target.value);
             if (state.status === "error") setState({ status: "idle" });
           }}
-          placeholder={stacked ? "Enter your email address" : "Your email address"}
+          placeholder={placeholder}
           className={
             stacked
               ? "h-12 min-w-0 w-full rounded-xl border border-[#b9927c] bg-white px-4 text-base text-[#34261f] outline-none transition placeholder:text-[#9b918c] focus:border-[#8d5138] focus:ring-2 focus:ring-[#c97b5d]/15"

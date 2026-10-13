@@ -16,6 +16,11 @@ describe('updateSettingsSchema newsletter fields', () => {
       newsletterPopupDelaySeconds: '8',
       newsletterOfferTitle: '  Subscribe and save  ',
       newsletterOfferBody: '  Enjoy a welcome discount.  ',
+      newsletterEyebrow: '  The LUWAG edit  ',
+      newsletterFormTitle: '  Subscribe by email  ',
+      newsletterEmailPlaceholder: '  Your email address  ',
+      newsletterConsentText:
+        '  By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.  ',
     });
 
     expect(result).toMatchObject({
@@ -24,6 +29,11 @@ describe('updateSettingsSchema newsletter fields', () => {
       newsletterPopupDelaySeconds: 8,
       newsletterOfferTitle: 'Subscribe and save',
       newsletterOfferBody: 'Enjoy a welcome discount.',
+      newsletterEyebrow: 'The LUWAG edit',
+      newsletterFormTitle: 'Subscribe by email',
+      newsletterEmailPlaceholder: 'Your email address',
+      newsletterConsentText:
+        'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
     });
   });
 
@@ -37,6 +47,28 @@ describe('updateSettingsSchema newsletter fields', () => {
         ...base,
         newsletterPopupDelaySeconds: 121,
       }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ['newsletterEyebrow', ''],
+    ['newsletterFormTitle', '   '],
+    ['newsletterEmailPlaceholder', ''],
+    ['newsletterConsentText', '   '],
+  ] as const)('rejects blank %s copy', (field, value) => {
+    expect(
+      updateSettingsSchema.safeParse({ ...base, [field]: value }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ['newsletterEyebrow', 'x'.repeat(81)],
+    ['newsletterFormTitle', 'x'.repeat(121)],
+    ['newsletterEmailPlaceholder', 'x'.repeat(121)],
+    ['newsletterConsentText', 'x'.repeat(501)],
+  ] as const)('rejects oversized %s copy', (field, value) => {
+    expect(
+      updateSettingsSchema.safeParse({ ...base, [field]: value }).success,
     ).toBe(false);
   });
 });

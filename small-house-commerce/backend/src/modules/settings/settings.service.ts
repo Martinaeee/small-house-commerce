@@ -46,6 +46,10 @@ export class SettingsService {
       newsletterPopupDelaySeconds: row.newsletterPopupDelaySeconds,
       newsletterOfferTitle: row.newsletterOfferTitle,
       newsletterOfferBody: row.newsletterOfferBody,
+      newsletterEyebrow: row.newsletterEyebrow,
+      newsletterFormTitle: row.newsletterFormTitle,
+      newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
+      newsletterConsentText: row.newsletterConsentText,
       newsletterOfferAvailable: promotion !== null,
     };
   }

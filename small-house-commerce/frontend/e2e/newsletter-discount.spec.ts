@@ -14,6 +14,14 @@ const NEXT_PROMO_CODE = `E2E20-${RUN_ID}`;
 const POPUP_EMAIL = `newsletter-popup-${RUN_ID}@example.com`;
 const FOOTER_EMAIL = `newsletter-footer-${RUN_ID}@example.com`;
 const UPDATED_OFFER_TITLE = `E2E settings saved ${RUN_ID}`;
+const NEWSLETTER_EYEBROW = `E2E furniture notes ${RUN_ID}`;
+const NEWSLETTER_FORM_TITLE = `E2E ideas by email ${RUN_ID}`;
+const NEWSLETTER_PLACEHOLDER = `E2E email ${RUN_ID}`;
+const NEWSLETTER_CONSENT = `E2E useful updates ${RUN_ID}. Unsubscribe anytime.`;
+const UPDATED_EYEBROW = `E2E saved eyebrow ${RUN_ID}`;
+const UPDATED_FORM_TITLE = `E2E saved form ${RUN_ID}`;
+const UPDATED_PLACEHOLDER = `E2E saved email ${RUN_ID}`;
+const UPDATED_CONSENT = `E2E saved consent ${RUN_ID}. Unsubscribe anytime.`;
 const ADMIN_EMAIL = "e2e-admin@smallhouse.test";
 const ADMIN_PASSWORD = "E2eAdminPass123!";
 
@@ -186,6 +194,10 @@ test.beforeAll(async () => {
     newsletterPopupDelaySeconds: 0,
     newsletterOfferTitle: "E2E Subscribe and save",
     newsletterOfferBody: "Join the list for a real checkout discount.",
+    newsletterEyebrow: NEWSLETTER_EYEBROW,
+    newsletterFormTitle: NEWSLETTER_FORM_TITLE,
+    newsletterEmailPlaceholder: NEWSLETTER_PLACEHOLDER,
+    newsletterConsentText: NEWSLETTER_CONSENT,
   });
 });
 
@@ -203,6 +215,15 @@ test.describe.serial("newsletter subscription and discount lifecycle", () => {
     const popup = page.getByTestId("newsletter-popup");
     await expect(popup).toBeVisible();
     await expect(popup).toContainText("E2E Subscribe and save");
+    await expect(popup).toContainText(NEWSLETTER_EYEBROW);
+    await expect(
+      popup.getByRole("heading", { name: NEWSLETTER_FORM_TITLE }),
+    ).toBeVisible();
+    await expect(popup.getByTestId("newsletter-subscribe-email")).toHaveAttribute(
+      "placeholder",
+      NEWSLETTER_PLACEHOLDER,
+    );
+    await expect(popup).toContainText(NEWSLETTER_CONSENT);
     await popup.getByTestId("newsletter-subscribe-email").fill(POPUP_EMAIL);
     await popup.getByTestId("newsletter-subscribe-submit").click();
     const popupSuccess = page.getByTestId("newsletter-success-dialog");
@@ -227,6 +248,15 @@ test.describe.serial("newsletter subscription and discount lifecycle", () => {
 
     const band = page.getByTestId("newsletter-band");
     await expect(band).toBeVisible();
+    await expect(band).toContainText(NEWSLETTER_EYEBROW);
+    await expect(band.getByTestId("newsletter-form-title")).toHaveText(
+      NEWSLETTER_FORM_TITLE,
+    );
+    await expect(band.getByTestId("newsletter-subscribe-email")).toHaveAttribute(
+      "placeholder",
+      NEWSLETTER_PLACEHOLDER,
+    );
+    await expect(band).toContainText(NEWSLETTER_CONSENT);
     await band.getByTestId("newsletter-subscribe-email").fill(FOOTER_EMAIL);
     await band.getByTestId("newsletter-subscribe-submit").click();
     const footerSuccess = page.getByTestId("newsletter-success-dialog");
@@ -403,13 +433,24 @@ test.describe.serial("newsletter subscription and discount lifecycle", () => {
     await page
       .getByLabel("优惠正文")
       .fill("Saved through the real admin settings form.");
+    await page.getByLabel("订阅区小标签").fill(UPDATED_EYEBROW);
+    await page.getByLabel("表单标题").fill(UPDATED_FORM_TITLE);
+    await page.getByLabel("邮箱占位文案").fill(UPDATED_PLACEHOLDER);
+    await page.getByLabel("同意与退订说明").fill(UPDATED_CONSENT);
     await page.getByRole("button", { name: "保存设置" }).click();
     await expect(page.getByTestId("settings-saved")).toHaveText("已保存");
 
     await page.goto("/");
-    await expect(page.getByTestId("newsletter-popup")).toContainText(
-      UPDATED_OFFER_TITLE,
-    );
+    const updatedPopup = page.getByTestId("newsletter-popup");
+    await expect(updatedPopup).toContainText(UPDATED_OFFER_TITLE);
+    await expect(updatedPopup).toContainText(UPDATED_EYEBROW);
+    await expect(
+      updatedPopup.getByRole("heading", { name: UPDATED_FORM_TITLE }),
+    ).toBeVisible();
+    await expect(
+      updatedPopup.getByTestId("newsletter-subscribe-email"),
+    ).toHaveAttribute("placeholder", UPDATED_PLACEHOLDER);
+    await expect(updatedPopup).toContainText(UPDATED_CONSENT);
     stopErrors();
   });
 

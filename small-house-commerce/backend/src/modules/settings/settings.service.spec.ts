@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { afterAll, beforeEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SITE_SETTINGS_ID, SettingsService } from './settings.service.js';
 import { updateSettingsSchema } from './dto/settings.dto.js';
@@ -16,6 +16,37 @@ if (database) {
     );
   }
 }
+
+describe('SettingsService public newsletter copy', () => {
+  it('projects the four editable copy fields to the storefront payload', async () => {
+    const row = {
+      messengerUrl: '',
+      supportEmail: 'support@luwag.ph',
+      supportHours: 'Mon–Sat, 9am–6pm (PHT)',
+      newsletterBandEnabled: true,
+      newsletterPopupEnabled: false,
+      newsletterPopupDelaySeconds: 5,
+      newsletterOfferTitle: '',
+      newsletterOfferBody: '',
+      newsletterEyebrow: 'The LUWAG edit',
+      newsletterFormTitle: 'Subscribe by email',
+      newsletterEmailPlaceholder: 'Your email address',
+      newsletterConsentText:
+        'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
+    };
+    const prisma = {
+      siteSetting: { findUnique: vi.fn().mockResolvedValue(row) },
+      newsletterPromotion: { findFirst: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaService;
+
+    await expect(new SettingsService(prisma).getPublic()).resolves.toMatchObject({
+      newsletterEyebrow: row.newsletterEyebrow,
+      newsletterFormTitle: row.newsletterFormTitle,
+      newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
+      newsletterConsentText: row.newsletterConsentText,
+    });
+  });
+});
 
 describe.skipIf(!database)('SettingsService newsletter surface', () => {
   let prisma: PrismaService;
@@ -43,6 +74,11 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       data: {
         newsletterOfferTitle: '',
         newsletterOfferBody: '',
+        newsletterEyebrow: 'The LUWAG edit',
+        newsletterFormTitle: 'Subscribe by email',
+        newsletterEmailPlaceholder: 'Your email address',
+        newsletterConsentText:
+          'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
         newsletterPopupEnabled: false,
         newsletterPopupDelaySeconds: 5,
         newsletterBandEnabled: true,
@@ -57,6 +93,11 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       data: {
         newsletterOfferTitle: '',
         newsletterOfferBody: '',
+        newsletterEyebrow: 'The LUWAG edit',
+        newsletterFormTitle: 'Subscribe by email',
+        newsletterEmailPlaceholder: 'Your email address',
+        newsletterConsentText:
+          'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
         newsletterPopupEnabled: false,
         newsletterPopupDelaySeconds: 5,
         newsletterBandEnabled: true,
@@ -72,6 +113,11 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       newsletterPopupDelaySeconds: 5,
       newsletterOfferTitle: '',
       newsletterOfferBody: '',
+      newsletterEyebrow: 'The LUWAG edit',
+      newsletterFormTitle: 'Subscribe by email',
+      newsletterEmailPlaceholder: 'Your email address',
+      newsletterConsentText:
+        'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
     });
   });
 
@@ -86,6 +132,10 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
         newsletterPopupDelaySeconds: 8,
         newsletterOfferTitle: 'Subscribe and save',
         newsletterOfferBody: 'Enjoy a welcome discount.',
+        newsletterEyebrow: 'Furniture notes',
+        newsletterFormTitle: 'Join the list',
+        newsletterEmailPlaceholder: 'name@example.com',
+        newsletterConsentText: 'Occasional emails. Unsubscribe anytime.',
       }),
     );
 
@@ -95,6 +145,10 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       newsletterPopupDelaySeconds: 8,
       newsletterOfferTitle: 'Subscribe and save',
       newsletterOfferBody: 'Enjoy a welcome discount.',
+      newsletterEyebrow: 'Furniture notes',
+      newsletterFormTitle: 'Join the list',
+      newsletterEmailPlaceholder: 'name@example.com',
+      newsletterConsentText: 'Occasional emails. Unsubscribe anytime.',
     });
   });
 });

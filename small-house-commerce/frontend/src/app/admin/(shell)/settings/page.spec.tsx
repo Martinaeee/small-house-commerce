@@ -22,6 +22,11 @@ const settings = {
   newsletterPopupDelaySeconds: 5,
   newsletterOfferTitle: "Subscribe and save",
   newsletterOfferBody: "Welcome to LUWAG.",
+  newsletterEyebrow: "The LUWAG edit",
+  newsletterFormTitle: "Subscribe by email",
+  newsletterEmailPlaceholder: "Your email address",
+  newsletterConsentText:
+    "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
   createdAt: "2026-10-12T00:00:00.000Z",
   updatedAt: "2026-10-12T00:00:00.000Z",
 };
@@ -49,6 +54,12 @@ describe("SiteSettingsPage newsletter fields", () => {
     expect(screen.getByLabelText(/弹窗延迟（秒）/)).toHaveValue(5);
     expect(screen.getByLabelText(/优惠标题/)).toHaveValue("Subscribe and save");
     expect(screen.getByLabelText(/优惠正文/)).toHaveValue("Welcome to LUWAG.");
+    expect(screen.getByLabelText(/订阅区小标签/)).toHaveValue("The LUWAG edit");
+    expect(screen.getByLabelText(/表单标题/)).toHaveValue("Subscribe by email");
+    expect(screen.getByLabelText(/邮箱占位文案/)).toHaveValue("Your email address");
+    expect(screen.getByLabelText(/同意与退订说明/)).toHaveValue(
+      "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
+    );
     await user.click(popup);
     await user.clear(screen.getByLabelText(/弹窗延迟（秒）/));
     await user.type(screen.getByLabelText(/弹窗延迟（秒）/), "8");
@@ -66,7 +77,26 @@ describe("SiteSettingsPage newsletter fields", () => {
         newsletterPopupDelaySeconds: 8,
         newsletterOfferTitle: "Join and save",
         newsletterOfferBody: "Welcome to LUWAG.",
+        newsletterEyebrow: "The LUWAG edit",
+        newsletterFormTitle: "Subscribe by email",
+        newsletterEmailPlaceholder: "Your email address",
+        newsletterConsentText:
+          "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
       }),
     );
+  });
+
+  it("rejects blank required newsletter copy before calling the API", async () => {
+    const user = userEvent.setup();
+    render(<SiteSettingsPage />);
+
+    const eyebrow = await screen.findByLabelText(/订阅区小标签/);
+    await user.clear(eyebrow);
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+
+    expect(
+      screen.getByText("订阅区小标签需为 1–80 个字符。"),
+    ).toBeInTheDocument();
+    expect(apiMock.updateSettings).not.toHaveBeenCalled();
   });
 });
