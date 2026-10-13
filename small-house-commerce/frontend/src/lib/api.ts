@@ -513,6 +513,7 @@ export const api = {
     items: { skuId: string; quantity: number }[];
     attribution?: Attribution;
     preferredDeliveryDate?: string | null;
+    promoCode?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
@@ -523,7 +524,21 @@ export const api = {
           customer: input.customer,
           items: input.items,
           preferredDeliveryDate: input.preferredDeliveryDate ?? null,
+          promoCode: input.promoCode ?? null,
         }),
+      },
+    ),
+
+  /** Display-only; checkout recomputes the authoritative discount. */
+  previewPromoCode: (
+    code: string,
+    subtotal: number,
+  ): Promise<{ valid: boolean; discountAmount: number; message: string }> =>
+    request<{ valid: boolean; discountAmount: number; message: string }>(
+      "/api/v1/storefront/checkout/promo-code/preview",
+      {
+        method: "POST",
+        body: JSON.stringify({ code, subtotal }),
       },
     ),
 };

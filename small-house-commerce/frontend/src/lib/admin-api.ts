@@ -12,7 +12,7 @@
  * available) are JSON numbers.
  */
 
-import { adminAuthedFetch } from "./admin-auth";
+import { adminAuthedFetch, adminAuthedText } from "./admin-auth";
 import type { CampaignLinkContext } from "./campaign-link-builder";
 import { formatPrice } from "@/components/ui/PriceBox";
 import type { OrderOptionSnapshotV1 } from "./order-options";
@@ -205,6 +205,7 @@ export interface AdminOrderRow {
   currency: string;
   subtotal: string;
   discountTotal: string;
+  promoCode?: string | null;
   shippingTotal: string;
   grandTotal: string;
   optimizerId: string | null;
@@ -729,11 +730,68 @@ export interface BatchLineError {
   message: string;
 }
 
+export type NewsletterSubscriberStatus = "SUBSCRIBED" | "UNSUBSCRIBED";
+export type NewsletterSubscribeSource = "POPUP" | "FOOTER";
+
+export interface AdminNewsletterSubscriber {
+  id: string;
+  email: string;
+  status: NewsletterSubscriberStatus;
+  source: NewsletterSubscribeSource;
+  createdAt: string;
+  updatedAt: string;
+  unsubscribedAt: string | null;
+}
+
+export type NewsletterDiscountType = "PERCENT" | "FIXED";
+export type NewsletterPromotionStatus = "ACTIVE" | "ARCHIVED";
+
+export interface AdminNewsletterPromotion {
+  id: string;
+  code: string;
+  discountType: NewsletterDiscountType;
+  discountValue: string;
+  minSpend: string;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  validFrom: string | null;
+  validUntil: string | null;
+  status: NewsletterPromotionStatus;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewsletterPromotionInput {
+  code: string;
+  discountType: NewsletterDiscountType;
+  discountValue: number;
+  minSpend: number;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
+export interface NewsletterPromotionUsage {
+  promotionId: string;
+  effective: number;
+  released: number;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  availability: "LIVE" | "SCHEDULED" | "EXPIRED" | "EXHAUSTED" | "ARCHIVED";
+}
+
 export interface AdminSiteSettings {
   id: string;
   messengerUrl: string;
   supportEmail: string;
   supportHours: string;
+  newsletterBandEnabled: boolean;
+  newsletterPopupEnabled: boolean;
+  newsletterPopupDelaySeconds: number;
+  newsletterOfferTitle: string;
+  newsletterOfferBody: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -742,6 +800,11 @@ export interface UpdateSiteSettingsInput {
   messengerUrl: string;
   supportEmail: string;
   supportHours: string;
+  newsletterBandEnabled?: boolean;
+  newsletterPopupEnabled?: boolean;
+  newsletterPopupDelaySeconds?: number;
+  newsletterOfferTitle?: string;
+  newsletterOfferBody?: string;
 }
 
 /** Hero appearance payload (see the backend heroStyle input contract).
@@ -1501,6 +1564,66 @@ export const adminApi = {
     adminAuthedFetch<{ created: number }>(
       `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews/batch`,
       { method: "POST", body: JSON.stringify({ items }) },
+    ),
+
+  // --- newsletter subscribers and promotions -------------------------------
+
+  listNewsletterSubscribers: (params: {
+    page: number;
+    pageSize: number;
+    status?: NewsletterSubscriberStatus;
+    source?: NewsletterSubscribeSource;
+  }): Promise<Paged<AdminNewsletterSubscriber>> => {
+    const query = new URLSearchParams({
+      page: String(params.page),
+      pageSize: String(params.pageSize),
+    });
+    if (params.status) query.set("status", params.status);
+    if (params.source) query.set("source", params.source);
+    return adminAuthedFetch<Paged<AdminNewsletterSubscriber>>(
+      `/api/v1/admin/newsletter/subscribers?${query.toString()}`,
+    );
+  },
+
+  exportNewsletterSubscribers: (): Promise<string> =>
+    adminAuthedText("/api/v1/admin/newsletter/subscribers/export"),
+
+  updateNewsletterSubscriber: (
+    id: string,
+    status: NewsletterSubscriberStatus,
+  ): Promise<AdminNewsletterSubscriber> =>
+    adminAuthedFetch<AdminNewsletterSubscriber>(
+      `/api/v1/admin/newsletter/subscribers/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ status }) },
+    ),
+
+  listNewsletterPromotions: (): Promise<AdminNewsletterPromotion[]> =>
+    adminAuthedFetch<AdminNewsletterPromotion[]>(
+      "/api/v1/admin/newsletter/promotions",
+    ),
+
+  createNewsletterPromotion: (
+    input: NewsletterPromotionInput,
+  ): Promise<AdminNewsletterPromotion> =>
+    adminAuthedFetch<AdminNewsletterPromotion>(
+      "/api/v1/admin/newsletter/promotions",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  updateNewsletterPromotion: (
+    id: string,
+    input: Partial<NewsletterPromotionInput>,
+  ): Promise<AdminNewsletterPromotion> =>
+    adminAuthedFetch<AdminNewsletterPromotion>(
+      `/api/v1/admin/newsletter/promotions/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  getNewsletterPromotionUsage: (
+    id: string,
+  ): Promise<NewsletterPromotionUsage> =>
+    adminAuthedFetch<NewsletterPromotionUsage>(
+      `/api/v1/admin/newsletter/promotions/${encodeURIComponent(id)}/usage`,
     ),
 
   // --- site settings (singleton, SYSTEM_SETTINGS_EDIT = SUPER_ADMIN) ------

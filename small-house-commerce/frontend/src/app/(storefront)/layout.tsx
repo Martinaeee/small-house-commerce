@@ -5,6 +5,7 @@ import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
 import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { NewsletterPopup } from "@/components/newsletter/NewsletterPopup";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { buildNav } from "@/lib/nav";
@@ -55,8 +56,10 @@ export default async function StorefrontLayout({
         collections={footerCollections}
         supportEmail={settings.supportEmail}
         supportHours={settings.supportHours}
+        newsletterEnabled={settings.newsletterBandEnabled}
       />
       <CartDrawer />
+      <NewsletterPopup />
       <MessengerChat />
       <MobileTabBar />
       <BackToTop />

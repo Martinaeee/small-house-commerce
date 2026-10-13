@@ -18,6 +18,7 @@ import {
   type CheckoutDraft,
 } from "@/lib/checkoutDraft";
 import { useCheckoutLines } from "./useCheckoutLines";
+import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
@@ -87,9 +88,8 @@ export function CheckoutConfirmView({
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
   const checkoutHref = `/checkout${checkoutQueryString({
     skuId,
     qty,
@@ -97,6 +97,10 @@ export function CheckoutConfirmView({
     slug,
   })}`;
   const editHref = editHrefForDraft(draft, checkoutHref);
+  const discountedTotal =
+    checkout.total === null
+      ? null
+      : Math.max(0, checkout.total - (appliedPromo?.discountAmount ?? 0));
 
   useEffect(() => {
     let alive = true;
@@ -122,6 +126,7 @@ export function CheckoutConfirmView({
         router.replace(editHrefForDraft(d, checkoutHref));
         return;
       }
+      setPromoChecking(Boolean(d.promoCode));
       setDraft(d);
     })();
     return () => {
@@ -148,7 +153,7 @@ export function CheckoutConfirmView({
     checkout.isBuyNow && checkout.product === null && !checkout.productError;
 
   async function placeOrder() {
-    if (!draft || inFlightRef.current) return;
+    if (!draft || inFlightRef.current || promoChecking) return;
     setError(null);
     if (submitting) return;
     // Selections that never resolved to real, available SKUs can never be
@@ -171,6 +176,7 @@ export function CheckoutConfirmView({
         items: checkout.orderItems,
         attribution: readAttribution(),
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
+        promoCode: appliedPromo?.code ?? null,
       };
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
@@ -182,7 +188,7 @@ export function CheckoutConfirmView({
           purchaseEvent({
             orderId: order.orderNumber,
             items: checkout.orderItems,
-            value: checkout.total,
+            value: discountedTotal,
           }),
         );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
@@ -292,6 +298,12 @@ export function CheckoutConfirmView({
                     <dd className="font-medium text-sale">−{formatPrice(checkout.totals.savings)}</dd>
                   </div>
                 )}
+                {appliedPromo && appliedPromo.discountAmount > 0 && (
+                  <div className="flex justify-between" data-testid="confirm-promo-discount">
+                    <dt className="text-ink-secondary">Promo discount</dt>
+                    <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Shipping</dt>
                   <dd className="font-medium text-ink">COD — calculated at checkout</dd>
@@ -299,53 +311,19 @@ export function CheckoutConfirmView({
                 <div className="flex justify-between border-t border-border pt-3 text-base">
                   <dt className="font-semibold text-ink">Total (COD)</dt>
                   <dd className="font-bold text-ink">
-                    {checkout.total !== null ? formatPrice(checkout.total) : "Calculated at checkout"}
+                    {discountedTotal !== null
+                      ? formatPrice(discountedTotal)
+                      : "Calculated at checkout"}
                   </dd>
                 </div>
               </dl>
 
-              {/* CHECKOUT_SPEC §14 promo code — collapsed by default, same
-                  honest entry the cart and the inline COD form use. */}
-              <div className="mt-3 border-t border-border pt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPromoOpen((open) => !open);
-                    setPromoMessage(null);
-                  }}
-                  className="text-sm text-cta hover:underline"
-                  aria-expanded={promoOpen}
-                >
-                  {promoOpen ? "Hide promo code" : "Have a promo code?"}
-                </button>
-                {promoOpen && (
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={promoCode}
-                      onChange={(e) => setPromoCode(e.target.value)}
-                      placeholder="Enter code"
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                      aria-label="Promo code"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPromoMessage(
-                          promoCode.trim()
-                            ? "Promo codes are coming soon."
-                            : "Enter a code to apply it.",
-                        )
-                      }
-                      className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                )}
-                {promoMessage && (
-                  <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>
-                )}
-              </div>
+              <PromoCodeField
+                subtotal={checkout.totals.subtotal}
+                initialCode={draft.promoCode ?? ""}
+                onApplied={setAppliedPromo}
+                onCheckingChange={setPromoChecking}
+              />
             </div>
 
             <p
@@ -436,7 +414,7 @@ export function CheckoutConfirmView({
 
             <Button
               onClick={placeOrder}
-              disabled={submitting || awaitingBuyNowResolution}
+              disabled={submitting || awaitingBuyNowResolution || promoChecking}
               className="w-full"
               data-testid="confirm-place-order"
             >

@@ -16,6 +16,7 @@ import { CheckoutConfirmView } from "./CheckoutConfirmView";
 const apiMock = vi.hoisted(() => ({
   getProductBySlug: vi.fn(),
   createOrder: vi.fn(),
+  previewPromoCode: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 
@@ -285,9 +286,14 @@ describe("CheckoutConfirmView", () => {
     expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001");
   });
 
-  it("offers the honest promo-code entry without inventing a discount", async () => {
+  it("applies only the discount returned by the server promo preview", async () => {
     const user = userEvent.setup();
     apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.previewPromoCode.mockResolvedValue({
+      valid: true,
+      discountAmount: 59,
+      message: "Promo code applied.",
+    });
     render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
     await screen.findByText("Confirm your order");
 
@@ -297,11 +303,18 @@ describe("CheckoutConfirmView", () => {
     expect(within(totals!).getByText("₱260.00")).toBeInTheDocument(); // 130 × 2 compare-at
     expect(within(totals!).getByText("You save")).toBeInTheDocument();
 
-    // CHECKOUT_SPEC §14: the entry exists, but the backend engine is not
-    // built — it must say so rather than pretend to apply anything.
     await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
-    await user.type(screen.getByLabelText("Promo code"), "SAVE10");
+    await user.type(screen.getByLabelText("Promo code"), "welcome59");
     await user.click(screen.getByRole("button", { name: "Apply" }));
-    expect(screen.getByText("Promo codes are coming soon.")).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(apiMock.previewPromoCode).toHaveBeenCalledWith("welcome59", 200),
+    );
+    expect(await screen.findByTestId("confirm-promo-discount")).toHaveTextContent(
+      "−₱59.00",
+    );
+    expect(screen.getByText("Total (COD)").nextElementSibling).toHaveTextContent(
+      "₱141.00",
+    );
   });
 });

@@ -6,6 +6,13 @@ export interface SiteSettings {
   messengerUrl: string;
   supportEmail: string;
   supportHours: string;
+  newsletterBandEnabled: boolean;
+  newsletterPopupEnabled: boolean;
+  newsletterPopupDelaySeconds: number;
+  newsletterOfferTitle: string;
+  newsletterOfferBody: string;
+  /** Computed by the server; never infer offer availability from copy. */
+  newsletterOfferAvailable: boolean;
 }
 
 /** Fallback values when the backend/settings endpoint is unavailable. */
@@ -13,6 +20,12 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   messengerUrl: "",
   supportEmail: "support@luwag.ph",
   supportHours: "Mon–Sat, 9am–6pm (PHT)",
+  newsletterBandEnabled: true,
+  newsletterPopupEnabled: false,
+  newsletterPopupDelaySeconds: 5,
+  newsletterOfferTitle: "",
+  newsletterOfferBody: "",
+  newsletterOfferAvailable: false,
 };
 
 function coerce(data: Partial<SiteSettings> | null): SiteSettings {
@@ -20,6 +33,30 @@ function coerce(data: Partial<SiteSettings> | null): SiteSettings {
     messengerUrl: typeof data?.messengerUrl === "string" ? data.messengerUrl : DEFAULT_SITE_SETTINGS.messengerUrl,
     supportEmail: typeof data?.supportEmail === "string" ? data.supportEmail : DEFAULT_SITE_SETTINGS.supportEmail,
     supportHours: typeof data?.supportHours === "string" ? data.supportHours : DEFAULT_SITE_SETTINGS.supportHours,
+    newsletterBandEnabled:
+      typeof data?.newsletterBandEnabled === "boolean"
+        ? data.newsletterBandEnabled
+        : DEFAULT_SITE_SETTINGS.newsletterBandEnabled,
+    newsletterPopupEnabled:
+      typeof data?.newsletterPopupEnabled === "boolean"
+        ? data.newsletterPopupEnabled
+        : DEFAULT_SITE_SETTINGS.newsletterPopupEnabled,
+    newsletterPopupDelaySeconds:
+      typeof data?.newsletterPopupDelaySeconds === "number"
+        ? data.newsletterPopupDelaySeconds
+        : DEFAULT_SITE_SETTINGS.newsletterPopupDelaySeconds,
+    newsletterOfferTitle:
+      typeof data?.newsletterOfferTitle === "string"
+        ? data.newsletterOfferTitle
+        : DEFAULT_SITE_SETTINGS.newsletterOfferTitle,
+    newsletterOfferBody:
+      typeof data?.newsletterOfferBody === "string"
+        ? data.newsletterOfferBody
+        : DEFAULT_SITE_SETTINGS.newsletterOfferBody,
+    newsletterOfferAvailable:
+      typeof data?.newsletterOfferAvailable === "boolean"
+        ? data.newsletterOfferAvailable
+        : DEFAULT_SITE_SETTINGS.newsletterOfferAvailable,
   };
 }
 

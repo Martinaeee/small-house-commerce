@@ -187,10 +187,10 @@ export async function refreshAdminAccess(): Promise<string | null> {
  * the single-flight refresh and retries once. Throws AdminApiError with the
  * backend message (readError) and the final response status on failure.
  */
-export async function adminAuthedFetch<T>(
+async function adminAuthedResponse(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<Response> {
   const run = (token: string | null) =>
     fetch(path, {
       ...init,
@@ -218,10 +218,27 @@ export async function adminAuthedFetch<T>(
         : undefined,
     );
   }
-  // Some endpoints (e.g. DELETE /admin/reviews/:id) return 2xx with no body.
+  return res;
+}
+
+/** Admin-authenticated JSON request. */
+export async function adminAuthedFetch<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await adminAuthedResponse(path, init);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text === "" ? undefined : (JSON.parse(text) as T)) as T;
+}
+
+/** Admin-authenticated text request for CSV and other non-JSON downloads. */
+export async function adminAuthedText(
+  path: string,
+  init?: RequestInit,
+): Promise<string> {
+  const res = await adminAuthedResponse(path, init);
+  return res.text();
 }
 
 /** Pure RBAC helper: the backend remains the enforcement authority. */

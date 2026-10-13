@@ -65,6 +65,14 @@ export const checkoutSchema = z.object({
     }, { message: 'Preferred delivery date must be within the next 30 days.' })
     .nullable()
     .optional(),
+  // Only the code crosses the client boundary; the server computes the amount.
+  promoCode: z
+    .string()
+    .trim()
+    .max(32)
+    .transform((value) => (value === '' ? null : value.toUpperCase()))
+    .nullable()
+    .default(null),
 });
 
 export const orderQuerySchema = z.object({

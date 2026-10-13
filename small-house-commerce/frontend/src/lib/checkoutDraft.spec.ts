@@ -46,6 +46,26 @@ describe("checkout draft", () => {
     });
   });
 
+  it("round-trips and normalizes an applied promo code", () => {
+    writeCheckoutDraft(
+      {
+        name: "Juan Dela Cruz",
+        phone: "09171234567",
+        province: "Metro Manila",
+        city: "Quezon City",
+        barangay: "",
+        postalCode: "1100",
+        streetAddress: "12 Mabini St",
+        landmark: "",
+      },
+      null,
+      undefined,
+      "  welcome59  ",
+    );
+
+    expect(readCheckoutDraft()?.promoCode).toBe("WELCOME59");
+  });
+
   it("rejects a malformed PDP selection at the session-storage boundary", () => {
     sessionStorage.setItem(
       "luwag_checkout_draft",

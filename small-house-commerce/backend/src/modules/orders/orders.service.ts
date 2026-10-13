@@ -6,8 +6,14 @@ import {
 } from '@nestjs/common';
 import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
+import {
+  CACHE_TAGS,
+  revalidateCache,
+} from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
+import { PromotionService } from '../newsletter/promotion.service.js';
+import { computeDiscount } from '../newsletter/promotion-pricing.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
 import { buildOrderItemSnapshot, type OrderItemSnapshotWrite } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
@@ -41,6 +47,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
     private readonly customerRisk: CustomerRiskService,
+    private readonly promotions: PromotionService,
   ) {}
 
   /**
@@ -121,17 +128,14 @@ export class OrdersService {
 
     // Totals at the actual selling price: order lines already snapshot
     // unitPrice/lineTotal at the selling price, so subtotal = sum of lines.
-    // compareAtPrice is a merchandising strikethrough, not an order discount —
-    // subtracting it again undercharged every marked-down SKU; discountTotal is
-    // reserved for order-level promotions (coupons), which don't exist yet.
-    // Shipping is 0 until the shipping-rate-rules module lands.
+    // compareAtPrice is merchandising only. The order-level promotion is
+    // resolved inside the transaction so its advisory lock protects the
+    // count-and-claim operation.
     let subtotal = 0;
     for (const line of lines) {
       subtotal += Number(line.unitPrice) * line.quantity;
     }
-    const discount = 0;
     const shippingTotal = 0;
-    const grandTotal = subtotal - discount + shippingTotal;
 
     const orderNumber = await this.nextOrderNumber();
     const warehouse = await this.inventory.defaultWarehouse();
@@ -140,8 +144,20 @@ export class OrdersService {
     // the new order from prior history; stored on the order, never recomputed.
     const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
+    const { order, offerAvailabilityChanged } = await this.prisma.$transaction(
+      async (tx) => {
+        const promo = input.promoCode
+          ? await this.promotions.resolveForCheckout(
+              tx,
+              input.promoCode,
+              subtotal,
+              normalizedPhone,
+            )
+          : null;
+        const discount = promo ? computeDiscount(promo.rule, subtotal) : 0;
+        const grandTotal = subtotal - discount + shippingTotal;
+
+        const created = await tx.order.create({
         data: {
           orderNumber,
           customerId: customer.id,
@@ -153,6 +169,7 @@ export class OrdersService {
           preferredDeliveryDate: input.preferredDeliveryDate
             ? new Date(`${input.preferredDeliveryDate}T00:00:00Z`)
             : null,
+          promoCode: promo?.code ?? null,
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,
@@ -211,6 +228,20 @@ export class OrdersService {
         },
       });
 
+      // Claim the slot in the same transaction as the order. A later stock or
+      // write failure rolls both rows back together.
+      if (promo) {
+        await tx.promoCodeRedemption.create({
+          data: {
+            promotionId: promo.id,
+            orderId: created.id,
+            codeSnapshot: promo.code,
+            normalizedPhone,
+            discountAmount: new Prisma.Decimal(discount),
+          },
+        });
+      }
+
       // Reserve stock per line (§30); any failure rolls back the order.
       for (const line of lines) {
         await this.inventory.reserveWithin(tx, line.skuId, warehouse.id, line.quantity, created.id);
@@ -225,8 +256,16 @@ export class OrdersService {
         },
       });
 
-      return created;
-    });
+      return {
+        order: created,
+        offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
+      };
+      },
+    );
+
+    if (offerAvailabilityChanged) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
 
     // Risk records (§10): the classification decision is logged. RPT/RECHECK
     // flip the confirmation status so the admin workbench review queue sees
@@ -342,35 +381,51 @@ export class OrdersService {
 
   /** §22.2 cancel: allowed until shipping; releases reservations (§31). */
   async cancel(orderId: string, operatorId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
+    const { updated, promoReleased } = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+        const order = await tx.order.findUnique({ where: { id: orderId } });
+        if (!order) throw new NotFoundException('Order not found');
 
-    const terminal = new Set<OrderStatus>(['CANCELLED', 'DENIED', 'SIGNED', 'AFTER_SALES']);
-    if (terminal.has(order.orderStatus)) {
-      throw new BadRequestException(`Order cannot be cancelled from status ${order.orderStatus}`);
-    }
-    if (order.orderStatus === 'SHIPPING') {
-      throw new BadRequestException('Shipped orders cannot be cancelled');
-    }
+        const terminal = new Set<OrderStatus>([
+          'CANCELLED',
+          'DENIED',
+          'SIGNED',
+          'AFTER_SALES',
+        ]);
+        if (terminal.has(order.orderStatus)) {
+          throw new BadRequestException(
+            `Order cannot be cancelled from status ${order.orderStatus}`,
+          );
+        }
+        if (order.orderStatus === 'SHIPPING') {
+          throw new BadRequestException('Shipped orders cannot be cancelled');
+        }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: { orderStatus: 'CANCELLED' },
-      });
-      await this.inventory.releaseForOrder(tx, orderId);
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId,
-          statusDomain: 'ORDER_STATUS',
-          oldStatus: order.orderStatus,
-          newStatus: 'CANCELLED',
-          source: 'ADMIN',
-          operatorId,
-        },
-      });
-      return updated;
-    });
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: 'CANCELLED' },
+        });
+        await this.inventory.releaseForOrder(tx, orderId);
+        const promoReleased = await this.releasePromoSlot(tx, orderId);
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'CANCELLED',
+            source: 'ADMIN',
+            operatorId,
+          },
+        });
+        return { updated, promoReleased };
+      },
+    );
+
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    return updated;
   }
 
   // --- Order workbench operations (2026-09-18 spec) ------------------------
@@ -461,52 +516,64 @@ export class OrdersService {
 
   /** Status transition with the §6.2 legality table. */
   async updateStatus(orderId: string, status: OrderStatus, comment: string | undefined, operatorId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
+    const { updated, promoReleased } = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+        const order = await tx.order.findUnique({ where: { id: orderId } });
+        if (!order) throw new NotFoundException('Order not found');
 
-    const legal: Record<string, OrderStatus[]> = {
-      NEW: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-      PENDING: ['QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'ABNORMAL'],
-      QUESTION: ['PENDING', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-      CONFIRMED: ['SHIPPING', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-      ABNORMAL: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-      SHIPPING: ['SIGNED', 'CANCELLED', 'AFTER_SALES'],
-      SIGNED: ['AFTER_SALES'],
-      CANCELLED: [],
-      DENIED: [],
-      AFTER_SALES: [],
-    };
-    const targets = legal[order.orderStatus];
-    if (!targets?.includes(status)) {
-      throw new BadRequestException(
-        `Invalid status transition ${order.orderStatus} -> ${status}`,
-      );
+        const legal: Record<string, OrderStatus[]> = {
+          NEW: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED'],
+          PENDING: ['QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'ABNORMAL'],
+          QUESTION: ['PENDING', 'CONFIRMED', 'CANCELLED', 'DENIED'],
+          CONFIRMED: ['SHIPPING', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
+          ABNORMAL: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
+          SHIPPING: ['SIGNED', 'CANCELLED', 'AFTER_SALES'],
+          SIGNED: ['AFTER_SALES'],
+          CANCELLED: [],
+          DENIED: [],
+          AFTER_SALES: [],
+        };
+        const targets = legal[order.orderStatus];
+        if (!targets?.includes(status)) {
+          throw new BadRequestException(
+            `Invalid status transition ${order.orderStatus} -> ${status}`,
+          );
+        }
+
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: status },
+        });
+        const releasesStock = status === 'CANCELLED' || status === 'DENIED';
+        if (releasesStock && order.orderStatus !== status) {
+          await this.inventory.releaseForOrder(tx, orderId);
+        }
+        // A pre-shipment cancellation releases the offer. A COD denial or a
+        // post-shipment cancellation keeps the redemption in history.
+        const promoReleased =
+          status === 'CANCELLED' && order.orderStatus !== 'SHIPPING'
+            ? await this.releasePromoSlot(tx, orderId)
+            : false;
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: status,
+            source: 'ADMIN',
+            operatorId,
+            comment: comment ?? null,
+          },
+        });
+        return { updated, promoReleased };
+      },
+    );
+
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
-
-    // Status changes that release or re-check inventory.
-    const releasesStock = status === 'CANCELLED' || status === 'DENIED';
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: { orderStatus: status },
-      });
-      if (releasesStock && order.orderStatus !== status) {
-        await this.inventory.releaseForOrder(tx, orderId);
-      }
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId,
-          statusDomain: 'ORDER_STATUS',
-          oldStatus: order.orderStatus,
-          newStatus: status,
-          source: 'ADMIN',
-          operatorId,
-          comment: comment ?? null,
-        },
-      });
-      return updated;
-    });
+    return updated;
   }
 
   /**
@@ -769,7 +836,8 @@ export class OrdersService {
         ? [primary, merged]
         : [merged, primary];
 
-    return this.prisma.$transaction(async (tx) => {
+    const { keptId, promoReleased } = await this.prisma.$transaction(
+      async (tx) => {
       // Move merged items into the kept order.
       for (const item of dropped.items) {
         const existing = kept.items.find(
@@ -806,6 +874,7 @@ export class OrdersService {
         where: { id: dropped.id },
         data: { orderStatus: 'CANCELLED' },
       });
+      const promoReleased = await this.releasePromoSlot(tx, dropped.id);
 
       // Audit both sides (§48: merged history is never deleted).
       await tx.orderMergeRecord.create({
@@ -839,8 +908,13 @@ export class OrdersService {
         },
       });
 
-      return this.get(kept.id);
-    });
+      return { keptId: kept.id, promoReleased };
+      },
+    );
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    return this.get(keptId);
   }
 
   async list(query: OrderQuery) {
@@ -1193,6 +1267,17 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  private async releasePromoSlot(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<boolean> {
+    const changed = await tx.$executeRaw`
+      UPDATE promo_code_redemptions SET released_at = now()
+      WHERE order_id = ${orderId}::uuid AND released_at IS NULL
+    `;
+    return changed > 0;
   }
 
   private normalizePhone(phone: string): string {

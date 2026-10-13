@@ -13,6 +13,8 @@ export interface CheckoutDraft {
   savedAt: string;
   /** ISO yyyy-MM-dd（UTC 零点约定，spec §3.2 D-1）；null/缺省 = 未选。订单级数据，故在顶层。 */
   preferredDeliveryDate?: string | null;
+  /** Applied subscribe-exclusive promotion code; null/absent means none. */
+  promoCode?: string | null;
   selection?: CheckoutDraftSelection;
 }
 const DRAFT_KEY = "luwag_checkout_draft";
@@ -63,13 +65,20 @@ export function readCheckoutDraft(): CheckoutDraft | null {
     ) {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      promoCode:
+        typeof parsed.promoCode === "string" && parsed.promoCode.trim() !== ""
+          ? parsed.promoCode.trim().toUpperCase().slice(0, 32)
+          : null,
+    };
   } catch { return null; }
 }
 export function writeCheckoutDraft(
   customer: CheckoutDraftCustomer,
   preferredDeliveryDate: string | null = null,
   selection?: CheckoutDraftSelection,
+  promoCode: string | null = null,
 ): void {
   try {
     sessionStorage.setItem(
@@ -78,6 +87,10 @@ export function writeCheckoutDraft(
         customer,
         preferredDeliveryDate,
         selection,
+        promoCode:
+          typeof promoCode === "string" && promoCode.trim() !== ""
+            ? promoCode.trim().toUpperCase().slice(0, 32)
+            : null,
         savedAt: new Date().toISOString(),
       }),
     );

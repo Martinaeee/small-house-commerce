@@ -25,6 +25,11 @@ export const updateSettingsSchema = z.object({
   // Email is the guaranteed fallback channel, so it is required and non-empty.
   supportEmail: z.string().trim().min(1).email().max(200),
   supportHours: z.string().trim().min(1).max(100),
+  newsletterBandEnabled: z.boolean().optional(),
+  newsletterPopupEnabled: z.boolean().optional(),
+  newsletterPopupDelaySeconds: z.coerce.number().int().min(0).max(120).optional(),
+  newsletterOfferTitle: z.string().trim().max(120).optional(),
+  newsletterOfferBody: z.string().trim().max(500).optional(),
 });
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

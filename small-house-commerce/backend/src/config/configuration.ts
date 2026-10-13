@@ -38,6 +38,11 @@ export function configuration() {
     upload: {
       dir: env.UPLOAD_DIR ?? null,
     },
+    email: {
+      apiKey: env.EMAIL_API_KEY ?? null,
+      from: env.EMAIL_FROM ?? null,
+      storefrontBaseUrl: env.STOREFRONT_BASE_URL ?? null,
+    },
   };
 }
 

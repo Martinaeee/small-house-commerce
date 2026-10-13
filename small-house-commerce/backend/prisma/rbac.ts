@@ -63,6 +63,14 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.CAMPAIGN_LINK_BUILD,
     description: 'Build public product, variant and attribution links.',
   },
+  {
+    code: PermissionCode.NEWSLETTER_READ,
+    description: 'View newsletter subscribers.',
+  },
+  {
+    code: PermissionCode.NEWSLETTER_WRITE,
+    description: 'Manage newsletter subscribers.',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -86,6 +94,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.PRODUCT_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,
+    PermissionCode.NEWSLETTER_READ,
+    PermissionCode.NEWSLETTER_WRITE,
     // deliberately not SYSTEM_SETTINGS_EDIT
   ],
 

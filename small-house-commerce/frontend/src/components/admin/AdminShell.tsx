@@ -54,6 +54,11 @@ const NAV_ITEMS: NavItem[] = [
     labelKey: "nav_link_builder",
     permission: "CAMPAIGN_LINK_BUILD",
   },
+  {
+    href: "/admin/newsletter",
+    labelKey: "nav_newsletter",
+    permission: "NEWSLETTER_READ",
+  },
   { href: "/admin/settings", labelKey: "nav_settings", permission: "SYSTEM_SETTINGS_EDIT" },
 ];
 

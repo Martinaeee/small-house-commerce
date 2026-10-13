@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const blankAsUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
 /**
  * Every environment variable the application reads.
  *
@@ -46,6 +49,37 @@ export const envSchema = z.object({
   // bridge to run; unset either and admin writes simply fall back to ISR.
   REVALIDATE_URL: z.string().url().optional(),
   REVALIDATE_SECRET: z.string().optional(),
+
+  // Optional email delivery. Unset uses the log gateway; when a provider key
+  // is supplied, both a validated sender and the public unsubscribe-link base
+  // URL are required for Resend.
+  EMAIL_API_KEY: z.preprocess(
+    blankAsUndefined,
+    z.string().min(1).optional(),
+  ),
+  EMAIL_FROM: z.preprocess(
+    blankAsUndefined,
+    z.string().email().optional(),
+  ),
+  STOREFRONT_BASE_URL: z.preprocess(
+    blankAsUndefined,
+    z.string().url().optional(),
+  ),
+}).superRefine((env, ctx) => {
+  if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['EMAIL_FROM'],
+      message: 'EMAIL_FROM is required when EMAIL_API_KEY is set',
+    });
+  }
+  if (env.EMAIL_API_KEY && !env.STOREFRONT_BASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['STOREFRONT_BASE_URL'],
+      message: 'STOREFRONT_BASE_URL is required when EMAIL_API_KEY is set',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

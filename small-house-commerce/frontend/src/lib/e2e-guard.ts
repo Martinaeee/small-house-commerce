@@ -14,6 +14,7 @@ export interface E2EDatabaseTarget {
  */
 export function assertE2EDatabaseUrl(
   databaseUrl: string | undefined,
+  approvedPort = "5432",
 ): E2EDatabaseTarget {
   if (!databaseUrl) {
     throw new Error(
@@ -45,9 +46,9 @@ export function assertE2EDatabaseUrl(
       `Task 5 E2E guard refused DATABASE_URL: host must be loopback (localhost, 127.0.0.1, or ::1), received "${host || "<empty>"}".`,
     );
   }
-  if (port !== "5432") {
+  if (port !== approvedPort) {
     throw new Error(
-      `Task 5 E2E guard refused DATABASE_URL: port must be 5432, received "${port}".`,
+      `Task 5 E2E guard refused DATABASE_URL: port must be ${approvedPort}, received "${port}".`,
     );
   }
   if (database !== APPROVED_DATABASE) {

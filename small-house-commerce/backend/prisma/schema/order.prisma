@@ -192,6 +192,7 @@ model Order {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
+  promoCode              String?   @map("promo_code")
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   items           OrderItem[]
@@ -205,6 +206,7 @@ model Order {
   payments        Payment[]
   reservations    InventoryReservation[]
   shipments       Shipment[]
+  promoRedemption PromoCodeRedemption?
 
   @@index([customerId])
   @@index([orderStatus])

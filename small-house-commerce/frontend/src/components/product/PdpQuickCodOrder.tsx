@@ -44,6 +44,10 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { Button } from "@/components/ui/Button";
 import { PsgcAddressSelects } from "@/components/checkout/PsgcAddressSelects";
 import { checkoutInputCls as inputCls } from "@/components/checkout/checkoutFieldStyles";
+import {
+  PromoCodeField,
+  type AppliedPromo,
+} from "@/components/checkout/PromoCodeField";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 /**
@@ -202,9 +206,9 @@ export function PdpQuickCodOrder(): ReactNode {
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [initialPromoCode, setInitialPromoCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -224,6 +228,7 @@ export function PdpQuickCodOrder(): ReactNode {
         ...draft.customer,
         preferredDeliveryDate: draft.preferredDeliveryDate ?? "",
       });
+      setInitialPromoCode(draft.promoCode ?? "");
       const bySku = new Map(
         selection.items.map((item) => [item.skuId, item.quantity]),
       );
@@ -519,19 +524,8 @@ export function PdpQuickCodOrder(): ReactNode {
             );
       });
 
-  const applyPromo = (): void => {
-    // CHECKOUT_SPEC §14: the backend promo engine is not built yet; the UI
-    // entry exists so the collapsed pattern is in place, exactly like the
-    // cart's.
-    setPromoMessage(
-      promoCode.trim()
-        ? "Promo codes are coming soon."
-        : "Enter a code to apply it.",
-    );
-  };
-
   function goToReview(): void {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || promoChecking) return;
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(
       form.preferredDeliveryDate,
@@ -576,6 +570,7 @@ export function PdpQuickCodOrder(): ReactNode {
         productQuery: query,
         items,
       },
+      appliedPromo?.code ?? null,
     );
     router.push(`/checkout/confirm${query}`);
   }
@@ -746,42 +741,12 @@ export function PdpQuickCodOrder(): ReactNode {
             </div>
           </dl>
 
-          {/* CHECKOUT_SPEC §14 promo code — collapsed by default, same
-              honest entry the cart uses. */}
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setPromoOpen((open) => !open);
-                setPromoMessage(null);
-              }}
-              className="text-sm text-cta hover:underline"
-              aria-expanded={promoOpen}
-            >
-              {promoOpen ? "Hide promo code" : "Have a promo code?"}
-            </button>
-            {promoOpen && (
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  placeholder="Enter code"
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                  aria-label="Promo code"
-                />
-                <button
-                  type="button"
-                  onClick={applyPromo}
-                  className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-            {promoMessage && (
-              <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>
-            )}
-          </div>
+          <PromoCodeField
+            subtotal={totals.subtotal}
+            initialCode={initialPromoCode}
+            onApplied={setAppliedPromo}
+            onCheckingChange={setPromoChecking}
+          />
         </div>
 
         {/* Delivery form */}
@@ -1037,7 +1002,7 @@ export function PdpQuickCodOrder(): ReactNode {
             type="submit"
             size="lg"
             className="w-full"
-            disabled={!orderable}
+            disabled={!orderable || promoChecking}
             data-testid="quick-cod-submit"
           >
             {submitting ? "Opening review…" : "REVIEW ORDER"}

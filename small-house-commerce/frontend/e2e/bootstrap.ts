@@ -3,10 +3,11 @@ import { rmSync } from "node:fs";
 import path from "node:path";
 import { assertE2EDatabaseUrl } from "../src/lib/e2e-guard";
 
+const pgPort = process.env.E2E_PG_PORT ?? "5432";
 const databaseUrl =
   process.env.DATABASE_URL ??
   process.env.E2E_DATABASE_URL ??
-  `postgresql://${process.env.E2E_PG_USER ?? "postgres"}:${process.env.E2E_PG_PASSWORD ?? "postgres"}@localhost:5432/${process.env.E2E_TEST_DB ?? "small_house_variant_test"}?schema=public`;
+  `postgresql://${process.env.E2E_PG_USER ?? "postgres"}:${process.env.E2E_PG_PASSWORD ?? "postgres"}@localhost:${pgPort}/${process.env.E2E_TEST_DB ?? "small_house_variant_test"}?schema=public`;
 
 const backendDir = path.resolve(__dirname, "..", "..", "backend");
 const frontendDir = path.resolve(__dirname, "..");
@@ -19,7 +20,7 @@ const backendEnv = { ...process.env, DATABASE_URL: databaseUrl };
  */
 export function prepareE2EDatabase(): void {
   // This must remain the first operation before any migration or seed command.
-  assertE2EDatabaseUrl(databaseUrl);
+  assertE2EDatabaseUrl(databaseUrl, pgPort);
 
   // Next 16 dev persists route/fetch state under .next/dev. Clear the
   // worktree-owned output once, before the frontend server starts, so a

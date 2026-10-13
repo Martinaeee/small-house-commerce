@@ -15,6 +15,24 @@ describe("Task 5 E2E database guard", () => {
     ).toBe("127.0.0.1");
   });
 
+  it("accepts an alternate loopback port only when explicitly approved", () => {
+    expect(
+      assertE2EDatabaseUrl(
+        `postgresql://postgres:postgres@localhost:55439/${TASK5_APPROVED_DATABASE}?schema=public`,
+        "55439",
+      ),
+    ).toEqual({
+      database: TASK5_APPROVED_DATABASE,
+      host: "localhost",
+      port: "55439",
+    });
+    expect(() =>
+      assertE2EDatabaseUrl(
+        `postgresql://postgres:postgres@localhost:55439/${TASK5_APPROVED_DATABASE}?schema=public`,
+      ),
+    ).toThrow(/port must be 5432/);
+  });
+
   it.each([
     ["remote host", "postgresql://postgres:postgres@example.com:5432/small_house_variant_test"],
     ["production database", "postgresql://postgres:postgres@localhost:5432/small_house"],

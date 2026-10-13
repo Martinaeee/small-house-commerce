@@ -34,6 +34,11 @@ services:
       # /api/internal/revalidate route (shared secret, docker network).
       REVALIDATE_URL: http://frontend:3000
       REVALIDATE_SECRET: ${REVALIDATE_SECRET}
+      # Optional Resend delivery. Blank values select the local structured-log
+      # gateway; when EMAIL_API_KEY is set, boot validation requires all three.
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      STOREFRONT_BASE_URL: ${STOREFRONT_BASE_URL:-}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
       UPLOAD_DIR: /app/uploads

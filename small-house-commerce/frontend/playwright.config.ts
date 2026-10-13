@@ -32,22 +32,28 @@ const BACKEND_PORT = 3210;
 // for them, and the HMR client then full-reloads in a loop — hydration never
 // completes and every click lands on an un-hydrated tree.
 const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;
+const REVALIDATE_SECRET =
+  "e2e-revalidate-secret-0123456789abcdef0123456789";
 
 const TEST_DB = process.env.E2E_TEST_DB ?? "small_house_variant_test";
 const PG_USER = process.env.E2E_PG_USER ?? "postgres";
 const PG_PASSWORD = process.env.E2E_PG_PASSWORD ?? "postgres";
+const PG_PORT = process.env.E2E_PG_PORT ?? "5432";
 export const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
-  `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${TEST_DB}?schema=public`;
-assertE2EDatabaseUrl(E2E_DATABASE_URL);
+  `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${TEST_DB}?schema=public`;
+assertE2EDatabaseUrl(E2E_DATABASE_URL, PG_PORT);
 
 const BACKEND_ENV = {
   PORT: String(BACKEND_PORT),
   HOST: "127.0.0.1",
   DATABASE_URL: E2E_DATABASE_URL,
+  E2E_PG_PORT: PG_PORT,
   // Validated at boot (>= 32 chars); the gate never stores real secrets.
   JWT_SECRET: "e2e-gate-jwt-secret-0123456789abcdef0123456789",
   NODE_ENV: "test",
+  REVALIDATE_URL: FRONTEND_ORIGIN,
+  REVALIDATE_SECRET,
 };
 
 export default defineConfig({
@@ -85,6 +91,7 @@ export default defineConfig({
       env: {
         API_TARGET: `http://127.0.0.1:${BACKEND_PORT}`,
         NEXT_TELEMETRY_DISABLED: "1",
+        REVALIDATE_SECRET,
       },
     },
   ],

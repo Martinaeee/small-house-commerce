@@ -4,6 +4,7 @@ import {
   revalidateCache,
 } from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { findAvailableNewsletterPromotion } from '../newsletter/promotion-availability.js';
 import type { UpdateSettingsInput } from './dto/settings.dto.js';
 
 /**
@@ -30,13 +31,22 @@ export class SettingsService {
     });
   }
 
-  /** Public payload: only the three shopper-facing fields. */
+  /** Public payload: contact fields plus server-authoritative newsletter display state. */
   async getPublic() {
-    const row = await this.getRow();
+    const [row, promotion] = await Promise.all([
+      this.getRow(),
+      findAvailableNewsletterPromotion(this.prisma),
+    ]);
     return {
       messengerUrl: row.messengerUrl,
       supportEmail: row.supportEmail,
       supportHours: row.supportHours,
+      newsletterBandEnabled: row.newsletterBandEnabled,
+      newsletterPopupEnabled: row.newsletterPopupEnabled,
+      newsletterPopupDelaySeconds: row.newsletterPopupDelaySeconds,
+      newsletterOfferTitle: row.newsletterOfferTitle,
+      newsletterOfferBody: row.newsletterOfferBody,
+      newsletterOfferAvailable: promotion !== null,
     };
   }
 

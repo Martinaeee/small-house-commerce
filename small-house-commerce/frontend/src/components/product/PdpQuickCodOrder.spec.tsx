@@ -260,6 +260,7 @@ describe("PdpQuickCodOrder", () => {
         productQuery: "?aid=aid-123&utm_source=facebook",
         items: [{ skuId: "sku-red", quantity: 1 }],
       },
+      null,
     );
     expect(router.push).toHaveBeenCalledWith(
       "/checkout/confirm?aid=aid-123&utm_source=facebook",
@@ -321,6 +322,7 @@ describe("PdpQuickCodOrder", () => {
           { skuId: "sku-blue", quantity: 2 },
         ],
       },
+      null,
     );
     expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
@@ -516,6 +518,7 @@ describe("PdpQuickCodOrder", () => {
       expect.objectContaining({
         items: [{ skuId: "sku-red", quantity: 1 }],
       }),
+      null,
     );
   });
 

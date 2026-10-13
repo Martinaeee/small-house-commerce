@@ -5,6 +5,13 @@ model SiteSetting {
   messengerUrl String   @default("") @map("messenger_url")
   supportEmail String   @default("support@luwag.ph") @map("support_email")
   supportHours String   @default("Mon–Sat, 9am–6pm (PHT)") @map("support_hours")
+  // Newsletter display configuration only; promotion mechanics live on the
+  // stable NewsletterPromotion entity, never on this singleton row.
+  newsletterBandEnabled       Boolean @default(true) @map("newsletter_band_enabled")
+  newsletterPopupEnabled      Boolean @default(false) @map("newsletter_popup_enabled")
+  newsletterPopupDelaySeconds Int     @default(5) @map("newsletter_popup_delay_seconds")
+  newsletterOfferTitle        String  @default("") @map("newsletter_offer_title")
+  newsletterOfferBody         String  @default("") @map("newsletter_offer_body")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

@@ -46,8 +46,10 @@ function checkoutOverrides(overrides: Record<string, unknown> = {}) {
 
 function createHarness() {
   const tx: Record<string, any> = {
+    $queryRaw: vi.fn(async () => []),
     order: {
       create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
+      findUnique: vi.fn(),
       update: vi.fn(async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
         id: 'order-1',
         ...(_args?.data ?? {}),
@@ -90,12 +92,16 @@ function createHarness() {
     markDuplicates: vi.fn(async () => {}),
     logRisk: vi.fn(async () => {}),
   };
+  const promotions = {
+    resolveForCheckout: vi.fn(async () => null),
+  };
   const service = new OrdersService(
     prisma as never,
     inventory as unknown as InventoryService,
     customerRisk as never,
+    promotions as never,
   );
-  return { service, prisma, tx, inventory, customerRisk };
+  return { service, prisma, tx, inventory, customerRisk, promotions };
 }
 
 describe('OrdersService.checkout attribution', () => {
@@ -261,16 +267,16 @@ describe('OrdersService confirm gate (CUSTOMER_RISK_SPEC §17)', () => {
 
 describe('OrdersService.updateStatus legality', () => {
   it('rejects an illegal transition', async () => {
-    const { service, prisma } = createHarness();
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'SIGNED' });
+    const { service, tx } = createHarness();
+    tx.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'SIGNED' });
     await expect(service.updateStatus('o1', 'CONFIRMED', undefined, 'op-1')).rejects.toThrow(
       /Invalid status transition/,
     );
   });
 
   it('allows NEW -> QUESTION', async () => {
-    const { service, prisma, tx } = createHarness();
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'NEW' });
+    const { service, tx } = createHarness();
+    tx.order.findUnique.mockResolvedValue({ id: 'o1', orderStatus: 'NEW' });
     tx.order.update = vi.fn(async () => ({ orderStatus: 'QUESTION' }));
     const out = await service.updateStatus('o1', 'QUESTION', 'need more info', 'op-1');
     expect(out.orderStatus).toBe('QUESTION');

@@ -26,6 +26,7 @@ import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutInputCls } from "./checkoutFieldStyles";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
+import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import {
   fetchBarangays,
   listMunicipalities,
@@ -121,9 +122,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [locationError, setLocationError] = useState<string | null>(null);
   // Informational (not an error): province filled, city left for the user.
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [initialPromoCode, setInitialPromoCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   const {
     isBuyNow,
@@ -157,6 +158,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           ...d.customer,
           preferredDeliveryDate: d.preferredDeliveryDate ?? "",
         }));
+        setInitialPromoCode(d.promoCode ?? "");
       }
     })();
     return () => {
@@ -356,6 +358,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   };
 
   function goToReview() {
+    if (promoChecking) return;
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(form.preferredDeliveryDate);
     if (preferredDateError) validation.preferredDeliveryDate = preferredDateError;
@@ -376,7 +379,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    }, form.preferredDeliveryDate.trim() || null);
+    }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null);
     router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
@@ -749,48 +752,12 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               </div>
             </dl>
 
-            {/* CHECKOUT_SPEC §14 promo code — collapsed by default, the same
-                honest entry the cart, the COD form and the confirm step use. */}
-            <div className="mt-3 border-t border-border pt-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setPromoOpen((open) => !open);
-                  setPromoMessage(null);
-                }}
-                className="text-sm text-cta hover:underline"
-                aria-expanded={promoOpen}
-              >
-                {promoOpen ? "Hide promo code" : "Have a promo code?"}
-              </button>
-              {promoOpen && (
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    placeholder="Enter code"
-                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                    aria-label="Promo code"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPromoMessage(
-                        promoCode.trim()
-                          ? "Promo codes are coming soon."
-                          : "Enter a code to apply it.",
-                      )
-                    }
-                    className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                  >
-                    Apply
-                  </button>
-                </div>
-              )}
-              {promoMessage && (
-                <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>
-              )}
-            </div>
+            <PromoCodeField
+              subtotal={totals.subtotal}
+              initialCode={initialPromoCode}
+              onApplied={setAppliedPromo}
+              onCheckingChange={setPromoChecking}
+            />
           </div>
 
           <CheckoutTrustStrip
@@ -818,6 +785,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             onClick={goToReview}
             className="w-full"
             data-testid="review-order"
+            disabled={promoChecking}
           >
             REVIEW ORDER
           </Button>
