@@ -13,14 +13,19 @@ import { BrandWordmark } from "./BrandWordmark";
 export function Footer({
   collections,
   supportEmail,
+  supportPhone,
   supportHours,
   newsletterEnabled,
 }: {
   collections: { id: string; slug: string; name: string }[];
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
   newsletterEnabled: boolean;
 }) {
+  const phone = supportPhone.trim();
+  const phoneHref = phone.replace(/[()\-\s]/g, "");
+
   return (
     <footer className="mt-16 bg-[#704632] text-[#fff8f1]">
       <div className="mx-auto max-w-[1200px] px-4 py-12 sm:px-6 lg:py-14">
@@ -71,6 +76,16 @@ export function Footer({
               </li>
               <li>Cash on Delivery nationwide</li>
               <li>{supportHours}</li>
+              {phone ? (
+                <li>
+                  <a
+                    href={`tel:${phoneHref}`}
+                    className="transition hover:text-white"
+                  >
+                    {phone}
+                  </a>
+                </li>
+              ) : null}
               <li>
                 <a
                   href={`mailto:${supportEmail}`}

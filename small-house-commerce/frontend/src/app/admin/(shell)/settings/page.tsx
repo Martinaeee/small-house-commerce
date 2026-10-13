@@ -11,6 +11,7 @@ import { errorStatus } from "@/lib/admin-auth";
 interface SettingsForm {
   messengerUrl: string;
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
   newsletterBandEnabled: boolean;
   newsletterPopupEnabled: boolean;
@@ -48,6 +49,13 @@ function validateSettings(values: SettingsForm): SettingsErrors {
   const email = values.supportEmail.trim();
   if (email.length === 0 || email.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.supportEmail = "请输入有效的客服邮箱（不超过 200 个字符）。";
+  }
+  const phone = values.supportPhone.trim();
+  if (
+    phone !== "" &&
+    (phone.length > 20 || !/^[0-9+()\- ]{7,20}$/.test(phone))
+  ) {
+    errors.supportPhone = "客服电话需留空，或使用 7–20 位电话字符。";
   }
   const hours = values.supportHours.trim();
   if (hours.length < 1 || hours.length > 100) {
@@ -91,6 +99,7 @@ function toForm(row: AdminSiteSettings): SettingsForm {
   return {
     messengerUrl: row.messengerUrl,
     supportEmail: row.supportEmail,
+    supportPhone: row.supportPhone,
     supportHours: row.supportHours,
     newsletterBandEnabled: row.newsletterBandEnabled,
     newsletterPopupEnabled: row.newsletterPopupEnabled,
@@ -160,6 +169,7 @@ export default function SiteSettingsPage(): ReactNode {
       .updateSettings({
         messengerUrl: data.messengerUrl.trim(),
         supportEmail: data.supportEmail.trim(),
+        supportPhone: data.supportPhone.trim(),
         supportHours: data.supportHours.trim(),
         newsletterBandEnabled: data.newsletterBandEnabled,
         newsletterPopupEnabled: data.newsletterPopupEnabled,
@@ -251,6 +261,22 @@ export default function SiteSettingsPage(): ReactNode {
                 value={data.supportEmail}
                 onChange={(e) => updateField("supportEmail", e.target.value)}
                 autoComplete="off"
+              />
+            </Field>
+
+            <Field
+              label="客服电话"
+              htmlFor="settings-support-phone"
+              error={errors.supportPhone}
+              hint="留空则隐藏电话入口；支持数字、空格、+、括号与连字符。"
+            >
+              <TextInput
+                id="settings-support-phone"
+                type="tel"
+                value={data.supportPhone}
+                onChange={(e) => updateField("supportPhone", e.target.value)}
+                autoComplete="tel"
+                maxLength={20}
               />
             </Field>
 

@@ -743,6 +743,23 @@ export interface AdminNewsletterSubscriber {
   unsubscribedAt: string | null;
 }
 
+export type BackInStockStatus = "PENDING" | "SENT" | "CANCELLED";
+
+export interface AdminBackInStockSubscription {
+  id: string;
+  email: string;
+  skuId: string;
+  status: BackInStockStatus;
+  productName: string;
+  productSlug: string;
+  skuCode: string;
+  variantName: string;
+  lastError: string | null;
+  notifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type NewsletterDiscountType = "PERCENT" | "FIXED";
 export type NewsletterPromotionStatus = "ACTIVE" | "ARCHIVED";
 
@@ -786,6 +803,7 @@ export interface AdminSiteSettings {
   id: string;
   messengerUrl: string;
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
   newsletterBandEnabled: boolean;
   newsletterPopupEnabled: boolean;
@@ -803,6 +821,7 @@ export interface AdminSiteSettings {
 export interface UpdateSiteSettingsInput {
   messengerUrl: string;
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
   newsletterBandEnabled?: boolean;
   newsletterPopupEnabled?: boolean;
@@ -1603,6 +1622,29 @@ export const adminApi = {
     adminAuthedFetch<AdminNewsletterSubscriber>(
       `/api/v1/admin/newsletter/subscribers/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ status }) },
+    ),
+
+  listBackInStockSubscriptions: (params: {
+    page: number;
+    pageSize: number;
+    status?: BackInStockStatus;
+  }): Promise<Paged<AdminBackInStockSubscription>> => {
+    const query = new URLSearchParams({
+      page: String(params.page),
+      pageSize: String(params.pageSize),
+    });
+    if (params.status) query.set("status", params.status);
+    return adminAuthedFetch<Paged<AdminBackInStockSubscription>>(
+      `/api/v1/admin/newsletter/back-in-stock?${query.toString()}`,
+    );
+  },
+
+  resendBackInStockSubscription: (
+    id: string,
+  ): Promise<AdminBackInStockSubscription> =>
+    adminAuthedFetch<AdminBackInStockSubscription>(
+      `/api/v1/admin/newsletter/back-in-stock/${encodeURIComponent(id)}/resend`,
+      { method: "POST" },
     ),
 
   listNewsletterPromotions: (): Promise<AdminNewsletterPromotion[]> =>

@@ -14,6 +14,7 @@ import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { RatingStars } from "./RatingStars";
+import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
 
 /**
  * Castlery-style PLP card (category pages only; the shared static ProductCard
@@ -74,7 +75,10 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
   }
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary focus-within:border-primary">
+    <article
+      data-product-id={product.id}
+      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary focus-within:border-primary"
+    >
       <Link href={`/products/${product.slug}`} className="relative block">
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -185,6 +189,14 @@ export function PlpProductCard({ product, badges }: PlpProductCardProps) {
               View Details
             </Link>
           )}
+          {directSku && !directInStock ? (
+            <div className="mt-2 text-center">
+              <BackInStockTrigger
+                skuId={directSku.id}
+                productName={product.name}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </article>

@@ -16,6 +16,7 @@ const settings = {
   id: "settings-1",
   messengerUrl: "https://m.me/luwag",
   supportEmail: "help@luwag.test",
+  supportPhone: "+63 917 123 4567",
   supportHours: "Mon-Sat",
   newsletterBandEnabled: true,
   newsletterPopupEnabled: false,
@@ -60,6 +61,9 @@ describe("SiteSettingsPage newsletter fields", () => {
     expect(screen.getByLabelText(/同意与退订说明/)).toHaveValue(
       "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
     );
+    expect(screen.getByLabelText(/客服电话/)).toHaveValue(
+      "+63 917 123 4567",
+    );
     await user.click(popup);
     await user.clear(screen.getByLabelText(/弹窗延迟（秒）/));
     await user.type(screen.getByLabelText(/弹窗延迟（秒）/), "8");
@@ -71,6 +75,7 @@ describe("SiteSettingsPage newsletter fields", () => {
       expect(apiMock.updateSettings).toHaveBeenCalledWith({
         messengerUrl: "https://m.me/luwag",
         supportEmail: "help@luwag.test",
+        supportPhone: "+63 917 123 4567",
         supportHours: "Mon-Sat",
         newsletterBandEnabled: true,
         newsletterPopupEnabled: true,
@@ -84,6 +89,21 @@ describe("SiteSettingsPage newsletter fields", () => {
           "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
       }),
     );
+  });
+
+  it("rejects an invalid support phone before calling the API", async () => {
+    const user = userEvent.setup();
+    render(<SiteSettingsPage />);
+
+    const phone = await screen.findByLabelText(/客服电话/);
+    await user.clear(phone);
+    await user.type(phone, "not-a-phone");
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+
+    expect(
+      screen.getByText("客服电话需留空，或使用 7–20 位电话字符。"),
+    ).toBeInTheDocument();
+    expect(apiMock.updateSettings).not.toHaveBeenCalled();
   });
 
   it("rejects blank required newsletter copy before calling the API", async () => {

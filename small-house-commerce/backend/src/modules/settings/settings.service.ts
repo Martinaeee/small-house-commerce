@@ -40,6 +40,7 @@ export class SettingsService {
     return {
       messengerUrl: row.messengerUrl,
       supportEmail: row.supportEmail,
+      supportPhone: row.supportPhone,
       supportHours: row.supportHours,
       newsletterBandEnabled: row.newsletterBandEnabled,
       newsletterPopupEnabled: row.newsletterPopupEnabled,

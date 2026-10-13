@@ -72,3 +72,30 @@ describe('updateSettingsSchema newsletter fields', () => {
     ).toBe(false);
   });
 });
+
+describe('updateSettingsSchema supportPhone', () => {
+  it.each([
+    '',
+    '+63 917 123 4567',
+    '(02) 8123-4567',
+    '0917-123-4567',
+  ])('accepts and trims a supported phone value: %s', (supportPhone) => {
+    const result = updateSettingsSchema.parse({
+      ...base,
+      supportPhone: `  ${supportPhone}  `,
+    });
+
+    expect(result.supportPhone).toBe(supportPhone);
+  });
+
+  it.each([
+    'call-me',
+    '<script>',
+    '123456',
+    '+63 917 123 4567 8901',
+  ])('rejects an unsupported phone value: %s', (supportPhone) => {
+    expect(
+      updateSettingsSchema.safeParse({ ...base, supportPhone }).success,
+    ).toBe(false);
+  });
+});

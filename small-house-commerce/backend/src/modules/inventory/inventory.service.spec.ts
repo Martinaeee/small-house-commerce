@@ -20,6 +20,32 @@ function createHarness() {
   const rows = new Map<string, InvRow>();
   const tx = {
     inventory: {
+      findUnique: vi.fn(
+        async (args: {
+          where: { skuId_warehouseId: { skuId: string } };
+        }) => rows.get(args.where.skuId_warehouseId.skuId) ?? null,
+      ),
+      findUniqueOrThrow: vi.fn(
+        async (args: { where: { id: string } }) => {
+          const row = [...rows.values()].find((candidate) =>
+            candidate.id === args.where.id,
+          );
+          if (!row) throw new Error('missing inventory row');
+          return row;
+        },
+      ),
+      create: vi.fn(
+        async (args: { data: { skuId: string; onHand: number } }) => {
+          const row: InvRow = {
+            id: `inv-${rows.size + 1}`,
+            skuId: args.data.skuId,
+            onHand: args.data.onHand,
+            reserved: 0,
+          };
+          rows.set(args.data.skuId, row);
+          return row;
+        },
+      ),
       update: vi.fn(
         async (args: {
           where: { id: string };
@@ -35,6 +61,7 @@ function createHarness() {
       ),
     },
     inventoryMovement: { create: vi.fn(async () => ({})) },
+    $queryRaw: vi.fn(async () => []),
   };
   const prisma = {
     warehouse: {
@@ -75,8 +102,16 @@ function createHarness() {
     inventoryMovement: { create: vi.fn(async () => ({})) },
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
-  const service = new InventoryService(prisma as never);
-  return { prisma, tx, rows, service };
+  const backInStock = {
+    snapshotForChangedSkusWithin: vi.fn(async () => new Map<string, number>()),
+    claimTransitionsWithin: vi.fn(async () => []),
+    deliverClaims: vi.fn(async () => undefined),
+  };
+  const service = new InventoryService(
+    prisma as never,
+    backInStock as never,
+  );
+  return { prisma, tx, rows, service, backInStock };
 }
 
 describe('InventoryService.setOnHandBatch', () => {
@@ -114,7 +149,7 @@ describe('InventoryService.setOnHandBatch', () => {
   });
 
   it('keeps successful ledger writes when another SKU fails', async () => {
-    const { service, rows, prisma } = createHarness();
+    const { service, rows, tx } = createHarness();
     rows.set('reserved', {
       id: 'inv-reserved',
       skuId: 'reserved',
@@ -136,7 +171,7 @@ describe('InventoryService.setOnHandBatch', () => {
     ]);
     // The failure must not roll back the successful SKU's ledger write.
     expect(rows.get('ok')?.onHand).toBe(10);
-    expect(prisma.inventoryMovement.create).toHaveBeenCalledWith(
+    expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           movementType: 'MANUAL_ADJUSTMENT',
@@ -169,7 +204,7 @@ describe('InventoryService.setOnHandBatch', () => {
   });
 
   it('applies duplicate SKU ids in input order (last write wins)', async () => {
-    const { service, prisma, tx } = createHarness();
+    const { service, tx } = createHarness();
 
     const result = await service.setOnHandBatch(
       [
@@ -182,9 +217,9 @@ describe('InventoryService.setOnHandBatch', () => {
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ skuId: 'dup', ok: true, onHand: 10 });
     expect(result[1]).toMatchObject({ skuId: 'dup', ok: true, onHand: 7 });
-    // First entry opens the row (+10); second adjusts the existing row (-3).
-    expect(prisma.inventoryMovement.create).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(1);
+    // Both entries write through their own transaction; the first opens the
+    // row (+10), then the second adjusts that committed row (-3).
+    expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(2);
     expect(tx.inventory.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { onHand: { increment: -3 } } }),
     );

@@ -3,21 +3,26 @@ import { AuthModule } from '../auth/auth.module.js';
 import { EmailModule } from '../email/email.module.js';
 import { SettingsModule } from '../settings/settings.module.js';
 import { NewsletterService } from './newsletter.service.js';
+import { BackInStockService } from './back-in-stock.service.js';
 import { PromotionService } from './promotion.service.js';
 import { StorefrontNewsletterController } from './storefront/newsletter.controller.js';
+import { StorefrontBackInStockController } from './storefront/back-in-stock.controller.js';
 import { StorefrontPromoController } from './storefront/promo.controller.js';
 import { AdminSubscribersController } from './admin/subscribers.controller.js';
+import { AdminBackInStockController } from './admin/back-in-stock.controller.js';
 import { AdminPromotionsController } from './admin/promotions.controller.js';
 
 @Module({
   imports: [AuthModule, EmailModule, SettingsModule],
   controllers: [
     StorefrontNewsletterController,
+    StorefrontBackInStockController,
     StorefrontPromoController,
     AdminSubscribersController,
+    AdminBackInStockController,
     AdminPromotionsController,
   ],
-  providers: [NewsletterService, PromotionService],
-  exports: [NewsletterService, PromotionService],
+  providers: [NewsletterService, BackInStockService, PromotionService],
+  exports: [NewsletterService, BackInStockService, PromotionService],
 })
 export class NewsletterModule {}

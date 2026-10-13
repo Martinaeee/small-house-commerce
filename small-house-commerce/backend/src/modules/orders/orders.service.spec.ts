@@ -95,13 +95,25 @@ function createHarness() {
   const promotions = {
     resolveForCheckout: vi.fn(async () => null),
   };
+  const backInStock = {
+    deliverClaims: vi.fn(async () => undefined),
+  };
   const service = new OrdersService(
     prisma as never,
     inventory as unknown as InventoryService,
     customerRisk as never,
     promotions as never,
+    backInStock as never,
   );
-  return { service, prisma, tx, inventory, customerRisk, promotions };
+  return {
+    service,
+    prisma,
+    tx,
+    inventory,
+    customerRisk,
+    promotions,
+    backInStock,
+  };
 }
 
 describe('OrdersService.checkout attribution', () => {

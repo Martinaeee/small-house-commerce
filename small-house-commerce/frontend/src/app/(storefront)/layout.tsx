@@ -55,6 +55,7 @@ export default async function StorefrontLayout({
       <Footer
         collections={footerCollections}
         supportEmail={settings.supportEmail}
+        supportPhone={settings.supportPhone}
         supportHours={settings.supportHours}
         newsletterEnabled={settings.newsletterBandEnabled}
       />

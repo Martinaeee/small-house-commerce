@@ -4,6 +4,7 @@ model SiteSetting {
   id           String   @id @map("id") @db.Uuid
   messengerUrl String   @default("") @map("messenger_url")
   supportEmail String   @default("support@luwag.ph") @map("support_email")
+  supportPhone String   @default("") @map("support_phone")
   supportHours String   @default("Mon–Sat, 9am–6pm (PHT)") @map("support_hours")
   // Newsletter display configuration only; promotion mechanics live on the
   // stable NewsletterPromotion entity, never on this singleton row.

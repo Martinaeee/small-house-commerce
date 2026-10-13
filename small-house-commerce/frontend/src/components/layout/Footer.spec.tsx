@@ -18,6 +18,7 @@ vi.mock("next/link", () => ({
 const base = {
   collections: [],
   supportEmail: "support@luwag.ph",
+  supportPhone: "",
   supportHours: "Mon–Sat, 9am–6pm (PHT)",
   newsletterEnabled: true,
 };
@@ -60,6 +61,21 @@ describe("Footer subscribe integration", () => {
     expect(wordmark?.querySelector("rect")?.getAttribute("fill")).toBe(
       "#FAF8F5",
     );
+  });
+
+  it("renders a normalized phone link when support phone is configured", () => {
+    renderFooter({ supportPhone: "+63 (917) 123-4567" });
+
+    expect(screen.getByRole("link", { name: "+63 (917) 123-4567" })).toHaveAttribute(
+      "href",
+      "tel:+639171234567",
+    );
+  });
+
+  it("hides the phone row when support phone is empty", () => {
+    renderFooter({ supportPhone: "" });
+
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull();
   });
 
   it("omits the subscribe block and collapses to three columns when disabled", () => {

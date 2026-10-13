@@ -20,8 +20,21 @@ const messengerUrlSchema = z
     { message: 'messengerUrl must be empty or an absolute https:// URL' },
   );
 
+const supportPhoneSchema = z
+  .string()
+  .trim()
+  .max(20)
+  .refine(
+    (value) => value === '' || /^[0-9+()\- ]{7,20}$/.test(value),
+    {
+      message:
+        'supportPhone must be empty or contain 7–20 phone characters',
+    },
+  );
+
 export const updateSettingsSchema = z.object({
   messengerUrl: messengerUrlSchema,
+  supportPhone: supportPhoneSchema.optional(),
   // Email is the guaranteed fallback channel, so it is required and non-empty.
   supportEmail: z.string().trim().min(1).email().max(200),
   supportHours: z.string().trim().min(1).max(100),

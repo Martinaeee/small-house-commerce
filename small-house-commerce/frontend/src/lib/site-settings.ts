@@ -5,6 +5,7 @@ import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 export interface SiteSettings {
   messengerUrl: string;
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
   newsletterBandEnabled: boolean;
   newsletterPopupEnabled: boolean;
@@ -23,6 +24,7 @@ export interface SiteSettings {
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   messengerUrl: "",
   supportEmail: "support@luwag.ph",
+  supportPhone: "",
   supportHours: "Mon–Sat, 9am–6pm (PHT)",
   newsletterBandEnabled: true,
   newsletterPopupEnabled: false,
@@ -41,6 +43,10 @@ function coerce(data: Partial<SiteSettings> | null): SiteSettings {
   return {
     messengerUrl: typeof data?.messengerUrl === "string" ? data.messengerUrl : DEFAULT_SITE_SETTINGS.messengerUrl,
     supportEmail: typeof data?.supportEmail === "string" ? data.supportEmail : DEFAULT_SITE_SETTINGS.supportEmail,
+    supportPhone:
+      typeof data?.supportPhone === "string"
+        ? data.supportPhone
+        : DEFAULT_SITE_SETTINGS.supportPhone,
     supportHours: typeof data?.supportHours === "string" ? data.supportHours : DEFAULT_SITE_SETTINGS.supportHours,
     newsletterBandEnabled:
       typeof data?.newsletterBandEnabled === "boolean"

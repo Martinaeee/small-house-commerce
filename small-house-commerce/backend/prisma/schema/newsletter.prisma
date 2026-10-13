@@ -12,6 +12,12 @@ enum SubscribeSource {
   FOOTER
 }
 
+enum BackInStockStatus {
+  PENDING
+  SENT
+  CANCELLED
+}
+
 enum NewsletterDiscountType {
   PERCENT
   FIXED
@@ -33,6 +39,29 @@ model NewsletterSubscriber {
   unsubscribedAt DateTime?        @map("unsubscribed_at") @db.Timestamptz(3)
 
   @@map("newsletter_subscribers")
+}
+
+/// One row per normalized email + concrete SKU. It is intentionally separate
+/// from NewsletterSubscriber: asking for one stock alert never opts shoppers
+/// into marketing email.
+model BackInStockSubscription {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  email       String
+  skuId       String            @map("sku_id") @db.Uuid
+  status      BackInStockStatus @default(PENDING)
+  productName String            @map("product_name")
+  productSlug String            @map("product_slug")
+  lastError   String?           @map("last_error")
+  notifiedAt  DateTime?         @map("notified_at") @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sku Sku @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([email, skuId])
+  @@index([status, createdAt])
+  @@index([skuId, status])
+  @@map("back_in_stock_subscriptions")
 }
 
 /// At most one ACTIVE row is enforced by a partial unique index in the

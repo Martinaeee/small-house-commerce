@@ -26,9 +26,19 @@ describe.skipIf(!database)('newsletter schema invariants', () => {
   });
 
   async function cleanup() {
+    await prisma.backInStockSubscription.deleteMany();
     await prisma.promoCodeRedemption.deleteMany();
     await prisma.newsletterPromotion.deleteMany();
     await prisma.newsletterSubscriber.deleteMany();
+    await prisma.product.deleteMany({
+      where: { slug: { startsWith: 'back-in-stock-schema-' } },
+    });
+    await prisma.category.deleteMany({
+      where: { slug: { startsWith: 'back-in-stock-schema-' } },
+    });
+    await prisma.siteSetting.deleteMany({
+      where: { id: '00000000-0000-0000-0000-000000000099' },
+    });
   }
 
   beforeEach(cleanup);
@@ -58,5 +68,69 @@ describe.skipIf(!database)('newsletter schema invariants', () => {
         },
       }),
     ).rejects.toThrow();
+  });
+
+  it('rejects duplicate email and SKU subscriptions and cascades with the SKU', async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const category = await prisma.category.create({
+      data: {
+        name: `Back in stock schema ${suffix}`,
+        slug: `back-in-stock-schema-category-${suffix}`,
+      },
+    });
+    const product = await prisma.product.create({
+      data: {
+        name: `Back in stock schema ${suffix}`,
+        slug: `back-in-stock-schema-product-${suffix}`,
+        categoryId: category.id,
+      },
+    });
+    const variant = await prisma.productVariant.create({
+      data: {
+        productId: product.id,
+        name: 'Default',
+        combinationKey: 'default',
+      },
+    });
+    const sku = await prisma.sku.create({
+      data: {
+        productId: product.id,
+        variantId: variant.id,
+        skuCode: `BIS-${suffix}`,
+      },
+    });
+
+    await prisma.backInStockSubscription.create({
+      data: {
+        email: 'shopper@example.com',
+        skuId: sku.id,
+        productName: product.name,
+        productSlug: product.slug,
+      },
+    });
+
+    await expect(
+      prisma.backInStockSubscription.create({
+        data: {
+          email: 'shopper@example.com',
+          skuId: sku.id,
+          productName: product.name,
+          productSlug: product.slug,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await prisma.sku.delete({ where: { id: sku.id } });
+    await expect(
+      prisma.backInStockSubscription.count({ where: { skuId: sku.id } }),
+    ).resolves.toBe(0);
+  });
+
+  it('defaults the support phone to hidden', async () => {
+    const settings = await prisma.siteSetting.create({
+      data: { id: '00000000-0000-0000-0000-000000000099' },
+    });
+
+    expect(settings.supportPhone).toBe('');
   });
 });

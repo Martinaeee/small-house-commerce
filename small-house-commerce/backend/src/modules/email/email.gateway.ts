@@ -7,6 +7,16 @@ export interface WelcomeEmailOptions {
   unsubscribeUrl: string;
 }
 
+export interface BackInStockEmailOptions {
+  productName: string;
+  productUrl: string;
+  unsubscribeUrl: string;
+}
+
 export interface EmailGateway {
   sendWelcome(to: string, options: WelcomeEmailOptions): Promise<void>;
+  sendBackInStock(
+    to: string,
+    options: BackInStockEmailOptions,
+  ): Promise<void>;
 }

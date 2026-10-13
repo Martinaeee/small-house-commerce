@@ -27,6 +27,7 @@ describe("fetchSiteSettings newsletter copy", () => {
     );
 
     await expect(fetchSiteSettings()).resolves.toMatchObject({
+      supportPhone: DEFAULT_SITE_SETTINGS.supportPhone,
       newsletterEyebrow: DEFAULT_SITE_SETTINGS.newsletterEyebrow,
       newsletterFormTitle: DEFAULT_SITE_SETTINGS.newsletterFormTitle,
       newsletterEmailPlaceholder:
@@ -40,6 +41,7 @@ describe("fetchSiteSettings newsletter copy", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
+          supportPhone: "+63 917 123 4567",
           newsletterEyebrow: "Furniture notes",
           newsletterFormTitle: "Ideas by email",
           newsletterEmailPlaceholder: "name@example.com",
@@ -49,6 +51,7 @@ describe("fetchSiteSettings newsletter copy", () => {
     );
 
     await expect(fetchSiteSettings()).resolves.toMatchObject({
+      supportPhone: "+63 917 123 4567",
       newsletterEyebrow: "Furniture notes",
       newsletterFormTitle: "Ideas by email",
       newsletterEmailPlaceholder: "name@example.com",

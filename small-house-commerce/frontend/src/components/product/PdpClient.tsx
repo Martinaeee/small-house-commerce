@@ -16,6 +16,7 @@ import { loadProductMedia } from "@/lib/product-media";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
+import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import {
@@ -772,6 +773,14 @@ export function PdpClient({
                 You can still add it to your cart to save it — checkout stays unavailable until
                 the item is restocked — or email us to ask about restocking or a special order.
               </p>
+              {sku ? (
+                <div className="mt-3">
+                  <BackInStockTrigger
+                    skuId={sku.id}
+                    productName={product.name}
+                  />
+                </div>
+              ) : null}
               <ButtonLink href={restockHref} size="md" variant="secondary" className="mt-3" data-testid="contact-restock">
                 Contact us to order
               </ButtonLink>
@@ -811,7 +820,6 @@ export function PdpClient({
         <PdpStickyBuy
           product={product}
           coverMedia={stickyCoverMedia}
-          restockHref={restockHref}
           heroRef={heroRef}
           line={primaryLine}
           derived={primaryDerived}

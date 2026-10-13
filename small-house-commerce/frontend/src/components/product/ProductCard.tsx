@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { ButtonLink } from "@/components/ui/Button";
+import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
@@ -51,7 +52,10 @@ export function ProductCard({ product, badge }: ProductCardProps) {
   );
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-shadow hover:shadow-md">
+    <article
+      data-product-id={product.id}
+      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-shadow hover:shadow-md"
+    >
       <Link href={`/products/${product.slug}`} className="relative block">
         {image}
         {badge ? (
@@ -92,6 +96,14 @@ export function ProductCard({ product, badge }: ProductCardProps) {
           >
             {outOfStock ? "View Details" : "Order Now"}
           </ButtonLink>
+          {directSku && directSku.availableInventory <= 0 ? (
+            <div className="mt-2 text-center">
+              <BackInStockTrigger
+                skuId={directSku.id}
+                productName={product.name}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </article>

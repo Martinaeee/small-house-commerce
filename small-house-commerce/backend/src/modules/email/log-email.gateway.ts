@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type {
+  BackInStockEmailOptions,
   EmailGateway,
   WelcomeEmailOptions,
 } from './email.gateway.js';
@@ -21,5 +22,12 @@ export class LogEmailGateway implements EmailGateway {
     options: WelcomeEmailOptions,
   ): Promise<void> {
     this.logger.log(JSON.stringify({ kind: 'welcome', to, ...options }));
+  }
+
+  async sendBackInStock(
+    to: string,
+    options: BackInStockEmailOptions,
+  ): Promise<void> {
+    this.logger.log(JSON.stringify({ kind: 'back-in-stock', to, ...options }));
   }
 }

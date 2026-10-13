@@ -377,7 +377,8 @@ model Sku {
   inventory          Inventory[]
   reservations       InventoryReservation[]
   inventoryMovements InventoryMovement[]
-  orderItems         OrderItem[]
+  orderItems               OrderItem[]
+  backInStockSubscriptions BackInStockSubscription[]
 
   @@index([productId])
   @@index([supplierId])

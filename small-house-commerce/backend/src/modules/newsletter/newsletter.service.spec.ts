@@ -48,6 +48,7 @@ describe.skipIf(!database)('NewsletterService PostgreSQL behavior', () => {
     await prisma.newsletterSubscriber.deleteMany();
     gateway = {
       sendWelcome: vi.fn().mockResolvedValue(undefined),
+      sendBackInStock: vi.fn().mockResolvedValue(undefined),
     };
     // Stubbed so this spec never writes the shared site-settings singleton
     // (the settings spec owns that row).

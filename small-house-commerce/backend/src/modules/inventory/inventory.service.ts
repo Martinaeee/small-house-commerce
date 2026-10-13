@@ -4,6 +4,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import {
+  BackInStockService,
+  type BackInStockClaim,
+} from '../newsletter/back-in-stock.service.js';
 
 /**
  * Inventory operations shared by orders (reserve/release) and the admin
@@ -35,7 +39,10 @@ const BATCH_CHUNK_SIZE = 10;
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly backInStock: BackInStockService,
+  ) {}
 
   /**
    * on_hand / reserved / available per SKU, across all warehouses. SKUs with no
@@ -114,10 +121,21 @@ export class InventoryService {
    * Releases every active reservation of an order (DATABASE.md §31: cancel /
    * deny release remaining reservations).
    */
-  async releaseForOrder(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+  async releaseForOrder(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    { claimBackInStock = false }: { claimBackInStock?: boolean } = {},
+  ): Promise<BackInStockClaim[]> {
     const reservations = await tx.inventoryReservation.findMany({
       where: { orderId, status: 'ACTIVE' },
+      orderBy: [{ skuId: 'asc' }, { id: 'asc' }],
     });
+    if (reservations.length === 0) return [];
+
+    const changedSkuIds = [...new Set(reservations.map(({ skuId }) => skuId))];
+    const before = claimBackInStock
+      ? await this.backInStock.snapshotForChangedSkusWithin(tx, changedSkuIds)
+      : null;
 
     for (const reservation of reservations) {
       await tx.inventory.update({
@@ -139,6 +157,13 @@ export class InventoryService {
         },
       });
     }
+
+    if (!before) return [];
+    const after = await this.backInStock.snapshotForChangedSkusWithin(
+      tx,
+      changedSkuIds,
+    );
+    return this.backInStock.claimTransitionsWithin(tx, before, after);
   }
 
   /**
@@ -225,62 +250,12 @@ export class InventoryService {
     if (quantity === 0) {
       throw new BadRequestException('Adjustment quantity must not be zero');
     }
-
-    const warehouse = await this.defaultWarehouse();
-    let inventory = await this.prisma.inventory.findUnique({
-      where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
-    });
-
-    // First adjustment for a SKU creates the record (stock arrives at the
-    // warehouse), so a bare on-hand row never needs manual pre-seeding.
-    if (!inventory) {
-      if (quantity < 0) {
-        throw new BadRequestException('Cannot open a negative inventory record');
-      }
-      await this.prisma.inventory.create({
-        data: { skuId, warehouseId: warehouse.id, onHand: quantity, reserved: 0 },
-      });
-      await this.prisma.inventoryMovement.create({
-        data: {
-          skuId,
-          warehouseId: warehouse.id,
-          movementType: 'MANUAL_ADJUSTMENT',
-          quantity,
-          operatorId,
-          reason: reason ?? 'initial stock',
-        },
-      });
-      inventory = await this.prisma.inventory.findUniqueOrThrow({
-        where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
-      });
-      return { onHand: inventory.onHand, reserved: inventory.reserved, available: inventory.onHand - inventory.reserved };
-    }
-
-    if (quantity < 0 && inventory.onHand + quantity < 0) {
-      throw new BadRequestException('Adjustment would make on-hand negative');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.inventory.update({
-        where: { id: inventory.id },
-        data: { onHand: { increment: quantity } },
-      });
-      await tx.inventoryMovement.create({
-        data: {
-          skuId,
-          warehouseId: warehouse.id,
-          movementType: 'MANUAL_ADJUSTMENT',
-          quantity,
-          operatorId,
-          reason,
-        },
-      });
-    });
-
-    const updated = await this.prisma.inventory.findUniqueOrThrow({
-      where: { id: inventory.id },
-    });
-    return { onHand: updated.onHand, reserved: updated.reserved, available: updated.onHand - updated.reserved };
+    return this.mutateManualStock(
+      skuId,
+      { kind: 'DELTA', value: quantity },
+      reason,
+      operatorId,
+    );
   }
 
   /**
@@ -298,27 +273,115 @@ export class InventoryService {
     if (!Number.isInteger(onHand) || onHand < 0) {
       throw new BadRequestException('Stock must be a whole number of 0 or more');
     }
+    return this.mutateManualStock(
+      skuId,
+      { kind: 'ABSOLUTE', value: onHand },
+      reason ?? 'Stock set from product form',
+      operatorId,
+    );
+  }
 
+  private async mutateManualStock(
+    skuId: string,
+    mutation:
+      | { kind: 'DELTA'; value: number }
+      | { kind: 'ABSOLUTE'; value: number },
+    reason: string | undefined,
+    operatorId: string | undefined,
+  ) {
     const warehouse = await this.defaultWarehouse();
-    const inventory = await this.prisma.inventory.findUnique({
-      where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
+    const { stock, claims } = await this.prisma.$transaction(async (tx) => {
+      const before = await this.backInStock.snapshotForChangedSkusWithin(tx, [
+        skuId,
+      ]);
+      let current = await tx.inventory.findUnique({
+        where: {
+          skuId_warehouseId: { skuId, warehouseId: warehouse.id },
+        },
+      });
+      if (current) {
+        await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${current.id}::uuid FOR UPDATE`;
+        current = await tx.inventory.findUniqueOrThrow({
+          where: { id: current.id },
+        });
+      }
+
+      if (!current && mutation.kind === 'DELTA' && mutation.value < 0) {
+        throw new BadRequestException('Cannot open a negative inventory record');
+      }
+      const currentOnHand = current?.onHand ?? 0;
+      const reserved = current?.reserved ?? 0;
+      const target =
+        mutation.kind === 'ABSOLUTE'
+          ? mutation.value
+          : currentOnHand + mutation.value;
+      if (target < 0) {
+        throw new BadRequestException('Adjustment would make on-hand negative');
+      }
+      if (target < reserved) {
+        throw new BadRequestException(
+          `Stock cannot go below the ${reserved} unit(s) reserved by open orders`,
+        );
+      }
+
+      const delta = target - currentOnHand;
+      if (delta === 0) {
+        return {
+          stock: {
+            onHand: currentOnHand,
+            reserved,
+            available: currentOnHand - reserved,
+          },
+          claims: [] as BackInStockClaim[],
+        };
+      }
+
+      const updated = current
+        ? await tx.inventory.update({
+            where: { id: current.id },
+            data: { onHand: { increment: delta } },
+          })
+        : await tx.inventory.create({
+            data: {
+              skuId,
+              warehouseId: warehouse.id,
+              onHand: target,
+              reserved: 0,
+            },
+          });
+      await tx.inventoryMovement.create({
+        data: {
+          skuId,
+          warehouseId: warehouse.id,
+          movementType: 'MANUAL_ADJUSTMENT',
+          quantity: delta,
+          operatorId,
+          reason: reason ?? (current ? undefined : 'initial stock'),
+        },
+      });
+
+      const after = await this.backInStock.snapshotForChangedSkusWithin(tx, [
+        skuId,
+      ]);
+      const claims = await this.backInStock.claimTransitionsWithin(
+        tx,
+        before,
+        after,
+      );
+      return {
+        stock: {
+          onHand: updated.onHand,
+          reserved: updated.reserved,
+          available: updated.onHand - updated.reserved,
+        },
+        claims,
+      };
     });
 
-    const current = inventory?.onHand ?? 0;
-    const reserved = inventory?.reserved ?? 0;
-    // On-hand may never fall below what open orders already hold, or available
-    // (on_hand - reserved) would go negative and the storefront would sell air.
-    if (onHand < reserved) {
-      throw new BadRequestException(
-        `Stock cannot go below the ${reserved} unit(s) reserved by open orders`,
-      );
+    if (claims.length > 0) {
+      await this.backInStock.deliverClaims(claims);
     }
-
-    const delta = onHand - current;
-    if (delta === 0) {
-      return { onHand: current, reserved, available: current - reserved };
-    }
-    return this.adjust(skuId, delta, reason ?? 'Stock set from product form', operatorId);
+    return stock;
   }
 
   /**

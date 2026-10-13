@@ -1,4 +1,5 @@
 import type {
+  BackInStockEmailOptions,
   EmailGateway,
   WelcomeEmailOptions,
 } from './email.gateway.js';
@@ -39,6 +40,18 @@ export class ResendEmailGateway implements EmailGateway {
       to: [to],
       subject: title,
       html: `<h1>${escapeHtml(title)}</h1>${body}${code}<p><a href="${escapeHtml(options.unsubscribeUrl)}">Unsubscribe</a></p>`,
+    });
+  }
+
+  async sendBackInStock(
+    to: string,
+    options: BackInStockEmailOptions,
+  ): Promise<void> {
+    await this.post({
+      from: this.from,
+      to: [to],
+      subject: `${options.productName} is back in stock`,
+      html: `<h1>${escapeHtml(options.productName)} is back in stock</h1><p><a href="${escapeHtml(options.productUrl)}">Shop now</a></p><p><a href="${escapeHtml(options.unsubscribeUrl)}">Unsubscribe</a></p>`,
     });
   }
 

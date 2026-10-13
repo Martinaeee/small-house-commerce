@@ -37,13 +37,19 @@ describe.skipIf(!database)('OrdersService promo checkout', () => {
       new ConfigService({ database: { url: database } }),
     );
     await prisma.$connect();
-    inventory = new InventoryService(prisma);
+    const backInStock = {
+      snapshotForChangedSkusWithin: vi.fn(async () => new Map<string, number>()),
+      claimTransitionsWithin: vi.fn(async () => []),
+      deliverClaims: vi.fn(async () => undefined),
+    };
+    inventory = new InventoryService(prisma, backInStock as never);
     promotions = new PromotionService(prisma);
     orders = new OrdersService(
       prisma,
       inventory,
       new CustomerRiskService(prisma),
       promotions,
+      backInStock as never,
     );
 
     const category = await prisma.category.create({

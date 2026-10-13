@@ -22,6 +22,7 @@ describe('SettingsService public newsletter copy', () => {
     const row = {
       messengerUrl: '',
       supportEmail: 'support@luwag.ph',
+      supportPhone: '',
       supportHours: 'Mon–Sat, 9am–6pm (PHT)',
       newsletterBandEnabled: true,
       newsletterPopupEnabled: false,
@@ -40,6 +41,7 @@ describe('SettingsService public newsletter copy', () => {
     } as unknown as PrismaService;
 
     await expect(new SettingsService(prisma).getPublic()).resolves.toMatchObject({
+      supportPhone: row.supportPhone,
       newsletterEyebrow: row.newsletterEyebrow,
       newsletterFormTitle: row.newsletterFormTitle,
       newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
@@ -72,6 +74,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
     await prisma.siteSetting.update({
       where: { id: SITE_SETTINGS_ID },
       data: {
+        supportPhone: '',
         newsletterOfferTitle: '',
         newsletterOfferBody: '',
         newsletterEyebrow: 'The LUWAG edit',
@@ -91,6 +94,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
     await prisma.siteSetting.update({
       where: { id: SITE_SETTINGS_ID },
       data: {
+        supportPhone: '',
         newsletterOfferTitle: '',
         newsletterOfferBody: '',
         newsletterEyebrow: 'The LUWAG edit',
@@ -108,6 +112,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
 
   it('exposes the display fields on the public payload', async () => {
     await expect(settings.getPublic()).resolves.toMatchObject({
+      supportPhone: '',
       newsletterBandEnabled: true,
       newsletterPopupEnabled: false,
       newsletterPopupDelaySeconds: 5,
@@ -126,6 +131,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       updateSettingsSchema.parse({
         messengerUrl: '',
         supportEmail: 'support@luwag.ph',
+        supportPhone: '+63 917 123 4567',
         supportHours: 'Mon–Sat, 9am–6pm (PHT)',
         newsletterBandEnabled: false,
         newsletterPopupEnabled: true,
@@ -140,6 +146,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
     );
 
     await expect(settings.getPublic()).resolves.toMatchObject({
+      supportPhone: '+63 917 123 4567',
       newsletterBandEnabled: false,
       newsletterPopupEnabled: true,
       newsletterPopupDelaySeconds: 8,

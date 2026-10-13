@@ -40,6 +40,20 @@ describe('LogEmailGateway', () => {
     expect(JSON.stringify(log.mock.calls[0])).toContain('a@b.com');
     expect(JSON.stringify(log.mock.calls[0])).toContain('WELCOME10');
   });
+
+  it('logs a structured back-in-stock message', async () => {
+    const log = vi.fn();
+    const gateway = new LogEmailGateway({ log });
+
+    await gateway.sendBackInStock('a@b.com', {
+      productName: 'Oak Chair',
+      productUrl: 'https://example.test/products/oak-chair',
+      unsubscribeUrl: 'https://example.test/unsubscribe',
+    });
+
+    expect(JSON.stringify(log.mock.calls[0])).toContain('back-in-stock');
+    expect(JSON.stringify(log.mock.calls[0])).toContain('Oak Chair');
+  });
 });
 
 describe('ResendEmailGateway', () => {
@@ -75,6 +89,31 @@ describe('ResendEmailGateway', () => {
     expect(String(body.html)).toContain('&lt;script&gt;');
     expect(String(body.html)).not.toContain('<script>');
     expect(String(body.html)).toContain('Save &amp; enjoy');
+  });
+
+  it('posts a back-in-stock message with its product link', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('{}', { status: 200 }),
+    );
+    const gateway = new ResendEmailGateway(
+      're_test_key',
+      'support@luwag.ph',
+      request,
+    );
+
+    await gateway.sendBackInStock('shopper@example.com', {
+      productName: 'Oak & Cane Chair',
+      productUrl: 'https://luwag.ph/products/oak-chair',
+      unsubscribeUrl: 'https://luwag.ph/unsubscribe?token=safe',
+    });
+
+    const body = JSON.parse(String(request.mock.calls[0][1]?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(String(body.subject)).toContain('Oak & Cane Chair');
+    expect(String(body.html)).toContain('https://luwag.ph/products/oak-chair');
+    expect(String(body.html)).toContain('Oak &amp; Cane Chair');
   });
 
   it('bounds Resend requests with a five-second timeout signal', async () => {

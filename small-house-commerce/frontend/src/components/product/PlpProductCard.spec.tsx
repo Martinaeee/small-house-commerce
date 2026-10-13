@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
@@ -254,6 +254,10 @@ describe("PlpProductCard", () => {
     cart.addItem.mockResolvedValue(undefined);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the effective cover media instead of the first legacy image", () => {
     render(<PlpProductCard product={singleSkuProduct} badges={[]} />);
 
@@ -308,6 +312,39 @@ describe("PlpProductCard", () => {
       quantity: 1,
     });
     await waitFor(() => expect(tracking.track).toHaveBeenCalledTimes(1));
+  });
+
+  it("subscribes the exact out-of-stock direct SKU without a commerce event", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PlpProductCard product={singleSkuOosProduct} badges={[]} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Notify me when back in stock" }),
+    );
+    await user.type(screen.getByLabelText("Email address"), "shopper@example.com");
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/storefront/back-in-stock",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          email: "shopper@example.com",
+          skuId: "sku-single",
+        }),
+      }),
+    );
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
   });
 
   it("opens the picker for multi-SKU products without adding", async () => {

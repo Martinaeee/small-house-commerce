@@ -12,6 +12,7 @@ import {
 } from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
+import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
@@ -48,6 +49,7 @@ export class OrdersService {
     private readonly inventory: InventoryService,
     private readonly customerRisk: CustomerRiskService,
     private readonly promotions: PromotionService,
+    private readonly backInStock: BackInStockService,
   ) {}
 
   /**
@@ -381,8 +383,8 @@ export class OrdersService {
 
   /** §22.2 cancel: allowed until shipping; releases reservations (§31). */
   async cancel(orderId: string, operatorId: string) {
-    const { updated, promoReleased } = await this.prisma.$transaction(
-      async (tx) => {
+    const { updated, promoReleased, backInStockClaims } =
+      await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
         const order = await tx.order.findUnique({ where: { id: orderId } });
         if (!order) throw new NotFoundException('Order not found');
@@ -406,7 +408,11 @@ export class OrdersService {
           where: { id: orderId },
           data: { orderStatus: 'CANCELLED' },
         });
-        await this.inventory.releaseForOrder(tx, orderId);
+        const backInStockClaims = await this.inventory.releaseForOrder(
+          tx,
+          orderId,
+          { claimBackInStock: true },
+        );
         const promoReleased = await this.releasePromoSlot(tx, orderId);
         await tx.orderStatusHistory.create({
           data: {
@@ -418,10 +424,11 @@ export class OrdersService {
             operatorId,
           },
         });
-        return { updated, promoReleased };
+        return { updated, promoReleased, backInStockClaims };
       },
     );
 
+    await this.backInStock.deliverClaims(backInStockClaims);
     if (promoReleased) {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
@@ -516,8 +523,8 @@ export class OrdersService {
 
   /** Status transition with the §6.2 legality table. */
   async updateStatus(orderId: string, status: OrderStatus, comment: string | undefined, operatorId: string) {
-    const { updated, promoReleased } = await this.prisma.$transaction(
-      async (tx) => {
+    const { updated, promoReleased, backInStockClaims } =
+      await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
         const order = await tx.order.findUnique({ where: { id: orderId } });
         if (!order) throw new NotFoundException('Order not found');
@@ -546,9 +553,12 @@ export class OrdersService {
           data: { orderStatus: status },
         });
         const releasesStock = status === 'CANCELLED' || status === 'DENIED';
-        if (releasesStock && order.orderStatus !== status) {
-          await this.inventory.releaseForOrder(tx, orderId);
-        }
+        const backInStockClaims =
+          releasesStock && order.orderStatus !== status
+            ? await this.inventory.releaseForOrder(tx, orderId, {
+                claimBackInStock: true,
+              })
+            : [];
         // A pre-shipment cancellation releases the offer. A COD denial or a
         // post-shipment cancellation keeps the redemption in history.
         const promoReleased =
@@ -566,10 +576,11 @@ export class OrdersService {
             comment: comment ?? null,
           },
         });
-        return { updated, promoReleased };
+        return { updated, promoReleased, backInStockClaims };
       },
     );
 
+    await this.backInStock.deliverClaims(backInStockClaims);
     if (promoReleased) {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
