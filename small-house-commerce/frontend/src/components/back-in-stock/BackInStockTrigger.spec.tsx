@@ -1,6 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
+import { DEFAULT_SITE_SETTINGS } from "@/lib/site-settings";
 import { BackInStockTrigger } from "./BackInStockTrigger";
 
 beforeEach(() => {
@@ -21,13 +24,33 @@ afterEach(() => {
   document.body.style.overflow = "";
 });
 
+function EnabledSettings({ children }: { children: ReactNode }) {
+  return (
+    <SiteSettingsProvider
+      settings={{ ...DEFAULT_SITE_SETTINGS, backInStockEnabled: true }}
+    >
+      {children}
+    </SiteSettingsProvider>
+  );
+}
+
 describe("BackInStockTrigger", () => {
+  it("renders no subscription control when real email delivery is unavailable", () => {
+    render(<BackInStockTrigger skuId="sku-blue" productName="Chair" />);
+
+    expect(
+      screen.queryByRole("button", { name: "Notify me when back in stock" }),
+    ).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("portals the dialog outside a card stacking context", async () => {
     const user = userEvent.setup();
     render(
       <div data-testid="card-stacking-context">
         <BackInStockTrigger skuId="sku-blue" productName="Chair" />
       </div>,
+      { wrapper: EnabledSettings },
     );
 
     await user.click(
@@ -43,6 +66,7 @@ describe("BackInStockTrigger", () => {
     const user = userEvent.setup();
     const view = render(
       <BackInStockTrigger skuId="sku-blue" productName="Chair" />,
+      { wrapper: EnabledSettings },
     );
     const trigger = screen.getByRole("button", {
       name: "Notify me when back in stock",

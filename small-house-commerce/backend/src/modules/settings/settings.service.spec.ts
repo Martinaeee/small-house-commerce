@@ -40,13 +40,62 @@ describe('SettingsService public newsletter copy', () => {
       newsletterPromotion: { findFirst: vi.fn().mockResolvedValue(null) },
     } as unknown as PrismaService;
 
-    await expect(new SettingsService(prisma).getPublic()).resolves.toMatchObject({
+    await expect(
+      new SettingsService(
+        prisma,
+        new ConfigService({
+          app: { isProduction: true },
+          email: {
+            apiKey: null,
+            from: null,
+            storefrontBaseUrl: null,
+          },
+        }),
+      ).getPublic(),
+    ).resolves.toMatchObject({
       supportPhone: row.supportPhone,
       newsletterEyebrow: row.newsletterEyebrow,
       newsletterFormTitle: row.newsletterFormTitle,
       newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
       newsletterConsentText: row.newsletterConsentText,
+      backInStockEnabled: false,
     });
+  });
+
+  it('reports stock alerts enabled when production email delivery is complete', async () => {
+    const row = {
+      messengerUrl: '',
+      supportEmail: 'support@luwag.ph',
+      supportPhone: '',
+      supportHours: 'Mon–Sat, 9am–6pm (PHT)',
+      newsletterBandEnabled: true,
+      newsletterPopupEnabled: false,
+      newsletterPopupDelaySeconds: 5,
+      newsletterOfferTitle: '',
+      newsletterOfferBody: '',
+      newsletterEyebrow: 'The LUWAG edit',
+      newsletterFormTitle: 'Subscribe by email',
+      newsletterEmailPlaceholder: 'Your email address',
+      newsletterConsentText: 'Unsubscribe anytime.',
+    };
+    const prisma = {
+      siteSetting: { findUnique: vi.fn().mockResolvedValue(row) },
+      newsletterPromotion: { findFirst: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaService;
+
+    await expect(
+      new SettingsService(
+        prisma,
+        new ConfigService({
+          app: { isProduction: true },
+          email: {
+            apiKey: 're_test',
+            from: 'support@luwag.ph',
+            storefrontBaseUrl: 'https://luwag.ph',
+          },
+        }),
+      ).getPublic(),
+    ).resolves.toMatchObject({ backInStockEnabled: true });
   });
 });
 
@@ -59,7 +108,10 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       new ConfigService({ database: { url: database } }),
     );
     await prisma.$connect();
-    settings = new SettingsService(prisma);
+    settings = new SettingsService(
+      prisma,
+      new ConfigService({ app: { isProduction: false } }),
+    );
     await prisma.siteSetting.upsert({
       where: { id: SITE_SETTINGS_ID },
       create: { id: SITE_SETTINGS_ID },
@@ -123,6 +175,7 @@ describe.skipIf(!database)('SettingsService newsletter surface', () => {
       newsletterEmailPlaceholder: 'Your email address',
       newsletterConsentText:
         'By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.',
+      backInStockEnabled: true,
     });
   });
 

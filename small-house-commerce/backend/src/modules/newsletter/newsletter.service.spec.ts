@@ -154,7 +154,10 @@ describe.skipIf(!database)('NewsletterService PostgreSQL behavior', () => {
   });
 
   it('reports the offer available only while a promotion is live', async () => {
-    const realSettings = new SettingsService(prisma);
+    const realSettings = new SettingsService(
+      prisma,
+      new ConfigService({ app: { isProduction: false } }),
+    );
     await expect(realSettings.getPublic()).resolves.toMatchObject({
       newsletterOfferAvailable: false,
     });
@@ -189,7 +192,10 @@ describe.skipIf(!database)('NewsletterService PostgreSQL behavior', () => {
     });
     await redeem(promotion.id, '+639170000014', 10);
 
-    const realSettings = new SettingsService(prisma);
+    const realSettings = new SettingsService(
+      prisma,
+      new ConfigService({ app: { isProduction: false } }),
+    );
     await expect(realSettings.getPublic()).resolves.toMatchObject({
       newsletterOfferAvailable: false,
     });

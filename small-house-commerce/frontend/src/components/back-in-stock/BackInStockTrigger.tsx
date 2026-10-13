@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { BackInStockDialog } from "./BackInStockDialog";
 
 export interface BackInStockTriggerProps {
@@ -17,9 +18,12 @@ export function BackInStockTrigger({
   className,
   label = "Notify me when back in stock",
 }: BackInStockTriggerProps) {
+  const { backInStockEnabled } = useSiteSettings();
   const [openSkuId, setOpenSkuId] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const open = openSkuId === skuId;
+
+  if (!backInStockEnabled) return null;
 
   return (
     <>

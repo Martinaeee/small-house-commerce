@@ -38,6 +38,9 @@ vi.mock("@/lib/tracking", () => ({
 vi.mock("@/components/cart/CartContext", () => ({
   useCart: () => ({ addItem: cart.addItem, openPicker: cart.openPicker }),
 }));
+vi.mock("@/components/site/SiteSettingsProvider", () => ({
+  useSiteSettings: () => ({ backInStockEnabled: true }),
+}));
 
 const cover = {
   id: "cover",

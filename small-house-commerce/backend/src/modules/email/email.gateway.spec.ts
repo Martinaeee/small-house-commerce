@@ -1,8 +1,66 @@
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 import { createEmailGateway } from './email.module.js';
+import { isEmailDeliveryEnabled } from './email-delivery-readiness.js';
 import { LogEmailGateway } from './log-email.gateway.js';
 import { ResendEmailGateway } from './resend-email.gateway.js';
+
+describe('email delivery readiness', () => {
+  it.each([
+    { email: { apiKey: null, from: null, storefrontBaseUrl: null } },
+    {
+      email: {
+        apiKey: 're_test',
+        from: null,
+        storefrontBaseUrl: 'https://luwag.ph',
+      },
+    },
+    {
+      email: {
+        apiKey: 're_test',
+        from: 'support@luwag.ph',
+        storefrontBaseUrl: null,
+      },
+    },
+  ])('disables production delivery unless every provider value is configured', ({
+    email,
+  }) => {
+    expect(
+      isEmailDeliveryEnabled(
+        new ConfigService({ app: { isProduction: true }, email }),
+      ),
+    ).toBe(false);
+  });
+
+  it('enables production delivery when key, sender and public base URL are configured', () => {
+    expect(
+      isEmailDeliveryEnabled(
+        new ConfigService({
+          app: { isProduction: true },
+          email: {
+            apiKey: 're_test',
+            from: 'support@luwag.ph',
+            storefrontBaseUrl: 'https://luwag.ph',
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(['test', 'development'])(
+    'keeps the log gateway usable in %s',
+    (nodeEnv) => {
+      expect(
+        isEmailDeliveryEnabled(
+          new ConfigService({
+            app: { nodeEnv, isProduction: false },
+            email: { apiKey: null, from: null, storefrontBaseUrl: null },
+          }),
+        ),
+      ).toBe(true);
+    },
+  );
+});
 
 describe('email gateway selection', () => {
   it('uses the log gateway without provider credentials', () => {

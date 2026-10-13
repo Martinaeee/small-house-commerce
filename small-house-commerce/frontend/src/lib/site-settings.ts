@@ -18,6 +18,8 @@ export interface SiteSettings {
   newsletterConsentText: string;
   /** Computed by the server; never infer offer availability from copy. */
   newsletterOfferAvailable: boolean;
+  /** False in production until a real email provider is fully configured. */
+  backInStockEnabled: boolean;
 }
 
 /** Fallback values when the backend/settings endpoint is unavailable. */
@@ -37,6 +39,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   newsletterConsentText:
     "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
   newsletterOfferAvailable: false,
+  backInStockEnabled: false,
 };
 
 function coerce(data: Partial<SiteSettings> | null): SiteSettings {
@@ -88,6 +91,10 @@ function coerce(data: Partial<SiteSettings> | null): SiteSettings {
       typeof data?.newsletterOfferAvailable === "boolean"
         ? data.newsletterOfferAvailable
         : DEFAULT_SITE_SETTINGS.newsletterOfferAvailable,
+    backInStockEnabled:
+      typeof data?.backInStockEnabled === "boolean"
+        ? data.backInStockEnabled
+        : DEFAULT_SITE_SETTINGS.backInStockEnabled,
   };
 }
 

@@ -156,6 +156,137 @@ describe.skipIf(!database)('BackInStockService PostgreSQL behavior', () => {
     };
   }
 
+  function createDisabledService(): BackInStockService {
+    return new BackInStockService(
+      prisma,
+      gateway,
+      new ConfigService({
+        app: { isProduction: true },
+        jwt: { secret: SECRET },
+        email: {
+          apiKey: null,
+          from: null,
+          storefrontBaseUrl: null,
+        },
+      }),
+    );
+  }
+
+  it('rejects production subscriptions before any write when real email is unavailable', async () => {
+    const fixture = await createPhysicalSku(0);
+    const disabled = createDisabledService();
+
+    await expect(
+      disabled.subscribe({
+        email: 'shopper@example.com',
+        skuId: fixture.skuId,
+      }),
+    ).rejects.toThrow(/stock alerts are temporarily unavailable/i);
+    await expect(
+      prisma.backInStockSubscription.count({
+        where: { skuId: fixture.skuId },
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it('leaves pending rows unclaimed when production email is unavailable', async () => {
+    const fixture = await createPhysicalSku(0);
+    const disabled = createDisabledService();
+    const pending = await prisma.backInStockSubscription.create({
+      data: {
+        email: 'waiting@example.com',
+        skuId: fixture.skuId,
+        productName: fixture.productName,
+        productSlug: fixture.productSlug,
+      },
+    });
+
+    const claims = await prisma.$transaction(async (tx) => {
+      const before = await disabled.snapshotForChangedSkusWithin(tx, [
+        fixture.skuId,
+      ]);
+      await tx.inventory.update({
+        where: {
+          skuId_warehouseId: {
+            skuId: fixture.skuId,
+            warehouseId,
+          },
+        },
+        data: { onHand: 1 },
+      });
+      const after = await disabled.snapshotForChangedSkusWithin(tx, [
+        fixture.skuId,
+      ]);
+      return disabled.claimTransitionsWithin(tx, before, after);
+    });
+
+    expect(claims).toEqual([]);
+    await expect(
+      prisma.backInStockSubscription.findUniqueOrThrow({
+        where: { id: pending.id },
+      }),
+    ).resolves.toMatchObject({
+      status: 'PENDING',
+      notifiedAt: null,
+      lastError: 'Email delivery is not configured',
+    });
+  });
+
+  it('refuses admin retry without mutating a failed row when email is unavailable', async () => {
+    const fixture = await createPhysicalSku(1);
+    const disabled = createDisabledService();
+    const failed = await prisma.backInStockSubscription.create({
+      data: {
+        email: 'failed@example.com',
+        skuId: fixture.skuId,
+        productName: fixture.productName,
+        productSlug: fixture.productSlug,
+        lastError: 'provider unavailable',
+      },
+    });
+
+    await expect(disabled.resend(failed.id)).rejects.toThrow(
+      /stock alerts are temporarily unavailable/i,
+    );
+    expect(gateway.sendBackInStock).not.toHaveBeenCalled();
+    await expect(
+      prisma.backInStockSubscription.findUniqueOrThrow({
+        where: { id: failed.id },
+      }),
+    ).resolves.toMatchObject({
+      status: 'PENDING',
+      lastError: 'provider unavailable',
+      notifiedAt: null,
+    });
+  });
+
+  it('restores defensive SENT claims instead of logging fake delivery', async () => {
+    const fixture = await createPhysicalSku(1);
+    const disabled = createDisabledService();
+    const claim = await prisma.backInStockSubscription.create({
+      data: {
+        email: 'claimed@example.com',
+        skuId: fixture.skuId,
+        productName: fixture.productName,
+        productSlug: fixture.productSlug,
+        status: 'SENT',
+      },
+    });
+
+    await disabled.deliverClaims([claim]);
+
+    expect(gateway.sendBackInStock).not.toHaveBeenCalled();
+    await expect(
+      prisma.backInStockSubscription.findUniqueOrThrow({
+        where: { id: claim.id },
+      }),
+    ).resolves.toMatchObject({
+      status: 'PENDING',
+      notifiedAt: null,
+      lastError: 'Email delivery is not configured',
+    });
+  });
+
   it('normalizes and idempotently resets one OOS SKU subscription without joining the newsletter', async () => {
     const fixture = await createPhysicalSku(0);
 

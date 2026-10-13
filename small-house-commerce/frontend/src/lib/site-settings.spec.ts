@@ -33,6 +33,7 @@ describe("fetchSiteSettings newsletter copy", () => {
       newsletterEmailPlaceholder:
         DEFAULT_SITE_SETTINGS.newsletterEmailPlaceholder,
       newsletterConsentText: DEFAULT_SITE_SETTINGS.newsletterConsentText,
+      backInStockEnabled: false,
     });
   });
 
@@ -46,6 +47,7 @@ describe("fetchSiteSettings newsletter copy", () => {
           newsletterFormTitle: "Ideas by email",
           newsletterEmailPlaceholder: "name@example.com",
           newsletterConsentText: "Useful updates only.",
+          backInStockEnabled: true,
         }),
       ),
     );
@@ -56,6 +58,7 @@ describe("fetchSiteSettings newsletter copy", () => {
       newsletterFormTitle: "Ideas by email",
       newsletterEmailPlaceholder: "name@example.com",
       newsletterConsentText: "Useful updates only.",
+      backInStockEnabled: true,
     });
   });
 });

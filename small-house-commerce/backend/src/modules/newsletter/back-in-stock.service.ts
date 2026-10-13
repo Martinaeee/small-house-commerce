@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type {
@@ -15,6 +16,7 @@ import {
   EMAIL_GATEWAY,
   type EmailGateway,
 } from '../email/email.gateway.js';
+import { isEmailDeliveryEnabled } from '../email/email-delivery-readiness.js';
 import { normalizeEmail } from './newsletter.service.js';
 import {
   signBackInStockUnsubscribeToken,
@@ -27,6 +29,9 @@ import type {
 
 const DELIVERY_BATCH_SIZE = 10;
 const LAST_ERROR_MAX_LENGTH = 1_000;
+const DELIVERY_NOT_CONFIGURED_ERROR = 'Email delivery is not configured';
+const STOCK_ALERTS_UNAVAILABLE_MESSAGE =
+  'Stock alerts are temporarily unavailable';
 
 export type BackInStockClaim = BackInStockSubscription;
 
@@ -48,6 +53,7 @@ export class BackInStockService {
   ) {}
 
   async subscribe(input: BackInStockSubscribeInput): Promise<{ ok: true }> {
+    this.assertDeliveryEnabled();
     const email = normalizeEmail(input.email);
 
     return this.prisma.$transaction(async (tx) => {
@@ -129,6 +135,7 @@ export class BackInStockService {
   }
 
   async resend(id: string) {
+    this.assertDeliveryEnabled();
     const claimed = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.backInStockSubscription.findUnique({
         where: { id },
@@ -215,6 +222,14 @@ export class BackInStockService {
       .sort();
     if (restocked.length === 0) return [];
 
+    if (!isEmailDeliveryEnabled(this.config)) {
+      await tx.backInStockSubscription.updateMany({
+        where: { skuId: { in: restocked }, status: 'PENDING' },
+        data: { lastError: DELIVERY_NOT_CONFIGURED_ERROR },
+      });
+      return [];
+    }
+
     const claims = await tx.backInStockSubscription.updateManyAndReturn({
       where: { skuId: { in: restocked }, status: 'PENDING' },
       data: { status: 'SENT', lastError: null, notifiedAt: null },
@@ -226,6 +241,23 @@ export class BackInStockService {
   }
 
   async deliverClaims(claims: readonly BackInStockClaim[]): Promise<void> {
+    if (!isEmailDeliveryEnabled(this.config)) {
+      if (claims.length > 0) {
+        await this.prisma.backInStockSubscription.updateMany({
+          where: {
+            id: { in: claims.map(({ id }) => id) },
+            status: 'SENT',
+            notifiedAt: null,
+          },
+          data: {
+            status: 'PENDING',
+            lastError: DELIVERY_NOT_CONFIGURED_ERROR,
+          },
+        });
+      }
+      return;
+    }
+
     for (let start = 0; start < claims.length; start += DELIVERY_BATCH_SIZE) {
       await Promise.all(
         claims
@@ -265,6 +297,12 @@ export class BackInStockService {
         where: { id: claim.id, status: 'SENT', notifiedAt: null },
         data: { status: 'PENDING', lastError: message },
       });
+    }
+  }
+
+  private assertDeliveryEnabled(): void {
+    if (!isEmailDeliveryEnabled(this.config)) {
+      throw new ServiceUnavailableException(STOCK_ALERTS_UNAVAILABLE_MESSAGE);
     }
   }
 

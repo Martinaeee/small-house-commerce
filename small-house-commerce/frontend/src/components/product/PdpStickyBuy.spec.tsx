@@ -7,6 +7,10 @@ import { createInitialPurchaseLines } from "./PdpPurchaseProvider";
 import { resolveSelection } from "@/lib/product-selection";
 import { PdpStickyBuy } from "./PdpStickyBuy";
 
+vi.mock("@/components/site/SiteSettingsProvider", () => ({
+  useSiteSettings: () => ({ backInStockEnabled: true }),
+}));
+
 const product = {
   id: "sticky-product",
   name: "Folding Chair",

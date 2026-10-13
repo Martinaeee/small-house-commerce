@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   CACHE_TAGS,
   revalidateCache,
 } from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { isEmailDeliveryEnabled } from '../email/email-delivery-readiness.js';
 import { findAvailableNewsletterPromotion } from '../newsletter/promotion-availability.js';
 import type { UpdateSettingsInput } from './dto/settings.dto.js';
 
@@ -16,7 +18,10 @@ export const SITE_SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   /** Full row (admin form echo / internal backstop). */
   async getRow() {
@@ -52,6 +57,7 @@ export class SettingsService {
       newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
       newsletterConsentText: row.newsletterConsentText,
       newsletterOfferAvailable: promotion !== null,
+      backInStockEnabled: isEmailDeliveryEnabled(this.config),
     };
   }
 
