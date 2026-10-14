@@ -7,7 +7,7 @@ export const ANNOUNCEMENT =
 
 export function AnnouncementBar() {
   return (
-    <div className="bg-cta px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
+    <div className="bg-cta px-4 py-2 text-center text-xs font-medium text-cta-foreground sm:text-sm">
       {ANNOUNCEMENT}
     </div>
   );

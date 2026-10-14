@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Category } from "@/lib/api";
 import type { NavItem, NavTree } from "@/lib/nav";
+import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { BrandWordmark } from "./BrandWordmark";
 
@@ -52,7 +53,56 @@ function LeafThumb({ leaf, className }: { leaf: Category; className: string }) {
   );
 }
 
-export function MainNav({ items }: { items: NavItem[] }) {
+type MainNavProps = {
+  items: NavItem[];
+  brand?: PublicStorefrontShell["brand"];
+  mode?: "live" | "preview";
+};
+
+function PreviewMainNav({ items }: Pick<MainNavProps, "items">) {
+  return (
+    <>
+      <button
+        type="button"
+        disabled
+        aria-label="Open menu"
+        className="flex items-center rounded-lg p-2 text-ink lg:hidden"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-6 w-6">
+          <path
+            d="M4 7h16M4 12h16M4 17h16"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      <nav
+        aria-label="Main navigation preview"
+        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex xl:order-none xl:basis-auto xl:gap-x-2.5 xl:pb-0 xl:pt-0"
+      >
+        {items.map((item) => (
+          <span
+            key={`${item.position}:${item.kind === "link" ? item.href : item.root.id}`}
+            className="shrink-0 py-2 text-sm font-medium text-ink xl:text-[13px]"
+          >
+            {item.label}
+          </span>
+        ))}
+      </nav>
+    </>
+  );
+}
+
+export function MainNav({ items, brand, mode = "live" }: MainNavProps) {
+  if (mode === "preview") return <PreviewMainNav items={items} />;
+  return <LiveMainNav items={items} brand={brand} />;
+}
+
+function LiveMainNav({
+  items,
+  brand,
+}: Pick<MainNavProps, "items" | "brand">) {
   const pathname = usePathname();
   const navId = useId();
 
@@ -116,6 +166,16 @@ export function MainNav({ items }: { items: NavItem[] }) {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [desktopOpen, navId]);
+
+  // Escape dismisses the focused/hovered desktop panel without moving focus.
+  useEffect(() => {
+    if (!desktopOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDesktopOpen(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [desktopOpen]);
 
   // Scrolling closes the panel: its fixed offset under the sticky header would
   // otherwise drift once the announcement bar scrolls away.
@@ -231,7 +291,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
                   aria-controls={`${navId}-mega-panel`}
                   className="shrink-0 py-2 text-sm font-medium text-ink hover:text-cta xl:text-[13px]"
                 >
-                  {item.root.name}
+                  {item.label}
                 </Link>
                 {/* Chevron hidden on the tight single xl row; hover/focus still
                     opens the mega panel and the label itself links to the
@@ -251,7 +311,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
           <div
             id={`${navId}-mega-panel`}
             role="region"
-            aria-label={openTreeItem.root.name}
+            aria-label={openTreeItem.label}
             onMouseEnter={cancelClose}
             onMouseLeave={scheduleClose}
             style={{ top: panelTop }}
@@ -263,7 +323,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
                   href={`/categories/${openTreeItem.root.slug}`}
                   className="text-sm font-semibold text-cta hover:underline"
                 >
-                  View all {openTreeItem.root.name}
+                  View all {openTreeItem.label}
                 </Link>
                 <ul className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2.5">
                   {openTreeItem.root.children.map((leaf) => (
@@ -322,7 +382,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
               }`}
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-4">
-                <BrandWordmark />
+                <BrandWordmark brand={brand} />
                 <button
                   ref={closeButtonRef}
                   type="button"
@@ -359,7 +419,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
                               onClick={closeDrawer}
                               className="flex-1 rounded-lg px-3 py-3 text-base font-medium text-ink hover:bg-primary-light/40 hover:text-cta"
                             >
-                              {item.root.name}
+                              {item.label}
                             </Link>
                             <button
                               type="button"
@@ -370,7 +430,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
                               }
                               aria-expanded={expanded === item.root.slug}
                               aria-controls={`${navId}-acc-${item.root.slug}`}
-                              aria-label={`${item.root.name} subcategories`}
+                              aria-label={`${item.label} subcategories`}
                               className="rounded-lg p-3 text-ink hover:text-cta"
                             >
                               <Chevron open={expanded === item.root.slug} />
@@ -384,7 +444,7 @@ export function MainNav({ items }: { items: NavItem[] }) {
                                 onClick={closeDrawer}
                                 className="block rounded-lg px-3 py-2 pl-6 text-sm font-semibold text-cta hover:underline"
                               >
-                                View all {item.root.name}
+                                View all {item.label}
                               </Link>
                               <ul>
                                 {item.root.children.map((leaf) => (

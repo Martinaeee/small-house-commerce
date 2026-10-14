@@ -160,7 +160,7 @@ export function BackInStockDialog({
             <button
               type="button"
               onClick={onClose}
-              className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-lg bg-cta px-5 text-sm font-semibold text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
+              className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-lg bg-cta px-5 text-sm font-semibold text-cta-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
             >
               Done
             </button>
@@ -192,7 +192,7 @@ export function BackInStockDialog({
               type="submit"
               disabled={busy}
               aria-label={busy ? "Notifying" : "Notify me"}
-              className="mt-4 inline-flex h-12 w-full items-center justify-center rounded-lg bg-cta px-5 text-base font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 inline-flex h-12 w-full items-center justify-center rounded-lg bg-cta px-5 text-base font-semibold text-cta-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? "Saving…" : "Notify me"}
             </button>

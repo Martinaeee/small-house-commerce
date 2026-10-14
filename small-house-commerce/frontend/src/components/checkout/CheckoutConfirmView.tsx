@@ -237,7 +237,7 @@ export function CheckoutConfirmView({
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
             href={editHref}
-            className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+            className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
           >
             {directSelection ? "Back to order form" : "Back to checkout"}
           </Link>

@@ -37,8 +37,12 @@ describe('updateSettingsSchema newsletter fields', () => {
     });
   });
 
-  it('keeps the new fields optional for existing settings clients', () => {
-    expect(updateSettingsSchema.parse(base)).toEqual(base);
+  it('keeps newsletter fields optional and strips shell-owned footer fields', () => {
+    const result = updateSettingsSchema.parse(base);
+
+    expect(result).toEqual({ messengerUrl: '' });
+    expect(result).not.toHaveProperty('supportEmail');
+    expect(result).not.toHaveProperty('supportHours');
   });
 
   it('rejects an out-of-range popup delay', () => {

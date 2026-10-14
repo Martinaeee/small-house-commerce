@@ -1,4 +1,5 @@
 import type { Category, Collection } from "@/lib/api";
+import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 
 /**
  * Header navigation model (spec 2026-09-11-navigation-mega-menu-design §4.2).
@@ -15,6 +16,7 @@ export interface NavLink {
 export interface NavTree {
   kind: "tree";
   root: Category;
+  label: string;
   position: number;
 }
 
@@ -42,13 +44,35 @@ const FLAT_LINKS = [
   },
 ] as const;
 
-export function buildNav(roots: Category[], collections: Collection[]): NavItem[] {
+export function buildNav(
+  roots: Category[],
+  collections: Collection[],
+  configuredItems: PublicStorefrontShell["header"]["items"] | null = null,
+): NavItem[] {
+  if (configuredItems !== null) {
+    const rootsById = new Map(roots.map((root) => [root.id, root]));
+    return configuredItems.flatMap<NavItem>((item, position) => {
+      if (item.kind === "LINK") {
+        return [{ kind: "link", label: item.label, href: item.href, position }];
+      }
+      const root = rootsById.get(item.categoryId);
+      return root
+        ? [{ kind: "tree", root, label: item.label, position }]
+        : [];
+    });
+  }
+
   const available = new Set(collections.map((c) => c.slug));
   const items: NavItem[] = FLAT_LINKS.filter((f) => available.has(f.collectionSlug)).map(
     (f) => ({ kind: "link", label: f.label, href: f.href, position: f.position }),
   );
   roots.forEach((root, i) => {
-    items.push({ kind: "tree", root, position: (i + 1) * 10 });
+    items.push({
+      kind: "tree",
+      root,
+      label: root.name,
+      position: (i + 1) * 10,
+    });
   });
   return items.sort((a, b) => a.position - b.position);
 }

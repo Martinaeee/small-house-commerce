@@ -1,43 +1,58 @@
 import { poppins } from "@/lib/fonts";
+import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
+import { BrandAssetImage } from "./BrandAssetImage";
 
 /**
- * LUWAG lockup — Brand Foundation §4 direction A (expanding-room tile,
- * also the favicon) paired with the §4-C lowercase wordmark.
- *
- * v0 shipped Poppins-600 with 0.42em tracking on the system font stack
- * (the brand face was never actually loaded): at 18px the wide tracking
- * read sparse and cheap. Furniture-house wordmarks (IKEA, MUJI, Nitori)
- * carry a tight bold word with a symbol, so the wordmark is now Poppins
- * 700 with near-zero tracking and the two-square tile that already means
- * "a small space becoming a roomy one". Flush left, no trailing tracking
- * gap. Everything is em-sized so header/footer/drawer size overrides on
- * the parent scale the lockup uniformly. Descriptor copy (footer/hero)
- * supplies the English context required by the §3 Cebuano risk rule.
- */
-/**
- * Tone decides the whole lockup, not just the word: the tile is drawn with
- * hard-coded brand fills, and `text-cta` is itself #6B4F3A — on a brown
- * surface (footer) that is brown on brown. Passing a colour class cannot fix
- * it, because Tailwind emits arbitrary values before theme colours, so the
- * override silently loses. One tone → one colour class, deterministically.
+ * Tone decides the generated fallback as one unit. Uploaded derivatives retain
+ * their original pixels; this palette only applies when an asset is absent or
+ * fails to load.
  */
 const TONES = {
-  brand: { word: "text-cta", tile: "#6B4F3A", square: "#C9A77B", stroke: "#FAF8F5" },
-  onDark: { word: "text-[#fff8f1]", tile: "#FAF8F5", square: "#C9A77B", stroke: "#6B4F3A" },
+  brand: {
+    word: "text-cta",
+    tile: "var(--color-cta)",
+    square: "var(--color-primary)",
+    stroke: "var(--color-background)",
+  },
+  onDark: {
+    word: "text-footer-foreground",
+    tile: "var(--color-footer-logo-tile)",
+    square: "var(--color-footer-logo-square)",
+    stroke: "var(--color-footer-logo-stroke)",
+  },
 } as const;
 
-export function BrandWordmark({
-  className = "",
-  tone = "brand",
-}: {
+type BrandWordmarkProps = {
+  brand?: PublicStorefrontShell["brand"];
+  variant?: "horizontal" | "square";
+  decorative?: boolean;
   className?: string;
+  /** Retained for the generated Footer fallback on its dark surface. */
   tone?: keyof typeof TONES;
+};
+
+function GeneratedBrandWordmark({
+  brandName,
+  variant,
+  decorative,
+  className,
+  tone,
+}: {
+  brandName: string;
+  variant: "horizontal" | "square";
+  decorative: boolean;
+  className: string;
+  tone: keyof typeof TONES;
 }) {
   const colors = TONES[tone];
   return (
     <span
-      aria-label="LUWAG"
-      className={`inline-flex items-center gap-[0.4em] text-base leading-none ${colors.word} ${className}`}
+      data-testid={`brand-fallback-${variant}`}
+      aria-label={decorative ? undefined : brandName}
+      aria-hidden={decorative || undefined}
+      className={`inline-flex items-center text-base leading-none ${colors.word} ${
+        variant === "horizontal" ? "gap-[0.4em]" : ""
+      } ${className}`.trim()}
     >
       <svg
         width="1.12em"
@@ -49,11 +64,66 @@ export function BrandWordmark({
       >
         <rect width="32" height="32" rx="7" fill={colors.tile} />
         <rect x="8" y="8" width="9" height="9" fill={colors.square} />
-        <rect x="13.5" y="13.5" width="10.5" height="10.5" rx="1.6" stroke={colors.stroke} strokeWidth="2" />
+        <rect
+          x="13.5"
+          y="13.5"
+          width="10.5"
+          height="10.5"
+          rx="1.6"
+          stroke={colors.stroke}
+          strokeWidth="2"
+        />
       </svg>
-      <span className={`${poppins.className} font-bold lowercase tracking-[0.02em]`}>
-        luwag
-      </span>
+      {variant === "horizontal" ? (
+        <span
+          className={`${poppins.className} font-bold lowercase tracking-[0.02em]`}
+        >
+          luwag
+        </span>
+      ) : null}
     </span>
+  );
+}
+
+/**
+ * Storefront brand lockup. Desktop Header and Footer request the horizontal
+ * derivative; mobile Header requests the square derivative. The current LUWAG
+ * generated mark remains the deterministic fallback for missing/broken assets.
+ */
+export function BrandWordmark({
+  brand,
+  variant = "horizontal",
+  decorative = false,
+  className = "",
+  tone = "brand",
+}: BrandWordmarkProps) {
+  const brandName = brand?.brandName ?? "LUWAG";
+  const asset =
+    variant === "horizontal" ? brand?.horizontalLogo : brand?.squareMark;
+  const fallback = (
+    <GeneratedBrandWordmark
+      brandName={brandName}
+      variant={variant}
+      decorative={decorative}
+      className={className}
+      tone={tone}
+    />
+  );
+
+  if (!asset) return fallback;
+
+  return (
+    <BrandAssetImage
+      src={asset.url}
+      width={asset.width}
+      height={asset.height}
+      alt={decorative ? "" : brandName}
+      className={`${
+        variant === "horizontal"
+          ? "h-[1.12em] w-auto max-w-[10em]"
+          : "h-[1.12em] w-[1.12em]"
+      } ${className}`.trim()}
+      fallback={fallback}
+    />
   );
 }

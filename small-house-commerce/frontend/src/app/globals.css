@@ -24,6 +24,31 @@
   /* §5.5 CTA (deep brown) */
   --color-cta: #6b4f3a;
   --color-cta-hover: #5a4130;
+  --color-cta-foreground: #ffffff;
+
+  /* Shell component tokens preserve the existing LUWAG palette by default;
+     the published Storefront Shell style derives and overrides them from the
+     five operator-owned source colors. */
+  --color-footer-background: #704632;
+  --color-footer-foreground: #fff8f1;
+  --color-footer-secondary: #ead7ca;
+  --color-footer-muted: #d9c2b5;
+  --color-footer-border: #9b7460;
+  --color-footer-logo-tile: #faf8f5;
+  --color-footer-logo-square: #c9a77b;
+  --color-footer-logo-stroke: #6b4f3a;
+  --color-newsletter-overlay: #2f211b;
+  --color-newsletter-surface: #fff4ed;
+  --color-newsletter-surface-alt: #fffaf6;
+  --color-newsletter-card: #ffffff;
+  --color-newsletter-text: #2f241f;
+  --color-newsletter-secondary: #735f54;
+  --color-newsletter-muted: #8d786d;
+  --color-newsletter-accent: #a85238;
+  --color-newsletter-accent-hover: #93462f;
+  --color-newsletter-border: #edcdbf;
+  --color-newsletter-ticket: #c35439;
+  --color-newsletter-foreground: #ffffff;
 
   /* §5.6 promotion (sale only) */
   --color-sale: #d9534f;
@@ -93,6 +118,12 @@
   --color-cta: var(--color-admin-primary);
   --color-cta-hover: var(--color-admin-primary-hover);
   --color-success: var(--color-admin-success);
+}
+
+.storefront-app {
+  min-width: 0;
+  background-color: var(--color-background);
+  color: var(--color-ink);
 }
 
 .admin-app {

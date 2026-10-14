@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Field, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
@@ -10,9 +11,6 @@ import { errorStatus } from "@/lib/admin-auth";
 
 interface SettingsForm {
   messengerUrl: string;
-  supportEmail: string;
-  supportPhone: string;
-  supportHours: string;
   newsletterBandEnabled: boolean;
   newsletterPopupEnabled: boolean;
   newsletterPopupDelaySeconds: string;
@@ -22,6 +20,13 @@ interface SettingsForm {
   newsletterFormTitle: string;
   newsletterEmailPlaceholder: string;
   newsletterConsentText: string;
+}
+
+/** Published contact values, shown read-only; the footer owns their edits. */
+interface PublishedContact {
+  supportEmail: string;
+  supportPhone: string;
+  supportHours: string;
 }
 
 type SettingsErrors = Partial<Record<keyof SettingsForm, string>>;
@@ -45,21 +50,6 @@ function validateSettings(values: SettingsForm): SettingsErrors {
   ) {
     errors.messengerUrl =
       "Messenger 链接需留空，或以 https:// 开头的有效网址（不超过 500 个字符）。";
-  }
-  const email = values.supportEmail.trim();
-  if (email.length === 0 || email.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.supportEmail = "请输入有效的客服邮箱（不超过 200 个字符）。";
-  }
-  const phone = values.supportPhone.trim();
-  if (
-    phone !== "" &&
-    (phone.length > 20 || !/^[0-9+()\- ]{7,20}$/.test(phone))
-  ) {
-    errors.supportPhone = "客服电话需留空，或使用 7–20 位电话字符。";
-  }
-  const hours = values.supportHours.trim();
-  if (hours.length < 1 || hours.length > 100) {
-    errors.supportHours = "服务时间需为 1–100 个字符。";
   }
   const delay = Number(values.newsletterPopupDelaySeconds);
   if (
@@ -98,9 +88,6 @@ function validateSettings(values: SettingsForm): SettingsErrors {
 function toForm(row: AdminSiteSettings): SettingsForm {
   return {
     messengerUrl: row.messengerUrl,
-    supportEmail: row.supportEmail,
-    supportPhone: row.supportPhone,
-    supportHours: row.supportHours,
     newsletterBandEnabled: row.newsletterBandEnabled,
     newsletterPopupEnabled: row.newsletterPopupEnabled,
     newsletterPopupDelaySeconds: String(row.newsletterPopupDelaySeconds),
@@ -116,6 +103,7 @@ function toForm(row: AdminSiteSettings): SettingsForm {
 export default function SiteSettingsPage(): ReactNode {
   const { t } = useAdminI18n();
   const [data, setData] = useState<SettingsForm | null>(null);
+  const [contact, setContact] = useState<PublishedContact | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const [errors, setErrors] = useState<SettingsErrors>({});
@@ -130,6 +118,11 @@ export default function SiteSettingsPage(): ReactNode {
       .then((row) => {
         if (!active) return;
         setData(toForm(row));
+        setContact({
+          supportEmail: row.supportEmail,
+          supportPhone: row.supportPhone,
+          supportHours: row.supportHours,
+        });
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -168,9 +161,6 @@ export default function SiteSettingsPage(): ReactNode {
     adminApi
       .updateSettings({
         messengerUrl: data.messengerUrl.trim(),
-        supportEmail: data.supportEmail.trim(),
-        supportPhone: data.supportPhone.trim(),
-        supportHours: data.supportHours.trim(),
         newsletterBandEnabled: data.newsletterBandEnabled,
         newsletterPopupEnabled: data.newsletterPopupEnabled,
         newsletterPopupDelaySeconds: Number(data.newsletterPopupDelaySeconds),
@@ -183,6 +173,11 @@ export default function SiteSettingsPage(): ReactNode {
       })
       .then((row) => {
         setData(toForm(row));
+        setContact({
+          supportEmail: row.supportEmail,
+          supportPhone: row.supportPhone,
+          supportHours: row.supportHours,
+        });
         setSaved(true);
         setPending(false);
       })
@@ -249,50 +244,48 @@ export default function SiteSettingsPage(): ReactNode {
               />
             </Field>
 
-            <Field
-              label="客服邮箱"
-              htmlFor="settings-support-email"
-              error={errors.supportEmail}
-              hint="显示在结账页、页脚与产品详情页。"
-            >
-              <TextInput
-                id="settings-support-email"
-                type="email"
-                value={data.supportEmail}
-                onChange={(e) => updateField("supportEmail", e.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-
-            <Field
-              label="客服电话"
-              htmlFor="settings-support-phone"
-              error={errors.supportPhone}
-              hint="留空则隐藏电话入口；支持数字、空格、+、括号与连字符。"
-            >
-              <TextInput
-                id="settings-support-phone"
-                type="tel"
-                value={data.supportPhone}
-                onChange={(e) => updateField("supportPhone", e.target.value)}
-                autoComplete="tel"
-                maxLength={20}
-              />
-            </Field>
-
-            <Field
-              label="服务时间"
-              htmlFor="settings-support-hours"
-              error={errors.supportHours}
-              hint="显示在结账页与页脚，例如 Mon–Sat, 9am–6pm (PHT)。"
-            >
-              <TextInput
-                id="settings-support-hours"
-                value={data.supportHours}
-                onChange={(e) => updateField("supportHours", e.target.value)}
-                autoComplete="off"
-              />
-            </Field>
+            <div className="border-t border-border pt-5">
+              <h2 className="text-lg font-semibold text-ink">
+                {t("settings_contact_title")}
+              </h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                {t("settings_footer_handoff_hint")}
+              </p>
+              {contact ? (
+                <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_email")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportEmail}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_phone")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportPhone}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_hours")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportHours}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+              <Link
+                href="/admin/storefront-shell?tab=footer"
+                className="mt-3 inline-block text-sm font-semibold text-cta underline"
+              >
+                {t("settings_footer_handoff_link")}
+              </Link>
+            </div>
 
             <div className="border-t border-border pt-5">
               <h2 className="text-lg font-semibold text-ink">Newsletter 展示</h2>
@@ -311,9 +304,9 @@ export default function SiteSettingsPage(): ReactNode {
                 className="mt-0.5 h-4 w-4 rounded border-border text-cta"
               />
               <span>
-                <span className="font-medium">启用页脚订阅区</span>
+                <span className="font-medium">启用页脚上方订阅通栏</span>
                 <span className="mt-1 block text-ink-muted">
-                  默认开启；关闭后只隐藏页脚 Newsletter 栏，页脚其他内容仍会保留。
+                  默认开启；关闭后全站隐藏 footer 上方的 Newsletter 通栏。
                 </span>
               </span>
             </label>

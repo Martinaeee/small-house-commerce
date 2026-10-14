@@ -835,9 +835,11 @@ export interface AdminSiteSettings {
 
 export interface UpdateSiteSettingsInput {
   messengerUrl: string;
-  supportEmail: string;
-  supportPhone: string;
-  supportHours: string;
+  /**
+   * Footer email and hours are owned by Storefront Shell. Support phone remains
+   * an optional Site Settings field for callers that still expose it.
+   */
+  supportPhone?: string;
   newsletterBandEnabled?: boolean;
   newsletterPopupEnabled?: boolean;
   newsletterPopupDelaySeconds?: number;

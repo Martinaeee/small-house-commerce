@@ -17,7 +17,7 @@ import { AdminGlobalHeader } from "@/components/admin/AdminGlobalHeader";
 import { AdminGlobalSearch } from "@/components/admin/AdminGlobalSearch";
 import { AdminNotifications } from "@/components/admin/AdminNotifications";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
-import { useAdminI18n } from "@/lib/admin-i18n";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 
 /**
  * Admin back-office chrome + client route guard (spec §6, §8.2).
@@ -35,32 +35,108 @@ import { useAdminI18n } from "@/lib/admin-i18n";
  * No storefront layout code is imported — only the pattern is mirrored.
  */
 
+type NavPermission = string | readonly string[];
+
 interface NavItem {
+  kind: "item";
   href: string;
   /** i18n dictionary key (see src/i18n/zh.ts nav_*). */
-  labelKey: string;
-  permission: string;
+  labelKey: TKey;
+  permission: NavPermission;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/admin/orders", labelKey: "nav_orders", permission: "ORDER_VIEW_ALL" },
-  { href: "/admin/inventory", labelKey: "nav_inventory", permission: "INVENTORY_VIEW" },
-  { href: "/admin/products", labelKey: "nav_products", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/groupings", labelKey: "nav_groupings", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/homepage", labelKey: "nav_homepage", permission: "PRODUCT_MANAGE" },
-  { href: "/admin/single-pages", labelKey: "nav_single_pages", permission: "PRODUCT_MANAGE" },
+/**
+ * A titled cluster of nav items. The group (and its title) renders only when
+ * the account holds the group's permission and at least one item survives the
+ * per-item permission filter.
+ */
+interface NavGroup {
+  kind: "group";
+  labelKey: TKey;
+  permission: NavPermission;
+  items: NavItem[];
+}
+
+type NavEntry = NavItem | NavGroup;
+
+const NAV_ITEMS: NavEntry[] = [
   {
+    kind: "item",
+    href: "/admin/orders",
+    labelKey: "nav_orders",
+    permission: "ORDER_VIEW_ALL",
+  },
+  {
+    kind: "item",
+    href: "/admin/inventory",
+    labelKey: "nav_inventory",
+    permission: "INVENTORY_VIEW",
+  },
+  {
+    kind: "item",
+    href: "/admin/products",
+    labelKey: "nav_products",
+    permission: "PRODUCT_MANAGE",
+  },
+  {
+    kind: "item",
+    href: "/admin/groupings",
+    labelKey: "nav_groupings",
+    permission: "PRODUCT_MANAGE",
+  },
+  {
+    kind: "item",
+    href: "/admin/single-pages",
+    labelKey: "nav_single_pages",
+    permission: "PRODUCT_MANAGE",
+  },
+  {
+    kind: "item",
     href: "/admin/link-builder",
     labelKey: "nav_link_builder",
     permission: "CAMPAIGN_LINK_BUILD",
   },
   {
+    kind: "group",
+    labelKey: "nav_group_website",
+    permission: [
+      "PRODUCT_MANAGE",
+      "STOREFRONT_SHELL_MANAGE",
+      "SYSTEM_SETTINGS_EDIT",
+    ],
+    items: [
+      {
+        kind: "item",
+        href: "/admin/homepage",
+        labelKey: "nav_homepage",
+        permission: "PRODUCT_MANAGE",
+      },
+      {
+        kind: "item",
+        href: "/admin/storefront-shell",
+        labelKey: "nav_storefront_shell",
+        permission: "STOREFRONT_SHELL_MANAGE",
+      },
+      {
+        kind: "item",
+        href: "/admin/settings",
+        labelKey: "nav_settings",
+        permission: "SYSTEM_SETTINGS_EDIT",
+      },
+    ],
+  },
+  {
+    kind: "item",
     href: "/admin/newsletter",
     labelKey: "nav_newsletter",
     permission: "NEWSLETTER_READ",
   },
-  { href: "/admin/settings", labelKey: "nav_settings", permission: "SYSTEM_SETTINGS_EDIT" },
 ];
+
+/** Permission-filtered render model: flat items plus titled groups. */
+type NavRenderEntry =
+  | { kind: "item"; href: string; label: string }
+  | { kind: "group"; label: string; items: { href: string; label: string }[] };
 
 const SEARCH_PERMISSIONS = [
   "PRODUCT_MANAGE",
@@ -69,6 +145,15 @@ const SEARCH_PERMISSIONS = [
 ] as const;
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
+
+function hasNavPermission(
+  hasPermission: (permission: string) => boolean,
+  required: NavPermission,
+): boolean {
+  return typeof required === "string"
+    ? hasPermission(required)
+    : required.some((permission) => hasPermission(permission));
+}
 
 function navLinkClass(active: boolean): string {
   return [
@@ -80,35 +165,66 @@ function navLinkClass(active: boolean): string {
 }
 
 function NavList({
-  items,
+  entries,
   pathname,
   onNavigate,
 }: {
-  items: { href: string; label: string }[];
+  entries: NavRenderEntry[];
   pathname: string;
   onNavigate?: () => void;
 }) {
   return (
     <nav aria-label="Admin navigation">
       <ul className="flex flex-col gap-1">
-        {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                onClick={onNavigate}
-                className={navLinkClass(active)}
-              >
-                {item.label}
-              </Link>
+        {entries.map((entry) =>
+          entry.kind === "item" ? (
+            <li key={entry.href}>
+              <NavLink item={entry} pathname={pathname} onNavigate={onNavigate} />
             </li>
-          );
-        })}
+          ) : (
+            <li key={entry.label}>
+              <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-admin-rail-muted">
+                {entry.label}
+              </p>
+              <ul className="flex flex-col gap-1">
+                {entry.items.map((item) => (
+                  <li key={item.href}>
+                    <NavLink
+                      item={item}
+                      pathname={pathname}
+                      onNavigate={onNavigate}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ),
+        )}
       </ul>
     </nav>
+  );
+}
+
+function NavLink({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: { href: string; label: string };
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const active =
+    pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      onClick={onNavigate}
+      className={navLinkClass(active)}
+    >
+      {item.label}
+    </Link>
   );
 }
 
@@ -205,11 +321,28 @@ export function AdminShell({ children }: { children: ReactNode }) {
     return null;
   }
 
-  const nav = NAV_ITEMS.filter((item) => hasPermission(item.permission)).map((item) => ({
-    href: item.href,
-    label: t(item.labelKey as never),
-  }));
-  const current = nav.find(
+  const navEntries: NavRenderEntry[] = [];
+  for (const entry of NAV_ITEMS) {
+    if (!hasNavPermission(hasPermission, entry.permission)) continue;
+    if (entry.kind === "item") {
+      navEntries.push({
+        kind: "item",
+        href: entry.href,
+        label: t(entry.labelKey),
+      });
+      continue;
+    }
+    const items = entry.items
+      .filter((item) => hasNavPermission(hasPermission, item.permission))
+      .map((item) => ({ href: item.href, label: t(item.labelKey) }));
+    if (items.length > 0) {
+      navEntries.push({ kind: "group", label: t(entry.labelKey), items });
+    }
+  }
+  const navItems = navEntries.flatMap((entry) =>
+    entry.kind === "item" ? [entry] : entry.items,
+  );
+  const current = navItems.find(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
@@ -233,7 +366,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   // module keeps the sidebar non-empty. Authorized hidden routes still mount
   // for role shapes (for example ORDER_CONFIRM-only) with no sidebar entries.
   const shellBody =
-    hiddenRouteDenied || (nav.length === 0 && !canRenderHiddenRoute) ? (
+    hiddenRouteDenied || (navItems.length === 0 && !canRenderHiddenRoute) ? (
       <div className="mx-auto mt-24 max-w-md rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-base font-semibold text-ink">
           No modules available for your account.
@@ -258,7 +391,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-4">
-            <NavList items={nav} pathname={pathname} />
+            <NavList entries={navEntries} pathname={pathname} />
           </div>
         </aside>
 
@@ -351,7 +484,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </div>
               <div className="flex-1 overflow-y-auto px-3 py-4">
                 <NavList
-                  items={nav}
+                  entries={navEntries}
                   pathname={pathname}
                   onNavigate={() => setDrawerOpen(false)}
                 />

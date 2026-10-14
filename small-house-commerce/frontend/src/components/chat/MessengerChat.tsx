@@ -359,7 +359,7 @@ export function MessengerChat() {
     pos && pos.y <= CHANNEL_STACK_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
 
   const fabClassName =
-    "flex h-full w-full items-center justify-center rounded-full bg-cta text-white shadow-lg transition hover:bg-cta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2";
+    "flex h-full w-full items-center justify-center rounded-full bg-cta text-cta-foreground shadow-lg transition hover:bg-cta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2";
 
   return (
     <div

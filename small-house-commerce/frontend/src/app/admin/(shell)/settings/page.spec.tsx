@@ -48,7 +48,7 @@ describe("SiteSettingsPage newsletter fields", () => {
     const user = userEvent.setup();
     render(<SiteSettingsPage />);
 
-    const band = await screen.findByLabelText(/启用页脚订阅区/);
+    const band = await screen.findByLabelText(/启用页脚上方订阅通栏/);
     const popup = screen.getByLabelText(/启用首访优惠弹窗/);
     expect(band).toBeChecked();
     expect(popup).not.toBeChecked();
@@ -61,9 +61,6 @@ describe("SiteSettingsPage newsletter fields", () => {
     expect(screen.getByLabelText(/同意与退订说明/)).toHaveValue(
       "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
     );
-    expect(screen.getByLabelText(/客服电话/)).toHaveValue(
-      "+63 917 123 4567",
-    );
     await user.click(popup);
     await user.clear(screen.getByLabelText(/弹窗延迟（秒）/));
     await user.type(screen.getByLabelText(/弹窗延迟（秒）/), "8");
@@ -74,9 +71,6 @@ describe("SiteSettingsPage newsletter fields", () => {
     await waitFor(() =>
       expect(apiMock.updateSettings).toHaveBeenCalledWith({
         messengerUrl: "https://m.me/luwag",
-        supportEmail: "help@luwag.test",
-        supportPhone: "+63 917 123 4567",
-        supportHours: "Mon-Sat",
         newsletterBandEnabled: true,
         newsletterPopupEnabled: true,
         newsletterPopupDelaySeconds: 8,
@@ -91,18 +85,16 @@ describe("SiteSettingsPage newsletter fields", () => {
     );
   });
 
-  it("rejects an invalid support phone before calling the API", async () => {
-    const user = userEvent.setup();
+  it("shows published support contacts read-only and routes edits to the footer workspace", async () => {
     render(<SiteSettingsPage />);
 
-    const phone = await screen.findByLabelText(/客服电话/);
-    await user.clear(phone);
-    await user.type(phone, "not-a-phone");
-    await user.click(screen.getByRole("button", { name: "保存设置" }));
-
+    expect(await screen.findByText("help@luwag.test")).toBeVisible();
+    expect(screen.getByText("+63 917 123 4567")).toBeVisible();
+    expect(screen.getByText("Mon-Sat")).toBeVisible();
+    expect(screen.queryByLabelText(/客服电话/)).not.toBeInTheDocument();
     expect(
-      screen.getByText("客服电话需留空，或使用 7–20 位电话字符。"),
-    ).toBeInTheDocument();
+      screen.getByRole("link", { name: "settings_footer_handoff_link" }),
+    ).toHaveAttribute("href", "/admin/storefront-shell?tab=footer");
     expect(apiMock.updateSettings).not.toHaveBeenCalled();
   });
 

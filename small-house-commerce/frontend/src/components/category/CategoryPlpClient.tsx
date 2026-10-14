@@ -224,7 +224,7 @@ function CategoryPlpClientInner({
         <button
           type="button"
           onClick={() => router.refresh()}
-          className="mt-3 rounded-lg bg-cta px-5 py-2 text-sm font-medium text-white hover:bg-cta-hover"
+          className="mt-3 rounded-lg bg-cta px-5 py-2 text-sm font-medium text-cta-foreground hover:bg-cta-hover"
         >
           Try again
         </button>
@@ -335,7 +335,7 @@ function CategoryPlpClientInner({
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}
-                className="w-full rounded-lg bg-cta py-2.5 text-sm font-medium text-white hover:bg-cta-hover"
+                className="w-full rounded-lg bg-cta py-2.5 text-sm font-medium text-cta-foreground hover:bg-cta-hover"
               >
                 Show {visibleProducts.length} products
               </button>

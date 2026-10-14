@@ -103,7 +103,7 @@ function CheckBox({
       onClick={onToggle}
       className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active
-          ? "border-cta bg-cta text-white"
+          ? "border-cta bg-cta text-cta-foreground"
           : "border-ink-muted bg-card text-transparent hover:border-cta"
       }`}
     >

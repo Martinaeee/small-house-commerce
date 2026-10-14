@@ -1,4 +1,22 @@
-import { parseEnv } from './env.validation.js';
+import { parseEnv, type Env } from './env.validation.js';
+
+export function hasCompleteR2(env: Env): boolean {
+  return Boolean(
+    env.R2_ACCOUNT_ID &&
+      env.R2_ACCESS_KEY_ID &&
+      env.R2_SECRET_ACCESS_KEY &&
+      env.R2_BUCKET &&
+      env.R2_PUBLIC_BASE_URL,
+  );
+}
+
+export function uploadStorageIsDurable(env: Env): boolean {
+  return (
+    hasCompleteR2(env) ||
+    env.UPLOAD_STORAGE_DURABLE === 'true' ||
+    env.NODE_ENV !== 'production'
+  );
+}
 
 /**
  * Namespaced configuration tree exposed through ConfigService.
@@ -37,6 +55,7 @@ export function configuration() {
     // Local-disk image upload target (order workbench: default when R2 is unset).
     upload: {
       dir: env.UPLOAD_DIR ?? null,
+      durable: uploadStorageIsDurable(env),
     },
     email: {
       apiKey: env.EMAIL_API_KEY ?? null,

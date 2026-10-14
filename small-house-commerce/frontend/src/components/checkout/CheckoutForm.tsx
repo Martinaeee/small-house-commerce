@@ -397,7 +397,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         </p>
         <Link
           href="/cart"
-          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
         >
           Back to Cart
         </Link>
@@ -427,7 +427,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           {slug && (
             <Link
               href={`/products/${slug}`}
-              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
             >
               Back to product
             </Link>

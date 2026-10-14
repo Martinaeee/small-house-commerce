@@ -10,5 +10,8 @@ pnpm run rbac:reconcile-campaign-link
 echo "[entrypoint] Reconciling Newsletter role grants…"
 pnpm run rbac:reconcile-newsletter
 
+echo "[entrypoint] Reconciling Storefront Shell role grants…"
+pnpm run rbac:reconcile-storefront-shell
+
 echo "[entrypoint] Starting API server…"
 exec node dist/main

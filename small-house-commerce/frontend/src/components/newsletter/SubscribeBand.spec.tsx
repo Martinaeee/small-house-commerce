@@ -57,6 +57,31 @@ describe("SubscribeBand", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses published shell tokens for the footer newsletter copy", () => {
+    renderBand({
+      newsletterBandEnabled: true,
+      newsletterOfferAvailable: false,
+    });
+
+    const eyebrow = screen.getByText(DEFAULT_SITE_SETTINGS.newsletterEyebrow);
+    expect(eyebrow).toHaveClass("text-footer-muted");
+    expect(eyebrow.querySelector("span")).toHaveClass("bg-footer-border");
+    expect(
+      screen.getByRole("heading", { name: "Make more room for good ideas" }),
+    ).toHaveClass("text-newsletter-foreground");
+    expect(
+      screen.getByText(
+        "New furniture, small-space inspiration and subscriber-only updates, sent occasionally.",
+      ),
+    ).toHaveClass("text-footer-secondary");
+    expect(screen.getByTestId("newsletter-form-title")).toHaveClass(
+      "text-footer-secondary",
+    );
+    expect(
+      screen.getByText(DEFAULT_SITE_SETTINGS.newsletterConsentText),
+    ).toHaveClass("text-footer-muted");
+  });
+
   it("opens the shared success dialog after subscribing from the band", async () => {
     vi.stubGlobal(
       "fetch",

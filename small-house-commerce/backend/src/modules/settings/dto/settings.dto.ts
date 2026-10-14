@@ -35,9 +35,10 @@ const supportPhoneSchema = z
 export const updateSettingsSchema = z.object({
   messengerUrl: messengerUrlSchema,
   supportPhone: supportPhoneSchema.optional(),
-  // Email is the guaranteed fallback channel, so it is required and non-empty.
-  supportEmail: z.string().trim().min(1).email().max(200),
-  supportHours: z.string().trim().min(1).max(100),
+  // Footer support email/hours are owned by the Storefront Shell draft and
+  // mirrored into SiteSetting only by an atomic shell publication.
+  // Newsletter display config remains optional so the contact form and the
+  // newsletter settings form can share this endpoint during the handoff.
   newsletterBandEnabled: z.boolean().optional(),
   newsletterPopupEnabled: z.boolean().optional(),
   newsletterPopupDelaySeconds: z.coerce.number().int().min(0).max(120).optional(),

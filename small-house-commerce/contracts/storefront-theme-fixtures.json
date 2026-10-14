@@ -1,0 +1,37 @@
+[
+  {
+    "name": "current-luwag",
+    "source": {
+      "primary": "#c9a77b",
+      "action": "#6b4f3a",
+      "background": "#faf8f5",
+      "surface": "#ffffff",
+      "text": "#222222",
+      "headingFont": "SYSTEM",
+      "bodyFont": "SYSTEM"
+    },
+    "expected": {
+      "primaryDark": "#b8946a",
+      "primaryLight": "#e8dccb",
+      "actionHover": "#5a4130",
+      "textSecondary": "#666666",
+      "textMuted": "#999999",
+      "border": "#e8e2d9",
+      "focus": "#6b4f3a",
+      "disabled": "#999999",
+      "actionForeground": "#ffffff"
+    }
+  },
+  {
+    "name": "high-contrast-blue",
+    "source": {
+      "primary": "#3157a4",
+      "action": "#173f8a",
+      "background": "#f7f9ff",
+      "surface": "#ffffff",
+      "text": "#172033",
+      "headingFont": "POPPINS_HEADING",
+      "bodyFont": "SYSTEM"
+    }
+  }
+]

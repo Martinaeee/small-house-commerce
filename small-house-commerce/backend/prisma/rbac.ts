@@ -52,6 +52,14 @@ export const RBAC_PERMISSIONS: {
     description: 'Edit system and security configuration.',
   },
   {
+    code: PermissionCode.NEWSLETTER_READ,
+    description: 'View newsletter subscribers.',
+  },
+  {
+    code: PermissionCode.NEWSLETTER_WRITE,
+    description: 'Manage newsletter subscribers.',
+  },
+  {
     code: PermissionCode.PRODUCT_MANAGE,
     description: 'Manage products, variants, SKUs, categories and suppliers.',
   },
@@ -70,6 +78,11 @@ export const RBAC_PERMISSIONS: {
   {
     code: PermissionCode.NEWSLETTER_WRITE,
     description: 'Manage newsletter subscribers.',
+  },
+  {
+    code: PermissionCode.STOREFRONT_SHELL_MANAGE,
+    description:
+      'Edit and publish the storefront Header, Footer, brand marks and base theme.',
   },
 ];
 
@@ -91,6 +104,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.INVENTORY_ADJUST,
     PermissionCode.SHIPMENT_CREATE,
     PermissionCode.REPORT_PROFIT_VIEW,
+    PermissionCode.NEWSLETTER_READ,
+    PermissionCode.NEWSLETTER_WRITE,
     PermissionCode.PRODUCT_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,

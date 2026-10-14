@@ -44,6 +44,9 @@ export const envSchema = z.object({
   // Local-disk image upload (default when R2 is not configured). Files land
   // here and are served by the backend itself at /uploads/*.
   UPLOAD_DIR: z.string().optional(),
+  // Production-local brand assets are publishable only when this path is a
+  // persistent mounted volume. R2 is considered durable automatically.
+  UPLOAD_STORAGE_DURABLE: z.enum(['true', 'false']).optional(),
 
   // On-demand storefront revalidation. Both must be set for the best-effort
   // bridge to run; unset either and admin writes simply fall back to ISR.

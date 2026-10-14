@@ -126,7 +126,7 @@ export function CartRecommendations() {
                     disabled={busy}
                     aria-label={`Add ${product.name} to cart`}
                     data-testid={`rec-add-${product.slug}`}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cta text-white transition-colors hover:bg-cta-hover disabled:opacity-60"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cta text-cta-foreground transition-colors hover:bg-cta-hover disabled:opacity-60"
                   >
                     {busy ? (
                       <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />

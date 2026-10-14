@@ -32,16 +32,16 @@ export function SubscribeBand() {
     <>
       <div data-testid="newsletter-band" className="min-w-0">
         <div data-testid={showOffer ? "newsletter-band-offer" : undefined}>
-          <p className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.26em] text-[#d9c2b5]">
-            <span className="h-px w-8 bg-[#d6b6a4]" aria-hidden="true" />
+          <p className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.26em] text-footer-muted">
+            <span className="h-px w-8 bg-footer-border" aria-hidden="true" />
             {settings.newsletterEyebrow}
           </p>
-          <h2 className="mt-2.5 max-w-[24rem] font-serif text-2xl leading-[1.12] tracking-[-0.02em] text-white sm:text-[1.75rem]">
+          <h2 className="mt-2.5 max-w-[24rem] font-serif text-2xl leading-[1.12] tracking-[-0.02em] text-newsletter-foreground sm:text-[1.75rem]">
             {showOffer && settings.newsletterOfferTitle
               ? settings.newsletterOfferTitle
               : "Make more room for good ideas"}
           </h2>
-          <p className="mt-2 max-w-[26rem] text-sm leading-6 text-[#ead7ca]">
+          <p className="mt-2 max-w-[26rem] text-sm leading-6 text-footer-secondary">
             {showOffer && settings.newsletterOfferBody
               ? settings.newsletterOfferBody
               : "New furniture, small-space inspiration and subscriber-only updates, sent occasionally."}
@@ -51,7 +51,7 @@ export function SubscribeBand() {
         <div className="mt-5">
           <p
             data-testid="newsletter-form-title"
-            className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-[#ead7ca]"
+            className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-footer-secondary"
           >
             {settings.newsletterFormTitle}
           </p>
@@ -68,7 +68,7 @@ export function SubscribeBand() {
               setSuccessCode(promoCode);
             }}
           />
-          <p className="mt-2 max-w-[26rem] text-[10px] leading-4 text-[#d9c2b5]">
+          <p className="mt-2 max-w-[26rem] text-[10px] leading-4 text-footer-muted">
             {settings.newsletterConsentText}
           </p>
         </div>

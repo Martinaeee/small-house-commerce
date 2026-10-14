@@ -120,12 +120,19 @@ export function clearAdminSession(): void {
 export class AdminApiError extends Error {
   readonly status: number;
   readonly details?: unknown;
+  readonly body?: unknown;
 
-  constructor(message: string, status: number, details?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    details?: unknown,
+    body?: unknown,
+  ) {
     super(message);
     this.name = "AdminApiError";
     this.status = status;
     this.details = details;
+    this.body = body;
   }
 }
 
@@ -190,6 +197,7 @@ export async function refreshAdminAccess(): Promise<string | null> {
 async function adminAuthedResponse(
   path: string,
   init?: RequestInit,
+  retryOnUnauthorized = true,
 ): Promise<Response> {
   const run = (token: string | null) =>
     fetch(path, {
@@ -203,8 +211,12 @@ async function adminAuthedResponse(
       },
     });
 
-  let res = await run(accessToken);
-  if (res.status === 401) {
+  let token = accessToken;
+  if (!retryOnUnauthorized && !token) {
+    token = await refreshAdminAccess();
+  }
+  let res = await run(token);
+  if (retryOnUnauthorized && res.status === 401) {
     const refreshed = await refreshAdminAccess();
     if (refreshed) res = await run(refreshed);
   }
@@ -216,17 +228,35 @@ async function adminAuthedResponse(
       typeof error.body === "object" && error.body !== null && "errors" in error.body
         ? (error.body as { errors: unknown }).errors
         : undefined,
+      error.body,
     );
   }
   return res;
 }
 
-/** Admin-authenticated JSON request. */
+/**
+ * Admin-authenticated JSON request. Empty 204/response bodies resolve to
+ * undefined for endpoints whose success contract has no payload.
+ */
 export async function adminAuthedFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
   const res = await adminAuthedResponse(path, init);
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text === "" ? undefined : (JSON.parse(text) as T)) as T;
+}
+
+/**
+ * Authenticated JSON mutation that is sent at most once. When no access token
+ * is in memory it refreshes proactively, then never replays a 401 response.
+ */
+export async function adminAuthedFetchOnce<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await adminAuthedResponse(path, init, false);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text === "" ? undefined : (JSON.parse(text) as T)) as T;

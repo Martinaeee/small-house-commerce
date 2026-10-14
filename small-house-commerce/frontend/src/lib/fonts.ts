@@ -16,4 +16,5 @@ import localFont from "next/font/local";
 export const poppins = localFont({
   src: [{ path: "../styles/fonts/poppins-700-latin.woff2", weight: "700", style: "normal" }],
   display: "swap",
+  variable: "--font-poppins",
 });
