@@ -59,6 +59,19 @@ export interface ProductMedia {
   sortOrder: number;
 }
 
+export type ProductCardImage = ProductMedia & { type: "IMAGE" };
+
+export interface ProductCardMediaPair {
+  cover: ProductCardImage | null;
+  scene: ProductCardImage | null;
+}
+
+export interface ProductCardMedia {
+  displayVariantId: string | null;
+  unselected: ProductCardMediaPair;
+  variants: Array<ProductCardMediaPair & { variantId: string }>;
+}
+
 export interface StorefrontSku {
   id: string;
   skuCode: string;
@@ -189,6 +202,7 @@ export interface Product {
   options: StorefrontProductOption[];
   defaultDisplayVariantId: string | null;
   effectiveCoverMedia: ProductMedia | null;
+  cardMedia?: ProductCardMedia;
   images: ProductImage[];
   /** Present only on the single-product detail response. */
   initialMediaSet?: ProductMediaSet;

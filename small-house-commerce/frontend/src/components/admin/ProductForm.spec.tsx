@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -7,10 +7,17 @@ import {
   appendImage,
   appendImageUrl,
   emptyProductFormValue,
+  emptySkuFormValue,
   serializeFormValue,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
-import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import { cardGraphFromLegacyForm, type AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import { adminApi } from "@/lib/admin-api";
+import { en } from "@/i18n/en";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}));
 
 /**
  * Task 11 — the 409-trap guard. A product whose catalogGraphVersion > 0 must
@@ -40,6 +47,238 @@ function baseValue(overrides: Partial<ProductFormValue> = {}): ProductFormValue 
     ...overrides,
   };
 }
+
+describe("ProductForm card snapshot serialization", () => {
+  it.each([null, {
+    cover: { type: "IMAGE" as const, url: "/uploads/card.webp", altText: null }, hover: null,
+  }])("keeps an explicit legacy snapshot %j without leaking client identities", cardMedia => {
+    const row = { id: "real-variant", clientKey: "new-key", name: "Red", position: "0", sku: null, cardMedia };
+    const result = serializeFormValue(baseValue({ variants: [row] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants).toEqual([{ name: "Red", position: 0, cardMedia }]);
+  });
+
+  it("assigns different stable keys to newly added same-named legacy rows", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const view = renderForm(baseValue(), onSubmit);
+    await openVariantsTab();
+    await user.click(screen.getByRole("button", { name: "添加款式" }));
+    await user.click(screen.getByRole("button", { name: "添加款式" }));
+    for (const input of screen.getAllByPlaceholderText("Default")) await user.type(input, "Red");
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const rows = (onSubmit.mock.calls[0]![0] as ProductFormValue).variants;
+    expect(rows[0]!.clientKey).toBeTruthy();
+    expect(rows[1]!.clientKey).toBeTruthy();
+    expect(rows[0]!.clientKey).not.toBe(rows[1]!.clientKey);
+    expect(rows.every(row => row.cardMedia == null)).toBe(true);
+  });
+
+  it("leaves omitted metadata omitted on ordinary legacy saves", () => {
+    const result = serializeFormValue(baseValue({ variants: [{ name: "Red", position: "0", sku: null }] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants[0]).not.toHaveProperty("cardMedia");
+  });
+});
+
+describe("ProductForm independent card media", () => {
+  function legacyValue(): ProductFormValue {
+    return baseValue({
+      images: [{ id: "photo", url: "/uploads/shared.webp", type: "IMAGE", altText: "Shared", sortOrder: "0", isScene: true }],
+      variants: ["Red", "Blue"].map(name => ({ id: name.toLowerCase(), name, position: "0", sku: {
+        ...emptySkuFormValue(), id: `${name}-sku`, skuCode: name, price: "0", stock: "9", reserved: "2", packageWidth: "55",
+      } })),
+    });
+  }
+
+  it("does not materialize legacy rows just by opening the card settings", async () => {
+    setAdminLang("en");
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    expect(screen.queryByRole("button", { name: "Red Card cover: Choose from gallery" })).toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graphTyped", false);
+  });
+
+  it("materializes the latest legacy draft on the first card edit without copying to another variant", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    const choose = screen.queryByRole("button", { name: "Red Card cover: Choose from gallery" });
+    expect(choose).toBeInTheDocument();
+    await userEvent.click(choose!);
+    await userEvent.click(screen.getByRole("button", { name: "Choose image 1" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graphTyped).toBe(true);
+    expect(saved.graph!.variants.find(row => row.id === "red")).toMatchObject({
+      cardMedia: { cover: { type: "IMAGE", url: "/uploads/shared.webp", altText: "Shared" }, hover: null },
+      sku: { id: "Red-sku", packageWidth: 55, onHand: 9, reserved: 2, price: 0 },
+    });
+    expect(saved.graph!.variants.find(row => row.id === "blue")?.cardMedia ?? null).toBeNull();
+    expect(saved.images).toEqual(initial.images);
+    expect(saved.graph!.defaultDisplayVariantRef).toBeNull();
+  });
+
+  it("copies the latest unsaved shared gallery image on an explicit typed card edit", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph = cardGraphFromLegacyForm(initial);
+    initial.graphTyped = true;
+    initial.images[0] = { ...initial.images[0]!, url: "/uploads/unsaved-shared.webp", altText: "Latest" };
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: "Red Card cover: Choose from gallery" }));
+    await userEvent.click(screen.getByRole("button", { name: "Choose image 1" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants.find(row => row.id === "red")?.cardMedia?.cover)
+      .toEqual({ type: "IMAGE", url: "/uploads/unsaved-shared.webp", altText: "Latest" });
+    expect(saved.graph!.variants.find(row => row.id === "blue")?.cardMedia ?? null).toBeNull();
+    expect(saved.images).toEqual(initial.images);
+  });
+
+  it("uses current legacy identities for card upload targets and locks row creation during upload", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    const input = screen.queryByLabelText("Red Card cover: Upload image");
+    expect(input).toBeInTheDocument();
+    await userEvent.upload(input!, new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole("tab", { name: "Options, Pricing & Inventory" }));
+    expect(screen.getByRole("button", { name: "Add variant" })).toBeDisabled();
+    for (const remove of screen.getAllByRole("button", { name: "Remove variant" })) expect(remove).toBeDisabled();
+    resolveUpload({ url: "/uploads/uploaded-card.webp", key: "uploaded-card.webp" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add variant" })).not.toBeInTheDocument());
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants.find(row => row.id === "red")).toHaveProperty("cardMedia.cover.url", "/uploads/uploaded-card.webp");
+    expect(saved.images).toHaveLength(1);
+  });
+
+  it.each(["priced", "unpriced", "no-sku"] as const)("previews the %s draft variant without changing the saved default or requiring cart context", async availability => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph = cardGraphFromLegacyForm(initial);
+    initial.graphTyped = true;
+    initial.graph.defaultDisplayVariantRef = { id: "red" };
+    initial.graph.variants[1]!.cardMedia = { cover: { type: "IMAGE", url: "/uploads/blue-card.webp", altText: "Blue card" }, hover: null };
+    if (availability === "unpriced") initial.graph.variants[1]!.sku!.price = null;
+    if (availability === "no-sku") initial.graph.variants[1]!.sku = null;
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: "Blue Preview this variant" }));
+    const card = within(view.container.querySelector("article")!);
+    expect(card.getByRole("img", { name: "Blue card" })).toHaveAttribute("src", "/uploads/blue-card.webp");
+    if (availability !== "priced") expect(card.queryByTestId("price")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to Cart" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Chair" })).not.toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graph.defaultDisplayVariantRef", { id: "red" });
+  });
+
+  it("locks card edits when the graph payload is unavailable", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph!.catalogGraphVersion = 3;
+    renderForm(initial);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    expect(screen.getByRole("button", { name: "Red Card cover: Choose from gallery" })).toBeDisabled();
+    expect(screen.getByLabelText("Red Card cover: Upload image")).toBeDisabled();
+  });
+
+  it("ignores a card upload result after switching to a different product's real identities", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.upload(screen.getByLabelText("Red Card cover: Upload image"), new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    const next = legacyValue();
+    next.variants = next.variants.map(row => ({ ...row, id: `other-${row.id}` }));
+    view.rerender(<AdminI18nProvider><ProductForm initial={next} categories={[]} onSubmit={onSubmit} submitLabel="Save changes" pending={false} error={null} savedPreview={null} /></AdminI18nProvider>);
+    await act(async () => resolveUpload({ url: "/uploads/late-card.webp", key: "late-card.webp" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graphTyped).toBe(false);
+    expect(saved.variants.map(row => [row.id, row.cardMedia ?? null])).toEqual([["other-red", null], ["other-blue", null]]);
+    expect(saved.images).toEqual(next.images);
+  });
+
+  it("ignores a card upload result after the form is unmounted", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.upload(screen.getByLabelText("Red Card cover: Upload image"), new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => resolveUpload({ url: "/uploads/late-card.webp", key: "late-card.webp" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    const next = renderForm(legacyValue(), onSubmit);
+    fireEvent.submit(next.container.querySelector("form")!);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graphTyped", false);
+    expect((onSubmit.mock.calls[0]![0] as ProductFormValue).variants.every(row => row.cardMedia == null)).toBe(true);
+  });
+
+  it("removes gallery scene assignment controls while preserving the old flag on ordinary saves", async () => {
+    setAdminLang("en");
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: en.product_media_card_cover_aria.replace("{number}", "1") }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("images.0.isScene", true);
+  });
+});
+
+describe("ProductForm scene serialization", () => {
+  it("serializes explicit scene metadata without leaking draft identities", () => {
+    const result = serializeFormValue(baseValue({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: "", sortOrder: "2", isScene: true },
+      { clientKey: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: "", sortOrder: "5" },
+    ] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.images).toEqual([
+      { url: "/uploads/a.webp", type: "IMAGE", sortOrder: 2, isScene: true },
+      { url: "/uploads/b.webp", type: "IMAGE", sortOrder: 5, isScene: false },
+    ]);
+  });
+
+  it("gives each newly added shared row a stable unique key and false scene flag", () => {
+    const first = appendImageUrl([], "/uploads/a.webp");
+    const second = appendImage(first, "VIDEO");
+    expect(first[0]?.clientKey).toBeTruthy();
+    expect(second[1]?.clientKey).toBeTruthy();
+    expect(second[1]?.clientKey).not.toBe(first[0]?.clientKey);
+    expect(second.map(row => row.isScene)).toEqual([false, false]);
+    expect(second[0]).toEqual(first[0]);
+  });
+});
 
 const typedGraph: AdminCatalogGraphDraft = {
   catalogGraphVersion: 3,
@@ -1257,16 +1496,18 @@ describe("ProductForm media add helpers", () => {
   it("appends an uploaded image row with the next sort order", () => {
     const rows = appendImageUrl([], "/uploads/a.jpg");
     expect(rows).toEqual([
-      { url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0" },
+      { clientKey: "shared-media-1", url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0", isScene: false },
     ]);
 
     const next = appendImageUrl(rows, "/uploads/b.jpg");
     expect(next).toHaveLength(2);
     expect(next[1]).toEqual({
+      clientKey: "shared-media-2",
       url: "/uploads/b.jpg",
       type: "IMAGE",
       altText: "",
       sortOrder: "1",
+      isScene: false,
     });
   });
 });

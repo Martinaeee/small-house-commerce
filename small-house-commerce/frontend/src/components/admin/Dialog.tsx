@@ -27,6 +27,7 @@ interface DialogProps {
   title: string;
   children: ReactNode;
   width?: "sm" | "md" | "lg";
+  initialFocus?: "first" | "last";
 }
 
 export function Dialog({
@@ -35,6 +36,7 @@ export function Dialog({
   title,
   children,
   width = "md",
+  initialFocus = "last",
 }: DialogProps): ReactNode | null {
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -66,10 +68,11 @@ export function Dialog({
       );
     };
 
-    // Initial focus: primary (last) button, else first focusable, else the panel.
     const candidates = focusables();
     const buttons = candidates.filter((el) => el.tagName === "BUTTON");
-    (buttons[buttons.length - 1] ?? candidates[0] ?? panel)?.focus();
+    (initialFocus === "first"
+      ? candidates[0] ?? panel
+      : buttons[buttons.length - 1] ?? candidates[0] ?? panel)?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -108,7 +111,7 @@ export function Dialog({
     };
     // onClose is read through onCloseRef so a new callback identity does not
     // tear down/re-run this effect (focus capture, scroll lock, listener).
-  }, [open]);
+  }, [open, initialFocus]);
 
   if (!open) return null;
 

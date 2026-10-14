@@ -11,7 +11,7 @@ import { TrustBar } from "@/components/ui/TrustBar";
 import { fetchSiteSettings } from "@/lib/site-settings";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import type { Product } from "@/lib/api";
-import type { CategoryCrumb } from "@/app/(storefront)/products/[slug]/page";
+import type { CategoryCrumb } from "@/lib/pdp-products";
 
 /**
  * Shared PDP body for both /products/[slug] and /lp/[slug]. The LP route

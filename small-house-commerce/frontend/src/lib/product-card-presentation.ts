@@ -1,4 +1,24 @@
-import type { ProductSelectionDerived } from "./product-selection";
+import type { Product, ProductCardMediaPair } from "./api";
+import { isSelectableVariant, type ProductSelectionDerived } from "./product-selection";
+
+export function cardInitialVariantId(product: Product): string | null {
+  return product.variants.find(variant => variant.id === product.cardMedia?.displayVariantId && isSelectableVariant(variant))?.id ?? null;
+}
+
+export function cardMediaForSelection(
+  product: Product,
+  resolvedVariantId: string | null,
+  selectedValueIds: Readonly<Record<string, string>>,
+): ProductCardMediaPair {
+  if (resolvedVariantId !== null) {
+    const projected = product.cardMedia?.variants.find(row => row.variantId === resolvedVariantId);
+    return projected ? { cover: projected.cover, scene: projected.scene } : { cover: null, scene: null };
+  }
+  return Object.keys(selectedValueIds).length === 0
+    ? product.cardMedia?.unselected ?? { cover: null, scene: null }
+    : { cover: null, scene: null };
+}
+
 
 /**
  * Price presentation for surfaces where the visitor has not chosen options
@@ -16,6 +36,27 @@ export interface CardPricePresentation {
   kind: "exact" | "from";
   price: number;
   compareAtPrice: number | null;
+  /**
+   * Integer percent off derived from a strictly higher compare-at price
+   * (rounded to the nearest integer). Null whenever there is no honest
+   * discount: absent/equal/lower compare-at, non-positive or malformed
+   * inputs, or a percentage that would round to 0 ("0% OFF" is noise).
+   */
+  discountPercent: number | null;
+}
+
+function discountPercentFor(
+  price: number,
+  compareAtPrice: number | null,
+): number | null {
+  if (compareAtPrice === null) return null;
+  if (!Number.isFinite(price) || !Number.isFinite(compareAtPrice)) return null;
+  if (price <= 0 || compareAtPrice <= 0) return null;
+  if (compareAtPrice <= price) return null;
+  const percent = Math.round(((compareAtPrice - price) / compareAtPrice) * 100);
+  // A discount chip must never claim 100% OFF on a positive price: 99.5+%
+  // rounds to 100, so cap the integer at 99.
+  return percent > 0 ? Math.min(percent, 99) : null;
 }
 
 export function cardPricePresentation(
@@ -27,16 +68,23 @@ export function cardPricePresentation(
   if (prices.length === 0) return null;
 
   if (derived.resolvedVariant !== null) {
+    const price = derived.price ?? prices[0];
     return {
       kind: "exact",
-      price: derived.price ?? prices[0],
+      price,
       compareAtPrice: derived.compareAtPrice,
+      discountPercent: discountPercentFor(price, derived.compareAtPrice),
     };
   }
 
   const uniform = prices.every((price) => price === prices[0]);
   if (!uniform) {
-    return { kind: "from", price: Math.min(...prices), compareAtPrice: null };
+    return {
+      kind: "from",
+      price: Math.min(...prices),
+      compareAtPrice: null,
+      discountPercent: null,
+    };
   }
 
   // Uniform price: the compare-at price is only shown when the default
@@ -47,5 +95,10 @@ export function cardPricePresentation(
     display?.sku && display.sku.price === prices[0]
       ? display.sku.compareAtPrice
       : null;
-  return { kind: "exact", price: prices[0], compareAtPrice };
+  return {
+    kind: "exact",
+    price: prices[0],
+    compareAtPrice,
+    discountPercent: discountPercentFor(prices[0], compareAtPrice),
+  };
 }

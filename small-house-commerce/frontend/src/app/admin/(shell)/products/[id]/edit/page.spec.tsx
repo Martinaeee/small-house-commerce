@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
@@ -63,10 +63,8 @@ vi.mock("@/lib/admin-api", () => ({
     value === null || value === undefined ? "—" : `₱${value}`,
 }));
 
-import EditProductPage, {
-  buildSavedPreview,
-  deserializeProduct,
-} from "@/app/admin/(shell)/products/[id]/edit/page";
+import EditProductPage from "@/app/admin/(shell)/products/[id]/edit/page";
+import { buildSavedPreview, deserializeProduct } from "@/lib/admin-product-graph";
 import type { AdminCategoryNode, AdminProduct } from "@/lib/admin-api";
 
 const CATEGORY = {
@@ -250,6 +248,27 @@ async function setInput(
   await user.type(element, text);
 }
 
+describe("deserializeProduct — scene identity", () => {
+  it("keeps image ids, scene flags and unique stored sort orders on hydration", () => {
+    const product = legacyProduct({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: null, sortOrder: 2 },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: null, sortOrder: 5, isScene: true },
+    ] });
+    expect(deserializeProduct(product).images).toEqual([
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: "", sortOrder: "2", isScene: false },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: "", sortOrder: "5", isScene: true },
+    ]);
+  });
+
+  it("retains the existing repair of duplicate stored sort orders", () => {
+    const product = legacyProduct({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: null, sortOrder: 4 },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: null, sortOrder: 4 },
+    ] });
+    expect(deserializeProduct(product).images.map(row => row.sortOrder)).toEqual(["0", "1"]);
+  });
+});
+
 describe("deserializeProduct — stock", () => {
   it("maps the inventory figures into the editable stock box", () => {
     const value = deserializeProduct(legacyProduct());
@@ -306,6 +325,80 @@ describe("EditProductPage save orchestration", () => {
   });
 
   afterEach(cleanup);
+
+  it("saves a card-only snapshot without rewriting gallery scene flags or real SKU identity", async () => {
+    const user = userEvent.setup();
+    const media = [
+      { id: "photo-a", url: "/uploads/same.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true, optionValueId: null, variantId: null },
+      { id: "photo-b", url: "/uploads/same.webp", type: "IMAGE" as const, altText: "Second photo", sortOrder: 1, isScene: false, optionValueId: null, variantId: null },
+    ];
+    const product = typedProduct({ images: media, media });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(typedProduct({ catalogGraphVersion: 4, images: media, media }));
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 2" }));
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const body = updateProduct.mock.calls[0]![1];
+    expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+      id: "variant-1",
+      cardMedia: { cover: { type: "IMAGE", url: "/uploads/same.webp", altText: "Second photo" }, hover: null },
+    })]);
+    expect(body.catalogGraph.variants[0]).not.toHaveProperty("sku");
+    expect(body.catalogGraph.media).toEqual([]);
+    expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    expect(body).not.toHaveProperty("images");
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps card, SKU, packaging and stock drafts after a graph version conflict", async () => {
+    const user = userEvent.setup();
+    const media = [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true, optionValueId: null, variantId: null },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE" as const, altText: null, sortOrder: 1, isScene: false, optionValueId: null, variantId: null },
+    ];
+    const product = typedProduct({ images: media, media });
+    product.variants[0]!.sku!.packageWidth = 55;
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockRejectedValue(Object.assign(new Error("Catalog graph version conflict"), { status: 409 }));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await setInput(user, screen.getByLabelText("Default 的售价"), "1499");
+    await setInput(user, screen.getByLabelText("Default 的库存"), "7");
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await user.click(screen.getByRole("button", { name: "Default 悬停图片：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 2" }));
+    await clickSave(user);
+    expect(await screen.findByText("Catalog graph version conflict")).toBeInTheDocument();
+    await openVariantsTab(user);
+    expect(screen.getByLabelText("Default 的售价")).toHaveValue("1499");
+    expect(screen.getByLabelText("Default 的库存")).toHaveValue("7");
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    expect(screen.getByLabelText("Default 卡片封面：替代文字")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default 悬停图片：替代文字")).toBeInTheDocument();
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(2));
+    for (const [, body] of updateProduct.mock.calls) {
+      expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+        id: "variant-1",
+        cardMedia: {
+          cover: { type: "IMAGE", url: "/uploads/a.webp", altText: null },
+          hover: { type: "IMAGE", url: "/uploads/b.webp", altText: null },
+        },
+        sku: expect.objectContaining({ price: 1499, packageWidth: 55 }),
+      })]);
+      expect(body.catalogGraph.media).toEqual([]);
+      expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    }
+    expect(getProduct).toHaveBeenCalledTimes(1);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
 
   it("forwards only canonical variants and SKU search context across same-page query changes", async () => {
     navigationState.searchParams = "section=variants&sku=E2E-CS-BLUE-M";

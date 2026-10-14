@@ -72,6 +72,25 @@ const legacyProductFixture = {
 } satisfies CatalogProductRow;
 
 describe('legacy catalog compatibility projection', () => {
+  it.each([0, 1])('preserves independent card metadata in graph version %s', (catalogGraphVersion) => {
+    const cardMedia = {
+      cover: { type: 'IMAGE' as const, url: '/uploads/own-cover.webp', altText: null },
+      hover: { type: 'IMAGE' as const, url: '/uploads/own-hover.webp', altText: 'Own scene' },
+    };
+    const product = {
+      ...legacyProductFixture, catalogGraphVersion,
+      variants: legacyProductFixture.variants.map(variant => ({ ...variant,
+        cardMedia: variant.id === '44444444-4444-4444-4444-444444444444' ? cardMedia : null,
+      })),
+    };
+    const graph = presentCatalogGraph(product);
+    expect(graph.variants.find(variant => variant.id === '44444444-4444-4444-4444-444444444444'))
+      .toHaveProperty('cardMedia', cardMedia);
+    expect(graph.variants.find(variant => variant.id === '22222222-2222-2222-2222-222222222222'))
+      .toHaveProperty('cardMedia', null);
+    expect(product.images.map(image => image.url)).toEqual(['/shared.jpg']);
+  });
+
   it('projects a version-zero product as one Style option without replacing variant or SKU identities', () => {
     const graph = projectLegacyCatalogGraph(legacyProductFixture);
 

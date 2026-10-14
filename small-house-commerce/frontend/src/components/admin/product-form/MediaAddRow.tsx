@@ -13,6 +13,47 @@ const STATUS_KEYS = {
   failed: "product_media_batch_failed",
 } as const;
 
+export function MediaUploadResults({ batchUpload, targetKey, expanded, onExpandedChange }: {
+  batchUpload: MediaBatchUpload;
+  targetKey: string;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}): ReactNode {
+  const { t } = useAdminI18n();
+  const files = batchUpload.results[targetKey] ?? [];
+  if (files.length === 0) return null;
+  const ownBusy = batchUpload.uploading && batchUpload.targetKey === targetKey;
+  const failures = files.filter(file => file.status === "failed");
+  const successes = files.filter(file => file.status === "uploaded").length;
+  const done = successes + failures.length;
+  const currentFile = files.find(file => file.status === "uploading" || file.status === "waiting");
+  return (
+    <div className="rounded-lg bg-background px-3 py-2 text-xs text-ink-secondary">
+      <div className="flex min-w-0 items-center gap-3">
+        <span role="status" className="min-w-0 flex-1 truncate" title={currentFile?.name}>
+          {ownBusy
+            ? t("product_media_batch_progress", { current: Math.min(done + 1, files.length), total: files.length, name: currentFile?.name ?? "" })
+            : failures.length > 0
+              ? t(files[0].operation === "REPLACE" ? "product_media_batch_replace_partial" : "product_media_batch_partial", { success: successes, failed: failures.length })
+              : t(files[0].operation === "REPLACE" ? "product_media_batch_replace_success" : "product_media_batch_success", { count: successes })}
+        </span>
+        <button type="button" aria-expanded={expanded} className="shrink-0 font-semibold text-cta hover:underline" onClick={() => onExpandedChange(!expanded)}>{t(expanded ? "product_media_batch_hide_details" : "product_media_batch_details")}</button>
+        {!ownBusy ? <button type="button" aria-label={t("product_media_batch_dismiss")} className="shrink-0 px-1 text-base hover:text-ink" onClick={() => batchUpload.dismiss(targetKey)}>×</button> : null}
+      </div>
+      {expanded ? (
+        <ul aria-label={t("product_media_batch_queue")} className="mt-2 max-h-32 overflow-y-auto">
+          {files.map((file, index) => <li key={index} className="flex items-center justify-between gap-3 py-0.5"><span className="truncate" title={file.name}>{file.name}</span><span className="shrink-0">{t(STATUS_KEYS[file.status])}</span></li>)}
+        </ul>
+      ) : null}
+      {failures.length > 0 ? (
+        <ul role="alert" className="mt-2 max-h-32 overflow-y-auto break-words text-red-700">
+          {failures.map((failure, index) => <li key={index}>{t("product_media_batch_failure", { name: failure.name, reason: failure.reason ?? "" })}</li>)}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetKey = "shared" }: {
   disabled?: boolean;
   onAddMedia: (media: UploadedMedia) => void;
@@ -26,13 +67,8 @@ export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetK
   const [urlDraft, setUrlDraft] = useState("");
   const [urlType, setUrlType] = useState<UploadedMedia["type"]>("IMAGE");
   const [expanded, setExpanded] = useState(false);
-  const files = batch.results[targetKey] ?? [];
   const busy = batch.uploading;
   const ownBusy = busy && batch.targetKey === targetKey;
-  const failures = files.filter((file) => file.status === "failed");
-  const successes = files.filter((file) => file.status === "uploaded").length;
-  const done = successes + failures.length;
-  const currentFile = files.find((file) => file.status === "uploading" || file.status === "waiting");
 
   async function handleFiles(picked: FileList | null): Promise<void> {
     if (disabled || busy) return;
@@ -66,31 +102,7 @@ export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetK
           <button type="button" className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-border px-3 text-sm font-semibold text-ink-secondary hover:border-primary hover:text-ink disabled:cursor-not-allowed disabled:text-ink-muted" onClick={addUrl} disabled={disabled || busy || !urlDraft.trim()}>{t("product_media_url_add")}</button>
         </div>
       </div>
-      {files.length > 0 ? (
-        <div className="rounded-lg bg-background px-3 py-2 text-xs text-ink-secondary">
-          <div className="flex min-w-0 items-center gap-3">
-            <span role="status" className="min-w-0 flex-1 truncate" title={currentFile?.name}>
-              {ownBusy
-                ? t("product_media_batch_progress", { current: Math.min(done + 1, files.length), total: files.length, name: currentFile?.name ?? "" })
-                : failures.length > 0
-                  ? t(files[0].operation === "REPLACE" ? "product_media_batch_replace_partial" : "product_media_batch_partial", { success: successes, failed: failures.length })
-                  : t(files[0].operation === "REPLACE" ? "product_media_batch_replace_success" : "product_media_batch_success", { count: successes })}
-            </span>
-            <button type="button" aria-expanded={expanded} className="shrink-0 font-semibold text-cta hover:underline" onClick={() => setExpanded(!expanded)}>{t(expanded ? "product_media_batch_hide_details" : "product_media_batch_details")}</button>
-            {!ownBusy ? <button type="button" aria-label={t("product_media_batch_dismiss")} className="shrink-0 px-1 text-base hover:text-ink" onClick={() => batch.dismiss(targetKey)}>×</button> : null}
-          </div>
-          {expanded ? (
-            <ul aria-label={t("product_media_batch_queue")} className="mt-2 max-h-32 overflow-y-auto">
-              {files.map((file, index) => <li key={index} className="flex items-center justify-between gap-3 py-0.5"><span className="truncate" title={file.name}>{file.name}</span><span className="shrink-0">{t(STATUS_KEYS[file.status])}</span></li>)}
-            </ul>
-          ) : null}
-          {failures.length > 0 ? (
-            <ul role="alert" className="mt-2 max-h-32 overflow-y-auto break-words text-red-700">
-              {failures.map((failure, index) => <li key={index}>{t("product_media_batch_failure", { name: failure.name, reason: failure.reason ?? "" })}</li>)}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+      <MediaUploadResults batchUpload={batch} targetKey={targetKey} expanded={expanded} onExpandedChange={setExpanded} />
     </div>
   );
 }

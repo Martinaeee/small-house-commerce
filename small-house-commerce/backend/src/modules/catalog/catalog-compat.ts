@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { Prisma } from '../../generated/prisma/client.js';
+import type { VariantCardMedia } from './variant-card-media.js';
 import { canonicalCombinationKey } from './catalog-graph.js';
 
 export const LEGACY_STYLE_OPTION_NAMESPACE =
@@ -66,6 +68,7 @@ export interface CatalogVariantRow {
   name: string;
   position: number;
   combinationKey: string | null;
+  cardMedia?: Prisma.JsonValue | null;
   optionValues: readonly CatalogVariantOptionValueRow[];
   sku: CatalogSkuRow | null;
 }
@@ -104,6 +107,7 @@ export interface PresentedCatalogVariant {
   position: number;
   combinationKey: string;
   optionValueIds: string[];
+  cardMedia: VariantCardMedia | null;
   sku: CatalogSkuRow | null;
 }
 
@@ -185,6 +189,7 @@ export function projectLegacyCatalogGraph(
       position: variant.position,
       combinationKey: canonicalCombinationKey([{ optionId, valueId }]),
       optionValueIds: [valueId],
+      cardMedia: (variant.cardMedia as VariantCardMedia | null | undefined) ?? null,
       sku: variant.sku,
     };
   });
@@ -276,6 +281,7 @@ export function presentPersistedCatalogGraph(
         optionValueIds: assignments.map(
           (assignment) => assignment.optionValueId,
         ),
+        cardMedia: (variant.cardMedia as VariantCardMedia | null | undefined) ?? null,
         sku: variant.sku,
       };
     }),

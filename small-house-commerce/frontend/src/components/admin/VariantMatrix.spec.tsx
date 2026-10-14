@@ -106,6 +106,18 @@ describe("VariantMatrix", () => {
     vi.useRealTimers();
   });
 
+  it("preserves an existing card pair through edits and never copies it to a new combination", async () => {
+    const user = userEvent.setup();
+    const row = persistedVariant(0, "SKU-1");
+    row.cardMedia = { cover: { type: "IMAGE", url: "/uploads/one.webp", altText: null }, hover: null };
+    render(<Harness candidates={makeCandidates(2)} initial={draft({ variants: [row] })} />);
+    await user.clear(screen.getByLabelText("Variant 1 的 SKU 编码"));
+    await user.type(screen.getByLabelText("Variant 1 的 SKU 编码"), "RENAMED");
+    await user.type(screen.getByLabelText("Variant 2 的 SKU 编码"), "NEW");
+    expect(draftVariants().find(row => row.id === "variant-1")).toMatchObject({ cardMedia: row.cardMedia, sku: { id: "sku-1", skuCode: "RENAMED" } });
+    expect(draftVariants().find(row => row.clientKey)?.cardMedia ?? null).toBeNull();
+  });
+
   it("opens and focuses the persisted requested SKU across matrix pages without timers", () => {
     vi.useFakeTimers();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {

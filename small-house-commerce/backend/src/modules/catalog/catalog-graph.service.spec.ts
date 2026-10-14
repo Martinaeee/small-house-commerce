@@ -18,6 +18,8 @@ import {
 } from './dto/catalog-graph.dto.js';
 import type { UpdateProductInput } from './dto/product.dto.js';
 import { ProductsService } from './products.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import type { VariantCardMedia } from './variant-card-media.js';
 
 vi.mock('../../common/revalidation.js', () => ({
   CACHE_TAGS: { STOREFRONT: 'storefront' },
@@ -37,6 +39,188 @@ const BLUE_SKU_ID = '40000000-0000-4000-8000-000000000002';
 const SHARED_MEDIA_ID = '50000000-0000-4000-8000-000000000001';
 const SYNTHETIC_OPTION_ID = '90000000-0000-4000-8000-000000000008';
 const SYNTHETIC_VALUE_ID = '90000000-0000-4000-8000-000000000009';
+
+describe('CatalogGraphService final card publish check', () => {
+  const pair = (name: string): VariantCardMedia => ({
+    cover: { type: 'IMAGE', url: `/uploads/${name}-cover.webp`, altText: null }, hover: null,
+  });
+  const writes = () => [
+    { id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], cardMedia: pair('red') },
+    { id: BLUE_VARIANT_ID, position: 1, optionValueRefs: [{ id: BLUE_ID }], cardMedia: pair('blue') },
+  ];
+
+  it('rejects publishing an incomplete final snapshot and rolls back the whole graph write', async () => {
+    const initial = baseState();
+    const harness = createGraphHarness(initial);
+    await expect(harness.service.applyPatchWithProductMutation(PRODUCT_ID, 1, parsePatch({}),
+      tx => tx.product.update({ where: { id: PRODUCT_ID }, data: { status: 'ACTIVE' } }).then(() => undefined),
+    )).rejects.toMatchObject({ response: { code: 'PRODUCT_CARD_MEDIA_INCOMPLETE' } });
+    expect(harness.committed).toBe(false);
+    expect(harness.state).toEqual(initial);
+  });
+
+  it('checks after incoming card snapshots are persisted rather than before the mutation', async () => {
+    const harness = createGraphHarness();
+    const saved = await harness.service.applyPatchWithProductMutation(PRODUCT_ID, 1, parsePatch({ variants: writes() }),
+      tx => tx.product.update({ where: { id: PRODUCT_ID }, data: { status: 'ACTIVE' } }).then(() => undefined),
+    );
+    expect(saved).toMatchObject({ status: 'ACTIVE', catalogGraphVersion: 2 });
+    expect(saved.variants.find(row => row.id === BLUE_VARIANT_ID)).toHaveProperty('cardMedia', pair('blue'));
+    expect(harness.committed).toBe(true);
+  });
+
+  it('requires a valid explicit default on the final multi-SKU snapshot', async () => {
+    const harness = createGraphHarness();
+    await expect(harness.service.applyPatchWithProductMutation(PRODUCT_ID, 1,
+      parsePatch({ variants: writes(), defaultDisplayVariant: null }),
+      tx => tx.product.update({ where: { id: PRODUCT_ID }, data: { status: 'ACTIVE' } }).then(() => undefined),
+    )).rejects.toMatchObject({ response: { code: 'PRODUCT_CARD_MEDIA_INCOMPLETE', products: [
+      expect.objectContaining({ defaultDisplayVariantMissing: true, missingCoverVariants: [] }),
+    ] } });
+    expect(harness.committed).toBe(false);
+    expect(harness.state.product.defaultDisplayVariantId).toBe(RED_VARIANT_ID);
+  });
+
+  it('allows incomplete drafts without manufacturing a shared cover', async () => {
+    const harness = createGraphHarness();
+    const saved = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({}));
+    expect(saved).toMatchObject({ status: 'DRAFT' });
+    expect(saved.variants.every(row => row.cardMedia == null)).toBe(true);
+  });
+
+  it('does not clear the cover of an existing ACTIVE variant or silently downgrade it', async () => {
+    const initial = baseState();
+    initial.product.status = 'ACTIVE';
+    initial.variants.forEach(row => { row.cardMedia = pair(row.name); });
+    const harness = createGraphHarness(initial);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      variants: [{ id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], cardMedia: null }],
+    }))).rejects.toMatchObject({ response: { code: 'PRODUCT_CARD_MEDIA_INCOMPLETE' } });
+    expect(harness.state).toEqual(initial);
+    expect(harness.committed).toBe(false);
+  });
+});
+
+describe('CatalogGraphService scene persistence', () => {
+  const mediaWrite = (row: MediaRow, changes: Record<string, unknown> = {}) => ({
+    id: row.id, url: row.url, type: row.type, sortOrder: row.sortOrder,
+    ...(row.optionValueId ? { optionValueId: row.optionValueId } : {}),
+    ...(row.variantId ? { variantId: row.variantId } : {}),
+    ...changes,
+  });
+
+  it('keeps an omitted scene flag on an existing row in the same scope', async () => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      media: [mediaWrite(state.media[0], { sortOrder: 4 })],
+    }));
+    expect(harness.state.media[0]).toMatchObject({ isScene: true, sortOrder: 4 });
+  });
+
+  it('clears an existing scene explicitly', async () => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      media: [mediaWrite(state.media[0], { isScene: false })],
+    }));
+    expect(harness.state.media[0].isScene).toBe(false);
+  });
+
+  it.each([
+    ['move scope', { optionValueId: RED_ID }],
+    ['convert to video', { type: 'VIDEO' }],
+  ])('does not inherit an omitted scene after %s', async (_label, changes) => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      media: [mediaWrite(state.media[0], changes)],
+    }));
+    expect(harness.state.media[0].isScene).toBe(false);
+  });
+
+  it('persists a new client-key scene and gives unmarked new media a false flag', async () => {
+    const harness = createGraphHarness();
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ media: [
+      { clientKey: 'new-scene', url: '/uploads/new-scene.webp', isScene: true },
+      { clientKey: 'ordinary', url: '/uploads/ordinary.webp' },
+    ] }));
+    expect(harness.state.media.find(row => row.url === '/uploads/new-scene.webp')?.isScene).toBe(true);
+    expect(harness.state.media.find(row => row.url === '/uploads/ordinary.webp')?.isScene).toBe(false);
+  });
+
+  it('checks the final snapshot against a scene omitted from the patch', async () => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    const before = structuredClone(harness.state);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ media: [
+      { clientKey: 'conflicting', url: '/uploads/conflicting.webp', isScene: true },
+    ] }))).rejects.toThrow(/scene/i);
+    expect(harness.state).toEqual(before);
+  });
+
+  it('rejects two newly marked scenes in one scope', async () => {
+    const harness = createGraphHarness();
+    const before = structuredClone(harness.state);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ media: [
+      { clientKey: 'a', url: '/uploads/a.webp', isScene: true },
+      { clientKey: 'b', url: '/uploads/b.webp', isScene: true },
+    ] }))).rejects.toThrow(/scene/i);
+    expect(harness.state).toEqual(before);
+  });
+
+  it('retires an old scene and persists its replacement without changing existing sort order', async () => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      retirements: { mediaIds: [state.media[0].id] },
+      media: [{ clientKey: 'replacement', url: '/uploads/replacement.webp', isScene: true, sortOrder: 8 }],
+    }));
+    expect(harness.state.media).toEqual([expect.objectContaining({
+      url: '/uploads/replacement.webp', isScene: true, sortOrder: 8,
+    })]);
+  });
+
+  it('rolls back scene changes when a later default write fails', async () => {
+    const state = baseState();
+    state.media[0].isScene = false;
+    const harness = createGraphHarness(state, 'default');
+    const before = structuredClone(harness.state);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      media: [mediaWrite(state.media[0], { isScene: true })],
+      defaultDisplayVariant: { id: RED_VARIANT_ID },
+    }))).rejects.toThrow('default write failed');
+    expect(harness.state).toEqual(before);
+  });
+
+  it('does not mutate scene flags on a stale graph version', async () => {
+    const state = baseState();
+    state.media[0].isScene = true;
+    const harness = createGraphHarness(state);
+    const before = structuredClone(harness.state);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 0, parsePatch({
+      media: [mediaWrite(state.media[0], { isScene: false })],
+    }))).rejects.toBeInstanceOf(CatalogGraphVersionMismatchError);
+    expect(harness.state).toEqual(before);
+  });
+
+  it('revalidates once after a scene-only successful save', async () => {
+    vi.mocked(revalidateCache).mockClear();
+    const state = baseState();
+    state.media[0].isScene = false;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({
+      media: [mediaWrite(state.media[0], { isScene: true })],
+    }));
+    expect(harness.state.media[0].isScene).toBe(true);
+    expect(revalidateCache).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('CatalogGraphService admin snapshot query', () => {
   it('stabilizes equal detail sort orders with the persisted id', async () => {
@@ -88,7 +272,12 @@ interface VariantRow {
   name: string;
   position: number;
   combinationKey: string;
+  cardMedia?: VariantCardMedia | null;
 }
+
+type VariantWriteRow = Omit<VariantRow, 'cardMedia'> & {
+  cardMedia?: VariantCardMedia | null | typeof Prisma.DbNull;
+};
 
 interface SkuRow {
   id: string;
@@ -127,6 +316,7 @@ interface MediaRow {
   type: 'IMAGE' | 'VIDEO';
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
 }
 
 interface HistoryCounts {
@@ -142,6 +332,7 @@ interface GraphState {
     id: string;
     name: string;
     slug: string;
+    status?: 'DRAFT' | 'ACTIVE' | 'DISABLED';
     catalogGraphVersion: number;
     defaultDisplayVariantId: string | null;
   };
@@ -187,6 +378,7 @@ function baseState(
       id: PRODUCT_ID,
       name: 'Chair',
       slug: 'chair',
+      status: 'DRAFT',
       catalogGraphVersion: options.version ?? 1,
       defaultDisplayVariantId: RED_VARIANT_ID,
     },
@@ -519,6 +711,10 @@ function createGraphHarness(
         catalogGraphVersion: state.product.catalogGraphVersion,
       })),
       findUniqueOrThrow: vi.fn(async () => currentProduct()),
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; status?: string } }) => {
+        const product = currentProduct();
+        return where.id.in.includes(product.id) && (!where.status || product.status === where.status) ? [product] : [];
+      }),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const changesDefault =
           Object.hasOwn(data, 'defaultDisplayVariantId') ||
@@ -542,6 +738,7 @@ function createGraphHarness(
           }
         }
         if (typeof data.name === 'string') state.product.name = data.name;
+        if (data.status !== undefined) state.product.status = data.status as 'DRAFT' | 'ACTIVE' | 'DISABLED';
         if (data.detailBlocks) {
           const mutation = data.detailBlocks as {
             create?: Array<{
@@ -647,8 +844,11 @@ function createGraphHarness(
     },
     productVariant: {
       createMany: vi.fn(
-        async ({ data }: { data: VariantRow | VariantRow[] }) => {
-          state.variants.push(...structuredClone(rows(data)));
+        async ({ data }: { data: VariantWriteRow | VariantWriteRow[] }) => {
+          state.variants.push(...rows(data).map(row => ({
+            ...structuredClone(row),
+            cardMedia: row.cardMedia instanceof Prisma.NullTypes.DbNull ? null : structuredClone(row.cardMedia ?? null),
+          })));
           return { count: rows(data).length };
         },
       ),
@@ -658,7 +858,7 @@ function createGraphHarness(
           data,
         }: {
           where: { id: string };
-          data: Partial<VariantRow>;
+          data: Partial<VariantWriteRow>;
         }) => {
           const row = state.variants.find(
             (candidate) => candidate.id === where.id,
@@ -673,7 +873,9 @@ function createGraphHarness(
           ) {
             throw new Error(`duplicate variant name ${data.name}`);
           }
-          Object.assign(row, structuredClone(data));
+          const { cardMedia, ...columns } = data;
+          Object.assign(row, structuredClone(columns));
+          if (cardMedia !== undefined) row.cardMedia = cardMedia instanceof Prisma.NullTypes.DbNull ? null : structuredClone(cardMedia);
           return structuredClone(row);
         },
       ),
@@ -766,6 +968,17 @@ function createGraphHarness(
       ),
     },
     productImage: {
+      updateMany: vi.fn(async ({ where, data }: {
+        where: { productId: string; id: { in: string[] }; isScene: boolean };
+        data: Partial<MediaRow>;
+      }) => {
+        const matches = state.media.filter(row =>
+          row.productId === where.productId && where.id.in.includes(row.id) &&
+          Boolean(row.isScene) === where.isScene,
+        );
+        matches.forEach(row => Object.assign(row, structuredClone(data)));
+        return { count: matches.length };
+      }),
       createMany: vi.fn(async ({ data }: { data: MediaRow | MediaRow[] }) => {
         if (failAt === 'media') throw new Error('media write failed');
         state.media.push(...structuredClone(rows(data)));
@@ -1009,6 +1222,104 @@ function materializationPatchWithSyntheticId(
 beforeEach(() => {
   vi.mocked(revalidateCache).mockReset();
   vi.mocked(revalidateCache).mockResolvedValue(undefined);
+});
+
+describe('CatalogGraphService independent variant card media', () => {
+  const pair = (name: string): VariantCardMedia => ({
+    cover: { type: 'IMAGE', url: `/uploads/${name}-cover.webp`, altText: `${name} cover` },
+    hover: { type: 'IMAGE', url: `/uploads/${name}-hover.webp`, altText: null },
+  });
+
+  it('persists two different pairs without changing SKU identity or the PDP gallery', async () => {
+    const harness = createGraphHarness(baseState());
+    const beforeSkus = structuredClone(harness.state.skus);
+    const beforeMedia = structuredClone(harness.state.media);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [
+      { id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], cardMedia: pair('red') },
+      { id: BLUE_VARIANT_ID, position: 1, optionValueRefs: [{ id: BLUE_ID }], cardMedia: pair('blue') },
+    ] }));
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({ cardMedia: pair('red'), sku: { id: RED_SKU_ID } });
+    expect(findVariant(result, BLUE_VARIANT_ID)).toMatchObject({ cardMedia: pair('blue'), sku: { id: BLUE_SKU_ID } });
+    expect(harness.state.skus).toEqual(beforeSkus);
+    expect(harness.state.media).toEqual(beforeMedia);
+  });
+
+  it('keeps an omitted pair during a price and position update', async () => {
+    const state = baseState();
+    state.variants[0].cardMedia = pair('red');
+    state.variants[1].cardMedia = pair('blue');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [
+      { id: RED_VARIANT_ID, position: 1, optionValueRefs: [{ id: RED_ID }], sku: { skuCode: 'CHAIR-RED', price: 125 } },
+      { id: BLUE_VARIANT_ID, position: 0, optionValueRefs: [{ id: BLUE_ID }] },
+    ] }));
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({ cardMedia: pair('red'), sku: { id: RED_SKU_ID, price: 125 } });
+    expect(findVariant(result, BLUE_VARIANT_ID)).toHaveProperty('cardMedia', pair('blue'));
+  });
+
+  it.each([
+    ['whole pair', null],
+    ['hover slot', { ...pair('red'), hover: null }],
+  ])('clears only the requested %s', async (_label, cardMedia) => {
+    const state = baseState();
+    state.variants[0].cardMedia = pair('red');
+    state.variants[1].cardMedia = pair('blue');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [
+      { id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], cardMedia },
+    ] }));
+    expect(findVariant(result, RED_VARIANT_ID)).toHaveProperty('cardMedia', cardMedia);
+    expect(findVariant(result, BLUE_VARIANT_ID)).toHaveProperty('cardMedia', pair('blue'));
+  });
+
+  it('keeps the pair on the same real variant after a label rename', async () => {
+    const state = baseState();
+    state.variants[0].cardMedia = pair('red');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, renameRedPatch());
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({ name: 'Crimson', cardMedia: pair('red'), sku: { id: RED_SKU_ID } });
+  });
+
+  it('keeps card metadata through legacy materialization without replacing the SKU', async () => {
+    const state = legacyState();
+    state.variants[0].cardMedia = pair('red');
+    state.variants[1].cardMedia = pair('blue');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 0, materializeLegacyPatch());
+    expect(findVariant(result, RED_VARIANT_ID)).toMatchObject({ cardMedia: pair('red'), sku: { id: RED_SKU_ID } });
+    expect(findVariant(result, BLUE_VARIANT_ID)).toMatchObject({ cardMedia: pair('blue'), sku: { id: BLUE_SKU_ID } });
+  });
+
+  it('persists a newly addressed variant pair without inheriting the retained variant pair', async () => {
+    const state = baseState({ includeBlue: false });
+    state.variants[0].cardMedia = pair('red');
+    const patch = addBluePatch();
+    const incoming = patch.variants.find(row => row.clientKey !== undefined)!;
+    incoming.cardMedia = pair('blue');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, patch);
+    expect(result.variants.find(row => row.name === 'Blue')).toHaveProperty('cardMedia', pair('blue'));
+    expect(findVariant(result, RED_VARIANT_ID)).toHaveProperty('cardMedia', pair('red'));
+  });
+
+  it('leaves a new unconfigured variant empty instead of copying another pair', async () => {
+    const state = baseState({ includeBlue: false });
+    state.variants[0].cardMedia = pair('red');
+    const harness = createGraphHarness(state);
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, addBluePatch());
+    expect(result.variants.find(row => row.name === 'Blue')).toHaveProperty('cardMedia', null);
+  });
+
+  it('does not modify pairs when the catalog version is stale', async () => {
+    const state = baseState();
+    state.variants[0].cardMedia = pair('red');
+    const harness = createGraphHarness(state);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 0, parsePatch({ variants: [
+      { id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], cardMedia: pair('replacement') },
+    ] }))).rejects.toBeInstanceOf(CatalogGraphVersionMismatchError);
+    expect(harness.state.variants[0].cardMedia).toEqual(pair('red'));
+    expect(harness.committed).toBe(false);
+  });
 });
 
 describe('CatalogGraphService.applyPatch', () => {
@@ -1525,6 +1836,8 @@ function createProductsHarness(catalogGraphVersion: number) {
     variants: [existingVariant],
   };
   const tx = {
+    $queryRaw: vi.fn(async () => [{ catalog_graph_version: catalogGraphVersion }]),
+    productImage: { findMany: vi.fn(async () => []) },
     product: {
       update: vi.fn(async () => saved),
       findUniqueOrThrow: vi.fn(async () => saved),
@@ -1604,6 +1917,7 @@ function createMixedProductsHarness(
     get transactionCalls() {
       return graphHarness.transactionCalls;
     },
+    tx: graphHarness.tx,
   };
 }
 

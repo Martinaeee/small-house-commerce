@@ -52,6 +52,7 @@ function legacyAdminRow(overrides: Record<string, unknown> = {}) {
         type: 'IMAGE',
         altText: null,
         sortOrder: 0,
+        isScene: true,
         optionValueId: null,
         variantId: null,
       },
@@ -92,6 +93,7 @@ function graphSnapshotRow(overrides: Record<string, unknown> = {}) {
         type: 'IMAGE',
         altText: null,
         sortOrder: 0,
+        isScene: true,
         optionValueId: null,
         variantId: null,
       },
@@ -101,6 +103,7 @@ function graphSnapshotRow(overrides: Record<string, unknown> = {}) {
         type: 'IMAGE',
         altText: 'Red',
         sortOrder: 0,
+        isScene: false,
         optionValueId: RED_VALUE_ID,
         variantId: null,
       },
@@ -177,6 +180,21 @@ function createService(
 }
 
 describe('ProductsService.get typed graph presentation', () => {
+  it('retains scene metadata on the admin shared/scoped split', async () => {
+    const graph = catalogGraphOver(graphSnapshotRow());
+    const { service } = createService(legacyAdminRow({ catalogGraphVersion: 2 }), graph);
+    const result = (await service.get(PRODUCT_ID)) as EnrichedAdminProduct;
+    expect(result.images.map(row => row.isScene)).toEqual([true]);
+    expect(result.media.map(row => row.isScene)).toEqual([true, false]);
+  });
+
+  it('retains legacy scene metadata without materializing a graph', async () => {
+    const { service } = createService(legacyAdminRow());
+    const result = (await service.get(PRODUCT_ID)) as EnrichedAdminProduct;
+    expect(result.images[0].isScene).toBe(true);
+    expect(result.catalogGraphVersion).toBe(0);
+  });
+
   it('returns the typed option graph for a graph product', async () => {
     // The real CatalogGraphService loads the snapshot (findUnique stubbed):
     // the typed graph arrives with the real images/media split applied.

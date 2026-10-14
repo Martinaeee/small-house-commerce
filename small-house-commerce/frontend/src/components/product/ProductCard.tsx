@@ -1,111 +1,157 @@
-import Link from "next/link";
+"use client";
+
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Product } from "@/lib/api";
-import { ButtonLink } from "@/components/ui/Button";
+import type { CardBadge } from "@/lib/plpBadges";
+import { useCart } from "@/components/cart/CartContext";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
-import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
-import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
-import { cardPricePresentation } from "@/lib/product-card-presentation";
-import {
-  createInitialSelection,
-  resolveSelection,
-} from "@/lib/product-selection";
+import { cardInitialVariantId } from "@/lib/product-card-presentation";
+import { addToCartEvent, emitCommerceEvent, variantConfirmEvent } from "@/lib/commerce-events";
+import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
+import { ProductCardView } from "./ProductCardView";
 
-/**
- * DESIGN_SYSTEM §12 Product Card — the core reusable component.
- * Structure: image (4:5) → badge → name → price → CTA.
- * Used on Homepage, Collection and Related Products.
- * Media and price come from the backend's effective cover and the shared
- * selection contract — never from positional images[0]/variants[0] picks.
- */
+export type ProductCardInteractionMode = "storefront" | "preview";
 
-interface ProductCardProps {
+export interface ProductCardProps {
   product: Product;
-  /** Section-provided corner badge (e.g. 新品). Undefined = no chip. */
   badge?: string;
+  badges?: readonly CardBadge[];
+  interactionMode?: ProductCardInteractionMode;
+  navigationTrackAttrs?: Readonly<Record<string, string>>;
 }
 
-export function ProductCard({ product, badge }: ProductCardProps) {
-  const cover = product.effectiveCoverMedia;
-  const derived = resolveSelection(
-    product,
-    createInitialSelection(product, null),
-  );
-  const sellable = derived.selectableVariants;
-  const directSku = sellable.length === 1 ? (sellable[0].sku ?? null) : null;
-  // Only a single-SKU product (or one with nothing sellable at all) owns a
-  // whole-card stock verdict; multi-SKU products decide stock on the PDP.
-  const outOfStock =
-    sellable.length === 0 ||
-    (directSku !== null && directSku.availableInventory <= 0);
-  const price = cardPricePresentation(derived);
+type CardFeedback =
+  | { revision: number; kind: "added" }
+  | { revision: number; kind: "error"; message: string };
 
-  const image = cover ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={cover.url}
-      alt={cover.altText ?? product.name}
-      className="aspect-[4/5] w-full object-cover"
-      loading="lazy"
-    />
-  ) : (
-    <PlaceholderImage label={product.name} className="aspect-[4/5] w-full" />
-  );
+function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "product"> & {
+  selectorRoot: RefObject<HTMLDivElement | null>;
+}) {
+  const { addItem } = useCart();
+  const { primaryLine, primaryDerived, purchaseLocked, confirmLine, setPurchaseLocked } = usePdpPurchase();
+  const requestLocked = useRef(false);
+  const alive = useRef(true);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<CardFeedback | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+  useEffect(() => () => {
+    if (feedbackTimer.current !== null) clearTimeout(feedbackTimer.current);
+  }, [primaryLine.selectionRevision]);
+  const visibleFeedback = feedback?.revision === primaryLine.selectionRevision ? feedback : null;
 
-  return (
-    <article
-      data-product-id={product.id}
-      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-shadow hover:shadow-md"
-    >
-      <Link href={`/products/${product.slug}`} className="relative block">
-        {image}
-        {badge ? (
-          <span className="absolute right-3 top-3 rounded bg-cta px-2 py-1 text-xs font-semibold text-white">
-            {badge}
-          </span>
-        ) : null}
-        {outOfStock && (
-          <span className="absolute left-3 top-3 rounded bg-ink/80 px-2 py-1 text-xs font-semibold text-white">
-            Out of Stock
-          </span>
-        )}
-      </Link>
+  async function addSelected() {
+    if (requestLocked.current) return;
+    const variant = primaryDerived.resolvedVariant;
+    const sku = variant?.sku;
+    if (!variant || !sku || sku.price === null) {
+      setFeedback({ revision: primaryLine.selectionRevision, kind: "error", message: "Choose your options before adding to cart." });
+      const missingId = primaryDerived.missingOptionIds[0];
+      const group = [...(selectorRoot.current?.querySelectorAll<HTMLElement>("[data-option-id]") ?? [])]
+        .find(node => node.dataset.optionId === missingId);
+      const target = group?.querySelector<HTMLButtonElement>("button:not(:disabled)") ??
+        selectorRoot.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]:not(:disabled)');
+      target?.focus();
+      return;
+    }
+    const snapshot = {
+      productId: product.id, productName: product.name, variantId: variant.id,
+      skuId: sku.id, price: sku.price, revision: primaryLine.selectionRevision,
+      multiple: primaryDerived.selectableVariants.length > 1,
+    };
+    requestLocked.current = true;
+    // The provider lock suppresses selection dispatch, including confirmation.
+    confirmLine(primaryLine.clientLineId);
+    setPurchaseLocked(true);
+    setBusy(true);
+    setFeedback(null);
+    if (feedbackTimer.current !== null) {
+      clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = null;
+    }
+    try {
+      await addItem({ skuId: snapshot.skuId, quantity: 1 });
+      if (snapshot.multiple) emitCommerceEvent(variantConfirmEvent({
+        productId: snapshot.productId, variantId: snapshot.variantId, skuId: snapshot.skuId, source: "QUICK_ADD",
+      }));
+      emitCommerceEvent(addToCartEvent({ ...snapshot, quantity: 1 }));
+      if (alive.current) {
+        setFeedback({ revision: snapshot.revision, kind: "added" });
+        feedbackTimer.current = setTimeout(() => {
+          if (alive.current) setFeedback(null);
+          feedbackTimer.current = null;
+        }, 2000);
+      }
+    } catch (error) {
+      if (alive.current) setFeedback({ revision: snapshot.revision, kind: "error",
+        message: error instanceof Error ? error.message : "Could not add this item. Try again." });
+    } finally {
+      requestLocked.current = false;
+      if (alive.current) {
+        setBusy(false);
+        setPurchaseLocked(false);
+      }
+    }
+  }
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <h3 className="line-clamp-2 text-sm font-semibold text-ink">
-          <Link href={`/products/${product.slug}`} className="hover:text-cta">
-            {product.name}
-          </Link>
-        </h3>
-
-        {price ? (
-          price.kind === "exact" ? (
-            <PriceBox price={price.price} compareAtPrice={price.compareAtPrice} />
-          ) : (
-            <p className="text-lg font-bold text-ink" data-testid="price">
-              From {formatPrice(price.price)}
-            </p>
-          )
-        ) : null}
-
-        <div className="mt-auto pt-2">
-          <ButtonLink
-            href={`/products/${product.slug}`}
-            variant={outOfStock ? "secondary" : "primary"}
-            size="md"
-            className="w-full"
-          >
-            {outOfStock ? "View Details" : "Order Now"}
-          </ButtonLink>
-          {directSku && directSku.availableInventory <= 0 ? (
-            <div className="mt-2 text-center">
-              <BackInStockTrigger
-                skuId={directSku.id}
-                productName={product.name}
-              />
-            </div>
-          ) : null}
-        </div>
+  if (primaryDerived.selectableVariants.length === 0) {
+    return <ButtonLink href={`/products/${product.slug}`} variant="secondary" size="md" className="w-full">View Details</ButtonLink>;
+  }
+  const outOfStock = (primaryDerived.resolvedVariant?.sku?.availableInventory ?? 1) <= 0;
+  // Say which real combination is unavailable, not just "Save for Later";
+  // only rendered when out of stock so in-stock cards keep their height.
+  const outOfStockLabels = outOfStock
+    ? [...product.options]
+        .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : 1))
+        .map((option) => {
+          const valueId = primaryLine.selectedValueIds[option.id];
+          return option.values.find((value) => value.id === valueId)?.label;
+        })
+        .filter((label): label is string => Boolean(label))
+    : [];
+  return <>
+    {outOfStockLabels.length > 0 ? (
+      <p data-testid="card-out-of-stock-note" className="mb-2 text-xs text-ink-muted">
+        {`${outOfStockLabels.join(" / ")} is out of stock`}
+      </p>
+    ) : null}
+    <Button onClick={() => { void addSelected(); }} disabled={busy || purchaseLocked} size="md"
+      variant={outOfStock ? "secondary" : "primary"} className="w-full">
+      {busy ? "Adding…" : visibleFeedback?.kind === "added" ? "Added" : outOfStock ? "Save for Later" : "Add to Cart"}
+    </Button>
+    {outOfStock && primaryDerived.resolvedVariant?.sku ? (
+      <div className="mt-2 text-center">
+        <BackInStockTrigger
+          skuId={primaryDerived.resolvedVariant.sku.id}
+          productName={product.name}
+        />
       </div>
-    </article>
-  );
+    ) : null}
+    <span role="status" className="sr-only">{busy ? "Adding to cart" : visibleFeedback?.kind === "added" ? "Added to cart" : ""}</span>
+    {visibleFeedback?.kind === "error" ? <p role="alert" className="mt-2 text-xs text-sale">{visibleFeedback.message}</p> : null}
+  </>;
+}
+
+function CardBody(props: ProductCardProps) {
+  const { primaryLine, primaryDerived } = usePdpPurchase();
+  const selectorRoot = useRef<HTMLDivElement | null>(null);
+  const mode = props.interactionMode ?? "storefront";
+  return <ProductCardView {...props} interactionMode={mode} primaryLine={primaryLine}
+    derived={primaryDerived} selectorRoot={selectorRoot} action={mode === "preview"
+      ? <Button disabled size="md" className="w-full">Add to Cart</Button>
+      : <ProductCardActions product={props.product} selectorRoot={selectorRoot} />} />;
+}
+
+export function ProductCard(props: ProductCardProps) {
+  const { product } = props;
+  const initialVariantId = cardInitialVariantId(product);
+  const productForCard = { ...product, defaultDisplayVariantId: initialVariantId };
+  return <PdpPurchaseProvider key={JSON.stringify([product.id, product.catalogGraphVersion])}
+    product={productForCard} initialVariantId={initialVariantId} initialQuantity={1}>
+    <CardBody {...props} product={productForCard} />
+  </PdpPurchaseProvider>;
 }

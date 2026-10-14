@@ -11,9 +11,7 @@ import {
   type ProductImage,
 } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
-import { fetchRelatedProducts } from "@/lib/pdp-products";
-// One directory up from the lp route tree: reuse the PDP data helpers.
-import { fetchCategoryInfo } from "../../products/[slug]/page";
+import { fetchCategoryInfo, fetchRelatedProducts } from "@/lib/pdp-products";
 
 export const revalidate = 120;
 

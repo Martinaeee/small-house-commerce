@@ -41,6 +41,7 @@ export interface ProductMediaGraph {
     ProductMediaItem & {
       optionValueId: string | null;
       variantId: string | null;
+      isScene?: boolean;
     }
   >;
 }

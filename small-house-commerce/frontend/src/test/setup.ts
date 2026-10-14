@@ -20,6 +20,17 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
+class ResizeObserverStub implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Object.defineProperty(window, "ResizeObserver", {
+  configurable: true,
+  value: ResizeObserverStub,
+});
+
 class IntersectionObserverStub implements IntersectionObserver {
   readonly root = null;
   readonly rootMargin = "0px";
@@ -41,6 +52,16 @@ Object.defineProperty(window, "scrollTo", {
   configurable: true,
   value: () => undefined,
 });
+
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const dialog = [...document.querySelectorAll<HTMLDialogElement>("dialog[open]")].at(-1);
+    if (dialog && dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) dialog.close();
+  });
+}
 
 if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = () => undefined;

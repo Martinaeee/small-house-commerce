@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
@@ -122,6 +122,7 @@ function renderNewProductPage() {
 async function fillAndSubmit(
   user: ReturnType<typeof userEvent.setup>,
   beforeSubmit?: () => Promise<void>,
+  status: "DRAFT" | "ACTIVE" = "DRAFT",
 ): Promise<void> {
   // The typed editors are the default variant editor on this page; pricing
   // the Default candidate is what turns the draft into typed rows (Phase A).
@@ -139,7 +140,8 @@ async function fillAndSubmit(
   await user.type(screen.getByLabelText(/Slug \*/), "chair");
 
   await beforeSubmit?.();
-  await user.click(screen.getByRole("button", { name: "保存草稿" }));
+  await user.selectOptions(screen.getByRole("combobox", { name: "商品状态" }), status);
+  await user.click(screen.getByRole("button", { name: status === "ACTIVE" ? "保存并发布" : "保存草稿" }));
 }
 
 /**
@@ -186,6 +188,32 @@ describe("NewProductPage two-phase save", () => {
 
   afterEach(cleanup);
 
+  it("keeps shared gallery identity separate from an independently selected card cover during typed create", async () => {
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockResolvedValue(SAVED_WITH_SKU);
+    setStockBatch.mockResolvedValue([]);
+    renderNewProductPage();
+    await fillAndSubmit(user, async () => {
+      await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+      const shared = screen.getAllByLabelText("要添加的媒体 URL")[0]!.closest("section")!;
+      await user.type(within(shared).getByLabelText("要添加的媒体 URL"), "/uploads/new-scene.webp");
+      await user.click(within(shared).getByRole("button", { name: "添加" }));
+      await user.click(screen.getByRole("button", { name: "媒体 1（封面）" }));
+      expect(screen.queryByRole("button", { name: /设为场景图/ })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+      await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    });
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(createProduct.mock.calls[0]![0].images).toEqual([]);
+    expect(updateProduct.mock.calls[0]![1].catalogGraph.media).toEqual([
+      expect.objectContaining({ clientKey: "shared-media-1", url: "/uploads/new-scene.webp", isScene: false, sortOrder: 0 }),
+    ]);
+    expect(updateProduct.mock.calls[0]![1].catalogGraph.variants[0].cardMedia).toEqual({
+      cover: { type: "IMAGE", url: "/uploads/new-scene.webp", altText: null }, hover: null,
+    });
+  });
+
   it("keeps a continue-on-edit link when the Phase A graph PATCH fails after create", async () => {
     const user = userEvent.setup();
     createProduct.mockResolvedValue(CREATED);
@@ -209,6 +237,55 @@ describe("NewProductPage two-phase save", () => {
     expect(
       screen.getByRole("link", { name: /继续编辑该商品/ }),
     ).toHaveAttribute("href", "/admin/products/created-1/edit");
+  });
+
+  it("creates typed ACTIVE requests as DRAFT until the final graph PATCH succeeds", async () => {
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockResolvedValue(SAVED_WITH_SKU);
+    setStockBatch.mockResolvedValue([]);
+    renderNewProductPage();
+    await fillAndSubmit(user, undefined, "ACTIVE");
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(createProduct.mock.calls[0]![0]).toMatchObject({ status: "DRAFT", images: [], variants: [] });
+    expect(updateProduct.mock.calls[0]![1]).toHaveProperty("status", "ACTIVE");
+  });
+
+  it("retries the latest typed draft after a graph conflict without repeating the successful POST", async () => {
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockRejectedValueOnce(new AdminApiError("catalog graph conflict", 409));
+    updateProduct.mockResolvedValueOnce(SAVED_WITH_SKU);
+    setStockBatch.mockResolvedValue([{ skuId: "sku-1", ok: true, onHand: 4, reserved: 0, available: 4 }]);
+    renderNewProductPage();
+    await fillAndSubmit(user, async () => {
+      await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
+      await user.clear(screen.getByLabelText("Default 的库存"));
+      await user.type(screen.getByLabelText("Default 的库存"), "4");
+      await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+      const shared = screen.getAllByLabelText("要添加的媒体 URL")[0]!.closest("section")!;
+      await user.type(within(shared).getByLabelText("要添加的媒体 URL"), "/uploads/retry-cover.webp");
+      await user.click(within(shared).getByRole("button", { name: "添加" }));
+      await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+      await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    }, "ACTIVE");
+    await screen.findByRole("link", { name: /继续编辑该商品/ });
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Default 卡片封面：替代文字")).toHaveValue("");
+    await user.type(screen.getByLabelText("Default 卡片封面：替代文字"), "Updated card");
+    await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
+    expect(screen.getByLabelText("Default 的库存")).toHaveValue("4");
+    expect(screen.getByLabelText("Default 的 SKU 编码")).toHaveValue("SH-1");
+    await user.click(screen.getByRole("button", { name: "保存并发布" }));
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(2));
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(updateProduct.mock.calls[1]![0]).toBe("created-1");
+    expect(updateProduct.mock.calls[1]![1]).toHaveProperty("status", "ACTIVE");
+    expect(updateProduct.mock.calls[1]![1].catalogGraph.variants[0].cardMedia.cover)
+      .toEqual({ type: "IMAGE", url: "/uploads/retry-cover.webp", altText: "Updated card" });
+    expect(setStockBatch).toHaveBeenCalledWith([{ skuId: "sku-1", onHand: 4, reason: "New product" }]);
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
   });
 
   it("POSTs once and leaves the graph-owned whole lists empty", async () => {

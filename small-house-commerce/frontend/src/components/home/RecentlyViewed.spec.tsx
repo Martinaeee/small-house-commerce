@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { Product } from "@/lib/api";
+import { CartProvider } from "@/components/cart/CartContext";
+import { cardTestProduct } from "@/test/product-card-fixtures";
 import { RecentlyViewed } from "./RecentlyViewed";
 
 const fixtures = vi.hoisted(() => ({
@@ -12,21 +14,21 @@ vi.mock("@/lib/recently-viewed", () => ({
   getRecentProductIds: () => [...fixtures.ids],
 }));
 
-vi.mock("@/lib/api", () => ({
-  api: { getProductsByIds: fixtures.getProductsByIds },
-}));
-
-vi.mock("@/components/product/ProductCard", () => ({
-  ProductCard: ({ product }: { product: Product }) => (
-    <article data-testid="recent-card">{product.id}</article>
-  ),
-}));
+vi.mock("@/lib/api", async importOriginal => {
+  const original = await importOriginal<typeof import("@/lib/api")>();
+  return { ...original, api: { ...original.api, getProductsByIds: fixtures.getProductsByIds } };
+});
 
 function product(id: string): Product {
-  return { id } as Product;
+  const cover = { id: `card:${id}:cover`, type: "IMAGE" as const, url: `/${id}-card.webp`, altText: `${id} card`, sortOrder: 0 };
+  return cardTestProduct({ id, name: id, slug: id, cardMedia: {
+    displayVariantId: "red-variant", unselected: { cover, scene: null },
+    variants: [{ variantId: "red-variant", cover, scene: null }],
+  } });
 }
 
 beforeEach(() => {
+  localStorage.clear();
   fixtures.ids = [];
   fixtures.getProductsByIds.mockReset();
 });
@@ -38,7 +40,7 @@ describe("RecentlyViewed", () => {
       items: ["d", "b", "current", "a", "e", "c"].map(product),
     });
 
-    render(<RecentlyViewed excludeProductId="current" limit={4} />);
+    render(<CartProvider><RecentlyViewed excludeProductId="current" limit={4} /></CartProvider>);
 
     await waitFor(() =>
       expect(fixtures.getProductsByIds).toHaveBeenCalledWith([
@@ -49,8 +51,8 @@ describe("RecentlyViewed", () => {
       ]),
     );
     expect(
-      (await screen.findAllByTestId("recent-card")).map(
-        (card) => card.textContent,
+      (await screen.findAllByRole("article")).map(
+        (card) => card.getAttribute("data-product-id"),
       ),
     ).toEqual(["a", "b", "c", "d"]);
     expect(screen.queryByText("current")).not.toBeInTheDocument();
@@ -63,22 +65,36 @@ describe("RecentlyViewed", () => {
       items: [product("a"), product("current")],
     });
 
-    render(<RecentlyViewed />);
+    render(<CartProvider><RecentlyViewed /></CartProvider>);
 
     await waitFor(() =>
       expect(fixtures.getProductsByIds).toHaveBeenCalledWith(["current", "a"]),
     );
     expect(
-      (await screen.findAllByTestId("recent-card")).map(
-        (card) => card.textContent,
+      (await screen.findAllByRole("article")).map(
+        (card) => card.getAttribute("data-product-id"),
       ),
     ).toEqual(["current", "a"]);
+  });
+
+  it("renders fresh independent images from the one batch response without borrowing the old gallery", async () => {
+    fixtures.ids = ["a", "b"];
+    const absent = product("b");
+    delete absent.cardMedia;
+    fixtures.getProductsByIds.mockResolvedValue({ items: [absent, product("a")] });
+    const { container } = render(<CartProvider><RecentlyViewed /></CartProvider>);
+    expect(await screen.findByRole("img", { name: "a card" })).toHaveAttribute("src", "/a-card.webp");
+    expect(container.querySelector('article[data-product-id="b"] img')).toBeNull();
+    expect(screen.queryByRole("img", { name: "Cover" })).not.toBeInTheDocument();
+    expect(fixtures.getProductsByIds).toHaveBeenCalledTimes(1);
+    expect(fixtures.getProductsByIds).toHaveBeenCalledWith(["a", "b"]);
+    expect((await screen.findAllByRole("article")).map(card => card.getAttribute("data-product-id"))).toEqual(["a", "b"]);
   });
 
   it("does not call the batch API when filtering leaves no IDs", () => {
     fixtures.ids = ["current"];
 
-    render(<RecentlyViewed excludeProductId="current" limit={4} />);
+    render(<CartProvider><RecentlyViewed excludeProductId="current" limit={4} /></CartProvider>);
 
     expect(fixtures.getProductsByIds).not.toHaveBeenCalled();
     expect(screen.queryByText("Recently Viewed")).not.toBeInTheDocument();

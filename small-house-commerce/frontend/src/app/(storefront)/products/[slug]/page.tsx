@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { PdpView } from "@/components/product/PdpView";
 import { deliveryWindows } from "@/lib/deliveryWindow";
 import { absoluteUrl, buildProductJsonLd } from "@/lib/product-jsonld";
-import { serverApiUrl, type Category, type Product } from "@/lib/api";
+import { serverApiUrl, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
-import { fetchRelatedProducts } from "@/lib/pdp-products";
+import { fetchCategoryInfo, fetchRelatedProducts } from "@/lib/pdp-products";
 
 export const revalidate = 120;
 
@@ -25,43 +25,6 @@ async function fetchProduct(
     );
     if (!res.ok) return null;
     return (await res.json()) as Product;
-  } catch {
-    return null;
-  }
-}
-
-/** One breadcrumb level; ordered root → leaf for display. */
-export interface CategoryCrumb {
-  name: string;
-  slug: string;
-}
-
-/**
- * Walks the storefront category tree and returns the full root→leaf chain for
- * the product's category — the visible breadcrumb and the JSON-LD BreadcrumbList
- * are both generated from it, never hand-entered.
- */
-export async function fetchCategoryInfo(
-  categoryId: string,
-): Promise<CategoryCrumb[] | null> {
-  try {
-    const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
-      next: { revalidate: 300, tags: STOREFRONT_TAGS },
-    });
-    if (!res.ok) return null;
-    const tree = (await res.json()) as Category[];
-    const path: CategoryCrumb[] = [];
-    const dfs = (nodes: Category[]): CategoryCrumb[] | null => {
-      for (const node of nodes) {
-        path.push({ name: node.name, slug: node.slug });
-        if (node.id === categoryId) return [...path];
-        const found = dfs(node.children);
-        if (found) return found;
-        path.pop();
-      }
-      return null;
-    };
-    return dfs(tree);
   } catch {
     return null;
   }

@@ -7,6 +7,8 @@ import {
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
+import { assertSceneMedia, resolveSceneFlag } from './product-scene-policy.js';
+import { validateProductCardReadiness } from './product-card-readiness.js';
 import {
   canonicalCombinationKey,
   deriveVariantName,
@@ -173,6 +175,7 @@ interface PlannedMedia {
     type: MediaWrite['type'];
     altText: string | null;
     sortOrder: number;
+    isScene: boolean;
   };
 }
 
@@ -785,6 +788,9 @@ export class CatalogGraphService {
           name: variant.name,
           position: variant.position,
           combinationKey: variant.combinationKey,
+          ...(variant.incoming?.write.cardMedia !== undefined ? {
+            cardMedia: variant.incoming.write.cardMedia === null ? Prisma.DbNull : variant.incoming.write.cardMedia,
+          } : {}),
         })),
       });
     }
@@ -798,6 +804,9 @@ export class CatalogGraphService {
               name: variant.name,
               position: variant.position,
               combinationKey: variant.combinationKey,
+              ...(variant.incoming?.write.cardMedia !== undefined ? {
+                cardMedia: variant.incoming.write.cardMedia === null ? Prisma.DbNull : variant.incoming.write.cardMedia,
+              } : {}),
             },
           }),
         ),
@@ -861,6 +870,15 @@ export class CatalogGraphService {
         where: { id: { in: plan.retiredMediaIds } },
       });
     }
+    const existingMediaWrites = plan.media.filter(({ isNew }) => !isNew);
+    if (existingMediaWrites.length > 0) {
+      await tx.productImage.updateMany({
+        where: {
+          productId, id: { in: existingMediaWrites.map(row => row.id) }, isScene: true,
+        },
+        data: { isScene: false },
+      });
+    }
     const mediaCreates = plan.media.filter(({ isNew }) => isNew);
     if (mediaCreates.length > 0) {
       await tx.productImage.createMany({
@@ -868,9 +886,7 @@ export class CatalogGraphService {
       });
     }
     await Promise.all(
-      plan.media
-        .filter(({ isNew }) => !isNew)
-        .map(({ id, data }) =>
+      existingMediaWrites.map(({ id, data }) =>
           tx.productImage.update({
             where: { id },
             data: {
@@ -880,6 +896,7 @@ export class CatalogGraphService {
               type: data.type,
               altText: data.altText,
               sortOrder: data.sortOrder,
+              isScene: data.isScene,
             },
           }),
         ),
@@ -892,10 +909,12 @@ export class CatalogGraphService {
       });
     }
 
-    return tx.product.findUniqueOrThrow({
+    const saved = await tx.product.findUniqueOrThrow({
       where: { id: productId },
       include: GRAPH_SNAPSHOT_INCLUDE,
     });
+    if (saved.status === 'ACTIVE') await validateProductCardReadiness(tx, [productId]);
+    return saved;
   }
 
   private buildCandidates(
@@ -1040,9 +1059,20 @@ export class CatalogGraphService {
           type: write.type,
           altText: write.altText ?? null,
           sortOrder: write.sortOrder,
+          isScene: resolveSceneFlag(existingMedia.get(id), {
+            productId, optionValueId, variantId, url: write.url,
+            type: write.type, isScene: write.isScene,
+          }),
         },
       } satisfies PlannedMedia;
     });
+    const finalMedia = new Map<string, GraphMedia | PlannedMedia['data']>(
+      [...existingMedia.values()]
+        .filter(row => !retired.has(row.id) && (!row.variantId || !deletedVariantIds.has(row.variantId)))
+        .map(row => [row.id, row]),
+    );
+    for (const row of rows) finalMedia.set(row.id, row.data);
+    assertSceneMedia([...finalMedia.values()]);
     return { rows, retiredIds };
   }
 

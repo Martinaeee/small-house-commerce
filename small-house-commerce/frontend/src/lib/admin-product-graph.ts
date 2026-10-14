@@ -13,6 +13,7 @@
  *  - at most two active option groups and 100 Cartesian candidates.
  */
 
+import type { ProductFormValue } from "@/components/admin/ProductForm";
 import type {
   AdminCatalogGraph,
   AdminGraphVariant,
@@ -20,8 +21,101 @@ import type {
   AdminOptionKind,
   AdminOptionPresentation,
   AdminProduct,
+  VariantCardImage,
+  VariantCardMedia,
   WireCatalogGraphPatch,
 } from "./admin-api";
+
+function toFormNumber(value: number | string | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+export function deserializeProduct(p: AdminProduct): ProductFormValue {
+  const repairImageOrder = new Set(p.images.map(image => image.sortOrder)).size !== p.images.length;
+  return {
+    name: p.name,
+    slug: p.slug,
+    description: p.description ?? "",
+    tagline: p.tagline ?? "",
+    seoTitle: p.seoTitle ?? "",
+    metaDescription: p.metaDescription ?? "",
+    categoryId: p.categoryId,
+    status: p.status,
+    room: p.room ?? "",
+    internalRole: p.internalRole ?? "",
+    solutions: [...p.solutions],
+    width: toFormNumber(p.width),
+    height: toFormNumber(p.height),
+    depth: toFormNumber(p.depth),
+    foldedWidth: toFormNumber(p.foldedWidth),
+    foldedHeight: toFormNumber(p.foldedHeight),
+    foldedDepth: toFormNumber(p.foldedDepth),
+    materials: p.materials ?? "",
+    features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
+    images: p.images.map((image, index) => ({
+      id: image.id,
+      url: image.url,
+      type: image.type ?? "IMAGE",
+      altText: image.altText ?? "",
+      sortOrder: String(repairImageOrder ? index : image.sortOrder),
+      isScene: image.isScene ?? false,
+    })),
+    detailBlocks: p.detailBlocks.map((block, index) => ({
+      type: block.type,
+      url: block.url,
+      altText: block.altText ?? "",
+      sortOrder: String(index),
+    })),
+    variants: p.variants.map((variant) => ({
+      id: variant.id,
+      ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),
+      name: variant.name,
+      position: String(variant.position),
+      sku: variant.sku
+        ? {
+            skuCode: variant.sku.skuCode,
+            status: variant.sku.status,
+            price: toFormNumber(variant.sku.price),
+            compareAtPrice: toFormNumber(variant.sku.compareAtPrice),
+            supplierSku: variant.sku.supplierSku ?? "",
+            supplierCost: toFormNumber(variant.sku.supplierCost),
+            costCurrency: variant.sku.costCurrency ?? "",
+            landedCost: toFormNumber(variant.sku.landedCost),
+            productWeight: toFormNumber(variant.sku.productWeight),
+            packageWidth: toFormNumber(variant.sku.packageWidth),
+            packageHeight: toFormNumber(variant.sku.packageHeight),
+            packageDepth: toFormNumber(variant.sku.packageDepth),
+            packageWeight: toFormNumber(variant.sku.packageWeight),
+            volumetricWeight: toFormNumber(variant.sku.volumetricWeight),
+            id: variant.sku.id,
+            stock: toFormNumber(variant.sku.onHand),
+            reserved: toFormNumber(variant.sku.reserved),
+          }
+        : null,
+    })),
+    graph: deserializeAdminProduct(p),
+    graphTyped: p.options !== undefined || p.media !== undefined,
+  };
+}
+
+export function buildSavedPreview(
+  product: Pick<AdminProduct, "slug" | "status" | "variants">,
+): {
+  path: string;
+  status: AdminProduct["status"];
+  variants: { id: string; name: string; skuStatus: "ACTIVE" | "DISABLED" | null; cardMedia?: VariantCardMedia | null }[];
+} {
+  return {
+    path: `/products/${product.slug}`,
+    status: product.status,
+    variants: product.variants.map((variant) => ({
+      id: variant.id,
+      name: variant.name,
+      skuStatus: variant.sku?.status ?? null,
+      ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),
+    })),
+  };
+}
 
 // --- shared reference shape ---------------------------------------------------
 
@@ -69,6 +163,8 @@ export interface AdminSkuDraft extends EntityRef {
   volumetricWeight: number | null;
   /** Live on-hand stock (inventory table; written through the batch endpoint). */
   onHand: number;
+  /** Read-only reserved stock surfaced by the graph snapshot. */
+  reserved?: number;
 }
 
 export interface AdminVariantDraft extends EntityRef {
@@ -77,6 +173,7 @@ export interface AdminVariantDraft extends EntityRef {
   position: number;
   combinationKey: string;
   optionValueRefs: EntityRef[];
+  cardMedia?: VariantCardMedia | null;
   sku: AdminSkuDraft | null;
   /**
    * True when carts/orders/reservations/scoped media reference the row
@@ -91,6 +188,7 @@ export interface AdminMediaDraft extends EntityRef {
   type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
   /** null = shared product media; a ref scopes the row to a value/variant. */
   optionValueRef: EntityRef | null;
   variantRef: EntityRef | null;
@@ -130,10 +228,11 @@ export interface CatalogOptionUpsert extends EntityRef {
 export interface CatalogVariantUpsert extends EntityRef {
   position: number;
   optionValueRefs: EntityRef[];
+  cardMedia?: VariantCardMedia | null;
   /** SKU pricing/identity payload; stock deliberately excluded. */
   sku?: Omit<
     AdminSkuDraft,
-    "id" | "clientKey" | "onHand"
+    "id" | "clientKey" | "onHand" | "reserved"
   > | null;
 }
 
@@ -142,6 +241,7 @@ export interface CatalogMediaUpsert extends EntityRef {
   type: "IMAGE" | "VIDEO";
   altText?: string | null;
   sortOrder: number;
+  isScene?: boolean;
   optionValueRef: EntityRef | null;
   variantRef: EntityRef | null;
 }
@@ -206,6 +306,7 @@ function skuDraftFromGraph(sku: {
   packageWeight: number | null;
   volumetricWeight: number | null;
   onHand: number;
+  reserved?: number;
 }): AdminSkuDraft {
   return {
     id: sku.id,
@@ -224,6 +325,7 @@ function skuDraftFromGraph(sku: {
     packageWeight: sku.packageWeight,
     volumetricWeight: sku.volumetricWeight,
     onHand: sku.onHand,
+    reserved: sku.reserved ?? 0,
   };
 }
 
@@ -277,6 +379,7 @@ export function deserializeAdminProduct(
             })),
           ),
         optionValueRefs: refs,
+        ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),
         sku: variant.sku ? skuDraftFromGraph(variant.sku) : null,
         hasReferences: variant.hasReferences ?? false,
       };
@@ -294,6 +397,7 @@ export function deserializeAdminProduct(
         type: row.type,
         altText: row.altText,
         sortOrder: row.sortOrder,
+        isScene: row.isScene ?? false,
         optionValueRef: optionValueId ? { id: optionValueId } : null,
         variantRef: variantId ? { id: variantId } : null,
       };
@@ -349,6 +453,7 @@ export function deserializeAdminProduct(
           { optionId: optionClientKey, valueId: valueClientKey },
         ]),
         optionValueRefs: [{ clientKey: valueClientKey }],
+        ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),
         hasReferences: false,
         sku: variant.sku
           ? {
@@ -368,6 +473,7 @@ export function deserializeAdminProduct(
               packageWeight: variant.sku.packageWeight,
               volumetricWeight: variant.sku.volumetricWeight,
               onHand: variant.sku.onHand,
+              reserved: variant.sku.reserved,
             }
           : null,
       };
@@ -378,9 +484,76 @@ export function deserializeAdminProduct(
       type: row.type,
       altText: row.altText,
       sortOrder: row.sortOrder,
+      isScene: row.isScene ?? false,
       optionValueRef: null,
       variantRef: null,
     })),
+  };
+}
+
+function nullableFormNumber(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function cardGraphFromLegacyForm(value: ProductFormValue): AdminCatalogGraphDraft {
+  const draft = structuredClone(value.graph ?? {
+    catalogGraphVersion: 0, defaultDisplayVariantRef: null, options: [], variants: [], media: [],
+  });
+  const previousRows = new Map(draft.variants.map(row => [rowKey(row), row]));
+  const option: AdminOptionDraft = draft.options[0] ?? {
+    clientKey: freshClientKey("legacy-option", draft), kind: "STYLE", name: "Style", position: 0,
+    presentation: "TEXT", isMediaDriver: false, isActive: true, values: [],
+  };
+  const oldValues = new Map(option.values.map(row => [rowKey(row), row]));
+  const values: AdminOptionValueDraft[] = [];
+  draft.variants = value.variants.map((row, index) => {
+    const ref = row.id !== undefined ? { id: row.id } : { clientKey: row.clientKey! };
+    const key = rowKey(ref);
+    const previous = previousRows.get(key);
+    const valueRef = previous?.optionValueRefs[0] ?? { clientKey: `legacy-value-${key}` };
+    values.push({
+      ...oldValues.get(rowKey(valueRef)), ...valueRef, label: row.name,
+      position: index, swatchHex: null,
+      thumbnailUrl: null, thumbnailAlt: null, isActive: true,
+    });
+    const sku = row.sku;
+    return {
+      ...previous, ...ref, name: row.name, position: nullableFormNumber(row.position) ?? 0,
+      combinationKey: canonicalCombinationKey([{ optionId: rowKey(option), valueId: rowKey(valueRef) }]),
+      optionValueRefs: [valueRef],
+      ...(row.cardMedia !== undefined ? { cardMedia: structuredClone(row.cardMedia) } : {}),
+      sku: sku ? {
+        ...previous?.sku, ...(sku.id ? { id: sku.id } : {}), skuCode: sku.skuCode, status: sku.status,
+        supplierSku: sku.supplierSku || null, supplierCost: nullableFormNumber(sku.supplierCost),
+        costCurrency: sku.costCurrency || null, landedCost: nullableFormNumber(sku.landedCost),
+        price: nullableFormNumber(sku.price), compareAtPrice: nullableFormNumber(sku.compareAtPrice),
+        productWeight: nullableFormNumber(sku.productWeight),
+        packageWidth: nullableFormNumber(sku.packageWidth), packageHeight: nullableFormNumber(sku.packageHeight),
+        packageDepth: nullableFormNumber(sku.packageDepth), packageWeight: nullableFormNumber(sku.packageWeight),
+        volumetricWeight: nullableFormNumber(sku.volumetricWeight),
+        onHand: nullableFormNumber(sku.stock) ?? 0, reserved: nullableFormNumber(sku.reserved) ?? 0,
+      } : null,
+    };
+  });
+  draft.options = [{ ...option, kind: "STYLE", values, isActive: values.length > 0 }];
+  syncSharedMediaDraft(draft, value.images);
+  return draft;
+}
+
+export function setVariantCardImage(
+  draft: AdminCatalogGraphDraft,
+  variantRef: EntityRef,
+  slot: "cover" | "hover",
+  image: VariantCardImage | null,
+): void {
+  const variant = draft.variants.find(row => rowKey(row) === rowKey(variantRef));
+  if (!variant) return;
+  variant.cardMedia = {
+    cover: variant.cardMedia?.cover ?? null,
+    hover: variant.cardMedia?.hover ?? null,
+    [slot]: image === null ? null : structuredClone(image),
   };
 }
 
@@ -429,6 +602,7 @@ export function graphFromAdminProduct(
         name: variant.name,
         position: variant.position,
         combinationKey: variant.combinationKey,
+        ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),
         optionValues: variant.optionValueRefs.map((ref) => ({
           optionId: optionKeyByValueKey.get(rowKey(ref)) ?? "",
           optionValueId: ref.id ?? ref.clientKey!,
@@ -455,8 +629,8 @@ export function graphFromAdminProduct(
               packageWeight: sku.packageWeight,
               volumetricWeight: sku.volumetricWeight,
               onHand: sku.onHand,
-              reserved: 0,
-              availableInventory: sku.onHand,
+              reserved: sku.reserved ?? 0,
+              availableInventory: Math.max(0, sku.onHand - (sku.reserved ?? 0)),
             }
           : null,
         hasReferences: false,
@@ -468,6 +642,7 @@ export function graphFromAdminProduct(
       type: row.type,
       altText: row.altText,
       sortOrder: row.sortOrder,
+      isScene: row.isScene ?? false,
       optionValueId: row.optionValueRef?.id ?? null,
       variantId: row.variantRef?.id ?? null,
     })),
@@ -836,6 +1011,19 @@ function numberEquals(
   return Number(wire) === draft;
 }
 
+function cardMediaChanged(
+  original: VariantCardMedia | null | undefined,
+  draft: VariantCardMedia | null | undefined,
+): boolean {
+  if (draft === undefined) return false;
+  if (original == null || draft === null) return (original ?? null) !== draft;
+  return (["cover", "hover"] as const).some(slot => {
+    const before = original[slot];
+    const after = draft[slot];
+    return before?.type !== after?.type || before?.url !== after?.url || before?.altText !== after?.altText;
+  });
+}
+
 function skuChanged(
   original: NonNullable<AdminCatalogGraph["variants"][number]["sku"]> | null,
   draft: AdminSkuDraft | null,
@@ -893,6 +1081,7 @@ function mediaChanged(
     original.type !== draft.type ||
     original.altText !== draft.altText ||
     original.sortOrder !== draft.sortOrder ||
+    (original.isScene ?? false) !== (draft.isScene ?? false) ||
     (original.optionValueId ?? null) !==
       (draft.optionValueRef ? rowKey(draft.optionValueRef) : null) ||
     (original.variantId ?? null) !==
@@ -1005,6 +1194,7 @@ export function buildCatalogGraphPatch(
           : { clientKey: draftVariant.clientKey! }),
         position: draftVariant.position,
         optionValueRefs: draftVariant.optionValueRefs,
+        ...(draftVariant.cardMedia !== undefined ? { cardMedia: draftVariant.cardMedia } : {}),
         ...(draftVariant.sku ? { sku: skuWritePayload(draftVariant.sku) } : {}),
       });
       continue;
@@ -1016,10 +1206,11 @@ export function buildCatalogGraphPatch(
         (ref, index) =>
           rowKey(ref) !== source.optionValues[index]?.optionValueId,
       );
+    const skuHasChanged = skuChanged(source.sku, draftVariant.sku);
+    const cardHasChanged = cardMediaChanged(source.cardMedia, draftVariant.cardMedia);
     if (
       draftVariant.position === source.position &&
-      !refsChanged &&
-      !skuChanged(source.sku, draftVariant.sku)
+      !refsChanged && !skuHasChanged && !cardHasChanged
     ) {
       continue;
     }
@@ -1027,13 +1218,8 @@ export function buildCatalogGraphPatch(
       id: source.id,
       position: draftVariant.position,
       optionValueRefs: draftVariant.optionValueRefs,
-      // sku omitted entirely when neither side has one; `null` only as an
-      // explicit disable of a SKU the server still holds.
-      ...(draftVariant.sku
-        ? { sku: skuWritePayload(draftVariant.sku) }
-        : source.sku
-          ? { sku: null }
-          : {}),
+      ...(cardHasChanged ? { cardMedia: draftVariant.cardMedia } : {}),
+      ...(skuHasChanged ? { sku: draftVariant.sku ? skuWritePayload(draftVariant.sku) : null } : {}),
     });
   }
 
@@ -1051,6 +1237,7 @@ export function buildCatalogGraphPatch(
       type: draftMedia.type,
       altText: draftMedia.altText,
       sortOrder: draftMedia.sortOrder,
+      isScene: draftMedia.isScene ?? false,
       optionValueRef: draftMedia.optionValueRef,
       variantRef: draftMedia.variantRef,
     });
@@ -1146,73 +1333,67 @@ export function collectStockBatch(
 // --- shared gallery sync -----------------------------------------------------------
 
 interface SharedMediaInput {
+  id?: string;
+  clientKey?: string;
   url: string;
   type?: "IMAGE" | "VIDEO";
   altText?: string | null;
   sortOrder?: string | number;
+  isScene?: boolean;
 }
 
-/**
- * Overlays the legacy gallery tab (an ordered list of shared media rows) onto
- * the draft's shared media set, reusing persisted row ids positionally and
- * minting client keys for net-new rows. Removed rows simply vanish from the
- * draft — buildCatalogGraphPatch then retires their server ids. Scoped rows
- * (option-value/variant) are never touched: the legacy tab cannot see them.
- */
 export function syncSharedMediaDraft(
   draft: AdminCatalogGraphDraft,
   images: readonly SharedMediaInput[],
 ): void {
-  const sharedIndexes: number[] = [];
-  draft.media.forEach((row, index) => {
-    if (row.optionValueRef === null && row.variantRef === null) {
-      sharedIndexes.push(index);
+  const shared = draft.media.filter(row => row.optionValueRef === null && row.variantRef === null);
+  const scoped = draft.media.filter(row => row.optionValueRef !== null || row.variantRef !== null);
+  const byIdentity = new Map(shared.map(row => [rowKey(row), row]));
+  const byMedia = new Map<string, AdminMediaDraft[]>();
+  const incomingCounts = new Map<string, number>();
+  const mediaKey = (row: SharedMediaInput) => JSON.stringify([row.url, row.type ?? "IMAGE"]);
+  for (const row of shared) {
+    const key = mediaKey(row);
+    const matches = byMedia.get(key) ?? [];
+    matches.push(row);
+    byMedia.set(key, matches);
+  }
+  for (const image of images) {
+    const key = mediaKey(image);
+    incomingCounts.set(key, (incomingCounts.get(key) ?? 0) + 1);
+  }
+  const nextShared: AdminMediaDraft[] = [];
+  for (const [index, image] of images.entries()) {
+    const identity = image.id ?? image.clientKey;
+    let previous = identity === undefined ? undefined : byIdentity.get(identity);
+    if (identity === undefined) {
+      const matches = byMedia.get(mediaKey(image)) ?? [];
+      const unique = matches.length === 1 && incomingCounts.get(mediaKey(image)) === 1;
+      if (!unique && image.isScene === undefined && matches.some(row => row.isScene)) {
+        throw new Error("Cannot uniquely preserve scene metadata for ambiguous duplicate media URLs; provide stable media identities.");
+      }
+      if (unique) previous = matches[0];
     }
-  });
-
-  // Already in sync (same rows, same order, same content): leave the draft
-  // untouched so an unedited gallery produces no spurious upserts.
-  if (
-    sharedIndexes.length === images.length &&
-    sharedIndexes.every((mediaIndex, i) => {
-      const row = draft.media[mediaIndex]!;
-      const image = images[i]!;
-      return (
-        row.url === image.url &&
-        row.type === (image.type ?? "IMAGE") &&
-        (row.altText ?? "") === (image.altText ?? "")
-      );
-    })
-  ) {
-    return;
-  }
-
-  const kept = Math.min(sharedIndexes.length, images.length);
-  for (let i = 0; i < kept; i += 1) {
-    const row = draft.media[sharedIndexes[i]]!;
-    const image = images[i]!;
-    row.url = image.url;
-    row.type = image.type ?? "IMAGE";
-    row.altText = image.altText || null;
-    row.sortOrder = i;
-  }
-
-  // Drop shared rows beyond the submitted list (retired on diff).
-  for (let i = sharedIndexes.length - 1; i >= kept; i -= 1) {
-    draft.media.splice(sharedIndexes[i]!, 1);
-  }
-
-  images.slice(kept).forEach((image, offset) => {
-    draft.media.push({
-      clientKey: `media-new-${draft.media.length}-${offset}`,
-      url: image.url,
-      type: image.type ?? "IMAGE",
-      altText: image.altText || null,
-      sortOrder: kept + offset,
-      optionValueRef: null,
-      variantRef: null,
+    const ref: EntityRef = previous
+      ? previous.id !== undefined ? { id: previous.id } : { clientKey: previous.clientKey! }
+      : image.id !== undefined ? { id: image.id }
+        : { clientKey: image.clientKey ?? freshClientKey("media", { ...draft, media: [...draft.media, ...nextShared] }) };
+    const type = image.type ?? "IMAGE";
+    const order = Number(image.sortOrder ?? index);
+    nextShared.push({
+      ...ref, url: image.url, type, altText: image.altText || null,
+      sortOrder: Number.isInteger(order) && order >= 0 ? order : index,
+      isScene: type === "IMAGE" && (image.isScene ?? previous?.isScene ?? false),
+      optionValueRef: null, variantRef: null,
     });
-  });
+  }
+  if (shared.length === nextShared.length && shared.every((row, index) => {
+    const next = nextShared[index]!;
+    return rowKey(row) === rowKey(next) && row.url === next.url && row.type === next.type &&
+      (row.altText ?? "") === (next.altText ?? "") && row.sortOrder === next.sortOrder &&
+      (row.isScene ?? false) === next.isScene;
+  })) return;
+  draft.media = [...nextShared, ...scoped];
 }
 
 // --- wire conversion -----------------------------------------------------------------
@@ -1254,6 +1435,7 @@ export function toWireCatalogGraphPatch(
       ...wireRef(variant),
       position: variant.position,
       optionValueRefs: variant.optionValueRefs.map(wireRef),
+      ...(variant.cardMedia !== undefined ? { cardMedia: variant.cardMedia } : {}),
       // Emit the sku key only when the patch carries SKU information
       // (payload or explicit null-disable); absent = leave untouched.
       ...(variant.sku !== undefined ? { sku: variant.sku ?? null } : {}),
@@ -1264,6 +1446,7 @@ export function toWireCatalogGraphPatch(
         url: media.url,
         type: media.type,
         sortOrder: media.sortOrder,
+        isScene: media.isScene ?? false,
       };
       if (media.altText !== null) wire.altText = media.altText;
       if (media.optionValueRef) {

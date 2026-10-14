@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { ReviewsService } from '../catalog/reviews.service.js';
+import { ProductsService } from '../catalog/products.service.js';
 import { saveHeroStyle, loadHeroStyles } from '../catalog/hero-style.util.js';
 import type {
   CollectionQuery,
@@ -13,7 +13,7 @@ import type {
 export class CollectionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly reviews: ReviewsService,
+    private readonly products: ProductsService,
   ) {}
 
   // --- storefront -----------------------------------------------------------
@@ -122,22 +122,7 @@ export class CollectionsService {
         where: membershipWhere,
         select: {
           product: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              description: true,
-              images: { select: { url: true, altText: true, sortOrder: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
-              variants: {
-                select: {
-                  id: true,
-                  name: true,
-                  position: true,
-                  sku: { select: { id: true, skuCode: true, price: true, compareAtPrice: true } },
-                },
-                orderBy: { position: 'asc' },
-              },
-            },
+            select: { id: true },
           },
         },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -147,44 +132,10 @@ export class CollectionsService {
       this.prisma.collectionProduct.count({ where: membershipWhere }),
     ]);
 
-    // available = on_hand - reserved per SKU (DATABASE.md §29).
-    const skuIds = [
-      ...new Set(
-        rows.flatMap((r) =>
-          r.product.variants.flatMap((v) => (v.sku ? [v.sku.id] : [])),
-        ),
-      ),
-    ];
-    const availableBySku = new Map<string, number>();
-    if (skuIds.length > 0) {
-      const grouped = await this.prisma.inventory.groupBy({
-        by: ['skuId'],
-        where: { skuId: { in: skuIds } },
-        _sum: { onHand: true, reserved: true },
-      });
-      for (const row of grouped) {
-        availableBySku.set(row.skuId, (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0));
-      }
-    }
+    const productIds = rows.map(({ product }) => product.id);
+    const items = await this.products.storefrontByIds(productIds);
 
-    const items = rows.map(({ product }) => ({
-      ...product,
-      variants: product.variants.map((variant) => ({
-        ...variant,
-        sku: variant.sku
-          ? { ...variant.sku, price: variant.sku.price === null ? null : Number(variant.sku.price), availableInventory: availableBySku.get(variant.sku.id) ?? 0 }
-          : null,
-      })),
-    }));
-
-    // Review summary on cards (PDP_REFINEMENT §6); batched, no reviews[] list.
-    const summary = await this.reviews.summaryForProducts(items.map((p) => p.id));
-    const itemsWithReviews = items.map((p) => {
-      const s = summary.get(p.id) ?? { reviewCount: 0, ratingAverage: null };
-      return { ...p, reviewCount: s.reviewCount, ratingAverage: s.ratingAverage };
-    });
-
-    return { items: itemsWithReviews, total, page, pageSize };
+    return { items, total, page, pageSize };
   }
 
   // --- admin ----------------------------------------------------------------

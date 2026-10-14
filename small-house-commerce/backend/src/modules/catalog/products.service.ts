@@ -25,6 +25,10 @@ import {
 } from './admin-product-attention.js';
 import { presentCatalogGraph } from './catalog-compat.js';
 import { legacyUnmappedCombinationKey } from './catalog-graph.js';
+import { prepareLegacySceneImages } from './product-scene-policy.js';
+import { buildProductCardMedia, type ProductCardMedia } from './product-card-media.js';
+import type { VariantCardMedia } from './variant-card-media.js';
+import { validateProductCardReadiness } from './product-card-readiness.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
 import type { AdminProduct } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
@@ -103,6 +107,7 @@ const STOREFRONT_SELECT = {
       sortOrder: true,
       optionValueId: true,
       variantId: true,
+      isScene: true,
     },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
@@ -138,6 +143,7 @@ const STOREFRONT_SELECT = {
       name: true,
       position: true,
       combinationKey: true,
+      cardMedia: true,
       optionValues: {
         select: { optionId: true, optionValueId: true },
       },
@@ -343,6 +349,7 @@ export class ProductsService {
 
   async create(input: CreateProductInput) {
     await this.ensureCategory(input.categoryId);
+    const images = prepareLegacySceneImages([], input.images);
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
@@ -374,7 +381,7 @@ export class ProductsService {
             foldedDepth: input.foldedDepth ?? null,
             materials: input.materials ?? null,
             features: input.features ?? null,
-            images: { create: input.images },
+            images: { create: images },
             detailBlocks: { create: input.detailBlocks },
           },
         });
@@ -390,6 +397,9 @@ export class ProductsService {
               name: variant.name,
               position: variant.position,
               combinationKey: legacyUnmappedCombinationKey(variantId),
+              ...(variant.cardMedia !== undefined ? {
+                cardMedia: variant.cardMedia === null ? Prisma.DbNull : variant.cardMedia,
+              } : {}),
             },
           });
 
@@ -404,10 +414,12 @@ export class ProductsService {
           }
         }
 
-        return tx.product.findUniqueOrThrow({
+        const saved = await tx.product.findUniqueOrThrow({
           where: { id: product.id },
           include: ADMIN_PRODUCT_INCLUDE,
         });
+        if (saved.status === 'ACTIVE') await validateProductCardReadiness(tx, [product.id]);
+        return saved;
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
       const [enriched] = await this.withStock([created]);
@@ -494,18 +506,31 @@ export class ProductsService {
         return enriched;
       }
 
-      if (input.images !== undefined) {
-        data.images = { deleteMany: {}, create: input.images };
-      }
       const updated = await this.prisma.$transaction(async (tx) => {
+        if (writesLegacyGraph) {
+          const locked = await tx.$queryRaw<Array<{ catalog_graph_version: number }>>`
+            SELECT catalog_graph_version FROM products WHERE id = ${id}::uuid FOR UPDATE
+          `;
+          if (locked[0]?.catalog_graph_version > 0) {
+            throw new CatalogGraphVersionRequiredError();
+          }
+        }
+        if (input.images !== undefined) {
+          const oldImages = await tx.productImage.findMany({
+            where: { productId: id, optionValueId: null, variantId: null },
+          });
+          data.images = { deleteMany: {}, create: prepareLegacySceneImages(oldImages, input.images) };
+        }
         if (input.variants !== undefined) {
           await this.reconcileVariants(tx, id, input.variants);
         }
-        return tx.product.update({
+        const product = await tx.product.update({
           where: { id },
           data,
           include: ADMIN_PRODUCT_INCLUDE,
         });
+        if (product.status === 'ACTIVE') await validateProductCardReadiness(tx, [id]);
+        return product;
       });
 
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
@@ -627,6 +652,9 @@ export class ProductsService {
             name: variant.name,
             position: variant.position,
             combinationKey: legacyUnmappedCombinationKey(id),
+            ...(variant.cardMedia !== undefined ? {
+              cardMedia: variant.cardMedia === null ? Prisma.DbNull : variant.cardMedia,
+            } : {}),
           },
         });
         if (incomingSku) {
@@ -644,7 +672,13 @@ export class ProductsService {
       kept.add(match.id);
       await tx.productVariant.update({
         where: { id: match.id },
-        data: { name: variant.name, position: variant.position },
+        data: {
+          name: variant.name,
+          position: variant.position,
+          ...(variant.cardMedia !== undefined ? {
+            cardMedia: variant.cardMedia === null ? Prisma.DbNull : variant.cardMedia,
+          } : {}),
+        },
       });
 
       if (incomingSku && match.sku) {
@@ -769,10 +803,14 @@ export class ProductsService {
     });
     const foundIds = existing.map((row) => row.id);
     if (foundIds.length > 0) {
-      await this.prisma.product.updateMany({
-        where: { id: { in: foundIds } },
-        data: { status },
-      });
+      if (status === 'ACTIVE') {
+        await this.prisma.$transaction(async tx => {
+          await tx.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
+          await validateProductCardReadiness(tx, foundIds);
+        });
+      } else {
+        await this.prisma.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
+      }
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
     return { updated: foundIds.length, notFound: ids.length - foundIds.length };
@@ -906,6 +944,8 @@ export class ProductsService {
         ...product,
         ...graph,
         images: graph.images.map(publicStorefrontMedia),
+        variants: graph.variants.map(({ cardMedia: _cardMedia, ...variant }) => variant),
+        cardMedia: presentation!.cardMedia,
         effectiveCoverMedia:
           presentation?.effectiveCoverMedia ?? graph.effectiveCoverMedia,
         reviewCount: reviewSummary.reviewCount,
@@ -920,6 +960,7 @@ export class ProductsService {
       {
         effectiveCoverMedia: ProductMediaItem | null;
         thumbnails: Map<string, ProductMediaItem>;
+        cardMedia: ProductCardMedia;
       }
     >();
     if (items.length === 0) return result;
@@ -940,19 +981,19 @@ export class ProductsService {
           : undefined,
       ]),
     );
-    const defaultVariantIds = [...mediaVariantByProductId.values()]
-      .filter((variant) => variant !== undefined)
-      .map((variant) => variant.id);
+    const variantIds = items
+      .filter(product => product.catalogGraphVersion > 0)
+      .flatMap(product => product.variants.map(variant => variant.id));
 
     const scopedMedia =
-      optionValueIds.length === 0 && defaultVariantIds.length === 0
+      optionValueIds.length === 0 && variantIds.length === 0
         ? []
         : await this.prisma.productImage.findMany({
             where: {
               productId: { in: items.map((product) => product.id) },
               OR: [
                 { optionValueId: { in: optionValueIds } },
-                { variantId: { in: defaultVariantIds } },
+                { variantId: { in: variantIds } },
               ],
             },
             select: {
@@ -964,14 +1005,19 @@ export class ProductsService {
               sortOrder: true,
               optionValueId: true,
               variantId: true,
+              isScene: true,
             },
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           });
 
+    const mediaByProduct = new Map<string, typeof scopedMedia>();
+    for (const item of scopedMedia) {
+      const rows = mediaByProduct.get(item.productId);
+      if (rows) rows.push(item);
+      else mediaByProduct.set(item.productId, [item]);
+    }
     for (const product of items) {
-      const productScopedMedia = scopedMedia.filter(
-        (item) => item.productId === product.id,
-      );
+      const productScopedMedia = mediaByProduct.get(product.id) ?? [];
       const sharedCover = product.images[0] ?? null;
       const sharedThumbnail =
         product.images.find((item) => item.type === 'IMAGE') ?? null;
@@ -1026,6 +1072,11 @@ export class ProductsService {
       result.set(product.id, {
         effectiveCoverMedia: cover ? publicStorefrontMedia(cover) : null,
         thumbnails,
+        cardMedia: buildProductCardMedia(product.variants.map(variant => ({
+          id: variant.id, cardMedia: variant.cardMedia as VariantCardMedia | null,
+        })), product.variants
+          .filter(variant => isMediaEligibleVariant(variant) && variant.sku?.price != null)
+          .map(variant => variant.id), product.defaultDisplayVariantId),
       });
     }
 
@@ -1150,6 +1201,12 @@ export class ProductsService {
       ...enriched,
       ...presented,
       images: presented.images.map(publicStorefrontMedia),
+      variants: presented.variants.map(({ cardMedia: _cardMedia, ...variant }) => variant),
+      cardMedia: buildProductCardMedia(product.variants.map(variant => ({
+        id: variant.id, cardMedia: variant.cardMedia as VariantCardMedia | null,
+      })), product.variants
+        .filter(variant => isMediaEligibleVariant(variant) && variant.sku?.price != null)
+        .map(variant => variant.id), product.defaultDisplayVariantId),
     };
     const mediaVariant = mediaDisplayVariant(
       base.variants,
@@ -1313,6 +1370,22 @@ export class ProductsService {
 
   private rethrowKnown(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.meta?.modelName === 'ProductImage') {
+        const cause = (error.meta.driverAdapterError as {
+          cause?: { constraint?: { index?: string }; originalCode?: string; originalMessage?: string };
+        } | undefined)?.cause;
+        if (error.code === 'P2002' && [
+          'product_images_scene_shared_key',
+          'product_images_scene_option_value_key',
+          'product_images_scene_variant_key',
+        ].includes(cause?.constraint?.index ?? '')) {
+          throw new BadRequestException('Only one scene image is allowed per media gallery.');
+        }
+        if (error.code === 'P2039' && cause?.originalCode === '23514' &&
+          cause.originalMessage?.includes('"product_images_scene_image_check"')) {
+          throw new BadRequestException('Scene media must be an image.');
+        }
+      }
       if (error.code === 'P2002') {
         throw new ConflictException(
           'A record with the same unique value already exists',

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../../common/site-media-url.js';
+import { variantCardMediaSchema } from '../variant-card-media.js';
 import {
   DetailBlockType,
   ProductOptionKind,
@@ -90,6 +91,7 @@ const variantFieldsSchema = z.object({
   position: z.number().int().nonnegative(),
   optionValueRefs: z.array(entityRefSchema).max(2).default([]),
   sku: skuWriteSchema.nullable().optional(),
+  cardMedia: variantCardMediaSchema.nullable().optional(),
 });
 
 export const variantWriteSchema = entityRefSchema.and(variantFieldsSchema);
@@ -100,12 +102,16 @@ const mediaFieldsSchema = z
     type: z.nativeEnum(DetailBlockType).default('IMAGE'),
     altText: z.string().max(255).nullable().optional(),
     sortOrder: z.number().int().nonnegative().default(0),
+    isScene: z.boolean().optional(),
     optionValueId: uuidSchema.optional(),
     optionValueClientKey: clientKeySchema.optional(),
     variantId: uuidSchema.optional(),
     variantClientKey: clientKeySchema.optional(),
   })
   .superRefine((media, ctx) => {
+    if (media.isScene && media.type !== 'IMAGE') {
+      ctx.addIssue({ code: 'custom', message: 'Scene media must be an image.', path: ['isScene'] });
+    }
     const optionValueRefCount =
       Number(media.optionValueId !== undefined) +
       Number(media.optionValueClientKey !== undefined);

@@ -433,10 +433,22 @@ export interface AdminSku {
   availableInventory: number;
 }
 
+export interface VariantCardImage {
+  type: "IMAGE";
+  url: string;
+  altText: string | null;
+}
+
+export interface VariantCardMedia {
+  cover: VariantCardImage | null;
+  hover: VariantCardImage | null;
+}
+
 export interface AdminVariant {
   id: string;
   name: string;
   position: number;
+  cardMedia?: VariantCardMedia | null;
   sku: AdminSku | null;
 }
 
@@ -446,6 +458,7 @@ export interface AdminProductImage {
   type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
 }
 
 /** Description-body block (image or video) shown below the PDP gallery. */
@@ -559,6 +572,7 @@ export interface AdminGraphVariant {
   name: string;
   position: number;
   combinationKey: string | null;
+  cardMedia?: VariantCardMedia | null;
   optionValues: AdminVariantAssignment[];
   sku: AdminGraphSku | null;
   /** True when carts/orders/reservations/scoped media reference the variant. */
@@ -571,6 +585,7 @@ export interface AdminGraphMedia {
   type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
   optionValueId: string | null;
   variantId: string | null;
 }
@@ -965,7 +980,7 @@ export interface CreateProductInput {
   foldedDepth: number | null;
   materials?: string | null;
   features?: string | null;
-  images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number }[];
+  images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number; isScene?: boolean }[];
   detailBlocks: {
     type: "IMAGE" | "VIDEO";
     url: string;
@@ -975,6 +990,7 @@ export interface CreateProductInput {
   variants: {
     name: string;
     position?: number;
+    cardMedia?: VariantCardMedia | null;
     sku?: {
       skuCode: string;
       status?: "ACTIVE" | "DISABLED";
@@ -1057,6 +1073,7 @@ export interface WireOptionWrite extends WireEntityRef {
 export interface WireVariantWrite extends WireEntityRef {
   position: number;
   optionValueRefs: WireEntityRef[];
+  cardMedia?: VariantCardMedia | null;
   sku?: WireSkuWrite | null;
 }
 
@@ -1065,6 +1082,7 @@ export interface WireMediaWrite extends WireEntityRef {
   type: "IMAGE" | "VIDEO";
   altText?: string | null;
   sortOrder: number;
+  isScene?: boolean;
   optionValueId?: string;
   optionValueClientKey?: string;
   variantId?: string;

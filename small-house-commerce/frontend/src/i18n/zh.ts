@@ -1,6 +1,26 @@
 // Admin back-office Chinese dictionary (order-workbench spec §7.1).
 // Keys mirror en.ts 1:1; TS checks completeness via `satisfies typeof en`.
 export const zh = {
+  product_card_action_aria: "{variant} {slot}：{action}",
+  product_card_alt: "替代文字",
+  product_card_choose_gallery: "从图库选择",
+  product_card_clear: "清空",
+  product_card_empty: "先添加真实款式，再设置商品卡双图。",
+  product_card_gallery_empty: "当前图库没有图片。",
+  product_card_gallery_image: "选择图片 {number}",
+  product_card_gallery_title: "选择商品卡图片",
+  product_card_media_hint: "每个款式独立选择卡片封面和悬停图，不改变详情页图库。",
+  product_card_media_title: "商品卡双图",
+  product_card_missing_cover: "未配置封面",
+  product_card_preview: "预览此款",
+  product_card_preview_title: "商品卡预览",
+  product_card_set_default: "设为默认款式",
+  product_card_upload: "上传图片",
+  product_media_scene_badge: "场景图",
+  product_card_ready_label: "商品卡独立封面",
+  product_card_cover: "卡片封面",
+  product_card_hover: "悬停图片",
+  product_card_default: "默认展示款式",
   // --- AdminShell navigation ---
   nav_orders: "订单",
   nav_inventory: "库存",

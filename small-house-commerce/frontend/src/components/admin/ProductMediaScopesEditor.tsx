@@ -175,6 +175,7 @@ export function ProductMediaScopesEditor({
         clientKey: freshClientKey("media", next),
         ...media,
         altText: null,
+        isScene: false,
         sortOrder: rows.reduce((maximum, row) => Math.max(maximum, row.sortOrder), -1) + 1,
         optionValueRef: scope === "value" ? ref : null,
         variantRef: scope === "variant" ? ref : null,
@@ -190,7 +191,12 @@ export function ProductMediaScopesEditor({
   const setMedia = (key: string, patch: Partial<AdminMediaDraft>): void =>
     onChange((next) => {
       const index = next.media.findIndex((row) => rowKey(row) === key);
-      if (index >= 0) next.media[index] = { ...next.media[index]!, ...patch };
+      if (index >= 0) {
+        const row = next.media[index]!;
+        const moved = (patch.optionValueRef !== undefined && rowKey(patch.optionValueRef ?? {}) !== rowKey(row.optionValueRef ?? {})) ||
+          (patch.variantRef !== undefined && rowKey(patch.variantRef ?? {}) !== rowKey(row.variantRef ?? {}));
+        next.media[index] = { ...row, ...patch, ...(patch.type === "VIDEO" || moved ? { isScene: false } : {}) };
+      }
     });
 
   const removeMedia = (key: string): void =>

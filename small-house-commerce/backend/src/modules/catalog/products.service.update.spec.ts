@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { ProductsService } from './products.service.js';
 import type { UpdateProductInput } from './dto/product.dto.js';
+import type { SceneMediaRow } from './product-scene-policy.js';
+import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 
 /**
  * Regression cover for the admin save path.
@@ -45,6 +48,9 @@ interface HarnessOptions {
   skuDeleteFails?: boolean;
   variantCreateFails?: 'name' | 'sku_code';
   nameSwapFails?: boolean;
+  lockedGraphVersion?: number;
+  existingImages?: SceneMediaRow[];
+  productWriteError?: unknown;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -55,21 +61,39 @@ function createHarness(options: HarnessOptions = {}) {
     skuDeleteFails = false,
     variantCreateFails,
     nameSwapFails = false,
+    lockedGraphVersion = 0,
+    existingImages = [],
+    productWriteError,
   } = options;
+  let images = structuredClone(existingImages);
 
   const updatedProduct = {
     id: 'p1',
     name: 'Chair',
     slug: 'chair',
+    images,
     variants: [{ id: 'v1', name: 'Default', position: 0, sku: { id: 'sku1', skuCode: 'CODE-1' } }],
   };
 
   const tx = {
-    // product_code_seq lookup; the value only has to be renderable.
-    $queryRaw: vi.fn(async () => [{ value: 1n }]),
+    $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes('catalog_graph_version')
+      ? [{ catalog_graph_version: lockedGraphVersion }]
+      : [{ value: 1n }]),
+    productImage: {
+      findMany: vi.fn(async () => structuredClone(images)),
+    },
     product: {
       create: vi.fn(async () => updatedProduct),
-      update: vi.fn(async () => updatedProduct),
+      update: vi.fn(async ({ data }: { data: { images?: { create: SceneMediaRow[] } } }) => {
+        if (productWriteError) throw productWriteError;
+        if (data.images) {
+          images = data.images.create.map((row, index) => ({
+            ...row, id: `image-${index}`, productId: 'p1', optionValueId: null, variantId: null,
+          }));
+          updatedProduct.images = images;
+        }
+        return updatedProduct;
+      }),
       findUniqueOrThrow: vi.fn(async () => updatedProduct),
     },
     productVariant: {
@@ -130,6 +154,163 @@ const REFERENCED_VARIANT = {
   position: 0,
   sku: { id: 'sku1', skuCode: 'CODE-1' },
 };
+
+describe('ProductsService legacy scene persistence', () => {
+  const storedScene: SceneMediaRow = {
+    id: 'old-image', productId: 'p1', optionValueId: null, variantId: null,
+    url: '/uploads/scene.webp', type: 'IMAGE', isScene: true,
+  };
+  const createInput = (images: UpdateProductInput['images']) => ({
+    name: 'Chair', slug: 'chair', categoryId: 'c1', status: 'DRAFT' as const,
+    solutions: [], detailBlocks: [], variants: [], images: images ?? [],
+  });
+
+  it('preserves an omitted scene by URL/type after a legacy reorder', async () => {
+    const { service } = createHarness({ existingImages: [storedScene] });
+    const result = await service.update('p1', { images: [
+      { url: '/uploads/new.webp', type: 'IMAGE', sortOrder: 0 },
+      { url: storedScene.url, type: 'IMAGE', sortOrder: 1 },
+    ] });
+    expect(result?.images.map(row => row.isScene)).toEqual([false, true]);
+  });
+
+  it('respects an explicit legacy scene clear', async () => {
+    const { service } = createHarness({ existingImages: [storedScene] });
+    const result = await service.update('p1', { images: [
+      { url: storedScene.url, type: 'IMAGE', sortOrder: 0, isScene: false },
+    ] });
+    expect(result?.images[0].isScene).toBe(false);
+  });
+
+  it('does not carry a scene to a replacement video with the same URL', async () => {
+    const { service } = createHarness({ existingImages: [storedScene] });
+    const result = await service.update('p1', { images: [
+      { url: storedScene.url, type: 'VIDEO', sortOrder: 0 },
+    ] });
+    expect(result?.images[0].isScene).toBe(false);
+  });
+
+  it('deletes all legacy images when images is explicitly empty', async () => {
+    const { service } = createHarness({ existingImages: [storedScene] });
+    const result = await service.update('p1', { images: [] });
+    expect(result?.images).toEqual([]);
+  });
+
+  it('does not replace media or lock graph version for a scalar-only update', async () => {
+    const { service, tx } = createHarness({ existingImages: [storedScene], lockedGraphVersion: 1 });
+    const result = await service.update('p1', { description: 'Edited copy' });
+    expect(result?.images[0].isScene).toBe(true);
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.productImage.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['images', { images: [] }],
+    ['variants', { variants: [] }],
+  ])('rejects a stale legacy %s replacement after graph materialization', async (_label, input) => {
+    const { service, tx } = createHarness({ existingImages: [storedScene], lockedGraphVersion: 1 });
+    await expect(service.update('p1', input)).rejects.toBeInstanceOf(CatalogGraphVersionRequiredError);
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productImage.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous legacy metadata rather than inheriting by array position', async () => {
+    const { service, tx } = createHarness({ existingImages: [storedScene] });
+    await expect(service.update('p1', { images: [
+      { url: storedScene.url, type: 'IMAGE', sortOrder: 0 },
+      { url: storedScene.url, type: 'IMAGE', sortOrder: 1 },
+    ] })).rejects.toThrow(/uniquely|ambiguous/i);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects multiple explicit legacy scenes before writing', async () => {
+    const { service, tx } = createHarness();
+    await expect(service.update('p1', { images: [
+      { url: '/uploads/a.webp', type: 'IMAGE', sortOrder: 0, isScene: true },
+      { url: '/uploads/b.webp', type: 'IMAGE', sortOrder: 1, isScene: true },
+    ] })).rejects.toThrow(/scene/i);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('validates shared scene uniqueness on create too', async () => {
+    const { service, tx } = createHarness();
+    await expect(service.create(createInput([
+      { url: '/uploads/a.webp', type: 'IMAGE', sortOrder: 0, isScene: true },
+      { url: '/uploads/b.webp', type: 'IMAGE', sortOrder: 1, isScene: true },
+    ]))).rejects.toThrow(/scene/i);
+    expect(tx.product.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses scene video on a direct create call', async () => {
+    const { service, tx } = createHarness();
+    await expect(service.create(createInput([
+      { url: '/uploads/a.mp4', type: 'VIDEO', sortOrder: 0, isScene: true },
+    ]))).rejects.toThrow(/scene.*image/i);
+    expect(tx.product.create).not.toHaveBeenCalled();
+  });
+
+  it('writes an explicit false scene flag for a new omitted image', async () => {
+    const { service, tx } = createHarness();
+    await service.create(createInput([{ url: '/uploads/plain.webp', type: 'IMAGE', sortOrder: 0 }]));
+    expect(tx.product.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ images: { create: [
+        { url: '/uploads/plain.webp', type: 'IMAGE', sortOrder: 0, isScene: false },
+      ] } }),
+    }));
+  });
+});
+
+describe('ProductsService scene database errors', () => {
+  const knownError = (code: string, modelName: string, cause: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError('Database write failed', {
+      code, clientVersion: '7.10.0', meta: {
+        modelName, driverAdapterError: { name: 'DriverAdapterError', cause },
+      },
+    });
+
+  it.each([
+    'product_images_scene_shared_key',
+    'product_images_scene_option_value_key',
+    'product_images_scene_variant_key',
+  ])('maps the actual adapter shape for %s to a readable scene error', async index => {
+    const error = knownError('P2002', 'ProductImage', {
+      originalCode: '23505', kind: 'UniqueConstraintViolation', constraint: { index }, table: 'product_images',
+    });
+    const { service } = createHarness({ productWriteError: error });
+    const result = await service.update('p1', { description: 'Edited' }).catch(caught => caught);
+    expect(result).toBeInstanceOf(BadRequestException);
+    expect(result.getResponse()).toMatchObject({ statusCode: 400, message: 'Only one scene image is allowed per media gallery.' });
+  });
+
+  it('maps the observed P2039 scene IMAGE check without exposing the failed row', async () => {
+    const error = knownError('P2039', 'ProductImage', {
+      originalCode: '23514', kind: 'postgres', code: '23514',
+      originalMessage: 'new row for relation "product_images" violates check constraint "product_images_scene_image_check"',
+      detail: 'Failing row contains private database details.',
+    });
+    const { service } = createHarness({ productWriteError: error });
+    const result = await service.update('p1', { description: 'Edited' }).catch(caught => caught);
+    expect(result).toBeInstanceOf(BadRequestException);
+    expect(result.getResponse()).toMatchObject({ statusCode: 400, message: 'Scene media must be an image.' });
+  });
+
+  it('keeps a SKU uniqueness error as an ordinary conflict', async () => {
+    const error = knownError('P2002', 'Sku', {
+      constraint: { index: 'skus_sku_code_key' }, kind: 'UniqueConstraintViolation',
+    });
+    const { service } = createHarness({ productWriteError: error });
+    await expect(service.update('p1', { description: 'Edited' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not mislabel another ProductImage check as a scene IMAGE error', async () => {
+    const error = knownError('P2039', 'ProductImage', {
+      originalCode: '23514', originalMessage: 'violates check constraint "product_images_media_scope_check"',
+    });
+    const { service } = createHarness({ productWriteError: error });
+    await expect(service.update('p1', { description: 'Edited' })).rejects.toBe(error);
+  });
+});
 
 describe('ProductsService.update — stock enrichment', () => {
   it('returns onHand/reserved/availableInventory so the edit form can re-sync', async () => {

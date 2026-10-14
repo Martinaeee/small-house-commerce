@@ -188,7 +188,7 @@ describe("SharedMediaWorkspace", () => {
     });
 
     await user.selectOptions(screen.getByLabelText("Media 1 type"), "VIDEO");
-    expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO" });
+    expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO", isScene: false });
 
     await user.click(screen.getByText("Advanced (sort order)"));
     fireEvent.change(screen.getByLabelText("Media 1 sort order"), {

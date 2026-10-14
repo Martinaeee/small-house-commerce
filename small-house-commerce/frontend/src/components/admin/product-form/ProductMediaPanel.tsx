@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 import { ProductMediaScopesEditor } from "@/components/admin/ProductMediaScopesEditor";
+import { ProductCardMediaEditor, type ProductCardMediaEditorProps } from "./ProductCardMediaEditor";
 import {
   DetailMediaWorkspace,
   type DetailMediaWorkspaceProps,
@@ -21,6 +22,8 @@ export interface ProductMediaPanelProps {
   onGraphChange: ((mutate: (draft: AdminCatalogGraphDraft) => void) => void) | null;
   sharedMedia: SharedMediaWorkspaceProps;
   detailMedia: DetailMediaWorkspaceProps;
+  cardMediaEditor?: Omit<ProductCardMediaEditorProps, "pending">;
+  cardPreview?: ReactNode;
   /** Row the problem rail asked to highlight (media row key). */
   highlightKey?: string | null;
   /** Bumped by every problem-rail jump so a repeat jump reopens the editor. */
@@ -41,6 +44,8 @@ export function ProductMediaPanel({
   onGraphChange,
   sharedMedia,
   detailMedia,
+  cardMediaEditor,
+  cardPreview,
   highlightKey = null,
   highlightNonce = 0,
 }: ProductMediaPanelProps): ReactNode {
@@ -53,6 +58,15 @@ export function ProductMediaPanel({
           className="rounded-xl border border-sale/40 bg-sale/5 p-4 text-sm text-red-700"
         >
           {t("product_media_graph_locked", { version: graphVersion })}
+        </div>
+      ) : null}
+      {cardMediaEditor ? (
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <ProductCardMediaEditor {...cardMediaEditor} pending={pending || graphLocked} />
+          {cardPreview ? <div className="w-full max-w-72 min-w-0 xl:sticky xl:top-4">
+            <h3 className="mb-2 text-sm font-semibold text-ink">{t("product_card_preview_title")}</h3>
+            {cardPreview}
+          </div> : null}
         </div>
       ) : null}
       <fieldset disabled={graphLocked} className="min-w-0">

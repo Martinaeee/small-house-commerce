@@ -72,8 +72,62 @@ function orderedOptions(
   return [...options].sort(comparePositionThenId);
 }
 
-function isSelectableVariant(variant: StorefrontProductVariant): boolean {
+export function isSelectableVariant(variant: StorefrontProductVariant): boolean {
   return variant.sku?.status === "ACTIVE" && variant.sku.price !== null;
+}
+
+export function isCompatibleValue(
+  productOptions: readonly StorefrontProductOption[],
+  variants: readonly StorefrontProductVariant[],
+  selectedValueIds: Readonly<Record<string, string>>,
+  optionId: string,
+  valueId: string,
+): boolean {
+  const selectedOption = productOptions.find(({ id }) => id === optionId);
+  return variants.some((variant) => {
+    const values = new Set(variant.optionValueIds);
+    if (!values.has(valueId)) return false;
+    return productOptions.every((option) => {
+      if (
+        option.id === optionId ||
+        !selectedOption ||
+        option.position >= selectedOption.position
+      ) {
+        return true;
+      }
+      const selected = selectedValueIds[option.id];
+      return selected === undefined || values.has(selected);
+    });
+  });
+}
+
+export function isOutOfStockOnly(
+  productOptions: readonly StorefrontProductOption[],
+  variants: readonly StorefrontProductVariant[],
+  selectedValueIds: Readonly<Record<string, string>>,
+  optionId: string,
+  valueId: string,
+): boolean {
+  const selectedOption = productOptions.find(({ id }) => id === optionId);
+  const matches = variants.filter((variant) => {
+    const values = new Set(variant.optionValueIds);
+    if (!values.has(valueId)) return false;
+    return productOptions.every((option) => {
+      if (
+        option.id === optionId ||
+        !selectedOption ||
+        option.position >= selectedOption.position
+      ) {
+        return true;
+      }
+      const selected = selectedValueIds[option.id];
+      return selected === undefined || values.has(selected);
+    });
+  });
+  return (
+    matches.length > 0 &&
+    matches.every((variant) => (variant.sku?.availableInventory ?? 0) <= 0)
+  );
 }
 
 function selectableVariants(product: Product): StorefrontProductVariant[] {
@@ -86,6 +140,12 @@ function normalizeQuantity(quantity: number): number {
   }
   if (quantity === Number.POSITIVE_INFINITY) return MAX_QUANTITY;
   return Math.min(MAX_QUANTITY, Math.max(MIN_QUANTITY, Math.trunc(quantity)));
+}
+
+function productOptions(
+  product: Product,
+): readonly StorefrontProductOption[] {
+  return product.options ?? [];
 }
 
 /** Mirrors the backend canonicalCombinationKey implementation byte-for-byte. */
@@ -148,11 +208,11 @@ function selectionForVariant(
   const selectedValueIds = parseCombinationKey(variant.combinationKey);
   if (selectedValueIds === null) return null;
 
-  const optionIds = new Set(product.options.map(({ id }) => id));
+  const optionIds = new Set(productOptions(product).map(({ id }) => id));
   if (
-    Object.keys(selectedValueIds).length !== product.options.length ||
+    Object.keys(selectedValueIds).length !== productOptions(product).length ||
     Object.keys(selectedValueIds).some((optionId) => !optionIds.has(optionId)) ||
-    combinationKeyForSelection(product.options, selectedValueIds) !==
+    combinationKeyForSelection(productOptions(product), selectedValueIds) !==
       variant.combinationKey
   ) {
     return null;
@@ -210,7 +270,7 @@ export function resolveSelection(
 ): ProductSelectionDerived {
   const candidates = selectableVariants(product);
   const selectionKey = combinationKeyForSelection(
-    product.options,
+    productOptions(product),
     state.selectedValueIds,
   );
   const resolvedVariant =
@@ -225,7 +285,7 @@ export function resolveSelection(
       ({ id }) => id === product.defaultDisplayVariantId,
     ) ?? null;
   const displayVariant = resolvedVariant ?? defaultDisplayVariant;
-  const missingOptionIds = orderedOptions(product.options)
+  const missingOptionIds = orderedOptions(productOptions(product))
     .filter(
       (option) =>
         !option.values.some(
@@ -262,7 +322,7 @@ function clearIncompatibleDownstreamSelections(
   selectedValueIds: Record<string, string>,
   selectedOptionId: string,
 ): void {
-  const options = orderedOptions(product.options);
+  const options = orderedOptions(productOptions(product));
   const selectedOptionIndex = options.findIndex(
     ({ id }) => id === selectedOptionId,
   );
@@ -315,7 +375,7 @@ export function reduceProductSelection(
 ): ProductSelectionState {
   switch (action.type) {
     case "SELECT_OPTION": {
-      const option = product.options.find(({ id }) => id === action.optionId);
+      const option = productOptions(product).find(({ id }) => id === action.optionId);
       if (
         !option ||
         !option.values.some(({ id }) => id === action.valueId)
@@ -355,7 +415,7 @@ export function reduceProductSelection(
         confirmedRevision: selectionChanged ? null : state.confirmedRevision,
       };
       const derived = resolveSelection(product, next);
-      const touchedEveryOption = product.options.every(({ id }) =>
+      const touchedEveryOption = productOptions(product).every(({ id }) =>
         explicitlyTouchedOptionIds.includes(id),
       );
       if (touchedEveryOption && derived.resolvedCombinationKey !== null) {

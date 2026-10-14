@@ -7,6 +7,8 @@ import type {
 import { ProductsService, formatProductCode } from './products.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { revalidateCache } from '../../common/revalidation.js';
+import type { ProductMediaGraph } from './product-media.resolver.js';
+import type { VariantCardMedia } from './variant-card-media.js';
 
 vi.mock('../../common/revalidation.js', () => ({
   CACHE_TAGS: { STOREFRONT: 'storefront' },
@@ -15,7 +17,12 @@ vi.mock('../../common/revalidation.js', () => ({
 
 type MockProductRow = { id: string; [key: string]: unknown };
 
-function createPrismaMock(rows: MockProductRow[]) {
+type MockScopedMedia = ProductMediaGraph['images'][number] & { productId: string };
+
+function createPrismaMock(
+  rows: MockProductRow[],
+  scopedMedia: MockScopedMedia[] = [],
+) {
   const hydratedRows = rows.map((row) => ({
     catalogGraphVersion: 0,
     defaultDisplayVariantId: null,
@@ -29,13 +36,16 @@ function createPrismaMock(rows: MockProductRow[]) {
     product: {
       // The query forces ACTIVE + id-in; echo rows in the (deliberately
       // shuffled) order the mock holds, so the service must re-sort itself.
-      findMany: vi.fn(async () => [...hydratedRows].reverse()),
+      findMany: vi.fn<(query: Prisma.ProductFindManyArgs) => Promise<typeof hydratedRows>>(async () => [...hydratedRows].reverse()),
       findFirst: vi.fn(async () => hydratedRows[0] ?? null),
       count: vi.fn(async () => rows.length),
       groupBy: vi.fn(async () => [] as unknown[]),
     },
+    productImage: {
+      findMany: vi.fn(async () => structuredClone(scopedMedia)),
+    },
     productOption: {
-      findMany: vi.fn(async () => [] as unknown[]),
+      findMany: vi.fn<(query: Prisma.ProductOptionFindManyArgs) => Promise<unknown[]>>(async () => []),
     },
     category: {
       findMany: vi.fn(async () => []),
@@ -204,6 +214,178 @@ describe('ProductsService.storefrontByIds', () => {
   });
 });
 
+function cardProduct(id: string): MockProductRow {
+  return {
+    id,
+    catalogGraphVersion: 2,
+    defaultDisplayVariantId: `${id}-red`,
+    images: [{ id: `${id}-shared`, url: '/shared.webp', type: 'IMAGE', altText: null,
+      sortOrder: 0, optionValueId: null, variantId: null, isScene: false }],
+    options: [{ id: `${id}-color`, name: 'Color', kind: 'COLOR', presentation: 'IMAGE',
+      position: 0, isActive: true, isMediaDriver: true, values: ['red', 'blue'].map((color, position) => ({
+        id: `${id}-${color}-value`, label: color, position, isActive: true,
+        swatchHex: null, thumbnailUrl: null, thumbnailAlt: null,
+      })) }],
+    variants: ['red', 'blue', 'unpriced', 'disabled'].map((color, position) => ({
+      id: `${id}-${color}`, name: color, position, combinationKey: color,
+      cardMedia: {
+        cover: { type: 'IMAGE', url: `/uploads/${id}-${color}-card.webp`, altText: `${color} card` },
+        hover: color === 'red' ? null : { type: 'IMAGE', url: `/uploads/${id}-${color}-hover.webp`, altText: `${color} room` },
+      },
+      optionValues: color === 'red' || color === 'blue'
+        ? [{ optionId: `${id}-color`, optionValueId: `${id}-${color}-value` }] : [],
+      sku: { id: `${id}-${color}-sku`, skuCode: color, status: color === 'disabled' ? 'DISABLED' : 'ACTIVE',
+        price: color === 'unpriced' ? null : 1199, compareAtPrice: 1499 },
+    })),
+  };
+}
+
+function cardScopedMedia(id: string): MockScopedMedia[] {
+  return [
+    { productId: id, id: `${id}-red-cover`, url: '/red.webp', type: 'IMAGE', altText: 'Red',
+      sortOrder: 0, optionValueId: null, variantId: `${id}-red`, isScene: false },
+    { productId: id, id: `${id}-red-option-scene`, url: '/red-scene.webp', type: 'IMAGE', altText: 'Red room',
+      sortOrder: 1, optionValueId: `${id}-red-value`, variantId: null, isScene: true },
+    { productId: id, id: `${id}-blue-cover`, url: '/blue.webp', type: 'IMAGE', altText: 'Blue',
+      sortOrder: 0, optionValueId: `${id}-blue-value`, variantId: null, isScene: false },
+    { productId: id, id: `${id}-blue-scene`, url: '/blue-scene.webp', type: 'IMAGE', altText: 'Blue room',
+      sortOrder: 1, optionValueId: `${id}-blue-value`, variantId: null, isScene: true },
+  ];
+}
+
+function expectCardMedia(product: { id: string; [key: string]: unknown }): void {
+  expect(product.cardMedia).toMatchObject({
+    displayVariantId: `${product.id}-red`,
+    unselected: { cover: { id: `card:${product.id}-red:cover`, url: `/uploads/${product.id}-red-card.webp` }, scene: null },
+    variants: [
+      { variantId: `${product.id}-red`, cover: { id: `card:${product.id}-red:cover`, url: `/uploads/${product.id}-red-card.webp` }, scene: null },
+      { variantId: `${product.id}-blue`, cover: { id: `card:${product.id}-blue:cover`, url: `/uploads/${product.id}-blue-card.webp` },
+        scene: { id: `card:${product.id}-blue:hover`, url: `/uploads/${product.id}-blue-hover.webp` } },
+    ],
+  });
+  expect(product).not.toHaveProperty('detailBlocks');
+  expect(product).not.toHaveProperty('media');
+  const serialized = JSON.stringify(product.cardMedia);
+  expect(serialized).not.toMatch(/isScene|optionValueId|productId|supplierCost|internalSecret/);
+  for (const variant of product.variants as Array<object>) expect(variant).not.toHaveProperty('cardMedia');
+  expect(product.effectiveCoverMedia).toMatchObject({ id: `${product.id}-red-cover`, url: '/red.webp' });
+  expect(Object.keys((product.images as Array<object>)[0]!).sort()).toEqual(['altText', 'id', 'sortOrder', 'type', 'url']);
+}
+
+describe('ProductsService card media batches', () => {
+  it.each([1, 20])('presents every selectable variant with one media query for %i products', async (count) => {
+    const ids = Array.from({ length: count }, (_, index) => `card-${index}`);
+    const prisma = createPrismaMock(ids.map(cardProduct), ids.flatMap(cardScopedMedia));
+    const result = await createService(prisma).storefrontByIds(ids);
+    expect(result.map(product => product.id)).toEqual(ids);
+    result.forEach(expectCardMedia);
+    expect(prisma.productImage.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.productImage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        productId: { in: ids },
+        OR: [
+          { optionValueId: { in: ids.flatMap(id => [`${id}-red-value`, `${id}-blue-value`]) } },
+          { variantId: { in: ids.flatMap(id => ['red', 'blue', 'unpriced', 'disabled'].map(color => `${id}-${color}`)) } },
+        ],
+      },
+      select: expect.objectContaining({ isScene: true }),
+    }));
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({
+        images: expect.objectContaining({ select: expect.objectContaining({ isScene: true }) }),
+        variants: expect.objectContaining({ select: expect.objectContaining({ cardMedia: true }) }),
+      }),
+    }));
+    expect(prisma.product.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same card projection in normal, search and ids listings', async () => {
+    const prisma = {
+      ...createPrismaMock([cardProduct('card')], cardScopedMedia('card')),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: 'card', rank: 1 }])
+        .mockResolvedValueOnce([{ total: 1n }]),
+    };
+    const service = createService(prisma);
+    for (const query of [
+      { page: 1, pageSize: 20 },
+      { page: 1, pageSize: 20, search: 'chair' },
+      { ids: ['card'] },
+    ]) {
+      const result = await service.storefrontList(query as StorefrontProductQuery);
+      expectCardMedia(result.items[0]!);
+    }
+    expect(prisma.productImage.findMany).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps legacy PDP inference separate from an absent operator card default', async () => {
+    const prisma = createPrismaMock([{ id: 'legacy', images: [
+      { id: 'shared', url: '/shared.webp', type: 'IMAGE', altText: null, sortOrder: 0,
+        optionValueId: null, variantId: null, isScene: true },
+    ], variants: [{ id: 'legacy-v', name: 'Standard', position: 0, optionValues: [],
+      cardMedia: { cover: { type: 'IMAGE', url: '/uploads/legacy-cover.webp', altText: null }, hover: null },
+      sku: { id: 'legacy-sku', status: 'ACTIVE', skuCode: 'LEGACY', price: 0, compareAtPrice: null } }] }]);
+    const [result] = await createService(prisma).storefrontByIds(['legacy']);
+    expect(result.defaultDisplayVariantId).toBe('legacy-v');
+    expect(result.cardMedia).toEqual({
+      displayVariantId: null,
+      unselected: { cover: null, scene: null },
+      variants: [{ variantId: 'legacy-v', cover: {
+        id: 'card:legacy-v:cover', type: 'IMAGE', url: '/uploads/legacy-cover.webp', altText: null, sortOrder: 0,
+      }, scene: null }],
+    });
+    expect(result.variants[0]).not.toHaveProperty('cardMedia');
+    expect(prisma.productImage.findMany).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.images)).not.toContain('isScene');
+  });
+
+  it.each([null, 'unknown', 'card-disabled', 'card-unpriced'])('rejects stored card default %s without borrowing the PDP fallback', async defaultDisplayVariantId => {
+    const row = { ...cardProduct('card'), defaultDisplayVariantId };
+    const [result] = await createService(createPrismaMock([row], cardScopedMedia('card'))).storefrontByIds(['card']);
+    expect(result.cardMedia).toMatchObject({ displayVariantId: null, unselected: { cover: null, scene: null } });
+    expect(result.effectiveCoverMedia).toMatchObject({ id: defaultDisplayVariantId === 'card-unpriced' ? 'card-shared' : 'card-red-cover' });
+  });
+
+  it('retains an explicitly chosen zero-price out-of-stock variant and never leaks raw JSON', async () => {
+    const row = cardProduct('card');
+    const variants = row.variants as Array<{ id: string; sku: { price: number | null }; cardMedia: VariantCardMedia }>;
+    variants[1]!.sku.price = 0;
+    Object.assign(variants[1]!.cardMedia.cover!, { supplierCost: 999, internalSecret: { secret: true } });
+    row.defaultDisplayVariantId = 'card-blue';
+    const [result] = await createService(createPrismaMock([row], cardScopedMedia('card'))).storefrontByIds(['card']);
+    expect(result.cardMedia).toMatchObject({
+      displayVariantId: 'card-blue', unselected: { cover: { url: '/uploads/card-blue-card.webp' } },
+    });
+    expect(result.variants[1]!.sku).toMatchObject({ price: 0, availableInventory: 0 });
+    expect(JSON.stringify(result)).not.toMatch(/supplierCost|internalSecret/);
+    expect(result.variants[1]).not.toHaveProperty('cardMedia');
+  });
+
+  it('strips editing snapshots from PDP variants while keeping the PDP gallery response', async () => {
+    const row = cardProduct('pdp');
+    row.images = [...row.images as MockScopedMedia[], ...cardScopedMedia('pdp')];
+    const prisma = createPrismaMock([row]);
+    const result = await createService(prisma).storefrontGetBySlug('pdp');
+    expect(result.initialMediaSet).toEqual({
+      resolvedScope: 'VARIANT', scopeId: 'pdp-red', catalogGraphVersion: 2, media: [
+        { id: 'pdp-red-cover', url: '/red.webp', type: 'IMAGE', altText: 'Red', sortOrder: 0 },
+      ],
+    });
+    expect(result.effectiveCoverMedia).toEqual(result.initialMediaSet.media[0]);
+    expect(result.images).toEqual([{ id: 'pdp-shared', url: '/shared.webp', type: 'IMAGE', altText: null, sortOrder: 0 }]);
+    expect(result.options[0]!.values[0]!.thumbnailUrl).toBeNull();
+    for (const variant of result.variants) expect(variant).not.toHaveProperty('cardMedia');
+    expect(result).toHaveProperty('cardMedia.displayVariantId', 'pdp-red');
+    expect(result).toHaveProperty('cardMedia.unselected.cover.url', '/uploads/pdp-red-card.webp');
+  });
+
+  it('does not query media for an empty page', async () => {
+    const prisma = createPrismaMock([]);
+    await createService(prisma).storefrontByIds([]);
+    expect(prisma.productImage.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe('ProductsService storefront image query contracts', () => {
   it('restricts the PDP legacy images relation to shared media', async () => {
     const prisma = createPrismaMock([{ id: 'pdp-product' }]);
@@ -302,18 +484,26 @@ interface LegacyVariantRow {
   name: string;
   position: number;
   combinationKey: string;
+  cardMedia?: VariantCardMedia | null;
   sku: {
     id: string;
     skuCode: string;
     status: 'ACTIVE' | 'DISABLED';
+    price?: number | null;
   } | null;
 }
 
 function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
   const variants = structuredClone(initialVariants);
+  const product = { id: LEGACY_PRODUCT_ID, name: 'Card product', status: 'DRAFT', defaultDisplayVariantId: null };
+  const currentProduct = () => ({ ...product, variants: structuredClone(variants) });
+  let committed = false;
+  type CardWrite = { cardMedia?: VariantCardMedia | null | typeof Prisma.DbNull };
   const productVariantCreate = vi.fn(
-    async ({ data }: { data: Omit<LegacyVariantRow, 'sku'> }) => {
-      const row = { ...data, sku: null };
+    async ({ data }: { data: Omit<LegacyVariantRow, 'sku' | 'cardMedia'> & CardWrite }) => {
+      const row: LegacyVariantRow = { ...data, sku: null,
+        cardMedia: data.cardMedia instanceof Prisma.NullTypes.DbNull ? null : structuredClone(data.cardMedia ?? null),
+      };
       variants.push(row);
       return structuredClone(row);
     },
@@ -324,30 +514,47 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
       data,
     }: {
       where: { id: string };
-      data: Partial<LegacyVariantRow>;
+      data: Omit<Partial<LegacyVariantRow>, 'cardMedia'> & CardWrite;
     }) => {
       const row = variants.find(({ id }) => id === where.id);
       if (!row) throw new Error(`missing variant ${where.id}`);
-      Object.assign(row, structuredClone(data));
+      const { cardMedia, ...columns } = data;
+      Object.assign(row, structuredClone(columns));
+      if (cardMedia !== undefined) row.cardMedia = cardMedia instanceof Prisma.NullTypes.DbNull ? null : structuredClone(cardMedia);
       return structuredClone(row);
     },
   );
-  const skuCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
-    structuredClone(data),
-  );
-  const skuUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
-    structuredClone(data),
-  );
+  const skuCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    const row = variants.find(row => row.id === data.variantId)!;
+    row.sku = {
+      ...data, id: `sku-${row.id}`, skuCode: data.skuCode as string,
+      status: (data.status ?? 'ACTIVE') as 'ACTIVE' | 'DISABLED', price: (data.price as number | undefined) ?? null,
+    };
+    return structuredClone(row.sku);
+  });
+  const skuUpdate = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+    const row = variants.find(row => row.sku?.id === where.id)!;
+    Object.assign(row.sku!, structuredClone(data));
+    return structuredClone(row.sku);
+  });
   const tx = {
     // product_code_seq lookup; the value only has to be renderable.
     $queryRaw: vi.fn(async () => [{ value: 7n }]),
     product: {
-      create: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID })),
-      update: vi.fn(async () => ({ id: LEGACY_PRODUCT_ID, variants: [] })),
-      findUniqueOrThrow: vi.fn(async () => ({
-        id: LEGACY_PRODUCT_ID,
-        variants: [],
-      })),
+      create: vi.fn(async ({ data }: Prisma.ProductCreateArgs) => {
+        product.name = data.name;
+        product.status = typeof data.status === 'string' ? data.status : 'DRAFT';
+        return { id: LEGACY_PRODUCT_ID };
+      }),
+      update: vi.fn(async ({ data }: Prisma.ProductUpdateArgs) => {
+        if (typeof data.status === 'string') product.status = data.status;
+        if (typeof data.name === 'string') product.name = data.name;
+        return currentProduct();
+      }),
+      findUniqueOrThrow: vi.fn(async () => currentProduct()),
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; status?: string } }) =>
+        where.id.in.includes(product.id) && (!where.status || product.status === where.status) ? [currentProduct()] : [],
+      ),
     },
     productVariant: {
       create: productVariantCreate,
@@ -371,16 +578,133 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
         catalogGraphVersion: 0,
       })),
     },
-    $transaction: vi.fn(
-      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
-    ),
+    $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
+      const beforeVariants = structuredClone(variants);
+      const beforeProduct = structuredClone(product);
+      committed = false;
+      try {
+        const result = await callback(tx);
+        committed = true;
+        return result;
+      } catch (error) {
+        variants.splice(0, variants.length, ...beforeVariants);
+        Object.assign(product, beforeProduct);
+        throw error;
+      }
+    }),
   };
   return {
     service: new ProductsService(prisma as never, reviewsStub, inventoryStub),
     tx,
     variants,
+    product,
+    get committed() { return committed; },
   };
 }
+
+describe('ProductsService final legacy card publish check', () => {
+  const pair: VariantCardMedia = {
+    cover: { type: 'IMAGE', url: '/uploads/own-cover.webp', altText: null }, hover: null,
+  };
+  const input = () => ({
+    name: 'Card product', slug: 'card-product', categoryId: 'category-id', status: 'ACTIVE' as const,
+    solutions: [], images: [], detailBlocks: [],
+    variants: [{ name: 'Single', position: 0, sku: { skuCode: 'SINGLE', status: 'ACTIVE' as const, price: 0 } }],
+  });
+
+  it('rejects legacy ACTIVE creation without a cover and leaves no created variants', async () => {
+    const harness = createLegacyWriteHarness();
+    await expect(harness.service.create(input())).rejects.toMatchObject({ response: {
+      code: 'PRODUCT_CARD_MEDIA_INCOMPLETE', products: [expect.objectContaining({
+        missingCoverVariants: [expect.objectContaining({ name: 'Single' })],
+      })],
+    } });
+    expect(harness.variants).toEqual([]);
+    expect(harness.committed).toBe(false);
+    expect(harness.product.status).toBe('DRAFT');
+  });
+
+  it('validates the created zero-price single SKU only after its independent cover is saved', async () => {
+    const harness = createLegacyWriteHarness();
+    const write = input();
+    Object.assign(write.variants[0]!, { cardMedia: pair });
+    const saved = await harness.service.create(write);
+    expect(saved).toMatchObject({ status: 'ACTIVE', variants: [expect.objectContaining({ cardMedia: pair })] });
+    expect(harness.committed).toBe(true);
+  });
+
+  it('rolls back an ACTIVE legacy cover clear without replacing its real SKU', async () => {
+    const harness = createLegacyWriteHarness();
+    const write = input();
+    Object.assign(write.variants[0]!, { cardMedia: pair });
+    await harness.service.create(write);
+    const before = structuredClone(harness.variants);
+    await expect(harness.service.update(LEGACY_PRODUCT_ID, { variants: [
+      { name: 'Single', position: 0, cardMedia: null, sku: { skuCode: 'SINGLE', status: 'ACTIVE', price: 0 } },
+    ] })).rejects.toMatchObject({ response: { code: 'PRODUCT_CARD_MEDIA_INCOMPLETE' } });
+    expect(harness.variants).toEqual(before);
+    expect(harness.product.status).toBe('ACTIVE');
+    expect(harness.committed).toBe(false);
+  });
+
+  it('allows incomplete legacy DRAFT creation', async () => {
+    const harness = createLegacyWriteHarness();
+    const saved = await harness.service.create({ ...input(), status: 'DRAFT' });
+    expect(saved).toMatchObject({ status: 'DRAFT' });
+    expect(harness.variants[0]!.cardMedia).toBeNull();
+  });
+});
+
+describe('ProductsService graph-v0 independent card media', () => {
+  const pair = (name: string): VariantCardMedia => ({
+    cover: { type: 'IMAGE', url: `/uploads/${name}-cover.webp`, altText: null },
+    hover: { type: 'IMAGE', url: `/uploads/${name}-hover.webp`, altText: name },
+  });
+  const retained = (): LegacyVariantRow => ({
+    id: EXISTING_VARIANT_ID, productId: LEGACY_PRODUCT_ID, name: 'Red', position: 0,
+    combinationKey: legacyUnmappedCombinationKey(EXISTING_VARIANT_ID), cardMedia: pair('red'),
+    sku: { id: EXISTING_SKU_ID, skuCode: 'LEGACY-RED', status: 'ACTIVE' },
+  });
+
+  it('persists independent pairs on newly created legacy variant identities', async () => {
+    const harness = createLegacyWriteHarness();
+    await harness.service.create({
+      name: 'Card product', slug: 'card-product', categoryId: 'category-id', status: 'DRAFT',
+      solutions: [], images: [], detailBlocks: [],
+      variants: [{ name: 'Red', position: 0, cardMedia: pair('red') },
+        { name: 'Blue', position: 1, cardMedia: pair('blue') }],
+    });
+    expect(harness.variants.find(row => row.name === 'Red')).toHaveProperty('cardMedia', pair('red'));
+    expect(harness.variants.find(row => row.name === 'Blue')).toHaveProperty('cardMedia', pair('blue'));
+    expect(new Set(harness.variants.map(row => row.id)).size).toBe(2);
+  });
+
+  it.each([
+    ['replacement', pair('replacement')],
+    ['whole clearing', null],
+    ['hover clearing', { ...pair('red'), hover: null }],
+  ])('persists %s without replacing the retained SKU', async (_label, cardMedia) => {
+    const harness = createLegacyWriteHarness([retained()]);
+    await harness.service.update(LEGACY_PRODUCT_ID, { variants: [{
+      name: 'Crimson', position: 3,
+      sku: { skuCode: 'LEGACY-RED', status: 'ACTIVE' }, cardMedia,
+    }] });
+    expect(harness.variants[0]).toMatchObject({
+      id: EXISTING_VARIANT_ID, name: 'Crimson', position: 3,
+      cardMedia, sku: { id: EXISTING_SKU_ID },
+    });
+  });
+
+  it('preserves omitted metadata on a renamed existing row and leaves a new row unconfigured', async () => {
+    const harness = createLegacyWriteHarness([retained()]);
+    await harness.service.update(LEGACY_PRODUCT_ID, { variants: [
+      { name: 'Crimson', position: 1, sku: { skuCode: 'LEGACY-RED', status: 'ACTIVE' } },
+      { name: 'New', position: 0 },
+    ] });
+    expect(harness.variants.find(row => row.id === EXISTING_VARIANT_ID)).toHaveProperty('cardMedia', pair('red'));
+    expect(harness.variants.find(row => row.name === 'New')).toHaveProperty('cardMedia', null);
+  });
+});
 
 describe('ProductsService graph-v0 variant compatibility', () => {
   it.each([1, 2])(
@@ -654,6 +978,37 @@ describe("ProductsService.remove", () => {
 });
 
 describe("ProductsService.bulkSetStatus", () => {
+  it("rolls back the entire ACTIVE batch when one product lacks an independent cover", async () => {
+    let rows = [
+      { id: "ready", name: "Ready", status: "DISABLED", defaultDisplayVariantId: null,
+        variants: [{ id: "ready-v", name: "Ready variant", cardMedia: {
+          cover: { type: "IMAGE", url: "/uploads/ready.webp", altText: null }, hover: null,
+        }, sku: { status: "ACTIVE", price: 0 } }] },
+      { id: "missing", name: "Missing", status: "DISABLED", defaultDisplayVariantId: null,
+        variants: [{ id: "missing-v", name: "Missing variant", cardMedia: null, sku: { status: "ACTIVE", price: 100 } }] },
+    ];
+    const before = structuredClone(rows);
+    const tx = {
+      product: {
+        updateMany: vi.fn(async () => { rows.forEach(row => { row.status = "ACTIVE"; }); return { count: rows.length }; }),
+        findMany: vi.fn(async () => structuredClone(rows.filter(row => row.status === "ACTIVE"))),
+      },
+      sku: { findMany: vi.fn(async () => []) },
+    };
+    const prisma = {
+      product: { findMany: vi.fn(async () => rows.map(row => ({ id: row.id }))) },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
+        const before = structuredClone(rows);
+        try { return await callback(tx); } catch (error) { rows = before; throw error; }
+      }),
+    };
+    const service = new ProductsService(prisma as never, reviewsStub, inventoryStub);
+    await expect(service.bulkSetStatus(["ready", "missing"], "ACTIVE")).rejects.toMatchObject({
+      response: { code: "PRODUCT_CARD_MEDIA_INCOMPLETE", products: [expect.objectContaining({ productId: "missing" })] },
+    });
+    expect(rows).toEqual(before);
+  });
+
   it("updates the status of existing products and reports missing ids", async () => {
     vi.mocked(revalidateCache).mockClear();
     const prisma = {

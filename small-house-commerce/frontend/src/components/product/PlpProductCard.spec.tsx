@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   Product,
@@ -16,7 +16,14 @@ import { PlpProductCard } from "./PlpProductCard";
  * open the picker without adding anything.
  */
 
-const cart = vi.hoisted(() => ({ addItem: vi.fn(), openPicker: vi.fn() }));
+const cart = vi.hoisted(() => ({
+  cart: null, loading: false, isOpen: false, view: "cart" as const,
+  pickerProduct: null, pickerInitialVariantId: null, pickerInitialQuantity: null, changeTarget: null,
+  addItem: vi.fn(), openPicker: vi.fn(), openChangeOptions: vi.fn(), goToCartView: vi.fn(),
+  openCart: vi.fn(), closeCart: vi.fn(), takeDrawerOpener: vi.fn(() => null), applySummary: vi.fn(),
+  reload: vi.fn(async () => undefined), updateItem: vi.fn(), replaceItem: vi.fn(), removeItem: vi.fn(),
+  removeItems: vi.fn(async () => undefined), itemKindCount: 0,
+}));
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
@@ -36,10 +43,7 @@ vi.mock("@/lib/tracking", () => ({
   trackCustom: tracking.trackCustom,
 }));
 vi.mock("@/components/cart/CartContext", () => ({
-  useCart: () => ({ addItem: cart.addItem, openPicker: cart.openPicker }),
-}));
-vi.mock("@/components/site/SiteSettingsProvider", () => ({
-  useSiteSettings: () => ({ backInStockEnabled: true }),
+  useCart: () => cart,
 }));
 
 const cover = {
@@ -237,6 +241,11 @@ const singleSkuProduct = buildProduct({
   options: [bridgeStyleOption(["Oak"])],
   variants: [singleVariant({})],
   defaultDisplayVariantId: "v-single",
+  cardMedia: {
+    displayVariantId: "v-single",
+    unselected: { cover, scene: null },
+    variants: [{ variantId: "v-single", cover, scene: null }],
+  },
 });
 
 const singleSkuOosProduct = buildProduct({
@@ -254,11 +263,8 @@ const noSellableProduct = buildProduct({
 describe("PlpProductCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    cart.addItem.mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    cart.addItem.mockResolvedValue({ cartId: "cart", items: [], subtotal: 120, discount: 0,
+      shipping: 0, total: 120, expiresAt: "2030-01-01T00:00:00Z" });
   });
 
   it("renders the effective cover media instead of the first legacy image", () => {
@@ -276,7 +282,7 @@ describe("PlpProductCard", () => {
   });
 
   it("shows From and the lowest price when sellable SKUs differ in price", () => {
-    render(<PlpProductCard product={multiSkuProduct} badges={[]} />);
+    render(<PlpProductCard product={{ ...multiSkuProduct, defaultDisplayVariantId: null }} badges={[]} />);
 
     expect(screen.getByTestId("price")).toHaveTextContent("From ₱100.00");
   });
@@ -285,7 +291,7 @@ describe("PlpProductCard", () => {
     const user = userEvent.setup();
     render(<PlpProductCard product={singleSkuProduct} badges={[]} />);
 
-    await user.click(screen.getByTestId("plp-add-oak-side-table"));
+    await user.click(screen.getByRole("button", { name: "Add to Cart" }));
 
     await waitFor(() => expect(cart.addItem).toHaveBeenCalledTimes(1));
     expect(cart.addItem).toHaveBeenCalledWith({
@@ -304,7 +310,7 @@ describe("PlpProductCard", () => {
     render(<PlpProductCard product={singleSkuOosProduct} badges={[]} />);
 
     expect(screen.getByText("Out of Stock")).toBeInTheDocument();
-    const button = screen.getByTestId("plp-add-oak-side-table");
+    const button = screen.getByRole("button", { name: "Save for Later" });
     expect(button).toBeEnabled();
 
     await user.click(button);
@@ -317,57 +323,27 @@ describe("PlpProductCard", () => {
     await waitFor(() => expect(tracking.track).toHaveBeenCalledTimes(1));
   });
 
-  it("subscribes the exact out-of-stock direct SKU without a commerce event", async () => {
+  it("selects the real variant through the compact card without opening the cart picker", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    render(<PlpProductCard product={singleSkuOosProduct} badges={[]} />);
-
-    await user.click(
-      screen.getByRole("button", { name: "Notify me when back in stock" }),
-    );
-    await user.type(screen.getByLabelText("Email address"), "shopper@example.com");
-    await user.click(screen.getByRole("button", { name: "Notify me" }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/storefront/back-in-stock",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          email: "shopper@example.com",
-          skuId: "sku-single",
-        }),
-      }),
-    );
-    expect(cart.addItem).not.toHaveBeenCalled();
-    expect(tracking.track).not.toHaveBeenCalled();
-    expect(tracking.trackCustom).not.toHaveBeenCalled();
-  });
-
-  it("opens the picker for multi-SKU products without adding", async () => {
-    const user = userEvent.setup();
-    render(<PlpProductCard product={multiSkuProduct} badges={[]} />);
-
-    await user.click(screen.getByTestId("plp-add-oak-side-table"));
-
-    expect(cart.openPicker).toHaveBeenCalledTimes(1);
-    expect(cart.openPicker).toHaveBeenCalledWith(multiSkuProduct);
-    expect(cart.addItem).not.toHaveBeenCalled();
-    expect(tracking.track).not.toHaveBeenCalled();
+    render(<PlpProductCard product={{ ...multiSkuProduct, defaultDisplayVariantId: null }} badges={[]} />);
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    const panel = within(screen.getByRole("dialog", { name: "Product options" }));
+    await user.click(panel.getByRole("button", { name: "Large" }));
+    expect(panel.getByRole("button", { name: "Blue" })).toHaveAttribute("aria-pressed", "true");
+    expect(panel.getByRole("button", { name: "Large" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(panel.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Add to Cart" }));
+    expect(await screen.findByRole("button", { name: "Added" })).toBeInTheDocument();
+    expect(cart.addItem).toHaveBeenCalledWith({ skuId: "sku-blue-large", quantity: 1 });
+    expect(cart.openPicker).not.toHaveBeenCalled();
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["sku-blue-large"], value: 120 }));
   });
 
   it("links to details when no sellable SKU exists", () => {
     render(<PlpProductCard product={noSellableProduct} badges={[]} />);
 
-    expect(
-      screen.queryByTestId("plp-add-oak-side-table"),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add to Cart" })).toBeNull();
     expect(screen.getByRole("link", { name: "View Details" })).toHaveAttribute(
       "href",
       "/products/oak-side-table",

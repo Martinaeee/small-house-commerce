@@ -32,12 +32,19 @@ import {
   type AdminCategoryNode,
   type CreateProductInput,
   type ProductStatus,
+  type VariantCardMedia,
 } from "@/lib/admin-api";
 import {
   buildVariantCandidates,
+  cardGraphFromLegacyForm,
   entityRowKey,
+  freshClientKey,
+  syncSharedMediaDraft,
   type AdminCatalogGraphDraft,
+  type EntityRef,
 } from "@/lib/admin-product-graph";
+import { buildProductCardPreview } from "@/lib/admin-product-card-preview";
+import { ProductCard } from "@/components/product/ProductCard";
 import {
   collectGraphIssues,
   serverIssuesFromError,
@@ -88,7 +95,7 @@ export interface ProductFormValue {
   materials: string;
   /** One feature per array slot (each becomes one line). */
   features: string[];
-  images: { url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string }[];
+  images: { id?: string; clientKey?: string; url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string; isScene?: boolean }[];
   /** PDP description body. Media-only: the supplier detail decks are images
    *  and videos, and `description` already carries the short text intro. */
   detailBlocks: {
@@ -98,6 +105,9 @@ export interface ProductFormValue {
     sortOrder: string;
   }[];
   variants: {
+    id?: string;
+    clientKey?: string;
+    cardMedia?: VariantCardMedia | null;
     name: string;
     position: string;
     sku: {
@@ -160,22 +170,26 @@ function nextImageSortOrder(images: readonly ImageFormValue[]): string {
 export function appendImage(
   images: ImageFormValue[],
   type: ImageFormValue["type"],
+  url = "",
 ): ImageFormValue[] {
+  const clientKey = freshClientKey("shared-media", {
+    catalogGraphVersion: 0, options: [], variants: [],
+    media: images.map((image, index) => ({
+      ...image, altText: image.altText || null, sortOrder: index,
+      optionValueRef: null, variantRef: null,
+    })),
+  });
   return [
     ...images,
-    { url: "", type, altText: "", sortOrder: nextImageSortOrder(images) },
+    { clientKey, url, type, altText: "", sortOrder: nextImageSortOrder(images), isScene: false },
   ];
 }
 
-/** Appends an image row that already carries its uploaded/pasted URL. */
 export function appendImageUrl(
   images: ImageFormValue[],
   url: string,
 ): ImageFormValue[] {
-  return [
-    ...images,
-    { url, type: "IMAGE", altText: "", sortOrder: nextImageSortOrder(images) },
-  ];
+  return appendImage(images, "IMAGE", url);
 }
 
 /**
@@ -587,6 +601,7 @@ export function serializeFormValue(
     images.push({
       url,
       type: img.type,
+      isScene: img.isScene ?? false,
       ...(altText ? { altText } : {}),
       sortOrder,
     });
@@ -682,6 +697,7 @@ export function serializeFormValue(
     variants.push({
       name: variantName,
       position,
+      ...(vr.cardMedia !== undefined ? { cardMedia: vr.cardMedia } : {}),
       ...(sku ? { sku } : {}),
     });
   });
@@ -785,6 +801,7 @@ const READINESS_CHECK_TABS: Record<ReadinessCheckKey, TabKey> = {
   basic: "basic",
   priced_sku: "variants",
   shared_media: "media",
+  card_media: "media",
   shipping: "shipping",
   default_variant: "variants",
 };
@@ -908,6 +925,14 @@ export function ProductForm({
   const typed = value.graphTyped === true && value.graph !== undefined;
   const graphLocked = !typed && (value.graph?.catalogGraphVersion ?? 0) > 0;
   const graphDraft = typed && value.graph ? value.graph : null;
+  const cardDraft = useMemo(() => {
+    if (!graphDraft) return cardGraphFromLegacyForm(value);
+    const draft = structuredClone(graphDraft);
+    syncSharedMediaDraft(draft, value.images);
+    return draft;
+  }, [graphDraft, value]);
+  const [cardPreviewVariantRef, setCardPreviewVariantRef] = useState<EntityRef | null>(null);
+  const cardPreview = useMemo(() => buildProductCardPreview(value, cardDraft, cardPreviewVariantRef), [value, cardDraft, cardPreviewVariantRef]);
 
   useLayoutEffect(() => {
     if (
@@ -938,6 +963,15 @@ export function ProductForm({
       const draft = structuredClone(prev.graph);
       mutate(draft);
       return { ...prev, graph: draft };
+    });
+    clearValidation();
+  };
+
+  const updateCardGraph = (mutate: (draft: AdminCatalogGraphDraft) => void): void => {
+    setValue(prev => {
+      const draft = prev.graphTyped && prev.graph ? structuredClone(prev.graph) : cardGraphFromLegacyForm(prev);
+      mutate(draft);
+      return { ...prev, graph: draft, graphTyped: true };
     });
     clearValidation();
   };
@@ -1017,9 +1051,10 @@ export function ProductForm({
         description: value.description,
         images: value.images,
         graph: graphDraft,
+        cardGraph: cardDraft,
         legacyVariants: value.variants,
       }),
-    [value, graphDraft],
+    [value, graphDraft, cardDraft],
   );
 
   // The rail's blocking list is the SAME issue list the save path builds, so
@@ -1069,7 +1104,9 @@ export function ProductForm({
   const setImage = (i: number, p: Partial<ImageFormValue>): void => {
     setValue((prev) => ({
       ...prev,
-      images: prev.images.map((img, j) => (j === i ? { ...img, ...p } : img)),
+      images: prev.images.map((img, j) => (j === i ? {
+        ...img, ...p, ...(p.type === "VIDEO" ? { isScene: false } : {}),
+      } : img)),
     }));
     clearValidation();
   };
@@ -1080,14 +1117,18 @@ export function ProductForm({
   const addMediaWithUrl = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
     setValue((prev) => ({
       ...prev,
-      images: [...prev.images, { ...media, altText: "", sortOrder: nextImageSortOrder(prev.images) }],
+      images: appendImage(prev.images, media.type, media.url),
     }));
     clearValidation();
   };
   const uploadTargets = new Set([
-    "shared", "detail",
-    ...(value.graph?.options.flatMap((option) => option.values.map((row) => `value:${entityRowKey(row)}`)) ?? []),
-    ...(value.graph?.variants.map((row) => `variant:${entityRowKey(row)}`) ?? []),
+    "detail",
+    ...(graphLocked ? [] : [
+      "shared",
+      ...(value.graph?.options.flatMap((option) => option.values.map((row) => `value:${entityRowKey(row)}`)) ?? []),
+      ...(value.graph?.variants.map((row) => `variant:${entityRowKey(row)}`) ?? []),
+      ...cardDraft.variants.flatMap(row => (["cover", "hover"] as const).map(slot => `card:${entityRowKey(row)}:${slot}`)),
+    ]),
   ]);
   const batchUpload = useMediaBatchUpload({ disabled: pending, isTargetAvailable: (key) => uploadTargets.has(key) });
   // Scoped receipts live inside their option-value/variant details, which can be
@@ -1235,10 +1276,15 @@ export function ProductForm({
     clearValidation();
   };
   const addVariant = (): void => {
-    setValue((prev) => ({
-      ...prev,
-      variants: [...prev.variants, { name: "", position: "", sku: null }],
-    }));
+    setValue((prev) => {
+      const clientKey = freshClientKey("legacy-variant", {
+        catalogGraphVersion: 0, options: [], media: [],
+        variants: prev.variants.map(row => ({
+          ...row, position: 0, combinationKey: "", optionValueRefs: [], sku: null,
+        })),
+      });
+      return { ...prev, variants: [...prev.variants, { clientKey, name: "", position: "", sku: null }] };
+    });
     clearValidation();
   };
   const removeVariant = (i: number): void => {
@@ -1734,6 +1780,8 @@ export function ProductForm({
             pending={pending}
             graphDraft={graphDraft}
             onGraphChange={typed && graphDraft ? updateGraph : null}
+            cardMediaEditor={{ draft: cardDraft, onChange: updateCardGraph, batchUpload, onPreviewVariant: setCardPreviewVariantRef }}
+            cardPreview={<ProductCard product={cardPreview} interactionMode="preview" />}
             highlightKey={highlight?.key ?? null}
             highlightNonce={highlight?.nonce ?? 0}
             sharedMedia={{
@@ -1942,7 +1990,7 @@ export function ProductForm({
                         type="button"
                         className="text-sm font-semibold text-red-700 hover:underline disabled:text-ink-muted disabled:no-underline"
                         onClick={() => removeVariant(i)}
-                        disabled={pending}
+                        disabled={pending || batchUpload.uploading}
                       >
                         {t("product_variant_remove")}
                       </button>
@@ -2149,7 +2197,7 @@ export function ProductForm({
               size="md"
               className="mt-4"
               onClick={addVariant}
-              disabled={pending}
+              disabled={pending || batchUpload.uploading}
             >
               {t("product_variant_add")}
             </Button>

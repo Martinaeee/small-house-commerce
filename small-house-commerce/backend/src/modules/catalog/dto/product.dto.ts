@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../../common/site-media-url.js';
+import { variantCardMediaSchema } from '../variant-card-media.js';
 import {
   DetailBlockType,
   InternalProductRole,
@@ -35,6 +36,7 @@ const variantSchema = z.object({
   position: z.number().int().default(0),
   // A variant may exist without a SKU yet; the SKU is what makes it sellable.
   sku: skuSchema.optional(),
+  cardMedia: variantCardMediaSchema.nullable().optional(),
 });
 
 const imageSchema = z.object({
@@ -43,6 +45,11 @@ const imageSchema = z.object({
   type: z.nativeEnum(DetailBlockType).default('IMAGE'),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
+  isScene: z.boolean().optional(),
+}).superRefine((image, ctx) => {
+  if (image.isScene && image.type !== 'IMAGE') {
+    ctx.addIssue({ code: 'custom', message: 'Scene media must be an image.', path: ['isScene'] });
+  }
 });
 
 /**
