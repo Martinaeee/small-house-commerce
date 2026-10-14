@@ -265,6 +265,7 @@ function createProductsHarness() {
   const prisma = {
     product,
     productImage,
+    sharedFaqSet: { findUnique: vi.fn(async () => null) },
     inventory: { groupBy: vi.fn(async () => []) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   };
