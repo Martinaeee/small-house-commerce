@@ -28,7 +28,11 @@ export function parseScenes(payload: Record<string, unknown>): HydratedRoomScene
   for (const raw of payload.scenes) {
     if (!raw || typeof raw !== "object") continue;
     const rec = raw as Record<string, unknown>;
-    if (typeof rec.id !== "string" || typeof rec.imageUrl !== "string") continue;
+    if (
+      typeof rec.id !== "string" ||
+      typeof rec.imageUrl !== "string" ||
+      rec.imageUrl.trim() === ""
+    ) continue;
 
     const rawHotspots = Array.isArray(rec.hotspots) ? rec.hotspots : [];
     const hotspots = rawHotspots.flatMap((dot) => {

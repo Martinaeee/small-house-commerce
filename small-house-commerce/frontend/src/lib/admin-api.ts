@@ -14,6 +14,7 @@
 
 import { adminAuthedFetch, adminAuthedText } from "./admin-auth";
 import type { CampaignLinkContext } from "./campaign-link-builder";
+import type { HomepageDocument } from "@/lib/homepage-document";
 import { formatPrice } from "@/components/ui/PriceBox";
 import type { OrderOptionSnapshotV1 } from "./order-options";
 
@@ -960,6 +961,43 @@ export interface SetHomepageProductsRow {
   badge?: string | null;
 }
 
+// --- homepage builder (V2 document) ------------------------------------------
+
+/**
+ * Mirrors the backend `PublishIssue` (modules/cms/homepage-document.ts). The
+ * severity separates publish-blocking errors from confirmable warnings;
+ * sectionId/slideId/announcementItemId carry the editor jump target when the rule located one.
+ */
+export type PublishIssue = {
+  severity: "ERROR" | "WARNING";
+  code: string;
+  message: string;
+  sectionId?: string;
+  slideId?: string;
+  announcementItemId?: string;
+};
+
+/** A published homepage version and its status in the active publish window. */
+export interface HomepageVersionMeta {
+  id: string;
+  versionNo: number;
+  note: string | null;
+  createdById: string | null;
+  createdAt: string;
+  publishAt: string;
+  unpublishAt: string | null;
+  status: "SCHEDULED" | "LIVE" | "ENDED" | "SUPERSEDED";
+}
+
+/** The editable document plus its optimistic revision and live-version summary. */
+export interface HomepageDraftSnapshot {
+  draft: HomepageDocument;
+  draftRev: number;
+  draftUpdatedAt: string;
+  draftUpdatedById: string | null;
+  published: { versionNo: number; publishAt: string } | null;
+}
+
 // --- request DTOs (Decimal fields send as JSON numbers; zod z.number()) ------
 
 export interface CreateProductInput {
@@ -1758,5 +1796,79 @@ export const adminApi = {
     adminAuthedFetch<{ ok: boolean; count: number }>(
       `/api/v1/admin/homepage/sections/${encodeURIComponent(id)}/products`,
       { method: "PUT", body: JSON.stringify({ rows }) },
+    ),
+
+  // --- homepage builder (V2 document) ---------------------------------------
+
+  getHomepageDraft: (): Promise<HomepageDraftSnapshot> =>
+    adminAuthedFetch<HomepageDraftSnapshot>("/api/v1/admin/homepage/draft"),
+
+  /** `expectedRev` is the optimistic lock; a stale rev surfaces as a 409 AdminApiError. */
+  saveHomepageDraft: (
+    draft: unknown,
+    expectedRev: number,
+  ): Promise<{ draftRev: number; draftUpdatedAt: string }> =>
+    adminAuthedFetch<{ draftRev: number; draftUpdatedAt: string }>(
+      "/api/v1/admin/homepage/draft",
+      { method: "PUT", body: JSON.stringify({ draft, expectedRev }) },
+    ),
+
+  /** Validates the SAVED draft; errors/warnings carry editor jump targets. */
+  validateHomepage: (): Promise<{
+    errors: PublishIssue[];
+    warnings: PublishIssue[];
+  }> =>
+    adminAuthedFetch<{ errors: PublishIssue[]; warnings: PublishIssue[] }>(
+      "/api/v1/admin/homepage/validate",
+      { method: "POST" },
+    ),
+
+  /**
+   * Publishes the saved draft. 422 with the blocking issues (errors, or
+   * unconfirmed warnings) arrives as an AdminApiError with `.status` 422.
+   */
+  publishHomepage: (input: {
+    note: string | null;
+    publishAt: string | null;
+    unpublishAt: string | null;
+    confirmWarnings: boolean;
+  }): Promise<{ versionNo: number; publishAt: string }> =>
+    adminAuthedFetch<{ versionNo: number; publishAt: string }>(
+      "/api/v1/admin/homepage/publish",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  listHomepageVersions: (): Promise<HomepageVersionMeta[]> =>
+    adminAuthedFetch<HomepageVersionMeta[]>("/api/v1/admin/homepage/versions"),
+
+  getHomepageVersion: (
+    id: string,
+  ): Promise<HomepageVersionMeta & { document: unknown }> =>
+    adminAuthedFetch<HomepageVersionMeta & { document: unknown }>(
+      `/api/v1/admin/homepage/versions/${encodeURIComponent(id)}`,
+    ),
+
+  /** Copies the version's document into the draft; never publishes. */
+  restoreHomepageVersion: (id: string): Promise<{ draftRev: number }> =>
+    adminAuthedFetch<{ draftRev: number }>(
+      `/api/v1/admin/homepage/versions/${encodeURIComponent(id)}/restore`,
+      { method: "POST" },
+    ),
+
+  /** Takes a version offline; idempotent, responds with an empty body. */
+  unpublishHomepageVersion: (id: string): Promise<void> =>
+    adminAuthedFetch<void>(
+      `/api/v1/admin/homepage/versions/${encodeURIComponent(id)}/unpublish`,
+      { method: "POST" },
+    ),
+
+  /** Short-lived draft-preview token; 503 when the server secret is unset. */
+  createHomepagePreviewToken: (): Promise<{
+    token: string;
+    expiresInMs: number;
+  }> =>
+    adminAuthedFetch<{ token: string; expiresInMs: number }>(
+      "/api/v1/admin/homepage/preview-token",
+      { method: "POST" },
     ),
 };

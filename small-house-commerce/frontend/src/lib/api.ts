@@ -6,6 +6,12 @@
  * because rewrites only apply to browser requests.
  */
 
+import type {
+  AnnouncementCountdownConfig,
+  AnnouncementRichTextDocument,
+  LinkValue,
+  Schedule,
+} from "./homepage-document";
 import type { Attribution } from "./tracking";
 import { STOREFRONT_TAGS } from "./cache-tags";
 
@@ -228,7 +234,9 @@ export type HomepageSectionType =
   | "ROOM_INSPIRATION"
   | "UGC"
   | "BRAND_STORY"
-  | "CONFIDENCE";
+  | "CONFIDENCE"
+  | "PROMO_BANNER"
+  | "COUNTDOWN_BANNER";
 
 export interface HomepageCategoryTile {
   id: string;
@@ -266,12 +274,26 @@ export interface HydratedRoomScene extends Omit<RoomScene, "hotspots"> {
   hotspots: RoomSceneHotspot[];
 }
 
+export type HomepageSectionStyle = {
+  backgroundColor?: string;
+  textColor?: string;
+  contentWidth?: "FULL" | "STANDARD" | "NARROW";
+  paddingTop?: number;
+  paddingBottom?: number;
+};
+
 export interface HomepageSection {
   id: string;
   type: HomepageSectionType;
   title: string | null;
   subtitle: string | null;
   sortOrder: number;
+  style?: HomepageSectionStyle;
+  /**
+   * Present only on the V2 banner sections; lets a cached page still honor an
+   * earlier `unpublishAt` at runtime.
+   */
+  schedule?: { publishAt: string | null; unpublishAt: string | null };
   payload: Record<string, unknown>;
   // Present only on the types hydrated by the backend.
   products?: HomepageSectionProduct[];
@@ -280,6 +302,179 @@ export interface HomepageSection {
 
 export interface HomepageResponse {
   sections: HomepageSection[];
+}
+
+// --- HERO payload v2 (homepage document → storefront) -----------------------
+//
+// The backend resolves each element's `link` value into a final `linkHref`
+// string and passes the slide array through unchanged, so the storefront side
+// of a HERO section is a looser superset of the editor's HeroPayload: the same
+// data plus `linkHref`. These are intentionally loose (everything optional
+// except the slide id) because the payload crosses the network as JSON; the
+// storefront HeroSlider reads only what it renders and safeCss-shaped fields
+// are re-validated by `heroCss`/`safeHex` before ever becoming CSS.
+
+export type HomepageHeroElementKey =
+  | "eyebrow"
+  | "heading"
+  | "subheading"
+  | "offer"
+  | "ctaPrimary"
+  | "ctaSecondary"
+  | "countdown";
+
+export interface HomepageHeroImage {
+  url?: string;
+  alt?: string;
+}
+
+export interface HomepageHeroVideo {
+  url?: string;
+  poster?: string | null;
+  autoplay?: boolean;
+  muted?: boolean;
+  loop?: boolean;
+  playsInline?: boolean;
+  showSoundToggle?: boolean;
+  pauseOffscreen?: boolean;
+}
+
+export interface HomepageHeroMobileOverride {
+  enabled?: boolean;
+  image?: HomepageHeroImage | null;
+  video?: HomepageHeroVideo | null;
+}
+
+export interface HomepageHeroMedia {
+  type?: "IMAGE" | "VIDEO";
+  image?: HomepageHeroImage | null;
+  video?: HomepageHeroVideo | null;
+  mobileOverride?: HomepageHeroMobileOverride;
+  fit?: "COVER" | "CONTAIN";
+  focal?: { x?: number; y?: number };
+  objectPosition?: {
+    desktop?: { x?: number; y?: number };
+    tablet?: { x?: number; y?: number } | null;
+    mobile?: { x?: number; y?: number } | null;
+  };
+}
+
+export interface HomepageHeroElement {
+  text?: string;
+  link?: Record<string, unknown> | null;
+  /** Resolved by the backend storefront mapping; null = unresolvable/deleted. */
+  linkHref?: string | null;
+  style?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+  overrides?: Record<string, unknown>;
+  locked?: boolean;
+  // offer / cta / countdown extras (mirror the editor types)
+  chip?: HomepageHeroChip;
+  button?: HomepageHeroButton;
+  endsAt?: string | null;
+}
+
+export interface HomepageHeroChip {
+  background?: string;
+  textColor?: string;
+  borderRadius?: number;
+  paddingX?: number;
+  paddingY?: number;
+}
+
+export interface HomepageHeroButton {
+  variant?: "SOLID" | "OUTLINE" | "LINK";
+  background?: string | null;
+  textColor?: string | null;
+  borderColor?: string | null;
+  hoverBackground?: string | null;
+  hoverTextColor?: string | null;
+  borderRadius?: number;
+  paddingX?: number;
+  paddingY?: number;
+  size?: "SM" | "MD" | "LG";
+  /** Optional trailing arrow after the label (mirrors the editor HeroButton). */
+  arrow?: boolean;
+}
+
+export interface HomepageHeroSlide {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  sortOrder?: number;
+  schedule?: { publishAt?: string | null; unpublishAt?: string | null };
+  media?: HomepageHeroMedia | null;
+  overlay?: { color?: string; opacity?: number; gradient?: string };
+  elements?: Partial<Record<HomepageHeroElementKey, HomepageHeroElement>>;
+}
+
+export interface HomepageHeroBehavior {
+  autoplay?: boolean;
+  durationMs?: number;
+  transition?: string;
+  pauseOnHover?: boolean;
+  arrows?: boolean;
+  pagination?: string;
+  manualPauseMs?: number;
+}
+
+export interface HomepageHeroPayload {
+  behavior?: HomepageHeroBehavior;
+  slides?: HomepageHeroSlide[];
+  // Loose storefront view: unknown/extra payload fields must not break the
+  // type; the index signature also makes payloads narrow cleanly from a
+  // `Record<string, unknown>` through `isHeroPayloadView`.
+  [key: string]: unknown;
+}
+
+/** Loose storefront view of a HERO section payload (see block comment above). */
+export type HeroPayloadView = HomepageHeroPayload;
+
+/** Narrow a `Record<string, unknown>` HERO payload to the loose v2 storefront shape. */
+export function isHeroPayloadView(payload: unknown): payload is HeroPayloadView {
+  if (!payload || typeof payload !== "object") return false;
+  const slides = (payload as { slides?: unknown }).slides;
+  return (
+    Array.isArray(slides) &&
+    slides.some(
+      (slide) =>
+        slide !== null &&
+        typeof slide === "object" &&
+        typeof (slide as { id?: unknown }).id === "string",
+    )
+  );
+}
+
+// --- announcement bar (homepage document → storefront layout) ---------------
+//
+// The backend returns the document's `announcement` block with the item list
+// already filtered by enablement + schedule and each item's `link` resolved
+// into a final `linkHref` (same resolution as HERO element links). Colors are
+// whitelisted server-side; the bar re-clamps them through `safeHex` anyway.
+
+export interface AnnouncementItemView {
+  id: string;
+  text: string;
+  content?: AnnouncementRichTextDocument;
+  link: LinkValue | null;
+  /** Resolved by the backend; null = plain-text item (no anchor). */
+  linkHref: string | null;
+  /** CTA suffix rendered after the text when the item is a link. */
+  linkLabel: string | null;
+  /** #rrggbb. */
+  textColor: string;
+  backgroundColor: string;
+  schedule: Schedule;
+  countdown?: AnnouncementCountdownConfig | null;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface AnnouncementBlockView {
+  enabled: boolean;
+  /** Rotation interval in ms for multi-item bars. */
+  rotationMs: number;
+  items: AnnouncementItemView[];
 }
 
 export interface Collection {
@@ -424,6 +619,24 @@ export async function getHomepage(): Promise<HomepageResponse> {
   });
   await assertOk(res);
   return res.json() as Promise<HomepageResponse>;
+}
+
+/**
+ * Announcement bar data for the storefront layout (global, same ISR contract
+ * as getHomepage). The backend answers 200 with an empty body when no version
+ * is effective or nothing is active, so "no announcement" is a normal null;
+ * non-OK responses throw like every other helper here — the layout catches
+ * and hides the bar.
+ */
+export async function getAnnouncement(): Promise<AnnouncementBlockView | null> {
+  const res = await fetch(serverApiUrl("/api/v1/storefront/announcement"), {
+    next: { revalidate: 120, tags: STOREFRONT_TAGS },
+  });
+  await assertOk(res);
+  const body = await res.text();
+  if (body.trim() === "") return null;
+  const parsed = JSON.parse(body) as AnnouncementBlockView | null;
+  return parsed ?? null;
 }
 
 export const api = {

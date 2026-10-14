@@ -10,7 +10,7 @@ export function BrandStorySection({ section }: { section: HomepageSection }) {
   const bullets = Array.isArray(p.bullets) ? p.bullets.map((b) => str(b)).filter(Boolean) : [];
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <div className="max-w-3xl">
         {heading ? <h2 className="mb-3 text-2xl font-semibold text-ink">{heading}</h2> : null}
         {body ? <p className="leading-relaxed text-ink-secondary">{body}</p> : null}

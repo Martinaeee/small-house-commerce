@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { SectionShell } from "./sectionShell";
-import type { HomepageSection } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -41,19 +41,25 @@ function UspIcon({ icon }: { icon?: string }): ReactNode {
   }
 }
 
-export function UspSection({ section }: { section: HomepageSection }) {
+export function UspSection({ section, previewDevice }: SectionProps) {
   const items = Array.isArray(section.payload?.items) ? section.payload.items : [];
+  const gridClass =
+    previewDevice === "mobile"
+      ? "grid grid-cols-2 gap-4"
+      : previewDevice
+        ? "grid grid-cols-4 gap-4"
+        : "grid grid-cols-2 gap-4 md:grid-cols-4";
   if (items.length === 0) {
     return (
-      <SectionShell className="py-10">
-        <TrustBar />
+      <SectionShell className="py-10" style={section.style}>
+        <TrustBar previewDevice={previewDevice} />
       </SectionShell>
     );
   }
 
   return (
-    <SectionShell className="py-10">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <SectionShell style={section.style} className="py-10">
+      <div className={gridClass}>
         {items.slice(0, 4).map((item, index) => (
           <div key={index} className="flex flex-col items-center gap-2 text-center">
             <UspIcon icon={str((item as { icon?: unknown }).icon) || undefined} />

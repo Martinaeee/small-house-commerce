@@ -34,6 +34,9 @@ services:
       # /api/internal/revalidate route (shared secret, docker network).
       REVALIDATE_URL: http://frontend:3000
       REVALIDATE_SECRET: ${REVALIDATE_SECRET}
+      # Homepage draft-preview token signing (>=32 chars). Set in .env.deploy;
+      # when blank the preview-token routes answer 503.
+      HOMEPAGE_PREVIEW_SECRET: ${HOMEPAGE_PREVIEW_SECRET:-}
       # Optional Resend delivery. Blank values select the local structured-log
       # gateway; when EMAIL_API_KEY is set, boot validation requires all three.
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}

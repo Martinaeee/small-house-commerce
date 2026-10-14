@@ -7,7 +7,7 @@ import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { NewsletterPopup } from "@/components/newsletter/NewsletterPopup";
-import { serverApiUrl, type Category, type Collection } from "@/lib/api";
+import { serverApiUrl, getAnnouncement, type AnnouncementBlockView, type Category, type Collection } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
 import { fetchSiteSettings, type SiteSettings } from "@/lib/site-settings";
 import {
@@ -65,12 +65,25 @@ async function getLayoutData(): Promise<{
   };
 }
 
+async function getAnnouncementData(): Promise<AnnouncementBlockView | null> {
+  try {
+    return await getAnnouncement();
+  } catch {
+    // The announcement bar is enhancement; a backend outage must not blank
+    // the storefront.
+    return null;
+  }
+}
+
 export default async function StorefrontLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { roots, collections, settings, shell } = await getLayoutData();
+  const [{ roots, collections, settings, shell }, announcement] = await Promise.all([
+    getLayoutData(),
+    getAnnouncementData(),
+  ]);
 
   return (
     <Providers settings={settings}>
@@ -80,7 +93,7 @@ export default async function StorefrontLayout({
       />
       <MetaPixelInit />
       <div className="storefront-app flex min-h-full flex-1 flex-col">
-        <AnnouncementBar />
+        <AnnouncementBar data={announcement} />
         <StorefrontShellPresentation
           shell={shell}
           roots={roots}

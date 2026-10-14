@@ -6,6 +6,30 @@ const required = {
   JWT_SECRET: 'x'.repeat(32),
 };
 
+describe('homepage preview environment validation', () => {
+  it('treats an absent or blank preview secret as disabled', () => {
+    expect(parseEnv(required).HOMEPAGE_PREVIEW_SECRET).toBeUndefined();
+    expect(
+      parseEnv({ ...required, HOMEPAGE_PREVIEW_SECRET: '   ' })
+        .HOMEPAGE_PREVIEW_SECRET,
+    ).toBeUndefined();
+  });
+
+  it('rejects an enabled preview secret shorter than 32 characters', () => {
+    expect(() =>
+      parseEnv({ ...required, HOMEPAGE_PREVIEW_SECRET: 'too-short' }),
+    ).toThrow(/HOMEPAGE_PREVIEW_SECRET must be at least 32 characters/);
+  });
+
+  it('accepts a 32-character preview secret', () => {
+    const secret = 'p'.repeat(32);
+    expect(
+      parseEnv({ ...required, HOMEPAGE_PREVIEW_SECRET: secret })
+        .HOMEPAGE_PREVIEW_SECRET,
+    ).toBe(secret);
+  });
+});
+
 describe('email environment validation', () => {
   it('allows the log gateway without provider configuration', () => {
     const parsed = parseEnv(required);

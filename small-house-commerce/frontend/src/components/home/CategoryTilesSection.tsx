@@ -2,20 +2,34 @@ import Link from "next/link";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell } from "./sectionShell";
-import type { HomepageSection } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
-export function CategoryTilesSection({ section }: { section: HomepageSection }) {
+export function CategoryTilesSection({ section, previewDevice }: SectionProps) {
   const categories = section.categories ?? [];
+  const gridClass =
+    previewDevice === "desktop"
+      ? "grid grid-cols-6 gap-4"
+      : previewDevice === "tablet"
+        ? "grid grid-cols-3 gap-4"
+        : previewDevice === "mobile"
+          ? "grid grid-cols-2 gap-4"
+          : "grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6";
 
   if (categories.length === 0) {
-    return <SectionPlaceholder title={section.title} message="Categories are being prepared — check back soon." />;
+    return (
+      <SectionPlaceholder
+        title={section.title}
+        message="Categories are being prepared — check back soon."
+        style={section.style}
+      />
+    );
   }
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className={gridClass}>
         {categories.map((category, index) => (
           <Link
             key={category.id}

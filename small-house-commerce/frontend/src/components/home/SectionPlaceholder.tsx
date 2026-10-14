@@ -9,11 +9,13 @@ export function SectionPlaceholder({
   title,
   message,
   inside = false,
+  style,
 }: {
   title?: string | null;
   message: string;
   /** Render without SectionShell, inside a component that already has one. */
   inside?: boolean;
+  style?: unknown;
 }) {
   const card = (
     <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-background p-8 text-center">
@@ -22,5 +24,5 @@ export function SectionPlaceholder({
       <p className="max-w-md text-sm text-ink-secondary">{message}</p>
     </div>
   );
-  return inside ? card : <SectionShell>{card}</SectionShell>;
+  return inside ? card : <SectionShell style={style}>{card}</SectionShell>;
 }

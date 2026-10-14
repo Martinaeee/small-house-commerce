@@ -1,18 +1,24 @@
 import { ProductCard } from "@/components/product/ProductCard";
 import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell } from "./sectionShell";
-import type { HomepageSection } from "@/lib/api";
+import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
-export function ProductGridSection({ section }: { section: HomepageSection }) {
+export function ProductGridSection({ section, previewDevice, interactionMode }: SectionProps) {
   const products = section.products ?? [];
   const twoColumns = section.payload?.columns === 2;
   const gridClass = twoColumns
     ? "grid grid-cols-2 gap-4"
-    : "grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4";
+    : previewDevice === "desktop"
+      ? "grid grid-cols-4 gap-4"
+      : previewDevice === "tablet"
+        ? "grid grid-cols-3 gap-4"
+        : previewDevice === "mobile"
+          ? "grid grid-cols-2 gap-4"
+          : "grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4";
 
   return (
-    <SectionShell>
+    <SectionShell style={section.style}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       {products.length === 0 ? (
         <SectionPlaceholder
@@ -22,13 +28,13 @@ export function ProductGridSection({ section }: { section: HomepageSection }) {
       ) : (
         <div className={gridClass}>
           {products.map((product, index) => (
-            <div
+            <ProductCard
               key={product.id}
-              className="contents"
-              {...trackAttrs("ProductClick", section, index + 1)}
-            >
-              <ProductCard product={product} badge={product.badge ?? undefined} />
-            </div>
+              product={product}
+              badge={product.badge ?? undefined}
+              interactionMode={interactionMode}
+              navigationTrackAttrs={interactionMode === "preview" ? undefined : trackAttrs("ProductClick", section, index + 1)}
+            />
           ))}
         </div>
       )}

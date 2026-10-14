@@ -42,7 +42,9 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   backInStockEnabled: false,
 };
 
-function coerce(data: Partial<SiteSettings> | null): SiteSettings {
+export function normalizeSiteSettings(
+  data: Partial<SiteSettings> | null,
+): SiteSettings {
   return {
     messengerUrl: typeof data?.messengerUrl === "string" ? data.messengerUrl : DEFAULT_SITE_SETTINGS.messengerUrl,
     supportEmail: typeof data?.supportEmail === "string" ? data.supportEmail : DEFAULT_SITE_SETTINGS.supportEmail,
@@ -109,7 +111,7 @@ export async function fetchSiteSettings(): Promise<SiteSettings> {
       next: { revalidate: 300, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return DEFAULT_SITE_SETTINGS;
-    return coerce((await res.json()) as Partial<SiteSettings>);
+    return normalizeSiteSettings((await res.json()) as Partial<SiteSettings>);
   } catch {
     return DEFAULT_SITE_SETTINGS;
   }

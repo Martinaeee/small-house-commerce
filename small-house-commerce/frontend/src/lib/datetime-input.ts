@@ -20,6 +20,13 @@ export function dateToLocalInput(d: Date): string {
   return isoToLocalInput(d.toISOString());
 }
 
+/** datetime-local value -> ISO timestamp; "" or an invalid value maps to null. */
+export function localInputToIso(value: string): string | null {
+  if (value === "") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 /** Current local time, for a datetime-local `max` attribute. */
 export function nowLocalInput(): string {
   return dateToLocalInput(new Date());

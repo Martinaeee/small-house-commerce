@@ -1,0 +1,256 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState, type ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import { ProductStorySectionEditor } from "@/components/admin/homepage/sections/ProductStorySectionEditor";
+import type { SectionOf } from "@/components/admin/homepage/section-editor-registry";
+import type { SectionPayloadMap } from "@/lib/homepage-section-payloads";
+
+const listProducts = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts } }));
+
+type ProductStorySection = SectionOf<"PRODUCT_STORY">;
+const PRODUCT_STORY_ID = "00000000-0000-7000-8000-000000000105";
+
+function makeSection(
+  payload: Partial<SectionPayloadMap["PRODUCT_STORY"]> = {},
+): ProductStorySection {
+  return {
+    id: PRODUCT_STORY_ID,
+    type: "PRODUCT_STORY",
+    title: null,
+    subtitle: null,
+    enabled: true,
+    sortOrder: 50,
+    schedule: { publishAt: null, unpublishAt: null },
+    products: [],
+    payload,
+  };
+}
+
+function Harness({
+  initial = {},
+}: {
+  initial?: Partial<SectionPayloadMap["PRODUCT_STORY"]>;
+}): ReactNode {
+  const [payload, setPayload] = useState<SectionPayloadMap["PRODUCT_STORY"]>(initial);
+  return (
+    <>
+      <ProductStorySectionEditor
+        section={makeSection(payload)}
+        onPayloadChange={(patch) =>
+          setPayload((current) =>
+            typeof patch === "function" ? patch(current) : { ...current, ...patch },
+          )
+        }
+      />
+      <pre data-testid="product-story-payload">{JSON.stringify(payload)}</pre>
+    </>
+  );
+}
+
+const product = {
+  id: "00000000-0000-7000-8000-000000000401",
+  name: "Oak coffee table",
+};
+
+describe("ProductStorySectionEditor", () => {
+  it("edits fields without dropping omitted optional payload values", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            body: "A considered piece.",
+            ctaLink: "/products/oak-table",
+            productId: product.id,
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Product story heading" }), {
+      target: { value: "Made for slow mornings" },
+    });
+
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toMatchObject({
+      heading: "Made for slow mornings",
+      body: "A considered piece.",
+      ctaLink: "/products/oak-table",
+      productId: product.id,
+    });
+  });
+
+  it("uses safe empty values for malformed fields and picks a real product", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({
+      items: [
+        {
+          ...product,
+          slug: "oak-coffee-table",
+          productCode: null,
+          description: null,
+          tagline: null,
+          categoryId: "category",
+          status: "ACTIVE",
+          room: null,
+          internalRole: null,
+          solutions: [],
+          width: null,
+          height: null,
+          depth: null,
+          foldedWidth: null,
+          foldedHeight: null,
+          foldedDepth: null,
+          materials: null,
+          features: null,
+          createdAt: "",
+          updatedAt: "",
+          catalogGraphVersion: 1,
+          defaultDisplayVariantId: null,
+          images: [],
+          detailBlocks: [],
+          variants: [],
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            heading: 4 as unknown as string,
+            body: null as unknown as string,
+            ctaText: {} as unknown as string,
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Product story heading" })).toHaveValue("");
+    await waitFor(() => expect(screen.getByRole("button", { name: product.name })).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: product.name }));
+
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toEqual({
+      productId: product.id,
+    });
+  });
+
+  it("searches the full product catalogue instead of only the first page", async () => {
+    setAdminLang("en");
+    listProducts.mockImplementation(({ search }: { search?: string }) =>
+      Promise.resolve({
+        items: search ? [{ ...product, name: "Beyond page" }] : [],
+        total: search ? 1 : 21,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const search = await screen.findByRole("searchbox", { name: "Search products" });
+    fireEvent.change(search, { target: { value: "Beyond" } });
+    await waitFor(() =>
+      expect(listProducts).toHaveBeenLastCalledWith({
+        search: "Beyond",
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Beyond page" })).toBeVisible();
+  });
+
+  it("keeps an incomplete CTA URL visible while it is being typed", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Product story CTA link" });
+    fireEvent.change(input, { target: { value: "h" } });
+
+    expect(input).toHaveValue("h");
+  });
+
+  it("drops a malformed stored CTA link from the editor value", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ ctaLink: "/products\\escape" }} />
+      </AdminI18nProvider>,
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Product story CTA link" }),
+    ).toHaveValue("");
+  });
+
+  it("keeps an incomplete image URL visible while it is being typed", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Product story image URL" });
+    fireEvent.change(input, { target: { value: "/" } });
+
+    expect(input).toHaveValue("/");
+  });
+
+  it("keeps the clear action available when product results are empty", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ productId: product.id }} />
+      </AdminI18nProvider>,
+    );
+
+    const clear = await screen.findByRole("button", { name: "Clear featured product" });
+    fireEvent.click(clear);
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toEqual({});
+  });
+
+  it("keeps the selected product visible outside the current search results", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ productId: product.id }} />
+      </AdminI18nProvider>,
+    );
+
+    expect(await screen.findByText(product.id)).toBeVisible();
+  });
+
+  it("uses the existing product story clear behavior", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ ctaText: "Shop now", ctaLink: "/shop" }} />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Product story CTA text" }), {
+      target: { value: "" },
+    });
+    expect(JSON.parse(screen.getByTestId("product-story-payload").textContent ?? "{}")).toEqual({
+      ctaLink: "/shop",
+    });
+  });
+});

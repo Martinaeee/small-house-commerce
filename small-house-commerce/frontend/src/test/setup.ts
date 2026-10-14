@@ -1,6 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
+
+vi.mock("next/font/local", () => ({
+  default: () => ({
+    className: "font-test",
+    variable: "--font-test",
+    style: { fontFamily: "test" },
+  }),
+}));
 
 afterEach(() => {
   cleanup();

@@ -7,6 +7,23 @@ const nextConfig: NextConfig = {
   // (Task 3). `next dev` is unaffected; rewrites below still apply.
   output: "standalone",
 
+  // Draft preview routes are operator-only (spec §5.2): never cached by
+  // shared caches, and `no-referrer` keeps the token-bearing URL out of
+  // outbound Referer headers. Next applies these before rendering and its own
+  // dynamic-page Cache-Control respects an already-set value (see
+  // server/send-payload.js), so `private, no-store` is what ships.
+  async headers() {
+    return [
+      {
+        source: "/preview/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+    ];
+  },
+
   // Proxy the storefront API to the backend so the browser never hits CORS.
   // All API calls from the frontend use relative /api/v1 paths.
   async rewrites() {
