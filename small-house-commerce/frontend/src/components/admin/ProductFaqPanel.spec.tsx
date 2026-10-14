@@ -148,6 +148,136 @@ describe("ProductFaqPanel", () => {
     expect(last.version).toBe(2);
   });
 
+  it("renders the targeted effective result as an unsaved customer preview", async () => {
+    const matchingTarget: AdminFaqItem = {
+      ...sharedEnabled,
+      id: "77777777-7777-4777-8777-777777777777",
+      title: "Assembly for this product?",
+      position: 1,
+      audience: {
+        scope: "PRODUCTS",
+        productIds: ["product-1", "product-2"],
+      },
+    };
+    const otherTarget: AdminFaqItem = {
+      ...matchingTarget,
+      id: "88888888-8888-4888-8888-888888888888",
+      title: "Only for another product?",
+      position: 0,
+      audience: {
+        scope: "PRODUCTS",
+        productIds: ["product-8", "product-9"],
+      },
+    };
+    vi.mocked(faqApi.getSharedPreview).mockResolvedValue({
+      items: [matchingTarget, otherTarget, sharedEnabled],
+    });
+    const draft: AdminProductFaq = {
+      ...faq,
+      mode: "EXTEND",
+      items: [
+        {
+          ...faq.items[0]!,
+          title: "Draft product question",
+          position: 0,
+        },
+      ],
+    };
+
+    render(
+      <AdminI18nProvider>
+        <ProductFaqPanel
+          value={draft}
+          onChange={vi.fn()}
+          savedValue={faq}
+          productId="product-1"
+        />
+      </AdminI18nProvider>,
+    );
+
+    const preview = await screen.findByRole("region", {
+      name: "Unsaved customer preview",
+    });
+    expect(screen.getByText("Unsaved customer preview")).toBeInTheDocument();
+    expect(
+      [...preview.querySelectorAll("summary")].map((node) => node.textContent),
+    ).toEqual([
+      "How does delivery work?",
+      "Assembly for this product?",
+      "Draft product question",
+    ]);
+    expect(
+      within(preview).queryByText("Only for another product?"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("copies applicable shared questions into CUSTOM as independent draft items", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <AdminI18nProvider>
+        <StatefulPanel initial={faq} onChange={onChange} />
+      </AdminI18nProvider>,
+    );
+
+    const copy = await screen.findByRole("button", {
+      name: "Copy applicable shared questions",
+    });
+    expect(copy).toBeEnabled();
+    await user.click(copy);
+
+    const first = onChange.mock.lastCall?.[0] as AdminProductFaq;
+    expect(first.mode).toBe("CUSTOM");
+    expect(first.version).toBe(faq.version);
+    expect(first.items[0]).toEqual(faq.items[0]);
+    expect(first.items).toHaveLength(2);
+    const firstCopy = first.items[1]!;
+    expect(firstCopy.title).toBe(sharedEnabled.title);
+    expect(Object.keys(firstCopy).sort()).toEqual(
+      ["answer", "defaultOpen", "enabled", "id", "position", "title"].sort(),
+    );
+    expect(firstCopy).not.toHaveProperty("audience");
+    expect(firstCopy).not.toHaveProperty("category");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Copy applicable shared questions",
+      }),
+    );
+    const second = onChange.mock.lastCall?.[0] as AdminProductFaq;
+    expect(second.items).toHaveLength(3);
+    expect(second.items[0]).toEqual(faq.items[0]);
+    expect(second.items[1]?.id).toBe(firstCopy.id);
+    expect(second.items[2]?.id).not.toBe(firstCopy.id);
+    expect(second.items.map((item) => item.position)).toEqual([0, 1, 2]);
+    expect(faqApi.getSharedPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["SHARED", "EXTEND"] as const)(
+    "does not offer shared copying in %s mode",
+    async (mode) => {
+      render(
+        <AdminI18nProvider>
+          <ProductFaqPanel
+            value={{ ...faq, mode }}
+            onChange={vi.fn()}
+            savedValue={{ ...faq, mode }}
+            productId="product-1"
+          />
+        </AdminI18nProvider>,
+      );
+
+      await within(
+        screen.getByRole("region", { name: "Applied shared questions" }),
+      ).findByText("How does delivery work?");
+      expect(
+        screen.queryByRole("button", {
+          name: "Copy applicable shared questions",
+        }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("lists the enabled shared questions the product will render", async () => {
     render(
       <AdminI18nProvider>

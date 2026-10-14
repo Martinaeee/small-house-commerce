@@ -1,5 +1,11 @@
 import type { TKey } from "@/lib/admin-i18n";
-import type { AdminFaqAnswerBlock, AdminFaqCategory, AdminFaqItem, AdminFaqMode } from "@/lib/admin-api";
+import type {
+  AdminFaqAnswerBlock,
+  AdminFaqCategory,
+  AdminFaqItem,
+  AdminFaqMode,
+  AdminProductFaq,
+} from "@/lib/admin-api";
 
 export const FAQ_CATEGORY_LABEL_KEYS: Record<AdminFaqCategory, TKey> = {
   DELIVERY: "faq_category_delivery",
@@ -34,6 +40,49 @@ export function audienceAppliesTo(
   if (!productId) return !audience || audience.scope === "ALL";
   if (!audience || audience.scope === "ALL") return true;
   return audience.productIds.includes(productId);
+}
+
+export function resolveAdminFaqPreview(
+  sharedItems: AdminFaqItem[],
+  productFaq: AdminProductFaq,
+  productId: string | null,
+): AdminFaqItem[] {
+  const shared = sharedItems
+    .filter((item) => item.enabled && audienceAppliesTo(item, productId))
+    .sort((left, right) => left.position - right.position);
+  const product = productFaq.items
+    .filter((item) => item.enabled)
+    .sort((left, right) => left.position - right.position);
+  const resolved =
+    productFaq.mode === "SHARED"
+      ? shared
+      : productFaq.mode === "EXTEND"
+        ? [...shared, ...product]
+        : product;
+  return withPositions(resolved);
+}
+
+export function copyApplicableSharedItems(
+  sharedItems: AdminFaqItem[],
+  productId: string | null,
+  startPosition: number,
+  createId: () => string = () => crypto.randomUUID(),
+): AdminFaqItem[] {
+  return sharedItems
+    .filter((item) => item.enabled && audienceAppliesTo(item, productId))
+    .sort((left, right) => left.position - right.position)
+    .map((item, index) => ({
+      id: createId(),
+      title: item.title,
+      answer: item.answer.map((block) =>
+        block.kind === "paragraph"
+          ? { kind: "paragraph" as const, text: block.text }
+          : { kind: "bullets" as const, items: [...block.items] },
+      ),
+      enabled: item.enabled,
+      position: startPosition + index,
+      defaultOpen: item.defaultOpen,
+    }));
 }
 
 /** One-line answer preview for list rows; the full answer lives in the dialog. */
