@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { PermissionCode, RoleCode } from '../src/generated/prisma/client.js';
 import { RBAC_GRANTS, RBAC_PERMISSIONS } from './rbac.js';
 
+describe('RBAC reference data', () => {
+  it('keeps permission declarations and every role grant duplicate-free', () => {
+    const permissionCodes = RBAC_PERMISSIONS.map((permission) => permission.code);
+    expect(new Set(permissionCodes).size).toBe(permissionCodes.length);
+
+    for (const grants of Object.values(RBAC_GRANTS)) {
+      expect(new Set(grants).size).toBe(grants.length);
+    }
+  });
+});
+
 describe('RBAC newsletter permissions', () => {
   it('declares newsletter read/write and grants both to ADMIN and SUPER_ADMIN', () => {
     expect(RBAC_PERMISSIONS).toEqual(
