@@ -42,6 +42,7 @@ export function PdpDetails({
       <ProductDetailMedia blocks={remaining} />
       <MaterialDimensions product={product} />
       <PdpInfoSections
+        items={product.effectiveFaq ?? []}
         supportEmail={supportEmail}
         supportHours={supportHours}
       />

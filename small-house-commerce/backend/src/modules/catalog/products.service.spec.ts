@@ -17,10 +17,12 @@ vi.mock('../../common/revalidation.js', () => ({
 
 type MockProductRow = { id: string; [key: string]: unknown };
 
+type MockSharedFaq = { items: unknown } | null;
 type MockScopedMedia = ProductMediaGraph['images'][number] & { productId: string };
 
 function createPrismaMock(
   rows: MockProductRow[],
+  sharedFaq: MockSharedFaq = null,
   scopedMedia: MockScopedMedia[] = [],
 ) {
   const hydratedRows = rows.map((row) => ({
@@ -52,6 +54,12 @@ function createPrismaMock(
     },
     inventory: {
       groupBy: vi.fn(async () => []),
+    },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
+    sharedFaqSet: {
+      findUnique: vi.fn(async () => sharedFaq),
     },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   };
@@ -264,6 +272,7 @@ function expectCardMedia(product: { id: string; [key: string]: unknown }): void 
     ],
   });
   expect(product).not.toHaveProperty('detailBlocks');
+  expect(product).not.toHaveProperty('effectiveFaq');
   expect(product).not.toHaveProperty('media');
   const serialized = JSON.stringify(product.cardMedia);
   expect(serialized).not.toMatch(/isScene|optionValueId|productId|supplierCost|internalSecret/);
@@ -275,7 +284,7 @@ function expectCardMedia(product: { id: string; [key: string]: unknown }): void 
 describe('ProductsService card media batches', () => {
   it.each([1, 20])('presents every selectable variant with one media query for %i products', async (count) => {
     const ids = Array.from({ length: count }, (_, index) => `card-${index}`);
-    const prisma = createPrismaMock(ids.map(cardProduct), ids.flatMap(cardScopedMedia));
+    const prisma = createPrismaMock(ids.map(cardProduct), null, ids.flatMap(cardScopedMedia));
     const result = await createService(prisma).storefrontByIds(ids);
     expect(result.map(product => product.id)).toEqual(ids);
     result.forEach(expectCardMedia);
@@ -301,7 +310,7 @@ describe('ProductsService card media batches', () => {
 
   it('keeps the same card projection in normal, search and ids listings', async () => {
     const prisma = {
-      ...createPrismaMock([cardProduct('card')], cardScopedMedia('card')),
+      ...createPrismaMock([cardProduct('card')], null, cardScopedMedia('card')),
       $queryRaw: vi.fn()
         .mockResolvedValueOnce([{ id: 'card', rank: 1 }])
         .mockResolvedValueOnce([{ total: 1n }]),
@@ -341,7 +350,7 @@ describe('ProductsService card media batches', () => {
 
   it.each([null, 'unknown', 'card-disabled', 'card-unpriced'])('rejects stored card default %s without borrowing the PDP fallback', async defaultDisplayVariantId => {
     const row = { ...cardProduct('card'), defaultDisplayVariantId };
-    const [result] = await createService(createPrismaMock([row], cardScopedMedia('card'))).storefrontByIds(['card']);
+    const [result] = await createService(createPrismaMock([row], null, cardScopedMedia('card'))).storefrontByIds(['card']);
     expect(result.cardMedia).toMatchObject({ displayVariantId: null, unselected: { cover: null, scene: null } });
     expect(result.effectiveCoverMedia).toMatchObject({ id: defaultDisplayVariantId === 'card-unpriced' ? 'card-shared' : 'card-red-cover' });
   });
@@ -352,7 +361,7 @@ describe('ProductsService card media batches', () => {
     variants[1]!.sku.price = 0;
     Object.assign(variants[1]!.cardMedia.cover!, { supplierCost: 999, internalSecret: { secret: true } });
     row.defaultDisplayVariantId = 'card-blue';
-    const [result] = await createService(createPrismaMock([row], cardScopedMedia('card'))).storefrontByIds(['card']);
+    const [result] = await createService(createPrismaMock([row], null, cardScopedMedia('card'))).storefrontByIds(['card']);
     expect(result.cardMedia).toMatchObject({
       displayVariantId: 'card-blue', unselected: { cover: { url: '/uploads/card-blue-card.webp' } },
     });
@@ -577,6 +586,9 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
         id: LEGACY_PRODUCT_ID,
         catalogGraphVersion: 0,
       })),
+    },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
     },
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
       const beforeVariants = structuredClone(variants);

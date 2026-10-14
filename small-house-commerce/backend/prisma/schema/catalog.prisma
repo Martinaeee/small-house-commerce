@@ -152,6 +152,7 @@ model Product {
   defaultDisplayVariant ProductVariant? @relation("ProductDefaultDisplayVariant", fields: [defaultDisplayVariantId, id], references: [id, productId], onDelete: NoAction)
   images                ProductImage[]
   detailBlocks          ProductDetailBlock[]
+  faq                   ProductFaq?
   reviews               ProductReview[]
   landingPages          ProductLandingPage[]
   options               ProductOption[]

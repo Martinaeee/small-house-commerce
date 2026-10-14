@@ -114,6 +114,16 @@ const product: Product = {
   images: sharedMedia.media,
   initialMediaSet: sharedMedia,
   availableMediaScopes: { optionValueIds: [], variantIds: [] },
+  effectiveFaq: [
+    {
+      id: "faq-delivery",
+      title: "Delivery & Cash on Delivery",
+      answer: [{ kind: "paragraph", text: "Delivery details." }],
+      enabled: true,
+      position: 0,
+      defaultOpen: true,
+    },
+  ],
   detailBlocks: [],
 };
 

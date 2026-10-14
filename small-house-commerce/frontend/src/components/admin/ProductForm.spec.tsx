@@ -19,6 +19,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
 }));
 
+// The FAQ tab previews the shared library; this suite is about the product
+// form, so the preview resolves empty instead of hitting the network. A plain
+// function (not vi.fn) survives the suite's mock resets.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 /**
  * Task 11 — the 409-trap guard. A product whose catalogGraphVersion > 0 must
  * never be edited through the legacy whole-list variants/images form:
@@ -710,6 +717,7 @@ describe("ProductForm variants tab modes", () => {
       "pf-tab-specs",
       "pf-tab-shipping",
       "pf-tab-seo",
+      "pf-tab-faq",
       "pf-tab-preview",
     ]);
     expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual([
@@ -719,6 +727,7 @@ describe("ProductForm variants tab modes", () => {
       "商品规格",
       "包装与物流",
       "搜索与链接",
+      "FAQ",
       "预览",
     ]);
     expect(tabs[0]).toHaveAttribute("tabindex", "0");
@@ -737,7 +746,7 @@ describe("ProductForm variants tab modes", () => {
       "aria-labelledby",
       "pf-tab-preview",
     );
-    expect(document.activeElement).toBe(tabs[6]);
+    expect(document.activeElement).toBe(tabs[7]);
   });
 
   it("activates an unselected focused tab with Enter and Space", () => {
@@ -757,13 +766,32 @@ describe("ProductForm variants tab modes", () => {
       "pf-tab-seo",
     );
 
-    tabs[6].focus();
-    expect(tabs[6]).toHaveAttribute("aria-selected", "false");
-    fireEvent.keyDown(tabs[6], { key: " " });
+    tabs[7].focus();
+    expect(tabs[7]).toHaveAttribute("aria-selected", "false");
+    fireEvent.keyDown(tabs[7], { key: " " });
     expect(screen.getByRole("tabpanel")).toHaveAttribute(
       "aria-labelledby",
       "pf-tab-preview",
     );
+  });
+
+  it("gives the product FAQ its own tab instead of the bottom of Basic Info", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue());
+
+    // Basic Info no longer buries the FAQ editor at its end.
+    expect(
+      screen.queryByRole("heading", { name: "FAQ 与购买说明" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "FAQ" }));
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "pf-tab-faq",
+    );
+    expect(
+      screen.getByRole("heading", { name: "FAQ 与购买说明" }),
+    ).toBeInTheDocument();
   });
 
   it("serializes blank and filled SEO fields independently from storefront copy", () => {
@@ -938,6 +966,7 @@ describe("ProductForm variants tab modes", () => {
     expect(screen.getByRole("tab", { name: "Specifications" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Shipping" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "SEO & Links" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "FAQ" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Preview" })).toBeInTheDocument();
   });
 

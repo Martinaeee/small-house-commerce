@@ -9,6 +9,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
 }));
 
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 function deferredUpload() {
   let resolve!: (result: { url: string; key: string }) => void;
   let reject!: (error: Error) => void;

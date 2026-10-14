@@ -175,6 +175,9 @@ function buildProductPatch(
   if (JSON.stringify(current.variants) !== JSON.stringify(initial.variants)) {
     patch.variants = current.variants;
   }
+  if (JSON.stringify(current.faq) !== JSON.stringify(initial.faq)) {
+    patch.faq = current.faq;
+  }
 
   return patch as Partial<CreateProductInput>;
 }

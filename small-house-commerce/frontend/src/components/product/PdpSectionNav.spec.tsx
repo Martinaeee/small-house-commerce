@@ -5,15 +5,18 @@ import { PdpSectionNav } from "./PdpSectionNav";
 function renderPage({
   hasDetails = true,
   hasSpecifications = true,
+  hasFaq = true,
 }: {
   hasDetails?: boolean;
   hasSpecifications?: boolean;
+  hasFaq?: boolean;
 } = {}) {
   render(
     <>
       <PdpSectionNav
         hasDetails={hasDetails}
         hasSpecifications={hasSpecifications}
+        hasFaq={hasFaq}
       />
       <main>
         <section id="details" className="scroll-mt-28" />
@@ -56,6 +59,16 @@ describe("PdpSectionNav", () => {
       expect(targets).toHaveLength(1);
       expect(targets[0]).toHaveClass("scroll-mt-28");
     }
+  });
+
+  it("hides the FAQ anchor when there is no effective FAQ content", () => {
+    renderPage({ hasFaq: false });
+
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    expect(
+      within(nav).queryByRole("link", { name: "Delivery & FAQs" }),
+    ).toBeNull();
+    expect(document.querySelector("#shipping-faq")).toHaveClass("scroll-mt-28");
   });
 
   it("omits only unavailable Details and Specifications anchors", () => {

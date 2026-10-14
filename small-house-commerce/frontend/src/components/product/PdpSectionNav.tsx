@@ -9,9 +9,11 @@ interface SectionLink {
 export function PdpSectionNav({
   hasDetails,
   hasSpecifications,
+  hasFaq = true,
 }: {
   hasDetails: boolean;
   hasSpecifications: boolean;
+  hasFaq?: boolean;
 }): ReactNode {
   const links: SectionLink[] = [
     { href: "#details", label: "Details", visible: hasDetails },
@@ -20,7 +22,7 @@ export function PdpSectionNav({
       label: "Specifications",
       visible: hasSpecifications,
     },
-    { href: "#shipping-faq", label: "Delivery & FAQs", visible: true },
+    { href: "#shipping-faq", label: "Delivery & FAQs", visible: hasFaq },
     { href: "#reviews", label: "Reviews", visible: true },
     { href: "#pdp-purchase", label: "Order Now", visible: true },
   ];

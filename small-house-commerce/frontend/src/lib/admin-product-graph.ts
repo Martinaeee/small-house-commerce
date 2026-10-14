@@ -66,6 +66,20 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
       altText: block.altText ?? "",
       sortOrder: String(index),
     })),
+    faq: p.faq
+      ? {
+          mode: p.faq.mode,
+          items: p.faq.items.map((item) => ({
+            ...item,
+            answer: item.answer.map((block) =>
+              block.kind === "paragraph"
+                ? { ...block }
+                : { ...block, items: [...block.items] },
+            ),
+          })),
+          version: p.faq.version,
+        }
+      : undefined,
     variants: p.variants.map((variant) => ({
       id: variant.id,
       ...(variant.cardMedia !== undefined ? { cardMedia: structuredClone(variant.cardMedia) } : {}),

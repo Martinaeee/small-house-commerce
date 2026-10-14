@@ -12,6 +12,7 @@ export const PRODUCT_FORM_TABS = [
   { key: "specs", labelKey: "product_form_tab_specs" },
   { key: "shipping", labelKey: "product_form_tab_shipping" },
   { key: "seo", labelKey: "product_form_tab_seo" },
+  { key: "faq", labelKey: "product_form_tab_faq" },
   { key: "preview", labelKey: "product_form_tab_preview" },
 ] as const;
 

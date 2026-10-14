@@ -471,6 +471,94 @@ export interface AdminDetailBlock {
   sortOrder: number;
 }
 
+export type AdminFaqMode = "SHARED" | "EXTEND" | "CUSTOM";
+
+/** Controlled shared-library categories; the label is translated in the UI. */
+export const ADMIN_FAQ_CATEGORIES = [
+  "DELIVERY",
+  "PAYMENT_COD",
+  "RETURNS",
+  "INSTALLATION",
+  "UNCATEGORIZED",
+] as const;
+export type AdminFaqCategory = (typeof ADMIN_FAQ_CATEGORIES)[number];
+
+export type AdminFaqAnswerBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "bullets"; items: string[] };
+
+/**
+ * Which products a shared-library question reaches. Absent on legacy
+ * questions, which the server treats as `{ scope: "ALL" }`; a targeted
+ * question carries at least two distinct product ids.
+ */
+export type AdminFaqAudience =
+  | { scope: "ALL" }
+  | { scope: "PRODUCTS"; productIds: string[] };
+
+export interface AdminFaqItem {
+  id: string;
+  title: string;
+  answer: AdminFaqAnswerBlock[];
+  enabled: boolean;
+  position: number;
+  defaultOpen: boolean;
+  category?: AdminFaqCategory;
+  /** Shared-library scope; product questions never carry one. */
+  audience?: AdminFaqAudience;
+  /** Server-maintained per-question time; absent on questions never edited since tracking began. */
+  updatedAt?: string;
+}
+
+export interface AdminProductFaq {
+  mode: AdminFaqMode;
+  items: AdminFaqItem[];
+  version: number;
+}
+
+export interface AdminSharedFaq {
+  id: string;
+  items: AdminFaqItem[];
+  version: number;
+  /** Active products that render the shared library (SHARED or EXTEND). */
+  usage?: { productCount: number };
+}
+
+export interface AdminFaqProductCandidate {
+  id: string;
+  name: string;
+  slug: string;
+  status: ProductStatus;
+  productCode: string | null;
+  thumbnailUrl: string | null;
+  faqMode: AdminFaqMode;
+}
+
+export interface AdminFaqProductGroup {
+  product: Pick<AdminProduct, "id" | "name" | "slug" | "status"> & {
+    productCode: string | null;
+    thumbnailUrl: string | null;
+    thumbnailAlt: string | null;
+  };
+  faq: AdminProductFaq;
+}
+
+export interface AdminFaqProductPage {
+  items: AdminFaqProductGroup[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AdminFaqProductQuery {
+  search?: string;
+  mode?: AdminFaqMode;
+  productId?: string;
+  updatedSince?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 /** "Needs attention" presets: the value filters the list AND names its counter. */
 export const ADMIN_PRODUCT_ATTENTION = [
   "missing_media",
@@ -524,6 +612,7 @@ export interface AdminProduct {
   defaultDisplayVariantId: string | null;
   images: AdminProductImage[];
   detailBlocks: AdminDetailBlock[];
+  faq?: AdminProductFaq;
   // Legacy rows use the free-form AdminVariant; graph-aware payloads carry
   // AdminGraphVariant (combinationKey + option-value assignments).
   variants: (AdminVariant | AdminGraphVariant)[];
@@ -1048,6 +1137,11 @@ export interface CreateProductInput {
       volumetricWeight?: number;
     };
   }[];
+  faq?: {
+    mode: AdminFaqMode;
+    items: AdminFaqItem[];
+    expectedVersion: number;
+  };
 }
 
 export interface CreateCategoryInput {
@@ -1376,6 +1470,20 @@ export const adminApi = {
       }),
     }),
 
+  listFaqProducts: (
+    p: AdminFaqProductQuery = {},
+  ): Promise<AdminFaqProductPage> =>
+    adminAuthedFetch<AdminFaqProductPage>(
+      `/api/v1/admin/faq/products${buildQuery({
+        search: p.search,
+        mode: p.mode,
+        productId: p.productId,
+        updatedSince: p.updatedSince,
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
   listProducts: (p: {
     search?: string;
     status?: ProductStatus;
@@ -1406,6 +1514,48 @@ export const adminApi = {
     adminAuthedFetch<AdminProduct>(
       `/api/v1/admin/products/${encodeURIComponent(id)}`,
     ),
+
+  getSharedFaq: (): Promise<AdminSharedFaq> =>
+    adminAuthedFetch<AdminSharedFaq>("/api/v1/admin/faq/shared"),
+
+  /**
+   * Read-only shared-library preview for the product editor. Separate from the
+   * management endpoint so PRODUCT_MANAGE operators can see what a product
+   * renders without holding PRODUCT_FAQ_SHARED_MANAGE.
+   */
+  getSharedFaqPreview: (): Promise<{ items: AdminFaqItem[] }> =>
+    adminAuthedFetch<{ items: AdminFaqItem[] }>(
+      "/api/v1/admin/faq/shared/preview",
+    ),
+
+  /**
+   * Read-only product list for choosing a targeted shared-FAQ audience. It is
+   * served under the shared-FAQ permission so an FAQ operator never needs (and
+   * never gains) PRODUCT_MANAGE. `ids` re-labels an existing selection.
+   */
+  listFaqPickProducts: (p: {
+    search?: string;
+    ids?: string[];
+    page?: number;
+    pageSize?: number;
+  }): Promise<Paged<AdminFaqProductCandidate>> =>
+    adminAuthedFetch<Paged<AdminFaqProductCandidate>>(
+      `/api/v1/admin/faq/shared/products${buildQuery({
+        search: p.search,
+        ids: p.ids?.join(","),
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
+  updateSharedFaq: (input: {
+    items: AdminFaqItem[];
+    expectedVersion: number;
+  }): Promise<{ version: number }> =>
+    adminAuthedFetch<{ version: number }>("/api/v1/admin/faq/shared", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
 
   createProduct: (input: CreateProductInput): Promise<AdminProduct> =>
     adminAuthedFetch<AdminProduct>("/api/v1/admin/products", {

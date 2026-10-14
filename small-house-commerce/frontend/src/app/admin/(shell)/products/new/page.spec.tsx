@@ -21,6 +21,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, refresh: vi.fn() }),
 }));
 
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 const listCategories = vi.fn();
 const createProduct = vi.fn();
 const updateProduct = vi.fn();

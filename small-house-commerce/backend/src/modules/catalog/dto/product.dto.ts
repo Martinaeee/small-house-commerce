@@ -12,6 +12,7 @@ import {
 import { slugSchema } from './category.dto.js';
 import { catalogGraphPatchSchema } from './catalog-graph.dto.js';
 import { ATTENTION_FILTERS } from '../admin-product-attention.js';
+import { FAQ_MODES, MAX_FAQ_ITEMS, faqItemSchema } from '../faq/faq-content.js';
 
 const skuSchema = z.object({
   skuCode: z.string().min(1).max(64),
@@ -65,6 +66,18 @@ const detailBlockSchema = z.object({
 });
 
 /**
+ * The product's own FAQ configuration. `expectedVersion` is the version the
+ * editor loaded; a mismatch means another tab saved in the meantime and the
+ * write is rejected rather than silently clobbering it. Omitted entirely =
+ * leave the stored configuration alone.
+ */
+const productFaqSchema = z.object({
+  mode: z.enum(FAQ_MODES),
+  items: z.array(faqItemSchema).max(MAX_FAQ_ITEMS),
+  expectedVersion: z.number().int().min(0),
+});
+
+/**
  * Base product shape. Create requires it; update is a partial of it, with
  * images and variants treated as full replacements when present (the admin
  * form submits the whole list).
@@ -95,6 +108,7 @@ const productBaseSchema = z.object({
   images: z.array(imageSchema).default([]),
   detailBlocks: z.array(detailBlockSchema).default([]),
   variants: z.array(variantSchema).default([]),
+  faq: productFaqSchema.optional(),
 });
 
 export const createProductSchema = productBaseSchema;

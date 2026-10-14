@@ -76,6 +76,10 @@ export const RBAC_PERMISSIONS: {
     description:
       'Edit and publish the storefront Header, Footer, brand marks and base theme.',
   },
+  {
+    code: PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
+    description: 'Edit the site-wide shared FAQ library every product may use.',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -97,6 +101,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.SHIPMENT_CREATE,
     PermissionCode.REPORT_PROFIT_VIEW,
     PermissionCode.PRODUCT_MANAGE,
+    // Editing one product must not silently rewrite every product's FAQ.
+    PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,
     PermissionCode.NEWSLETTER_READ,

@@ -80,6 +80,12 @@ const NAV_ITEMS: NavEntry[] = [
   },
   {
     kind: "item",
+    href: "/admin/faq",
+    labelKey: "nav_faq",
+    permission: ["PRODUCT_FAQ_SHARED_MANAGE", "PRODUCT_MANAGE"],
+  },
+  {
+    kind: "item",
     href: "/admin/groupings",
     labelKey: "nav_groupings",
     permission: "PRODUCT_MANAGE",

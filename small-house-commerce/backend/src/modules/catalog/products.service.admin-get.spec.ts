@@ -169,6 +169,9 @@ function createService(
       findUnique: vi.fn(async () => productRow),
       findUniqueOrThrow: vi.fn(async () => productRow),
     },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
   };
   const service = new ProductsService(
     prisma as never,
@@ -273,6 +276,9 @@ describe('ProductsService.update typed graph presentation', () => {
       product: {
         findUnique: vi.fn(async () => row),
         findUniqueOrThrow: vi.fn(async () => row),
+      },
+      productFaq: {
+        findMany: vi.fn(async () => [] as unknown[]),
       },
       $transaction: vi.fn(
         async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),

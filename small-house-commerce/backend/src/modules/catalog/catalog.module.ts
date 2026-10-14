@@ -13,6 +13,10 @@ import {
   AdminProductLandingPagesController,
 } from './landing/admin/landing-pages.controller.js';
 import { LandingPagesService } from './landing/landing-pages.service.js';
+import { AdminSharedFaqController } from './faq/admin/shared-faq.controller.js';
+import { AdminSharedFaqPreviewController } from './faq/admin/shared-faq-preview.controller.js';
+import { AdminProductFaqController } from './faq/admin/product-faq.controller.js';
+import { SharedFaqService } from './faq/shared-faq.service.js';
 import { LinkBuilderContextService } from './link-builder-context.service.js';
 import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
 import { CategoriesService } from './categories.service.js';
@@ -37,6 +41,9 @@ import { SuppliersService } from './suppliers.service.js';
     AdminSuppliersController,
     AdminLandingPagesController,
     AdminProductLandingPagesController,
+    AdminSharedFaqController,
+    AdminSharedFaqPreviewController,
+    AdminProductFaqController,
     StorefrontCategoriesController,
     StorefrontProductsController,
     StorefrontReviewsController,
@@ -50,7 +57,8 @@ import { SuppliersService } from './suppliers.service.js';
     ReviewsService,
     SuppliersService,
     LandingPagesService,
+    SharedFaqService,
   ],
-  exports: [ReviewsService, ProductsService],
+  exports: [ReviewsService, ProductsService, SharedFaqService],
 })
 export class CatalogModule {}

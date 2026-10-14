@@ -153,6 +153,18 @@ describe("AdminShell website navigation group", () => {
     return screen.getByRole("navigation", { name: "Admin navigation" });
   }
 
+  it.each([
+    ['PRODUCT_FAQ_SHARED_MANAGE'],
+    ['PRODUCT_MANAGE'],
+  ])('shows the FAQ nav item for %s', (permission) => {
+    shellState.permissions = [permission];
+    renderShell();
+
+    expect(
+      within(desktopNav()).getByRole('link', { name: 'nav_faq' }),
+    ).toHaveAttribute('href', '/admin/faq');
+  });
+
   it("renders the Website group with its three independently filtered entries", () => {
     shellState.permissions = [
       "PRODUCT_MANAGE",
@@ -255,6 +267,7 @@ describe("AdminShell website navigation group", () => {
       "nav_orders",
       "nav_inventory",
       "nav_products",
+      "nav_faq",
       "nav_groupings",
       "nav_single_pages",
       "nav_link_builder",

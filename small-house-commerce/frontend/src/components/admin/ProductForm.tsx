@@ -30,6 +30,7 @@ import { ProductSpecs } from "@/components/product/ProductSpecs";
 import {
   formatAmount,
   type AdminCategoryNode,
+  type AdminProductFaq,
   type CreateProductInput,
   type ProductStatus,
   type VariantCardMedia,
@@ -57,6 +58,7 @@ import {
   type ReadinessWarningKey,
 } from "@/lib/admin-product-readiness";
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
+import { ProductFaqPanel } from "./ProductFaqPanel";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
 import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
@@ -104,6 +106,7 @@ export interface ProductFormValue {
     altText: string;
     sortOrder: string;
   }[];
+  faq?: AdminProductFaq;
   variants: {
     id?: string;
     clientKey?: string;
@@ -730,6 +733,15 @@ export function serializeFormValue(
     images,
     detailBlocks,
     variants,
+    ...(v.faq
+      ? {
+          faq: {
+            mode: v.faq.mode,
+            items: v.faq.items,
+            expectedVersion: v.faq.version,
+          },
+        }
+      : {}),
   };
   return { ok: true, value };
 }
@@ -1528,6 +1540,7 @@ export function ProductForm({
             specs: t("product_form_tab_specs"),
             shipping: t("product_form_tab_shipping"),
             seo: t("product_form_tab_seo"),
+            faq: t("product_form_tab_faq"),
             preview: t("product_form_tab_preview"),
           },
           tabsAria: t("product_form_tabs_aria"),
@@ -2399,6 +2412,15 @@ export function ProductForm({
               </p>
             )}
           </Section>
+        )}
+
+        {activeTab === "faq" && (
+          <ProductFaqPanel
+            value={value.faq}
+            onChange={(faq) => patch({ faq })}
+            savedValue={initial.faq}
+            productId={productId}
+          />
         )}
 
         {activeTab === "preview" && (

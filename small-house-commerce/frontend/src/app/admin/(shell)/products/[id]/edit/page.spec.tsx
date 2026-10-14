@@ -28,6 +28,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.searchParams),
 }));
 
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 vi.mock("@/components/admin/ProductForm", async (importOriginal) => {
   const actual = await importOriginal<
     typeof import("@/components/admin/ProductForm")

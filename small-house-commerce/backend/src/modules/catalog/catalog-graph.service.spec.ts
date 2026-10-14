@@ -685,6 +685,7 @@ function createGraphHarness(
   let state = structuredClone(initial);
   let committed = false;
   let transactionCalls = 0;
+  let faqRow: { mode: string; items: unknown; version: number } | null = null;
 
   const currentProduct = () => structuredClone(materialize(state));
 
@@ -755,6 +756,29 @@ function createGraphHarness(
         }
         return currentProduct();
       }),
+    },
+    productFaq: {
+      findUnique: vi.fn(async () => faqRow),
+      updateMany: vi.fn(
+        async ({
+          data,
+        }: {
+          data: { mode: string; items: unknown; version: number };
+        }) => {
+          faqRow = { ...data };
+          return { count: 1 };
+        },
+      ),
+      create: vi.fn(
+        async ({
+          data,
+        }: {
+          data: { mode: string; items: unknown; version: number };
+        }) => {
+          faqRow = { ...data };
+          return faqRow;
+        },
+      ),
     },
     productOption: {
       createMany: vi.fn(async ({ data }: { data: OptionRow | OptionRow[] }) => {
@@ -1025,6 +1049,9 @@ function createGraphHarness(
       findMany: vi.fn(
         async () => [] as Array<{ id: string; productId: string }>,
       ),
+    },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
     },
     $transaction: vi.fn(
       async (callback: (client: typeof tx) => Promise<unknown>) => {
@@ -1858,6 +1885,9 @@ function createProductsHarness(catalogGraphVersion: number) {
     product: {
       findUnique: vi.fn(async () => ({ id: PRODUCT_ID, catalogGraphVersion })),
     },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
     category: { findUnique: vi.fn() },
     $transaction: vi.fn(
       async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
@@ -2016,6 +2046,38 @@ describe('ProductsService catalog graph routing', () => {
       sku: { id: RED_SKU_ID },
     });
     expect(revalidateCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes FAQ during a graph product save transaction', async () => {
+    const harness = createMixedProductsHarness(baseState());
+
+    await harness.products.update(PRODUCT_ID, {
+      catalogGraph: renameRedPatch(),
+      catalogGraphVersion: 1,
+      faq: {
+        mode: 'CUSTOM',
+        items: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            title: 'Does it fit?',
+            answer: [{ kind: 'paragraph', text: 'Yes.' }],
+            enabled: true,
+            position: 0,
+            defaultOpen: false,
+          },
+        ],
+        expectedVersion: 0,
+      },
+    });
+
+    expect(harness.tx.productFaq.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productId: PRODUCT_ID,
+          mode: 'CUSTOM',
+        }),
+      }),
+    );
   });
 
   it('keeps graph-v0 products on the legacy reconcile path', async () => {

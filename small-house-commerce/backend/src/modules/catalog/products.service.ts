@@ -4,6 +4,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -13,6 +14,7 @@ import type {
   StorefrontProductQuery,
   UpdateProductInput,
 } from './dto/product.dto.js';
+import type { AdminFaqProductQuery } from './dto/product-faq.dto.js';
 import { ReviewsService } from './reviews.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { expandCategoryIds } from './category-tree.js';
@@ -39,6 +41,14 @@ import {
   type MediaScopeRequest,
   type ProductMediaItem,
 } from './product-media.resolver.js';
+import {
+  faqItemsSchema,
+  stampItemTimestamps,
+  type FaqItem,
+  type FaqMode,
+} from './faq/faq-content.js';
+import { resolveEffectiveFaq } from './faq/faq-resolver.js';
+import { SHARED_FAQ_SET_ID } from './faq/shared-faq.service.js';
 
 /**
  * Placeholder a surviving variant is parked under while the submitted names are
@@ -57,6 +67,35 @@ const PRODUCT_CODE_WIDTH = 6;
  */
 export function formatProductCode(sequenceValue: bigint | number): string {
   return `P-${String(sequenceValue).padStart(PRODUCT_CODE_WIDTH, '0')}`;
+}
+
+/** Escapes LIKE wildcards so literal search text cannot widen the match. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+/**
+ * Product questions do not participate in the shared-library category
+ * taxonomy or its per-question audience: both belong to the shared library and
+ * must not leak into a product's own row.
+ */
+function withoutFaqCategory(item: FaqItem): FaqItem {
+  const productItem = { ...item };
+  delete productItem.category;
+  delete productItem.audience;
+  return productItem;
+}
+
+/**
+ * The FAQ configuration as the edit form needs it: what to render, and the
+ * version to send back so the next save cannot overwrite a concurrent edit.
+ * A product with no row reads as SHARED at version 0 — the same fallback
+ * `resolveEffectiveFaq` applies, so the form and the storefront agree.
+ */
+export interface ProductFaqView {
+  mode: FaqMode;
+  items: FaqItem[];
+  version: number;
 }
 
 const ADMIN_PRODUCT_INCLUDE = {
@@ -180,6 +219,9 @@ const STOREFRONT_PDP_SELECT = {
     select: { id: true, type: true, url: true, altText: true, sortOrder: true },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
+  faq: {
+    select: { mode: true, items: true },
+  },
 } satisfies Prisma.ProductSelect;
 
 type StorefrontProductRecord = Prisma.ProductGetPayload<{
@@ -216,6 +258,9 @@ export class ProductsService {
     private readonly reviews: ReviewsService,
     private readonly inventory: InventoryService,
     private readonly catalogGraph?: CatalogGraphService,
+    // Test seam for per-question timestamps. @Optional keeps Nest from trying
+    // to resolve the function as a provider; production always takes the default.
+    @Optional() private readonly now: () => Date = () => new Date(),
   ) {
     this.productMedia = new ProductMediaResolver(prisma as never);
   }
@@ -289,6 +334,129 @@ export class ProductsService {
     };
   }
 
+  async listFaqProducts(query: AdminFaqProductQuery) {
+    const search = query.search?.trim();
+
+    // Question/answer text lives inside the `items` JSON array, and Prisma's
+    // Json `string_contains` only matches scalar JSON values (it ANDs a
+    // JSONB_TYPEOF = 'string' guard), so a text match has to run as SQL over
+    // the serialised column.
+    const itemMatchIds = search
+      ? (
+          await this.prisma.$queryRaw<Array<{ product_id: string }>>`
+            SELECT product_id FROM product_faqs
+            WHERE items::text ILIKE ${`%${escapeLikePattern(search)}%`}
+          `
+        ).map((row) => row.product_id)
+      : [];
+
+    // A config row can change when only its mode changes. Updated-date filters
+    // therefore inspect each question's server-stamped timestamp in the JSON
+    // array instead of ProductFaq.updatedAt.
+    const updatedItemMatchIds = query.updatedSince
+      ? (
+          await this.prisma.$queryRaw<Array<{ product_id: string }>>`
+            SELECT DISTINCT product_id
+            FROM product_faqs
+            CROSS JOIN LATERAL jsonb_array_elements(
+              CASE
+                WHEN jsonb_typeof(items) = 'array' THEN items
+                ELSE '[]'::jsonb
+              END
+            ) AS item
+            WHERE item->>'updatedAt' >= ${new Date(query.updatedSince).toISOString()}
+          `
+        ).map((row) => row.product_id)
+      : [];
+
+    const where: Prisma.ProductFaqWhereInput = {
+      ...(query.mode ? { mode: query.mode } : {}),
+      ...(query.productId ? { productId: query.productId } : {}),
+      AND: [
+        {
+          OR: [
+            { mode: { not: 'SHARED' } },
+            { items: { not: [] } },
+          ],
+        },
+        ...(query.updatedSince
+          ? [{ productId: { in: updatedItemMatchIds } }]
+          : []),
+        ...(search
+          ? [
+              {
+                OR: [
+                  {
+                    product: {
+                      OR: [
+                        { name: { contains: search, mode: 'insensitive' as const } },
+                        { slug: { contains: search, mode: 'insensitive' as const } },
+                        { productCode: { contains: search, mode: 'insensitive' as const } },
+                      ],
+                    },
+                  },
+                  { productId: { in: itemMatchIds } },
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.productFaq.findMany({
+        where,
+        select: {
+          productId: true,
+          mode: true,
+          items: true,
+          version: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              productCode: true,
+              images: {
+                where: { optionValueId: null, variantId: null },
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                take: 1,
+                select: { url: true, altText: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ product: { name: 'asc' } }, { productId: 'asc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.productFaq.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        product: {
+          id: row.product.id,
+          name: row.product.name,
+          slug: row.product.slug,
+          status: row.product.status,
+          productCode: row.product.productCode,
+          thumbnailUrl: row.product.images[0]?.url ?? null,
+          thumbnailAlt: row.product.images[0]?.altText ?? null,
+        },
+        faq: {
+          mode: row.mode,
+          items: row.items as unknown as FaqItem[],
+          version: row.version,
+        },
+      })),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
   /**
    * Active option-group names per product, for the list's "Options / SKUs"
    * column. ONE query for the whole page: the list deliberately never loads a
@@ -324,9 +492,9 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    const [enriched] = await this.withStock([
-      await this.withTypedGraph(product),
-    ]);
+    const [enriched] = await this.withFaq(
+      await this.withStock([await this.withTypedGraph(product)]),
+    );
     return enriched;
   }
 
@@ -345,6 +513,116 @@ export class ProductsService {
       return product;
     }
     return (await this.catalogGraph.adminSnapshot(product.id)) ?? product;
+  }
+
+  /**
+   * Attaches each product's FAQ configuration to the admin response.
+   *
+   * Deliberately a separate lookup rather than part of ADMIN_PRODUCT_INCLUDE:
+   * the graph snapshot replaces the whole product payload, so a relation hung
+   * off the Prisma include would vanish the moment `withTypedGraph` ran.
+   * Products with no row get the SHARED/0 default instead of a null, so the
+   * form never has to branch on "not configured yet".
+   */
+  private async withFaq<T extends { id: string }>(
+    products: T[],
+  ): Promise<Array<T & { faq: ProductFaqView }>> {
+    const ids = [...new Set(products.map((product) => product.id))];
+    const rows = ids.length
+      ? await this.prisma.productFaq.findMany({
+          where: { productId: { in: ids } },
+        })
+      : [];
+    const byProduct = new Map(rows.map((row) => [row.productId, row]));
+
+    return products.map((product) => {
+      const row = byProduct.get(product.id);
+      return {
+        ...product,
+        faq: {
+          mode: (row?.mode ?? 'SHARED') as FaqMode,
+          items: (row?.items ?? []) as FaqItem[],
+          version: row?.version ?? 0,
+        },
+      };
+    });
+  }
+
+  /**
+   * Writes the product FAQ inside the caller's product transaction.
+   *
+   * The version check runs against the row as the transaction sees it and the
+   * update is guarded on that same version, so two tabs saving at once cannot
+   * both win: the loser gets FAQ_VERSION_MISMATCH and reloads.
+   */
+  private async writeFaq(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    faq: { mode: FaqMode; items: unknown; expectedVersion: number },
+  ): Promise<void> {
+    const parsed = faqItemsSchema.safeParse(faq.items);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'FAQ_INVALID',
+        message: 'The FAQ items do not match the product FAQ schema.',
+        issues: parsed.error.issues,
+      });
+    }
+
+    const current = await tx.productFaq.findUnique({
+      where: { productId },
+      select: { version: true, items: true },
+    });
+    const currentVersion = current?.version ?? 0;
+    if (currentVersion !== faq.expectedVersion) {
+      throw new ConflictException({
+        code: 'FAQ_VERSION_MISMATCH',
+        message: `Version ${faq.expectedVersion} is stale (current version ${currentVersion}).`,
+        currentVersion,
+      });
+    }
+
+    const items = stampItemTimestamps(
+      ((current?.items ?? []) as FaqItem[]).map(withoutFaqCategory),
+      parsed.data.map(withoutFaqCategory),
+      this.now(),
+    ) as unknown as Prisma.InputJsonValue;
+    if (current) {
+      const { count } = await tx.productFaq.updateMany({
+        where: { productId, version: faq.expectedVersion },
+        data: { mode: faq.mode, items, version: faq.expectedVersion + 1 },
+      });
+      if (count === 0) {
+        throw new ConflictException({
+          code: 'FAQ_VERSION_MISMATCH',
+          message: 'The FAQ was modified concurrently; reload and retry.',
+        });
+      }
+      return;
+    }
+
+    try {
+      await tx.productFaq.create({
+        data: {
+          productId,
+          mode: faq.mode,
+          items,
+          version: faq.expectedVersion + 1,
+        },
+      });
+    } catch (error) {
+      // Two first-time saves raced on the primary key; the loser reloads.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          code: 'FAQ_VERSION_MISMATCH',
+          message: 'The FAQ was created concurrently; reload and retry.',
+        });
+      }
+      throw error;
+    }
   }
 
   async create(input: CreateProductInput) {
@@ -414,6 +692,10 @@ export class ProductsService {
           }
         }
 
+        if (input.faq) {
+          await this.writeFaq(tx, product.id, input.faq);
+        }
+
         const saved = await tx.product.findUniqueOrThrow({
           where: { id: product.id },
           include: ADMIN_PRODUCT_INCLUDE,
@@ -422,7 +704,7 @@ export class ProductsService {
         return saved;
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
-      const [enriched] = await this.withStock([created]);
+      const [enriched] = await this.withFaq(await this.withStock([created]));
       return enriched;
     } catch (error) {
       this.rethrowKnown(error);
@@ -500,9 +782,14 @@ export class ProductsService {
             input.catalogGraph,
             async (tx) => {
               await tx.product.update({ where: { id }, data });
+              if (input.faq) {
+                await this.writeFaq(tx, id, input.faq);
+              }
             },
           );
-        const [enriched] = await this.withStock([graphUpdated]);
+        const [enriched] = await this.withFaq(
+          await this.withStock([graphUpdated]),
+        );
         return enriched;
       }
 
@@ -529,6 +816,11 @@ export class ProductsService {
           data,
           include: ADMIN_PRODUCT_INCLUDE,
         });
+        // Same transaction as the product write, so a stale FAQ version rolls
+        // the whole save back rather than committing half of it.
+        if (input.faq) {
+          await this.writeFaq(tx, id, input.faq);
+        }
         if (product.status === 'ACTIVE') await validateProductCardReadiness(tx, [id]);
         return product;
       });
@@ -540,9 +832,9 @@ export class ProductsService {
       // of a graph product must also adopt the typed graph — a legacy-shaped
       // response would flip the form's typed editors back to their locked
       // "graph without typed data" state.
-      const [enriched] = await this.withStock([
-        await this.withTypedGraph(updated),
-      ]);
+      const [enriched] = await this.withFaq(
+        await this.withStock([await this.withTypedGraph(updated)]),
+      );
       return enriched;
     } catch (error) {
       this.rethrowKnown(error);
@@ -1196,9 +1488,30 @@ export class ProductsService {
     // PDP needs availableInventory to render the stock state and to gate
     // ORDER NOW on the frontend (docs/frontend/PDP_SPEC.md §18).
     const enriched = (await this.withAvailableInventory([product]))[0];
-    const presented = presentCatalogGraph(enriched);
+    // FAQ mode/items are admin-only configuration. Resolve them to the public
+    // effective list before returning the PDP, and never leak its version lock.
+    const { faq: productFaq, ...productWithoutFaq } = enriched;
+    const faqMode = (productFaq?.mode ?? 'SHARED') as FaqMode;
+    const sharedItems =
+      faqMode === 'CUSTOM'
+        ? []
+        : ((
+            await this.prisma.sharedFaqSet.findUnique({
+              where: { id: SHARED_FAQ_SET_ID },
+              select: { items: true },
+            })
+          )?.items ?? []);
+    const effectiveFaq = resolveEffectiveFaq({
+      mode: faqMode,
+      // Targeted shared questions only reach their selected products, so the
+      // resolver needs to know which product is being rendered.
+      productId: product.id,
+      productItems: (productFaq?.items ?? []) as FaqItem[],
+      sharedItems: sharedItems as FaqItem[],
+    }).map(({ origin: _origin, ...item }) => item);
+    const presented = presentCatalogGraph(productWithoutFaq);
     const base = {
-      ...enriched,
+      ...productWithoutFaq,
       ...presented,
       images: presented.images.map(publicStorefrontMedia),
       variants: presented.variants.map(({ cardMedia: _cardMedia, ...variant }) => variant),
@@ -1225,6 +1538,7 @@ export class ProductsService {
       ...base,
       ...media,
       effectiveCoverMedia: media.initialMediaSet.media[0] ?? null,
+      effectiveFaq,
       ...reviewData,
     };
   }

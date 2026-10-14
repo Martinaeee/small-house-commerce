@@ -150,6 +150,19 @@ export interface ProductDetailBlock {
   sortOrder: number;
 }
 
+export type ProductFaqAnswerBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "bullets"; items: string[] };
+
+export interface ProductFaqItem {
+  id: string;
+  title: string;
+  answer: ProductFaqAnswerBlock[];
+  enabled: boolean;
+  position: number;
+  defaultOpen: boolean;
+}
+
 export type Room = "BEDROOM" | "STORAGE" | "DINING_LIVING" | "HOME_OFFICE";
 export type Solution =
   | "FOLDABLE"
@@ -219,6 +232,8 @@ export interface Product {
    * skip the media deck), so they are absent everywhere else.
    */
   detailBlocks?: ProductDetailBlock[];
+  /** Effective FAQ entries are present only on the PDP response. */
+  effectiveFaq?: ProductFaqItem[];
   variants: StorefrontProductVariant[];
 }
 

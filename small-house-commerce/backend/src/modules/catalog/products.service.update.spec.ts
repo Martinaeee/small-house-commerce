@@ -129,6 +129,9 @@ function createHarness(options: HarnessOptions = {}) {
     category: {
       findUnique: vi.fn(async () => ({ id: 'c1' })),
     },
+    productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
     $transaction: vi.fn(async (arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (t: unknown) => Promise<unknown>)(tx)
