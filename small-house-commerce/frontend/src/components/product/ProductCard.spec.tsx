@@ -135,6 +135,14 @@ const singleSkuProduct = buildProduct({
 });
 
 describe("ProductCard inline purchase", () => {
+  it("contains the absolute live status inside the card action boundary", () => {
+    renderCard(<ProductCard product={singleSkuProduct} />);
+
+    expect(
+      within(screen.getByRole("article")).getByRole("status").parentElement,
+    ).toHaveClass("relative");
+  });
+
   it("does not inherit an inferred PDP default for images, choices or a uniform compare-at price", () => {
     const product = cardTestProduct({ defaultDisplayVariantId: "blue-variant", cardMedia: {
       displayVariantId: null, unselected: { cover: null, scene: null }, variants: [],

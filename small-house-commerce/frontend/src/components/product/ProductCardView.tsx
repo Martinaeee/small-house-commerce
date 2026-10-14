@@ -61,7 +61,7 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
         <div ref={selectorRoot}>
           <ProductCardVariantSelector lineId={primaryLine.clientLineId} disabled={preview} preview={preview} />
         </div>
-        <div className="mt-auto pt-2">{action}</div>
+        <div className="relative mt-auto pt-2">{action}</div>
       </div>
     </article>
   );
