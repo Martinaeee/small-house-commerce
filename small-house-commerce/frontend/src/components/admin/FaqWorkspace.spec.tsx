@@ -1,7 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AdminFaqItem, AdminFaqProductCandidate, AdminProduct } from "@/lib/admin-api";
+import type {
+  AdminFaqItem,
+  AdminFaqProductCandidate,
+  AdminFaqProductGroup,
+  AdminFaqProductPage,
+  AdminProduct,
+} from "@/lib/admin-api";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { AdminApiError } from "@/lib/admin-auth";
 import { adminApi } from "@/lib/admin-api";
@@ -109,6 +121,42 @@ const productGroup = {
     thumbnailAlt: "Cart",
   },
   faq: { mode: "EXTEND" as const, version: 2, items: [productItem] },
+};
+
+const defaultOnlyGroup: AdminFaqProductGroup = {
+  product: {
+    id: "product-default-only",
+    name: "Default-only FAQ product",
+    slug: "default-only-faq-product",
+    status: "ACTIVE",
+    productCode: "P-000040",
+    thumbnailUrl: null,
+    thumbnailAlt: null,
+  },
+  faq: { mode: "CUSTOM", version: 2, items: [] },
+};
+
+const remainingGroup: AdminFaqProductGroup = {
+  product: {
+    id: "product-remaining",
+    name: "Remaining FAQ product",
+    slug: "remaining-faq-product",
+    status: "ACTIVE",
+    productCode: "P-000041",
+    thumbnailUrl: null,
+    thumbnailAlt: null,
+  },
+  faq: {
+    mode: "EXTEND",
+    version: 1,
+    items: [
+      {
+        ...productItem,
+        id: "33333333-3333-4333-8333-333333333334",
+        title: "A remaining question?",
+      },
+    ],
+  },
 };
 
 const productWithoutFaq = {
@@ -1194,6 +1242,190 @@ describe("FaqWorkspace", () => {
         },
       );
     });
+  });
+
+  it("reloads authoritative totals when a saved product leaves the default group", async () => {
+    const user = userEvent.setup();
+    vi.mocked(faqApi.getProductGroups)
+      .mockResolvedValueOnce({
+        items: [defaultOnlyGroup, remainingGroup],
+        total: 2,
+        page: 1,
+        pageSize: 20,
+      })
+      .mockResolvedValue({
+        items: [remainingGroup],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+    vi.mocked(adminApi.updateProduct).mockResolvedValue({
+      ...productWithoutFaq,
+      ...defaultOnlyGroup.product,
+      images: [],
+      faq: { mode: "SHARED", version: 3, items: [] },
+    } as AdminProduct);
+
+    renderWorkspace({ canEditShared: false, canEditProducts: true });
+    await screen.findAllByText(defaultOnlyGroup.product.name);
+    expect(screen.getByTestId("faq-product-count")).toHaveTextContent(
+      "Products2",
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: `FAQ settings — ${defaultOnlyGroup.product.name}`,
+      }),
+    );
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "FAQ settings" }),
+    );
+    await user.selectOptions(dialog.getByLabelText(/^FAQ mode/), "SHARED");
+    await user.click(dialog.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() =>
+      expect(faqApi.getProductGroups).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("faq-product-count")).toHaveTextContent(
+        "Products1",
+      ),
+    );
+    expect(
+      screen.queryByText(defaultOnlyGroup.product.name),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText(remainingGroup.product.name).length).toBeGreaterThan(0);
+  });
+
+  it("ignores a late post-save reload after a newer filtered reload wins", async () => {
+    const user = userEvent.setup();
+    let resolveSlowReload!: (page: AdminFaqProductPage) => void;
+    const slowReload = new Promise<AdminFaqProductPage>((resolve) => {
+      resolveSlowReload = resolve;
+    });
+    const freshGroup: AdminFaqProductGroup = {
+      ...productGroup,
+      product: {
+        ...productGroup.product,
+        id: "product-current-server",
+        name: "Current server product",
+      },
+      faq: { ...productGroup.faq, mode: "CUSTOM", version: 3 },
+    };
+    const staleGroup: AdminFaqProductGroup = {
+      ...productGroup,
+      product: {
+        ...productGroup.product,
+        id: "product-stale-server",
+        name: "Stale server product",
+      },
+    };
+    vi.mocked(faqApi.getProductGroups)
+      .mockResolvedValueOnce({
+        items: [productGroup],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      })
+      .mockImplementationOnce(() => slowReload)
+      .mockResolvedValueOnce({
+        items: [freshGroup],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+    vi.mocked(adminApi.updateProduct).mockResolvedValue({
+      ...productWithoutFaq,
+      id: productGroup.product.id,
+      name: productGroup.product.name,
+      slug: productGroup.product.slug,
+      productCode: productGroup.product.productCode,
+      faq: { ...productGroup.faq, mode: "CUSTOM", version: 3 },
+    } as AdminProduct);
+
+    renderWorkspace({ canEditShared: false, canEditProducts: true });
+    await screen.findByText(productGroup.product.name);
+    await user.click(
+      screen.getByRole("button", {
+        name: `FAQ settings — ${productGroup.product.name}`,
+      }),
+    );
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "FAQ settings" }),
+    );
+    await user.selectOptions(dialog.getByLabelText(/^FAQ mode/), "CUSTOM");
+    await user.click(dialog.getByRole("button", { name: "Save settings" }));
+    await waitFor(() =>
+      expect(faqApi.getProductGroups).toHaveBeenCalledTimes(2),
+    );
+
+    await user.type(
+      screen.getByLabelText("Search questions, answers, product name or code"),
+      "current",
+    );
+    await waitFor(() =>
+      expect(faqApi.getProductGroups).toHaveBeenCalledTimes(3),
+    );
+    expect(await screen.findByText(freshGroup.product.name)).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSlowReload({
+        items: [staleGroup],
+        total: 9,
+        page: 1,
+        pageSize: 20,
+      });
+      await slowReload;
+    });
+
+    expect(screen.queryByText(staleGroup.product.name)).not.toBeInTheDocument();
+    expect(screen.getByText(freshGroup.product.name)).toBeInTheDocument();
+    expect(screen.getByTestId("faq-product-count")).toHaveTextContent(
+      "Products1",
+    );
+  });
+
+  it.each([
+    {
+      label: "failed",
+      error: new Error("Product save unavailable."),
+    },
+    {
+      label: "conflicting",
+      error: new AdminApiError("Conflict", 409),
+    },
+  ])("does not reload product groups after a $label save", async ({ error }) => {
+    const user = userEvent.setup();
+    vi.mocked(faqApi.getProductGroups).mockResolvedValue({
+      items: [defaultOnlyGroup],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    vi.mocked(adminApi.updateProduct).mockRejectedValue(error);
+
+    renderWorkspace({ canEditShared: false, canEditProducts: true });
+    await screen.findAllByText(defaultOnlyGroup.product.name);
+    await user.click(
+      screen.getByRole("button", {
+        name: `FAQ settings — ${defaultOnlyGroup.product.name}`,
+      }),
+    );
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "FAQ settings" }),
+    );
+    await user.selectOptions(dialog.getByLabelText(/^FAQ mode/), "SHARED");
+    await user.click(dialog.getByRole("button", { name: "Save settings" }));
+
+    expect(await dialog.findByRole("alert")).toBeVisible();
+    expect(adminApi.updateProduct).toHaveBeenCalledOnce();
+    expect(faqApi.getProductGroups).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("faq-product-count")).toHaveTextContent(
+      "Products1",
+    );
+    expect(
+      screen.getAllByText(defaultOnlyGroup.product.name).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps a version conflict inside the dialog and offers a reload", async () => {

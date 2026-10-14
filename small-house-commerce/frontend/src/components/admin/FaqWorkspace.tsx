@@ -494,10 +494,9 @@ export function FaqWorkspace({
                 : currentGroup,
             ),
           );
-        } else {
-          reloadProducts();
         }
         options.onSuccess?.();
+        reloadProducts();
       })
       .catch((err: unknown) => {
         const conflict = errorStatus(err) === 409;
