@@ -113,7 +113,7 @@ PROGRAM_BASE_MIGRATION_COUNT=$(ssh smallhouse-prod \
   printf 'PROGRAM_BASE_MIGRATION_COUNT=%s\n' "$PROGRAM_BASE_MIGRATION_COUNT"
 } > ../evidence/release-b-baseline.txt
 for path in \
-  docker-compose.prod.yml \
+  small-house-commerce/docker-compose.prod.yml \
   small-house-commerce/backend/src/config/configuration.ts \
   small-house-commerce/backend/src/config/env.validation.ts \
   small-house-commerce/frontend/next.config.ts \
