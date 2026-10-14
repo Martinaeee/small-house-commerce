@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { PERMISSIONS_KEY } from '../../../auth/permissions.decorator.js';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard.js';
 import { PermissionsGuard } from '../../../auth/permissions.guard.js';
-import { sharedFaqProductQuerySchema } from '../dto/shared-faq.dto.js';
+import {
+  sharedFaqProductQuerySchema,
+  updateSharedFaqSchema,
+} from '../dto/shared-faq.dto.js';
 import { AdminSharedFaqController } from './shared-faq.controller.js';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -24,6 +27,16 @@ describe('AdminSharedFaqController product selection', () => {
     const query = sharedFaqProductQuerySchema.parse({ ids: `${A},${B}` });
     await expect(controller.listProducts(query)).resolves.toEqual(page);
     expect(shared.listProducts).toHaveBeenCalledWith({ ids: [A, B], page: 1, pageSize: 20 });
+  });
+
+  it('delegates a versioned impact preview without a write context', async () => {
+    const result = { productCount: 7, version: 3 };
+    const shared = { previewImpact: vi.fn(async () => result) };
+    const controller = new AdminSharedFaqController(shared as never);
+    const input = updateSharedFaqSchema.parse({ items: [], expectedVersion: 3 });
+
+    await expect(controller.impact(input)).resolves.toEqual(result);
+    expect(shared.previewImpact).toHaveBeenCalledWith(input.items, input.expectedVersion);
   });
 
   it.each([{ ids: 'bad-id' }, { ids: '' }, { page: 0 }, { pageSize: 101 }])

@@ -48,6 +48,7 @@ vi.mock("@/lib/faq-api", () => ({
   faqApi: {
     getShared: vi.fn(),
     getSharedPreview: vi.fn(),
+    previewSharedImpact: vi.fn(),
     updateShared: vi.fn(),
     getProductGroups: vi.fn(),
     listProducts: vi.fn(),
@@ -147,6 +148,25 @@ async function openProductGroup(
   await user.click(productRegion().getByText(name));
 }
 
+async function confirmSharedImpact(
+  user: ReturnType<typeof userEvent.setup>,
+  productCount = 7,
+) {
+  const confirmation = within(
+    await screen.findByRole("dialog", {
+      name: "Confirm shared FAQ changes",
+    }),
+  );
+  expect(
+    confirmation.getByText(
+      `This change will update the shared FAQ shown by ${productCount} active products. Continue?`,
+    ),
+  ).toBeInTheDocument();
+  await user.click(
+    confirmation.getByRole("button", { name: "Save shared FAQ" }),
+  );
+}
+
 function stubApi() {
   vi.mocked(faqApi.getShared).mockResolvedValue({
     id: "shared",
@@ -171,6 +191,10 @@ function stubApi() {
   vi.mocked(faqApi.listProducts).mockResolvedValue({
     items: [],
     total: 0,
+  });
+  vi.mocked(faqApi.previewSharedImpact).mockResolvedValue({
+    productCount: 7,
+    version: 3,
   });
   vi.mocked(faqApi.updateShared).mockResolvedValue({ version: 4 });
   vi.mocked(adminApi.updateProduct).mockResolvedValue({
@@ -491,6 +515,23 @@ describe("FaqWorkspace", () => {
     await user.click(dialog.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
+      expect(faqApi.previewSharedImpact).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            id: sharedItem.id,
+            title: "How fast is delivery?",
+          }),
+          expect.objectContaining({
+            id: legacySharedItem.id,
+            title: "A legacy question?",
+          }),
+        ],
+        3,
+      );
+    });
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await confirmSharedImpact(user);
+    await waitFor(() => {
       expect(faqApi.updateShared).toHaveBeenCalledWith(
         [
           expect.objectContaining({
@@ -505,9 +546,71 @@ describe("FaqWorkspace", () => {
         3,
       );
     });
+    expect(
+      vi.mocked(faqApi.previewSharedImpact).mock.invocationCallOrder[0]!,
+    ).toBeLessThan(vi.mocked(faqApi.updateShared).mock.invocationCallOrder[0]!);
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+  });
+
+  it("keeps the edited draft and skips PUT when impact confirmation is canceled", async () => {
+    const user = userEvent.setup();
+    renderWorkspace({ canEditShared: true, canEditProducts: false });
+    await screen.findByText("Delivery & receiving");
+
+    await user.click(
+      screen.getByRole("button", { name: "Edit — How does delivery work?" }),
+    );
+    const editor = within(
+      await screen.findByRole("dialog", { name: "Edit shared question" }),
+    );
+    await user.clear(editor.getByLabelText("Question"));
+    await user.type(editor.getByLabelText("Question"), "Draft delivery question?");
+    await user.click(editor.getByRole("button", { name: "Save" }));
+
+    const confirmation = within(
+      await screen.findByRole("dialog", {
+        name: "Confirm shared FAQ changes",
+      }),
+    );
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await user.click(confirmation.getByRole("button", { name: "Cancel" }));
+
+    const restored = within(
+      await screen.findByRole("dialog", { name: "Edit shared question" }),
+    );
+    expect(restored.getByLabelText("Question")).toHaveValue(
+      "Draft delivery question?",
+    );
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original dialog and draft visible when impact loading fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(faqApi.previewSharedImpact).mockRejectedValue(
+      new Error("Affected products could not be calculated."),
+    );
+    renderWorkspace({ canEditShared: true, canEditProducts: false });
+    await screen.findByText("Delivery & receiving");
+
+    await user.click(
+      screen.getByRole("button", { name: "Edit — How does delivery work?" }),
+    );
+    const editor = within(
+      await screen.findByRole("dialog", { name: "Edit shared question" }),
+    );
+    await user.clear(editor.getByLabelText("Question"));
+    await user.type(editor.getByLabelText("Question"), "Unsaved delivery draft?");
+    await user.click(editor.getByRole("button", { name: "Save" }));
+
+    expect(
+      await editor.findByRole("alert"),
+    ).toHaveTextContent("Affected products could not be calculated.");
+    expect(editor.getByLabelText("Question")).toHaveValue(
+      "Unsaved delivery draft?",
+    );
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
   });
 
   it("creates a shared question through the toolbar dialog", async () => {
@@ -527,6 +630,16 @@ describe("FaqWorkspace", () => {
     await user.click(dialog.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
+      expect(faqApi.previewSharedImpact).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ title: "Do you ship to Visayas?" }),
+        ]),
+        3,
+      );
+    });
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await confirmSharedImpact(user);
+    await waitFor(() => {
       expect(faqApi.updateShared).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ title: "Do you ship to Visayas?" }),
@@ -535,6 +648,9 @@ describe("FaqWorkspace", () => {
       );
     });
     expect(vi.mocked(faqApi.updateShared).mock.calls[0]?.[0]).toHaveLength(3);
+    expect(
+      vi.mocked(faqApi.previewSharedImpact).mock.invocationCallOrder[0]!,
+    ).toBeLessThan(vi.mocked(faqApi.updateShared).mock.invocationCallOrder[0]!);
   });
 
   it("duplicates a shared question with a copy suffix and a fresh id", async () => {
@@ -559,6 +675,10 @@ describe("FaqWorkspace", () => {
       "How does delivery work? (copy)",
     );
     await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(faqApi.previewSharedImpact).toHaveBeenCalled(),
+    );
+    await confirmSharedImpact(user);
 
     await waitFor(() => {
       const [items] = vi.mocked(faqApi.updateShared).mock.calls[0]!;
@@ -584,6 +704,8 @@ describe("FaqWorkspace", () => {
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByLabelText("Question")).toHaveValue("Q".repeat(193) + " (copy)");
     await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(faqApi.previewSharedImpact).toHaveBeenCalled());
+    await confirmSharedImpact(user);
     await waitFor(() => expect(faqApi.updateShared).toHaveBeenCalled());
     const items = vi.mocked(faqApi.updateShared).mock.calls[0]?.[0];
     expect(items?.[1]?.title.length).toBe(200);
@@ -604,6 +726,16 @@ describe("FaqWorkspace", () => {
       screen.getByRole("button", { name: "Disable — How does delivery work?" }),
     );
     await waitFor(() => {
+      expect(faqApi.previewSharedImpact).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: sharedItem.id, enabled: false }),
+        ]),
+        3,
+      );
+    });
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await confirmSharedImpact(user);
+    await waitFor(() => {
       expect(faqApi.updateShared).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ id: sharedItem.id, enabled: false }),
@@ -611,6 +743,9 @@ describe("FaqWorkspace", () => {
         3,
       );
     });
+    expect(
+      vi.mocked(faqApi.previewSharedImpact).mock.invocationCallOrder[0]!,
+    ).toBeLessThan(vi.mocked(faqApi.updateShared).mock.invocationCallOrder[0]!);
   });
 
   it("moves a shared question within its category through the versioned save", async () => {
@@ -637,6 +772,18 @@ describe("FaqWorkspace", () => {
     );
 
     await waitFor(() => {
+      expect(faqApi.previewSharedImpact).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({ id: shippingSecond.id, position: 0 }),
+          expect.objectContaining({ id: legacySharedItem.id, position: 1 }),
+          expect.objectContaining({ id: sharedItem.id, position: 2 }),
+        ],
+        3,
+      );
+    });
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await confirmSharedImpact(user);
+    await waitFor(() => {
       expect(faqApi.updateShared).toHaveBeenCalledWith(
         [
           expect.objectContaining({ id: shippingSecond.id, position: 0 }),
@@ -646,6 +793,9 @@ describe("FaqWorkspace", () => {
         3,
       );
     });
+    expect(
+      vi.mocked(faqApi.previewSharedImpact).mock.invocationCallOrder[0]!,
+    ).toBeLessThan(vi.mocked(faqApi.updateShared).mock.invocationCallOrder[0]!);
   });
 
   it("asks which products a shared question applies to", async () => {
@@ -720,6 +870,10 @@ describe("FaqWorkspace", () => {
     expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.click(dialog.getByRole("button", { name: "Save" }));
 
+    await waitFor(() =>
+      expect(faqApi.previewSharedImpact).toHaveBeenCalled(),
+    );
+    await confirmSharedImpact(user);
     await waitFor(() => expect(faqApi.updateShared).toHaveBeenCalled());
     const [items] = vi.mocked(faqApi.updateShared).mock.calls[0]!;
     const edited = items.find((item) => item.id === sharedItem.id)!;
@@ -838,10 +992,23 @@ describe("FaqWorkspace", () => {
     await user.click(confirm.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
+      const [items, version] = vi.mocked(
+        faqApi.previewSharedImpact,
+      ).mock.calls[0]!;
+      expect(items).toHaveLength(1);
+      expect(items[0]?.id).toBe(legacySharedItem.id);
+      expect(version).toBe(3);
+    });
+    expect(faqApi.updateShared).not.toHaveBeenCalled();
+    await confirmSharedImpact(user);
+    await waitFor(() => {
       const [items] = vi.mocked(faqApi.updateShared).mock.calls[0]!;
       expect(items).toHaveLength(1);
       expect(items[0]?.id).toBe(legacySharedItem.id);
     });
+    expect(
+      vi.mocked(faqApi.previewSharedImpact).mock.invocationCallOrder[0]!,
+    ).toBeLessThan(vi.mocked(faqApi.updateShared).mock.invocationCallOrder[0]!);
   });
 
   it("shows a product group with its code, count and mode, and lists its questions on expand", async () => {
@@ -1044,14 +1211,21 @@ describe("FaqWorkspace", () => {
       await screen.findByRole("dialog", { name: "Edit shared question" }),
     );
     await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(faqApi.previewSharedImpact).toHaveBeenCalled(),
+    );
+    await confirmSharedImpact(user);
 
+    const reopened = within(
+      await screen.findByRole("dialog", { name: "Edit shared question" }),
+    );
     expect(
-      await dialog.findByText(
+      await reopened.findByText(
         "This content changed elsewhere. Reload before saving.",
       ),
     ).toBeInTheDocument();
     const before = vi.mocked(faqApi.getShared).mock.calls.length;
-    await user.click(dialog.getByRole("button", { name: "Reload" }));
+    await user.click(reopened.getByRole("button", { name: "Reload" }));
     await waitFor(() => {
       expect(faqApi.getShared).toHaveBeenCalledTimes(before + 1);
     });
@@ -1075,6 +1249,10 @@ describe("FaqWorkspace", () => {
     await user.clear(answer);
     await user.type(answer, "First paragraph.\n\n- One bullet\n- Two bullets");
     await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(faqApi.previewSharedImpact).toHaveBeenCalled(),
+    );
+    await confirmSharedImpact(user);
 
     await waitFor(() => {
       const [items] = vi.mocked(faqApi.updateShared).mock.calls[0]!;

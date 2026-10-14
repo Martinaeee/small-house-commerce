@@ -554,6 +554,10 @@ export const en: Record<ZhKey, string> = {
   faq_shared_saving: "Saving…",
   faq_shared_save: "Save shared FAQ",
   faq_shared_saved: "Saved",
+  faq_impact_title: "Confirm shared FAQ changes",
+  faq_impact_body:
+    "This change will update the shared FAQ shown by {count} active products. Continue?",
+  faq_impact_failed: "Could not calculate affected products. Try again.",
   faq_shared_version: "Version {version}",
   faq_workspace_title: "Product FAQ workspace",
   faq_workspace_description: "Manage shared questions and product-specific questions in one place.",

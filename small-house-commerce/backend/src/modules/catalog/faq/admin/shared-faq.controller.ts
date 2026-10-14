@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser } from '../../../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard.js';
 import { Permissions } from '../../../auth/permissions.decorator.js';
@@ -41,6 +50,15 @@ export class AdminSharedFaqController {
     query: SharedFaqProductQuery,
   ) {
     return this.sharedFaq.listProducts(query);
+  }
+
+  @Post('impact')
+  @HttpCode(200)
+  impact(
+    @Body(new ZodValidationPipe(updateSharedFaqSchema))
+    input: UpdateSharedFaqInput,
+  ) {
+    return this.sharedFaq.previewImpact(input.items, input.expectedVersion);
   }
 
   @Put()

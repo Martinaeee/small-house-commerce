@@ -69,6 +69,14 @@ type PendingDelete =
   | { kind: "shared"; item: AdminFaqItem }
   | { kind: "product"; group: AdminFaqProductGroup; item: AdminFaqItem };
 
+interface PendingSharedSave {
+  items: AdminFaqItem[];
+  expectedVersion: number;
+  productCount: number;
+  close: () => void;
+  setDialogError: (message: string | null, conflict: boolean) => void;
+}
+
 /**
  * The recency cutoff for the Updated filter. Called from event handlers and
  * fetch callbacks, never during render, so the page stays render-pure.
@@ -202,6 +210,8 @@ export function FaqWorkspace({
   );
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [pendingSharedSave, setPendingSharedSave] =
+    useState<PendingSharedSave | null>(null);
 
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -357,31 +367,61 @@ export function FaqWorkspace({
     };
   }, [canEditProducts, productFilter]);
 
+  const sharedWriteError = (
+    err: unknown,
+    setDialogError: (message: string | null, conflict: boolean) => void,
+  ) => {
+    const conflict = errorStatus(err) === 409;
+    setDialogError(
+      conflict
+        ? t("faq_conflict_reload")
+        : err instanceof Error
+          ? err.message
+          : t("faq_impact_failed"),
+      conflict,
+    );
+  };
+
   const finishSharedSave = (
     nextItems: AdminFaqItem[],
     close: () => void,
     setDialogError: (message: string | null, conflict: boolean) => void,
   ): Promise<void> => {
-    if (sharedSaving) return Promise.resolve();
+    if (sharedSaving || pendingSharedSave) return Promise.resolve();
+    const items = withPositions(nextItems);
     setSharedSaving(true);
     setDialogError(null, false);
     return faqApi
-      .updateShared(withPositions(nextItems), sharedVersion)
+      .previewSharedImpact(items, sharedVersion)
+      .then((impact) => {
+        setPendingSharedSave({
+          items,
+          expectedVersion: impact.version,
+          productCount: impact.productCount,
+          close,
+          setDialogError,
+        });
+      })
+      .catch((err: unknown) => sharedWriteError(err, setDialogError))
+      .finally(() => setSharedSaving(false));
+  };
+
+  const confirmSharedSave = (): Promise<void> => {
+    if (!pendingSharedSave || sharedSaving) return Promise.resolve();
+    const pending = pendingSharedSave;
+    setSharedSaving(true);
+    pending.setDialogError(null, false);
+    return faqApi
+      .updateShared(pending.items, pending.expectedVersion)
       .then(() => {
-        close();
+        setPendingSharedSave(null);
+        pending.close();
         // Re-read so per-question timestamps come from the server, not the draft.
         loadShared();
       })
       .catch((err: unknown) => {
-        const conflict = errorStatus(err) === 409;
-        setDialogError(
-          conflict
-            ? t("faq_conflict_reload")
-            : err instanceof Error
-              ? err.message
-              : t("faq_save_failed"),
-          conflict,
-        );
+        setPendingSharedSave(null);
+        sharedWriteError(err, pending.setDialogError);
       })
       .finally(() => setSharedSaving(false));
   };
@@ -401,6 +441,9 @@ export function FaqWorkspace({
 
   const handleSharedDialogSave = (draft: FaqItemDraft) => {
     if (!sharedDialog) return;
+    setSharedDialog((current) =>
+      current ? { ...current, draft } : current,
+    );
     const nextItems =
       sharedDialog.mode === "edit"
         ? sharedItems.map((item) =>
@@ -985,7 +1028,7 @@ export function FaqWorkspace({
         />
       ) : null}
 
-      {sharedDialog ? (
+      {sharedDialog && !pendingSharedSave ? (
         <FaqItemDialog
           key={sharedDialog.key}
           title={
@@ -1077,7 +1120,42 @@ export function FaqWorkspace({
         />
       ) : null}
 
-      {pendingDelete ? (
+      {pendingSharedSave ? (
+        <Dialog
+          open
+          title={t("faq_impact_title")}
+          onClose={() => {
+            if (!sharedSaving) setPendingSharedSave(null);
+          }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-ink-secondary">
+              {t("faq_impact_body", {
+                count: pendingSharedSave.productCount,
+              })}
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setPendingSharedSave(null)}
+                disabled={sharedSaving}
+              >
+                {t("faq_dialog_cancel")}
+              </Button>
+              <Button
+                size="md"
+                onClick={() => void confirmSharedSave()}
+                disabled={sharedSaving}
+              >
+                {sharedSaving ? t("faq_shared_saving") : t("faq_shared_save")}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {pendingDelete && !pendingSharedSave ? (
         <Dialog
           open
           title={t("faq_dialog_delete_title")}

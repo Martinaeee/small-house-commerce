@@ -524,6 +524,11 @@ export interface AdminSharedFaq {
   usage?: { productCount: number };
 }
 
+export interface AdminSharedFaqImpact {
+  productCount: number;
+  version: number;
+}
+
 export interface AdminFaqProductCandidate {
   id: string;
   name: string;
@@ -1546,6 +1551,18 @@ export const adminApi = {
         page: p.page,
         pageSize: p.pageSize,
       })}`,
+    ),
+
+  previewSharedFaqImpact: (input: {
+    items: AdminFaqItem[];
+    expectedVersion: number;
+  }): Promise<AdminSharedFaqImpact> =>
+    adminAuthedFetch<AdminSharedFaqImpact>(
+      "/api/v1/admin/faq/shared/impact",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
     ),
 
   updateSharedFaq: (input: {

@@ -12,7 +12,10 @@ import {
   stampItemTimestamps,
   type FaqItem,
 } from './faq-content.js';
-import type { SharedFaqProductQuery } from './dto/shared-faq.dto.js';
+import type {
+  SharedFaqImpactView,
+  SharedFaqProductQuery,
+} from './dto/shared-faq.dto.js';
 
 /**
  * The one site-wide FAQ library every product may borrow from.
@@ -66,9 +69,61 @@ export class SharedFaqService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async get(): Promise<SharedFaqSetView> {
-    const [existing, activeIds, customFaqs] = await Promise.all([
-      this.prisma.sharedFaqSet.findUnique({ where: { id: SHARED_FAQ_SET_ID } }),
+  private parseItems(rawItems: unknown): FaqItem[] {
+    const parsed = faqItemsSchema.safeParse(rawItems);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'FAQ_INVALID',
+        message: 'The FAQ items do not match the shared FAQ schema.',
+        issues: parsed.error.issues,
+      });
+    }
+    return parsed.data;
+  }
+
+  private assertExpectedVersion(
+    currentVersion: number,
+    expectedVersion: number,
+  ): void {
+    if (currentVersion !== expectedVersion) {
+      throw new ConflictException({
+        code: 'FAQ_VERSION_MISMATCH',
+        message: `Version ${expectedVersion} is stale (current version ${currentVersion}).`,
+        currentVersion,
+      });
+    }
+  }
+
+  private async validateAudienceProducts(items: readonly FaqItem[]): Promise<void> {
+    const selectedIds = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.audience?.scope === 'PRODUCTS'
+            ? item.audience.productIds
+            : [],
+        ),
+      ),
+    ];
+    if (selectedIds.length === 0) return;
+
+    const found = await this.prisma.product.findMany({
+      where: { id: { in: selectedIds } },
+      select: { id: true },
+    });
+    const existingIds = new Set(found.map((product) => product.id));
+    const missing = selectedIds.filter((id) => !existingIds.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        code: 'FAQ_AUDIENCE_PRODUCT_MISSING',
+        message:
+          'Some selected products no longer exist. Remove them from the question audience and retry.',
+        productIds: missing,
+      });
+    }
+  }
+
+  private async loadInheritingProductIds(): Promise<Set<string>> {
+    const [activeIds, customFaqs] = await Promise.all([
       this.prisma.product.findMany({
         where: { status: 'ACTIVE' },
         select: { id: true },
@@ -78,11 +133,16 @@ export class SharedFaqService {
         select: { productId: true },
       }),
     ]);
-
-    // Products that render this library: every active product except those
-    // whose mode is CUSTOM (targeted sharing never rewrites a product's mode).
     const inheritingIds = new Set(activeIds.map((product) => product.id));
     for (const custom of customFaqs) inheritingIds.delete(custom.productId);
+    return inheritingIds;
+  }
+
+  async get(): Promise<SharedFaqSetView> {
+    const [existing, inheritingIds] = await Promise.all([
+      this.prisma.sharedFaqSet.findUnique({ where: { id: SHARED_FAQ_SET_ID } }),
+      this.loadInheritingProductIds(),
+    ]);
 
     const items = (existing?.items ?? []) as FaqItem[];
     const usage = {
@@ -149,19 +209,31 @@ export class SharedFaqService {
     };
   }
 
+  async previewImpact(
+    rawItems: unknown,
+    expectedVersion: number,
+  ): Promise<SharedFaqImpactView> {
+    const items = this.parseItems(rawItems);
+    const current = await this.prisma.sharedFaqSet.findUnique({
+      where: { id: SHARED_FAQ_SET_ID },
+    });
+    const currentVersion = current?.version ?? 0;
+    this.assertExpectedVersion(currentVersion, expectedVersion);
+    await this.validateAudienceProducts(items);
+    const inheritingIds = await this.loadInheritingProductIds();
+
+    return {
+      productCount: applyingProductCount(items, inheritingIds),
+      version: currentVersion,
+    };
+  }
+
   async update(
     rawItems: unknown,
     expectedVersion: number,
     userId: string | null,
   ): Promise<{ version: number }> {
-    const parsed = faqItemsSchema.safeParse(rawItems);
-    if (!parsed.success) {
-      throw new BadRequestException({
-        code: 'FAQ_INVALID',
-        message: 'The FAQ items do not match the shared FAQ schema.',
-        issues: parsed.error.issues,
-      });
-    }
+    const items = this.parseItems(rawItems);
 
     // Make sure the singleton exists before the guarded write.
     await this.get();
@@ -169,38 +241,15 @@ export class SharedFaqService {
     const current = await this.prisma.sharedFaqSet.findUniqueOrThrow({
       where: { id: SHARED_FAQ_SET_ID },
     });
-    if (current.version !== expectedVersion) {
-      throw new ConflictException({
-        code: 'FAQ_VERSION_MISMATCH',
-        message: `Version ${expectedVersion} is stale (current version ${current.version}).`,
-        currentVersion: current.version,
-      });
-    }
-
-    const selectedIds = [...new Set(parsed.data.flatMap((item) =>
-      item.audience?.scope === 'PRODUCTS' ? item.audience.productIds : [],
-    ))];
-    if (selectedIds.length > 0) {
-      const found = await this.prisma.product.findMany({
-        where: { id: { in: selectedIds } }, select: { id: true },
-      });
-      const existingIds = new Set(found.map((product) => product.id));
-      const missing = selectedIds.filter((id) => !existingIds.has(id));
-      if (missing.length > 0) {
-        throw new BadRequestException({
-          code: 'FAQ_AUDIENCE_PRODUCT_MISSING',
-          message: 'Some selected products no longer exist. Remove them from the question audience and retry.',
-          productIds: missing,
-        });
-      }
-    }
+    this.assertExpectedVersion(current.version, expectedVersion);
+    await this.validateAudienceProducts(items);
 
     const { count } = await this.prisma.sharedFaqSet.updateMany({
       where: { id: SHARED_FAQ_SET_ID, version: expectedVersion },
       data: {
         items: stampItemTimestamps(
           (current.items ?? []) as FaqItem[],
-          parsed.data,
+          items,
           this.now(),
         ) as unknown as Prisma.InputJsonValue,
         version: expectedVersion + 1,

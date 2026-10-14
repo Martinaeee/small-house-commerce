@@ -35,6 +35,7 @@ function createPrismaMock() {
           return row;
         },
       ),
+      update: vi.fn(),
       updateMany: vi.fn(
         async ({
           where,
@@ -51,9 +52,9 @@ function createPrismaMock() {
     },
     product: {
       count: vi.fn(async () => 0),
-      findMany: vi.fn(async (query: { where?: { id?: { in: string[] } } }) =>
-        (query.where?.id?.in ?? []).map((id) => ({ id })),
-      ),
+      findMany: vi.fn(async (query: {
+        where?: { id?: { in: string[] }; status?: string };
+      }) => (query.where?.id?.in ?? []).map((id) => ({ id }))),
     },
     productFaq: {
       count: vi.fn(async () => 0),
@@ -238,6 +239,104 @@ describe('SharedFaqService', () => {
       response: { code: 'FAQ_AUDIENCE_PRODUCT_MISSING', productIds: [B] },
     });
     expect(ctx.prisma.current()?.items ?? []).toEqual([]);
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('previews the proposed library impact without writing or incrementing version', async () => {
+    const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const before = await ctx.service.get();
+    ctx.prisma.product.findMany.mockImplementation(async (query) => {
+      if (query.where?.id?.in) {
+        return query.where.id.in.map((id) => ({ id }));
+      }
+      if (query.where?.status === 'ACTIVE') {
+        return [A, B, C].map((id) => ({ id }));
+      }
+      return [];
+    });
+    ctx.prisma.productFaq.findMany.mockResolvedValue([{ productId: C }]);
+    const proposed = [
+      {
+        ...ITEM,
+        audience: { scope: 'PRODUCTS' as const, productIds: [A, B, C] },
+      },
+      {
+        ...ITEM,
+        id: '22222222-2222-7222-8222-222222222222',
+        title: 'Can this be assembled?',
+        position: 1,
+        audience: { scope: 'PRODUCTS' as const, productIds: [A, D] },
+      },
+    ];
+
+    await expect(
+      ctx.service.previewImpact(proposed, before.version),
+    ).resolves.toEqual({ productCount: 2, version: before.version });
+    expect((await ctx.service.get()).version).toBe(before.version);
+    expect(ctx.prisma.sharedFaqSet.update).not.toHaveBeenCalled();
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reports zero impact for a disabled-only proposed library', async () => {
+    const before = await ctx.service.get();
+    ctx.prisma.product.findMany.mockResolvedValue([
+      { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+    ]);
+
+    await expect(
+      ctx.service.previewImpact([{ ...ITEM, enabled: false }], before.version),
+    ).resolves.toEqual({ productCount: 0, version: before.version });
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed proposed items before calculating impact', async () => {
+    await expect(
+      ctx.service.previewImpact([{ ...ITEM, title: '' }], 0),
+    ).rejects.toMatchObject({ response: { code: 'FAQ_INVALID' } });
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale impact preview with the named version conflict', async () => {
+    const before = await ctx.service.get();
+
+    await expect(
+      ctx.service.previewImpact([ITEM], before.version + 1),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FAQ_VERSION_MISMATCH',
+        currentVersion: before.version,
+      },
+    });
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleted audience products without writing the proposed library', async () => {
+    const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const before = await ctx.service.get();
+    ctx.prisma.product.findMany.mockImplementation(async (query) => {
+      if (query.where?.id?.in) return [{ id: A }];
+      return [{ id: A }];
+    });
+
+    await expect(
+      ctx.service.previewImpact(
+        [
+          {
+            ...ITEM,
+            audience: { scope: 'PRODUCTS', productIds: [A, B] },
+          },
+        ],
+        before.version,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'FAQ_AUDIENCE_PRODUCT_MISSING', productIds: [B] },
+    });
+    expect(ctx.prisma.sharedFaqSet.update).not.toHaveBeenCalled();
     expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
   });
 

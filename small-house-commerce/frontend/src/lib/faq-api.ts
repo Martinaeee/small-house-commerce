@@ -5,6 +5,7 @@ import {
   type AdminFaqProductQuery,
   type AdminFaqProductCandidate,
   type AdminSharedFaq,
+  type AdminSharedFaqImpact,
 } from "./admin-api";
 
 export const faqApi = {
@@ -21,6 +22,11 @@ export const faqApi = {
     pageSize?: number;
   }): Promise<{ items: AdminFaqProductCandidate[]; total: number }> =>
     adminApi.listFaqPickProducts(query),
+  previewSharedImpact: (
+    items: AdminFaqItem[],
+    expectedVersion: number,
+  ): Promise<AdminSharedFaqImpact> =>
+    adminApi.previewSharedFaqImpact({ items, expectedVersion }),
   updateShared: (
     items: AdminFaqItem[],
     expectedVersion: number,

@@ -12,6 +12,11 @@ export const updateSharedFaqSchema = z.object({
 });
 export type UpdateSharedFaqInput = z.infer<typeof updateSharedFaqSchema>;
 
+export interface SharedFaqImpactView {
+  productCount: number;
+  version: number;
+}
+
 /** FAQ-only product identity lookup; never exposes the full product admin API. */
 export const sharedFaqProductQuerySchema = z.object({
   search: z.string().trim().max(255).optional(),
