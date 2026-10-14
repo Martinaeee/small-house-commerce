@@ -597,6 +597,8 @@ export const zh = {
   faq_product_summary: "{count} 个商品已配置专属问题",
   faq_shared_category_count: "{count} 个问题",
   faq_row_edit: "编辑",
+  faq_row_move_up: "上移",
+  faq_row_move_down: "下移",
   faq_row_duplicate: "复制",
   faq_row_enable: "启用",
   faq_row_disable: "停用",

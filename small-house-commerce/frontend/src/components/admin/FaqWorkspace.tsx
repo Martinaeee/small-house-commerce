@@ -35,6 +35,7 @@ import { FaqSharedSection } from "./faq/FaqSharedSection";
 import {
   FAQ_CATEGORY_LABEL_KEYS,
   faqCategoryOf,
+  moveFaqItemWithinCategory,
   moveItemToIndex,
   withPositions,
 } from "./faq/faq-view";
@@ -873,6 +874,13 @@ export function FaqWorkspace({
               id: crypto.randomUUID(),
               title: item.title.slice(0, 200 - t("product_faq_duplicate_suffix").length) + t("product_faq_duplicate_suffix"),
             })
+          }
+          onMove={(item, direction) =>
+            void finishSharedSave(
+              moveFaqItemWithinCategory(sharedItems, item.id, direction),
+              () => undefined,
+              (message) => setSharedError(message),
+            )
           }
           onToggle={(item) =>
             void finishSharedSave(

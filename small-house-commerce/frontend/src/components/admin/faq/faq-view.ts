@@ -90,6 +90,25 @@ export function withPositions<T extends { position: number }>(items: T[]): T[] {
   return items.map((item, position) => ({ ...item, position }));
 }
 
+export function moveFaqItemWithinCategory(
+  items: AdminFaqItem[],
+  itemId: string,
+  direction: -1 | 1,
+): AdminFaqItem[] {
+  const source = items.findIndex((item) => item.id === itemId);
+  if (source < 0) return items;
+  const category = faqCategoryOf(items[source]);
+  const siblingIndexes = items.flatMap((item, index) =>
+    faqCategoryOf(item) === category ? [index] : [],
+  );
+  const sibling = siblingIndexes.indexOf(source);
+  const target = siblingIndexes[sibling + direction];
+  if (target === undefined) return items;
+  const next = [...items];
+  [next[source], next[target]] = [next[target], next[source]];
+  return withPositions(next);
+}
+
 export function moveItemToIndex<T>(items: T[], from: number, to: number): T[] {
   const next = [...items];
   const [moved] = next.splice(from, 1);

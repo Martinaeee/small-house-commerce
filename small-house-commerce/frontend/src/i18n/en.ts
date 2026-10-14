@@ -611,6 +611,8 @@ export const en: Record<ZhKey, string> = {
   faq_product_summary: "{count} products have their own questions",
   faq_shared_category_count: "{count} questions",
   faq_row_edit: "Edit",
+  faq_row_move_up: "Move up",
+  faq_row_move_down: "Move down",
   faq_row_duplicate: "Duplicate",
   faq_row_enable: "Enable",
   faq_row_disable: "Disable",

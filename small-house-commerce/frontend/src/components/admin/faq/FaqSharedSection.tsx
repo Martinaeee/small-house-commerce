@@ -34,6 +34,7 @@ export function FaqSharedSection({
   canEdit,
   onEdit,
   onDuplicate,
+  onMove,
   onToggle,
   onDelete,
   onReload,
@@ -48,6 +49,7 @@ export function FaqSharedSection({
   canEdit: boolean;
   onEdit: (item: AdminFaqItem) => void;
   onDuplicate: (item: AdminFaqItem) => void;
+  onMove: (item: AdminFaqItem, direction: -1 | 1) => void;
   onToggle: (item: AdminFaqItem) => void;
   onDelete: (item: AdminFaqItem) => void;
   onReload: () => void;
@@ -73,6 +75,18 @@ export function FaqSharedSection({
       items: visible.filter((item) => faqCategoryOf(item) === category),
     }))
     .filter((group) => group.items.length > 0);
+
+  const isMoveDisabled = (item: AdminFaqItem, direction: -1 | 1) => {
+    const siblings = items.filter(
+      (candidate) => faqCategoryOf(candidate) === faqCategoryOf(item),
+    );
+    const index = siblings.findIndex((candidate) => candidate.id === item.id);
+    return (
+      saving ||
+      index < 0 ||
+      (direction === -1 ? index === 0 : index === siblings.length - 1)
+    );
+  };
 
   return (
     <section className="space-y-3" aria-labelledby="faq-shared-section-title">
@@ -183,7 +197,7 @@ export function FaqSharedSection({
                       <th className="w-36 px-2 py-2 font-semibold">
                         {t("faq_filter_updated")}
                       </th>
-                      <th className="w-28 px-3 py-2 text-right font-semibold">
+                      <th className="w-48 px-3 py-2 text-right font-semibold">
                         {t("faq_row_more")}
                       </th>
                     </tr>
@@ -230,6 +244,24 @@ export function FaqSharedSection({
                           <div className="flex items-center justify-end gap-1">
                             {canEdit ? (
                               <>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-sm font-semibold text-ink-secondary hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label={`${t("faq_row_move_up")} — ${item.title}`}
+                                  disabled={isMoveDisabled(item, -1)}
+                                  onClick={() => onMove(item, -1)}
+                                >
+                                  <span aria-hidden="true">↑</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-sm font-semibold text-ink-secondary hover:bg-background disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label={`${t("faq_row_move_down")} — ${item.title}`}
+                                  disabled={isMoveDisabled(item, 1)}
+                                  onClick={() => onMove(item, 1)}
+                                >
+                                  <span aria-hidden="true">↓</span>
+                                </button>
                                 <button
                                   type="button"
                                   className="inline-flex h-8 shrink-0 items-center justify-center whitespace-nowrap px-2 text-xs font-semibold text-cta underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted"

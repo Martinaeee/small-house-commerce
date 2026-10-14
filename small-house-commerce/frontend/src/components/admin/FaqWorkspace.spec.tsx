@@ -613,6 +613,41 @@ describe("FaqWorkspace", () => {
     });
   });
 
+  it("moves a shared question within its category through the versioned save", async () => {
+    const user = userEvent.setup();
+    const shippingSecond: AdminFaqItem = {
+      ...sharedItem,
+      id: "55555555-5555-4555-8555-555555555555",
+      title: "When will delivery arrive?",
+      position: 2,
+    };
+    vi.mocked(faqApi.getShared).mockResolvedValue({
+      id: "shared",
+      version: 3,
+      items: [sharedItem, legacySharedItem, shippingSecond],
+      usage: { productCount: 12 },
+    });
+    renderWorkspace({ canEditShared: true, canEditProducts: false });
+    await screen.findByText(shippingSecond.title);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: `Move up — ${shippingSecond.title}`,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(faqApi.updateShared).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({ id: shippingSecond.id, position: 0 }),
+          expect.objectContaining({ id: legacySharedItem.id, position: 1 }),
+          expect.objectContaining({ id: sharedItem.id, position: 2 }),
+        ],
+        3,
+      );
+    });
+  });
+
   it("asks which products a shared question applies to", async () => {
     const user = userEvent.setup();
     renderWorkspace({ canEditShared: true, canEditProducts: false });
