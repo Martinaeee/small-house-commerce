@@ -1,5 +1,6 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { zh } from "@/i18n/zh";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
 import { marketingApi, type MarketingPerformanceReport, type PerformancePageRow, type PerformanceTotals } from "@/lib/marketing-api";
@@ -45,6 +46,43 @@ beforeEach(() => {
 });
 
 describe("performance page table", () => {
+  it.each([false, true])("keeps every metric under its matching header when grouped=%s", groupByProduct => {
+    mount({
+      groupByProduct,
+      report: report([rich], {
+        overview: { total: 1, byStatus: { DRAFT: 0, LIVE: 1, SCHEDULED: 0, ENDED: 0, DISABLED: 0 }, byProduct: [
+          { productId: rich.productId, productName: rich.productName, productCode: rich.productCode, pageCount: 1 },
+        ] },
+      }),
+    });
+    const headers = within(screen.getByRole("table")).getAllByRole("columnheader");
+    expect(headers.map(header => header.textContent)).toEqual([
+      zh.marketing_performance_col_page, zh.common_status,
+      zh.marketing_performance_col_visits, zh.marketing_performance_col_valid_orders,
+      zh.marketing_performance_col_conversion, zh.marketing_performance_col_spend,
+      zh.marketing_performance_col_cpa, zh.marketing_performance_col_roas, zh.common_actions,
+    ]);
+    const cells = within(screen.getByText(rich.name).closest("tr")!).getAllByRole("cell");
+    expect(cells).toHaveLength(headers.length);
+    expect(cells[1]).toHaveTextContent("已发布");
+    expect(cells[2]).toHaveTextContent("12");
+    expect(cells[3]).toHaveTextContent("2");
+    expect(cells[5]).toHaveTextContent("10.00");
+    expect(cells[7]).toHaveTextContent("0.52");
+  });
+
+  it.each([
+    ["DIRECT", "125.00"], ["LEGACY", "0.00"], ["UNVERIFIED", "75.00"],
+  ] as const)("shows only signed gross for the %s historical source", (kind, signedGrossPhp) => {
+    mount({ report: report([rich], { otherSources: {
+      current: [{ kind, totals: totals({ validOrderValuePhp: "99999.00", signedGrossPhp }) }], previous: null,
+    } }) });
+    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    const source = screen.getByText(zh[`marketing_performance_other_${kind}`]).closest("dl")!;
+    const label = within(source).getByText(zh.marketing_performance_metric_signed_gross);
+    expect(label.nextElementSibling).toHaveTextContent(signedGrossPhp);
+  });
+
   it("shows the page, owner, status and the main funnel columns without inventing ratios", () => {
     mount();
     expect(screen.getByText("省空间视频页")).toBeInTheDocument();

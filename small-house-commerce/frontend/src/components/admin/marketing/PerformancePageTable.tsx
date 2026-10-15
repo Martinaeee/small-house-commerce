@@ -31,7 +31,7 @@ function RowDetail({ row, report }: { row: PerformancePageRow; report: Marketing
     {([[t("marketing_performance_metric_valid_order_value"), php(totals.validOrderValuePhp)], [t("marketing_performance_metric_signed_gross"), php(totals.signedGrossPhp)], [t("marketing_performance_metric_spend_php"), php(totals.spendPhp)], [t("marketing_performance_metric_signed_cpa"), money(totals.signedCpaUsd)], [t("marketing_performance_metric_spend_usd"), money(totals.spendUsd)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="tabular-nums">{value}</dd></div>)}
   </dl> : null;
   const otherSources = report.otherSources.current.map(source => <dl key={source.kind} className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-admin-muted md:grid-cols-4">
-    {([[t(`marketing_performance_other_${source.kind}`), source.totals.visits ?? dash], [t("marketing_performance_metric_valid_orders"), source.totals.validOrders], [t("marketing_performance_metric_signed_gross"), php(source.totals.validOrderValuePhp)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="tabular-nums">{value}</dd></div>)}
+    {([[t(`marketing_performance_other_${source.kind}`), source.totals.visits ?? dash], [t("marketing_performance_metric_valid_orders"), source.totals.validOrders], [t("marketing_performance_metric_signed_gross"), php(source.totals.signedGrossPhp)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="tabular-nums">{value}</dd></div>)}
   </dl>);
   return <div className="space-y-2">
     {flags}
@@ -68,7 +68,7 @@ function RowView({ row, report, expanded, onToggle, onTrendPage }: { row: Perfor
 export function PerformancePageTable({ report, groupByProduct, onTrendPage }: { report: MarketingPerformanceReport; groupByProduct: boolean; onTrendPage: (id: string) => void }) {
   const { t } = useAdminI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const headers = ["marketing_performance_col_page", "marketing_performance_col_visits", "marketing_performance_col_valid_orders", "marketing_performance_col_conversion", "marketing_performance_col_spend", "marketing_performance_col_cpa", "marketing_performance_col_roas", ""].map(key => t(key as Parameters<typeof t>[0]));
+  const headers = ["marketing_performance_col_page", "common_status", "marketing_performance_col_visits", "marketing_performance_col_valid_orders", "marketing_performance_col_conversion", "marketing_performance_col_spend", "marketing_performance_col_cpa", "marketing_performance_col_roas", "common_actions"].map(key => t(key as Parameters<typeof t>[0]));
   const table = (rows: PerformancePageRow[]) => <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr><th className="px-3 py-2">{t("marketing_performance_col_page")}</th>{headers.slice(1).map((header, index) => <th key={index} className="whitespace-nowrap px-3 py-2">{header}</th>)}</tr></thead><tbody className="divide-y divide-admin-border">
     {rows.map(row => <RowView key={row.id} row={row} report={report} expanded={expanded === row.id} onToggle={() => setExpanded(current => current === row.id ? null : row.id)} onTrendPage={() => onTrendPage(row.id)} />)}
   </tbody></table>;
