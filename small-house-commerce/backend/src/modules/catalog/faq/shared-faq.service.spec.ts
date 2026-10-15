@@ -58,7 +58,9 @@ function createPrismaMock() {
     },
     productFaq: {
       count: vi.fn(async () => 0),
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(
+        async (): Promise<{ productId: string }[]> => [],
+      ),
     },
   };
 }

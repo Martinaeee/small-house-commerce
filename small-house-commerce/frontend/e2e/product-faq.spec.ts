@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import {
   expect,
   request,
@@ -15,8 +17,20 @@ const ADMIN_PASSWORD = "E2eAdminPass123!";
 const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `postgresql://${process.env.E2E_PG_USER ?? "postgres"}:${process.env.E2E_PG_PASSWORD ?? "postgres"}@localhost:5432/${process.env.E2E_TEST_DB ?? "small_house_variant_test"}?schema=public`;
+const BACKEND_DIR = path.resolve(__dirname, "..", "..", "backend");
 
 assertE2EDatabaseUrl(DATABASE_URL);
+
+test.use({ trace: "off" });
+
+const pageErrors: string[] = [];
+test.beforeEach(({ page }) => {
+  pageErrors.length = 0;
+  page.on("pageerror", (error) => pageErrors.push(String(error)));
+});
+test.afterEach(() => {
+  expect(pageErrors).toEqual([]);
+});
 
 const ITEM = {
   id: "99999999-9999-4999-8999-999999999999",
@@ -28,6 +42,8 @@ const ITEM = {
   position: 0,
   defaultOpen: true,
 };
+
+const LEGACY_SHARED_TITLE = "E2E legacy shared question without a timestamp?";
 
 const SHARED_ITEM = {
   id: "88888888-8888-4888-8888-888888888888",
@@ -164,6 +180,18 @@ async function loginInBrowser(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/admin\/(products|orders)/);
 }
 
+// FAQ writes PATCH the seeded ACTIVE products through the legacy branch,
+// which enforces the product-card readiness gate. A freshly seeded database
+// has no variant card media, so write the covers once before the first
+// scenario (idempotent, test-only fixture).
+test.beforeAll(() => {
+  execFileSync("pnpm", ["exec", "tsx", "prisma/e2e-faq-card-media-prepare.ts"], {
+    cwd: BACKEND_DIR,
+    env: { ...process.env, DATABASE_URL },
+    stdio: "inherit",
+  });
+});
+
 test("FAQ management lists, edits in dialogs, and stays one source of truth", async ({
   page,
 }) => {
@@ -214,8 +242,12 @@ test("FAQ management lists, edits in dialogs, and stays one source of truth", as
     const sharedSection = page.getByRole("region", { name: "共享问题" });
     await expect(sharedSection.getByText(SHARED_ITEM.title)).toBeVisible();
     await expect(sharedSection.getByText("未分类")).toBeVisible();
-    // Legacy items carry no timestamp until they are actually edited.
-    await expect(sharedSection.getByText("未记录").first()).toBeVisible();
+    // The prep fixture resets one dedicated legacy row on every invocation;
+    // UI saves in other scenarios may legitimately timestamp all echoed rows.
+    const legacyRow = sharedSection
+      .getByRole("row")
+      .filter({ hasText: LEGACY_SHARED_TITLE });
+    await expect(legacyRow.getByText("未记录")).toBeVisible();
     await expect(sharedSection.getByRole("textbox")).toHaveCount(0);
 
     // Edit a shared question through the dialog; the list itself is read-only.
@@ -236,6 +268,11 @@ test("FAQ management lists, edits in dialogs, and stays one source of truth", as
     );
     await sharedDialog
       .getByRole("button", { name: "保存", exact: true })
+      .click();
+    // Shared saves confirm the server-calculated impact before the PUT.
+    await page
+      .getByRole("dialog", { name: "确认共享 FAQ 修改" })
+      .getByRole("button", { name: "保存共享 FAQ" })
       .click();
     expect((await sharedWrite).ok()).toBeTruthy();
     await expect(sharedDialog).not.toBeVisible();
@@ -452,6 +489,11 @@ test("a targeted shared question reaches only its selected products", async ({
         response.request().method() === "PUT",
     );
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    // Shared saves confirm the server-calculated impact before the PUT.
+    await page
+      .getByRole("dialog", { name: "确认共享 FAQ 修改" })
+      .getByRole("button", { name: "保存共享 FAQ" })
+      .click();
     expect((await write).ok()).toBeTruthy();
     created = true;
 
@@ -488,7 +530,11 @@ test("a targeted shared question reaches only its selected products", async ({
     await expect(
       page.getByRole("heading", { name: "应用的共享问题" }),
     ).toBeVisible();
-    await expect(page.getByText(title)).toBeVisible();
+    // The customer preview below renders the same question through the
+    // storefront component, so scope the assertion to the applicable list.
+    await expect(
+      page.getByRole("listitem").filter({ hasText: title }),
+    ).toBeVisible();
     await page.goto(`/admin/products/${controlId}/edit`);
     await page.getByRole("tab", { name: "FAQ" }).click();
     await expect(
