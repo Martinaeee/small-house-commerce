@@ -24,6 +24,23 @@ describe('shared marketing report metrics', () => {
     expect(performanceChange(null, '2.00', 2)).toEqual({ state: 'UNAVAILABLE', absolute: null, percent: null });
   });
 
+  it('keeps an omitted aggregate page total unavailable instead of serializing NaN', () => {
+    const row = { ...raw, pageTotalVisits: undefined };
+    const serialized = serializeMarketingReportRow(row);
+    expect(serialized.pageTotalVisits).toBeNull();
+    expect(Number.isNaN(serialized.pageTotalVisits)).toBe(false);
+    expect(serializeMarketingTotals(row).pageTotalVisits).toBeNull();
+  });
+
+  it.each([
+    [null, null],
+    [0n, 0],
+  ] as const)('preserves page total %s as %s in rows and totals', (pageTotalVisits, expected) => {
+    const row = { ...raw, pageTotalVisits };
+    expect(serializeMarketingReportRow(row).pageTotalVisits).toBe(expected);
+    expect(serializeMarketingTotals(row).pageTotalVisits).toBe(expected);
+  });
+
   it('keeps the full report projection with its metadata', () => {
     expect(serializeMarketingReportRow(raw)).toMatchObject({ kind: 'REGISTERED', id: LINK, label: 'Ad A', ownerName: 'Optimizer', productName: 'Chair', productCode: 'LUW-001', landingPageId: 'page-1', visits: 2, pageTotalVisits: 5, orderCpaUsd: '25.00', orderRoas: '3.49' });
   });

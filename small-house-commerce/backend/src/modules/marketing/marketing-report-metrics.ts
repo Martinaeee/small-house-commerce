@@ -7,7 +7,7 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   kind: 'REGISTERED' | 'DIRECT' | 'LEGACY' | 'UNVERIFIED'; id: string; label: string;
   ownerUserId: string | null; ownerName: string | null; aid: string | null;
   productId: string | null; productName: string | null; productCode: string | null; landingPageId: string | null;
-  visits: bigint | null; pageTotalVisits: bigint | null;
+  visits: bigint | null; pageTotalVisits?: bigint | null;
   validOrderValuePhp: Prisma.Decimal; signedGrossPhp: Prisma.Decimal; spendUsd: Prisma.Decimal; spendPhp: Prisma.Decimal;
   expectedCostDays: bigint; recordedCostDays: bigint;
 };
@@ -26,7 +26,7 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow) {
   return {
     kind: row.kind, id: row.id, label: row.label, ownerUserId: row.ownerUserId, ownerName: row.ownerName, aid: row.aid,
     productId: row.productId, productName: row.productName, productCode: row.productCode, landingPageId: row.landingPageId,
-    ...counts, visits, pageTotalVisits: row.pageTotalVisits === null ? null : Number(row.pageTotalVisits),
+    ...counts, visits, pageTotalVisits: row.pageTotalVisits == null ? null : Number(row.pageTotalVisits),
     validOrderValuePhp: new Prisma.Decimal(row.validOrderValuePhp).toFixed(2), signedGrossPhp: new Prisma.Decimal(row.signedGrossPhp).toFixed(2),
     spendUsd: usd.toFixed(2), spendPhp: php.toFixed(2), expectedCostDays, recordedCostDays, costCoverageComplete,
     orderCpaUsd: ratios && usd.gt(0) && counts.validOrders > 0 ? ratio(usd, counts.validOrders) : null,
