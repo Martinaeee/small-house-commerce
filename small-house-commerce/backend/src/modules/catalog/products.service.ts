@@ -1074,7 +1074,7 @@ export class ProductsService {
           statusCode: 409,
           error: 'Conflict',
           message:
-            'This product has stock or order history and cannot be deleted. Disable it instead.',
+            'This product has stock, order or marketing history and cannot be deleted. Disable it instead.',
           code: 'PRODUCT_HAS_HISTORY',
         });
       }

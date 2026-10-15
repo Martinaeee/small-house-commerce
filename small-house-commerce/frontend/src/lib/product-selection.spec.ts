@@ -223,6 +223,30 @@ describe("malformed storefront products", () => {
 });
 
 describe("selection initialization", () => {
+  it.each([disabledBlueSmall, unpricedBlueSmall, { ...disabledBlueSmall, id: "deleted-variant" }])("does not replace an unavailable deep link with the only selectable variant ($id)", (unavailable) => {
+    const product = productFixture({ variants: unavailable.id === "deleted-variant" ? [blueLarge] : [unavailable, blueLarge], defaultDisplayVariantId: blueLarge.id });
+    const state = createInitialSelection(product, unavailable.id);
+    expect(state.selectedValueIds).toEqual({});
+    expect(resolveSelection(product, state).purchaseConfirmed).toBe(false);
+    const selected = select(product, select(product, state, "color", "blue"), "size", "large");
+    expect(resolveSelection(product, selected)).toMatchObject({ resolvedVariant: blueLarge, purchaseConfirmed: true });
+  });
+
+  it("does not confirm a different zero-group SKU for an unavailable deep link", () => {
+    const onlyVariant = { ...blueLarge, combinationKey: "", optionValueIds: [] };
+    const product = productFixture({ options: [], variants: [onlyVariant], defaultDisplayVariantId: onlyVariant.id });
+    expect(resolveSelection(product, createInitialSelection(product, "deleted-variant")).purchaseConfirmed).toBe(false);
+    expect(resolveSelection(product, createInitialSelection(product)).purchaseConfirmed).toBe(true);
+  });
+
+  it("does not auto-confirm a replacement when returning to an unavailable explicit URL target", () => {
+    const product = productFixture({ variants: [blueLarge], defaultDisplayVariantId: blueLarge.id });
+    const initial = createInitialSelection(product);
+    expect(resolveSelection(product, initial).purchaseConfirmed).toBe(true);
+    const next = reduceProductSelection(product, initial, { type: "SYNC_FROM_URL", variantId: "deleted-variant" });
+    expect(next.selectedValueIds).toEqual({});
+    expect(resolveSelection(product, next).purchaseConfirmed).toBe(false);
+  });
   it("prefills a valid deep link without confirming purchase", () => {
     const product = productFixture();
     const state = createInitialSelection(product, blueLarge.id);
@@ -244,11 +268,11 @@ describe("selection initialization", () => {
     ["unknown variant", "missing"],
     ["disabled variant", disabledBlueSmall.id],
     ["unpriced variant", unpricedBlueSmall.id],
-  ])("clears an invalid deep link to an %s", (_label, variantId) => {
+  ])("keeps an unavailable %s explicitly unconfirmed", (_label, variantId) => {
     const state = createInitialSelection(productFixture(), variantId);
 
     expect(state.selectedValueIds).toEqual({});
-    expect(state.selectionSource).toBe("DEFAULT");
+    expect(state.selectionSource).toBe("DEEP_LINK");
     expect(resolveSelection(productFixture(), state).resolvedVariant).toBeNull();
   });
 
@@ -538,7 +562,7 @@ describe("URL history reconciliation", () => {
     ["unknown variant", "missing"],
     ["disabled variant", disabledBlueSmall.id],
     ["unpriced variant", unpricedBlueSmall.id],
-  ])("treats a popped %s like an absent variant", (_label, variantId) => {
+  ])("keeps a popped unavailable %s explicitly unconfirmed", (_label, variantId) => {
     const product = productFixture();
     let state = createInitialSelection(product, blueLarge.id);
     state = reduceProductSelection(product, state, { type: "CONFIRM" });
@@ -547,7 +571,7 @@ describe("URL history reconciliation", () => {
       variantId,
     });
 
-    expect(synced.selectionSource).toBe("DEFAULT");
+    expect(synced.selectionSource).toBe("DEEP_LINK");
     expect(synced.selectedValueIds).toEqual({});
     expect(synced.confirmedCombinationKey).toBeNull();
     expect(resolveSelection(product, synced).resolvedVariant).toBeNull();

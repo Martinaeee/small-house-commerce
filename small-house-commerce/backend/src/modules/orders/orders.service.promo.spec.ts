@@ -48,6 +48,7 @@ describe.skipIf(!database)('OrdersService promo checkout', () => {
       prisma,
       inventory,
       new CustomerRiskService(prisma),
+      { resolve: async () => null } as never,
       promotions,
       backInStock as never,
     );
@@ -154,6 +155,7 @@ describe.skipIf(!database)('OrdersService promo checkout', () => {
     },
     items: [{ skuId, quantity: 1 }],
     attribution: { sourceType: 'ORGANIC' },
+    customerNote: null,
     promoCode,
   });
 

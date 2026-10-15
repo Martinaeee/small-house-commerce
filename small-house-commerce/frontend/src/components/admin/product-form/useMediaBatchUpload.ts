@@ -31,16 +31,16 @@ export interface MediaBatchUpload {
   dismiss(key: string): void;
 }
 
-export function useMediaBatchUpload({ disabled = false, isTargetAvailable }: { disabled?: boolean; isTargetAvailable?: (key: string) => boolean }): MediaBatchUpload {
+export function useMediaBatchUpload({ disabled = false, isTargetAvailable, uploader, onUploadingChange }: { disabled?: boolean; isTargetAvailable?: (key: string) => boolean; uploader?: (file: File, contentType: string) => Promise<{ url: string }>; onUploadingChange?: (pending: boolean) => void }): MediaBatchUpload {
   const { t } = useAdminI18n();
   const [results, setResults] = useState<Record<string, MediaBatchFile[]>>({});
   const [targetKey, setTargetKey] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const mounted = useRef(false);
   const inFlight = useRef(false);
-  const guards = useRef({ disabled, isTargetAvailable });
+  const guards = useRef({ disabled, isTargetAvailable, uploader, onUploadingChange });
 
-  useEffect(() => { guards.current = { disabled, isTargetAvailable }; }, [disabled, isTargetAvailable]);
+  useEffect(() => { guards.current = { disabled, isTargetAvailable, uploader, onUploadingChange }; }, [disabled, isTargetAvailable, uploader, onUploadingChange]);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -55,6 +55,8 @@ export function useMediaBatchUpload({ disabled = false, isTargetAvailable }: { d
       return null;
     };
     inFlight.current = true;
+    const notify = guards.current.onUploadingChange;
+    notify?.(true);
     setUploading(true);
     setTargetKey(key);
     setResults((previous) => ({ ...previous, [key]: picked.map((file) => ({ name: file.name, operation, status: "waiting" })) }));
@@ -69,7 +71,7 @@ export function useMediaBatchUpload({ disabled = false, isTargetAvailable }: { d
       ) }));
     };
     try {
-      const { adminApi } = await import("@/lib/admin-api");
+      const uploadFile = guards.current.uploader ?? (await import("@/lib/admin-api")).adminApi.uploadImage;
       for (const [index, file] of picked.entries()) {
         if (!mounted.current) return;
         const stopped = stoppedReason();
@@ -90,7 +92,7 @@ export function useMediaBatchUpload({ disabled = false, isTargetAvailable }: { d
         }
         updateFile(index, { status: "uploading" });
         try {
-          const result = await adminApi.uploadImage(file, contentType);
+          const result = await uploadFile(file, contentType);
           if (!mounted.current) return;
           const stopped = stoppedReason();
           if (stopped) {
@@ -108,6 +110,7 @@ export function useMediaBatchUpload({ disabled = false, isTargetAvailable }: { d
       failRemaining(t("product_media_batch_upload_failed"));
     } finally {
       inFlight.current = false;
+      notify?.(false);
       if (mounted.current) setUploading(false);
     }
   }

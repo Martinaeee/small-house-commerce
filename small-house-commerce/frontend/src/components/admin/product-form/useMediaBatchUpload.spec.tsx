@@ -11,6 +11,39 @@ function Harness({ available }: { available: boolean }) {
   const batch = useMediaBatchUpload({ isTargetAvailable: () => available });
   return <><MediaAddRow targetKey="value:red" batchUpload={batch} onAddMedia={(row) => setMedia((previous) => [...previous, row])} /><output data-testid="media">{JSON.stringify(media)}</output></>;
 }
+function ScopedHarness({ uploader, onUploadingChange }: { uploader: (file: File, contentType: string) => Promise<{ url: string }>; onUploadingChange?: (pending: boolean) => void }) {
+  const [media, setMedia] = useState<UploadedMedia[]>([]);
+  const batch = useMediaBatchUpload({ uploader, onUploadingChange });
+  return <><MediaAddRow targetKey="page:gallery" batchUpload={batch} onAddMedia={item => setMedia(previous => [...previous, item])} /><output data-testid="media">{JSON.stringify(media)}</output></>;
+}
+
+it("uses the scoped uploader with the same resolved MIME policy instead of product management", async () => {
+  setAdminLang("en");
+  const productUpload = vi.spyOn(adminApi, "uploadImage").mockResolvedValue({ url: "/uploads/product.jpg", key: "product" });
+  const uploader = vi.fn().mockResolvedValue({ url: "/uploads/marketing.jpg" });
+  render(<AdminI18nProvider><ScopedHarness uploader={uploader} /></AdminI18nProvider>);
+  const file = new File(["a"], "a.jpg", { type: "" });
+  fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [file] } });
+  await waitFor(() => expect(screen.getByTestId("media")).toHaveTextContent('/uploads/marketing.jpg'));
+  expect(uploader).toHaveBeenCalledWith(file, "image/jpeg");
+  expect(productUpload).not.toHaveBeenCalled();
+});
+
+it("reports pending synchronously and releases it even when the original canvas unmounts", async () => {
+  setAdminLang("en");
+  let finish!: (value: { url: string; key: string }) => void;
+  const uploader = vi.fn(() => new Promise<{ url: string; key: string }>(resolve => { finish = resolve; }));
+  const notify = vi.fn();
+  vi.spyOn(adminApi, "uploadImage").mockImplementation(uploader);
+  const view = render(<AdminI18nProvider><ScopedHarness uploader={uploader} onUploadingChange={notify} /></AdminI18nProvider>);
+  fireEvent.change(screen.getByLabelText("Choose media to upload"), { target: { files: [new File(["a"], "a.jpg", { type: "image/jpeg" })] } });
+  expect(notify.mock.calls).toEqual([[true]]);
+  await waitFor(() => expect(uploader).toHaveBeenCalledOnce());
+  view.unmount();
+  await act(async () => finish({ url: "/uploads/late.jpg", key: "late" }));
+  expect(notify.mock.calls).toEqual([[true], [false]]);
+});
+
 beforeEach(() => setAdminLang("en"));
 afterEach(() => vi.restoreAllMocks());
 

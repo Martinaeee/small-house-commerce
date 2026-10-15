@@ -7,6 +7,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LandingPageComposite, Product } from "@/lib/api";
 import LandingPageRoute from "./page";
+import { LandingContentView } from "@/components/product/LandingContentView";
 
 vi.mock("@/lib/product-jsonld", () => ({
   absoluteUrl: (value: string) => value,
@@ -60,13 +61,14 @@ const landing = {
   landingPage: {
     id: "landing-1",
     slug: "campaign",
-    titleOverride: "Campaign current",
-    imagesOverride: null,
-    seoTitle: null,
-    seoDescription: null,
-    promoEnabled: false,
-    promoHeadline: null,
-    promoSubtext: null,
+    publishedRevision: 1,
+    content: {
+      schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null,
+      blocks: [
+        { id: "hero", type: "hero", sourceKey: null, props: { title: "Campaign current", tagline: null, promoHeadline: null, promoSubtext: null } },
+        { id: "buy", type: "buy", sourceKey: null, props: {} },
+      ],
+    },
   },
 } as LandingPageComposite;
 const relatedPageOne = [
@@ -117,6 +119,17 @@ function pdpViewFrom(fragment: ReactElement<{ children: ReactNode }>): ReactElem
 }
 
 describe("LandingPageRoute related products", () => {
+  it("renders published content without merging marketing fields into the live product", async () => {
+    const fragment = await LandingPageRoute({ params: Promise.resolve({ slug: "campaign" }), searchParams: Promise.resolve({}) }) as ReactElement<{ children: ReactNode }>;
+    const view = Children.toArray(fragment.props.children).find((child) => isValidElement(child) && child.type === LandingContentView);
+    expect(view).toBeDefined();
+    const props = (view as ReactElement<{ content: unknown; approvedContent: unknown; product: Product }>).props;
+    expect(props.content).toEqual(landing.landingPage.content);
+    expect(props.approvedContent).toEqual(landing.landingPage.content);
+    expect(props.product.name).toBe("current");
+    expect(props.product.variants[0].sku?.price).toBe(100);
+  });
+
   it("uses the same buyable non-current four-item selection as the canonical PDP", async () => {
     const fragment = (await LandingPageRoute({
       params: Promise.resolve({ slug: "campaign" }),

@@ -91,18 +91,6 @@ const NAV_ITEMS: NavEntry[] = [
     permission: "PRODUCT_MANAGE",
   },
   {
-    kind: "item",
-    href: "/admin/single-pages",
-    labelKey: "nav_single_pages",
-    permission: "PRODUCT_MANAGE",
-  },
-  {
-    kind: "item",
-    href: "/admin/link-builder",
-    labelKey: "nav_link_builder",
-    permission: "CAMPAIGN_LINK_BUILD",
-  },
-  {
     kind: "group",
     labelKey: "nav_group_website",
     permission: [
@@ -130,6 +118,12 @@ const NAV_ITEMS: NavEntry[] = [
         permission: "SYSTEM_SETTINGS_EDIT",
       },
     ],
+  },
+  {
+    kind: "item",
+    href: "/admin/marketing",
+    labelKey: "marketing_title",
+    permission: ["MARKETING_VIEW_OWN", "MARKETING_VIEW_ALL"],
   },
   {
     kind: "item",

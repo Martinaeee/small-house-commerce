@@ -155,6 +155,7 @@ model Product {
   faq                   ProductFaq?
   reviews               ProductReview[]
   landingPages          ProductLandingPage[]
+  campaignLinks         CampaignLink[]
   options               ProductOption[]
   variants              ProductVariant[] @relation("ProductVariants")
   skus                  Sku[]

@@ -21,6 +21,7 @@ export const checkoutSchema = z.object({
       }),
     )
     .min(1),
+  marketingCredential: z.string().max(8192).nullable().optional(),
   attribution: z.object({
     sourceType: z.nativeEnum(SourceType).default('ORGANIC'),
     aid: z.string().max(64).nullable().optional(),
@@ -34,6 +35,15 @@ export const checkoutSchema = z.object({
     utmMedium: z.string().max(120).nullable().optional(),
     utmCampaign: z.string().max(120).nullable().optional(),
   }),
+  customerNote: z
+    .string()
+    .trim()
+    .refine((value) => value.length <= 200, {
+      message: 'Order notes are limited to 200 characters.',
+    })
+    .transform((value) => (value === '' ? null : value))
+    .nullable()
+    .default(null),
   preferredDeliveryDate: z
     .string()
     .date()

@@ -157,9 +157,33 @@ beforeEach(() => {
   });
   draftMock.readCheckoutDraft.mockReturnValue(validDraft);
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe("CheckoutConfirmView", () => {
+  it("submits a valid stored marketing credential at the order root", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "PENDING",
+    });
+    localStorage.setItem("sh:marketing-touch", JSON.stringify({
+      credential: "server.credential",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    }));
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marketingCredential: "server.credential",
+        attribution: { sourceType: "ORGANIC" },
+        items: [{ skuId: "sku-red-small", quantity: 1 }],
+      }),
+    ));
+  });
   it("blocks confirmation when the Buy Now skuId matches no variant of its product", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     render(<CheckoutConfirmView skuId="sku-unknown" qty="1" slug="chair" />);

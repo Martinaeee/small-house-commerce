@@ -65,16 +65,26 @@ export type UpdateLandingPageInput = z.infer<typeof updateLandingPageSchema>;
 export const adminLandingPageQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.nativeEnum(LandingPageStatus).optional(),
-  effectiveStatus: z.enum(['LIVE', 'SCHEDULED', 'ENDED', 'DISABLED']).optional(),
+  effectiveStatus: z.enum(['DRAFT', 'LIVE', 'SCHEDULED', 'ENDED', 'DISABLED']).optional(),
   productId: z.string().uuid().optional(),
+  ownerUserId: z.string().uuid().optional(),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
+  periodFrom: z.string().date().optional(),
+  periodTo: z.string().date().optional(),
   sortBy: z.enum(['updatedAt', 'title']).default('updatedAt'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-});
+}).refine((query) => (!query.periodFrom && !query.periodTo) || Boolean(query.periodFrom && query.periodTo && query.periodFrom <= query.periodTo), { message: 'Provide both ordered accounting-period dates.', path: ['periodTo'] });
 export type AdminLandingPageQuery = z.infer<typeof adminLandingPageQuerySchema>;
+
+export const marketingProductPickerQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type MarketingProductPickerQuery = z.infer<typeof marketingProductPickerQuerySchema>;
 
 export const bulkTitleLandingPagesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(100),
@@ -87,3 +97,28 @@ export const landingPageViewSchema = z.object({
   visitKey: z.string().trim().min(8).max(100),
 });
 export type LandingPageViewInput = z.infer<typeof landingPageViewSchema>;
+
+export const landingVersionSchema = z.object({ expectedVersion: z.number().int().nonnegative() }).strict();
+export const landingDraftWriteSchema = landingVersionSchema.extend({
+  content: z.record(z.string(), z.unknown()),
+  name: z.string().trim().min(1).max(120).optional(),
+}).strict();
+export type LandingDraftWriteInput = z.infer<typeof landingDraftWriteSchema>;
+export type LandingVersionInput = z.infer<typeof landingVersionSchema>;
+
+export const landingDraftCreateSchema = z.object({
+  productId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  slug: slugSchema.optional(),
+  ownerUserId: z.string().uuid().optional(),
+}).strict();
+export type LandingDraftCreateInput = z.infer<typeof landingDraftCreateSchema>;
+
+export const landingAssignOwnerSchema = landingVersionSchema.extend({ ownerUserId: z.string().uuid() }).strict();
+export type LandingAssignOwnerInput = z.infer<typeof landingAssignOwnerSchema>;
+
+export const landingSyncSchema = landingVersionSchema.extend({
+  sourceKeys: z.array(z.string().min(1).max(200)).min(1).max(60).refine((keys) => new Set(keys).size === keys.length),
+  insertBeforeId: z.string().min(1).max(100).nullable().optional(),
+}).strict();
+export type LandingSyncInput = z.infer<typeof landingSyncSchema>;

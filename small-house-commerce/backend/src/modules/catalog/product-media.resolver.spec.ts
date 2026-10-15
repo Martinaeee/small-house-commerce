@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { LandingPagesService } from './landing/landing-pages.service.js';
+import { LandingSnapshotService } from './landing/landing-snapshot.service.js';
+import { OptimizersService } from '../marketing/optimizers.service.js';
 import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
 import {
   MEDIA_SCOPE_QUERY_ERROR,
@@ -909,7 +911,7 @@ describe('StorefrontProductsController media query contract', () => {
   });
 });
 
-describe('landing-page media override replacement', () => {
+describe('landing-page snapshot and live media projection', () => {
   function landingHarness() {
     const landingPage = {
       id: 'lp-1',
@@ -929,6 +931,11 @@ describe('landing-page media override replacement', () => {
       startAt: null,
       endAt: null,
       sortOrder: 0,
+      publishedContent: { schemaVersion: 1, blocks: [
+        { id: 'gallery', type: 'gallery', sourceKey: null, props: { media: [{ url: 'https://cdn.example.test/lp.jpg', type: 'IMAGE', altText: 'LP image', optionValueId: null, variantId: null }] } },
+        { id: 'buy', type: 'buy', sourceKey: null, props: {} },
+      ] },
+      publishedRevision: 1,
       product: { slug: 'chair', status: 'ACTIVE' as const },
     };
     const prisma = {
@@ -944,21 +951,21 @@ describe('landing-page media override replacement', () => {
     };
     return {
       products,
-      service: new LandingPagesService(prisma as never, products as never),
+      service: new LandingPagesService(prisma as never, products as never, new LandingSnapshotService(prisma as never), new OptimizersService(prisma as never)),
     };
   }
 
-  it('keeps the landing override only when no product scope is selected', async () => {
+  it('reads independent gallery content from the published snapshot', async () => {
     const { service } = landingHarness();
 
     const result = await service.storefrontGetComposite('campaign');
 
-    expect(result.landingPage.imagesOverride).toEqual([
-      { url: 'https://cdn.example.test/lp.jpg', altText: 'LP image' },
-    ]);
+    expect(result.landingPage.content.blocks[0]).toMatchObject({
+      type: 'gallery', props: { media: [{ url: 'https://cdn.example.test/lp.jpg', altText: 'LP image' }] },
+    });
   });
 
-  it('replaces rather than merges the landing override for a valid selected scope', async () => {
+  it('keeps the snapshot independent while resolving valid live product scope', async () => {
     const { service, products } = landingHarness();
 
     const result = await service.storefrontGetComposite('campaign', {
@@ -968,7 +975,9 @@ describe('landing-page media override replacement', () => {
     expect(products.storefrontGetBySlug).toHaveBeenCalledWith('chair', {
       variantId: RED_LARGE_VARIANT_ID,
     });
-    expect(result.landingPage.imagesOverride).toBeNull();
+    expect(result.landingPage.content.blocks[0]).toMatchObject({
+      type: 'gallery', props: { media: [{ url: 'https://cdn.example.test/lp.jpg' }] },
+    });
     expect(result.product.initialMediaSet).toEqual({
       resolvedScope: 'VARIANT',
       media: [{ id: 'selected' }],

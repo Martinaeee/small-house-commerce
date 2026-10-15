@@ -51,6 +51,10 @@ enum PermissionCode {
   CAMPAIGN_LINK_BUILD
   NEWSLETTER_READ
   NEWSLETTER_WRITE
+  MARKETING_VIEW_OWN
+  MARKETING_MANAGE_OWN
+  MARKETING_VIEW_ALL
+  MARKETING_MANAGE_ALL
   STOREFRONT_SHELL_MANAGE
 }
 
@@ -66,6 +70,13 @@ model User {
 
   roles                    UserRole[]
   refreshTokens            RefreshToken[]
+  optimizerProfile         OptimizerProfile?
+  marketingPages           ProductLandingPage[]
+  campaignLinks            CampaignLink[]
+  adCosts                  AdCostEntry[] @relation("AdCostOwner")
+  adCostsCreated           AdCostEntry[] @relation("AdCostCreator")
+  adCostsUpdated           AdCostEntry[] @relation("AdCostUpdater")
+  adCostAudits              AdCostAudit[]
   storefrontShellDrafts    StorefrontShell[]      @relation("StorefrontShellDraftUpdater")
   storefrontShellPublishes StorefrontShell[]      @relation("StorefrontShellPublisher")
   storefrontShellAssets    StorefrontShellAsset[] @relation("StorefrontShellAssetCreator")

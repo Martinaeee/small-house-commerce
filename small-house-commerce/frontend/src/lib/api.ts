@@ -13,6 +13,7 @@ import type {
   Schedule,
 } from "./homepage-document";
 import type { Attribution } from "./tracking";
+import type { LandingContent } from "./marketing-content";
 import { STOREFRONT_TAGS } from "./cache-tags";
 
 export const serverApiUrl = (path: string): string => {
@@ -578,15 +579,9 @@ export interface LandingImageOverride {
 
 export interface LandingPageInfo {
   id: string;
-  name: string;
   slug: string;
-  titleOverride: string | null;
-  imagesOverride: LandingImageOverride[] | null;
-  seoTitle: string | null;
-  seoDescription: string | null;
-  promoEnabled: boolean;
-  promoHeadline: string | null;
-  promoSubtext: string | null;
+  content: LandingContent;
+  publishedRevision: number;
 }
 
 export interface LandingPageComposite {
@@ -702,6 +697,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ visitKey }),
     }),
+  marketingTouch: (input: {
+    code?: string;
+    path: string;
+    visitKey: string;
+    landingPageId?: string;
+    aid?: string;
+    sourceType?: string;
+    adId?: string | null;
+    campaignId?: string | null;
+    adsetId?: string | null;
+    utmSource?: string | null;
+    utmMedium?: string | null;
+    utmCampaign?: string | null;
+    utmContent?: string | null;
+    utmTerm?: string | null;
+  }) =>
+    request<{ credential: string | null; expiresAt: string | null }>(
+      "/api/v1/storefront/marketing-touch",
+      {
+        method: "POST",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        body: JSON.stringify(input),
+      },
+    ),
   getCollections: (type?: string) =>
     request<{ items: Collection[]; total: number }>(
       `/api/v1/storefront/collections${type ? `?type=${type}` : ""}`,
@@ -754,7 +774,9 @@ export const api = {
     };
     items: { skuId: string; quantity: number }[];
     attribution?: Attribution;
+    marketingCredential?: string | null;
     preferredDeliveryDate?: string | null;
+    customerNote?: string | null;
     promoCode?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
@@ -763,9 +785,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({
           attribution: input.attribution ?? { sourceType: "ORGANIC" },
+          marketingCredential: input.marketingCredential,
           customer: input.customer,
           items: input.items,
           preferredDeliveryDate: input.preferredDeliveryDate ?? null,
+          customerNote: input.customerNote ?? null,
           promoCode: input.promoCode ?? null,
         }),
       },

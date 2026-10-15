@@ -68,6 +68,7 @@ describe.skipIf(!database)('OrdersService back-in-stock release', () => {
       prisma,
       inventory,
       new CustomerRiskService(prisma),
+      { resolve: async () => null } as never,
       new PromotionService(prisma),
       backInStock,
     );
@@ -212,6 +213,7 @@ describe.skipIf(!database)('OrdersService back-in-stock release', () => {
       },
       items: [{ skuId, quantity }],
       attribution: { sourceType: 'ORGANIC' },
+      customerNote: null,
       promoCode: null,
     };
   }

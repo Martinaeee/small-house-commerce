@@ -174,7 +174,8 @@ export function CheckoutConfirmView({
           landmark: draft.customer.landmark || null,
         },
         items: checkout.orderItems,
-        attribution: readAttribution(),
+        ...readAttribution(),
+        attribution: { sourceType: "ORGANIC" },
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
         promoCode: appliedPromo?.code ?? null,
       };

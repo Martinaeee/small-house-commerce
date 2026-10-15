@@ -4,6 +4,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import { clearProductMediaCacheForTests } from "@/lib/product-media";
+import { recordProductView } from "@/lib/recently-viewed";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpClient } from "./PdpClient";
@@ -57,6 +58,7 @@ vi.mock("@/components/site/SiteSettingsProvider", () => ({
   useSiteSettings: () => ({
     supportEmail: "help@example.com",
     supportHours: "Daily",
+    backInStockEnabled: true,
   }),
 }));
 vi.mock("@/lib/tracking", () => ({
@@ -284,10 +286,14 @@ function renderPdp({
   item = product,
   variantId = null,
   path = "/products/chair",
+  purchaseOnly = false,
+  preview = false,
 }: {
   item?: Product;
   variantId?: string | null;
   path?: string;
+  purchaseOnly?: boolean;
+  preview?: boolean;
 } = {}) {
   return render(
     <PdpPurchaseProvider product={item} initialVariantId={variantId}>
@@ -296,6 +302,8 @@ function renderPdp({
         category={null}
         delivery={delivery}
         productPath={path}
+        purchaseOnly={purchaseOnly}
+        preview={preview}
       />
     </PdpPurchaseProvider>,
   );
@@ -385,6 +393,86 @@ function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
     ).toBeTruthy();
   }
 }
+
+describe("isolated landing purchase presentation", () => {
+  it("keeps an unavailable campaign target in the URL and requires an explicit alternative before adding", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign?cl=paid-link&variant=deleted-variant");
+    const user = userEvent.setup();
+    renderPdp({ item: single, variantId: "deleted-variant", path: "/lp/campaign", purchaseOnly: true });
+    expect(new URLSearchParams(window.location.search).get("variant")).toBe("deleted-variant");
+    await user.click(screen.getByTestId("add-to-cart"));
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeInTheDocument();
+  });
+
+  it("lets the shopper select and confirm the remaining campaign alternative instead of getting stuck in an empty dialog", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign?variant=deleted-variant");
+    const user = userEvent.setup();
+    renderPdp({ item: single, variantId: "deleted-variant", path: "/lp/campaign", purchaseOnly: true });
+    await user.click(screen.getByTestId("add-to-cart"));
+    const dialog = within(screen.getByRole("dialog", { name: "Confirm your options" }));
+    expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await user.click(dialog.getByRole("button", { name: "Blue" }));
+    await user.click(dialog.getByRole("button", { name: "Large" }));
+    expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    expect(cart.addItem).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledWith({ skuId: single.variants[0].sku!.id, quantity: 1 }));
+    expect(cart.addItem).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unavailable target unconfirmed when browser history returns to its campaign URL", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign");
+    const user = userEvent.setup();
+    renderPdp({ item: single, path: "/lp/campaign", purchaseOnly: true });
+    act(() => {
+      History.prototype.pushState.call(window.history, {}, "", "/lp/campaign?variant=deleted-variant");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(new URLSearchParams(window.location.search).get("variant")).toBe("deleted-variant");
+    await user.click(screen.getByTestId("add-to-cart"));
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeInTheDocument();
+  });
+
+  it("reuses live purchase controls without repeating the marketing hero or gallery", () => {
+    renderPdp({ purchaseOnly: true });
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Chair" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open image gallery" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("pdp-purchase")).toHaveTextContent("₱100");
+    expect(screen.getByTestId("add-to-cart")).toBeEnabled();
+  });
+
+  it("makes private preview non-transactional and suppresses product tracking", () => {
+    vi.mocked(recordProductView).mockClear();
+    renderPdp({ purchaseOnly: true, preview: true });
+    expect(screen.getByTestId("add-to-cart")).toBeDisabled();
+    expect(screen.getByTestId("order-now")).toBeDisabled();
+    expect(recordProductView).not.toHaveBeenCalled();
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+  });
+
+  it("lets preview select a real option without emitting marketing events", async () => {
+    const user = userEvent.setup();
+    renderPdp({ purchaseOnly: true, preview: true });
+    await user.click(within(screen.getByRole("group", { name: "Color" })).getByRole("button", { name: "Blue" }));
+    expect(within(screen.getByRole("group", { name: "Color" })).getByRole("button", { name: "Blue" })).toHaveAttribute("aria-pressed", "true");
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(cart.addItem).not.toHaveBeenCalled();
+  });
+
+  it("does not mount a live restock trigger in private preview", () => {
+    const outOfStock: Product = { ...product, variants: product.variants.map(variant => variant.id === "red-large" ? { ...variant, sku: variant.sku ? { ...variant.sku, availableInventory: 0 } : null } : variant) };
+    renderPdp({ item: outOfStock, variantId: "red-large", preview: true });
+    expect(screen.queryByRole("button", { name: "Notify me when back in stock" })).toBeNull();
+  });
+});
 
 describe("PDP conversion hero", () => {
   it("orders real product facts, purchase actions, then truthful service assurances", () => {

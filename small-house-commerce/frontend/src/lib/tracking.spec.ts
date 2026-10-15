@@ -1,47 +1,27 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  LANDING_PAGE_STORAGE_KEY,
-  readAttribution,
-} from "./tracking";
+import { readAttribution } from "./tracking";
 
-describe("readAttribution canonical URL contract", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    window.history.replaceState({}, "", "/");
+const KEY = "sh:marketing-touch";
+
+describe("server credential checkout contract", () => {
+  beforeEach(() => { window.localStorage.clear(); window.history.replaceState({}, "", "/"); });
+
+  it("does not derive checkout ownership from raw URL or legacy landing-page storage", () => {
+    window.localStorage.setItem("sh:lp", "00000000-0000-7000-8000-000000000003");
+    window.history.replaceState({}, "", "/products/chair?aid=forged&ad_id=forged-ad&utm_source=forged");
+    expect(readAttribution()).toEqual({});
   });
 
-  it("parses every canonical link-builder key and the persisted landing page", () => {
-    window.localStorage.setItem(
-      LANDING_PAGE_STORAGE_KEY,
-      "00000000-0000-7000-8000-000000000003",
-    );
-    window.history.replaceState(
-      {},
-      "",
-      "/products/chair?aid=optimizer-a&campaign_id=campaign-1&adset_id=adset-2&ad_id=ad-3&utm_source=facebook&utm_medium=paid-social&utm_campaign=chair-launch",
-    );
-
-    expect(readAttribution()).toEqual({
-      aid: "optimizer-a",
-      campaignId: "campaign-1",
-      adsetId: "adset-2",
-      adId: "ad-3",
-      utmSource: "facebook",
-      utmMedium: "paid-social",
-      utmCampaign: "chair-launch",
-      landingPageId: "00000000-0000-7000-8000-000000000003",
-    });
+  it("reads the retained server credential after navigating to an ordinary page", () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ credential: "server.credential", expiresAt: "2099-01-01T00:00:00Z" }));
+    window.history.replaceState({}, "", "/checkout/confirm");
+    expect(readAttribution()).toEqual({ marketingCredential: "server.credential" });
   });
 
-  it("keeps ad_id canonical while retaining the existing adid fallback", () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/products/chair?ad_id=canonical&adid=legacy",
-    );
-    expect(readAttribution().adId).toBe("canonical");
-
-    window.history.replaceState({}, "", "/products/chair?adid=legacy");
-    expect(readAttribution().adId).toBe("legacy");
+  it("ignores malformed or expired stored credentials", () => {
+    for (const value of ["not-json", JSON.stringify({ credential: 123, expiresAt: "2099-01-01T00:00:00Z" }), JSON.stringify({ credential: "expired.credential", expiresAt: "2000-01-01T00:00:00Z" })]) {
+      window.localStorage.setItem(KEY, value);
+      expect(readAttribution()).toEqual({});
+    }
   });
 });

@@ -192,6 +192,7 @@ model Order {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
+  customerNote           String?   @map("customer_note")
   promoCode              String?   @map("promo_code")
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -378,6 +379,14 @@ model OrderAttribution {
   sourceType             SourceType @map("source_type")
   optimizerId            String?    @map("optimizer_id") @db.Uuid
   aidSnapshot            String?    @map("aid_snapshot")
+  ownerNameSnapshot      String?    @map("owner_name_snapshot")
+  linkId                 String?    @map("link_id") @db.Uuid
+  productId              String?    @map("product_id") @db.Uuid
+  productNameSnapshot    String?    @map("product_name_snapshot")
+  productCodeSnapshot    String?    @map("product_code_snapshot")
+  publishedRevision      Int?       @map("published_revision")
+  touchedAt              DateTime?  @map("touched_at") @db.Timestamptz(3)
+  legacy                 Boolean?
   facebookPageId         String?    @map("facebook_page_id")
   facebookPostId         String?    @map("facebook_post_id")
   facebookPostTrackingCode String?  @map("facebook_post_tracking_code")
@@ -394,7 +403,11 @@ model OrderAttribution {
   attributedAt           DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  link  CampaignLink? @relation(fields: [linkId], references: [id], onDelete: Restrict)
 
+  @@index([linkId, touchedAt])
+  @@index([landingPageId, touchedAt])
+  @@index([optimizerId, touchedAt])
   @@map("order_attributions")
 }
 

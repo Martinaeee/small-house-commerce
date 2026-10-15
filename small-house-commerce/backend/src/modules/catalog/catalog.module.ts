@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { UploadsModule } from '../uploads/uploads.module.js';
 import { AdminCategoriesController } from './admin/categories.controller.js';
 import { AdminLinkBuilderController } from './admin/link-builder.controller.js';
 import { AdminProductsController } from './admin/products.controller.js';
@@ -13,6 +14,19 @@ import {
   AdminProductLandingPagesController,
 } from './landing/admin/landing-pages.controller.js';
 import { LandingPagesService } from './landing/landing-pages.service.js';
+import { LandingSnapshotService } from './landing/landing-snapshot.service.js';
+import { OptimizersService } from '../marketing/optimizers.service.js';
+import { MarketingGuard } from '../marketing/marketing.guard.js';
+import { CampaignLinksService } from '../marketing/campaign-links.service.js';
+import { CampaignLinksController } from '../marketing/admin/campaign-links.controller.js';
+import { MarketingReportService } from '../marketing/marketing-report.service.js';
+import { MarketingReportController } from '../marketing/admin/marketing-report.controller.js';
+import { MarketingPerformanceController } from '../marketing/admin/marketing-performance.controller.js';
+import { MarketingPerformanceService } from '../marketing/marketing-performance.service.js';
+import { AdCostsService } from '../marketing/ad-costs.service.js';
+import { AdCostsController } from '../marketing/admin/ad-costs.controller.js';
+import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import { StorefrontMarketingTouchController } from '../marketing/storefront/marketing-touch.controller.js';
 import { AdminSharedFaqController } from './faq/admin/shared-faq.controller.js';
 import { AdminSharedFaqPreviewController } from './faq/admin/shared-faq-preview.controller.js';
 import { AdminProductFaqController } from './faq/admin/product-faq.controller.js';
@@ -31,7 +45,7 @@ import { SuppliersService } from './suppliers.service.js';
 @Module({
   // AuthModule is imported for its exported JwtModule: the admin guards inject
   // JwtService. Module instances are singletons, so routes are not duplicated.
-  imports: [AuthModule],
+  imports: [AuthModule, UploadsModule],
   controllers: [
     AdminCategoriesController,
     AdminLinkBuilderController,
@@ -40,6 +54,11 @@ import { SuppliersService } from './suppliers.service.js';
     AdminReviewsController,
     AdminSuppliersController,
     AdminLandingPagesController,
+    CampaignLinksController,
+    AdCostsController,
+    MarketingReportController,
+    MarketingPerformanceController,
+    StorefrontMarketingTouchController,
     AdminProductLandingPagesController,
     AdminSharedFaqController,
     AdminSharedFaqPreviewController,
@@ -57,8 +76,16 @@ import { SuppliersService } from './suppliers.service.js';
     ReviewsService,
     SuppliersService,
     LandingPagesService,
+    CampaignLinksService,
+    AdCostsService,
+    MarketingReportService,
+    MarketingPerformanceService,
+    MarketingTouchService,
+    LandingSnapshotService,
+    OptimizersService,
+    MarketingGuard,
     SharedFaqService,
   ],
-  exports: [ReviewsService, ProductsService, SharedFaqService],
+  exports: [ReviewsService, ProductsService, SharedFaqService, MarketingTouchService],
 })
 export class CatalogModule {}

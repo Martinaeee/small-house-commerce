@@ -131,6 +131,15 @@ describe("AdminShell hidden permission-backed destinations", () => {
     },
   );
 
+  it.each(["MARKETING_VIEW_OWN", "MARKETING_VIEW_ALL"])("shows one unified marketing entry to %s without granting product or order access", (permission) => {
+    shellState.pathname = "/admin/marketing";
+    shellState.permissions = [permission];
+    renderShell();
+    expect(screen.getByRole("link", { name: "marketing_title" })).toHaveAttribute("href", "/admin/marketing");
+    expect(screen.getByText("Protected route content")).toBeVisible();
+    for (const name of ["nav_link_builder", "nav_single_pages", "nav_products", "nav_orders"]) expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+  });
+
   it("keeps the no-modules boundary for accounts without a supported route", () => {
     renderShell();
 
@@ -254,7 +263,7 @@ describe("AdminShell website navigation group", () => {
       "INVENTORY_VIEW",
       "PRODUCT_MANAGE",
       "STOREFRONT_SHELL_MANAGE",
-      "CAMPAIGN_LINK_BUILD",
+      "MARKETING_VIEW_ALL",
       "NEWSLETTER_READ",
       "SYSTEM_SETTINGS_EDIT",
     ];
@@ -269,11 +278,10 @@ describe("AdminShell website navigation group", () => {
       "nav_products",
       "nav_faq",
       "nav_groupings",
-      "nav_single_pages",
-      "nav_link_builder",
       "nav_homepage",
       "nav_storefront_shell",
       "nav_settings",
+      "marketing_title",
       "nav_newsletter",
     ]);
   });

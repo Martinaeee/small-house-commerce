@@ -104,9 +104,11 @@ function ValueVisual({
 export function ProductOptionSelector({
   lineId,
   instanceId,
+  preview = false,
 }: {
   lineId: string;
   instanceId?: string;
+  preview?: boolean;
 }) {
   const {
     product,
@@ -120,7 +122,7 @@ export function ProductOptionSelector({
   if (!line) return null;
 
   const variants = product.variants.filter(isSelectable);
-  if (variants.length <= 1) return null;
+  if (variants.length === 0 || (variants.length === 1 && primaryDerived.resolvedVariant !== null)) return null;
 
   const options = [...product.options].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
@@ -175,7 +177,7 @@ export function ProductOptionSelector({
                         // option_select is the engagement event for an actual
                         // option change on the shared purchase island (PDP,
                         // Quick Add, cart Change Options) — never a conversion.
-                        if (selectedValueId !== value.id) {
+                        if (!preview && selectedValueId !== value.id) {
                           emitCommerceEvent(
                             optionSelectEvent({
                               productId: product.id,

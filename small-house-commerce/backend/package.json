@@ -21,6 +21,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "oxlint src/ test/ prisma/reconcile-campaign-link-permission.ts prisma/reconcile-campaign-link-permission-runner.ts prisma/reconcile-campaign-link-permission.spec.ts prisma/reconcile-newsletter-permissions.ts prisma/reconcile-newsletter-permissions-runner.ts prisma/reconcile-newsletter-permissions.spec.ts prisma/reconcile-product-faq-permission.ts prisma/reconcile-product-faq-permission-runner.ts prisma/reconcile-storefront-shell-permission.ts prisma/reconcile-storefront-shell-permission-runner.ts prisma/reconcile-storefront-shell-permission.spec.ts",
+    "marketing:backfill-legacy-pages": "node dist/modules/marketing/legacy-migration-runner.js",
     "rbac:reconcile-campaign-link": "tsx prisma/reconcile-campaign-link-permission-runner.ts",
     "rbac:reconcile-newsletter": "tsx prisma/reconcile-newsletter-permissions-runner.ts",
     "rbac:reconcile-product-faq": "tsx prisma/reconcile-product-faq-permission-runner.ts",

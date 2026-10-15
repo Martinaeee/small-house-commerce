@@ -12,6 +12,7 @@ import {
 } from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
+import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
@@ -48,6 +49,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
     private readonly customerRisk: CustomerRiskService,
+    private readonly marketingTouch: MarketingTouchService,
     private readonly promotions: PromotionService,
     private readonly backInStock: BackInStockService,
   ) {}
@@ -148,6 +150,7 @@ export class OrdersService {
 
     const { order, offerAvailabilityChanged } = await this.prisma.$transaction(
       async (tx) => {
+        const touch = await this.marketingTouch.resolve(input.marketingCredential);
         const promo = input.promoCode
           ? await this.promotions.resolveForCheckout(
               tx,
@@ -164,6 +167,9 @@ export class OrdersService {
           orderNumber,
           customerId: customer.id,
           customerClassification: classification.classification,
+          optimizerId: touch?.ownerUserId ?? null,
+          optimizerAidSnapshot: touch?.aid ?? null,
+          optimizerNameSnapshot: touch?.ownerName ?? null,
           subtotal: new Prisma.Decimal(subtotal),
           discountTotal: new Prisma.Decimal(discount),
           shippingTotal: new Prisma.Decimal(shippingTotal),
@@ -171,6 +177,7 @@ export class OrdersService {
           preferredDeliveryDate: input.preferredDeliveryDate
             ? new Date(`${input.preferredDeliveryDate}T00:00:00Z`)
             : null,
+          customerNote: input.customerNote ?? null,
           promoCode: promo?.code ?? null,
           items: {
             create: lines.map((line) => ({
@@ -207,17 +214,27 @@ export class OrdersService {
           },
           attribution: {
             create: {
-              sourceType: input.attribution.sourceType,
-              aidSnapshot: input.attribution.aid ?? null,
-              optimizerId: input.attribution.optimizerId ?? null,
-              facebookPostId: input.attribution.facebookPostId ?? null,
-              campaignId: input.attribution.campaignId ?? null,
-              adsetId: input.attribution.adsetId ?? null,
-              adId: input.attribution.adId ?? null,
-              landingPageId: input.attribution.landingPageId ?? null,
-              utmSource: input.attribution.utmSource ?? null,
-              utmMedium: input.attribution.utmMedium ?? null,
-              utmCampaign: input.attribution.utmCampaign ?? null,
+              sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
+              aidSnapshot: touch?.aid ?? null,
+              optimizerId: touch?.ownerUserId ?? null,
+              ownerNameSnapshot: touch?.ownerName ?? null,
+              linkId: touch?.linkId ?? null,
+              productId: touch?.productId ?? null,
+              productNameSnapshot: touch?.productName ?? null,
+              productCodeSnapshot: touch?.productCode ?? null,
+              publishedRevision: touch?.publishedRevision ?? null,
+              touchedAt: touch ? new Date(touch.touchedAt) : null,
+              legacy: touch?.legacy ?? null,
+              facebookPostId: touch?.facebookPostId ?? null,
+              campaignId: touch?.campaignId ?? null,
+              adsetId: touch?.adsetId ?? null,
+              adId: touch?.adId ?? null,
+              landingPageId: touch?.landingPageId ?? null,
+              utmSource: touch?.utmSource ?? null,
+              utmMedium: touch?.utmMedium ?? null,
+              utmCampaign: touch?.utmCampaign ?? null,
+              utmContent: touch?.utmContent ?? null,
+              utmTerm: touch?.utmTerm ?? null,
             },
           },
           payments: {

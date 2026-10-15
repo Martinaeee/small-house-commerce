@@ -166,12 +166,16 @@ export function PdpClient({
   delivery,
   productPath,
   promoSlot,
+  purchaseOnly = false,
+  preview = false,
 }: {
   product: Product;
   category: { name: string; slug: string }[] | null;
   delivery: DeliveryWindows;
   productPath?: string;
   promoSlot?: ReactNode;
+  purchaseOnly?: boolean;
+  preview?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -186,7 +190,7 @@ export function PdpClient({
     syncLineFromUrl,
   } = usePdpPurchase();
   const [busy, setBusy] = useState(false);
-  const purchaseBusy = busy || purchaseLocked;
+  const purchaseBusy = busy || purchaseLocked || preview;
   const [notice, setNotice] = useState<string | null>(null);
   const [gallerySelection, setGallerySelection] = useState({
     scopeKey: "shared",
@@ -242,6 +246,7 @@ export function PdpClient({
 
   useEffect(() => {
     if (
+      basePath.startsWith("/lp/") ||
       !hasVariantParam ||
       (urlVariant !== null && isSelectableVariant(product, urlVariant))
     ) {
@@ -263,7 +268,7 @@ export function PdpClient({
       const variantValues = params.getAll("variant");
       const candidate = variantValues.length === 1 ? variantValues[0] : null;
       const poppedVariantId =
-        candidate !== null && isSelectableVariant(product, candidate)
+        candidate !== null && (basePath.startsWith("/lp/") || isSelectableVariant(product, candidate))
           ? candidate
           : null;
       // A fragment-only navigation (in-page anchor) and any pop whose variant
@@ -275,6 +280,7 @@ export function PdpClient({
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [
+    basePath,
     primaryLine.clientLineId,
     product,
     resolvedVariant,
@@ -372,10 +378,12 @@ export function PdpClient({
   ]);
 
   useEffect(() => {
+    if (preview) return;
     recordProductView(product.id);
-  }, [product.id]);
+  }, [product.id, preview]);
 
   useEffect(() => {
+    if (preview) return;
     // ViewContent is once per product view, not once per option change: the
     // SKU captured here is what the page FIRST displays — the deep-linked
     // variant or the default display variant (design spec §12.3). Later
@@ -389,7 +397,7 @@ export function PdpClient({
       }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product.id]);
+  }, [product.id, preview]);
 
   const restoreIntentFocus = useCallback(() => {
     const trigger = intentTriggerRef.current;
@@ -585,7 +593,7 @@ export function PdpClient({
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-4 text-xs text-ink-muted">
+      {!purchaseOnly && <nav aria-label="Breadcrumb" className="mb-4 text-xs text-ink-muted">
         <Link href="/" className="hover:text-cta">Home</Link>
         {(category ?? []).map((crumb) => (
           <span key={crumb.slug}>
@@ -597,12 +605,12 @@ export function PdpClient({
         ))}
         {" › "}
         <span className="text-ink-secondary">{product.name}</span>
-      </nav>
+      </nav>}
 
-      {promoSlot}
+      {!purchaseOnly && promoSlot}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <div>
+      <div className={purchaseOnly ? undefined : "grid grid-cols-1 gap-8 lg:grid-cols-2"}>
+        {!purchaseOnly && <div>
           <ProductGallery
             images={galleryImages}
             active={galleryActive}
@@ -622,7 +630,7 @@ export function PdpClient({
               Retry images
             </button>
           )}
-        </div>
+        </div>}
 
         <div
           ref={heroRef}
@@ -630,6 +638,7 @@ export function PdpClient({
           data-testid="pdp-purchase"
           className="flex scroll-mt-28 flex-col gap-4"
         >
+          {!purchaseOnly && <>
           <h1 className="text-product-title font-semibold text-ink lg:text-product-title-desktop">
             {product.name}
           </h1>
@@ -655,6 +664,7 @@ export function PdpClient({
           )}
 
           {ratingRow}
+          </>}
 
           <div>
             <PriceBox price={price} compareAtPrice={compareAt} />
@@ -667,7 +677,7 @@ export function PdpClient({
             <p className="text-sm font-semibold text-sale" data-testid="stock-state">{stockLabel}</p>
           )}
 
-          <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" />
+          <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" preview={preview} />
 
           {hasDimensions && (
             <div
@@ -773,7 +783,7 @@ export function PdpClient({
                 You can still add it to your cart to save it — checkout stays unavailable until
                 the item is restocked — or email us to ask about restocking or a special order.
               </p>
-              {sku ? (
+              {!preview && sku ? (
                 <div className="mt-3">
                   <BackInStockTrigger
                     skuId={sku.id}
@@ -816,7 +826,7 @@ export function PdpClient({
           onClose={closePicker}
         />
       )}
-      {!overlayOpen ? (
+      {!preview && !overlayOpen ? (
         <PdpStickyBuy
           product={product}
           coverMedia={stickyCoverMedia}

@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { MarketingTouchObserver } from "@/components/tracking/MarketingTouchObserver";
 import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -91,6 +93,9 @@ export default async function StorefrontLayout({
         id="storefront-theme-tokens"
         dangerouslySetInnerHTML={{ __html: storefrontThemeStyle(shell) }}
       />
+      <Suspense fallback={null}>
+        <MarketingTouchObserver />
+      </Suspense>
       <MetaPixelInit />
       <div className="storefront-app flex min-h-full flex-1 flex-col">
         <AnnouncementBar data={announcement} />

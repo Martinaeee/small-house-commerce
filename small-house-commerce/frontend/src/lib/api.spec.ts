@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getAnnouncement, type AnnouncementBlockView } from "./api";
+import { api, getAnnouncement, type AnnouncementBlockView } from "./api";
 
 const PAYLOAD = {
   enabled: true,
@@ -86,5 +86,47 @@ describe("getAnnouncement", () => {
     );
 
     await expect(getAnnouncement()).rejects.toThrow("Internal error");
+  });
+});
+
+describe("signed marketing credential transport", () => {
+  it("posts public touches without caching or forwarding a referrer", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ credential: "server.credential", expiresAt: "2099-01-01T00:00:00Z" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.marketingTouch({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: "tab-1" });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v1/storefront/marketing-touch"), expect.objectContaining({ method: "POST", cache: "no-store", referrerPolicy: "no-referrer" }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: "tab-1" });
+  });
+
+
+  it("sends the credential at the order request root, not as a raw owner attribution", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ orderNumber: "PH1", orderStatus: "NEW" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createOrder({ customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" }, items: [{ skuId: "sku-1", quantity: 1 }], marketingCredential: "server.credential" } as Parameters<typeof api.createOrder>[0]);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.marketingCredential).toBe("server.credential");
+    expect(body.attribution).toEqual({ sourceType: "ORGANIC" });
+  });
+
+  it("sends the order note at the request root and defaults it to null", async () => {
+    // mockImplementation so each call gets a fresh, unread Response body.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ orderNumber: "PH1", orderStatus: "NEW" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+      customerNote: "Call before delivery",
+    } as Parameters<typeof api.createOrder>[0]);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.customerNote).toBe("Call before delivery");
+
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+    } as Parameters<typeof api.createOrder>[0]);
+    const second = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(second.customerNote).toBeNull();
   });
 });

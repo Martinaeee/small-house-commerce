@@ -1,0 +1,138 @@
+// Marketing domain: optimizer identity, campaign links, ad spend and the
+// attribution touch records behind them.
+//
+// Sources: docs/DATABASE.md §7-8 (optimizer / AID), §49-53 (attribution
+// architecture, source types, AID snapshot), §77-79 (cost entries, product
+// cost snapshot, advertising cost). The AID is a business identifier for
+// "which optimizer owns this order" — never an ad, post or campaign id.
+
+/// DATABASE.md §8 optimizers, implemented as a profile row keyed to the admin
+/// user. The AID is generated once and never follows a display-name change;
+/// `optimizer_id` on orders and attributions stores User.id, so this row is the
+/// mapping between the two, not a second identity for orders to point at.
+model OptimizerProfile {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  userId      String          @unique @map("user_id") @db.Uuid
+  aid         String          @unique
+  displayName String          @map("display_name")
+  status      OptimizerStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("optimizer_profiles")
+}
+
+enum OptimizerStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum CampaignLinkStatus {
+  ACTIVE
+  DISABLED
+}
+
+model CampaignLink {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  code                String             @unique
+  ownerUserId         String             @map("owner_user_id") @db.Uuid
+  aidSnapshot         String             @map("aid_snapshot")
+  productId           String             @map("product_id") @db.Uuid
+  variantId           String?            @map("variant_id") @db.Uuid
+  variantNameSnapshot String?            @map("variant_name_snapshot")
+  landingPageId       String?            @map("landing_page_id") @db.Uuid
+  name                String
+  sourceType          SourceType         @map("source_type")
+  campaignId          String?            @map("campaign_id")
+  adsetId             String?            @map("adset_id")
+  adId                String?            @map("ad_id")
+  utmSource           String?            @map("utm_source")
+  utmMedium           String?            @map("utm_medium")
+  utmCampaign         String?            @map("utm_campaign")
+  utmContent          String?            @map("utm_content")
+  utmTerm             String?            @map("utm_term")
+  status              CampaignLinkStatus @default(ACTIVE)
+  version             Int                @default(0)
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner       User                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  landingPage ProductLandingPage? @relation(fields: [landingPageId], references: [id], onDelete: Restrict)
+  visits      CampaignLinkVisit[]
+  orderAttributions OrderAttribution[]
+  adCosts     AdCostEntry[]
+
+  @@index([ownerUserId, createdAt])
+  @@index([productId])
+  @@index([landingPageId])
+  @@map("campaign_links")
+}
+
+model CampaignLinkVisit {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  linkId    String   @map("link_id") @db.Uuid
+  visitKey  String   @map("visit_key")
+  visitDay  DateTime @map("visit_day") @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  link CampaignLink @relation(fields: [linkId], references: [id], onDelete: Restrict)
+
+  @@unique([linkId, visitKey, visitDay])
+  @@index([linkId, visitDay])
+  @@map("campaign_link_visits")
+}
+
+model AdCostEntry {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  linkId      String   @map("link_id") @db.Uuid
+  ownerUserId String   @map("owner_user_id") @db.Uuid
+  costDate    DateTime @map("cost_date") @db.Date
+  costType    String   @default("ADS_COST") @map("cost_type")
+  entrySource String   @default("MANUAL") @map("entry_source")
+  currency    String   @default("USD")
+  amountUsd   Decimal  @map("amount_usd") @db.Decimal(12, 2)
+  phpPerUsd   Decimal? @map("php_per_usd") @db.Decimal(12, 6)
+  amountPhp   Decimal  @map("amount_php") @db.Decimal(14, 2)
+  note        String?
+  voidedAt    DateTime? @map("voided_at") @db.Timestamptz(3)
+  version     Int      @default(0)
+  createdById String   @map("created_by_id") @db.Uuid
+  updatedById String   @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  link      CampaignLink @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  owner     User @relation("AdCostOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  createdBy User @relation("AdCostCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User @relation("AdCostUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  audit     AdCostAudit[]
+
+  @@unique([linkId, costDate])
+  @@index([ownerUserId, costDate])
+  @@map("cost_entries")
+}
+
+model AdCostAudit {
+  id          String @id @default(uuid(7)) @db.Uuid
+  costEntryId String @map("cost_entry_id") @db.Uuid
+  actorUserId String @map("actor_user_id") @db.Uuid
+  action      AdCostAuditAction
+  before      Json?
+  after       Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  cost  AdCostEntry @relation(fields: [costEntryId], references: [id], onDelete: Restrict)
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([costEntryId, createdAt])
+  @@map("ad_cost_audit")
+}
+
+enum AdCostAuditAction {
+  CREATE
+  UPDATE
+  VOID
+}

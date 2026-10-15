@@ -102,6 +102,7 @@ function createHarness() {
     prisma as never,
     inventory as unknown as InventoryService,
     customerRisk as never,
+    { resolve: vi.fn(async () => null) } as never,
     promotions as never,
     backInStock as never,
   );
@@ -117,13 +118,13 @@ function createHarness() {
 }
 
 describe('OrdersService.checkout attribution', () => {
-  it('persists landingPageId into OrderAttribution when provided', async () => {
+  it('ignores an uncredentialed client landingPageId', async () => {
     const { service, tx } = createHarness();
     await service.checkout(checkoutOverrides({ attribution: { landingPageId: LP_ID } }));
     const data = tx.order.create.mock.calls[0]![0].data as {
       attribution: { create: Record<string, unknown> };
     };
-    expect(data.attribution.create.landingPageId).toBe(LP_ID);
+    expect(data.attribution.create.landingPageId).toBeNull();
   });
 
   it('persists null landingPageId when attribution omits it', async () => {

@@ -9,3 +9,14 @@
 allowBuilds:
   esbuild: true
   unrs-resolver: true
+
+overrides:
+  "@puckeditor/core@0.23.0>@tiptap/extension-blockquote": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-code": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-code-block": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-hard-break": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-heading": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-horizontal-rule": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-link": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/extension-list": 3.31.4
+  "@puckeditor/core@0.23.0>@tiptap/html": 3.31.4

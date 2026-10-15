@@ -254,6 +254,7 @@ export function createInitialSelection(
         };
       }
     }
+    return { ...initial, selectionSource: "DEEP_LINK" };
   }
 
   if (candidates.length === 1) {
@@ -459,12 +460,6 @@ export function reduceProductSelection(
         confirmedRevision: null,
       };
 
-    /*
-     * Reconciles canonical selection to a URL delivered by browser
-     * Back/Forward. A named selectable variant becomes an unconfirmed
-     * DEEP_LINK-style selection; an absent or invalid variant resets to
-     * exactly what a fresh load of the clean URL would initialize.
-     */
     case "SYNC_FROM_URL": {
       let nextValueIds: SelectedValueIds | null = null;
       if (action.variantId !== null) {
@@ -477,7 +472,7 @@ export function reduceProductSelection(
       }
 
       if (nextValueIds === null) {
-        const canonical = createInitialSelection(product, null);
+        const canonical = createInitialSelection(product, action.variantId);
         if (
           state.selectionSource === canonical.selectionSource &&
           sameSelection(state.selectedValueIds, canonical.selectedValueIds) &&

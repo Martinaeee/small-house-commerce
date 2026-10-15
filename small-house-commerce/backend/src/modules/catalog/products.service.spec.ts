@@ -974,7 +974,10 @@ describe("ProductsService.remove", () => {
 
     await expect(harness.service.remove("p1")).rejects.toMatchObject({
       status: 409,
-      response: expect.objectContaining({ code: "PRODUCT_HAS_HISTORY" }),
+      response: expect.objectContaining({
+        code: "PRODUCT_HAS_HISTORY",
+        message: expect.stringContaining("stock, order or marketing history"),
+      }),
     });
   });
 
