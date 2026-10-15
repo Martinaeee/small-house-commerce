@@ -3,8 +3,12 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { inputClsCompact } from "@/components/admin/Field";
 import { DecimalInput } from "@/components/admin/DecimalInput";
+import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
+  entityRowKey,
+  findSupersededVariantRows,
+  variantDisplayName,
   type AdminCatalogGraphDraft,
   type AdminSkuDraft,
   type AdminVariantDraft,
@@ -154,6 +158,11 @@ export function VariantMatrix({
     current * MATRIX_PAGE_SIZE,
   );
   const editable = onChange !== undefined && draft !== null && !pending;
+  // Rows an earlier option setup left behind. They are shown on every page so a
+  // rail jump always finds them, and they never join the sellable candidate
+  // list or the bulk operations.
+  const leftovers = draft ? findSupersededVariantRows(draft) : [];
+  const [confirmRemoval, setConfirmRemoval] = useState<AdminVariantDraft | null>(null);
 
   useLayoutEffect(() => {
     if (
@@ -500,6 +509,81 @@ export function VariantMatrix({
                     </tr>
                   );
                 })}
+                {leftovers.map((variant) => {
+                  const name = variantDisplayName(draft!, variant);
+                  const sku = variant.sku ?? null;
+                  const rowKey = entityRowKey(variant);
+                  const details = ([
+                    ["supplierCost", "product_sku_supplier_cost", sku?.costCurrency ?? ""],
+                    ["landedCost", "product_sku_landed_cost", sku?.costCurrency ?? ""],
+                    ["productWeight", "product_sku_product_weight", "kg"],
+                    ["packageWidth", "product_sku_package_width", "cm"],
+                    ["packageHeight", "product_sku_package_height", "cm"],
+                    ["packageDepth", "product_sku_package_depth", "cm"],
+                    ["packageWeight", "product_sku_package_weight", "kg"],
+                    ["volumetricWeight", "product_sku_volumetric_weight", "kg"],
+                  ] as const).filter(([key]) => sku?.[key] != null);
+                  return (
+                    <tr key={`leftover:${rowKey}`} id={`pf-row-${rowKey}`} className="border-b border-border/60 bg-amber-50 align-middle">
+                      <td className="py-2 pr-3">
+                        <span className="font-medium text-ink">{name}</span>
+                        <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs text-amber-900">
+                          {t("product_matrix_temporary")}
+                        </span>
+                        <p className="mt-1 max-w-xs text-xs text-amber-800">
+                          {t("product_matrix_leftover_note")}
+                        </p>
+                        {details.length > 0 || variant.cardMedia?.cover || variant.cardMedia?.hover ? (
+                          <details className="mt-2 max-w-xs text-xs text-ink-secondary">
+                            <summary className="cursor-pointer font-semibold">{t("product_matrix_leftover_details")}</summary>
+                            <dl className="mt-2 space-y-1">
+                              {details.map(([key, label, unit]) => (
+                                <div key={key} className="flex flex-wrap gap-x-2">
+                                  <dt>{t(label)}</dt>
+                                  <dd>{`${sku?.[key]} ${unit}`.trim()}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                            {(["cover", "hover"] as const).map(slot => {
+                              const image = variant.cardMedia?.[slot];
+                              if (!image) return null;
+                              return (
+                                <div key={slot} className="mt-2">
+                                  <p>{t(slot === "cover" ? "product_card_cover" : "product_card_hover")}</p>
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- preserved admin media accepts uploaded URLs. */}
+                                  <img src={image.url} alt={image.altText ?? name} className="mt-1 h-20 w-20 object-contain" />
+                                  <p className="break-all select-all">{image.url}</p>
+                                </div>
+                              );
+                            })}
+                          </details>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input className={`${inputClsCompact} w-36`} aria-label={t("product_matrix_sku_code_aria", { name })} value={sku?.skuCode ?? ""} disabled readOnly />
+                      </td>
+                      <td className="py-2 pr-3 text-sm text-ink">{sku?.price ?? "—"}</td>
+                      <td className="py-2 pr-3 text-sm text-ink">{sku?.compareAtPrice ?? "—"}</td>
+                      <td className="py-2 pr-3">
+                        <input className={`${inputClsCompact} w-24`} aria-label={t("product_matrix_stock_aria", { name })} value={sku === null ? "" : String(sku.onHand)} disabled readOnly />
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-ink-muted">
+                        {sku ? t(`product_sku_status_${sku.status}`) : t("product_matrix_no_sku")}
+                      </td>
+                      <td className="py-2 text-right">
+                        <button
+                          type="button"
+                          className="text-sm font-semibold text-red-700 hover:underline disabled:opacity-50"
+                          aria-label={`${t("product_matrix_remove_leftover")} ${name}`}
+                          disabled={!editable}
+                          onClick={() => setConfirmRemoval(variant)}
+                        >
+                          {t("product_matrix_remove_leftover")}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -527,6 +611,48 @@ export function VariantMatrix({
           {t("product_matrix_next")}
         </button>
       </div>
+      <Dialog
+        open={confirmRemoval !== null}
+        onClose={() => setConfirmRemoval(null)}
+        title={`${t("product_matrix_remove_leftover")} ${confirmRemoval && draft ? variantDisplayName(draft, confirmRemoval) : ""}`.trim()}
+        initialFocus="first"
+      >
+        <p className="text-sm text-ink-secondary">{t("product_matrix_remove_leftover_body")}</p>
+        <div className="mt-5 flex justify-end gap-3">
+          <button type="button" className="rounded-lg border border-border px-4 py-2" onClick={() => setConfirmRemoval(null)}>
+            {t("common_cancel")}
+          </button>
+          <button
+            type="button"
+            className="rounded-lg bg-red-700 px-4 py-2 text-white disabled:opacity-50"
+            disabled={!editable}
+            onClick={() => {
+              const target = confirmRemoval;
+              if (!editable || !target) return;
+              const targetKey = entityRowKey(target);
+              onChange?.(draft => {
+                const index = draft.variants.findIndex(
+                  row => entityRowKey(row) === targetKey && findSupersededVariantRows(draft).includes(row),
+                );
+                if (index < 0) return;
+                draft.variants.splice(index, 1);
+                draft.media = draft.media.filter(
+                  media => entityRowKey(media.variantRef ?? {}) !== targetKey,
+                );
+                if (
+                  draft.defaultDisplayVariantRef &&
+                  entityRowKey(draft.defaultDisplayVariantRef) === targetKey
+                ) {
+                  draft.defaultDisplayVariantRef = null;
+                }
+              });
+              setConfirmRemoval(null);
+            }}
+          >
+            {t("product_matrix_confirm_remove")}
+          </button>
+        </div>
+      </Dialog>
     </div>
   );
 }

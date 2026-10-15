@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import { entityRowKey, setVariantCardImage, type AdminCatalogGraphDraft, type EntityRef } from "@/lib/admin-product-graph";
+import { entityRowKey, findSupersededVariantRows, setVariantCardImage, type AdminCatalogGraphDraft, type EntityRef } from "@/lib/admin-product-graph";
 import { MediaUploadResults } from "./MediaAddRow";
 import type { MediaBatchUpload } from "./useMediaBatchUpload";
 
@@ -22,6 +22,8 @@ export function ProductCardMediaEditor({ draft, onChange, batchUpload, pending, 
   const [picker, setPicker] = useState<{ variantRef: EntityRef; slot: "cover" | "hover" } | null>(null);
   const [expandedReceipts, setExpandedReceipts] = useState<Record<string, boolean>>({});
   const busy = pending || batchUpload.uploading;
+  const leftovers = findSupersededVariantRows(draft);
+  const variants = draft.variants.filter(variant => !leftovers.includes(variant));
   const gallery = draft.media.filter(row => row.type === "IMAGE" && row.url.trim() !== "");
   const labels = new Map(draft.options.flatMap(option => option.values.map(value => [entityRowKey(value), value.label] as const)));
 
@@ -29,9 +31,10 @@ export function ProductCardMediaEditor({ draft, onChange, batchUpload, pending, 
     <section className="min-w-0">
       <h2 className="text-base font-semibold text-ink">{t("product_card_media_title")}</h2>
       <p className="mt-1 text-xs leading-relaxed text-ink-muted">{t("product_card_media_hint")}</p>
-      {draft.variants.length === 0 ? <p className="mt-3 text-sm text-ink-muted">{t("product_card_empty")}</p> : (
+      {leftovers.map(variant => <p key={entityRowKey(variant)} className="mt-2 text-xs text-amber-800">{t("product_graph_superseded_default", { name: variant.name })}</p>)}
+      {variants.length === 0 ? <p className="mt-3 text-sm text-ink-muted">{t("product_card_empty")}</p> : (
         <div className="mt-3 space-y-3">
-          {draft.variants.map(variant => {
+          {variants.map(variant => {
             const variantKey = entityRowKey(variant);
             const ref = variant.id !== undefined ? { id: variant.id } : { clientKey: variant.clientKey! };
             const name = variant.optionValueRefs.map(value => labels.get(entityRowKey(value))).filter(Boolean).join(" / ") || variant.name;

@@ -40,6 +40,7 @@ import {
   cardGraphFromLegacyForm,
   entityRowKey,
   freshClientKey,
+  removeSupersededDefaultVariant,
   syncSharedMediaDraft,
   type AdminCatalogGraphDraft,
   type EntityRef,
@@ -974,6 +975,7 @@ export function ProductForm({
       if (!prev.graph) return prev;
       const draft = structuredClone(prev.graph);
       mutate(draft);
+      removeSupersededDefaultVariant(draft);
       return { ...prev, graph: draft };
     });
     clearValidation();
@@ -983,6 +985,7 @@ export function ProductForm({
     setValue(prev => {
       const draft = prev.graphTyped && prev.graph ? structuredClone(prev.graph) : cardGraphFromLegacyForm(prev);
       mutate(draft);
+      removeSupersededDefaultVariant(draft);
       return { ...prev, graph: draft, graphTyped: true };
     });
     clearValidation();

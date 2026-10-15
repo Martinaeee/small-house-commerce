@@ -1154,6 +1154,7 @@ export const en: Record<ZhKey, string> = {
     "The option structure is invalid. Check the active options and values.",
   product_graph_sku_code_required:
     "\"{name}\" needs a SKU code before it can be saved.",
+  product_graph_superseded_default: "\"{name}\" is left over from an earlier option setup and does not match the current combinations. Review and remove it in the variant matrix (copy anything you need to the matching variants first); do not add another SKU.",
   product_graph_sku_code_duplicate:
     "Duplicate SKU code {code} (two variants share the same code).",
   product_graph_swatch_invalid: "Swatch hex must be a #rrggbb color.",
@@ -1231,6 +1232,12 @@ export const en: Record<ZhKey, string> = {
   product_matrix_status_aria: "Status for {name}",
   product_matrix_no_sku: "No SKU",
   product_matrix_remove: "Remove row",
+  product_matrix_temporary: "Temporary leftover",
+  product_matrix_leftover_note: "This temporary variant does not match the current options. Its data has been preserved. Copy anything you need to the current variants, then remove this row. Do not add another SKU.",
+  product_matrix_leftover_details: "View preserved data",
+  product_matrix_remove_leftover: "Remove temporary variant",
+  product_matrix_remove_leftover_body: "Remove this temporary variant's SKU, stock, packaging, card images and variant-scoped media associations? Only this unsaved temporary row is removed. The current option variants, shared media and option-value media stay unchanged; uploaded files will not be deleted. Copy any data you need to the matching variants first.",
+  product_matrix_confirm_remove: "Confirm removal",
   product_matrix_previous: "Previous page",
   product_matrix_next: "Next page",
   product_matrix_page_status: "Page {current} / {total}",

@@ -1505,6 +1505,28 @@ describe("ProductForm Task 3 localization and structure", () => {
   });
 });
 
+describe("ProductForm live Default baseline", () => {
+  it("saves the real option after a price-only Default becomes obsolete", async () => {
+    setAdminLang("zh");
+    const initial = baseValue({ variants: [{ id: "red", name: "Red", position: "0", sku: { ...emptySkuFormValue(), skuCode: "RED", price: "4499", stock: "6" } }] });
+    const graph = cardGraphFromLegacyForm(initial);
+    graph.variants.unshift({ clientKey: "variant-", name: "Default", position: 0, combinationKey: "", optionValueRefs: [], sku: { ...structuredClone(graph.variants[0].sku!), skuCode: "", onHand: 0 } });
+    graph.defaultDisplayVariantRef = { clientKey: "variant-" };
+    const before = structuredClone(graph);
+    const onSubmit = vi.fn();
+    const view = renderForm({ ...initial, graphTyped: true, graph }, onSubmit);
+    await openVariantsTab();
+    fireEvent.change(screen.getByLabelText("Red 的 SKU 编码"), { target: { value: "RED-UPDATED" } });
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants).toHaveLength(1);
+    expect(saved.graph!.variants[0]).toMatchObject({ id: "red", sku: { skuCode: "RED-UPDATED", price: 4499, onHand: 6 } });
+    expect(saved.graph!.defaultDisplayVariantRef).toBeNull();
+    expect(graph).toEqual(before);
+  });
+});
+
 describe("ProductForm media add helpers", () => {
   it.each([
     [[1], "2"],

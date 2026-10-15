@@ -2,7 +2,9 @@ import type { ProductFormTabKey } from "@/components/admin/product-form/ProductF
 import {
   buildVariantCandidates,
   entityRowKey,
+  findSupersededVariantRows,
   validateAdminCatalogGraph,
+  variantDisplayName,
   type AdminCatalogGraphDraft,
   type AdminCatalogGraphIssueCode,
   type AdminCatalogGraphValidation,
@@ -82,7 +84,8 @@ export type AdminProductIssueMessageKey =
   | "product_graph_sku_code_duplicate"
   | "product_graph_swatch_invalid"
   | "product_graph_thumbnail_invalid"
-  | "product_graph_media_url_invalid";
+  | "product_graph_media_url_invalid"
+  | "product_graph_superseded_default";
 
 export type AdminProductIssueTranslate = (
   key: AdminProductIssueMessageKey,
@@ -208,9 +211,22 @@ export function collectGraphIssues(
     }
   }
 
+  // Rows the current options no longer produce are reported as themselves: the
+  // missing-SKU or duplicate-code wording would send the operator hunting for a
+  // fix that cannot make those rows saveable.
+  const supersededRows = findSupersededVariantRows(draft);
+  for (const row of supersededRows) {
+    const key = entityRowKey(row);
+    push(
+      `superseded:${key}`,
+      t("product_graph_superseded_default", { name: variantDisplayName(draft, row) }),
+      "variants",
+      key,
+    );
+  }
   const seenCodes = new Map<string, string>();
   for (const variant of draft.variants) {
-    if (!variant.sku) continue;
+    if (supersededRows.includes(variant) || !variant.sku) continue;
     const code = variant.sku.skuCode.trim();
     const variantKey = entityRowKey(variant);
     if (!code) {

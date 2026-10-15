@@ -9,6 +9,7 @@ import type {
   AdminVariantDraft,
 } from "@/lib/admin-product-graph";
 import type { VariantCandidate } from "@/lib/admin-product-graph";
+import { buildVariantCandidates } from "@/lib/admin-product-graph";
 import { VariantMatrix } from "@/components/admin/VariantMatrix";
 
 /**
@@ -104,6 +105,188 @@ describe("VariantMatrix", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  function retainedDefaultGraph(): AdminCatalogGraphDraft {
+    const colors = ["Gray", "Green", "Orange"];
+    const rows = colors.map((name, index) => {
+      const row = persistedVariant(index, `CH002-${name}`);
+      row.id = undefined;
+      row.clientKey = `color-${index}`;
+      row.name = name;
+      row.optionValueRefs = [{ clientKey: `value-${index}` }];
+      row.sku = { ...row.sku!, id: undefined, price: 3499, compareAtPrice: 3999, onHand: 6 };
+      row.cardMedia = { cover: { type: "IMAGE", url: `/uploads/${name}.webp`, altText: name }, hover: null };
+      return row;
+    });
+    const old = persistedVariant(3, "");
+    old.id = undefined;
+    old.clientKey = "variant-";
+    old.name = "Default";
+    old.combinationKey = "";
+    old.sku = { ...old.sku!, id: undefined, price: 3499, onHand: 6, packageWeight: 12, packageWidth: 85 };
+    return JSON.parse(JSON.stringify(draft({
+      defaultDisplayVariantRef: { clientKey: "variant-" },
+      options: [{
+        clientKey: "color", kind: "COLOR", name: "Color", position: 0,
+        presentation: "TEXT", isMediaDriver: true, isActive: true,
+        values: colors.map((label, index) => ({ clientKey: `value-${index}`, label, position: index, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true })),
+      }],
+      variants: [...rows, old],
+      media: [
+        { clientKey: "shared", url: "/uploads/shared.webp", type: "IMAGE", sortOrder: 0, altText: null, optionValueRef: null, variantRef: null },
+        { clientKey: "color-media", url: "/uploads/color.webp", type: "IMAGE", sortOrder: 1, altText: null, optionValueRef: { clientKey: "value-0" }, variantRef: null },
+        { clientKey: "old-media", url: "/uploads/default.webp", type: "IMAGE", sortOrder: 2, altText: null, optionValueRef: null, variantRef: { clientKey: "variant-" } },
+      ],
+    }))) as AdminCatalogGraphDraft;
+  }
+
+  it("shows a retained Default in the matrix without allowing it to become another color SKU", () => {
+    const initial = retainedDefaultGraph();
+    render(<Harness candidates={makeCandidates(3)} initial={initial} />);
+
+    expect(screen.getByLabelText("Default 的库存")).toHaveValue("6");
+    expect(screen.getByLabelText("Default 的 SKU 编码")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "移除临时款式 Default" })).toBeEnabled();
+    expect(screen.getByText(/临时款式.*当前选项/)).toBeInTheDocument();
+    expect(draftJson()).toEqual(initial);
+  });
+
+  it("keeps every draft field when removal is cancelled", async () => {
+    const user = userEvent.setup();
+    const initial = retainedDefaultGraph();
+    render(<Harness candidates={makeCandidates(3)} initial={initial} />);
+
+    await user.click(screen.getByRole("button", { name: "移除临时款式 Default" }));
+    const dialog = screen.getByRole("dialog", { name: "移除临时款式 Default" });
+    expect(dialog).toHaveTextContent("专属媒体关联");
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(draftJson()).toEqual(initial);
+  });
+
+  it("removes only the confirmed Default and its own media/default reference", async () => {
+    const user = userEvent.setup();
+    const initial = retainedDefaultGraph();
+    render(<Harness candidates={makeCandidates(3)} initial={initial} />);
+
+    await user.click(screen.getByRole("button", { name: "移除临时款式 Default" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "确认移除" }));
+
+    expect(draftJson()).toEqual({
+      ...initial,
+      variants: initial.variants.slice(0, 3),
+      media: initial.media.slice(0, 2),
+      defaultDisplayVariantRef: null,
+    });
+    expect(screen.queryByLabelText("Default 的库存")).not.toBeInTheDocument();
+  });
+
+  it("keeps the retained Default accessible on later matrix pages", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(31)} initial={retainedDefaultGraph()} />);
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByLabelText("Default 的库存")).toHaveValue("6");
+  });
+
+  it("lets the operator inspect the retained packaging before removing Default", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(3)} initial={retainedDefaultGraph()} />);
+    await user.click(screen.getByText("查看保留的资料"));
+    expect(screen.getByText("12 kg")).toBeVisible();
+    expect(screen.getByText("85 cm")).toBeVisible();
+  });
+
+  it("does not overwrite Default when bulk-editing real color candidates", async () => {
+    const user = userEvent.setup();
+    const initial = retainedDefaultGraph();
+    render(<Harness candidates={makeCandidates(3)} initial={initial} />);
+    await user.type(screen.getByLabelText("批量库存"), "9");
+    await user.click(screen.getByRole("button", { name: "本页统一库存" }));
+    expect(draftVariants().slice(0, 3).map(row => row.sku?.onHand)).toEqual([9, 9, 9]);
+    expect(draftVariants()[3]).toEqual(initial.variants[3]);
+  });
+
+  it.each(["persisted", "referenced", "persisted-sku"])("never offers hard removal for a %s identity", (kind) => {
+    const initial = retainedDefaultGraph();
+    const old = initial.variants[3];
+    if (kind === "persisted") old.id = "saved-variant";
+    if (kind === "referenced") old.hasReferences = true;
+    if (kind === "persisted-sku") old.sku!.id = "saved-sku";
+    render(<Harness candidates={makeCandidates(3)} initial={initial} />);
+    expect(screen.queryByRole("button", { name: "移除临时款式 Default" })).not.toBeInTheDocument();
+    expect(draftJson()).toEqual(initial);
+  });
+
+  function skuOf(skuCode: string, overrides: Partial<NonNullable<AdminVariantDraft["sku"]>> = {}) {
+    return {
+      skuCode, status: "ACTIVE" as const, supplierSku: null, supplierCost: null,
+      costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
+      productWeight: null, packageWidth: null, packageHeight: null,
+      packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
+      ...overrides,
+    };
+  }
+
+  /** The operator added Color, filled both colours, then added Style. */
+  function staleColorGraph(): { graph: AdminCatalogGraphDraft; candidates: VariantCandidate[] } {
+    const values = (prefix: string, labels: string[]) => labels.map((label, index) => ({
+      clientKey: `${prefix}-${index}`, label, position: index,
+      swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true,
+    }));
+    const graph = draft({
+      options: [
+        { clientKey: "color", kind: "COLOR", name: "Color", position: 0, presentation: "SWATCH", isMediaDriver: false, isActive: true, values: values("color", ["White", "Walnut"]) },
+        { clientKey: "style", kind: "STYLE", name: "Style", position: 1, presentation: "TEXT", isMediaDriver: false, isActive: true, values: values("style", ["Pneumatic Flip"]) },
+      ],
+      variants: [
+        { clientKey: "row-white", name: "White", position: 0, combinationKey: "stale-white", optionValueRefs: [{ clientKey: "color-0" }], sku: skuOf("TB001-White") },
+        { clientKey: "row-walnut", name: "Walnut", position: 1, combinationKey: "stale-walnut", optionValueRefs: [{ clientKey: "color-1" }], sku: skuOf("TB001-Walnut") },
+      ],
+    });
+    return { graph, candidates: buildVariantCandidates(graph) };
+  }
+
+  it("lists stale colour-only rows as removable leftovers beside the real combinations", () => {
+    const { graph, candidates } = staleColorGraph();
+    render(<Harness candidates={candidates} initial={graph} />);
+
+    expect(candidates.map((candidate) => candidate.name)).toEqual(["White / Pneumatic Flip", "Walnut / Pneumatic Flip"]);
+    const leftoverCode = screen.getByLabelText("White 的 SKU 编码");
+    expect(leftoverCode).toHaveValue("TB001-White");
+    expect(leftoverCode).toBeDisabled();
+    expect(screen.getByLabelText("Walnut 的库存")).toHaveValue("4");
+    expect(screen.getByRole("button", { name: "移除临时款式 White" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "移除临时款式 Walnut" })).toBeEnabled();
+    expect(screen.getByLabelText("White / Pneumatic Flip 的 SKU 编码")).toBeEnabled();
+    expect(draftJson()).toEqual(graph);
+  });
+
+  it("removes only the confirmed stale row and keeps the other one and the combinations", async () => {
+    const user = userEvent.setup();
+    const { graph, candidates } = staleColorGraph();
+    render(<Harness candidates={candidates} initial={graph} />);
+
+    await user.click(screen.getByRole("button", { name: "移除临时款式 White" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "确认移除" }));
+
+    expect(draftVariants().map((row) => row.clientKey)).toEqual(["row-walnut"]);
+    expect(screen.getByRole("button", { name: "移除临时款式 Walnut" })).toBeInTheDocument();
+    expect(screen.getByLabelText("White / Pneumatic Flip 的 SKU 编码")).toBeEnabled();
+  });
+
+  it("keeps bulk edits off the stale rows", async () => {
+    const user = userEvent.setup();
+    const { graph, candidates } = staleColorGraph();
+    render(<Harness candidates={candidates} initial={graph} />);
+
+    await user.type(screen.getByLabelText("批量库存"), "9");
+    await user.click(screen.getByRole("button", { name: "本页统一库存" }));
+
+    const rows = draftVariants();
+    expect(rows.filter((row) => row.clientKey?.startsWith("row-")).map((row) => row.sku?.onHand)).toEqual([4, 4]);
+    expect(rows.filter((row) => !row.clientKey?.startsWith("row-")).map((row) => row.sku?.onHand)).toEqual([9, 9]);
   });
 
   it("preserves an existing card pair through edits and never copies it to a new combination", async () => {

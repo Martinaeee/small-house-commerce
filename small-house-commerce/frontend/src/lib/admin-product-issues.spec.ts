@@ -27,6 +27,7 @@ const MESSAGES: Record<AdminProductIssueMessageKey, string> = {
   product_graph_structure_invalid: "选项结构无效，请检查启用的选项和值。",
   product_graph_sku_code_required: "「{name}」需要填写 SKU 编码才能保存。",
   product_graph_sku_code_duplicate: "SKU 编码 {code} 重复。",
+  product_graph_superseded_default: "「{name}」是加选项前遗留的款式，不匹配当前选项；请在款式矩阵中检查并移除。不要为它补填 SKU。",
   product_graph_swatch_invalid: "色块颜色必须是 #rrggbb 格式。",
   product_graph_thumbnail_invalid: "选项缩略图必须是有效的图片网址。",
   product_graph_media_url_invalid: "作用域媒体网址必须是有效的链接。",
@@ -92,7 +93,57 @@ function draft(overrides: Partial<AdminCatalogGraphDraft> = {}): AdminCatalogGra
   };
 }
 
+function skuDraft(skuCode: string): NonNullable<AdminCatalogGraphDraft["variants"][number]["sku"]> {
+  return {
+    skuCode, status: "ACTIVE", supplierSku: null, supplierCost: null,
+    costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
+    productWeight: null, packageWidth: null, packageHeight: null,
+    packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
+  };
+}
+
 describe("collectGraphIssues", () => {
+  it.each(["", "TEMP-DEFAULT"])("blocks the superseded Default with SKU %j without asking for another SKU", (skuCode) => {
+    const graph = draft();
+    graph.options[0].values.forEach(value => { value.isActive = true; });
+    graph.variants.push({
+      clientKey: "variant-", name: "Default", position: 0,
+      combinationKey: "", optionValueRefs: [],
+      sku: {
+        skuCode, status: "ACTIVE", price: 3499, compareAtPrice: null,
+        supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null,
+        productWeight: null, packageWidth: 85, packageHeight: null,
+        packageDepth: null, packageWeight: 12, volumetricWeight: null, onHand: 6,
+      },
+    });
+    expect(collectGraphIssues(graph, t)).toEqual([{
+      id: "superseded:variant-",
+      message: t("product_graph_superseded_default", { name: "Default" }),
+      tab: "variants", highlightKey: "variant-", actions: [],
+    }]);
+  });
+
+  it("blocks every stale colour-only row once, without a duplicate-code or missing-SKU claim", () => {
+    const graph: AdminCatalogGraphDraft = {
+      ...draft(),
+      options: [
+        { clientKey: "color", kind: "COLOR", name: "Color", position: 0, presentation: "SWATCH", isMediaDriver: false, isActive: true,
+          values: ["White", "Walnut"].map((label, index) => ({ clientKey: `color-${index}`, label, position: index, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true })) },
+        { clientKey: "style", kind: "STYLE", name: "Style", position: 1, presentation: "TEXT", isMediaDriver: false, isActive: true,
+          values: [{ clientKey: "style-0", label: "Pneumatic Flip", position: 0, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true }] },
+      ],
+      variants: [
+        { clientKey: "row-white", name: "White", position: 0, combinationKey: "stale-white", optionValueRefs: [{ clientKey: "color-0" }], sku: { ...skuDraft("TB001-White") } },
+        { clientKey: "row-walnut", name: "Walnut", position: 1, combinationKey: "stale-walnut", optionValueRefs: [{ clientKey: "color-1" }], sku: { ...skuDraft("TB001-Walnut") } },
+      ],
+    };
+
+    expect(collectGraphIssues(graph, t).map((issue) => [issue.id, issue.message, issue.highlightKey])).toEqual([
+      ["superseded:row-white", t("product_graph_superseded_default", { name: "White" }), "row-white"],
+      ["superseded:row-walnut", t("product_graph_superseded_default", { name: "Walnut" }), "row-walnut"],
+    ]);
+  });
+
   it("names the option and offers both repairs when it has no active value", () => {
     const issues = collectGraphIssues(draft(), t);
 

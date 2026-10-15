@@ -18,6 +18,7 @@ import {
   deserializeAdminProduct,
   graphFromAdminProduct,
   resolveStockBatchWrites,
+  removeSupersededDefaultVariant,
   stripUnsavableMedia,
   syncSharedMediaDraft,
   toWireCatalogGraphPatch,
@@ -684,6 +685,80 @@ describe("buildVariantCandidates", () => {
     expect(candidates[0].name).toBe("Default");
     expect(candidates[0].exists).toBe(false);
     expect(candidates[0].pairs).toEqual([]);
+  });
+});
+
+describe("live Default baseline preservation", () => {
+  function fixture() {
+    const draft = draftFor();
+    const placeholder: AdminCatalogGraphDraft["variants"][number] = {
+      clientKey: "variant-", name: "Default", position: 0, combinationKey: "", optionValueRefs: [],
+      sku: {
+        skuCode: "", status: "ACTIVE", price: 4499, compareAtPrice: 4999, onHand: 0, reserved: 0,
+        supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, productWeight: null,
+        packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null,
+      },
+    };
+    draft.variants.unshift(placeholder);
+    draft.defaultDisplayVariantRef = { clientKey: "variant-" };
+    return { draft, placeholder };
+  }
+
+  it.each([true, false])("removes only the superseded price-only placeholder, with SKU=%s", withSku => {
+    const { draft, placeholder } = fixture();
+    if (!withSku) placeholder.sku = null;
+    const realRows = structuredClone(draft.variants.slice(1));
+    const options = structuredClone(draft.options);
+    removeSupersededDefaultVariant(draft);
+    expect(draft.variants).toEqual(realRows);
+    expect(draft.options).toEqual(options);
+    expect(draft.defaultDisplayVariantRef).toBeNull();
+    removeSupersededDefaultVariant(draft);
+    expect(draft.variants).toEqual(realRows);
+  });
+
+  it.each([
+    ["skuCode", "DEFAULT"], ["id", "persisted-sku"], ["status", "DISABLED"], ["onHand", 6], ["reserved", 1],
+    ["supplierSku", "SUP-1"], ["supplierCost", 0], ["costCurrency", "CNY"], ["landedCost", 12],
+    ["productWeight", 1], ["packageWidth", 20], ["packageHeight", 30], ["packageDepth", 40],
+    ["packageWeight", 2], ["volumetricWeight", 3], ["kind", "BUNDLE"], ["bundleComponents", []],
+  ])("retains meaningful Default SKU configuration %s=%j", (key, value) => {
+    const { draft, placeholder } = fixture();
+    Object.assign(placeholder.sku!, { [key]: value });
+    const before = structuredClone(draft);
+    removeSupersededDefaultVariant(draft);
+    expect(draft).toEqual(before);
+  });
+
+  it.each(["persisted", "references", "card-cover", "card-hover", "scoped-media", "different-client", "real-combination"])("retains Default with %s", kind => {
+    const { draft, placeholder } = fixture();
+    if (kind === "persisted") placeholder.id = "persisted-variant";
+    if (kind === "references") placeholder.hasReferences = true;
+    if (kind === "card-cover" || kind === "card-hover") placeholder.cardMedia = { cover: null, hover: null, [kind === "card-cover" ? "cover" : "hover"]: { type: "IMAGE", url: "/uploads/default.webp", altText: null } };
+    if (kind === "scoped-media") draft.media.push({ url: "/uploads/default.webp", type: "IMAGE", altText: null, sortOrder: 0, optionValueRef: null, variantRef: { clientKey: "variant-" } });
+    if (kind === "different-client") placeholder.clientKey = "another-default";
+    if (kind === "real-combination") placeholder.optionValueRefs = [{ id: RED_VALUE_ID }];
+    const before = structuredClone(draft);
+    removeSupersededDefaultVariant(draft);
+    expect(draft).toEqual(before);
+  });
+
+  it.each(["none", "disabled", "empty-values"])("keeps Default when options are %s", kind => {
+    const { draft } = fixture();
+    if (kind === "none") draft.options = [];
+    if (kind === "disabled") draft.options.forEach(option => { option.isActive = false; });
+    if (kind === "empty-values") draft.options[0].values = [];
+    const before = structuredClone(draft);
+    removeSupersededDefaultVariant(draft);
+    expect(draft).toEqual(before);
+  });
+
+  it("keeps the selected real variant when removing an unused placeholder", () => {
+    const { draft } = fixture();
+    draft.defaultDisplayVariantRef = { id: VARIANT_RED_ID };
+    removeSupersededDefaultVariant(draft);
+    expect(draft.defaultDisplayVariantRef).toEqual({ id: VARIANT_RED_ID });
+    expect(draft.variants.some(row => row.clientKey === "variant-")).toBe(false);
   });
 });
 

@@ -786,6 +786,91 @@ export function buildVariantCandidates(
   });
 }
 
+export function findSupersededDefaultVariant(
+  draft: AdminCatalogGraphDraft,
+): AdminVariantDraft | undefined {
+  const options = activeOptionsSorted(draft);
+  if (options.length === 0 || options.some(option => activeValues(option).length === 0)) return;
+
+  return draft.variants.find(variant =>
+    variant.clientKey === "variant-" &&
+    variant.id === undefined &&
+    variant.combinationKey === "" &&
+    variant.optionValueRefs.length === 0 &&
+    !variant.hasReferences &&
+    !variant.sku?.id,
+  );
+}
+
+/** The label the operator sees for a row: its values, else its stored name. */
+export function variantDisplayName(
+  draft: AdminCatalogGraphDraft,
+  variant: AdminVariantDraft,
+): string {
+  const labels = new Map(
+    draft.options.flatMap(option =>
+      option.values.map(value => [entityRowKey(value), value.label] as const),
+    ),
+  );
+  const composed = variant.optionValueRefs
+    .map(ref => labels.get(entityRowKey(ref)))
+    .filter(Boolean)
+    .join(" / ");
+  return composed || variant.name;
+}
+
+/**
+ * Draft rows that no active option combination produces any more: what is left
+ * of an earlier option setup (the no-options Default, or the colour-only rows
+ * from before a second group was added). Persisted rows are excluded — retiring
+ * a saved variant is the server's reconcile decision, not the editor's.
+ */
+export function findSupersededVariantRows(
+  draft: AdminCatalogGraphDraft,
+): AdminVariantDraft[] {
+  const options = draft.options.filter(option => option.isActive);
+  if (options.length === 0) return [];
+  let candidateKeys: Set<string>;
+  try {
+    candidateKeys = new Set(buildVariantCandidates(draft).map(candidate => candidate.combinationKey));
+  } catch {
+    return [];
+  }
+  const values = new Map(options.flatMap(option => option.values
+    .filter(value => value.isActive)
+    .map(value => [entityRowKey(value), entityRowKey(option)] as const)));
+  return draft.variants.filter(variant => {
+    if (variant.id !== undefined || variant.hasReferences || variant.sku?.id) return false;
+    const pairs = variant.optionValueRefs.map(ref => {
+      const valueId = entityRowKey(ref);
+      return { optionId: values.get(valueId) ?? "", valueId };
+    });
+    return !candidateKeys.has(canonicalCombinationKey(pairs));
+  });
+}
+
+export function removeSupersededDefaultVariant(draft: AdminCatalogGraphDraft): void {
+  const variant = findSupersededDefaultVariant(draft);
+  if (!variant || variant.sku?.skuCode.trim()) return;
+  if (variant.sku && (
+    variant.sku.status !== "ACTIVE" ||
+    variant.sku.onHand !== 0 ||
+    (variant.sku.reserved ?? 0) !== 0 ||
+    !Object.entries(variant.sku).every(([key, value]) =>
+      ["skuCode", "status", "price", "compareAtPrice", "onHand", "reserved"].includes(key) ||
+      value === null || value === undefined,
+    )
+  )) return;
+  if (variant.cardMedia?.cover || variant.cardMedia?.hover) return;
+  if (draft.media.some(row => row.variantRef?.clientKey === "variant-")) return;
+
+  // The no-options candidate is hidden once real option combinations exist.
+  draft.variants.splice(draft.variants.indexOf(variant), 1);
+  if (draft.defaultDisplayVariantRef?.clientKey === "variant-") {
+    draft.defaultDisplayVariantRef = null;
+  }
+}
+
 // --- validation ------------------------------------------------------------------
 
 export type AdminCatalogGraphIssueCode =

@@ -106,6 +106,9 @@ function validate(form: FormState): FormErrors {
       errors.photos = "Each photo URL must be at most 2,048 characters.";
       break;
     }
+    if (photo.startsWith("/") && !photo.startsWith("//") && photo.length > 1) {
+      continue;
+    }
     try {
       const url = new URL(photo);
       if (url.protocol !== "http:" && url.protocol !== "https:") {

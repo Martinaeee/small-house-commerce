@@ -52,6 +52,28 @@ async function choose(slot = "Card cover") {
 describe("ProductCardMediaEditor", () => {
   beforeEach(() => { setAdminLang("en"); });
 
+  it("shows only complete current combinations as normal cards without deleting leftover data", () => {
+    const initial = fixture();
+    initial.options = [
+      { clientKey: "color", name: "Color", kind: "COLOR", position: 0, isActive: true, isMediaDriver: false, presentation: "TEXT", values: [
+        { clientKey: "white", label: "White", position: 0, isActive: true, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null },
+      ] },
+      { clientKey: "style", name: "Style", kind: "STYLE", position: 1, isActive: true, isMediaDriver: false, presentation: "TEXT", values: [
+        { clientKey: "flip", label: "Pneumatic Flip", position: 0, isActive: true, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null },
+      ] },
+    ];
+    const sku = { ...initial.variants[0].sku!, id: undefined, skuCode: "TB001-White" };
+    initial.variants = [
+      { clientKey: "old-white", name: "White", position: 0, combinationKey: "color:white", optionValueRefs: [{ clientKey: "white" }], sku, cardMedia: { cover: { type: "IMAGE", url: "/uploads/unique-old.webp", altText: "Preserved" }, hover: null } },
+      { clientKey: "new-white", name: "White / Pneumatic Flip", position: 1, combinationKey: "color:white|style:flip", optionValueRefs: [{ clientKey: "white" }, { clientKey: "flip" }], sku },
+    ];
+    const before = JSON.parse(JSON.stringify(initial));
+    renderEditor({ initial });
+    expect(screen.queryByRole("heading", { name: "White" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "White / Pneumatic Flip" })).toBeInTheDocument();
+    expect(current()).toEqual(before);
+  });
+
   it("copies a gallery snapshot only to the addressed variant without reordering or marking the gallery", async () => {
     const initial = fixture();
     const gallery = structuredClone(initial.media);
