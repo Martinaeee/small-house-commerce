@@ -649,7 +649,7 @@ test.describe("FAQ closeout acceptance", () => {
       await page.goto("/products/e2e-color-size");
       await expect
         .poll(
-          async () => page.locator("#shipping-faq summary").allTextContents(),
+          async () => page.locator("#shipping-faq:visible summary").allTextContents(),
         )
         .toEqual([
           PRODUCT_ITEM_TWO.title,
@@ -664,7 +664,9 @@ test.describe("FAQ closeout acceptance", () => {
       ]) {
         await expect(main.getByText(title, { exact: true })).toBeVisible();
       }
-      await page.locator("#shipping-faq").scrollIntoViewIfNeeded();
+      const storefrontFaq = page.locator("#shipping-faq:visible");
+      await expect(storefrontFaq).toHaveCount(1);
+      await storefrontFaq.scrollIntoViewIfNeeded();
       await shot(page, "storefront-custom-copy");
 
       const landing = await api.get(`${API}/storefront/lp/e2e-lp-color-size`);
@@ -682,13 +684,15 @@ test.describe("FAQ closeout acceptance", () => {
       );
       await page.goto("/lp/e2e-lp-color-size");
       await expect
-        .poll(async () => page.locator("#shipping-faq summary").allTextContents())
+        .poll(async () => page.locator("#shipping-faq:visible summary").allTextContents())
         .toEqual([
           PRODUCT_ITEM_TWO.title,
           PRODUCT_ITEM_ONE.title,
           ORDER_SHARED_ITEM.title,
         ]);
-      await page.locator("#shipping-faq").scrollIntoViewIfNeeded();
+      const landingFaq = page.locator("#shipping-faq:visible");
+      await expect(landingFaq).toHaveCount(1);
+      await landingFaq.scrollIntoViewIfNeeded();
       await shot(page, "landing-custom-copy");
 
       expect(pageErrors).toEqual([]);
