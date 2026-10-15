@@ -7,6 +7,9 @@ pnpm exec prisma migrate deploy
 echo "[entrypoint] Reconciling CAMPAIGN_LINK_BUILD role grants…"
 pnpm run rbac:reconcile-campaign-link
 
+echo "[entrypoint] Reconciling Marketing role grants…"
+pnpm run rbac:reconcile-marketing
+
 echo "[entrypoint] Reconciling Newsletter role grants…"
 pnpm run rbac:reconcile-newsletter
 
