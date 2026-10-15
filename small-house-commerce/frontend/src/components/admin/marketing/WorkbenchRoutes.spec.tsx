@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import MarketingWorkbench from "./MarketingWorkbench";
 import WorkbenchPage from "@/app/admin/(shell)/marketing/page";
 import LinksPage from "@/app/admin/(shell)/marketing/links/page";
 import CostsPage from "@/app/admin/(shell)/marketing/costs/page";
@@ -9,7 +12,19 @@ import LegacyPages from "@/app/admin/(shell)/single-pages/page";
 import LegacyLinks from "@/app/admin/(shell)/link-builder/page";
 const redirect = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ redirect }));
+vi.mock("./AdCostsList", () => ({ AdCostsList: () => null }));
 describe("marketing route association", () => {
+  it.each([
+    { productId: "product-1", landingPageId: "page-1", linkId: "link-1", linksQuery: "?productId=product-1&landingPageId=page-1", accountingQuery: "?productId=product-1&landingPageId=page-1&linkId=link-1" },
+    { productId: "product/1", landingPageId: "page/1", linkId: "link/1", linksQuery: "?productId=product%2F1&landingPageId=page%2F1", accountingQuery: "?productId=product%2F1&landingPageId=page%2F1&linkId=link%2F1" },
+    { productId: undefined, landingPageId: "page-1", linkId: "link-1", linksQuery: "?landingPageId=page-1", accountingQuery: "?landingPageId=page-1&linkId=link-1" },
+  ])("preserves only supported accounting tab context for $landingPageId ($productId)", ({ productId, landingPageId, linkId, linksQuery, accountingQuery }) => {
+    setAdminLang("en");
+    render(<AdminI18nProvider><MarketingWorkbench view="costs" productId={productId} landingPageId={landingPageId} linkId={linkId} /></AdminI18nProvider>);
+    expect(screen.getByRole("link", { name: "Campaign links" })).toHaveAttribute("href", `/admin/marketing/links${linksQuery}`);
+    expect(screen.getByRole("link", { name: "Ad expenses" })).toHaveAttribute("href", `/admin/marketing/costs${accountingQuery}`);
+    expect(screen.getByRole("link", { name: "Accounting" })).toHaveAttribute("href", `/admin/marketing/reports${accountingQuery}`);
+  });
   it("resolves product and page context without server fetching private records", async () => {
     const pages = await WorkbenchPage({ searchParams: Promise.resolve({ productId: "p1" }) });
     expect(pages.props).toMatchObject({ productId: "p1", view: "pages" });

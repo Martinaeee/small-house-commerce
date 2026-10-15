@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CampaignLinksService } from './campaign-links.service.js';
+import { CampaignLinksController } from './admin/campaign-links.controller.js';
 import { OptimizersService } from './optimizers.service.js';
 import { campaignLinkCloneSchema, campaignLinkCreateSchema, campaignLinkUpdateSchema } from './dto/campaign-link.dto.js';
 
@@ -89,6 +90,15 @@ describe('persisted owner-scoped campaign links', () => {
     await expect(service.getLink(link.id, { ...owner, id: U2 })).rejects.toMatchObject({ status: 404 });
     await expect(service.createLink(base, { id: U2, permissions: ['MARKETING_VIEW_ALL'] })).rejects.toMatchObject({ status: 403 });
     await expect(service.createLink({ ...base, landingPageId: LP }, { id: U2, permissions: ['MARKETING_VIEW_ALL', 'MARKETING_MANAGE_OWN'] })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects a forged foreign-page target at the controller entry point without writing a link', async () => {
+    const { service, prisma } = setup();
+    const controller = new CampaignLinksController(service);
+    const input = campaignLinkCreateSchema.parse({ ...base, landingPageId: LP });
+
+    await expect(controller.create(input, { ...owner, id: U2 })).rejects.toMatchObject({ status: 404 });
+    expect(prisma.campaignLink.create).not.toHaveBeenCalled();
   });
 
   it('keeps target and ad identity immutable during rename or disable and rejects stale writes', async () => {
