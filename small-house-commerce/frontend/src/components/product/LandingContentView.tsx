@@ -72,8 +72,8 @@ function LiveFacts({ product }: { product: Product }) {
   const { primaryDerived } = usePdpPurchase();
   const sku = primaryDerived.displayVariant?.sku ?? null;
   return <div className="space-y-4">
-    <ProductSpecs product={product} productWeight={sku?.productWeight ?? null} includeFeatures={false} />
-    <MaterialDimensions product={product} />
+    <ProductSpecs product={product} variantDimensions={sku} productWeight={sku?.productWeight ?? null} includeFeatures={false} />
+    <MaterialDimensions product={product} variantDimensions={sku} />
   </div>;
 }
 

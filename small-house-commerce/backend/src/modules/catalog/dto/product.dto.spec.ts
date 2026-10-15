@@ -32,6 +32,44 @@ describe.each([
   });
 });
 
+describe.each([
+  ['create', createProductSchema, { name: 'Sized table', slug: 'sized-table', categoryId: '00000000-0000-4000-8000-000000000001' }],
+  ['update', updateProductSchema, {}],
+] as const)('legacy SKU product dimensions in %s', (_name, schema, basics) => {
+  const dimensions = { productWidth: 120, productDepth: 60, productHeight: 75 };
+  const body = (fields: Record<string, unknown>) => ({
+    ...basics, variants: [{ name: 'Sized', sku: { skuCode: 'DIM-ONE', ...fields } }],
+  });
+
+  it('retains independent product and package dimensions', () => {
+    const fields = { ...dimensions, packageWidth: 130, packageDepth: 70, packageHeight: 85, productWeight: 4, packageWeight: 5, volumetricWeight: 9 };
+    expect(schema.parse(body(fields)).variants?.[0]?.sku).toMatchObject(fields);
+  });
+
+  it('preserves explicit null clearing', () => {
+    const fields = { productWidth: null, productDepth: null, productHeight: null };
+    expect(schema.parse(body(fields)).variants?.[0]?.sku).toMatchObject(fields);
+  });
+
+  it('leaves omitted overrides absent', () => {
+    const sku = schema.parse(body({})).variants![0]!.sku!;
+    for (const field of Object.keys(dimensions)) expect(Object.hasOwn(sku, field)).toBe(false);
+  });
+
+  it('preserves zero under the nonnegative DTO policy', () => {
+    const fields = { productWidth: 0, productDepth: 0, productHeight: 0 };
+    expect(schema.parse(body(fields)).variants?.[0]?.sku).toMatchObject(fields);
+  });
+
+  it.each(Object.keys(dimensions).flatMap(field => [-1, NaN, Infinity, -Infinity].map(value => [field, value] as const)))(
+    'rejects invalid %s=%s at its SKU field', (field, value) => {
+      const result = schema.safeParse(body({ [field]: value }));
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some(issue => issue.path.join('.') === `variants.0.sku.${field}`)).toBe(true);
+    },
+  );
+});
+
 describe('product SEO fields', () => {
   it('keeps independently persisted SEO title and meta description', () => {
     expect(

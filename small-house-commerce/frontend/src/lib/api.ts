@@ -87,6 +87,9 @@ export interface StorefrontSku {
   compareAtPrice: number | null;
   availableInventory: number;
   productWeight?: number | null;
+  productWidth?: number | null;
+  productDepth?: number | null;
+  productHeight?: number | null;
   packageWidth?: number | null;
   packageHeight?: number | null;
   packageDepth?: number | null;

@@ -7,6 +7,7 @@ import type {
   AdminProduct,
 } from "@/lib/admin-api";
 import {
+  applyProductDimensionsToVariants,
   buildCatalogGraphPatch,
   buildSavedPreview,
   deserializeProduct,
@@ -68,7 +69,7 @@ function skuRow(id: string, code: string, price: string, onHand: number): AdminG
     landedCost: null,
     price,
     compareAtPrice: null,
-    productWeight: null,
+    productWidth: null, productDepth: null, productHeight: null, productWeight: null,
     packageWidth: null,
     packageHeight: null,
     packageDepth: null,
@@ -204,6 +205,202 @@ function productFor(graph: AdminCatalogGraph): AdminProduct {
 function draftFor(graph: AdminCatalogGraph = serverGraph()): AdminCatalogGraphDraft {
   return structuredClone(deserializeAdminProduct(productFor(graph)));
 }
+
+describe("materialized SKU product dimension bulk actions", () => {
+  const dimensions = { width: 120, depth: 60, height: 75 };
+  const overrides = { productWidth: 120, productDepth: 60, productHeight: 75 };
+
+  it("fills empty materialized overrides while skipping a fully overridden SKU", () => {
+    const draft = draftFor();
+    Object.assign(draft.variants[1].sku!, overrides);
+    const unchanged = structuredClone(draft.variants[1]);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "empty-only"))
+      .toEqual({ changedCount: 1, skippedCount: 1 });
+    expect(draft.variants[0].sku).toMatchObject(overrides);
+    expect(draft.variants[1]).toEqual(unchanged);
+  });
+
+  it("replaces only dimension fields while preserving client keys, packages, prices and stock", () => {
+    const draft = draftFor();
+    delete draft.variants[0].id;
+    draft.variants[0].clientKey = "draft-red";
+    delete draft.variants[0].sku!.id;
+    draft.variants[0].sku!.clientKey = "draft-red-sku";
+    Object.assign(draft.variants[0].sku!, {
+      productWidth: 99, productDepth: 88, productHeight: 77,
+      packageWidth: 130, packageDepth: 70, packageHeight: 85,
+      packageWeight: 5, volumetricWeight: 9,
+    });
+    const before = structuredClone(draft);
+    const oldSku = draft.variants[0].sku;
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 2, skippedCount: 0 });
+    expect(draft).toEqual({
+      ...before,
+      variants: before.variants.map(row => ({ ...row, sku: { ...row.sku!, ...overrides } })),
+    });
+    expect(oldSku).toEqual(before.variants[0].sku);
+    expect(draft.variants[0].sku).not.toBe(oldSku);
+  });
+
+  it("fills null axes individually and never treats zero as empty", () => {
+    const draft = draftFor();
+    Object.assign(draft.variants[0].sku!, { productWidth: 0, productDepth: null, productHeight: 80 });
+    Object.assign(draft.variants[1].sku!, overrides);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "empty-only"))
+      .toEqual({ changedCount: 1, skippedCount: 1 });
+    expect(draft.variants[0].sku).toMatchObject({ productWidth: 0, productDepth: 60, productHeight: 80 });
+  });
+
+  it("clears overrides to null rather than storing parent values", () => {
+    const draft = draftFor();
+    Object.assign(draft.variants[0].sku!, overrides);
+    expect(applyProductDimensionsToVariants(draft, { width: null, depth: null, height: null }, "all"))
+      .toEqual({ changedCount: 1, skippedCount: 1 });
+    expect(draft.variants[0].sku).toMatchObject({ productWidth: null, productDepth: null, productHeight: null });
+  });
+
+  it("counts unchanged eligible rows as skipped and retains their SKU references", () => {
+    const draft = draftFor();
+    draft.variants.forEach(row => Object.assign(row.sku!, overrides));
+    const skus = draft.variants.map(row => row.sku);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 0, skippedCount: 2 });
+    draft.variants.forEach((row, index) => expect(row.sku).toBe(skus[index]));
+  });
+
+  it("does not materialize SKU-less rows or absent option combinations", () => {
+    const draft = draftFor();
+    draft.variants[1].sku = null;
+    draft.options[0].values.push({
+      ...draft.options[0].values[0], id: undefined, clientKey: "green", label: "Green", position: 2,
+    });
+    const before = structuredClone(draft);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 1, skippedCount: 0 });
+    expect(draft.variants).toHaveLength(2);
+    expect(draft.variants[1]).toEqual(before.variants[1]);
+    expect(draft.options).toEqual(before.options);
+  });
+
+  it("excludes disabled SKUs from writes and result counts", () => {
+    const draft = draftFor();
+    draft.variants[1].sku!.status = "DISABLED";
+    const before = structuredClone(draft.variants[1]);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 1, skippedCount: 0 });
+    expect(draft.variants[1]).toEqual(before);
+  });
+
+  it("excludes combinations whose option value is inactive", () => {
+    const draft = draftFor();
+    draft.options[0].values[1].isActive = false;
+    const before = structuredClone(draft.variants[1]);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 1, skippedCount: 0 });
+    expect(draft.variants[1]).toEqual(before);
+  });
+
+  it.each(["draft", "persisted"])("keeps a superseded %s Default outside dimension bulk edits", kind => {
+    const draft = draftFor();
+    const leftover = structuredClone(draft.variants[0]);
+    leftover.name = "Default";
+    leftover.combinationKey = "";
+    leftover.optionValueRefs = [];
+    if (kind === "draft") {
+      delete leftover.id;
+      delete leftover.sku!.id;
+      leftover.clientKey = "variant-";
+    }
+    draft.variants.push(leftover);
+    const before = structuredClone(leftover);
+    expect(applyProductDimensionsToVariants(draft, dimensions, "all"))
+      .toEqual({ changedCount: 2, skippedCount: 0 });
+    expect(draft.variants[2]).toEqual(before);
+  });
+});
+
+describe("SKU product dimension codecs", () => {
+  const dimensions = { productWidth: 120, productDepth: 60, productHeight: 75 };
+  const packaging = { packageWidth: 130, packageDepth: 70, packageHeight: 85, packageWeight: 5, volumetricWeight: 9 };
+  function configured() {
+    const graph = serverGraph();
+    Object.assign(graph.variants[0]!.sku!, dimensions, packaging);
+    Object.assign(graph.variants[1]!.sku!, { productWidth: null, productDepth: null, productHeight: null });
+    return graph;
+  }
+
+  it("hydrates raw overrides and inherited nulls in the typed graph", () => {
+    const graph = configured();
+    const draft = draftFor(graph);
+    expect(draft.variants[0]!.sku).toMatchObject({ ...dimensions, ...packaging, id: SKU_RED_ID, price: 1299, onHand: 4 });
+    expect(draft.variants[1]!.sku).toMatchObject({ productWidth: null, productDepth: null, productHeight: null });
+    expect(graph.variants[0]!.sku).toMatchObject({ ...dimensions, price: "1299.00" });
+  });
+
+  it("preserves dimensions through legacy graph projection and baseline hydration", () => {
+    const product = productFor(configured());
+    delete product.options;
+    delete product.media;
+    const draft = deserializeAdminProduct(product);
+    expect(draft.variants[0]!.sku).toMatchObject({ ...dimensions, ...packaging, id: SKU_RED_ID });
+    expect(graphFromAdminProduct(product).variants[0]!.sku).toMatchObject(dimensions);
+  });
+
+  it("hydrates legacy form strings without mixing product and package axes", () => {
+    const form = deserializeProduct(productFor(configured()));
+    expect(form.variants[0]!.sku).toMatchObject({ productWidth: "120", productDepth: "60", productHeight: "75", packageWidth: "130", packageDepth: "70", packageHeight: "85" });
+    expect(form.variants[1]!.sku).toMatchObject({ productWidth: "", productDepth: "", productHeight: "" });
+  });
+
+  it("keeps raw overrides in the diff baseline without creating a dirty patch", () => {
+    const product = productFor(configured());
+    const baseline = graphFromAdminProduct(product);
+    expect(baseline.variants[0]!.sku).toMatchObject(dimensions);
+    expect(buildCatalogGraphPatch(baseline, deserializeAdminProduct(product)).variantUpserts).toEqual([]);
+  });
+
+  it.each(Object.keys(dimensions) as (keyof typeof dimensions)[])("emits a dimension-only %s change with stable identities", field => {
+    const graph = configured();
+    const draft = draftFor(graph);
+    Object.assign(draft.variants[0]!.sku!, dimensions, { [field]: 180 });
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toHaveLength(1);
+    expect(wire.catalogGraph.variants[0]).toMatchObject({ id: VARIANT_RED_ID, sku: { ...dimensions, [field]: 180, ...packaging, skuCode: "CHAIR-RED", price: 1299 } });
+    expect(Object.hasOwn(wire.catalogGraph.variants[0]!.sku!, "onHand")).toBe(false);
+    expect(draft.variants[0]!.sku).toMatchObject({ id: SKU_RED_ID, onHand: 4 });
+    expect(draft.variants[1]!.id).toBe(VARIANT_BLUE_ID);
+  });
+
+  it.each(Object.keys(dimensions) as (keyof typeof dimensions)[])("clears %s to null rather than copying the parent", field => {
+    const graph = configured();
+    const product = productFor(graph);
+    product.width = 900;
+    product.depth = 800;
+    product.height = 700;
+    const draft = deserializeAdminProduct(product);
+    Object.assign(draft.variants[0]!.sku!, dimensions, { [field]: null });
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toHaveLength(1);
+    expect(wire.catalogGraph.variants[0]!.sku).toMatchObject({ ...dimensions, [field]: null, ...packaging });
+  });
+
+  it("round-trips zero as a real override", () => {
+    const graph = configured();
+    const draft = draftFor(graph);
+    Object.assign(draft.variants[0]!.sku!, { productWidth: 0, productDepth: 0, productHeight: 0 });
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toHaveLength(1);
+    expect(wire.catalogGraph.variants[0]!.sku).toMatchObject({ productWidth: 0, productDepth: 0, productHeight: 0 });
+  });
+
+  it("converts only confirmed legacy form fields and preserves package values", () => {
+    const form = deserializeProduct(productFor(configured()));
+    Object.assign(form.variants[0]!.sku!, { productWidth: "125", productDepth: "", productHeight: "76" });
+    const draft = cardGraphFromLegacyForm(form);
+    expect(draft.variants[0]!.sku).toMatchObject({ productWidth: 125, productDepth: null, productHeight: 76, ...packaging, id: SKU_RED_ID, onHand: 4 });
+  });
+});
 
 describe("independent variant card codecs", () => {
   const pair = () => ({
@@ -695,7 +892,7 @@ describe("live Default baseline preservation", () => {
       clientKey: "variant-", name: "Default", position: 0, combinationKey: "", optionValueRefs: [],
       sku: {
         skuCode: "", status: "ACTIVE", price: 4499, compareAtPrice: 4999, onHand: 0, reserved: 0,
-        supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, productWeight: null,
+        supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null,
       },
     };
@@ -839,7 +1036,7 @@ describe("buildCatalogGraphPatch", () => {
         landedCost: null,
         price: 1599,
         compareAtPrice: null,
-        productWeight: null,
+        productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null,
         packageHeight: null,
         packageDepth: null,
@@ -1108,7 +1305,7 @@ describe("collectStockBatch", () => {
         landedCost: null,
         price: 1599,
         compareAtPrice: null,
-        productWeight: null,
+        productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null,
         packageHeight: null,
         packageDepth: null,
@@ -1414,7 +1611,7 @@ describe("resolveStockBatchWrites", () => {
         landedCost: null,
         price: 1599,
         compareAtPrice: null,
-        productWeight: null,
+        productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null,
         packageHeight: null,
         packageDepth: null,
@@ -1484,7 +1681,7 @@ describe("resolveStockBatchWrites", () => {
         landedCost: null,
         price: null,
         compareAtPrice: null,
-        productWeight: null,
+        productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null,
         packageHeight: null,
         packageDepth: null,

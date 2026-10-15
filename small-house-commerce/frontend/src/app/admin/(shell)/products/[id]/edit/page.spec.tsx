@@ -100,7 +100,7 @@ function skuOf(
     landedCost: null,
     price: "1299",
     compareAtPrice: null,
-    productWeight: null,
+    productWidth: null, productDepth: null, productHeight: null, productWeight: null,
     packageWidth: null,
     packageHeight: null,
     packageDepth: null,

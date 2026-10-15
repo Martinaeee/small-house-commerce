@@ -1,4 +1,17 @@
-import type { Product, Solution } from "@/lib/api";
+import type { Product, Solution, StorefrontSku } from "@/lib/api";
+
+export type SkuProductDimensions = Pick<StorefrontSku, "productWidth" | "productDepth" | "productHeight">;
+
+export function resolveSkuProductDimensions(
+  product: Pick<Product, "width" | "depth" | "height">,
+  sku?: SkuProductDimensions | null,
+) {
+  return {
+    width: sku?.productWidth ?? product.width,
+    depth: sku?.productDepth ?? product.depth,
+    height: sku?.productHeight ?? product.height,
+  };
+}
 
 export type PdpDimensionSource = Pick<
   Product,

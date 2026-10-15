@@ -422,6 +422,9 @@ export interface AdminSku {
   supplierCost: string | null;
   costCurrency: string | null;
   landedCost: string | null;
+  productWidth: number | null;
+  productHeight: number | null;
+  productDepth: number | null;
   productWeight: number | null;
   packageWidth: number | null;
   packageHeight: number | null;
@@ -1134,6 +1137,9 @@ export interface CreateProductInput {
       supplierCost?: number;
       costCurrency?: string;
       landedCost?: number;
+      productWidth?: number | null;
+      productHeight?: number | null;
+      productDepth?: number | null;
       productWeight?: number;
       packageWidth?: number;
       packageHeight?: number;
@@ -1181,6 +1187,9 @@ export interface WireSkuWrite {
   landedCost?: number | null;
   price?: number | null;
   compareAtPrice?: number | null;
+  productWidth?: number | null;
+  productHeight?: number | null;
+  productDepth?: number | null;
   productWeight?: number | null;
   packageWidth?: number | null;
   packageHeight?: number | null;

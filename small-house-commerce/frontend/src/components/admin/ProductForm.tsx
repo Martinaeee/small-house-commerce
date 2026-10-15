@@ -61,6 +61,8 @@ import {
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { ProductFaqPanel } from "./ProductFaqPanel";
 import { VariantMatrix } from "./VariantMatrix";
+import { ProductDimensionsAssist } from "./ProductDimensionsAssist";
+import { SkuPackagingAssist } from "./SkuPackagingAssist";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
 import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
@@ -123,6 +125,9 @@ export interface ProductFormValue {
       supplierCost: string;
       costCurrency: string;
       landedCost: string;
+      productWidth: string;
+      productHeight: string;
+      productDepth: string;
       productWeight: string;
       packageWidth: string;
       packageHeight: string;
@@ -292,11 +297,11 @@ const DIMENSION_FIELDS: {
   hintKey: TKey;
 }[] = [
   { key: "width", labelKey: "product_dim_width", hintKey: "product_dim_width_hint" },
-  { key: "height", labelKey: "product_dim_height", hintKey: "product_dim_height_hint" },
   { key: "depth", labelKey: "product_dim_depth", hintKey: "product_dim_depth_hint" },
+  { key: "height", labelKey: "product_dim_height", hintKey: "product_dim_height_hint" },
   { key: "foldedWidth", labelKey: "product_dim_folded_width", hintKey: "product_dim_folded_width_hint" },
-  { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
   { key: "foldedDepth", labelKey: "product_dim_folded_depth", hintKey: "product_dim_folded_depth_hint" },
+  { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
 ];
 
 const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
@@ -304,6 +309,9 @@ const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
   { key: "compareAtPrice", labelKey: "product_sku_compare_at" },
   { key: "supplierCost", labelKey: "product_sku_supplier_cost" },
   { key: "landedCost", labelKey: "product_sku_landed_cost" },
+  { key: "productWidth", labelKey: "product_dim_width" },
+  { key: "productDepth", labelKey: "product_dim_depth" },
+  { key: "productHeight", labelKey: "product_dim_height" },
   { key: "productWeight", labelKey: "product_sku_product_weight" },
   { key: "packageWidth", labelKey: "product_sku_package_width" },
   { key: "packageHeight", labelKey: "product_sku_package_height" },
@@ -351,6 +359,9 @@ export function emptySkuFormValue(): SkuFormValue {
     supplierCost: "",
     costCurrency: "",
     landedCost: "",
+    productWidth: "",
+    productDepth: "",
+    productHeight: "",
     productWeight: "",
     packageWidth: "",
     packageHeight: "",
@@ -675,7 +686,7 @@ export function serializeFormValue(
       if (costCurrency.length > 8)
         addError(errors, `variants.${i}.sku.costCurrency`, translate("product_err_currency_max"));
 
-      const skuRecord: Record<string, string | number> = {
+      const skuRecord: Record<string, string | number | null> = {
         skuCode,
         status: SKU_STATUSES.includes(formSku.status)
           ? formSku.status
@@ -692,8 +703,10 @@ export function serializeFormValue(
           errors,
           translate,
         );
-        // Empty -> omit (optional server field); parse errors are recorded.
         if (raw !== "" && n !== null) skuRecord[key] = n;
+        if (raw === "" && (key === "productWidth" || key === "productDepth" || key === "productHeight")) {
+          skuRecord[key] = null;
+        }
       }
       sku = skuRecord as CreateSkuInput;
     }
@@ -827,8 +840,8 @@ const READINESS_WARNING_TABS: Record<ReadinessWarningKey, TabKey> = {
 const SHIPPING_SKU_KEYS = [
   "productWeight",
   "packageWidth",
-  "packageHeight",
   "packageDepth",
+  "packageHeight",
   "packageWeight",
   "volumetricWeight",
 ] as const;
@@ -1835,6 +1848,13 @@ export function ProductForm({
                 title={t("product_specs_dimensions_title")}
                 hint={t("product_specs_dimensions_hint")}
               >
+                <div className="mb-4">
+                  <ProductDimensionsAssist
+                    value={value}
+                    onApply={patch}
+                    disabled={pending || batchUpload.uploading}
+                  />
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
                     <Field
@@ -1965,6 +1985,11 @@ export function ProductForm({
                 pending={pending || batchUpload.uploading}
                 highlightKey={highlight?.key ?? null}
                 requestedSkuCode={requestedSkuCode}
+                productDimensions={
+                  [value.width, value.depth, value.height].some(raw => raw.trim() !== "" && previewNumber(raw) === null)
+                    ? null
+                    : { width: previewNumber(value.width), depth: previewNumber(value.depth), height: previewNumber(value.height) }
+                }
               />
             </div>
           </Section>
@@ -2248,6 +2273,7 @@ export function ProductForm({
                       ) : null}
                     </p>
                     {variant.sku ? (
+                      <>
                       <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {SHIPPING_SKU_KEYS.map((key) => {
                           const labelKey = SKU_LABEL_KEYS[key];
@@ -2277,6 +2303,15 @@ export function ProductForm({
                           );
                         })}
                       </div>
+                      <SkuPackagingAssist
+                        value={variant.sku}
+                        disabled={pending || batchUpload.uploading}
+                        onApply={(packagePatch) => updateGraph((draft) => {
+                          const target = draft.variants.find(row => row.combinationKey === variant.combinationKey);
+                          if (target?.sku) target.sku = { ...target.sku, ...packagePatch };
+                        })}
+                      />
+                      </>
                     ) : (
                       <p className="mt-2 text-xs text-ink-muted">
                         {t("product_shipping_typed_no_sku")}
@@ -2335,9 +2370,18 @@ export function ProductForm({
                       ) : null}
                     </p>
                     {vr.sku ? (
-                      <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {SHIPPING_SKU_KEYS.map((key) => renderSkuField(i, key))}
-                      </div>
+                      <>
+                        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          {SHIPPING_SKU_KEYS.map((key) => renderSkuField(i, key))}
+                        </div>
+                        <SkuPackagingAssist
+                          value={vr.sku}
+                          disabled={pending || batchUpload.uploading}
+                          onApply={(packagePatch) => setSku(i, Object.fromEntries(
+                            Object.entries(packagePatch).map(([key, parsed]) => [key, String(parsed)]),
+                          ))}
+                        />
+                      </>
                     ) : (
                       <p className="mt-2 text-xs text-ink-muted">
                         {t("product_shipping_legacy_no_sku")}

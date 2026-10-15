@@ -475,6 +475,42 @@ describe("isolated landing purchase presentation", () => {
 });
 
 describe("PDP conversion hero", () => {
+  it("switches the hero dimensions with the displayed SKU and preserves zero overrides", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item, { width: 100, depth: 50, height: 70 });
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 120, productDepth: 60, productHeight: 75 });
+    Object.assign(item.variants.find(row => row.id === "red-large")!.sku!, { productWidth: 0, productDepth: null, productHeight: 95 });
+    renderPdp({ item, variantId: "red-small" });
+    const hero = screen.getByTestId("pdp-purchase");
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 120 × 75 × 60 cm");
+    await user.click(within(within(hero).getByRole("group", { name: "Size" })).getByRole("button", { name: "Large" }));
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0 × 95 × 50 cm");
+  });
+
+  it("shows the selected SKU dimensions in the size guide without changing folded values", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item, { width: 100, depth: 50, height: 70, foldedWidth: 90, foldedDepth: 40, foldedHeight: 10 });
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 120, productDepth: 60, productHeight: 75 });
+    renderPdp({ item, variantId: "red-small" });
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const guide = within(screen.getByRole("dialog"));
+    expect(guide.getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
+    expect(guide.getByText("Depth").nextElementSibling?.textContent).toBe("60 cm");
+    expect(guide.getByText("Height").nextElementSibling?.textContent).toBe("75 cm");
+    expect(guide.getAllByText("Width")[1].nextElementSibling?.textContent).toBe("90 cm");
+    expect(guide.getByText("Folded depth").nextElementSibling?.textContent).toBe("40 cm");
+    expect(guide.getByText("Folded height").nextElementSibling?.textContent).toBe("10 cm");
+  });
+
+  it("shows a SKU-only zero dimension summary even without parent dimensions", () => {
+    const item = structuredClone(product);
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 0, productDepth: null, productHeight: null });
+    renderPdp({ item, variantId: "red-small" });
+    expect(screen.getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0 × — × — cm");
+  });
+
   it("orders real product facts, purchase actions, then truthful service assurances", () => {
     const item: Product = {
       ...product,

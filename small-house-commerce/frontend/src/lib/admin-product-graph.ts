@@ -95,6 +95,9 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
             supplierCost: toFormNumber(variant.sku.supplierCost),
             costCurrency: variant.sku.costCurrency ?? "",
             landedCost: toFormNumber(variant.sku.landedCost),
+            productWidth: toFormNumber(variant.sku.productWidth),
+            productHeight: toFormNumber(variant.sku.productHeight),
+            productDepth: toFormNumber(variant.sku.productDepth),
             productWeight: toFormNumber(variant.sku.productWeight),
             packageWidth: toFormNumber(variant.sku.packageWidth),
             packageHeight: toFormNumber(variant.sku.packageHeight),
@@ -169,6 +172,9 @@ export interface AdminSkuDraft extends EntityRef {
   landedCost: number | null;
   price: number | null;
   compareAtPrice: number | null;
+  productWidth: number | null;
+  productHeight: number | null;
+  productDepth: number | null;
   productWeight: number | null;
   packageWidth: number | null;
   packageHeight: number | null;
@@ -313,6 +319,9 @@ function skuDraftFromGraph(sku: {
   landedCost: string | null;
   price: string | null;
   compareAtPrice: string | null;
+  productWidth: number | null;
+  productHeight: number | null;
+  productDepth: number | null;
   productWeight: number | null;
   packageWidth: number | null;
   packageHeight: number | null;
@@ -332,6 +341,9 @@ function skuDraftFromGraph(sku: {
     landedCost: decimal(sku.landedCost),
     price: decimal(sku.price),
     compareAtPrice: decimal(sku.compareAtPrice),
+    productWidth: sku.productWidth,
+    productHeight: sku.productHeight,
+    productDepth: sku.productDepth,
     productWeight: sku.productWeight,
     packageWidth: sku.packageWidth,
     packageHeight: sku.packageHeight,
@@ -480,6 +492,9 @@ export function deserializeAdminProduct(
               landedCost: decimal(variant.sku.landedCost),
               price: decimal(variant.sku.price),
               compareAtPrice: decimal(variant.sku.compareAtPrice),
+              productWidth: variant.sku.productWidth,
+              productHeight: variant.sku.productHeight,
+              productDepth: variant.sku.productDepth,
               productWeight: variant.sku.productWeight,
               packageWidth: variant.sku.packageWidth,
               packageHeight: variant.sku.packageHeight,
@@ -543,6 +558,9 @@ export function cardGraphFromLegacyForm(value: ProductFormValue): AdminCatalogGr
         supplierSku: sku.supplierSku || null, supplierCost: nullableFormNumber(sku.supplierCost),
         costCurrency: sku.costCurrency || null, landedCost: nullableFormNumber(sku.landedCost),
         price: nullableFormNumber(sku.price), compareAtPrice: nullableFormNumber(sku.compareAtPrice),
+        productWidth: nullableFormNumber(sku.productWidth),
+        productHeight: nullableFormNumber(sku.productHeight),
+        productDepth: nullableFormNumber(sku.productDepth),
         productWeight: nullableFormNumber(sku.productWeight),
         packageWidth: nullableFormNumber(sku.packageWidth), packageHeight: nullableFormNumber(sku.packageHeight),
         packageDepth: nullableFormNumber(sku.packageDepth), packageWeight: nullableFormNumber(sku.packageWeight),
@@ -636,6 +654,9 @@ export function graphFromAdminProduct(
               price: sku.price === null ? null : String(sku.price),
               compareAtPrice:
                 sku.compareAtPrice === null ? null : String(sku.compareAtPrice),
+              productWidth: sku.productWidth,
+              productHeight: sku.productHeight,
+              productDepth: sku.productDepth,
               productWeight: sku.productWeight,
               packageWidth: sku.packageWidth,
               packageHeight: sku.packageHeight,
@@ -784,6 +805,39 @@ export function buildVariantCandidates(
       variantId: existing?.id ?? null,
     };
   });
+}
+
+export interface ProductDimensionApplyResult {
+  changedCount: number;
+  skippedCount: number;
+}
+
+export function applyProductDimensionsToVariants(
+  draft: AdminCatalogGraphDraft,
+  dimensions: { width: number | null; depth: number | null; height: number | null },
+  mode: "all" | "empty-only",
+): ProductDimensionApplyResult {
+  const activeKeys = new Set(buildVariantCandidates(draft).map(row => row.combinationKey));
+  let changedCount = 0;
+  let skippedCount = 0;
+  for (const variant of draft.variants) {
+    const sku = variant.sku;
+    if (!sku || sku.status !== "ACTIVE" || !activeKeys.has(variant.combinationKey)) continue;
+    const productWidth = mode === "all" ? dimensions.width : sku.productWidth ?? dimensions.width;
+    const productDepth = mode === "all" ? dimensions.depth : sku.productDepth ?? dimensions.depth;
+    const productHeight = mode === "all" ? dimensions.height : sku.productHeight ?? dimensions.height;
+    if (
+      productWidth === sku.productWidth &&
+      productDepth === sku.productDepth &&
+      productHeight === sku.productHeight
+    ) {
+      skippedCount++;
+      continue;
+    }
+    variant.sku = { ...sku, productWidth, productDepth, productHeight };
+    changedCount++;
+  }
+  return { changedCount, skippedCount };
 }
 
 export function findSupersededDefaultVariant(
@@ -1138,6 +1192,9 @@ function skuChanged(
     !numberEquals(original.landedCost, draft.landedCost) ||
     !numberEquals(original.price, draft.price) ||
     !numberEquals(original.compareAtPrice, draft.compareAtPrice) ||
+    original.productWidth !== draft.productWidth ||
+    original.productHeight !== draft.productHeight ||
+    original.productDepth !== draft.productDepth ||
     original.productWeight !== draft.productWeight ||
     original.packageWidth !== draft.packageWidth ||
     original.packageHeight !== draft.packageHeight ||
@@ -1161,6 +1218,9 @@ function skuWritePayload(
     landedCost: draft.landedCost,
     price: draft.price,
     compareAtPrice: draft.compareAtPrice,
+    productWidth: draft.productWidth,
+    productHeight: draft.productHeight,
+    productDepth: draft.productDepth,
     productWeight: draft.productWeight,
     packageWidth: draft.packageWidth,
     packageHeight: draft.packageHeight,

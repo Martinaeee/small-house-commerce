@@ -28,7 +28,7 @@ function completeGraph(): AdminCatalogGraphDraft {
           landedCost: null,
           price: 0,
           compareAtPrice: null,
-          productWeight: 0,
+          productWidth: null, productDepth: null, productHeight: null, productWeight: 0,
           packageWidth: 0,
           packageHeight: 0,
           packageDepth: 0,

@@ -36,7 +36,7 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { pdpDimensionSummary, pdpSolutionBadges } from "./pdp-facts";
+import { pdpDimensionSummary, pdpSolutionBadges, resolveSkuProductDimensions } from "./pdp-facts";
 import { SolutionIcon } from "./pdp-solution-icons";
 
 function TruckGlyph() {
@@ -223,7 +223,8 @@ export function PdpClient({
   const price = primaryDerived.price;
   const compareAt = primaryDerived.compareAtPrice;
   const selectableCount = primaryDerived.selectableVariants.length;
-  const dimensions = pdpDimensionSummary(product);
+  const dimensionProduct = { ...product, ...resolveSkuProductDimensions(product, displayVariant?.sku) };
+  const dimensions = pdpDimensionSummary(dimensionProduct);
   const hasDimensions =
     dimensions.assembled !== null || dimensions.folded !== null;
   const sellingPoints = pdpSolutionBadges(product);
@@ -817,7 +818,7 @@ export function PdpClient({
           }
         />
       )}
-      {detailsOpen && <ProductDetailsModal product={product} onClose={() => setDetailsOpen(false)} />}
+      {detailsOpen && <ProductDetailsModal product={dimensionProduct} onClose={() => setDetailsOpen(false)} />}
       {pendingIntent && (
         <VariantPickerDialog
           lineId={primaryLine.clientLineId}

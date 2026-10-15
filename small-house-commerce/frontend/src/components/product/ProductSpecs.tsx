@@ -1,7 +1,7 @@
 // src/components/product/ProductSpecs.tsx
 import type { ReactNode } from "react";
 import { DimensionRows, type SpecDimensions } from "./SizeGuide";
-import { pdpSpecsVisible } from "./pdp-facts";
+import { pdpSpecsVisible, resolveSkuProductDimensions, type SkuProductDimensions } from "./pdp-facts";
 
 /** Narrow spec source so the admin live preview can pass a plain object. */
 export interface ProductSpecSource extends SpecDimensions {
@@ -28,15 +28,18 @@ function hasDimensions(product: SpecDimensions): boolean {
 }
 
 export function ProductSpecs({
-  product,
+  product: sourceProduct,
+  variantDimensions = null,
   productWeight = null,
   includeFeatures = true,
 }: {
   product: ProductSpecSource;
+  variantDimensions?: SkuProductDimensions | null;
   productWeight?: number | null;
   /** Admin live preview compatibility; the real PDP moves features above media. */
   includeFeatures?: boolean;
 }): ReactNode {
+  const product = { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
   const materials = product.materials?.trim() ?? "";
   const features = includeFeatures ? featureLines(product.features) : [];
   const dimensions = hasDimensions(product);
@@ -103,10 +106,13 @@ export function ProductSpecs({
 }
 
 export function MaterialDimensions({
-  product,
+  product: sourceProduct,
+  variantDimensions = null,
 }: {
   product: ProductSpecSource;
+  variantDimensions?: SkuProductDimensions | null;
 }): ReactNode {
+  const product = { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
   const materials = product.materials?.trim() ?? "";
   const dimensions = hasDimensions(product);
   if (materials === "" && !dimensions) return null;

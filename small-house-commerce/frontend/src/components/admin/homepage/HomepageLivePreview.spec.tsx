@@ -95,7 +95,7 @@ function product(overrides: Partial<AdminProduct> = {}): AdminProduct {
           supplierCost: null,
           costCurrency: null,
           landedCost: null,
-          productWeight: null,
+          productWidth: null, productDepth: null, productHeight: null, productWeight: null,
           packageWidth: null,
           packageHeight: null,
           packageDepth: null,

@@ -1,6 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { LandingBlocksLayout, LandingContentView } from "./LandingContentView";
+import { LandingBlocksLayout, LandingBlocksProvider, LandingContentView, MarketingBlocks } from "./LandingContentView";
+import { ProductOptionSelector } from "./ProductOptionSelector";
+import type { Product } from "@/lib/api";
+import { deliveryWindows } from "@/lib/deliveryWindow";
 import type { LandingContent } from "@/lib/marketing-content";
 
 const saved: LandingContent = {
@@ -13,6 +17,45 @@ const saved: LandingContent = {
 };
 
 describe("shared landing content renderer", () => {
+  it("follows the selected SKU dimensions in live landing facts without package leakage", async () => {
+    const user = userEvent.setup();
+    const item: Product = {
+      id: "landing-dims", name: "Table", slug: "table", description: null, tagline: null, categoryId: "tables",
+      ratingAverage: null, reviewCount: 0, room: null, internalRole: null, solutions: [],
+      width: 100, depth: 50, height: 70, foldedWidth: null, foldedDepth: null, foldedHeight: null,
+      materials: null, features: null, catalogGraphVersion: 1, defaultDisplayVariantId: "Small", effectiveCoverMedia: null, images: [],
+      options: [{ id: "size", kind: "SIZE", name: "Size", position: 0, presentation: "TEXT", isMediaDriver: false,
+        values: ["Small", "Large"].map((label, position) => ({ id: label, label, position, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null })),
+      }],
+      variants: ["Small", "Large"].map((name, position) => ({
+        id: name, name, position, combinationKey: `size:${name}`, optionValueIds: [name],
+        sku: { id: `sku-${name}`, skuCode: name, status: "ACTIVE", price: 1499, compareAtPrice: null, availableInventory: 3,
+          productWidth: position === 0 ? 120 : null, productDepth: position === 0 ? 60 : 80, productHeight: position === 0 ? 75 : 0,
+          packageWidth: 999, packageDepth: 888, packageHeight: 777,
+        },
+      })),
+    };
+    render(<LandingBlocksProvider product={item} approvedContent={saved} preview delivery={deliveryWindows()}>
+      <ProductOptionSelector lineId="primary" instanceId="landing-dimensions" />
+      <MarketingBlocks block={{ id: "facts", type: "facts", sourceKey: null, props: {} }} />
+    </LandingBlocksProvider>);
+    for (const name of ["Product Specifications", "Material & Dimensions"]) {
+      const region = within(screen.getByRole("region", { name }));
+      expect(region.getByText("Width").nextElementSibling?.textContent).toBe("120 cm");
+      expect(region.getByText("Depth").nextElementSibling?.textContent).toBe("60 cm");
+      expect(region.getByText("Height").nextElementSibling?.textContent).toBe("75 cm");
+      expect(region.queryByText("999 cm")).not.toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: "Large" }));
+    for (const name of ["Product Specifications", "Material & Dimensions"]) {
+      const region = within(screen.getByRole("region", { name }));
+      expect(region.getByText("Width").nextElementSibling?.textContent).toBe("100 cm");
+      expect(region.getByText("Depth").nextElementSibling?.textContent).toBe("80 cm");
+      expect(region.getByText("Height").nextElementSibling?.textContent).toBe("0 cm");
+      expect(region.queryByText("888 cm")).not.toBeInTheDocument();
+    }
+  });
+
   it("renders the independent title and only server-approved rich markup", () => {
     render(<LandingContentView content={saved} approvedContent={saved} product={null} preview />);
     expect(screen.getByRole("heading", { name: "Independent title" })).toBeInTheDocument();

@@ -6,6 +6,7 @@ import {
   catalogGraphPatchSchema,
   entityRefSchema,
   mediaWriteSchema,
+  skuWriteSchema,
 } from './catalog-graph.dto.js';
 
 const IDS = {
@@ -92,6 +93,40 @@ function expectIssuePath(
 }
 
 describe('catalog graph write DTO', () => {
+  describe.each(['productWidth', 'productDepth', 'productHeight'] as const)('SKU %s', field => {
+    it('preserves a centimeter override', () => {
+      expect(skuWriteSchema.parse({ skuCode: 'DIM-ONE', [field]: 120 })).toHaveProperty(field, 120);
+    });
+
+    it('preserves explicit null to restore inheritance', () => {
+      expect(skuWriteSchema.parse({ skuCode: 'DIM-ONE', [field]: null })).toHaveProperty(field, null);
+    });
+
+    it('keeps an omitted override absent', () => {
+      expect(Object.hasOwn(skuWriteSchema.parse({ skuCode: 'DIM-ONE' }), field)).toBe(false);
+    });
+
+    it('preserves zero rather than replacing it with a parent value', () => {
+      expect(skuWriteSchema.parse({ skuCode: 'DIM-ONE', [field]: 0 })).toHaveProperty(field, 0);
+    });
+
+    it.each([-1, NaN, Infinity, -Infinity])('rejects invalid dimension %s at its field', value => {
+      const result = skuWriteSchema.safeParse({ skuCode: 'DIM-ONE', [field]: value });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === field)).toBe(true);
+    });
+  });
+
+  it('retains product and package axes independently in the graph write', () => {
+    const body = patch({ variants: [{
+      clientKey: 'variant-default', position: 0,
+      optionValueRefs: [{ clientKey: 'option-style-value' }],
+      sku: { skuCode: 'DIM-ONE', productWidth: 120, productDepth: 60, productHeight: 75,
+        packageWidth: 130, packageDepth: 70, packageHeight: 85, productWeight: 4, packageWeight: 5, volumetricWeight: 9 },
+    }] });
+    expect(catalogGraphPatchSchema.parse(body).variants[0]?.sku).toMatchObject(body.variants[0].sku);
+  });
+
   describe('variant card media', () => {
     const cover = { type: 'IMAGE', url: '/uploads/card-cover.webp', altText: 'Own cover' };
     const hover = { type: 'IMAGE', url: '/uploads/card-hover.webp', altText: null };

@@ -24,6 +24,9 @@ const skuSchema = z.object({
   // Retail pricing in PHP; compareAtPrice is the strikethrough original price.
   price: z.number().nonnegative().optional(),
   compareAtPrice: z.number().nonnegative().optional(),
+  productWidth: z.number().finite().nonnegative().nullable().optional(),
+  productHeight: z.number().finite().nonnegative().nullable().optional(),
+  productDepth: z.number().finite().nonnegative().nullable().optional(),
   productWeight: z.number().nonnegative().optional(),
   packageWidth: z.number().nonnegative().optional(),
   packageHeight: z.number().nonnegative().optional(),

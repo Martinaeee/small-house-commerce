@@ -364,6 +364,9 @@ model Sku {
   // strikethrough "original price" shown on the PDP (§8 Price Module).
   price           Decimal?  @map("price") @db.Decimal(10, 2)
   compareAtPrice  Decimal?  @map("compare_at_price") @db.Decimal(10, 2)
+  productWidth    Float?    @map("product_width") @db.DoublePrecision
+  productHeight   Float?    @map("product_height") @db.DoublePrecision
+  productDepth    Float?    @map("product_depth") @db.DoublePrecision
   // §24 package dimensions - separate from product dimensions (§23)
   productWeight   Float?    @map("product_weight") @db.DoublePrecision
   packageWidth    Float?    @map("package_width") @db.DoublePrecision

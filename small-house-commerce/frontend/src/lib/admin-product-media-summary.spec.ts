@@ -53,7 +53,7 @@ function sku(id: string): AdminSkuDraft {
     landedCost: null,
     price: 100,
     compareAtPrice: null,
-    productWeight: null,
+    productWidth: null, productDepth: null, productHeight: null, productWeight: null,
     packageWidth: null,
     packageHeight: null,
     packageDepth: null,

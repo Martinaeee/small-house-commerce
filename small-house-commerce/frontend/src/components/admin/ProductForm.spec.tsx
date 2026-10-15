@@ -55,6 +55,62 @@ function baseValue(overrides: Partial<ProductFormValue> = {}): ProductFormValue 
   };
 }
 
+describe("legacy SKU product dimension serialization", () => {
+  const axes = ["productWidth", "productDepth", "productHeight"] as const;
+  const form = (values: Partial<NonNullable<ProductFormValue["variants"][number]["sku"]>> = {}) =>
+    baseValue({ variants: [{
+      name: "Default", position: "0",
+      sku: { ...emptySkuFormValue(), skuCode: "DIM-1", ...values },
+    }] });
+
+  it("serializes LWH product dimensions independently from package values", () => {
+    const result = serializeFormValue(form({
+      productWidth: "120", productDepth: "60", productHeight: "75",
+      packageWidth: "130", packageDepth: "70", packageHeight: "85",
+      packageWeight: "5", volumetricWeight: "9",
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants![0].sku).toMatchObject({
+      productWidth: 120, productDepth: 60, productHeight: 75,
+      packageWidth: 130, packageDepth: 70, packageHeight: 85,
+      packageWeight: 5, volumetricWeight: 9,
+    });
+  });
+
+  it.each(axes)("sends empty %s as explicit null to restore inheritance", key => {
+    const result = serializeFormValue(form({ [key]: "" }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants![0].sku).toHaveProperty(key, null);
+  });
+
+  it.each(axes)("preserves explicit zero in %s", key => {
+    const result = serializeFormValue(form({ [key]: "0" }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants![0].sku).toHaveProperty(key, 0);
+  });
+
+  it.each(axes.flatMap(key => ["-1", "NaN", "Infinity", "-Infinity"].map(raw => ({ key, raw }))))
+    ("rejects $raw at the $key field", ({ key, raw }) => {
+      const result = serializeFormValue(form({ [key]: raw }));
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("invalid dimension accepted");
+      expect(result.fieldErrors?.[`variants.0.sku.${key}`]).toBeTruthy();
+    });
+});
+
+describe("SKU product dimension defaults", () => {
+  it("starts new legacy SKU dimensions as inherited empty inputs", () => {
+    expect(emptySkuFormValue()).toMatchObject({
+      productWidth: "",
+      productDepth: "",
+      productHeight: "",
+    });
+  });
+});
+
 describe("ProductForm card snapshot serialization", () => {
   it.each([null, {
     cover: { type: "IMAGE" as const, url: "/uploads/card.webp", altText: null }, hover: null,
@@ -337,6 +393,238 @@ async function openVariantsTab(): Promise<void> {
   await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
 }
 
+describe("ProductForm confirmation-assist integration", () => {
+  beforeEach(() => setAdminLang("zh"));
+
+  function initialValue(typed = true): ProductFormValue {
+    const initial = baseValue({
+      width: "0", depth: "", height: "70",
+      foldedWidth: "90", foldedDepth: "40", foldedHeight: "30",
+      variants: [{
+        id: "variant-1", clientKey: "variant-key-1", name: "Red", position: "0",
+        sku: {
+          ...emptySkuFormValue(), id: "sku-1", skuCode: "RED-1", price: "1299", stock: "7", reserved: "2",
+          productWidth: "120", productDepth: "60", productHeight: "75", productWeight: "2",
+          packageWidth: "0", packageDepth: "", packageHeight: "80", packageWeight: "", volumetricWeight: "9",
+        },
+      }],
+    });
+    if (typed) {
+      initial.graphTyped = true;
+      initial.graph = cardGraphFromLegacyForm(initial);
+    }
+    return initial;
+  }
+
+  it("keeps parent values unchanged until confirming empty-only dimensions", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = initialValue();
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm weight 5kg");
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+    expect(screen.getByLabelText(/^长/)).toHaveValue("0");
+    expect(screen.getByLabelText(/^宽/)).toHaveValue("");
+    expect(screen.getByLabelText(/^高/)).toHaveValue("70");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    const submitted = onSubmit.mock.calls[0][0] as ProductFormValue;
+    expect(submitted).toMatchObject({ width: "0", depth: "60", height: "70", foldedWidth: "90", foldedDepth: "40", foldedHeight: "30" });
+    expect(submitted.graph).toEqual(initial.graph);
+    expect(submitted.variants).toEqual(initial.variants);
+  });
+
+  it("confirms replacement only into the selected folded parent dimensions", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const view = renderForm(initialValue(), onSubmit);
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
+    await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm");
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+    await user.selectOptions(screen.getByLabelText("应用方式"), "replace");
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ width: "0", depth: "", height: "70", foldedWidth: "120", foldedDepth: "60", foldedHeight: "75" });
+  });
+
+  it.each([true, false])("confirms only the intended package fields in typed=%s SKU drafts", async typed => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = initialValue(typed);
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    await user.type(screen.getByLabelText("粘贴包装信息"), "130x70x85cm 5kg");
+    await user.click(screen.getByRole("button", { name: "解析包装信息" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect((onSubmit.mock.calls[0][0] as ProductFormValue)[typed ? "graph" : "variants"])
+      .toEqual(initial[typed ? "graph" : "variants"]);
+    onSubmit.mockClear();
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    const submitted = onSubmit.mock.calls[0][0] as ProductFormValue;
+    if (typed) {
+      expect(submitted.graph!.variants[0]).toEqual({
+        ...initial.graph!.variants[0],
+        sku: { ...initial.graph!.variants[0].sku, packageDepth: 70, packageWeight: 5 },
+      });
+    } else {
+      expect(submitted.variants[0]).toEqual({
+        ...initial.variants[0],
+        sku: { ...initial.variants[0].sku, packageDepth: "70", packageWeight: "5" },
+      });
+    }
+    expect(submitted).toMatchObject({ width: "0", depth: "", height: "70" });
+  });
+
+  it("replaces only the chosen SKU package and preserves the sibling and inventory", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = initialValue();
+    const sibling = structuredClone(initial.graph!.variants[0]);
+    sibling.id = "variant-2";
+    sibling.clientKey = "variant-key-2";
+    sibling.combinationKey = "sibling";
+    sibling.name = "Blue";
+    sibling.sku = { ...sibling.sku!, id: "sku-2", skuCode: "BLUE-1" };
+    initial.graph!.variants.push(sibling);
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    await user.type(screen.getAllByLabelText("粘贴包装信息")[0], "130x70x85cm 5kg");
+    await user.click(screen.getAllByRole("button", { name: "解析包装信息" })[0]);
+    await user.selectOptions(screen.getByLabelText("应用模式"), "replace");
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    const graph = (onSubmit.mock.calls[0][0] as ProductFormValue).graph!;
+    expect(graph.variants[0]).toEqual({ ...initial.graph!.variants[0], sku: {
+      ...initial.graph!.variants[0].sku, packageWidth: 130, packageDepth: 70, packageHeight: 85, packageWeight: 5,
+    } });
+    expect(graph.variants[1]).toEqual(sibling);
+  });
+
+  it.each([true, false])("retains the confirmed typed=%s package draft after a save error and retries unchanged", async typed => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = initialValue(typed);
+    const original = structuredClone(initial);
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    await user.type(screen.getByLabelText("粘贴包装信息"), "140x80x95cm 6kg");
+    await user.click(screen.getByRole("button", { name: "解析包装信息" }));
+    await user.selectOptions(screen.getByLabelText("应用模式"), "replace");
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const submitted = structuredClone(onSubmit.mock.calls[0][0]);
+    view.rerender(<AdminI18nProvider><ProductForm initial={initial} categories={[]} onSubmit={onSubmit} submitLabel="Save changes" pending={false} error="保存失败，请重试" savedPreview={null} /></AdminI18nProvider>);
+    expect(screen.getByRole("alert")).toHaveTextContent("保存失败，请重试");
+    expect(screen.getByLabelText(typed ? "Red 的外包装长" : /^外包装长/)).toHaveValue("140");
+    expect(screen.getByLabelText(typed ? "Red 的外包装宽" : /^外包装宽/)).toHaveValue("80");
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit.mock.calls[1][0]).toEqual(submitted);
+    expect(initial).toEqual(original);
+  });
+
+  it("keeps confirmed packaging after validation blocks save and retries after correcting the invalid field", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = initialValue();
+    initial.slug = "invalid slug";
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    await user.type(screen.getByLabelText("粘贴包装信息"), "140x80x95cm 6kg");
+    await user.click(screen.getByRole("button", { name: "解析包装信息" }));
+    await user.selectOptions(screen.getByLabelText("应用模式"), "replace");
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    expect(screen.getByLabelText("Red 的外包装长")).toHaveValue("140");
+    expect(screen.getByLabelText("Red 的外包装宽")).toHaveValue("80");
+    await user.click(view.container.querySelector("#pf-tab-seo")!);
+    fireEvent.change(view.container.querySelector("#pf-slug")!, { target: { value: "chair" } });
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0].graph.variants[0].sku).toEqual({
+      ...initial.graph!.variants[0].sku, packageWidth: 140, packageDepth: 80, packageHeight: 95, packageWeight: 6,
+    });
+  });
+
+  it.each(["specs", "shipping"])("blocks the %s assist while saving", async section => {
+    const user = userEvent.setup();
+    render(<AdminI18nProvider><ProductForm initial={initialValue()} categories={[]} onSubmit={vi.fn()} submitLabel="Save" pending error={null} savedPreview={null} requestedSection={section === "specs" ? "specs" : "shipping"} /></AdminI18nProvider>);
+    const input = screen.getByLabelText(section === "specs" ? "粘贴商品尺寸" : "粘贴包装信息");
+    expect(input).toBeDisabled();
+    await user.type(input, "120x60x75cm 5kg");
+    expect(input).toHaveValue("");
+  });
+
+  it.each([{ section: "specs", typed: true }, { section: "shipping", typed: true }, { section: "shipping", typed: false }])("blocks the $section assist typed=$typed during an in-flight media upload", async ({ section, typed }) => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    let resolveUpload!: (value: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockReturnValue(new Promise(resolve => { resolveUpload = resolve; }));
+    const view = renderForm(initialValue(typed));
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+    fireEvent.change(screen.getAllByLabelText("Choose media to upload")[0], { target: { files: [new File(["image"], "phase1.jpg", { type: "image/jpeg" })] } });
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    await user.click(view.container.querySelector(`#pf-tab-${section}`)!);
+    const input = screen.getByLabelText(section === "specs" ? en.product_dimensions_assist_label : en.packaging_assist_label);
+    const parseButton = screen.getByRole("button", { name: section === "specs" ? en.product_dimensions_assist_parse : en.packaging_assist_parse });
+    expect(input).toBeDisabled();
+    expect(parseButton).toBeDisabled();
+    await act(async () => resolveUpload({ url: "/uploads/phase1.jpg", key: "phase1" }));
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "120x60x75cm 5kg");
+    expect(parseButton).toBeEnabled();
+  });
+
+  it("shows expanded and folded parent inputs in LWH order without swapping values", async () => {
+    const user = userEvent.setup();
+    const view = renderForm(initialValue());
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    expect(Array.from(view.container.querySelectorAll<HTMLInputElement>('input[id^="pf-"]')).filter(input => ["pf-width", "pf-depth", "pf-height", "pf-foldedWidth", "pf-foldedDepth", "pf-foldedHeight"].includes(input.id)).map(input => [input.id, input.value]))
+      .toEqual([["pf-width", "0"], ["pf-depth", ""], ["pf-height", "70"], ["pf-foldedWidth", "90"], ["pf-foldedDepth", "40"], ["pf-foldedHeight", "30"]]);
+  });
+
+  it.each([true, false])("shows package LWH inputs and labels in typed=%s shipping", async typed => {
+    const user = userEvent.setup();
+    renderForm(initialValue(typed));
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    const labels = screen.getAllByRole("textbox").map(input => input.getAttribute("aria-label") ?? document.querySelector(`label[for="${input.id}"]`)?.textContent ?? "");
+    expect(labels.filter(label => /外包装[长宽高]/.test(label)).map(label => label.match(/外包装[长宽高]/)![0]))
+      .toEqual(["外包装长", "外包装宽", "外包装高"]);
+  });
+});
+
+describe("ProductForm SKU dimension integration", () => {
+  it("copies current product defaults through the matrix into the submitted draft", async () => {
+    setAdminLang("zh");
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const view = renderForm(baseValue({
+      width: "100", depth: "50", height: "70", graphTyped: true,
+      graph: structuredClone(typedGraph),
+    }), onSubmit);
+    await openVariantsTab();
+    await user.type(screen.getByLabelText("Red 的 SKU 编码"), "DIM-RED");
+    await user.type(screen.getByLabelText("Red 的售价"), "1000");
+    expect(screen.getByText("继承商品：100 cm")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" }));
+    expect(screen.getByLabelText("Red 的商品长（cm）")).toHaveValue("100");
+    expect(screen.getByLabelText("Red 的商品宽（cm）")).toHaveValue("50");
+    expect(screen.getByLabelText("Red 的商品高（cm）")).toHaveValue("70");
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect((onSubmit.mock.calls[0][0] as ProductFormValue).graph!.variants[0].sku)
+      .toMatchObject({ productWidth: 100, productDepth: 50, productHeight: 70 });
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -486,7 +774,7 @@ describe("ProductForm variants tab modes", () => {
             supplierCost: "",
             costCurrency: "",
             landedCost: "",
-            productWeight: "",
+            productWidth: "", productDepth: "", productHeight: "", productWeight: "",
             packageWidth: "",
             packageHeight: "",
             packageDepth: "",
@@ -509,7 +797,7 @@ describe("ProductForm variants tab modes", () => {
             supplierCost: "",
             costCurrency: "",
             landedCost: "",
-            productWeight: "",
+            productWidth: "", productDepth: "", productHeight: "", productWeight: "",
             packageWidth: "",
             packageHeight: "",
             packageDepth: "",
@@ -1093,7 +1381,7 @@ describe("ProductForm variants tab modes", () => {
             landedCost: null,
             price: 1299,
             compareAtPrice: null,
-            productWeight: null,
+            productWidth: null, productDepth: null, productHeight: null, productWeight: null,
             packageWidth: null,
             packageHeight: null,
             packageDepth: null,
@@ -1149,7 +1437,7 @@ describe("ProductForm Task 3 localization and structure", () => {
           supplierCost: "",
           costCurrency: "",
           landedCost: "",
-          productWeight: "",
+          productWidth: "", productDepth: "", productHeight: "", productWeight: "",
           packageWidth: "",
           packageHeight: "",
           packageDepth: "",
@@ -1258,7 +1546,7 @@ describe("ProductForm Task 3 localization and structure", () => {
     // The per-field error under the width input (its own role=alert) is the
     // translated zh sentence — serializeFormValue must receive the active
     // translator, not fall back to the English dictionary.
-    expect(screen.getByText("宽度 必须是数字。")).toBeInTheDocument();
+    expect(screen.getByText("长 必须是数字。")).toBeInTheDocument();
   });
 
   it("renders one stock input and one primary submit per form (no duplicate ids)", async () => {

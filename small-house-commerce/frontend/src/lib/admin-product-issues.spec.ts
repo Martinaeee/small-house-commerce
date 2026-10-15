@@ -97,7 +97,7 @@ function skuDraft(skuCode: string): NonNullable<AdminCatalogGraphDraft["variants
   return {
     skuCode, status: "ACTIVE", supplierSku: null, supplierCost: null,
     costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
-    productWeight: null, packageWidth: null, packageHeight: null,
+    productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null,
     packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
   };
 }
@@ -112,7 +112,7 @@ describe("collectGraphIssues", () => {
       sku: {
         skuCode, status: "ACTIVE", price: 3499, compareAtPrice: null,
         supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null,
-        productWeight: null, packageWidth: 85, packageHeight: null,
+        productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: 85, packageHeight: null,
         packageDepth: null, packageWeight: 12, volumetricWeight: null, onHand: 6,
       },
     });
@@ -234,7 +234,7 @@ describe("collectGraphIssues", () => {
               landedCost: null,
               price: 1299,
               compareAtPrice: null,
-              productWeight: null,
+              productWidth: null, productDepth: null, productHeight: null, productWeight: null,
               packageWidth: null,
               packageHeight: null,
               packageDepth: null,

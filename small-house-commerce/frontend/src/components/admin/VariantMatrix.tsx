@@ -6,6 +6,7 @@ import { DecimalInput } from "@/components/admin/DecimalInput";
 import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
+  applyProductDimensionsToVariants,
   entityRowKey,
   findSupersededVariantRows,
   variantDisplayName,
@@ -13,6 +14,7 @@ import {
   type AdminSkuDraft,
   type AdminVariantDraft,
   type EntityRef,
+  type ProductDimensionApplyResult,
   type VariantCandidate,
 } from "@/lib/admin-product-graph";
 
@@ -36,6 +38,11 @@ export const MATRIX_PAGE_SIZE = 30;
 
 const NUM_RE = /^\d+$/;
 const PRICE_RE = /^\d+(\.\d*)?$/;
+const PRODUCT_DIMENSION_FIELDS = [
+  { skuKey: "productWidth", productKey: "width", labelKey: "product_sku_product_width" },
+  { skuKey: "productDepth", productKey: "depth", labelKey: "product_sku_product_depth" },
+  { skuKey: "productHeight", productKey: "height", labelKey: "product_sku_product_height" },
+] as const;
 
 function emptySkuDraft(): AdminSkuDraft {
   return {
@@ -47,6 +54,9 @@ function emptySkuDraft(): AdminSkuDraft {
     landedCost: null,
     price: null,
     compareAtPrice: null,
+    productWidth: null,
+    productDepth: null,
+    productHeight: null,
     productWeight: null,
     packageWidth: null,
     packageHeight: null,
@@ -105,11 +115,13 @@ export function VariantMatrix({
   pending = false,
   highlightKey = null,
   requestedSkuCode = null,
+  productDimensions = null,
 }: {
   candidates: readonly VariantCandidate[];
   draft?: AdminCatalogGraphDraft | null;
   onChange?: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
+  productDimensions?: { width: number | null; depth: number | null; height: number | null } | null;
   /** Materialized row the problem rail asked to highlight. */
   highlightKey?: string | null;
   /** Persisted SKU code requested by an internal search result. */
@@ -146,6 +158,7 @@ export function VariantMatrix({
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkStock, setBulkStock] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [dimensionResult, setDimensionResult] = useState<ProductDimensionApplyResult | null>(null);
   const [rowWarnings, setRowWarnings] = useState<Record<string, string>>({});
 
   const totalPages = Math.max(
@@ -187,6 +200,17 @@ export function VariantMatrix({
     draft?.variants.find(
       (row) => row.combinationKey === candidate.combinationKey,
     );
+
+  const canApplyDimensions = editable && productDimensions !== null &&
+    Object.values(productDimensions).some(value => value !== null) &&
+    candidates.some(candidate => rowFor(candidate)?.sku?.status === "ACTIVE");
+
+  const applyDimensions = (mode: "all" | "empty-only"): void => {
+    if (!draft || !productDimensions || !canApplyDimensions) return;
+    const result = applyProductDimensionsToVariants(structuredClone(draft), productDimensions, mode);
+    onChange?.(next => { applyProductDimensionsToVariants(next, productDimensions, mode); });
+    setDimensionResult(result);
+  };
 
   const editSku = (
     candidate: VariantCandidate,
@@ -277,6 +301,33 @@ export function VariantMatrix({
           </button>
         </div>
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="min-h-11 rounded-lg border border-border px-3 text-sm font-semibold disabled:text-ink-muted"
+          disabled={!canApplyDimensions}
+          onClick={() => applyDimensions("all")}
+        >
+          {t("product_matrix_dimensions_apply")}
+        </button>
+        <button
+          type="button"
+          className="min-h-11 rounded-lg border border-border px-3 text-sm font-semibold disabled:text-ink-muted"
+          disabled={!canApplyDimensions}
+          onClick={() => applyDimensions("empty-only")}
+        >
+          {t("product_matrix_dimensions_fill")}
+        </button>
+        <p className="w-full text-xs text-ink-muted">{t("product_matrix_dimensions_hint")}</p>
+        {dimensionResult ? (
+          <p role="status" className="text-xs text-ink-secondary">
+            {t("product_matrix_dimensions_result", {
+              changed: dimensionResult.changedCount,
+              skipped: dimensionResult.skippedCount,
+            })}
+          </p>
+        ) : null}
+      </div>
       {bulkError ? (
         <p role="alert" className="text-xs text-red-700">
           {bulkError}
@@ -302,6 +353,7 @@ export function VariantMatrix({
                   <th className="py-2 pr-3">{t("product_matrix_col_compare_at")}</th>
                   <th className="py-2 pr-3">{t("product_matrix_col_stock")}</th>
                   <th className="py-2 pr-3">{t("product_matrix_col_status")}</th>
+                  <th className="py-2 pr-3">{t("product_matrix_col_dimensions")}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
@@ -486,6 +538,54 @@ export function VariantMatrix({
                           </span>
                         )}
                       </td>
+                      <td className="py-2 pr-3">
+                        <div className="grid min-w-80 grid-cols-3 gap-2">
+                          {PRODUCT_DIMENSION_FIELDS.map(({ skuKey, productKey, labelKey }) => {
+                            const inherited = sku?.[skuKey] === null;
+                            const parentValue = productDimensions?.[productKey] ?? null;
+                            return (
+                              <label key={skuKey} className="text-xs text-ink-secondary">
+                                <span className="mb-1 block">{t(labelKey)}</span>
+                                <DecimalInput
+                                  aria-label={t("product_matrix_dimension_aria", { name: candidate.name, dimension: t(labelKey) })}
+                                  value={sku?.[skuKey] ?? null}
+                                  placeholder={parentValue === null ? "" : String(parentValue)}
+                                  inputMode="decimal"
+                                  onValueChange={value => {
+                                    if (value !== null && !Number.isFinite(value)) {
+                                      setWarning(candidate.combinationKey, t("product_matrix_dimension_error"));
+                                      return;
+                                    }
+                                    editSku(candidate, { [skuKey]: value });
+                                    setWarning(candidate.combinationKey, null);
+                                  }}
+                                  onValidityChange={valid => setWarning(candidate.combinationKey, valid ? null : t("product_matrix_dimension_error"))}
+                                  disabled={!editable || sku?.status !== "ACTIVE"}
+                                  autoComplete="off"
+                                />
+                                {sku ? (
+                                  <span className="mt-1 block text-ink-muted">
+                                    {inherited
+                                      ? parentValue === null
+                                        ? t("product_matrix_dimension_unset")
+                                        : t("product_matrix_dimension_inherited", { value: parentValue })
+                                      : t("product_matrix_dimension_overridden")}
+                                  </span>
+                                ) : null}
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-1 min-h-11 text-xs font-semibold text-primary disabled:text-ink-muted"
+                          aria-label={t("product_matrix_dimensions_clear_aria", { name: candidate.name })}
+                          disabled={!editable || sku?.status !== "ACTIVE" || PRODUCT_DIMENSION_FIELDS.every(({ skuKey }) => sku[skuKey] === null)}
+                          onClick={() => editSku(candidate, { productWidth: null, productDepth: null, productHeight: null })}
+                        >
+                          {t("product_matrix_dimensions_clear")}
+                        </button>
+                      </td>
                       <td className="py-2 text-right">
                         {!persisted && editable ? (
                           <button
@@ -570,6 +670,7 @@ export function VariantMatrix({
                       <td className="py-2 pr-3 text-xs text-ink-muted">
                         {sku ? t(`product_sku_status_${sku.status}`) : t("product_matrix_no_sku")}
                       </td>
+                      <td />
                       <td className="py-2 text-right">
                         <button
                           type="button"

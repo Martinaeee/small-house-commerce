@@ -5,6 +5,7 @@ import type { Product } from "@/lib/api";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpDetails } from "./PdpDetails";
+import { PdpSectionNavGate } from "./PdpSectionNavGate";
 
 const product: Product = {
   id: "detail-product",
@@ -166,6 +167,52 @@ function contentOrder(container: HTMLElement): string[] {
 }
 
 describe("PdpDetails", () => {
+  it("switches both dimension sections with the displayed SKU and per-axis fallback", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    item.width = 100; item.depth = 50; item.height = 70;
+    Object.assign(item.variants[0].sku!, { productWidth: 120, productDepth: 60, productHeight: 75 });
+    Object.assign(item.variants[1].sku!, { productWidth: null, productDepth: 80, productHeight: 0 });
+    render(<PdpPurchaseProvider product={item}>
+      <ProductOptionSelector lineId="primary" instanceId="dimension-test" />
+      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+    </PdpPurchaseProvider>);
+    const sections = ["Product Specifications", "Material & Dimensions"].map(name => screen.getByRole("region", { name }));
+    for (const section of sections) {
+      expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
+      expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("60 cm");
+      expect(within(section).getByText("Height").nextElementSibling).toHaveTextContent("75 cm");
+      expect(within(section).queryByText("130 cm")).not.toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: "White" }));
+    for (const section of sections) {
+      expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("100 cm");
+      expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("80 cm");
+      expect(within(section).getByText("Height").nextElementSibling?.textContent).toBe("0 cm");
+      expect(within(section).queryByText("132 cm")).not.toBeInTheDocument();
+    }
+  });
+
+  it("keeps navigation and anchors aligned for SKU-only dimensions and empty selections", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item, { materials: null, features: null, width: null, depth: null, height: null, foldedWidth: null, foldedDepth: null, foldedHeight: null });
+    for (const variant of item.variants) variant.sku!.productWeight = null;
+    Object.assign(item.variants[0].sku!, { productWidth: 0, productDepth: null, productHeight: null });
+    Object.assign(item.variants[1].sku!, { productWidth: null, productDepth: null, productHeight: null });
+    render(<PdpPurchaseProvider product={item}>
+      <PdpSectionNavGate product={item} hasDetails={false} />
+      <ProductOptionSelector lineId="primary" instanceId="dimension-nav-test" />
+      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+    </PdpPurchaseProvider>);
+    expect(screen.getByRole("link", { name: "Specifications" })).toHaveAttribute("href", "#specifications");
+    expect(screen.getByRole("region", { name: "Product Specifications" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "White" }));
+    expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Product Specifications" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Material & Dimensions" })).not.toBeInTheDocument();
+  });
+
   it("conserves mixed detail media around truthful structured sections", () => {
     const { container } = render(
       <PdpPurchaseProvider product={product}>

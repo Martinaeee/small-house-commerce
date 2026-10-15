@@ -61,7 +61,7 @@ function persistedVariant(index: number, skuCode: string): AdminVariantDraft {
       landedCost: null,
       price: null,
       compareAtPrice: null,
-      productWeight: null,
+      productWidth: null, productDepth: null, productHeight: null, productWeight: null,
       packageWidth: null,
       packageHeight: null,
       packageDepth: null,
@@ -79,15 +79,19 @@ function withProvider(children: ReactNode): ReactNode {
 function Harness({
   candidates,
   initial,
+  productDimensions = null,
+  pending = false,
 }: {
   candidates: VariantCandidate[];
   initial: AdminCatalogGraphDraft;
+  productDimensions?: { width: number | null; depth: number | null; height: number | null } | null;
+  pending?: boolean;
 }) {
   return withProvider(
     <GraphDraftHarness
       initial={initial}
       render={(draft, onChange) => (
-        <VariantMatrix candidates={candidates} draft={draft} onChange={onChange} />
+        <VariantMatrix candidates={candidates} draft={draft} onChange={onChange} productDimensions={productDimensions} pending={pending} />
       )}
     />,
   );
@@ -105,6 +109,139 @@ describe("VariantMatrix", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  function dimensionGraph(count = 2): AdminCatalogGraphDraft {
+    const initial = draft({ options: [{
+      clientKey: "color", kind: "COLOR", name: "Color", position: 0,
+      presentation: "TEXT", isMediaDriver: false, isActive: true,
+      values: Array.from({ length: count }, (_, index) => ({
+        clientKey: `value-${index}`, label: `Variant ${index + 1}`, position: index,
+        swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true,
+      })),
+    }] });
+    initial.variants = buildVariantCandidates(initial).map((candidate, index) => ({
+      ...persistedVariant(index, `DIM-${index + 1}`),
+      combinationKey: candidate.combinationKey,
+      optionValueRefs: [{ clientKey: `value-${index}` }],
+    }));
+    return initial;
+  }
+
+  describe("SKU product dimension editing", () => {
+    const parent = { width: 100, depth: 50, height: 70 };
+    const dimensions = { productWidth: 120, productDepth: 60, productHeight: 75 };
+
+    it("orders the inputs as LWH and displays inherited product values without copying them", () => {
+      const initial = dimensionGraph(1);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      const inputs = screen.getAllByRole("textbox").filter(input => input.getAttribute("aria-label")?.includes("的商品"));
+      expect(inputs.map(input => input.getAttribute("aria-label"))).toEqual([
+        "Variant 1 的商品长（cm）", "Variant 1 的商品宽（cm）", "Variant 1 的商品高（cm）",
+      ]);
+      inputs.forEach(input => expect(input).toHaveValue(""));
+      for (const value of [100, 50, 70]) expect(screen.getByText(`继承商品：${value} cm`)).toBeVisible();
+      expect(draftJson()).toEqual(initial);
+    });
+
+    it("edits only dimension overrides and clearing one input restores only that axis", async () => {
+      const user = userEvent.setup();
+      const initial = dimensionGraph(1);
+      Object.assign(initial.variants[0].sku!, { packageWidth: 130, packageDepth: 70, packageHeight: 85, packageWeight: 5, volumetricWeight: 9 });
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      await user.type(screen.getByLabelText("Variant 1 的商品长（cm）"), "120");
+      await user.type(screen.getByLabelText("Variant 1 的商品宽（cm）"), "60");
+      await user.type(screen.getByLabelText("Variant 1 的商品高（cm）"), "75");
+      expect(draftVariants()[0]).toEqual({ ...initial.variants[0], sku: { ...initial.variants[0].sku!, ...dimensions } });
+      expect(screen.getAllByText("自定义")).toHaveLength(3);
+      await user.clear(screen.getByLabelText("Variant 1 的商品长（cm）"));
+      expect(draftVariants()[0].sku).toMatchObject({ productWidth: null, productDepth: 60, productHeight: 75 });
+      expect(screen.getByText("继承商品：100 cm")).toBeVisible();
+    });
+
+    it("clears all three overrides without changing other SKU fields", async () => {
+      const user = userEvent.setup();
+      const initial = dimensionGraph(1);
+      const inherited = structuredClone(initial.variants[0]);
+      Object.assign(initial.variants[0].sku!, dimensions);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      await user.click(screen.getByRole("button", { name: "恢复 Variant 1 的商品尺寸继承" }));
+      expect(draftVariants()[0]).toEqual(inherited);
+    });
+
+    it("fills only null axes, reports counts, and never materializes an abstract candidate", async () => {
+      const user = userEvent.setup();
+      const initial = dimensionGraph(3);
+      initial.variants.pop();
+      Object.assign(initial.variants[1].sku!, dimensions);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      await user.click(screen.getByRole("button", { name: "仅填空尺寸" }));
+      expect(draftVariants()).toHaveLength(2);
+      expect(draftVariants()[0].sku).toMatchObject({ productWidth: 100, productDepth: 50, productHeight: 70 });
+      expect(draftVariants()[1].sku).toMatchObject(dimensions);
+      expect(screen.getByText("已更新 1 个 SKU，跳过 1 个")).toBeVisible();
+      expect(screen.getByLabelText("Variant 3 的商品长（cm）")).toBeDisabled();
+    });
+
+    it("applies to eligible SKUs on every page, not just the visible thirty rows", async () => {
+      const user = userEvent.setup();
+      const initial = dimensionGraph(31);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      await user.click(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" }));
+      expect(draftVariants()).toHaveLength(31);
+      draftVariants().forEach(row => expect(row.sku).toMatchObject({ productWidth: 100, productDepth: 50, productHeight: 70 }));
+      expect(screen.getByText("已更新 31 个 SKU，跳过 0 个")).toBeVisible();
+    });
+
+    it("disables dimensions and bulk actions during save", () => {
+      const initial = dimensionGraph(1);
+      Object.assign(initial.variants[0].sku!, dimensions);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} pending />);
+      expect(screen.getByLabelText("Variant 1 的商品长（cm）")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "恢复 Variant 1 的商品尺寸继承" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "仅填空尺寸" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" })).toBeDisabled();
+    });
+
+    it("does not expose dimension writes for a disabled SKU", () => {
+      const initial = dimensionGraph(1);
+      initial.variants[0].sku!.status = "DISABLED";
+      Object.assign(initial.variants[0].sku!, dimensions);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      expect(screen.getByLabelText("Variant 1 的商品长（cm）")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "恢复 Variant 1 的商品尺寸继承" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" })).toBeDisabled();
+      expect(draftJson()).toEqual(initial);
+    });
+
+    it("does not offer a bulk copy when product defaults are absent", () => {
+      const initial = dimensionGraph(1);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} />);
+      expect(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "仅填空尺寸" })).toBeDisabled();
+      expect(screen.getAllByText("继承商品（未设置）")).toHaveLength(3);
+    });
+
+    it("preserves a zero-valued product default as an explicit copied override", async () => {
+      const user = userEvent.setup();
+      const initial = dimensionGraph(1);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={{ ...parent, width: 0 }} />);
+      expect(screen.getByText("继承商品：0 cm")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "仅填空尺寸" }));
+      expect(draftVariants()[0].sku!.productWidth).toBe(0);
+      expect(screen.getByLabelText("Variant 1 的商品长（cm）")).toHaveValue("0");
+    });
+
+    it("keeps English LWH labels and inheritance copy coherent", () => {
+      setAdminLang("en");
+      const initial = dimensionGraph(1);
+      render(<Harness candidates={buildVariantCandidates(initial)} initial={initial} productDimensions={parent} />);
+      expect(screen.getByLabelText("Product length (cm) for Variant 1")).toHaveValue("");
+      expect(screen.getByLabelText("Product width (cm) for Variant 1")).toHaveValue("");
+      expect(screen.getByLabelText("Product height (cm) for Variant 1")).toHaveValue("");
+      expect(screen.getByText("Inherited: 100 cm")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Fill empty dimensions" })).toBeEnabled();
+    });
   });
 
   function retainedDefaultGraph(): AdminCatalogGraphDraft {
@@ -149,6 +286,8 @@ describe("VariantMatrix", () => {
     expect(screen.getByLabelText("Default 的 SKU 编码")).toBeDisabled();
     expect(screen.getByRole("button", { name: "移除临时款式 Default" })).toBeEnabled();
     expect(screen.getByText(/临时款式.*当前选项/)).toBeInTheDocument();
+    const retainedRow = screen.getByLabelText("Default 的库存").closest("tr")!;
+    expect(within(retainedRow).getAllByRole("cell")).toHaveLength(screen.getAllByRole("columnheader").length);
     expect(draftJson()).toEqual(initial);
   });
 
@@ -181,6 +320,26 @@ describe("VariantMatrix", () => {
       defaultDisplayVariantRef: null,
     });
     expect(screen.queryByLabelText("Default 的库存")).not.toBeInTheDocument();
+  });
+
+  it("materializes new SKU dimensions as inherited nulls without changing its identity or stock defaults", async () => {
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
+    expect(draftVariants()).toEqual([]);
+    await user.type(screen.getByLabelText("Variant 1 的 SKU 编码"), "DIM-1");
+    expect(draftVariants()).toHaveLength(1);
+    expect(draftVariants()[0]).toMatchObject({
+      clientKey: "variant-k0",
+      combinationKey: "k0",
+      sku: {
+        skuCode: "DIM-1",
+        productWidth: null,
+        productDepth: null,
+        productHeight: null,
+        price: null,
+        onHand: 0,
+      },
+    });
   });
 
   it("keeps the retained Default accessible on later matrix pages", async () => {
@@ -223,7 +382,7 @@ describe("VariantMatrix", () => {
     return {
       skuCode, status: "ACTIVE" as const, supplierSku: null, supplierCost: null,
       costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
-      productWeight: null, packageWidth: null, packageHeight: null,
+      productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null,
       packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
       ...overrides,
     };
@@ -420,7 +579,7 @@ describe("VariantMatrix", () => {
                 landedCost: null,
                 price: 1299,
                 compareAtPrice: null,
-                productWeight: null,
+                productWidth: null, productDepth: null, productHeight: null, productWeight: null,
                 packageWidth: null,
                 packageHeight: null,
                 packageDepth: null,
@@ -559,7 +718,7 @@ describe("VariantMatrix", () => {
                 landedCost: null,
                 price: null,
                 compareAtPrice: null,
-                productWeight: null,
+                productWidth: null, productDepth: null, productHeight: null, productWeight: null,
                 packageWidth: null,
                 packageHeight: null,
                 packageDepth: null,
