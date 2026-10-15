@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { createMarketingTestPrisma, marketingTestDatabase } from '../../../test/marketing-test-prisma.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -10,11 +10,7 @@ import { MarketingPerformanceService } from './marketing-performance.service.js'
 import { MarketingReportService } from './marketing-report.service.js';
 import { marketingPerformanceQuerySchema } from './dto/marketing-performance.dto.js';
 
-const database = process.env.MARKETING_TEST_DATABASE_URL;
-if (database) {
-  const url = new URL(database);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/small_house_marketing_dev') throw new Error('Performance integration requires the dedicated local marketing database.');
-}
+const database = marketingTestDatabase();
 
 describe.skipIf(!database)('marketing performance PostgreSQL aggregates', () => {
   let prisma: PrismaService;
@@ -43,7 +39,7 @@ describe.skipIf(!database)('marketing performance PostgreSQL aggregates', () => 
   afterEach(() => vi.useRealTimers());
 
   beforeAll(async () => {
-    prisma = new PrismaService(new ConfigService({ database: { url: database } })); await prisma.$connect();
+    prisma = createMarketingTestPrisma(database!); await prisma.$connect();
     performance = new MarketingPerformanceService(prisma);
     report = new MarketingReportService(prisma);
     optimizers = new OptimizersService(prisma);

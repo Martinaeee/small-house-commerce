@@ -30,6 +30,11 @@ describe('legacy backfill command safety', () => {
     expect(() => parseLegacyBackfillCommand(['--page-id', 'invalid'], database)).toThrow();
     expect(() => parseLegacyBackfillCommand(['--unknown'], database)).toThrow();
   });
+  it('refuses non-public schemas even with an exact database confirmation', () => {
+    const scoped = database.replace('schema=public', 'schema=release_marketing_upgrade_20261015');
+    expect(() => parseLegacyBackfillCommand([], scoped)).toThrow(/public-schema/);
+    expect(() => parseLegacyBackfillCommand(['--apply', '--confirm-database', '127.0.0.1:5432/small_house_marketing_dev'], scoped)).toThrow(/public-schema/);
+  });
   it('refuses writes without an exact database confirmation and accepts the confirmed target', () => {
     expect(() => parseLegacyBackfillCommand(['--apply'], database)).toThrow();
     expect(() => parseLegacyBackfillCommand(['--apply', '--confirm-database', 'wrong-database'], database)).toThrow();

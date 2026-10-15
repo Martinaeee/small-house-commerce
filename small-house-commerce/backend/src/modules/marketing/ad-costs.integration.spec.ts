@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { createMarketingTestPrisma, marketingTestDatabase } from '../../../test/marketing-test-prisma.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -6,11 +6,7 @@ import { AdCostsService } from './ad-costs.service.js';
 import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
 
-const database = process.env.MARKETING_TEST_DATABASE_URL;
-if (database) {
-  const url = new URL(database);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/small_house_marketing_dev') throw new Error('Cost integration requires the dedicated local marketing database.');
-}
+const database = marketingTestDatabase();
 
 describe.skipIf(!database)('advertising costs PostgreSQL transactions', () => {
   let prisma: PrismaService;
@@ -25,7 +21,7 @@ describe.skipIf(!database)('advertising costs PostgreSQL transactions', () => {
   const finance = () => ({ id: adminId, permissions: ['MARKETING_VIEW_ALL'] });
 
   beforeAll(async () => {
-    prisma = new PrismaService(new ConfigService({ database: { url: database } }));
+    prisma = createMarketingTestPrisma(database!);
     await prisma.$connect();
     ownerId = (await prisma.user.create({ data: { name: 'Cost owner', email: `cost-owner-${tag}@example.test`, passwordHash: 'integration-only-not-a-login-password' } })).id;
     adminId = (await prisma.user.create({ data: { name: 'Cost admin', email: `cost-admin-${tag}@example.test`, passwordHash: 'integration-only-not-a-login-password' } })).id;
@@ -38,7 +34,7 @@ describe.skipIf(!database)('advertising costs PostgreSQL transactions', () => {
   afterAll(async () => {
     if (!prisma) return;
     if (productId) {
-      const [{ present }] = await prisma.$queryRaw<{ present: boolean }[]>`SELECT to_regclass('public.cost_entries') IS NOT NULL AS present`;
+      const [{ present }] = await prisma.$queryRaw<{ present: boolean }[]>`SELECT to_regclass('cost_entries') IS NOT NULL AS present`;
       if (present) {
         await prisma.adCostAudit.deleteMany({ where: { cost: { link: { productId } } } });
         await prisma.adCostEntry.deleteMany({ where: { link: { productId } } });

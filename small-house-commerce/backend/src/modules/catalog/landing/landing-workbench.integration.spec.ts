@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { createMarketingTestPrisma, marketingTestDatabase } from '../../../../test/marketing-test-prisma.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service.js';
@@ -11,12 +11,7 @@ import { normaliseLandingContent } from './landing-content.js';
 import { backfillLegacyLandingPages } from '../../marketing/legacy-migration.js';
 import { adminLandingPageQuerySchema, marketingProductPickerQuerySchema } from './dto/landing-page.dto.js';
 
-const database = process.env.MARKETING_TEST_DATABASE_URL;
-if (database) {
-  const url = new URL(database);
-  if (!['127.0.0.1', 'localhost'].includes(url.hostname) || url.pathname !== '/small_house_marketing_dev')
-    throw new Error('Marketing integration tests require the dedicated local marketing database.');
-}
+const database = marketingTestDatabase();
 
 describe.skipIf(!database)('landing workbench PostgreSQL transactions', () => {
   let prisma: PrismaService;
@@ -30,7 +25,7 @@ describe.skipIf(!database)('landing workbench PostgreSQL transactions', () => {
   const account = (id: string) => ({ id, permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OWN'] });
 
   beforeAll(async () => {
-    prisma = new PrismaService(new ConfigService({ database: { url: database } }));
+    prisma = createMarketingTestPrisma(database!);
     await prisma.$connect();
     for (let i = 0; i < 2; i++) {
       const user = await prisma.user.create({ data: { name: `Marketing test ${i}`, email: `marketing-${tag}-${i}@example.test`, passwordHash: 'integration-only-not-a-login-password' } });

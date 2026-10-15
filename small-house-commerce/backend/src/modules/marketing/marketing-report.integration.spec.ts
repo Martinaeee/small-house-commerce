@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { createMarketingTestPrisma, marketingTestDatabase } from '../../../test/marketing-test-prisma.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -8,11 +8,7 @@ import { AdCostsService } from './ad-costs.service.js';
 import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
 
-const database = process.env.MARKETING_TEST_DATABASE_URL;
-if (database) {
-  const url = new URL(database);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/small_house_marketing_dev') throw new Error('Report integration requires the dedicated local marketing database.');
-}
+const database = marketingTestDatabase();
 
 describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
   let prisma: PrismaService;
@@ -30,7 +26,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
   const query = (extra = {}) => ({ from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, page: 1, pageSize: 20, ...extra });
 
   beforeAll(async () => {
-    prisma = new PrismaService(new ConfigService({ database: { url: database } })); await prisma.$connect();
+    prisma = createMarketingTestPrisma(database!); await prisma.$connect();
     ownerId = (await prisma.user.create({ data: { name: 'Report owner', email: `report-${tag}@example.test`, passwordHash: 'integration-only-not-a-login-password' } })).id;
     otherId = (await prisma.user.create({ data: { name: 'Report other', email: `report-other-${tag}@example.test`, passwordHash: 'integration-only-not-a-login-password' } })).id;
     categoryId = (await prisma.category.create({ data: { name: 'Report integration', slug: `report-${tag}` } })).id;

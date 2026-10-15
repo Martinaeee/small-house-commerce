@@ -112,6 +112,34 @@ describe('immutable order marketing attribution', () => {
 });
 
 describe('customer note persistence', () => {
+  it.each([
+    [undefined, null],
+    [null, null],
+    ['', null],
+    ['  \n  ', null],
+    ['  Call before delivery  ', 'Call before delivery'],
+  ])('normalizes a submitted note %j to %j', (raw, expected) => {
+    const input = checkoutSchema.parse({ ...setup().input(), customerNote: raw });
+    expect(input.customerNote).toBe(expected);
+  });
+
+  it('accepts a 200-character note after trimming surrounding whitespace', () => {
+    const input = checkoutSchema.parse({ ...setup().input(), customerNote: `  ${'x'.repeat(200)}  ` });
+    expect(input.customerNote).toBe('x'.repeat(200));
+  });
+
+  it('rejects a submitted note longer than 200 characters', () => {
+    expect(checkoutSchema.safeParse({ ...setup().input(), customerNote: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('writes a 200-character note unchanged on the order row', async () => {
+    const h = setup();
+    const input = h.input(undefined, {});
+    input.customerNote = 'x'.repeat(200);
+    await h.service.checkout(input);
+    expect(h.writes[0]).toMatchObject({ customerNote: 'x'.repeat(200) });
+  });
+
   it('writes the customer note on the order row', async () => {
     const h = setup();
     const input = h.input(undefined, {});

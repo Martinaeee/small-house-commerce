@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { createMarketingTestPrisma, marketingTestDatabase } from '../../../test/marketing-test-prisma.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -8,11 +9,7 @@ import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
 import { MarketingTouchService } from './marketing-touch.service.js';
 
-const database = process.env.MARKETING_TEST_DATABASE_URL;
-if (database) {
-  const url = new URL(database);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/small_house_marketing_dev') throw new Error('Touch integration requires the dedicated local marketing database.');
-}
+const database = marketingTestDatabase();
 
 describe.skipIf(!database)('marketing touch PostgreSQL deduplication', () => {
   let prisma: PrismaService;
@@ -26,7 +23,7 @@ describe.skipIf(!database)('marketing touch PostgreSQL deduplication', () => {
   const account = () => ({ id: userId, permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OWN'] });
 
   beforeAll(async () => {
-    prisma = new PrismaService(new ConfigService({ database: { url: database } }));
+    prisma = createMarketingTestPrisma(database!);
     await prisma.$connect();
     userId = (await prisma.user.create({ data: { name: 'Touch owner', email: `touch-${tag}@example.test`, passwordHash: 'integration-only-not-a-login-password' } })).id;
     categoryId = (await prisma.category.create({ data: { name: 'Touch integration', slug: `touch-${tag}` } })).id;
