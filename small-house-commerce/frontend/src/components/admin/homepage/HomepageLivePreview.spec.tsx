@@ -89,6 +89,8 @@ function product(overrides: Partial<AdminProduct> = {}): AdminProduct {
           id: SKU_ID,
           skuCode: "PREVIEW-1",
           status: "ACTIVE",
+          isBundle: false,
+          bundleVersion: 0,
           price: "1200",
           compareAtPrice: null,
           supplierSku: null,

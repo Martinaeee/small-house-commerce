@@ -354,6 +354,8 @@ model Sku {
   variantId       String    @unique @map("variant_id") @db.Uuid
   skuCode         String    @unique @map("sku_code")
   status          SkuStatus @default(ACTIVE)
+  isBundle        Boolean   @default(false) @map("is_bundle")
+  bundleVersion   Int       @default(0) @map("bundle_version")
   // §22 supplier data
   supplierId      String?   @map("supplier_id") @db.Uuid
   supplierSku     String?   @map("supplier_sku")
@@ -386,10 +388,29 @@ model Sku {
   inventoryMovements InventoryMovement[]
   orderItems               OrderItem[]
   backInStockSubscriptions BackInStockSubscription[]
+  bundleComponents         SkuBundleComponent[] @relation("BundleSku")
+  componentOfBundles       SkuBundleComponent[] @relation("ComponentSku")
 
   @@index([productId])
   @@index([supplierId])
   @@map("skus")
+}
+
+model SkuBundleComponent {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  bundleSkuId    String   @map("bundle_sku_id") @db.Uuid
+  componentSkuId String   @map("component_sku_id") @db.Uuid
+  quantity       Int
+  position       Int
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  bundleSku    Sku @relation("BundleSku", fields: [bundleSkuId], references: [id], onDelete: Cascade)
+  componentSku Sku @relation("ComponentSku", fields: [componentSkuId], references: [id], onDelete: Restrict)
+
+  @@unique([bundleSkuId, componentSkuId])
+  @@index([componentSkuId])
+  @@map("sku_bundle_components")
 }
 
 /// PDP_SPEC §22 reviews. Admin can seed reviews for cold start; customer

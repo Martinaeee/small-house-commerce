@@ -19,11 +19,11 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
  */
 
 const refreshMock = vi.fn();
-const navigationState = vi.hoisted(() => ({ searchParams: "" }));
+const navigationState = vi.hoisted(() => ({ id: "p1", searchParams: "" }));
 const productFormRender = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ id: "p1" }),
+  useParams: () => ({ id: navigationState.id }),
   useRouter: () => ({ refresh: refreshMock, push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(navigationState.searchParams),
 }));
@@ -53,6 +53,9 @@ const updateProduct = vi.fn();
 const setStock = vi.fn();
 const setStockBatch = vi.fn();
 const listProductLandingPages = vi.fn();
+const getBundleComponents = vi.fn();
+const searchBundleSkus = vi.fn();
+const setBundleComponents = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
   adminApi: {
@@ -63,6 +66,9 @@ vi.mock("@/lib/admin-api", () => ({
     setStockBatch: (...args: unknown[]) => setStockBatch(...args),
     listProductLandingPages: (...args: unknown[]) =>
       listProductLandingPages(...args),
+    getBundleComponents: (...args: unknown[]) => getBundleComponents(...args),
+    searchBundleSkus: (...args: unknown[]) => searchBundleSkus(...args),
+    setBundleComponents: (...args: unknown[]) => setBundleComponents(...args),
   },
   formatAmount: (value: unknown) =>
     value === null || value === undefined ? "—" : `₱${value}`,
@@ -93,6 +99,8 @@ function skuOf(
     id,
     skuCode,
     status: "ACTIVE",
+    isBundle: false,
+    bundleVersion: 0,
     supplierId: null,
     supplierSku: null,
     supplierCost: null,
@@ -235,7 +243,7 @@ async function waitForForm(): Promise<void> {
 async function clickSave(
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> {
-  await user.click(screen.getByRole("button", { name: /^保存/ }));
+  await user.click(document.querySelector<HTMLButtonElement>('button[type="submit"]')!);
 }
 
 async function openVariantsTab(
@@ -316,6 +324,7 @@ describe("edit page saved preview", () => {
 describe("EditProductPage save orchestration", () => {
   beforeEach(() => {
     setAdminLang("zh");
+    navigationState.id = "p1";
     navigationState.searchParams = "";
     productFormRender.mockReset();
     refreshMock.mockReset();
@@ -327,9 +336,270 @@ describe("EditProductPage save orchestration", () => {
       .mockResolvedValue({ onHand: 0, reserved: 0, available: 0 });
     setStockBatch.mockReset();
     listProductLandingPages.mockReset().mockResolvedValue([]);
+    getBundleComponents.mockReset().mockResolvedValue({ version: 4, components: [{ id: "binding", componentSkuId: "chair", quantity: 2, position: 0, componentSkuCode: "CHAIR", componentProductName: "Chair", componentVariantName: "Black", availableInventory: 9, status: "ACTIVE", productStatus: "ACTIVE", isBundle: false }], availableInventory: 4 });
+    searchBundleSkus.mockReset().mockResolvedValue([{ id: "chair", skuCode: "CHAIR", productId: "other", productName: "Chair", variantName: "Black", availableInventory: 9 }]);
+    setBundleComponents.mockReset().mockResolvedValue({ version: 5, components: [], availableInventory: 0 });
   });
 
   afterEach(cleanup);
+
+  it.each(["DRAFT", "ACTIVE"] as const)("submits a newly assigned legacy-v0 cover when saving as %s", async (status) => {
+    const user = userEvent.setup();
+    const images = [{ id: "photo-a", url: "/uploads/desk.webp", type: "IMAGE" as const, altText: "Desk cover", sortOrder: 0, isScene: true }];
+    const product = legacyProduct({ images, variants: [{ id: "variant-1", name: "Walnut & Black", position: 0, cardMedia: null, sku: skuOf("sku-1", "TB006", 4) }] });
+    const cover = { cover: { type: "IMAGE" as const, url: "/uploads/desk.webp", altText: "Desk cover" }, hover: null };
+    const saved = typedProduct({
+      status, catalogGraphVersion: 1, images,
+      options: [{ ...COLOR_OPTION, values: [{ ...COLOR_OPTION.values[0], label: "Walnut & Black" }] }],
+      variants: [{ ...graphVariant("variant-1", "Walnut & Black", "value-1", skuOf("sku-1", "TB006", 4)), cardMedia: cover }],
+      media: images.map(image => ({ ...image, optionValueId: null, variantId: null })),
+    });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(saved);
+    renderEditPage();
+    await waitForForm();
+    await user.selectOptions(screen.getByRole("combobox", { name: "商品状态" }), status);
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Walnut & Black 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await clickSave(user);
+
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const body = updateProduct.mock.calls[0]![1];
+    expect(body.catalogGraphVersion).toBe(0);
+    expect(body.catalogGraph.options).toHaveLength(1);
+    expect(body.catalogGraph.options[0]).toHaveProperty("clientKey");
+    expect(body.catalogGraph.options[0]).not.toHaveProperty("id");
+    expect(body.catalogGraph.options[0].values[0]).toMatchObject({ label: "Walnut & Black", clientKey: expect.any(String) });
+    expect(body.catalogGraph.options[0].values[0]).not.toHaveProperty("id");
+    expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+      id: "variant-1", cardMedia: cover,
+      sku: expect.objectContaining({ skuCode: "TB006", price: 1299 }),
+      optionValueRefs: [{ clientKey: body.catalogGraph.options[0].values[0].clientKey }],
+    })]);
+    expect(body.catalogGraph.media).toEqual([]);
+    expect(body.catalogGraph.retirements.variantIds).toEqual([]);
+    expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    expect(body).not.toHaveProperty("variants");
+    expect(body).not.toHaveProperty("images");
+    expect(setStockBatch).not.toHaveBeenCalled();
+    expect(setStock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^保存/ })).toBeEnabled());
+    await clickSave(user);
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps every legacy sibling by its saved identity during cover materialization", async () => {
+    const user = userEvent.setup();
+    const images = [{ id: "photo-a", url: "/uploads/desk.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true }];
+    const siblingCard = { cover: { type: "IMAGE" as const, url: "/uploads/black.webp", altText: "Black" }, hover: null };
+    const siblingSku = { ...skuOf("sku-2", "TB007", 8), packageWidth: 90, packageWeight: 14, supplierCost: "50", costCurrency: "CNY" };
+    const product = legacyProduct({ images, variants: [
+      { id: "variant-1", name: "Walnut & Black", position: 0, sku: skuOf("sku-1", "TB006", 4) },
+      { id: "variant-2", name: "Black", position: 1, sku: siblingSku, cardMedia: siblingCard },
+    ] });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(product);
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Walnut & Black 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const graph = updateProduct.mock.calls[0]![1].catalogGraph;
+    expect(graph.variants.map((row: { id: string }) => row.id)).toEqual(["variant-1", "variant-2"]);
+    expect(graph.variants[1]).toMatchObject({ id: "variant-2", cardMedia: siblingCard, sku: { skuCode: "TB007", packageWidth: 90, packageWeight: 14, supplierCost: 50, costCurrency: "CNY" } });
+    expect(graph.media).toEqual([]);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("writes changed legacy stock only after the cover graph has saved", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const product = legacyProduct({ images: [{ id: "photo", url: "/uploads/desk.webp", type: "IMAGE", altText: null, sortOrder: 0 }] });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockImplementation(async () => { order.push("graph"); return product; });
+    setStockBatch.mockImplementation(async () => { order.push("stock"); return [{ skuId: "sku-1", ok: true, onHand: 6, reserved: 1, available: 5 }]; });
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await openVariantsTab(user);
+    await setInput(user, screen.getByLabelText("Default 的库存"), "6");
+    await clickSave(user);
+    await waitFor(() => expect(setStockBatch).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["graph", "stock"]);
+    expect(setStockBatch).toHaveBeenCalledWith([{ skuId: "sku-1", onHand: 6, reason: "Product form" }]);
+    expect(setStock).not.toHaveBeenCalled();
+  });
+
+  it("saves a newly materialized Bundle definition only after its real SKU identity exists", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    product.variants[1].sku = null;
+    const saved = structuredClone(product);
+    saved.catalogGraphVersion = 4;
+    saved.variants[1].sku = { ...skuOf("real-bundle", "SET-BLUE", 0), isBundle: true, bundleVersion: 0 };
+    getProduct.mockResolvedValue(product);
+    let finishGraph!: (value: AdminProduct) => void;
+    updateProduct.mockImplementation(() => new Promise(resolve => { finishGraph = resolve; }));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await user.type(screen.getByLabelText("Blue 的 SKU 编码"), "SET-BLUE");
+    await user.type(screen.getByLabelText("Blue 的售价"), "2499");
+    await user.click(screen.getByRole("checkbox", { name: "Blue 的虚拟 Bundle 模式" }));
+    await user.click(screen.getByRole("button", { name: "搜索 SKU" }));
+    await user.click(await screen.findByRole("button", { name: "添加 CHAIR" }));
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(setBundleComponents).not.toHaveBeenCalled();
+    finishGraph(saved);
+    await waitFor(() => expect(setBundleComponents).toHaveBeenCalledWith("p1", "real-bundle", { expectedVersion: 0, components: [{ componentSkuId: "chair", quantity: 1, position: 0 }] }));
+    expect(setStock).not.toHaveBeenCalled();
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("uses the latest edited draft once after a newly materialized definition failed", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    product.variants[1].sku = null;
+    const saved = structuredClone(product);
+    saved.catalogGraphVersion = 4;
+    saved.variants[1].sku = { ...skuOf("real-bundle", "SET-BLUE", 0), isBundle: true, bundleVersion: 0 };
+    getProduct.mockResolvedValueOnce(product).mockResolvedValue(saved);
+    updateProduct.mockResolvedValue(saved);
+    getBundleComponents.mockResolvedValue({ version: 0, components: [], availableInventory: 0 });
+    setBundleComponents.mockRejectedValueOnce(new Error("Temporary failure"));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await user.type(screen.getByLabelText("Blue 的 SKU 编码"), "SET-BLUE");
+    await user.type(screen.getByLabelText("Blue 的售价"), "2499");
+    await user.click(screen.getByRole("checkbox", { name: "Blue 的虚拟 Bundle 模式" }));
+    await user.click(screen.getByRole("button", { name: "搜索 SKU" }));
+    await user.click(await screen.findByRole("button", { name: "添加 CHAIR" }));
+    await clickSave(user);
+    await screen.findByText(/组件未保存/);
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Blue 的虚拟 Bundle 模式" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "搜索 SKU" }));
+    await user.click(await screen.findByRole("button", { name: "添加 CHAIR" }));
+    await setInput(user, screen.getByLabelText("CHAIR 的组件数量"), "3");
+    await clickSave(user);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "重试失败的 Bundle 组件" })).not.toBeInTheDocument());
+    expect(setBundleComponents).toHaveBeenCalledTimes(2);
+    expect(setBundleComponents.mock.calls[1]).toEqual(["p1", "real-bundle", { expectedVersion: 0, components: [{ componentSkuId: "chair", quantity: 3, position: 0 }] }]);
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the previous product's failed Bundle queue during client navigation", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    Object.assign(product.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    getProduct.mockResolvedValue(product);
+    setBundleComponents.mockRejectedValue(new Error("Temporary failure"));
+    const view = renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await setInput(user, await screen.findByLabelText("CHAIR 的组件数量"), "3");
+    await clickSave(user);
+    await screen.findByRole("button", { name: "重试失败的 Bundle 组件" });
+    await waitFor(() => expect(document.querySelector('button[type="submit"]')).toBeEnabled());
+    getProduct.mockResolvedValue(typedProduct({ id: "p2", name: "Desk", status: "DRAFT" }));
+    navigationState.id = "p2";
+    view.rerender(<AdminI18nProvider><EditProductPage /></AdminI18nProvider>);
+    await screen.findByDisplayValue("Desk");
+    expect(screen.queryByRole("button", { name: "重试失败的 Bundle 组件" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/组件未保存/)).not.toBeInTheDocument();
+    await clickSave(user);
+    expect(setBundleComponents).toHaveBeenCalledTimes(1);
+    expect(updateProduct).not.toHaveBeenCalled();
+  });
+
+  it("saves a component-only edit without a product no-op or physical stock write", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    Object.assign(product.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    getProduct.mockResolvedValue(product);
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await screen.findByText("Chair / Black");
+    await setInput(user, screen.getByLabelText("CHAIR 的组件数量"), "3");
+    await clickSave(user);
+    await waitFor(() => expect(setBundleComponents).toHaveBeenCalledWith("p1", "sku-1", { expectedVersion: 4, components: [{ componentSkuId: "chair", quantity: 3, position: 0 }] }));
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("shows a partial result and retries only the failed Bundle definition", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    Object.assign(product.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    getProduct.mockResolvedValue(product);
+    setBundleComponents.mockRejectedValueOnce(new Error("Version conflict"));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await screen.findByText("Chair / Black");
+    await setInput(user, screen.getByLabelText("CHAIR 的组件数量"), "3");
+    await clickSave(user);
+    expect(await screen.findByText(/组件未保存/)).toBeVisible();
+    expect(refreshMock).not.toHaveBeenCalled();
+    const retry = await screen.findByRole("button", { name: "重试失败的 Bundle 组件" });
+    await user.click(retry);
+    await waitFor(() => expect(setBundleComponents).toHaveBeenCalledTimes(2));
+    expect(setBundleComponents.mock.calls[1]).toEqual(["p1", "sku-1", { expectedVersion: 4, components: [{ componentSkuId: "chair", quantity: 3, position: 0 }] }]);
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(setStockBatch).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "重试失败的 Bundle 组件" })).not.toBeInTheDocument());
+  });
+
+  it("does not resubmit successful definitions after a partial multi-Bundle save", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    product.variants.forEach(row => Object.assign(row.sku!, { isBundle: true, bundleVersion: 4 }));
+    const fresh = structuredClone(product);
+    fresh.variants[0].sku!.bundleVersion = 5;
+    getProduct.mockResolvedValueOnce(product).mockResolvedValue(fresh);
+    setBundleComponents.mockResolvedValueOnce({ version: 5 }).mockRejectedValueOnce(new Error("Second definition failed"));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    const quantities = await screen.findAllByLabelText("CHAIR 的组件数量");
+    await setInput(user, quantities[0], "3");
+    await setInput(user, quantities[1], "4");
+    await clickSave(user);
+    await screen.findByText(/组件未保存/);
+    await waitFor(() => expect(document.querySelector('button[type="submit"]')).toBeEnabled());
+    await clickSave(user);
+    await waitFor(() => expect(setBundleComponents).toHaveBeenCalledTimes(3));
+    expect(setBundleComponents.mock.calls.map(call => call[1])).toEqual(["sku-1", "sku-2", "sku-2"]);
+  });
+
+  it("does not announce a complete save after stock retry while Bundle components still failed", async () => {
+    const user = userEvent.setup();
+    const product = typedProduct({ status: "DRAFT" });
+    Object.assign(product.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    getProduct.mockResolvedValue(product);
+    setBundleComponents.mockRejectedValue(new Error("Component save failed"));
+    setStockBatch.mockResolvedValueOnce([{ skuId: "sku-2", ok: false, error: "Stock write failed" }])
+      .mockResolvedValueOnce([{ skuId: "sku-2", ok: true }]);
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await setInput(user, await screen.findByLabelText("CHAIR 的组件数量"), "3");
+    await setInput(user, screen.getByLabelText("Blue 的库存"), "7");
+    await clickSave(user);
+    await screen.findByText(/组件未保存/);
+    const retryStock = screen.getByRole("button", { name: "重试失败行" });
+    await user.click(retryStock);
+    await waitFor(() => expect(setStockBatch).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/组件未保存/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "重试失败的 Bundle 组件" })).toBeVisible();
+  });
 
   it("saves a card-only snapshot without rewriting gallery scene flags or real SKU identity", async () => {
     const user = userEvent.setup();

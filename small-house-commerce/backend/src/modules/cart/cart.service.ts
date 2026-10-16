@@ -6,6 +6,12 @@ import {
 import { Prisma, type Cart } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { AddItemInput, ReplaceItemInput } from './dto/cart.dto.js';
+import {
+  bundleAvailabilityFrom,
+  cartRequirements,
+  loadBundleDefinitions,
+  validateBundleDefinition,
+} from '../inventory/bundle-inventory.js';
 
 /** 30 days, decided: COD customers get a long reconsideration window. */
 const CART_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -20,13 +26,14 @@ const CART_WITH_ITEMS = {
         select: {
           id: true,
           skuCode: true,
+          status: true,
           price: true,
           compareAtPrice: true,
           variant: {
             select: {
               id: true,
               name: true,
-              product: { select: { id: true, name: true, slug: true } },
+              product: { select: { id: true, name: true, slug: true, status: true } },
               optionValues: {
                 select: {
                   optionId: true,
@@ -326,24 +333,59 @@ export class CartService {
       include: CART_WITH_ITEMS,
     });
 
-    // available = on_hand - reserved, computed per SKU (§29).
-    const availableBySku = new Map<string, number>();
+    // available = on_hand - reserved, computed per SKU (§29). Virtual SKUs hold
+    // no inventory rows: their availability is derived from their components.
     const skuIds = [...new Set(cart.items.map((item) => item.sku.id))];
+    const definitions = await loadBundleDefinitions(this.prisma, skuIds);
+    const componentIds = [...new Set(
+      [...definitions.values()].flatMap((definition) =>
+        definition.components.map((component) => component.componentSkuId),
+      ),
+    )];
 
-    if (skuIds.length > 0) {
+    const freeBySku = new Map<string, number>();
+    const inventorySkuIds = [...new Set([...skuIds, ...componentIds])];
+
+    if (inventorySkuIds.length > 0) {
       const grouped = await this.prisma.inventory.groupBy({
         by: ['skuId'],
-        where: { skuId: { in: skuIds } },
+        where: { skuId: { in: inventorySkuIds } },
         _sum: { onHand: true, reserved: true },
       });
 
       for (const row of grouped) {
-        availableBySku.set(
+        freeBySku.set(
           row.skuId,
           (row._sum.onHand ?? 0) - (row._sum.reserved ?? 0),
         );
       }
     }
+
+    const bundleAvailability = bundleAvailabilityFrom(definitions, freeBySku);
+
+    // Lines that cannot be purchased reserve nothing, so they are excluded
+    // from demand: letting them consume component stock would hide real
+    // shortages from the lines that can still be checked out.
+    const purchasable = (item: (typeof cart.items)[number]): boolean => {
+      const definition = definitions.get(item.sku.id);
+      return item.sku.status === 'ACTIVE' &&
+        item.sku.variant.product.status === 'ACTIVE' &&
+        item.sku.price !== null &&
+        (!definition || validateBundleDefinition(definition.components) === null);
+    };
+
+    // Demand is aggregated across Bundle and ordinary lines: two Bundles that
+    // share a component compete for the same physical stock.
+    const shortComponents = new Set(
+      cartRequirements(cart.items.filter(purchasable).map((item) => ({
+        skuId: item.sku.id,
+        isBundle: definitions.has(item.sku.id),
+        quantity: item.quantity,
+        components: definitions.get(item.sku.id)?.components,
+      })))
+        .filter((requirement) => (freeBySku.get(requirement.skuId) ?? 0) < requirement.quantity)
+        .map((requirement) => requirement.skuId),
+    );
 
     // Scoped media for thumbnail resolution, grouped per product. The query
     // order (sortOrder, id) is the resolver's gallery order.
@@ -380,7 +422,13 @@ export class CartService {
     const items = cart.items.map((item) => {
       const unitPrice = item.sku.price === null ? 0 : Number(item.sku.price);
       const lineTotal = unitPrice * item.quantity;
-      const availableInventory = availableBySku.get(item.sku.id) ?? 0;
+      const availableInventory =
+        bundleAvailability.get(item.sku.id) ??
+        freeBySku.get(item.sku.id) ??
+        0;
+      const requiredSkuIds =
+        definitions.get(item.sku.id)?.components.map((component) => component.componentSkuId) ??
+        [item.sku.id];
 
       // compareAtPrice is a strikethrough reference, not a cart discount —
       // the total due is the selling-price subtotal.
@@ -417,7 +465,10 @@ export class CartService {
         compareAtPrice: item.sku.compareAtPrice === null ? null : Number(item.sku.compareAtPrice),
         lineTotal,
         availableInventory,
-        unavailable: availableInventory < item.quantity,
+        unavailable:
+          !purchasable(item) ||
+          availableInventory < item.quantity ||
+          requiredSkuIds.some((skuId) => shortComponents.has(skuId)),
       };
     });
 

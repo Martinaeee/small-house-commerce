@@ -53,9 +53,13 @@ function createPrismaMock(
       findMany: vi.fn(async () => []),
     },
     inventory: {
-      groupBy: vi.fn(async () => []),
+      groupBy: vi.fn(async (): Promise<Array<{ skuId: string; _sum: { onHand: number; reserved: number } }>> => []),
     },
     productFaq: {
+      findMany: vi.fn(async () => [] as unknown[]),
+    },
+    sku: {
+      // Bundle definitions of the requested virtual SKUs; no rows by default.
       findMany: vi.fn(async () => [] as unknown[]),
     },
     sharedFaqSet: {
@@ -442,6 +446,78 @@ describe('ProductsService storefront image query contracts', () => {
   });
 });
 
+describe('ProductsService admin Bundle availability', () => {
+  it('shows component-derived availability without physical stock on a virtual SKU', async () => {
+    const prisma = createPrismaMock([{
+      id: 'product-1',
+      variants: [
+        { id: 'v-set', sku: { id: 'bundle-sku', isBundle: true, price: '2499' } },
+        { id: 'v-chair', sku: { id: 'chair-sku', isBundle: false, price: '999' } },
+      ],
+    }]);
+    prisma.sku.findMany.mockResolvedValue([{
+      id: 'bundle-sku', status: 'ACTIVE', product: { status: 'ACTIVE' },
+      bundleComponents: [{
+        componentSkuId: 'chair-sku', quantity: 2,
+        componentSku: { status: 'ACTIVE', isBundle: false, variant: { product: { status: 'ACTIVE' } } },
+      }],
+    }]);
+    prisma.inventory.groupBy.mockResolvedValue([
+      { skuId: 'chair-sku', _sum: { onHand: 11, reserved: 2 } },
+    ]);
+    const inventory = {
+      stockBySku: vi.fn(async () => new Map([
+        ['bundle-sku', { onHand: 99, reserved: 7, available: 92 }],
+        ['chair-sku', { onHand: 11, reserved: 2, available: 9 }],
+      ])),
+    };
+    const service = new ProductsService(prisma as never, reviewsStub, inventory as never);
+
+    const result = await service.list({ page: 1, pageSize: 20 });
+
+    expect(result.items[0]!.variants).toEqual([
+      expect.objectContaining({ sku: expect.objectContaining({ id: 'bundle-sku', onHand: 0, reserved: 0, availableInventory: 4, price: '2499' }) }),
+      expect.objectContaining({ sku: expect.objectContaining({ id: 'chair-sku', onHand: 11, reserved: 2, availableInventory: 9, price: '999' }) }),
+    ]);
+  });
+});
+
+describe('ProductsService storefront Bundle availability', () => {
+  it('projects derived Bundle availability and leaves ordinary SKU stock untouched', async () => {
+    const prisma = createPrismaMock([{
+      id: '11111111-1111-1111-1111-111111111111',
+      variants: [
+        { id: 'v-set', name: 'Set', position: 0, combinationKey: null, optionValues: [], sku: { id: 'bundle-sku', skuCode: 'SET', status: 'ACTIVE', price: 2499, compareAtPrice: null } },
+        { id: 'v-chair', name: 'Chair', position: 1, combinationKey: null, optionValues: [], sku: { id: 'chair-sku', skuCode: 'CHAIR', status: 'ACTIVE', price: 999, compareAtPrice: null } },
+      ],
+    }]);
+    prisma.sku.findMany.mockResolvedValue([{
+      id: 'bundle-sku',
+      status: 'ACTIVE',
+      product: { status: 'ACTIVE' },
+      bundleComponents: [{
+        componentSkuId: 'chair-sku', quantity: 2,
+        componentSku: { status: 'ACTIVE', isBundle: false, variant: { product: { status: 'ACTIVE' } } },
+      }],
+    }]);
+    prisma.inventory.groupBy.mockResolvedValue([
+      { skuId: 'chair-sku', _sum: { onHand: 11, reserved: 1 } },
+      // A stray inventory row on the virtual SKU must never be advertised.
+      { skuId: 'bundle-sku', _sum: { onHand: 40, reserved: 0 } },
+    ]);
+    const service = createService(prisma);
+
+    const [result] = await service.storefrontByIds(['11111111-1111-1111-1111-111111111111']);
+
+    expect(result).toMatchObject({
+      variants: [
+        { sku: { skuCode: 'SET', availableInventory: 5 } },
+        { sku: { skuCode: 'CHAIR', availableInventory: 10 } },
+      ],
+    });
+  });
+});
+
 describe('ProductsService.storefrontList ids branch', () => {
   it('returns an empty page and runs no catalog queries when ids is present but empty', async () => {
     // `?ids=` preprocesses to [] (the schema enforces no min length): the
@@ -498,11 +574,39 @@ interface LegacyVariantRow {
     id: string;
     skuCode: string;
     status: 'ACTIVE' | 'DISABLED';
+    isBundle: boolean;
     price?: number | null;
   } | null;
 }
 
-function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
+interface BundleDefinitionRow {
+  componentSkuId: string;
+  quantity: number;
+  position: number;
+  componentSku: {
+    status: string;
+    isBundle: boolean;
+    variant: { product: { status: string } };
+  };
+}
+
+function bundleDefinitionRow(
+  componentSkuId = 'component-1',
+  quantity = 2,
+  componentSku: Partial<BundleDefinitionRow['componentSku']> = {},
+): BundleDefinitionRow {
+  return {
+    componentSkuId,
+    quantity,
+    position: 0,
+    componentSku: { status: 'ACTIVE', isBundle: false, variant: { product: { status: 'ACTIVE' } }, ...componentSku },
+  };
+}
+
+function createLegacyWriteHarness(
+  initialVariants: LegacyVariantRow[] = [],
+  bundleDefinitions: Record<string, BundleDefinitionRow[]> = {},
+) {
   const variants = structuredClone(initialVariants);
   const product = { id: LEGACY_PRODUCT_ID, name: 'Card product', status: 'DRAFT', defaultDisplayVariantId: null };
   const currentProduct = () => ({ ...product, variants: structuredClone(variants) });
@@ -537,7 +641,8 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
     const row = variants.find(row => row.id === data.variantId)!;
     row.sku = {
       ...data, id: `sku-${row.id}`, skuCode: data.skuCode as string,
-      status: (data.status ?? 'ACTIVE') as 'ACTIVE' | 'DISABLED', price: (data.price as number | undefined) ?? null,
+      status: (data.status ?? 'ACTIVE') as 'ACTIVE' | 'DISABLED', isBundle: data.isBundle === true,
+      price: (data.price as number | undefined) ?? null,
     };
     return structuredClone(row.sku);
   });
@@ -572,6 +677,20 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
       delete: vi.fn(async () => undefined),
     },
     sku: {
+      // Publish readiness reads the active virtual SKUs of the product under
+      // write; definitions are keyed by SKU code so a SKU created during this
+      // save is findable before its generated id is known.
+      findMany: vi.fn(async ({ where }: { where: { productId: { in: string[] }; isBundle: boolean; status: string } }) =>
+        variants
+          .filter((row) => row.sku && row.sku.isBundle === where.isBundle && row.sku.status === where.status && where.productId.in.includes(LEGACY_PRODUCT_ID))
+          .map((row) => ({
+            id: row.sku!.id,
+            skuCode: row.sku!.skuCode,
+            productId: LEGACY_PRODUCT_ID,
+            product: { name: product.name },
+            bundleComponents: structuredClone(bundleDefinitions[row.sku!.skuCode] ?? []),
+          })),
+      ),
       create: skuCreate,
       update: skuUpdate,
       delete: vi.fn(async () => undefined),
@@ -587,6 +706,17 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
         catalogGraphVersion: 0,
       })),
     },
+    sku: {
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; isBundle: boolean } }) => variants
+        .filter((row) => row.sku?.isBundle === where.isBundle && where.id.in.includes(row.sku.id))
+        .map((row) => ({
+          id: row.sku!.id,
+          status: row.sku!.status,
+          product: { status: product.status },
+          bundleComponents: structuredClone(bundleDefinitions[row.sku!.skuCode] ?? []),
+        }))),
+    },
+    inventory: { groupBy: vi.fn(async () => []) },
     productFaq: {
       findMany: vi.fn(async () => [] as unknown[]),
     },
@@ -613,6 +743,22 @@ function createLegacyWriteHarness(initialVariants: LegacyVariantRow[] = []) {
     get committed() { return committed; },
   };
 }
+
+describe('ProductsService immutable SKU inventory mode', () => {
+  it.each([false, true])('rolls back a legacy save that converts persisted mode %s', async isBundle => {
+    const harness = createLegacyWriteHarness([{
+      id: EXISTING_VARIANT_ID, productId: LEGACY_PRODUCT_ID, name: 'Red', position: 0,
+      combinationKey: legacyUnmappedCombinationKey(EXISTING_VARIANT_ID),
+      sku: { id: EXISTING_SKU_ID, skuCode: 'LEGACY-RED', status: 'ACTIVE', isBundle, price: 100 },
+    }]);
+    const before = structuredClone(harness.variants);
+    await expect(harness.service.update(LEGACY_PRODUCT_ID, { variants: [{
+      name: 'Red', position: 0, sku: { skuCode: 'LEGACY-RED', status: 'ACTIVE', isBundle: !isBundle, price: 777 },
+    }] })).rejects.toThrow(/inventory mode.*immutable/i);
+    expect(harness.variants).toEqual(before);
+    expect(harness.committed).toBe(false);
+  });
+});
 
 describe('ProductsService final legacy card publish check', () => {
   const pair: VariantCardMedia = {
@@ -667,6 +813,57 @@ describe('ProductsService final legacy card publish check', () => {
   });
 });
 
+describe('ProductsService Bundle publish readiness', () => {
+  const pair: VariantCardMedia = {
+    cover: { type: 'IMAGE', url: '/uploads/set-cover.webp', altText: null }, hover: null,
+  };
+  const virtualInput = (status: 'ACTIVE' | 'DRAFT' = 'ACTIVE') => ({
+    name: 'Set product', slug: 'set-product', categoryId: 'category-id', status,
+    solutions: [], images: [], detailBlocks: [],
+    variants: [{ name: 'Single', position: 0, cardMedia: pair, sku: { skuCode: 'SET', status: 'ACTIVE' as const, isBundle: true, price: 2499 } }],
+  });
+
+  it('refuses to publish a newly created virtual SKU before its definition exists', async () => {
+    const harness = createLegacyWriteHarness();
+    await expect(harness.service.create(virtualInput())).rejects.toMatchObject({ response: {
+      code: 'PRODUCT_BUNDLE_DEFINITION_INCOMPLETE',
+      products: [expect.objectContaining({ productId: LEGACY_PRODUCT_ID, skus: [expect.objectContaining({ skuCode: 'SET' })] })],
+    } });
+    expect(harness.variants).toEqual([]);
+    expect(harness.committed).toBe(false);
+    expect(harness.product.status).toBe('DRAFT');
+  });
+
+  it('publishes a virtual SKU whose saved definition is valid', async () => {
+    const harness = createLegacyWriteHarness([], { SET: [bundleDefinitionRow()] });
+    const saved = await harness.service.create(virtualInput());
+    expect(saved).toMatchObject({ status: 'ACTIVE' });
+    expect(harness.committed).toBe(true);
+  });
+
+  it('rolls back publishing when the saved definition is unusable', async () => {
+    const harness = createLegacyWriteHarness([{
+      id: EXISTING_VARIANT_ID, productId: LEGACY_PRODUCT_ID, name: 'Single', position: 0,
+      combinationKey: legacyUnmappedCombinationKey(EXISTING_VARIANT_ID), cardMedia: pair,
+      sku: { id: EXISTING_SKU_ID, skuCode: 'SET', status: 'ACTIVE', isBundle: true, price: 2499 },
+    }], { SET: [bundleDefinitionRow('component-1', 2, { status: 'DISABLED' })] });
+    const before = structuredClone(harness.variants);
+    await expect(harness.service.update(LEGACY_PRODUCT_ID, { status: 'ACTIVE' })).rejects.toMatchObject({
+      response: { code: 'PRODUCT_BUNDLE_DEFINITION_INCOMPLETE' },
+    });
+    expect(harness.variants).toEqual(before);
+    expect(harness.product.status).toBe('DRAFT');
+    expect(harness.committed).toBe(false);
+  });
+
+  it('keeps an incomplete virtual SKU in draft for later definition editing', async () => {
+    const harness = createLegacyWriteHarness();
+    const saved = await harness.service.create(virtualInput('DRAFT'));
+    expect(saved).toMatchObject({ status: 'DRAFT' });
+    expect(harness.committed).toBe(true);
+  });
+});
+
 describe('ProductsService graph-v0 independent card media', () => {
   const pair = (name: string): VariantCardMedia => ({
     cover: { type: 'IMAGE', url: `/uploads/${name}-cover.webp`, altText: null },
@@ -675,7 +872,7 @@ describe('ProductsService graph-v0 independent card media', () => {
   const retained = (): LegacyVariantRow => ({
     id: EXISTING_VARIANT_ID, productId: LEGACY_PRODUCT_ID, name: 'Red', position: 0,
     combinationKey: legacyUnmappedCombinationKey(EXISTING_VARIANT_ID), cardMedia: pair('red'),
-    sku: { id: EXISTING_SKU_ID, skuCode: 'LEGACY-RED', status: 'ACTIVE' },
+    sku: { id: EXISTING_SKU_ID, skuCode: 'LEGACY-RED', status: 'ACTIVE', isBundle: false },
   });
 
   it('persists independent pairs on newly created legacy variant identities', async () => {
@@ -788,6 +985,7 @@ describe('ProductsService graph-v0 variant compatibility', () => {
           id: EXISTING_SKU_ID,
           skuCode: 'LEGACY-RED',
           status: 'ACTIVE',
+          isBundle: false,
         },
       },
     ]);
@@ -1072,5 +1270,39 @@ describe("ProductsService.bulkSetStatus", () => {
 
     expect(prisma.product.updateMany).not.toHaveBeenCalled();
     expect(result).toEqual({ updated: 0, notFound: 1 });
+  });
+
+  it("rolls back the batch when a product's virtual SKU has no saved definition", async () => {
+    let rows = [
+      { id: "bundle-product", name: "Set", status: "DISABLED", defaultDisplayVariantId: null,
+        variants: [{ id: "set-v", name: "Single", cardMedia: {
+          cover: { type: "IMAGE", url: "/uploads/set.webp", altText: null }, hover: null,
+        }, sku: { status: "ACTIVE", price: 2499 } }] },
+    ];
+    const before = structuredClone(rows);
+    const tx = {
+      product: {
+        updateMany: vi.fn(async () => { rows.forEach(row => { row.status = "ACTIVE"; }); return { count: rows.length }; }),
+        findMany: vi.fn(async () => structuredClone(rows.filter(row => row.status === "ACTIVE"))),
+      },
+      sku: {
+        findMany: vi.fn(async () => [{
+          id: "bundle-sku", skuCode: "SET", productId: "bundle-product", product: { name: "Set" },
+          bundleComponents: [],
+        }]),
+      },
+    };
+    const prisma = {
+      product: { findMany: vi.fn(async () => rows.map(row => ({ id: row.id }))) },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
+        const snapshot = structuredClone(rows);
+        try { return await callback(tx); } catch (error) { rows = snapshot; throw error; }
+      }),
+    };
+    const service = new ProductsService(prisma as never, reviewsStub, inventoryStub);
+    await expect(service.bulkSetStatus(["bundle-product"], "ACTIVE")).rejects.toMatchObject({
+      response: { code: "PRODUCT_BUNDLE_DEFINITION_INCOMPLETE", products: [expect.objectContaining({ productId: "bundle-product" })] },
+    });
+    expect(rows).toEqual(before);
   });
 });

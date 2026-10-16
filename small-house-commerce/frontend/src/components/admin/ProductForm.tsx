@@ -119,6 +119,8 @@ export interface ProductFormValue {
     sku: {
       skuCode: string;
       status: "ACTIVE" | "DISABLED";
+      isBundle: boolean;
+      bundleVersion: number;
       price: string;
       compareAtPrice: string;
       supplierSku: string;
@@ -304,7 +306,7 @@ const DIMENSION_FIELDS: {
   { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
 ];
 
-const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
+const SKU_NUM_FIELDS: { key: Exclude<keyof SkuFormValue, "isBundle" | "bundleVersion">; labelKey: TKey }[] = [
   { key: "price", labelKey: "product_sku_price" },
   { key: "compareAtPrice", labelKey: "product_sku_compare_at" },
   { key: "supplierCost", labelKey: "product_sku_supplier_cost" },
@@ -353,6 +355,8 @@ export function emptySkuFormValue(): SkuFormValue {
   return {
     skuCode: "",
     status: "ACTIVE",
+    isBundle: false,
+    bundleVersion: 0,
     price: "",
     compareAtPrice: "",
     supplierSku: "",
@@ -686,11 +690,12 @@ export function serializeFormValue(
       if (costCurrency.length > 8)
         addError(errors, `variants.${i}.sku.costCurrency`, translate("product_err_currency_max"));
 
-      const skuRecord: Record<string, string | number | null> = {
+      const skuRecord: Record<string, string | number | boolean | null> = {
         skuCode,
         status: SKU_STATUSES.includes(formSku.status)
           ? formSku.status
           : "ACTIVE",
+        isBundle: formSku.isBundle,
       };
       if (supplierSku) skuRecord.supplierSku = supplierSku;
       if (costCurrency) skuRecord.costCurrency = costCurrency;
@@ -898,7 +903,7 @@ export function ProductForm({
   initial,
   categories,
   onSubmit,
-  pending,
+  pending: productPending,
   error,
   savedPreview,
   identity = null,
@@ -908,6 +913,8 @@ export function ProductForm({
   requestedSkuCode = null,
 }: ProductFormProps): ReactNode {
   const { t, lang } = useAdminI18n();
+  const [savingBundles, setSavingBundles] = useState<Set<string>>(() => new Set());
+  const pending = productPending || savingBundles.size > 0;
   const [value, setValue] = useState<ProductFormValue>(initial);
   // Re-sync when `initial` changes identity (Task 10: loaded after fetch).
   // Render-phase adjustment (same pattern as the products list URL sync);
@@ -1348,7 +1355,7 @@ export function ProductForm({
   // group) with its localized operator hint.
   const renderSkuField = (
     variantIndex: number,
-    key: keyof SkuFormValue,
+    key: Exclude<keyof SkuFormValue, "isBundle" | "bundleVersion">,
   ): ReactNode => {
     const sku = value.variants[variantIndex]?.sku ?? null;
     const labelKey = SKU_LABEL_KEYS[key];
@@ -1985,6 +1992,13 @@ export function ProductForm({
                 pending={pending || batchUpload.uploading}
                 highlightKey={highlight?.key ?? null}
                 requestedSkuCode={requestedSkuCode}
+                productId={productId}
+                onBundleSavingChange={(skuKey, saving) => setSavingBundles(current => {
+                  const next = new Set(current);
+                  if (saving) next.add(skuKey);
+                  else next.delete(skuKey);
+                  return next;
+                })}
                 productDimensions={
                   [value.width, value.depth, value.height].some(raw => raw.trim() !== "" && previewNumber(raw) === null)
                     ? null
@@ -2083,6 +2097,23 @@ export function ProductForm({
 
                     {vr.sku ? (
                       <div className="mt-4 border-t border-border pt-4">
+                        <label className="mb-3 flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            aria-label={t("bundle_mode_aria", { name: vr.name })}
+                            checked={vr.sku.isBundle}
+                            disabled={pending || Boolean(vr.sku.id)}
+                            onChange={event => updateCardGraph(draft => {
+                              const sku = draft.variants[i]?.sku;
+                              if (sku) {
+                                sku.isBundle = event.target.checked;
+                                sku.onHand = 0;
+                              }
+                            })}
+                          />
+                          {t("bundle_mode_label")}
+                        </label>
+                        {vr.sku.id ? <p className="mb-3 text-xs text-ink-muted">{t("bundle_mode_immutable")}</p> : null}
                         {/* Default-visible: SKU code, status, stock. */}
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                           <Field

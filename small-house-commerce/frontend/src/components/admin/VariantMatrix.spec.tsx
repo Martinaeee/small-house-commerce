@@ -55,6 +55,8 @@ function persistedVariant(index: number, skuCode: string): AdminVariantDraft {
       id: `sku-${index + 1}`,
       skuCode,
       status: "ACTIVE",
+      isBundle: false,
+      bundleVersion: 0,
       supplierSku: null,
       supplierCost: null,
       costCurrency: null,
@@ -380,7 +382,7 @@ describe("VariantMatrix", () => {
 
   function skuOf(skuCode: string, overrides: Partial<NonNullable<AdminVariantDraft["sku"]>> = {}) {
     return {
-      skuCode, status: "ACTIVE" as const, supplierSku: null, supplierCost: null,
+      skuCode, status: "ACTIVE" as const, isBundle: false, bundleVersion: 0, supplierSku: null, supplierCost: null,
       costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
       productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null,
       packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
@@ -573,6 +575,8 @@ describe("VariantMatrix", () => {
                 id: "sku-1",
                 skuCode: "SH-001",
                 status: "ACTIVE",
+                isBundle: false,
+                bundleVersion: 0,
                 supplierSku: null,
                 supplierCost: null,
                 costCurrency: null,
@@ -712,6 +716,8 @@ describe("VariantMatrix", () => {
                 id: "sku-1",
                 skuCode: "SH-001",
                 status: "ACTIVE",
+                isBundle: false,
+                bundleVersion: 0,
                 supplierSku: null,
                 supplierCost: null,
                 costCurrency: null,
@@ -758,6 +764,43 @@ describe("VariantMatrix", () => {
     expect(screen.getByText(/表格可横向滚动/)).toBeInTheDocument();
     const scroller = screen.getByRole("table").parentElement;
     expect(scroller?.className).toContain("overflow-x-auto");
+  });
+
+  it("lets a new SKU choose virtual mode and keeps it out of physical stock controls", async () => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft()} />);
+    await user.click(screen.getByRole("checkbox", { name: "Virtual Bundle for Variant 1" }));
+    expect(draftVariants()[0].sku).toMatchObject({ isBundle: true, bundleVersion: 0, onHand: 0 });
+    expect(screen.queryByLabelText("Stock for Variant 1")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search component SKUs")).toBeEnabled();
+    expect(screen.getByText("Save the product to save these components with its new SKU.")).toBeVisible();
+  });
+
+  it.each([true, false])("keeps persisted SKU mode immutable when virtual=%s", async isBundle => {
+    setAdminLang("en");
+    const row = persistedVariant(0, "SET-1");
+    row.sku!.isBundle = isBundle;
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(1)} initial={draft({ variants: [row] })} />);
+    const checkbox = screen.getByRole("checkbox", { name: "Virtual Bundle for Variant 1" });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toHaveProperty("checked", isBundle);
+    await user.click(checkbox);
+    expect(draftVariants()[0].sku!.isBundle).toBe(isBundle);
+  });
+
+  it("applies bulk stock only to ordinary SKUs without changing virtual drafts", async () => {
+    setAdminLang("en");
+    const virtual = persistedVariant(0, "SET-1");
+    virtual.sku!.isBundle = true;
+    const ordinary = persistedVariant(1, "CHAIR-1");
+    const user = userEvent.setup();
+    render(<Harness candidates={makeCandidates(2)} initial={draft({ variants: [virtual, ordinary] })} />);
+    await user.type(screen.getByLabelText("Bulk stock"), "12");
+    await user.click(screen.getByRole("button", { name: "Apply stock to page" }));
+    expect(draftVariants()[0]).toEqual(virtual);
+    expect(draftVariants()[1].sku!.onHand).toBe(12);
   });
 
   it("renders a coherent English matrix through the same provider", () => {

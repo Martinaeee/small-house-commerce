@@ -61,11 +61,20 @@ function createHarness() {
       ),
     },
     inventoryMovement: { create: vi.fn(async () => ({})) },
+    inventoryReservation: { create: vi.fn(async () => ({})) },
+    // The conditional reserve relies on the row count of its UPDATE; the mock
+    // reports "applied" unless a test overrides it.
+    $executeRaw: vi.fn(async () => 1),
     $queryRaw: vi.fn(async () => []),
   };
   const prisma = {
     warehouse: {
       findFirst: vi.fn(async () => ({ id: WH_ID, status: 'ACTIVE' })),
+    },
+    // Stock writes read the SKU's inventory mode first; ordinary unless a
+    // test says otherwise.
+    sku: {
+      findUnique: vi.fn<(args: { where: { id: string } }) => Promise<{ isBundle: boolean }>>(async () => ({ isBundle: false })),
     },
     inventory: {
       findUnique: vi.fn(
@@ -362,5 +371,101 @@ describe('inventoryBatchSetStockSchema', () => {
         { skuId: batchUuid(1), onHand: 1, reason: 'x'.repeat(256) },
       ]).success,
     ).toBe(false);
+  });
+});
+
+describe('InventoryService virtual Bundle stock guard', () => {
+  it('rejects a virtual Bundle stock adjustment before inventory or notification side effects', async () => {
+    const { service, prisma, rows, backInStock } = createHarness();
+    prisma.sku.findUnique.mockResolvedValue({ isBundle: true });
+
+    await expect(
+      service.setOnHand('bundle-sku', 10, undefined, 'actor-1'),
+    ).rejects.toThrow(/Virtual Bundle stock/i);
+
+    expect(rows.size).toBe(0);
+    expect(backInStock.snapshotForChangedSkusWithin).not.toHaveBeenCalled();
+    expect(backInStock.claimTransitionsWithin).not.toHaveBeenCalled();
+  });
+
+  it('rejects a virtual Bundle delta adjustment as well', async () => {
+    const { service, prisma, rows } = createHarness();
+    prisma.sku.findUnique.mockResolvedValue({ isBundle: true });
+
+    await expect(
+      service.adjust('bundle-sku', 3, 'restock', 'actor-1'),
+    ).rejects.toThrow(/Virtual Bundle stock/i);
+    expect(rows.size).toBe(0);
+  });
+
+  it('fails only the virtual row of a bulk stock batch', async () => {
+    const { service, prisma, rows } = createHarness();
+    prisma.sku.findUnique.mockImplementation(
+      async ({ where }: { where: { id: string } }) => ({
+        isBundle: where.id === 'bundle-sku',
+      }),
+    );
+
+    const results = await service.setOnHandBatch(
+      [
+        { skuId: 'bundle-sku', onHand: 5 },
+        { skuId: 'ordinary-sku', onHand: 5 },
+      ],
+      'actor-1',
+    );
+
+    expect(results[0]).toMatchObject({ skuId: 'bundle-sku', ok: false });
+    expect(results[0]!.ok ? '' : results[0]!.error).toMatch(/Virtual Bundle stock/i);
+    expect(results[1]).toMatchObject({
+      skuId: 'ordinary-sku',
+      ok: true,
+      onHand: 5,
+      available: 5,
+    });
+    expect(rows.size).toBe(1);
+  });
+});
+
+describe('InventoryService.reserveConditionalWithin', () => {
+  it('writes the reservation and the movement when the conditional update applies', async () => {
+    const { service, tx } = createHarness();
+
+    await service.reserveConditionalWithin(tx as never, 'sku-1', WH_ID, 2, 'order-1');
+
+    expect(tx.inventoryReservation.create).toHaveBeenCalledWith({
+      data: { orderId: 'order-1', skuId: 'sku-1', warehouseId: WH_ID, quantity: 2 },
+    });
+    expect(tx.inventoryMovement.create).toHaveBeenCalledWith({
+      data: {
+        skuId: 'sku-1',
+        warehouseId: WH_ID,
+        movementType: 'ORDER_RESERVED',
+        quantity: 2,
+        referenceType: 'ORDER',
+        referenceId: 'order-1',
+      },
+    });
+  });
+
+  it('refuses when the conditional update matched no row and reports the live availability', async () => {
+    const { service, tx, rows } = createHarness();
+    tx.$executeRaw.mockResolvedValueOnce(0);
+    rows.set('sku-1', { id: 'inv-1', skuId: 'sku-1', onHand: 1, reserved: 1 });
+
+    await expect(
+      service.reserveConditionalWithin(tx as never, 'sku-1', WH_ID, 1, 'order-1'),
+    ).rejects.toThrow(/Insufficient stock: available 0, requested 1/);
+    expect(tx.inventoryReservation.create).not.toHaveBeenCalled();
+    expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the SKU has no inventory record at all', async () => {
+    const { service, tx } = createHarness();
+    tx.$executeRaw.mockResolvedValueOnce(0);
+
+    await expect(
+      service.reserveConditionalWithin(tx as never, 'missing-sku', WH_ID, 1, 'order-1'),
+    ).rejects.toThrow(/no inventory record/);
+    expect(tx.inventoryReservation.create).not.toHaveBeenCalled();
   });
 });

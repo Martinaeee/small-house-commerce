@@ -31,6 +31,7 @@ import {
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { bundleComponentWrites, saveBundleComponentWrites, type BundleComponentWrite, type BundleSaveFailure } from "@/lib/admin-bundle";
 import {
   buildCatalogGraphPatch,
   buildSavedPreview,
@@ -238,6 +239,7 @@ export default function EditProductPage(): ReactNode {
   >(null);
   // Phase B rows the batch settled as failed (failed-row-only retry).
   const [stockFailures, setStockFailures] = useState<StockFailureRow[]>([]);
+  const [bundleFailures, setBundleFailures] = useState<BundleSaveFailure[]>([]);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -322,6 +324,7 @@ export default function EditProductPage(): ReactNode {
     setError(null);
     setNotice(null);
     setStockFailures([]);
+    setBundleFailures([]);
   }
 
   // M6 (T9 review): this object's IDENTITY is the ProductForm re-sync signal,
@@ -364,21 +367,28 @@ export default function EditProductPage(): ReactNode {
         return;
       }
 
+      let bundleWrites: BundleComponentWrite[];
+      try {
+        const writes = [
+          ...bundleFailures.map(row => row.write),
+          ...(value.graphTyped && value.graph ? bundleComponentWrites(value.graph) : []),
+        ];
+        bundleWrites = [...new Map(writes.map(write => [write.skuId ?? write.skuCode, write])).values()];
+      } catch {
+        setError(t("bundle_invalid"));
+        return;
+      }
       const patch = buildProductPatch(result.value, initialResult.value);
       const stockChanges = collectStockChanges(value, initial);
 
-      // Typed catalog graph write (Task 10/11): diff the hydrated draft
-      // against server truth and, when rows changed, attach the patch plus
-      // the optimistic revision. Only payloads that actually carried the
-      // typed graph may write it — a synthesized legacy projection references
-      // server rows by nothing, so sending one would fabricate a second
-      // option graph server-side.
       let graphBody: ReturnType<typeof toWireCatalogGraphPatch> | Record<string, never> = {};
       const hasTypedGraph =
         product.options !== undefined || product.media !== undefined;
+      const materializeLegacyGraph = !hasTypedGraph &&
+        product.catalogGraphVersion === 0 && value.graphTyped;
       let phaseDraft: AdminCatalogGraphDraft | null = null;
       let stockWrites: StockBatchWrite[] = [];
-      if (hasTypedGraph && value.graph) {
+      if ((hasTypedGraph || materializeLegacyGraph) && value.graph) {
         const draft = structuredClone(value.graph);
         // URL-less scoped rows are intent-less (blank new rows vanish; a
         // blanked persisted row becomes a retirement), and client-key scopes
@@ -387,8 +397,10 @@ export default function EditProductPage(): ReactNode {
         syncSharedMediaDraft(draft, value.images.filter(image => image.url.trim()).map((image, index) => ({
           ...result.value.images[index]!, id: image.id, clientKey: image.clientKey,
         })));
+        const baseline = graphFromAdminProduct(product);
+        // Materialization needs every saved variant ID, but must not recreate shared media.
         const graphPatch = buildCatalogGraphPatch(
-          graphFromAdminProduct(product),
+          materializeLegacyGraph ? { ...baseline, options: [], variants: [] } : baseline,
           draft,
         );
         if (hasGraphRows(graphPatch)) {
@@ -420,6 +432,7 @@ export default function EditProductPage(): ReactNode {
       if (
         Object.keys(patch).length === 0 &&
         !hasStockWrites &&
+        bundleWrites.length === 0 &&
         Object.keys(graphBody).length === 0
       ) {
         // Nothing changed: do not PATCH (an empty body is a no-op server-side
@@ -446,6 +459,10 @@ export default function EditProductPage(): ReactNode {
             // the new object re-keys `initial`, resetting ProductForm state.
             setProduct(saved);
           }
+
+          const componentFailures = await saveBundleComponentWrites(saved, bundleWrites);
+          if (!mounted.current) return;
+          setBundleFailures(componentFailures);
 
           // Phase B — stock. Typed products use the bounded batch endpoint:
           // browser-created SKUs enter the save as client keys and are
@@ -527,6 +544,12 @@ export default function EditProductPage(): ReactNode {
           }
 
           if (!mounted.current) return;
+          if (componentFailures.length > 0) {
+            setStockFailures(failures);
+            setError(t("bundle_partial", { count: componentFailures.length }));
+            setProduct(await adminApi.getProduct(product.id));
+            return;
+          }
           if (failures.length > 0) {
             // Commit the reconciled queue before refreshing server truth. A
             // refresh transport failure must never hide newly failed rows.
@@ -540,7 +563,7 @@ export default function EditProductPage(): ReactNode {
             if (!mounted.current) return;
             return;
           }
-          if (wroteStock) {
+          if (wroteStock || bundleWrites.length > 0) {
             // Re-read so the form shows what the server stored rather than
             // what was typed (the reserved guard can reject a value outright).
             setProduct(await adminApi.getProduct(product.id));
@@ -572,8 +595,33 @@ export default function EditProductPage(): ReactNode {
         }
       })();
     },
-    [product, initial, router, t],
+    [product, initial, bundleFailures, router, t],
   );
+
+  const retryBundleFailures = async (): Promise<void> => {
+    if (!product || pending || bundleFailures.length === 0) return;
+    setPending(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const failures = await saveBundleComponentWrites(product, bundleFailures.map(row => row.write));
+      if (!mounted.current) return;
+      setBundleFailures(failures);
+      if (failures.length > 0) {
+        setError(t("bundle_partial", { count: failures.length }));
+        return;
+      }
+      const fresh = await adminApi.getProduct(product.id);
+      if (!mounted.current) return;
+      setProduct(fresh);
+      if (stockFailures.length > 0) setError(t("product_edit_stock_partial", { count: stockFailures.length }));
+      else setNotice(t("bundle_saved"));
+    } catch (error) {
+      if (mounted.current) setError(error instanceof Error ? error.message : t("product_edit_save_failed"));
+    } finally {
+      if (mounted.current) setPending(false);
+    }
+  };
 
   /**
    * Failed-row-only retry (Phase B): resubmits exactly the rows the batch
@@ -637,8 +685,11 @@ export default function EditProductPage(): ReactNode {
       if (!mounted.current) return;
       setProduct(fresh);
       if (remaining.length === 0) {
-        setNotice(t("product_edit_stock_updated"));
-        router.refresh();
+        if (bundleFailures.length > 0) setError(t("bundle_partial", { count: bundleFailures.length }));
+        else {
+          setNotice(t("product_edit_stock_updated"));
+          router.refresh();
+        }
       } else {
         setError(t("product_save_stock_still_failed", { count: remaining.length }));
       }
@@ -650,7 +701,7 @@ export default function EditProductPage(): ReactNode {
     } finally {
       if (mounted.current) setPending(false);
     }
-  }, [stockFailures, product, router, t]);
+  }, [stockFailures, bundleFailures, product, router, t]);
 
   const initialLoading =
     loading && product === null && !loadError && !notFound;
@@ -738,6 +789,19 @@ export default function EditProductPage(): ReactNode {
         }}
         pending={pending}
       />
+
+      {bundleFailures.length > 0 ? (
+        <section className="my-4 rounded-xl border border-admin-error p-4" aria-label={t("bundle_retry_title")}>
+          <h2 className="font-semibold">{t("bundle_retry_title")}</h2>
+          <ul className="my-3 space-y-2">
+            {bundleFailures.map(({ write, error }) => <li key={write.skuId ?? write.skuCode}>
+              <p>{write.label} · {write.skuCode}: {error}</p>
+              <p>{write.draft.components.map(row => `${row.componentSkuCode} × ${row.quantity}`).join(", ")}</p>
+            </li>)}
+          </ul>
+          <Button type="button" disabled={pending} onClick={() => void retryBundleFailures()}>{t("bundle_retry")}</Button>
+        </section>
+      ) : null}
 
       <ProductForm
         initial={initial}

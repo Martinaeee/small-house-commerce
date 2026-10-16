@@ -17,6 +17,7 @@ import { FAQ_MODES, MAX_FAQ_ITEMS, faqItemSchema } from '../faq/faq-content.js';
 const skuSchema = z.object({
   skuCode: z.string().min(1).max(64),
   status: z.nativeEnum(SkuStatus).default('ACTIVE'),
+  isBundle: z.boolean().optional(),
   supplierSku: z.string().max(120).optional(),
   supplierCost: z.number().nonnegative().optional(),
   costCurrency: z.string().max(8).optional(),

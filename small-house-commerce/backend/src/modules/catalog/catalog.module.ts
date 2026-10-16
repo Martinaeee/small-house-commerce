@@ -41,12 +41,15 @@ import { StorefrontCategoriesController } from './storefront/categories.controll
 import { StorefrontProductsController } from './storefront/products.controller.js';
 import { StorefrontReviewsController } from './storefront/reviews.controller.js';
 import { SuppliersService } from './suppliers.service.js';
+import { AdminBundlesController } from './admin/bundles.controller.js';
+import { BundlesService } from './bundles.service.js';
 
 @Module({
   // AuthModule is imported for its exported JwtModule: the admin guards inject
   // JwtService. Module instances are singletons, so routes are not duplicated.
   imports: [AuthModule, UploadsModule],
   controllers: [
+    AdminBundlesController,
     AdminCategoriesController,
     AdminLinkBuilderController,
     AdminProductsController,
@@ -69,6 +72,7 @@ import { SuppliersService } from './suppliers.service.js';
     StorefrontLandingPagesController,
   ],
   providers: [
+    BundlesService,
     CategoriesService,
     CatalogGraphService,
     LinkBuilderContextService,

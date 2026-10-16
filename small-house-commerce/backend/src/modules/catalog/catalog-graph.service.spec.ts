@@ -40,6 +40,42 @@ const SHARED_MEDIA_ID = '50000000-0000-4000-8000-000000000001';
 const SYNTHETIC_OPTION_ID = '90000000-0000-4000-8000-000000000008';
 const SYNTHETIC_VALUE_ID = '90000000-0000-4000-8000-000000000009';
 
+interface BundlePublishRowFixture {
+  id: string;
+  skuCode: string;
+  productId: string;
+  product: { name: string };
+  bundleComponents: Array<{
+    componentSkuId: string;
+    quantity: number;
+    position: number;
+    componentSku: {
+      status: string;
+      isBundle: boolean;
+      variant: { product: { status: string } };
+    };
+  }>;
+}
+
+function bundlePublishRow(
+  bundleComponents: BundlePublishRowFixture['bundleComponents'] = [],
+): BundlePublishRowFixture {
+  return { id: 'bundle-sku', skuCode: 'SET', productId: PRODUCT_ID, product: { name: 'Chair' }, bundleComponents };
+}
+
+function bundleDefinitionRow(
+  componentSkuId = 'component-1',
+  quantity = 2,
+  componentSku: Partial<BundlePublishRowFixture['bundleComponents'][number]['componentSku']> = {},
+): BundlePublishRowFixture['bundleComponents'][number] {
+  return {
+    componentSkuId,
+    quantity,
+    position: 0,
+    componentSku: { status: 'ACTIVE', isBundle: false, variant: { product: { status: 'ACTIVE' } }, ...componentSku },
+  };
+}
+
 describe('CatalogGraphService final card publish check', () => {
   const pair = (name: string): VariantCardMedia => ({
     cover: { type: 'IMAGE', url: `/uploads/${name}-cover.webp`, altText: null }, hover: null,
@@ -98,6 +134,35 @@ describe('CatalogGraphService final card publish check', () => {
     }))).rejects.toMatchObject({ response: { code: 'PRODUCT_CARD_MEDIA_INCOMPLETE' } });
     expect(harness.state).toEqual(initial);
     expect(harness.committed).toBe(false);
+  });
+
+  it('refuses to publish a virtual SKU that has no saved definition', async () => {
+    const initial = baseState();
+    const harness = createGraphHarness(initial, undefined, [bundlePublishRow()]);
+    await expect(harness.service.applyPatchWithProductMutation(PRODUCT_ID, 1, parsePatch({ variants: writes() }),
+      tx => tx.product.update({ where: { id: PRODUCT_ID }, data: { status: 'ACTIVE' } }).then(() => undefined),
+    )).rejects.toMatchObject({ response: {
+      code: 'PRODUCT_BUNDLE_DEFINITION_INCOMPLETE',
+      products: [expect.objectContaining({ productId: PRODUCT_ID, skus: [expect.objectContaining({ skuCode: 'SET' })] })],
+    } });
+    expect(harness.state).toEqual(initial);
+    expect(harness.committed).toBe(false);
+  });
+
+  it('publishes once the virtual definition is valid', async () => {
+    const harness = createGraphHarness(baseState(), undefined, [bundlePublishRow([bundleDefinitionRow()])]);
+    const saved = await harness.service.applyPatchWithProductMutation(PRODUCT_ID, 1, parsePatch({ variants: writes() }),
+      tx => tx.product.update({ where: { id: PRODUCT_ID }, data: { status: 'ACTIVE' } }).then(() => undefined),
+    );
+    expect(saved).toMatchObject({ status: 'ACTIVE' });
+    expect(harness.committed).toBe(true);
+  });
+
+  it('keeps an unusable virtual definition in draft without publishing it', async () => {
+    const harness = createGraphHarness(baseState(), undefined, [bundlePublishRow()]);
+    const saved = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({}));
+    expect(saved).toMatchObject({ status: 'DRAFT' });
+    expect(harness.committed).toBe(true);
   });
 });
 
@@ -285,6 +350,7 @@ interface SkuRow {
   variantId: string;
   skuCode: string;
   status: 'ACTIVE' | 'DISABLED';
+  isBundle: boolean;
   supplierId?: string | null;
   supplierSku?: string | null;
   supplierCost?: number | null;
@@ -325,6 +391,7 @@ interface HistoryCounts {
   reservations: number;
   inventoryMovements: number;
   orderItems: number;
+  componentOfBundles: number;
 }
 
 interface GraphState {
@@ -357,6 +424,7 @@ const noHistory = (): HistoryCounts => ({
   reservations: 0,
   inventoryMovements: 0,
   orderItems: 0,
+  componentOfBundles: 0,
 });
 
 function combination(...pairs: Array<[string, string]>): string {
@@ -457,6 +525,7 @@ function baseState(
         variantId: RED_VARIANT_ID,
         skuCode: 'CHAIR-RED',
         status: 'ACTIVE',
+        isBundle: false,
         price: 100,
       },
       ...(includeBlue
@@ -467,6 +536,7 @@ function baseState(
               variantId: BLUE_VARIANT_ID,
               skuCode: 'CHAIR-BLUE',
               status: 'ACTIVE',
+              isBundle: false,
               price: 100,
             } satisfies SkuRow,
           ]
@@ -681,6 +751,7 @@ function assertValueUnique(
 function createGraphHarness(
   initial: GraphState = baseState(),
   failAt?: 'media' | 'default',
+  bundleRows: BundlePublishRowFixture[] = [],
 ) {
   let state = structuredClone(initial);
   let committed = false;
@@ -923,10 +994,12 @@ function createGraphHarness(
       ),
     },
     sku: {
-      createMany: vi.fn(async ({ data }: { data: SkuRow | SkuRow[] }) => {
-        state.skus.push(...structuredClone(rows(data)));
-        for (const sku of rows(data)) state.history[sku.id] = noHistory();
-        return { count: rows(data).length };
+      findMany: vi.fn(async () => structuredClone(bundleRows)),
+      createMany: vi.fn(async ({ data }: { data: (Omit<SkuRow, 'isBundle'> & { isBundle?: boolean }) | Array<Omit<SkuRow, 'isBundle'> & { isBundle?: boolean }> }) => {
+        const persisted = rows(data).map(row => ({ isBundle: false, ...row }));
+        state.skus.push(...structuredClone(persisted));
+        for (const sku of persisted) state.history[sku.id] = noHistory();
+        return { count: persisted.length };
       }),
       update: vi.fn(
         async ({
@@ -1349,6 +1422,46 @@ describe('CatalogGraphService independent variant card media', () => {
   });
 });
 
+describe('CatalogGraphService virtual inventory mode', () => {
+  it('persists a new virtual SKU on an existing empty variant', async () => {
+    const state = baseState();
+    state.skus = state.skus.filter(sku => sku.id !== BLUE_SKU_ID);
+    delete state.history[BLUE_SKU_ID];
+    const harness = createGraphHarness(state);
+    const saved = await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: BLUE_VARIANT_ID, position: 1, optionValueRefs: [{ id: BLUE_ID }],
+      sku: { skuCode: 'BUNDLE-BLUE', isBundle: true, price: 2499 },
+    }] }));
+    expect(saved.variants.find(variant => variant.id === BLUE_VARIANT_ID)?.sku).toMatchObject({ skuCode: 'BUNDLE-BLUE', isBundle: true, price: 2499 });
+    expect(harness.state.skus.find(sku => sku.skuCode === 'BUNDLE-BLUE')?.isBundle).toBe(true);
+  });
+
+  it.each([false, true])('refuses to change persisted SKU inventory mode %s', isBundle => {
+    const state = baseState();
+    state.skus[0].isBundle = isBundle;
+    const harness = createGraphHarness(state);
+    const before = structuredClone(harness.state);
+    return expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', isBundle: !isBundle, price: 777 },
+    }] }))).rejects.toThrow(/inventory mode.*immutable/i).then(() => {
+      expect(harness.state).toEqual(before);
+      expect(harness.committed).toBe(false);
+    });
+  });
+
+  it('leaves a virtual marker unchanged when a patch omits it', async () => {
+    const state = baseState();
+    state.skus[0].isBundle = true;
+    const harness = createGraphHarness(state);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', price: 777 },
+    }] }));
+    expect(harness.state.skus.find(sku => sku.id === RED_SKU_ID)).toMatchObject({ isBundle: true, price: 777 });
+  });
+});
+
 describe('CatalogGraphService.applyPatch', () => {
   it('retains variant and SKU identity for the same combination and derives renamed labels server-side', async () => {
     const harness = createGraphHarness();
@@ -1741,6 +1854,22 @@ describe('CatalogGraphService.applyPatch', () => {
   it('disables a retired variant with history instead of deleting its identities', async () => {
     const harness = createGraphHarness(
       baseState({ blueHistory: { orderItems: 1 } }),
+    );
+    const patch = parsePatch({
+      retirements: { optionValueIds: [BLUE_ID] },
+    });
+
+    const result = await harness.service.applyPatch(PRODUCT_ID, 1, patch);
+
+    expect(findVariant(result, BLUE_VARIANT_ID)).toMatchObject({
+      id: BLUE_VARIANT_ID,
+      sku: { id: BLUE_SKU_ID, status: 'DISABLED' },
+    });
+  });
+
+  it('disables a retired variant whose SKU a Bundle still references', async () => {
+    const harness = createGraphHarness(
+      baseState({ blueHistory: { componentOfBundles: 1 } }),
     );
     const patch = parsePatch({
       retirements: { optionValueIds: [BLUE_ID] },

@@ -72,6 +72,7 @@ export const optionWriteSchema = entityRefSchema.and(optionFieldsSchema);
 export const skuWriteSchema = z.object({
   skuCode: z.string().trim().min(1).max(64),
   status: z.nativeEnum(SkuStatus).default('ACTIVE'),
+  isBundle: z.boolean().optional(),
   supplierId: uuidSchema.nullable().optional(),
   supplierSku: z.string().max(120).nullable().optional(),
   supplierCost: z.number().nonnegative().nullable().optional(),

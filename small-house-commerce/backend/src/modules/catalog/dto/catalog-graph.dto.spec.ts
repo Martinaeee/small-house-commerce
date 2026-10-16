@@ -93,6 +93,20 @@ function expectIssuePath(
 }
 
 describe('catalog graph write DTO', () => {
+  describe('SKU inventory mode', () => {
+    it.each([true, false])('preserves an explicit virtual marker %s', isBundle => {
+      expect(skuWriteSchema.parse({ skuCode: 'BUNDLE-MODE', isBundle })).toHaveProperty('isBundle', isBundle);
+    });
+
+    it('leaves an omitted marker absent so an existing SKU cannot be implicitly converted', () => {
+      expect(Object.hasOwn(skuWriteSchema.parse({ skuCode: 'BUNDLE-MODE' }), 'isBundle')).toBe(false);
+    });
+
+    it.each([null, 'true', 1])('rejects a non-boolean virtual marker %s', isBundle => {
+      expect(skuWriteSchema.safeParse({ skuCode: 'BUNDLE-MODE', isBundle }).success).toBe(false);
+    });
+  });
+
   describe.each(['productWidth', 'productDepth', 'productHeight'] as const)('SKU %s', field => {
     it('preserves a centimeter override', () => {
       expect(skuWriteSchema.parse({ skuCode: 'DIM-ONE', [field]: 120 })).toHaveProperty(field, 120);

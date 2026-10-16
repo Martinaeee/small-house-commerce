@@ -31,6 +31,8 @@ import { prepareLegacySceneImages } from './product-scene-policy.js';
 import { buildProductCardMedia, type ProductCardMedia } from './product-card-media.js';
 import type { VariantCardMedia } from './variant-card-media.js';
 import { validateProductCardReadiness } from './product-card-readiness.js';
+import { validateBundlePublishReadiness } from './bundle-readiness.js';
+import { getBundleAvailabilityForSkus } from '../inventory/bundle-inventory.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
 import type { AdminProduct } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
@@ -278,7 +280,7 @@ export class ProductsService {
    * form round-trips prices as decimal strings.
    */
   private async withStock<
-    T extends { variants: { sku: { id: string } | null }[] },
+    T extends { variants: { sku: { id: string; isBundle: boolean } | null }[] },
   >(products: T[]): Promise<T[]> {
     const skuIds = [
       ...new Set(
@@ -288,19 +290,23 @@ export class ProductsService {
       ),
     ];
     const stock = await this.inventory.stockBySku(skuIds);
+    const bundleIds = products.flatMap((product) => product.variants.flatMap(
+      (variant) => variant.sku?.isBundle ? [variant.sku.id] : [],
+    ));
+    const bundleAvailability = await getBundleAvailabilityForSkus(this.prisma, bundleIds);
 
     return products.map((product) => ({
       ...product,
       variants: product.variants.map((variant) => {
         if (!variant.sku) return variant;
-        const row = stock.get(variant.sku.id);
+        const row = bundleAvailability.has(variant.sku.id) ? undefined : stock.get(variant.sku.id);
         return {
           ...variant,
           sku: {
             ...variant.sku,
             onHand: row?.onHand ?? 0,
             reserved: row?.reserved ?? 0,
-            availableInventory: row?.available ?? 0,
+            availableInventory: bundleAvailability.get(variant.sku.id) ?? row?.available ?? 0,
           },
         };
       }),
@@ -703,7 +709,10 @@ export class ProductsService {
           where: { id: product.id },
           include: ADMIN_PRODUCT_INCLUDE,
         });
-        if (saved.status === 'ACTIVE') await validateProductCardReadiness(tx, [product.id]);
+        if (saved.status === 'ACTIVE') {
+          await validateProductCardReadiness(tx, [product.id]);
+          await validateBundlePublishReadiness(tx, [product.id]);
+        }
         return saved;
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
@@ -824,7 +833,10 @@ export class ProductsService {
         if (input.faq) {
           await this.writeFaq(tx, id, input.faq);
         }
-        if (product.status === 'ACTIVE') await validateProductCardReadiness(tx, [id]);
+        if (product.status === 'ACTIVE') {
+          await validateProductCardReadiness(tx, [id]);
+          await validateBundlePublishReadiness(tx, [id]);
+        }
         return product;
       });
 
@@ -977,6 +989,9 @@ export class ProductsService {
       });
 
       if (incomingSku && match.sku) {
+        if (incomingSku.isBundle !== undefined && incomingSku.isBundle !== match.sku.isBundle) {
+          throw new BadRequestException('SKU inventory mode is immutable. Create a new SKU to change it.');
+        }
         const { skuCode, ...rest } = incomingSku;
         try {
           await tx.sku.update({
@@ -1102,6 +1117,7 @@ export class ProductsService {
         await this.prisma.$transaction(async tx => {
           await tx.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
           await validateProductCardReadiness(tx, foundIds);
+          await validateBundlePublishReadiness(tx, foundIds);
         });
       } else {
         await this.prisma.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
@@ -1594,6 +1610,11 @@ export class ProductsService {
       }
     }
 
+    // Virtual SKUs hold no inventory rows of their own: their sellable
+    // quantity is derived from their components, so a Bundle can never
+    // advertise stock that nothing could reserve.
+    const bundleAvailability = await getBundleAvailabilityForSkus(this.prisma, skuIds);
+
     // Returns the same shape, with availableInventory added to each sku and
     // Decimal prices converted to JSON numbers.
     return products.map((product) => ({
@@ -1609,7 +1630,10 @@ export class ProductsService {
                 variant.sku.compareAtPrice === null
                   ? null
                   : Number(variant.sku.compareAtPrice),
-              availableInventory: availableBySku.get(variant.sku.id) ?? 0,
+              availableInventory:
+                bundleAvailability.get(variant.sku.id) ??
+                availableBySku.get(variant.sku.id) ??
+                0,
             }
           : null,
       })),

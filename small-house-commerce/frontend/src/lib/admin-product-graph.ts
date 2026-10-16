@@ -14,7 +14,9 @@
  */
 
 import type { ProductFormValue } from "@/components/admin/ProductForm";
+import type { AdminBundleEditorDraft } from "./admin-bundle";
 import type {
+  AdminBundleDefinition,
   AdminCatalogGraph,
   AdminGraphVariant,
   AdminOption,
@@ -89,6 +91,8 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
         ? {
             skuCode: variant.sku.skuCode,
             status: variant.sku.status,
+            isBundle: variant.sku.isBundle,
+            bundleVersion: variant.sku.bundleVersion,
             price: toFormNumber(variant.sku.price),
             compareAtPrice: toFormNumber(variant.sku.compareAtPrice),
             supplierSku: variant.sku.supplierSku ?? "",
@@ -166,6 +170,10 @@ export interface AdminOptionDraft extends EntityRef {
 export interface AdminSkuDraft extends EntityRef {
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
+  isBundle: boolean;
+  bundleVersion: number;
+  bundleDraft?: AdminBundleEditorDraft;
+  bundleDefinition?: AdminBundleDefinition;
   supplierSku: string | null;
   supplierCost: number | null;
   costCurrency: string | null;
@@ -252,7 +260,7 @@ export interface CatalogVariantUpsert extends EntityRef {
   /** SKU pricing/identity payload; stock deliberately excluded. */
   sku?: Omit<
     AdminSkuDraft,
-    "id" | "clientKey" | "onHand" | "reserved"
+    "id" | "clientKey" | "onHand" | "reserved" | "bundleVersion" | "bundleDraft" | "bundleDefinition"
   > | null;
 }
 
@@ -313,6 +321,8 @@ function skuDraftFromGraph(sku: {
   id: string;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
+  isBundle: boolean;
+  bundleVersion: number;
   supplierSku: string | null;
   supplierCost: string | null;
   costCurrency: string | null;
@@ -335,6 +345,8 @@ function skuDraftFromGraph(sku: {
     id: sku.id,
     skuCode: sku.skuCode,
     status: sku.status,
+    isBundle: sku.isBundle,
+    bundleVersion: sku.bundleVersion,
     supplierSku: sku.supplierSku,
     supplierCost: decimal(sku.supplierCost),
     costCurrency: sku.costCurrency,
@@ -486,6 +498,8 @@ export function deserializeAdminProduct(
               id: variant.sku.id,
               skuCode: variant.sku.skuCode,
               status: variant.sku.status,
+              isBundle: variant.sku.isBundle,
+              bundleVersion: variant.sku.bundleVersion,
               supplierSku: variant.sku.supplierSku,
               supplierCost: decimal(variant.sku.supplierCost),
               costCurrency: variant.sku.costCurrency,
@@ -555,6 +569,7 @@ export function cardGraphFromLegacyForm(value: ProductFormValue): AdminCatalogGr
       ...(row.cardMedia !== undefined ? { cardMedia: structuredClone(row.cardMedia) } : {}),
       sku: sku ? {
         ...previous?.sku, ...(sku.id ? { id: sku.id } : {}), skuCode: sku.skuCode, status: sku.status,
+        isBundle: sku.isBundle, bundleVersion: sku.bundleVersion,
         supplierSku: sku.supplierSku || null, supplierCost: nullableFormNumber(sku.supplierCost),
         costCurrency: sku.costCurrency || null, landedCost: nullableFormNumber(sku.landedCost),
         price: nullableFormNumber(sku.price), compareAtPrice: nullableFormNumber(sku.compareAtPrice),
@@ -644,6 +659,8 @@ export function graphFromAdminProduct(
               id: sku.id ?? "",
               skuCode: sku.skuCode,
               status: sku.status,
+              isBundle: sku.isBundle,
+              bundleVersion: sku.bundleVersion,
               supplierId: null,
               supplierSku: sku.supplierSku,
               supplierCost:
@@ -912,6 +929,7 @@ export function removeSupersededDefaultVariant(draft: AdminCatalogGraphDraft): v
     (variant.sku.reserved ?? 0) !== 0 ||
     !Object.entries(variant.sku).every(([key, value]) =>
       ["skuCode", "status", "price", "compareAtPrice", "onHand", "reserved"].includes(key) ||
+      (key === "isBundle" && value === false) || (key === "bundleVersion" && value === 0) ||
       value === null || value === undefined,
     )
   )) return;
@@ -1186,6 +1204,7 @@ function skuChanged(
   return (
     original.skuCode !== draft.skuCode ||
     original.status !== draft.status ||
+    original.isBundle !== draft.isBundle ||
     original.supplierSku !== draft.supplierSku ||
     !numberEquals(original.supplierCost, draft.supplierCost) ||
     original.costCurrency !== draft.costCurrency ||
@@ -1212,6 +1231,7 @@ function skuWritePayload(
   return {
     skuCode: draft.skuCode,
     status: draft.status,
+    isBundle: draft.isBundle,
     supplierSku: draft.supplierSku,
     supplierCost: draft.supplierCost,
     costCurrency: draft.costCurrency,
@@ -1470,7 +1490,7 @@ export function collectStockBatch(
   const writes: StockBatchWrite[] = [];
   for (const variant of draft.variants) {
     const sku = variant.sku;
-    if (!sku) continue;
+    if (!sku || sku.isBundle) continue;
 
     if (sku.id) {
       const before = baseline.variants

@@ -23,7 +23,7 @@ const ids = {
   blueVariant: "018f0000-0000-7000-8000-000000000022",
 };
 function sku(id: string, code: string): AdminSkuDraft {
-  return { id, skuCode: code, status: "ACTIVE", supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, price: 100, compareAtPrice: null, productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 2 };
+  return { id, skuCode: code, status: "ACTIVE", isBundle: false, bundleVersion: 0, supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, price: 100, compareAtPrice: null, productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 2 };
 }
 function initialValue() {
   const graph: AdminCatalogGraphDraft = {

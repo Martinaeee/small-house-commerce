@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildBundleSnapshot,
   buildOrderItemSnapshot,
+  readBundleSnapshot,
+  sameBundleSnapshot,
   type SkuWithVariantProductAndOptionAssignments,
 } from './order-item-snapshot.js';
 
@@ -109,5 +112,109 @@ describe('buildOrderItemSnapshot', () => {
       variantSnapshot: 'Single',
       optionSnapshot: null,
     });
+  });
+});
+
+const CHAIR_SKU_ID = '50000000-0000-4000-8000-000000000001';
+const TABLE_SKU_ID = '50000000-0000-4000-8000-000000000002';
+const BUNDLE_SKU_ID = '50000000-0000-4000-8000-000000000003';
+
+function bundleComponentsFixture() {
+  return [
+    {
+      componentSkuId: TABLE_SKU_ID,
+      quantity: 1,
+      position: 1,
+      componentSku: { skuCode: 'TABLE', variant: { name: 'Oak', product: { name: 'Table' } } },
+    },
+    {
+      componentSkuId: CHAIR_SKU_ID,
+      quantity: 2,
+      position: 0,
+      componentSku: { skuCode: 'CHAIR', variant: { name: 'Black', product: { name: 'Chair' } } },
+    },
+  ];
+}
+
+describe('Bundle order-line snapshots', () => {
+  it('freezes identity, per-Bundle and total quantities in position order', () => {
+    expect(buildBundleSnapshot({
+      skuId: BUNDLE_SKU_ID,
+      skuCode: 'SET',
+      quantity: 3,
+      components: bundleComponentsFixture(),
+    })).toEqual({
+      version: 1,
+      bundleSkuId: BUNDLE_SKU_ID,
+      bundleSkuCode: 'SET',
+      components: [
+        { componentSkuId: CHAIR_SKU_ID, skuCode: 'CHAIR', productName: 'Chair', variantName: 'Black', quantity: 2, totalQuantity: 6, position: 0 },
+        { componentSkuId: TABLE_SKU_ID, skuCode: 'TABLE', productName: 'Table', variantName: 'Oak', quantity: 1, totalQuantity: 3, position: 1 },
+      ],
+    });
+  });
+
+  it('reads back a written snapshot unchanged', () => {
+    const written = buildBundleSnapshot({
+      skuId: BUNDLE_SKU_ID, skuCode: 'SET', quantity: 2, components: bundleComponentsFixture(),
+    });
+    expect(readBundleSnapshot(JSON.parse(JSON.stringify(written)))).toEqual(written);
+  });
+
+  it.each([
+    ['null', null],
+    ['a string', 'v1'],
+    ['an unknown version', { version: 2, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: [] }],
+    ['a missing identity', { version: 1, bundleSkuCode: 'SET', components: [] }],
+    ['no components', { version: 1, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: [] }],
+    ['a non-object component', { version: 1, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: ['chair'] }],
+    ['a fractional quantity', { version: 1, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: [
+      { componentSkuId: CHAIR_SKU_ID, skuCode: 'CHAIR', productName: 'Chair', variantName: 'Black', quantity: 1.5, totalQuantity: 3, position: 0 },
+    ] }],
+    ['a negative total', { version: 1, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: [
+      { componentSkuId: CHAIR_SKU_ID, skuCode: 'CHAIR', productName: 'Chair', variantName: 'Black', quantity: 2, totalQuantity: -4, position: 0 },
+    ] }],
+    ['a negative position', { version: 1, bundleSkuId: BUNDLE_SKU_ID, bundleSkuCode: 'SET', components: [
+      { componentSkuId: CHAIR_SKU_ID, skuCode: 'CHAIR', productName: 'Chair', variantName: 'Black', quantity: 2, totalQuantity: 4, position: -1 },
+    ] }],
+  ])('fails closed on %s', (_name, value) => {
+    expect(readBundleSnapshot(value)).toBeNull();
+  });
+
+  it.each([
+    'duplicate components', 'self component', 'too many components',
+    'oversized quantity', 'unsafe total', 'zero total', 'inconsistent line totals',
+    'fractional line quantity', 'unsafe position',
+  ])('rejects a corrupt snapshot with %s', (mode) => {
+    const snapshot = buildBundleSnapshot({
+      skuId: BUNDLE_SKU_ID, skuCode: 'SET', quantity: 2, components: bundleComponentsFixture(),
+    });
+    const first = snapshot.components[0]!;
+    if (mode === 'duplicate components') snapshot.components.push({ ...first, position: 2 });
+    if (mode === 'self component') first.componentSkuId = BUNDLE_SKU_ID;
+    if (mode === 'too many components') snapshot.components = Array.from({ length: 21 }, (_, index) => ({ ...first, componentSkuId: `component-${index}`, position: index }));
+    if (mode === 'oversized quantity') { first.quantity = 1001; first.totalQuantity = 2002; }
+    if (mode === 'unsafe total') first.totalQuantity = Number.MAX_SAFE_INTEGER + 1;
+    if (mode === 'zero total') first.totalQuantity = 0;
+    if (mode === 'inconsistent line totals') first.totalQuantity = 6;
+    if (mode === 'fractional line quantity') first.totalQuantity = 3;
+    if (mode === 'unsafe position') first.position = Number.MAX_SAFE_INTEGER + 1;
+
+    expect(readBundleSnapshot(snapshot)).toBeNull();
+  });
+
+  it('compares identity and per-Bundle quantities, not display labels', () => {
+    const written = buildBundleSnapshot({
+      skuId: BUNDLE_SKU_ID, skuCode: 'SET', quantity: 1, components: bundleComponentsFixture(),
+    });
+    expect(sameBundleSnapshot(written, structuredClone(written))).toBe(true);
+    expect(sameBundleSnapshot(null, null)).toBe(true);
+    expect(sameBundleSnapshot(written, null)).toBe(false);
+    const renamed = structuredClone(written);
+    renamed.components[0].productName = 'Chair (new name)';
+    expect(sameBundleSnapshot(written, renamed)).toBe(true);
+    const redefined = structuredClone(written);
+    redefined.components[0].quantity = 3;
+    expect(sameBundleSnapshot(written, redefined)).toBe(false);
   });
 });

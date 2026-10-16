@@ -70,6 +70,22 @@ describe.each([
   );
 });
 
+describe.each([
+  ['create', createProductSchema, { name: 'Bundle furniture', slug: 'bundle-furniture', categoryId: '00000000-0000-4000-8000-000000000001' }],
+  ['update', updateProductSchema, {}],
+] as const)('legacy SKU inventory mode in %s', (_name, schema, basics) => {
+  const body = (fields: Record<string, unknown>) => ({ ...basics, variants: [{ name: 'Set', sku: { skuCode: 'BUNDLE-MODE', ...fields } }] });
+  it.each([true, false])('preserves an explicit virtual marker %s', isBundle => {
+    expect(schema.parse(body({ isBundle })).variants?.[0]?.sku).toHaveProperty('isBundle', isBundle);
+  });
+  it('leaves an omitted marker absent', () => {
+    expect(Object.hasOwn(schema.parse(body({})).variants![0]!.sku!, 'isBundle')).toBe(false);
+  });
+  it.each([null, 'true', 1])('rejects a non-boolean marker %s', isBundle => {
+    expect(schema.safeParse(body({ isBundle })).success).toBe(false);
+  });
+});
+
 describe('product SEO fields', () => {
   it('keeps independently persisted SEO title and meta description', () => {
     expect(

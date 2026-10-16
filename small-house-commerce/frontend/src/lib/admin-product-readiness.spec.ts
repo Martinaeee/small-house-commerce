@@ -22,6 +22,8 @@ function completeGraph(): AdminCatalogGraphDraft {
           id: "sku-red",
           skuCode: "CHAIR-RED",
           status: "ACTIVE",
+          isBundle: false,
+          bundleVersion: 0,
           supplierSku: null,
           supplierCost: null,
           costCurrency: null,

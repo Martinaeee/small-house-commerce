@@ -49,11 +49,11 @@ export class InventoryService {
    * inventory row are absent (callers treat a miss as zero) — the same contract
    * availableBySku has always had.
    */
-  async stockBySku(skuIds: string[]): Promise<Map<string, SkuStock>> {
+  async stockBySku(skuIds: string[], client: Prisma.TransactionClient = this.prisma): Promise<Map<string, SkuStock>> {
     const result = new Map<string, SkuStock>();
     if (skuIds.length === 0) return result;
 
-    const grouped = await this.prisma.inventory.groupBy({
+    const grouped = await client.inventory.groupBy({
       by: ['skuId'],
       where: { skuId: { in: skuIds } },
       _sum: { onHand: true, reserved: true },
@@ -69,8 +69,8 @@ export class InventoryService {
   }
 
   /** available per SKU across all warehouses. */
-  async availableBySku(skuIds: string[]): Promise<Map<string, number>> {
-    const stock = await this.stockBySku(skuIds);
+  async availableBySku(skuIds: string[], client: Prisma.TransactionClient = this.prisma): Promise<Map<string, number>> {
+    const stock = await this.stockBySku(skuIds, client);
     return new Map([...stock].map(([skuId, row]) => [skuId, row.available]));
   }
 
@@ -85,13 +85,15 @@ export class InventoryService {
     quantity: number,
     orderId: string,
   ): Promise<void> {
-    const inventory = await tx.inventory.findUnique({
+    let inventory = await tx.inventory.findUnique({
       where: { skuId_warehouseId: { skuId, warehouseId } },
     });
 
     if (!inventory) {
       throw new BadRequestException('SKU has no inventory record');
     }
+    await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${inventory.id}::uuid FOR UPDATE`;
+    inventory = await tx.inventory.findUniqueOrThrow({ where: { id: inventory.id } });
 
     const available = inventory.onHand - inventory.reserved;
     if (available < quantity) {
@@ -102,6 +104,46 @@ export class InventoryService {
       where: { id: inventory.id },
       data: { reserved: { increment: quantity } },
     });
+    await tx.inventoryReservation.create({
+      data: { orderId, skuId, warehouseId, quantity },
+    });
+    await tx.inventoryMovement.create({
+      data: {
+        skuId,
+        warehouseId,
+        movementType: 'ORDER_RESERVED',
+        quantity,
+        referenceType: 'ORDER',
+        referenceId: orderId,
+      },
+    });
+  }
+
+  async reserveConditionalWithin(
+    tx: Prisma.TransactionClient,
+    skuId: string,
+    warehouseId: string,
+    quantity: number,
+    orderId: string,
+  ): Promise<void> {
+    const updated = await tx.$executeRaw`
+      UPDATE inventory
+         SET reserved = reserved + ${quantity}, updated_at = now()
+       WHERE sku_id = ${skuId}::uuid
+         AND warehouse_id = ${warehouseId}::uuid
+         AND on_hand - reserved >= ${quantity}
+    `;
+    if (updated === 0) {
+      const inventory = await tx.inventory.findUnique({
+        where: { skuId_warehouseId: { skuId, warehouseId } },
+      });
+      if (!inventory) {
+        throw new BadRequestException('SKU has no inventory record');
+      }
+      const available = inventory.onHand - inventory.reserved;
+      throw new BadRequestException(`Insufficient stock: available ${available}, requested ${quantity}`);
+    }
+
     await tx.inventoryReservation.create({
       data: { orderId, skuId, warehouseId, quantity },
     });
@@ -289,6 +331,13 @@ export class InventoryService {
     reason: string | undefined,
     operatorId: string | undefined,
   ) {
+    const sku = await this.prisma.sku.findUnique({
+      where: { id: skuId },
+      select: { isBundle: true },
+    });
+    if (sku?.isBundle) {
+      throw new BadRequestException('Virtual Bundle stock is derived from its components and cannot be adjusted directly');
+    }
     const warehouse = await this.defaultWarehouse();
     const { stock, claims } = await this.prisma.$transaction(async (tx) => {
       const before = await this.backInStock.snapshotForChangedSkusWithin(tx, [
@@ -439,8 +488,8 @@ export class InventoryService {
     return results;
   }
 
-  async defaultWarehouse() {
-    const warehouse = await this.prisma.warehouse.findFirst({
+  async defaultWarehouse(client: Prisma.TransactionClient = this.prisma) {
+    const warehouse = await client.warehouse.findFirst({
       where: { status: 'ACTIVE' },
       orderBy: { createdAt: 'asc' },
     });

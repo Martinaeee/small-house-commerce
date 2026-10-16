@@ -60,6 +60,7 @@ interface SkuRow {
   skuId: string;
   skuCode: string;
   skuStatus: "ACTIVE" | "DISABLED";
+  isBundle: boolean;
   price: string | null;
   // Live stock, served with the product payload (available = on_hand −
   // reserved). Absent rows are 0 in the database, so 0 renders as 0.
@@ -95,6 +96,7 @@ function flattenProducts(products: AdminProduct[]): SkuRow[] {
         skuId: variant.sku.id,
         skuCode: variant.sku.skuCode,
         skuStatus: variant.sku.status,
+        isBundle: variant.sku.isBundle,
         price: variant.sku.price,
         onHand: variant.sku.onHand,
         reserved: variant.sku.reserved,
@@ -538,21 +540,30 @@ function InventoryPageContent() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <div className="text-xs text-ink-secondary">
-                          <div>
-                            On hand{" "}
-                            <span className="font-semibold text-ink">
-                              {stock.onHand}
-                            </span>
+                        {row.isBundle ? (
+                          <div className="text-xs text-ink-secondary">
+                            <div>{t("inventory_bundle_derived")}</div>
+                            <div className="font-semibold text-ink">
+                              {t("inventory_bundle_available", { count: row.available })}
+                            </div>
                           </div>
-                          <div className="text-ink-muted">
-                            Reserved {stock.reserved} · Available{" "}
-                            {stock.available}
+                        ) : (
+                          <div className="text-xs text-ink-secondary">
+                            <div>
+                              On hand{" "}
+                              <span className="font-semibold text-ink">
+                                {stock.onHand}
+                              </span>
+                            </div>
+                            <div className="text-ink-muted">
+                              Reserved {stock.reserved} · Available{" "}
+                              {stock.available}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        {canAdjust ? (
+                        {canAdjust && !row.isBundle ? (
                           <button
                             type="button"
                             onClick={() => openAdjust(row)}

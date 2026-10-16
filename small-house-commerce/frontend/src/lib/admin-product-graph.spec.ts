@@ -62,6 +62,8 @@ function skuRow(id: string, code: string, price: string, onHand: number): AdminG
     id,
     skuCode: code,
     status: "ACTIVE",
+    isBundle: false,
+    bundleVersion: 0,
     supplierId: null,
     supplierSku: null,
     supplierCost: null,
@@ -205,6 +207,70 @@ function productFor(graph: AdminCatalogGraph): AdminProduct {
 function draftFor(graph: AdminCatalogGraph = serverGraph()): AdminCatalogGraphDraft {
   return structuredClone(deserializeAdminProduct(productFor(graph)));
 }
+
+describe("Bundle SKU draft boundaries", () => {
+  it("hydrates virtual identity and definition version from a typed graph", () => {
+    const graph = serverGraph();
+    Object.assign(graph.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    expect(draftFor(graph).variants[0].sku).toMatchObject({ isBundle: true, bundleVersion: 4 });
+  });
+
+  it("keeps virtual identity through the legacy graph bridge", () => {
+    const graph = serverGraph();
+    Object.assign(graph.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    const legacy = productFor(graph);
+    delete legacy.options;
+    delete legacy.media;
+    expect(deserializeAdminProduct(legacy).variants[0].sku).toMatchObject({ isBundle: true, bundleVersion: 4 });
+  });
+
+  it("keeps virtual identity through the saved product form adapter", () => {
+    const graph = serverGraph();
+    Object.assign(graph.variants[0].sku!, { isBundle: true, bundleVersion: 4 });
+    const product = productFor(graph);
+    const form = deserializeProduct(product);
+    expect(form.variants[0].sku).toMatchObject({ isBundle: true, bundleVersion: 4 });
+    expect(graphFromAdminProduct(product).variants[0].sku).toMatchObject({ isBundle: true, bundleVersion: 4 });
+  });
+
+  it("sends a new virtual marker but not component drafts,definition versions or physical stock", () => {
+    const graph = serverGraph();
+    graph.variants[0].sku = null;
+    const draft = draftFor(graph);
+    draft.variants[0].sku = structuredClone(draftFor().variants[0].sku!);
+    delete draft.variants[0].sku.id;
+    Object.assign(draft.variants[0].sku, { isBundle: true, bundleVersion: 0, bundleDraft: { version: 0, components: [] }, bundleDefinition: { version: 0, components: [], availableInventory: 0 } });
+    const payload = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion);
+    expect(payload).toHaveProperty("catalogGraph.variants.0.sku.isBundle", true);
+    for (const field of ["bundleVersion", "bundleDraft", "bundleDefinition", "onHand", "reserved"]) expect(payload).not.toHaveProperty(`catalogGraph.variants.0.sku.${field}`);
+  });
+
+  it("sends a persisted inventory-mode change to the authoritative immutable-mode guard instead of silently dropping it", () => {
+    const graph = serverGraph();
+    const draft = draftFor(graph);
+    draft.variants[0].sku!.isBundle = true;
+    const payload = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion);
+    expect(payload).toHaveProperty("catalogGraph.variants.0.sku.isBundle", true);
+  });
+
+  it("skips physical stock writes for persisted virtual SKUs while preserving ordinary writes", () => {
+    const baseline = draftFor();
+    const draft = draftFor();
+    Object.assign(draft.variants[0].sku!, { isBundle: true, onHand: 999 });
+    draft.variants[1].sku!.onHand = 9;
+    expect(collectStockBatch(draft, baseline)).toEqual([{ skuId: SKU_BLUE_ID, onHand: 9 }]);
+  });
+
+  it("never schedules a zero-stock inventory row for an unpersisted virtual SKU", () => {
+    const baseline = draftFor();
+    const draft = draftFor();
+    delete draft.variants[0].id;
+    draft.variants[0].clientKey = "new-bundle";
+    delete draft.variants[0].sku!.id;
+    Object.assign(draft.variants[0].sku!, { isBundle: true, onHand: 0 });
+    expect(collectStockBatch(draft, baseline)).toEqual([]);
+  });
+});
 
 describe("materialized SKU product dimension bulk actions", () => {
   const dimensions = { width: 120, depth: 60, height: 75 };
@@ -891,7 +957,7 @@ describe("live Default baseline preservation", () => {
     const placeholder: AdminCatalogGraphDraft["variants"][number] = {
       clientKey: "variant-", name: "Default", position: 0, combinationKey: "", optionValueRefs: [],
       sku: {
-        skuCode: "", status: "ACTIVE", price: 4499, compareAtPrice: 4999, onHand: 0, reserved: 0,
+        skuCode: "", status: "ACTIVE", isBundle: false, bundleVersion: 0, price: 4499, compareAtPrice: 4999, onHand: 0, reserved: 0,
         supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, productWidth: null, productDepth: null, productHeight: null, productWeight: null,
         packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null,
       },
@@ -919,6 +985,8 @@ describe("live Default baseline preservation", () => {
     ["supplierSku", "SUP-1"], ["supplierCost", 0], ["costCurrency", "CNY"], ["landedCost", 12],
     ["productWeight", 1], ["packageWidth", 20], ["packageHeight", 30], ["packageDepth", 40],
     ["packageWeight", 2], ["volumetricWeight", 3], ["kind", "BUNDLE"], ["bundleComponents", []],
+    ["isBundle", true], ["bundleVersion", 1], ["bundleDraft", { version: 0, components: [] }],
+    ["bundleDefinition", { version: 0, components: [], availableInventory: 0 }],
   ])("retains meaningful Default SKU configuration %s=%j", (key, value) => {
     const { draft, placeholder } = fixture();
     Object.assign(placeholder.sku!, { [key]: value });
@@ -1030,6 +1098,8 @@ describe("buildCatalogGraphPatch", () => {
         clientKey: "sku-green",
         skuCode: "CHAIR-GRN",
         status: "ACTIVE",
+        isBundle: false,
+        bundleVersion: 0,
         supplierSku: null,
         supplierCost: null,
         costCurrency: null,
@@ -1299,6 +1369,8 @@ describe("collectStockBatch", () => {
         clientKey: "sku-green",
         skuCode: "CHAIR-GRN",
         status: "ACTIVE",
+        isBundle: false,
+        bundleVersion: 0,
         supplierSku: null,
         supplierCost: null,
         costCurrency: null,
@@ -1605,6 +1677,8 @@ describe("resolveStockBatchWrites", () => {
       sku: {
         skuCode: "SH-GREEN",
         status: "ACTIVE",
+        isBundle: false,
+        bundleVersion: 0,
         supplierSku: null,
         supplierCost: null,
         costCurrency: null,
@@ -1675,6 +1749,8 @@ describe("resolveStockBatchWrites", () => {
       sku: {
         skuCode: "",
         status: "ACTIVE",
+        isBundle: false,
+        bundleVersion: 0,
         supplierSku: null,
         supplierCost: null,
         costCurrency: null,

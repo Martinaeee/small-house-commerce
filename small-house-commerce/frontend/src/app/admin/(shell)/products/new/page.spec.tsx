@@ -30,6 +30,8 @@ const listCategories = vi.fn();
 const createProduct = vi.fn();
 const updateProduct = vi.fn();
 const setStockBatch = vi.fn();
+const searchBundleSkus = vi.fn();
+const setBundleComponents = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
   adminApi: {
@@ -37,6 +39,8 @@ vi.mock("@/lib/admin-api", () => ({
     createProduct: (...args: unknown[]) => createProduct(...args),
     updateProduct: (...args: unknown[]) => updateProduct(...args),
     setStockBatch: (...args: unknown[]) => setStockBatch(...args),
+    searchBundleSkus: (...args: unknown[]) => searchBundleSkus(...args),
+    setBundleComponents: (...args: unknown[]) => setBundleComponents(...args),
   },
   formatAmount: (value: unknown) =>
     value === null || value === undefined ? "—" : `₱${value}`,
@@ -76,6 +80,8 @@ const SAVED_WITH_SKU = {
         id: "sku-1",
         skuCode: "SH-1",
         status: "ACTIVE",
+        isBundle: false,
+        bundleVersion: 0,
         price: "1299",
         compareAtPrice: null,
         supplierSku: null,
@@ -105,13 +111,13 @@ const SAVED_WITH_TWO_SKUS = {
       id: "variant-1",
       name: "Default",
       position: 0,
-      sku: { id: "sku-1", skuCode: "SH-1", status: "ACTIVE", price: "1299" },
+      sku: { id: "sku-1", skuCode: "SH-1", status: "ACTIVE", isBundle: false, bundleVersion: 0, price: "1299" },
     },
     {
       id: "variant-2",
       name: "Blue",
       position: 1,
-      sku: { id: "sku-blue", skuCode: "SH-BLUE", status: "ACTIVE", price: "1499" },
+      sku: { id: "sku-blue", skuCode: "SH-BLUE", status: "ACTIVE", isBundle: false, bundleVersion: 0, price: "1499" },
     },
   ],
 } as unknown as AdminProduct;
@@ -156,6 +162,7 @@ async function fillAndSubmit(
  */
 async function fillTwoCandidateSubmit(
   user: ReturnType<typeof userEvent.setup>,
+  beforeSubmit?: () => Promise<void>,
 ): Promise<void> {
   await user.click(await screen.findByRole("tab", { name: "选项、价格与库存" }));
   await user.click(screen.getByRole("button", { name: "添加选项组" }));
@@ -178,6 +185,7 @@ async function fillTwoCandidateSubmit(
   await user.click(screen.getByRole("tab", { name: "搜索与链接" }));
   await user.type(screen.getByLabelText(/Slug \*/), "chair");
 
+  await beforeSubmit?.();
   await user.click(screen.getByRole("button", { name: "保存草稿" }));
 }
 
@@ -189,9 +197,77 @@ describe("NewProductPage two-phase save", () => {
     createProduct.mockReset();
     updateProduct.mockReset();
     setStockBatch.mockReset();
+    searchBundleSkus.mockReset().mockResolvedValue([{ id: "chair", skuCode: "CHAIR", productId: "other", productName: "Chair", variantName: "Black", availableInventory: 9 }]);
+    setBundleComponents.mockReset().mockResolvedValue({ version: 1, components: [], availableInventory: 0 });
   });
 
   afterEach(cleanup);
+
+  async function chooseBundle(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
+    await user.click(screen.getByRole("checkbox", { name: "Default 的虚拟 Bundle 模式" }));
+    await user.click(screen.getByRole("button", { name: "搜索 SKU" }));
+    await user.click(await screen.findByRole("button", { name: "添加 CHAIR" }));
+  }
+
+  it("creates the product and graph before saving new Bundle components against a real identity", async () => {
+    const user = userEvent.setup();
+    const saved = structuredClone(SAVED_WITH_SKU);
+    Object.assign(saved.variants[0].sku!, { isBundle: true, bundleVersion: 0 });
+    createProduct.mockResolvedValue(CREATED);
+    let finishGraph!: (value: AdminProduct) => void;
+    updateProduct.mockImplementation(() => new Promise(resolve => { finishGraph = resolve; }));
+    renderNewProductPage();
+    await fillAndSubmit(user, () => chooseBundle(user));
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(setBundleComponents).not.toHaveBeenCalled();
+    expect(pushMock).not.toHaveBeenCalled();
+    finishGraph(saved);
+    await waitFor(() => expect(setBundleComponents).toHaveBeenCalledWith("created-1", "sku-1", { expectedVersion: 0, components: [{ componentSkuId: "chair", quantity: 1, position: 0 }] }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed new Bundle definitions visible and retries without creating another product", async () => {
+    const user = userEvent.setup();
+    const saved = structuredClone(SAVED_WITH_SKU);
+    Object.assign(saved.variants[0].sku!, { isBundle: true, bundleVersion: 0 });
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockResolvedValue(saved);
+    setBundleComponents.mockRejectedValueOnce(new Error("Component save failed"));
+    renderNewProductPage();
+    await fillAndSubmit(user, () => chooseBundle(user));
+    expect(await screen.findByText(/组件未保存/)).toBeVisible();
+    expect(pushMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "重试失败的 Bundle 组件" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
+    expect(setBundleComponents).toHaveBeenCalledTimes(2);
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("waits for both physical stock and Bundle component retries before leaving create", async () => {
+    const user = userEvent.setup();
+    const saved = structuredClone(SAVED_WITH_TWO_SKUS);
+    Object.assign(saved.variants[0].sku!, { isBundle: true, bundleVersion: 0 });
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockResolvedValue(saved);
+    setBundleComponents.mockRejectedValueOnce(new Error("Component save failed"));
+    setStockBatch.mockResolvedValueOnce([{ skuId: "sku-blue", ok: false, error: "Stock failed" }])
+      .mockResolvedValueOnce([{ skuId: "sku-blue", ok: true }]);
+    renderNewProductPage();
+    await fillTwoCandidateSubmit(user, () => chooseBundle(user));
+    await screen.findByText(/组件未保存/);
+    await user.click(screen.getByRole("button", { name: "重试失败行" }));
+    await waitFor(() => expect(setStockBatch).toHaveBeenCalledTimes(2));
+    expect(pushMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "重试失败的 Bundle 组件" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+  });
 
   it("keeps shared gallery identity separate from an independently selected card cover during typed create", async () => {
     const user = userEvent.setup();

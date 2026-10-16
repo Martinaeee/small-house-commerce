@@ -197,6 +197,8 @@ function previewProduct(): AdminProduct {
           id: "00000000-0000-7000-8000-000000000706",
           skuCode: "PREVIEW-1",
           status: "ACTIVE",
+          isBundle: false,
+          bundleVersion: 0,
           price: "1200",
           compareAtPrice: null,
           supplierSku: null,

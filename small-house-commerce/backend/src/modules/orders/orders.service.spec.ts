@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { checkoutSchema } from './dto/order.dto.js';
+import { buildBundleSnapshot } from './order-item-snapshot.js';
 import { OrdersService } from './orders.service.js';
 
 // Valid v4 UUIDs: zod 4 enforces version/variant, and skuId/landingPageId pass
@@ -17,6 +18,10 @@ function skuRecord() {
     status: 'ACTIVE',
     price: new Prisma.Decimal('199'),
     landedCost: new Prisma.Decimal('100'),
+    // The real sku include always returns the Bundle bindings (empty for an
+    // ordinary SKU); the fixture mirrors that shape.
+    isBundle: false,
+    bundleComponents: [],
     variant: {
       id: '00000000-0000-4000-8000-0000000000b1',
       name: 'Single',
@@ -44,9 +49,11 @@ function checkoutOverrides(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function createHarness() {
+function createHarness(options: { skus?: Record<string, unknown> } = {}) {
+  const skus = options.skus ?? { [SKU_ID]: skuRecord() };
   const tx: Record<string, any> = {
-    $queryRaw: vi.fn(async () => []),
+    $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
+    $executeRaw: vi.fn(async () => 0),
     order: {
       create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
       findUnique: vi.fn(),
@@ -69,19 +76,27 @@ function createHarness() {
       create: vi.fn(async () => ({})),
     },
     orderMergeRecord: { create: vi.fn(async () => ({})) },
-    sku: { findMany: vi.fn(async () => []) },
+    inventoryReservation: { updateMany: vi.fn(async () => ({ count: 1 })) },
+    shipment: { create: vi.fn(async () => ({ id: 'ship-1' })) },
+    orderNote: { create: vi.fn(async () => ({})) },
+    sku: { findMany: vi.fn(async () => []), findUnique: vi.fn() },
   };
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
-    sku: { findUnique: vi.fn(async () => skuRecord()) },
+    sku: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => skus[where.id] ?? null) },
     order: { findUnique: vi.fn() },
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
+  tx.order.findUnique.mockImplementation((args: { where: { id: string } }) => prisma.order.findUnique(args));
+  tx.sku.findUnique.mockImplementation((args: { where: { id: string } }) => prisma.sku.findUnique(args));
   const inventory = {
     availableBySku: vi.fn(async () => new Map([[SKU_ID, 5]])),
     defaultWarehouse: vi.fn(async () => ({ id: 'wh-1' })),
-    reserveWithin: vi.fn(async () => ({})),
+    reserveWithin: vi.fn<InventoryService['reserveWithin']>(async () => undefined),
+    reserveConditionalWithin: vi.fn<InventoryService['reserveConditionalWithin']>(async () => undefined),
+    releaseForOrder: vi.fn<InventoryService['releaseForOrder']>(async () => []),
+    consumeForOrder: vi.fn<InventoryService['consumeForOrder']>(async () => undefined),
   };
   const customerRisk = {
     classifyForNewOrder: vi.fn(async () => ({
@@ -688,5 +703,386 @@ describe('OrdersService.sign (§69)', () => {
     await expect(service.sign('order-1', 'ship-1', 'op-1')).rejects.toThrow(
       /already signed/,
     );
+  });
+});
+
+const CHAIR_SKU_ID = '00000000-0000-4000-8000-0000000000d1';
+const TABLE_SKU_ID = '00000000-0000-4000-8000-0000000000d2';
+const BUNDLE_SKU_ID = '00000000-0000-4000-8000-0000000000d3';
+const BUNDLE_VARIANT_ID = '00000000-0000-4000-8000-0000000000b2';
+const BUNDLE_PRODUCT_ID = '00000000-0000-4000-8000-0000000000c2';
+const ITEM_ID = '00000000-0000-4000-8000-0000000000e1';
+const ITEM_KEPT_ID = '00000000-0000-4000-8000-0000000000e2';
+const ITEM_MERGED_ID = '00000000-0000-4000-8000-0000000000e3';
+
+function componentRow(
+  skuId: string,
+  skuCode: string,
+  quantity: number,
+  position: number,
+  overrides: { status?: string; isBundle?: boolean; productStatus?: string } = {},
+) {
+  return {
+    componentSkuId: skuId,
+    quantity,
+    position,
+    componentSku: {
+      skuCode,
+      isBundle: overrides.isBundle ?? false,
+      status: overrides.status ?? 'ACTIVE',
+      variant: {
+        name: `${skuCode} variant`,
+        product: { name: `${skuCode} product`, status: overrides.productStatus ?? 'ACTIVE' },
+      },
+    },
+  };
+}
+
+function bundleRecord(
+  components = [componentRow(CHAIR_SKU_ID, 'CHAIR', 2, 0), componentRow(TABLE_SKU_ID, 'TABLE', 1, 1)],
+) {
+  return {
+    id: BUNDLE_SKU_ID,
+    skuCode: 'SET',
+    status: 'ACTIVE',
+    isBundle: true,
+    price: new Prisma.Decimal('2499'),
+    landedCost: null,
+    variant: {
+      id: BUNDLE_VARIANT_ID,
+      name: 'Set',
+      productId: BUNDLE_PRODUCT_ID,
+      product: { id: BUNDLE_PRODUCT_ID, name: 'Set product', status: 'ACTIVE' },
+    },
+    bundleComponents: components,
+  };
+}
+
+function ordinaryRecord(id: string, skuCode: string) {
+  return {
+    id,
+    skuCode,
+    status: 'ACTIVE',
+    isBundle: false,
+    price: new Prisma.Decimal('199'),
+    landedCost: null,
+    variant: {
+      id: `${id}-variant`,
+      name: 'Single',
+      productId: `${id}-product`,
+      product: { id: `${id}-product`, name: `${skuCode} product`, status: 'ACTIVE' },
+    },
+    bundleComponents: [],
+  };
+}
+
+/** A stored version-1 Bundle snapshot: one CHAIR per Bundle, two per set. */
+const SNAPSHOT_V1 = {
+  version: 1,
+  bundleSkuId: BUNDLE_SKU_ID,
+  bundleSkuCode: 'SET',
+  components: [{
+    componentSkuId: CHAIR_SKU_ID,
+    skuCode: 'CHAIR',
+    productName: 'CHAIR product',
+    variantName: 'CHAIR variant',
+    quantity: 2,
+    totalQuantity: 4,
+    position: 0,
+  }],
+};
+
+function orderDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'order-1',
+    orderNumber: 'PH1',
+    orderStatus: 'NEW',
+    confirmationStatus: 'UNCONFIRMED',
+    customerId: 'cust-1',
+    createdAt: new Date('2026-10-01T00:00:00Z'),
+    discountTotal: new Prisma.Decimal(0),
+    shippingTotal: new Prisma.Decimal(0),
+    assignedToId: null,
+    assignedBy: null,
+    items: [],
+    shippingAddress: null,
+    riskFlags: [],
+    shipments: [],
+    reservations: [],
+    statusHistory: [],
+    notes: [],
+    customer: { notes: [], riskLogs: [] },
+    ...overrides,
+  };
+}
+
+describe('OrdersService Bundle checkout', () => {
+  it('reserves Bundle components and freezes a version-1 snapshot on the line', async () => {
+    const harness = createHarness({ skus: { [BUNDLE_SKU_ID]: bundleRecord() } });
+    harness.inventory.availableBySku.mockResolvedValue(
+      new Map([[CHAIR_SKU_ID, 11], [TABLE_SKU_ID, 4]]),
+    );
+
+    await harness.service.checkout(checkoutOverrides({
+      attribution: { sourceType: 'ORGANIC' },
+      items: [{ skuId: BUNDLE_SKU_ID, quantity: 2 }],
+    }));
+
+    const data = harness.tx.order.create.mock.calls[0]![0].data;
+    expect(data.items.create).toEqual([expect.objectContaining({
+      skuId: BUNDLE_SKU_ID,
+      quantity: 2,
+      bundleSnapshot: {
+        version: 1,
+        bundleSkuId: BUNDLE_SKU_ID,
+        bundleSkuCode: 'SET',
+        components: [
+          { componentSkuId: CHAIR_SKU_ID, skuCode: 'CHAIR', productName: 'CHAIR product', variantName: 'CHAIR variant', quantity: 2, totalQuantity: 4, position: 0 },
+          { componentSkuId: TABLE_SKU_ID, skuCode: 'TABLE', productName: 'TABLE product', variantName: 'TABLE variant', quantity: 1, totalQuantity: 2, position: 1 },
+        ],
+      },
+    })]);
+    expect(harness.inventory.reserveConditionalWithin.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+      [CHAIR_SKU_ID, 4],
+      [TABLE_SKU_ID, 2],
+    ]);
+  });
+
+  it('refuses a Bundle whose saved definition is unusable before writing anything', async () => {
+    const harness = createHarness({
+      skus: { [BUNDLE_SKU_ID]: bundleRecord([componentRow(CHAIR_SKU_ID, 'CHAIR', 2, 0, { status: 'DISABLED' })]) },
+    });
+
+    await expect(harness.service.checkout(checkoutOverrides({
+      attribution: { sourceType: 'ORGANIC' },
+      items: [{ skuId: BUNDLE_SKU_ID, quantity: 1 }],
+    })))
+      .rejects.toThrow(/SET is not available for purchase/);
+    expect(harness.tx.order.create).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveConditionalWithin).not.toHaveBeenCalled();
+  });
+
+  it('rejects the order when Bundle and ordinary lines exceed a shared component', async () => {
+    const harness = createHarness({
+      skus: { [BUNDLE_SKU_ID]: bundleRecord(), [CHAIR_SKU_ID]: ordinaryRecord(CHAIR_SKU_ID, 'CHAIR') },
+    });
+    harness.inventory.availableBySku.mockResolvedValue(
+      new Map([[CHAIR_SKU_ID, 11], [TABLE_SKU_ID, 4]]),
+    );
+
+    await expect(harness.service.checkout(checkoutOverrides({
+      attribution: { sourceType: 'ORGANIC' },
+      items: [
+        { skuId: BUNDLE_SKU_ID, quantity: 2 },
+        { skuId: CHAIR_SKU_ID, quantity: 8 },
+      ],
+    }))).rejects.toThrow(/Insufficient stock for SET/);
+    expect(harness.tx.order.create).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveConditionalWithin).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService Bundle edit, merge and ship', () => {
+  it('reserves a newly added Bundle line from the current definition', async () => {
+    const harness = createHarness({ skus: { [BUNDLE_SKU_ID]: bundleRecord() } });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail());
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+    harness.tx.orderItem.findMany.mockResolvedValue([]);
+
+    await harness.service.edit('order-1', { items: [{ skuId: BUNDLE_SKU_ID, quantity: 2 }] }, 'op-1');
+
+    expect(harness.tx.orderItem.create.mock.calls[0]![0].data).toMatchObject({
+      skuId: BUNDLE_SKU_ID,
+      quantity: 2,
+      bundleSnapshot: expect.objectContaining({ version: 1 }),
+    });
+    expect(harness.inventory.reserveConditionalWithin.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+      [CHAIR_SKU_ID, 4],
+      [TABLE_SKU_ID, 2],
+    ]);
+  });
+
+  it('follows the saved snapshot when an existing Bundle line grows after a definition change', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      items: [{
+        id: ITEM_ID, skuId: BUNDLE_SKU_ID, quantity: 2,
+        unitPrice: new Prisma.Decimal('2499'), bundleSnapshot: SNAPSHOT_V1,
+      }],
+    }));
+    // The current definition now needs five chairs per set; the stored
+    // snapshot still owes two, so only the delta follows it.
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord([componentRow(CHAIR_SKU_ID, 'CHAIR', 5, 0)])]);
+    harness.tx.orderItem.findMany.mockResolvedValue([
+      { id: ITEM_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 3 },
+    ]);
+
+    await harness.service.edit('order-1', { items: [{ skuId: BUNDLE_SKU_ID, quantity: 3 }] }, 'op-1');
+
+    expect(harness.inventory.reserveConditionalWithin.mock.calls.map((call) => [call[1], call[3]])).toEqual([[CHAIR_SKU_ID, 2]]);
+  });
+
+  it('follows the stored snapshot when an existing Bundle line shrinks', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      items: [{
+        id: ITEM_ID, skuId: BUNDLE_SKU_ID, quantity: 3,
+        unitPrice: new Prisma.Decimal('2499'), bundleSnapshot: { ...SNAPSHOT_V1, components: [{ ...SNAPSHOT_V1.components[0]!, totalQuantity: 6 }] },
+      }],
+    }));
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord([componentRow(CHAIR_SKU_ID, 'CHAIR', 5, 0)])]);
+    harness.tx.orderItem.findMany.mockResolvedValue([
+      { id: ITEM_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 1 },
+    ]);
+
+    await harness.service.edit('order-1', { items: [{ skuId: BUNDLE_SKU_ID, quantity: 1 }] }, 'op-1');
+
+    expect(harness.inventory.releaseForOrder).toHaveBeenCalledWith(harness.tx, 'order-1');
+    // Two chairs per set from the snapshot, not five from the new definition.
+    expect(harness.inventory.reserveConditionalWithin.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+      [CHAIR_SKU_ID, 2],
+    ]);
+  });
+
+  it('releases the components when a Bundle line is removed', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      items: [{
+        id: ITEM_ID, skuId: BUNDLE_SKU_ID, quantity: 2,
+        unitPrice: new Prisma.Decimal('2499'), bundleSnapshot: SNAPSHOT_V1,
+      }],
+    }));
+    harness.tx.orderItem.findMany.mockResolvedValue([]);
+
+    await harness.service.edit('order-1', { items: [] }, 'op-1');
+
+    expect(harness.tx.orderItem.delete).toHaveBeenCalledWith({ where: { id: ITEM_ID } });
+    expect(harness.inventory.releaseForOrder).toHaveBeenCalledWith(harness.tx, 'order-1');
+  });
+
+  it('refuses to add a Bundle line whose current definition is unusable', async () => {    const harness = createHarness({ skus: {} });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail());
+    harness.tx.sku.findMany.mockResolvedValue([
+      bundleRecord([componentRow(CHAIR_SKU_ID, 'CHAIR', 0, 0)]),
+    ]);
+
+    await expect(harness.service.edit('order-1', { items: [{ skuId: BUNDLE_SKU_ID, quantity: 1 }] }, 'op-1'))
+      .rejects.toThrow(/Bundle SET is not available for purchase/);
+    expect(harness.tx.orderItem.create).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveConditionalWithin).not.toHaveBeenCalled();
+  });
+
+  it('refuses to resize a Bundle line whose stored snapshot is unreadable', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      items: [{
+        id: ITEM_ID, skuId: BUNDLE_SKU_ID, quantity: 2,
+        unitPrice: new Prisma.Decimal('2499'), bundleSnapshot: { version: 9 },
+      }],
+    }));
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+
+    await expect(harness.service.edit('order-1', { items: [{ skuId: BUNDLE_SKU_ID, quantity: 3 }] }, 'op-1'))
+      .rejects.toThrow(/snapshot is unreadable/);
+    expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveConditionalWithin).not.toHaveBeenCalled();
+  });
+
+  it('keeps two Bundle lines with different snapshots apart when merging', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+    const primary = orderDetail({
+      createdAt: new Date('2026-10-01T00:00:00Z'),
+      shippingAddress: { phone: '09171234567', streetAddress: '1 Main St', province: 'Metro Manila', city: 'Manila' },
+      items: [{ id: ITEM_KEPT_ID, skuId: BUNDLE_SKU_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 1, lineTotal: new Prisma.Decimal('2499'), bundleSnapshot: { ...SNAPSHOT_V1, components: [{ ...SNAPSHOT_V1.components[0]!, totalQuantity: 2 }] } }],
+    });
+    const merged = orderDetail({
+      id: 'order-2', orderNumber: 'PH2',
+      createdAt: new Date('2026-10-02T00:00:00Z'),
+      shippingAddress: { phone: '09171234567', streetAddress: '1 Main St', province: 'Metro Manila', city: 'Manila' },
+      items: [{
+        id: ITEM_MERGED_ID, skuId: BUNDLE_SKU_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 1, lineTotal: new Prisma.Decimal('2499'),
+        bundleSnapshot: { ...SNAPSHOT_V1, components: [{ ...SNAPSHOT_V1.components[0]!, quantity: 3, totalQuantity: 3 }] },
+      }],
+    });
+    harness.prisma.order.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === 'order-1' ? primary : merged);
+
+    await harness.service.merge({ primaryOrderId: 'order-1', mergedOrderId: 'order-2' }, 'op-1');
+
+    expect(harness.tx.orderItem.update).toHaveBeenCalledWith({ where: { id: ITEM_MERGED_ID }, data: { orderId: 'order-1' } });
+    expect(harness.tx.orderItem.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ quantity: 2 }) }),
+    );
+  });
+
+  it('collapses two Bundle lines that share one definition and restates the line totals', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+    const sharedSnapshot = buildBundleSnapshot({
+      skuId: BUNDLE_SKU_ID,
+      skuCode: 'SET',
+      quantity: 1,
+      components: [componentRow(CHAIR_SKU_ID, 'CHAIR', 2, 0)],
+    });
+    const address = { phone: '09171234567', streetAddress: '1 Main St', province: 'Metro Manila', city: 'Manila' };
+    const primary = orderDetail({
+      createdAt: new Date('2026-10-01T00:00:00Z'),
+      shippingAddress: address,
+      items: [{ id: ITEM_KEPT_ID, skuId: BUNDLE_SKU_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 1, lineTotal: new Prisma.Decimal('2499'), bundleSnapshot: sharedSnapshot }],
+    });
+    const merged = orderDetail({
+      id: 'order-2', orderNumber: 'PH2',
+      createdAt: new Date('2026-10-02T00:00:00Z'),
+      shippingAddress: address,
+      items: [{ id: ITEM_MERGED_ID, skuId: BUNDLE_SKU_ID, unitPrice: new Prisma.Decimal('2499'), quantity: 2, lineTotal: new Prisma.Decimal('4998'), bundleSnapshot: { ...sharedSnapshot, components: [{ ...sharedSnapshot.components[0]!, totalQuantity: 4 }] } }],
+    });
+    harness.prisma.order.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === 'order-1' ? primary : merged);
+
+    await harness.service.merge({ primaryOrderId: 'order-1', mergedOrderId: 'order-2' }, 'op-1');
+
+    expect(harness.tx.orderItem.update).toHaveBeenCalledWith({
+      where: { id: ITEM_KEPT_ID },
+      data: {
+        quantity: 3,
+        lineTotal: new Prisma.Decimal('7497'),
+        bundleSnapshot: expect.objectContaining({
+          components: [expect.objectContaining({ componentSkuId: CHAIR_SKU_ID, quantity: 2, totalQuantity: 6 })],
+        }),
+      },
+    });
+  });
+
+  it('consumes the snapshot components when a Bundle line ships', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.tx.sku.findMany.mockResolvedValue([bundleRecord()]);
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      orderStatus: 'CONFIRMED',
+      confirmationStatus: 'CONFIRMED',
+      items: [{ id: ITEM_ID, skuId: BUNDLE_SKU_ID, skuCodeSnapshot: 'SET', quantity: 2, bundleSnapshot: SNAPSHOT_V1 }],
+    }));
+
+    await harness.service.ship('order-1', { carrier: 'LBC', items: [{ orderItemId: ITEM_ID, quantity: 1 }] }, 'op-1');
+
+    expect(Array.from(harness.inventory.consumeForOrder.mock.calls[0]![2] as Map<string, number>))
+      .toEqual([[CHAIR_SKU_ID, 2]]);
+  });
+
+  it('refuses to consume inventory for an unreadable Bundle snapshot', async () => {
+    const harness = createHarness({ skus: {} });
+    harness.prisma.order.findUnique.mockResolvedValue(orderDetail({
+      orderStatus: 'CONFIRMED',
+      confirmationStatus: 'CONFIRMED',
+      items: [{ id: ITEM_ID, skuId: BUNDLE_SKU_ID, skuCodeSnapshot: 'SET', quantity: 1, bundleSnapshot: { version: 9 } }],
+    }));
+
+    await expect(harness.service.ship('order-1', { carrier: 'LBC', items: [{ orderItemId: ITEM_ID, quantity: 1 }] }, 'op-1'))
+      .rejects.toThrow(/snapshot is unreadable/);
+    expect(harness.inventory.consumeForOrder).not.toHaveBeenCalled();
   });
 });

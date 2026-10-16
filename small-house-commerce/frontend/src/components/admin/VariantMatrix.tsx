@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { inputClsCompact } from "@/components/admin/Field";
 import { DecimalInput } from "@/components/admin/DecimalInput";
 import { Dialog } from "@/components/admin/Dialog";
+import { BundleComponentsEditor } from "@/components/admin/BundleComponentsEditor";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   applyProductDimensionsToVariants,
@@ -48,6 +49,8 @@ function emptySkuDraft(): AdminSkuDraft {
   return {
     skuCode: "",
     status: "ACTIVE",
+    isBundle: false,
+    bundleVersion: 0,
     supplierSku: null,
     supplierCost: null,
     costCurrency: null,
@@ -116,8 +119,12 @@ export function VariantMatrix({
   highlightKey = null,
   requestedSkuCode = null,
   productDimensions = null,
+  productId = null,
+  onBundleSavingChange,
 }: {
   candidates: readonly VariantCandidate[];
+  productId?: string | null;
+  onBundleSavingChange?: (skuKey: string, saving: boolean) => void;
   draft?: AdminCatalogGraphDraft | null;
   onChange?: (mutate: (draft: AdminCatalogGraphDraft) => void) => void;
   pending?: boolean;
@@ -243,6 +250,7 @@ export function VariantMatrix({
     setBulkError(null);
     const value = Number(raw);
     pageRows.forEach((candidate) => {
+      if (kind === "stock" && rowFor(candidate)?.sku?.isBundle) return;
       editSku(
         candidate,
         kind === "price" ? { price: value } : { onHand: value },
@@ -344,7 +352,7 @@ export function VariantMatrix({
             {t("product_matrix_scroll_hint")}
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className={`w-full text-sm ${pageRows.some(candidate => rowFor(candidate)?.sku?.isBundle) ? "min-w-[1440px]" : "min-w-[880px]"}`}>
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-ink-secondary">
                   <th className="py-2 pr-3">{t("product_matrix_col_variant")}</th>
@@ -409,6 +417,35 @@ export function VariantMatrix({
                           <p className="text-xs text-ink-muted">
                             {t("product_matrix_persisted_note")}
                           </p>
+                        ) : null}
+                        <label className="mt-2 flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            aria-label={t("bundle_mode_aria", { name: candidate.name })}
+                            checked={sku?.isBundle ?? false}
+                            disabled={!editable || sku?.id !== undefined}
+                            onChange={event => editSku(candidate, {
+                              isBundle: event.target.checked,
+                              onHand: 0,
+                              bundleDraft: undefined,
+                              bundleDefinition: undefined,
+                            })}
+                          />
+                          {t("bundle_mode_label")}
+                        </label>
+                        {sku?.id ? <p className="text-xs text-ink-muted">{t("bundle_mode_immutable")}</p> : null}
+                        {sku?.isBundle && (!sku.id || productId) ? (
+                          <BundleComponentsEditor
+                            productId={productId}
+                            skuId={sku.id}
+                            draft={sku.bundleDraft}
+                            definition={sku.bundleDefinition}
+                            expectedVersion={sku.bundleVersion}
+                            onChange={bundleDraft => editSku(candidate, { bundleDraft })}
+                            onDefinitionChange={definition => editSku(candidate, { bundleDefinition: definition, bundleVersion: definition.version })}
+                            disabled={!editable}
+                            onSavingChange={saving => onBundleSavingChange?.(sku.id ?? rowKeyValue, saving)}
+                          />
                         ) : null}
                       </td>
                       <td className="py-2 pr-3">
@@ -484,7 +521,7 @@ export function VariantMatrix({
                         />
                       </td>
                       <td className="py-2 pr-3">
-                        <input
+                        {sku?.isBundle ? <p className="text-xs text-ink-muted">{t("bundle_virtual_stock")}</p> : <input
                           aria-label={t("product_matrix_stock_aria", {
                             name: candidate.name,
                           })}
@@ -508,7 +545,7 @@ export function VariantMatrix({
                           }}
                           disabled={!editable}
                           autoComplete="off"
-                        />
+                        />}
                       </td>
                       <td className="py-2 pr-3">
                         {sku ? (

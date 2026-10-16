@@ -95,7 +95,7 @@ function draft(overrides: Partial<AdminCatalogGraphDraft> = {}): AdminCatalogGra
 
 function skuDraft(skuCode: string): NonNullable<AdminCatalogGraphDraft["variants"][number]["sku"]> {
   return {
-    skuCode, status: "ACTIVE", supplierSku: null, supplierCost: null,
+    skuCode, status: "ACTIVE", isBundle: false, bundleVersion: 0, supplierSku: null, supplierCost: null,
     costCurrency: null, landedCost: null, price: 3799, compareAtPrice: null,
     productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: null, packageHeight: null,
     packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 4,
@@ -110,7 +110,7 @@ describe("collectGraphIssues", () => {
       clientKey: "variant-", name: "Default", position: 0,
       combinationKey: "", optionValueRefs: [],
       sku: {
-        skuCode, status: "ACTIVE", price: 3499, compareAtPrice: null,
+        skuCode, status: "ACTIVE", isBundle: false, bundleVersion: 0, price: 3499, compareAtPrice: null,
         supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null,
         productWidth: null, productDepth: null, productHeight: null, productWeight: null, packageWidth: 85, packageHeight: null,
         packageDepth: null, packageWeight: 12, volumetricWeight: null, onHand: 6,
@@ -228,6 +228,8 @@ describe("collectGraphIssues", () => {
             sku: {
               skuCode: "",
               status: "ACTIVE",
+              isBundle: false,
+              bundleVersion: 0,
               supplierSku: null,
               supplierCost: null,
               costCurrency: null,

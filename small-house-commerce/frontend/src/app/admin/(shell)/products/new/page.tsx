@@ -25,6 +25,7 @@ import {
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { bundleComponentWrites, saveBundleComponentWrites, type BundleComponentWrite, type BundleSaveFailure } from "@/lib/admin-bundle";
 import {
   buildCatalogGraphPatch,
   collectStockBatch,
@@ -102,6 +103,8 @@ export default function NewProductPage(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   // Phase B rows the batch settled as failed (failed-row-only retry).
   const [stockFailures, setStockFailures] = useState<StockFailureRow[]>([]);
+  const [bundleFailures, setBundleFailures] = useState<BundleSaveFailure[]>([]);
+  const [bundleProduct, setBundleProduct] = useState<AdminProduct | null>(null);
   // Created-product id held so the retry panel can refetch/navigate.
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [createdForGraph, setCreatedForGraph] = useState<AdminProduct | null>(null);
@@ -201,7 +204,8 @@ export default function NewProductPage(): ReactNode {
       const remaining = [...unresolved, ...stillFailed];
       setStockFailures(remaining);
       if (remaining.length === 0) {
-        if (createdId) router.push(`/admin/products/${createdId}/edit`);
+        if (bundleFailures.length > 0) setError(t("bundle_partial", { count: bundleFailures.length }));
+        else if (createdId) router.push(`/admin/products/${createdId}/edit`);
       } else {
         setError(t("product_save_stock_still_failed", { count: remaining.length }));
       }
@@ -213,7 +217,23 @@ export default function NewProductPage(): ReactNode {
     } finally {
       if (mounted.current) setPending(false);
     }
-  }, [stockFailures, createdId, router, t]);
+  }, [stockFailures, bundleFailures, createdId, router, t]);
+
+  const retryBundleFailures = async (): Promise<void> => {
+    if (!bundleProduct || pending || bundleFailures.length === 0) return;
+    setPending(true);
+    setError(null);
+    try {
+      const failures = await saveBundleComponentWrites(bundleProduct, bundleFailures.map(row => row.write));
+      if (!mounted.current) return;
+      setBundleFailures(failures);
+      if (failures.length > 0) setError(t("bundle_partial", { count: failures.length }));
+      else if (stockFailures.length > 0) setError(t("product_save_stock_still_failed", { count: stockFailures.length }));
+      else router.push(`/admin/products/${bundleProduct.id}/edit`);
+    } finally {
+      if (mounted.current) setPending(false);
+    }
+  };
 
   const handleSubmit = (v: ProductFormValue): void => {
     if (createdId !== null && createdForGraph === null) return;
@@ -253,6 +273,13 @@ export default function NewProductPage(): ReactNode {
       }
     }
 
+    let bundleWrites: BundleComponentWrite[];
+    try {
+      bundleWrites = phaseDraft ? bundleComponentWrites(phaseDraft) : [];
+    } catch {
+      setError(t("bundle_invalid"));
+      return;
+    }
     setPending(true);
     setError(null);
     setStockFailures([]);
@@ -284,6 +311,11 @@ export default function NewProductPage(): ReactNode {
           setCreatedForGraph(null);
           stockWrites = collectStockBatch(phaseDraft, EMPTY_DRAFT_BASELINE);
         }
+
+        const componentFailures = await saveBundleComponentWrites(saved, bundleWrites);
+        if (!mounted.current) return;
+        if (bundleWrites.length > 0) setBundleProduct(saved);
+        setBundleFailures(componentFailures);
 
         // Phase B — bounded stock batch with real SKU ids resolved from the
         // save response. Failures settle per row; only they are retried.
@@ -338,6 +370,12 @@ export default function NewProductPage(): ReactNode {
         }
         if (!mounted.current) return;
 
+        if (componentFailures.length > 0) {
+          setStockFailures(failures);
+          setError(t("bundle_partial", { count: componentFailures.length }));
+          setPending(false);
+          return;
+        }
         if (failures.length > 0) {
           // Keep the operator here: the product + graph exist, only stock
           // rows failed. The panel retries exactly those rows.
@@ -462,6 +500,18 @@ export default function NewProductPage(): ReactNode {
                 pending={pending}
               />
             </div>
+          ) : null}
+          {bundleFailures.length > 0 ? (
+            <section className="my-4 rounded-xl border border-admin-error p-4" aria-label={t("bundle_retry_title")}>
+              <h2 className="font-semibold">{t("bundle_retry_title")}</h2>
+              <ul className="my-3 space-y-2">
+                {bundleFailures.map(({ write, error }) => <li key={write.skuId ?? write.skuCode}>
+                  <p>{write.label} · {write.skuCode}: {error}</p>
+                  <p>{write.draft.components.map(row => `${row.componentSkuCode} × ${row.quantity}`).join(", ")}</p>
+                </li>)}
+              </ul>
+              <Button type="button" disabled={pending} onClick={() => void retryBundleFailures()}>{t("bundle_retry")}</Button>
+            </section>
           ) : null}
           <ProductForm
             initial={initial}

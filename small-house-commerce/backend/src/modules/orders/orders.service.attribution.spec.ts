@@ -22,7 +22,10 @@ function setup() {
   const profile = { displayName: 'Owner at touch', status: 'ACTIVE' };
   const page = { slug: 'campaign', publishedContent: { blocks: [] }, publishedRevision: 3, status: 'ACTIVE', startAt: null, endAt: null };
   const link = { id: LINK, code: 'abcdefghijklmnop', ownerUserId: USER, aidSnapshot: 'OP-1', productId: PRODUCT, variantId: null, landingPageId: PAGE, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmMedium: 'paid', utmCampaign: 'A', utmContent: 'creative', utmTerm: 'chair', status: 'ACTIVE', product: { status: 'ACTIVE', name: 'Entry product', productCode: 'ENTRY-001', slug: 'chair' }, landingPage: page, owner: { name: 'Owner', status: 'ACTIVE', optimizerProfile: profile } };
+  const sku = { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, skuCode: where.id === SKU ? 'SKU-A' : 'SKU-B', status: 'ACTIVE', price: new Prisma.Decimal(where.id === SKU ? '199' : '49'), landedCost: null, isBundle: false, bundleComponents: [], variant: { id: PAGE, name: 'Standard', productId: where.id === SKU ? PRODUCT : PROFILE, product: { id: where.id === SKU ? PRODUCT : PROFILE, name: 'Bought product', status: 'ACTIVE' } } })) };
   const tx = {
+    sku,
+    $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
     order: { create: vi.fn(async ({ data }: { data: Prisma.OrderCreateInput }) => { writes.push(data); return { id: 'order-1' }; }) },
     orderStatusHistory: { create: vi.fn(async () => ({})) },
     campaignLinkVisit: { createMany: vi.fn(async () => ({ count: 1 })) },
@@ -30,7 +33,7 @@ function setup() {
   };
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'customer-1' })) },
-    sku: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, skuCode: where.id === SKU ? 'SKU-A' : 'SKU-B', status: 'ACTIVE', price: new Prisma.Decimal(where.id === SKU ? '199' : '49'), landedCost: null, variant: { id: PAGE, name: 'Standard', productId: where.id === SKU ? PRODUCT : PROFILE, product: { id: where.id === SKU ? PRODUCT : PROFILE, name: 'Bought product', status: 'ACTIVE' } } })) },
+    sku,
     campaignLink: { findUnique: vi.fn(async () => link) },
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => { inTransaction = true; try { return await work(tx); } finally { inTransaction = false; } }),

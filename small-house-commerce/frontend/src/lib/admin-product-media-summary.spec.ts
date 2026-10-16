@@ -47,6 +47,8 @@ function sku(id: string): AdminSkuDraft {
     id,
     skuCode: id.toUpperCase(),
     status: "ACTIVE",
+    isBundle: false,
+    bundleVersion: 0,
     supplierSku: null,
     supplierCost: null,
     costCurrency: null,

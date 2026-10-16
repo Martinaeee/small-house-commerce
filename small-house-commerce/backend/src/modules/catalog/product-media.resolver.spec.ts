@@ -269,6 +269,7 @@ function createProductsHarness() {
     productImage,
     sharedFaqSet: { findUnique: vi.fn(async () => null) },
     inventory: { groupBy: vi.fn(async () => []) },
+    sku: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   };
   const reviews = {

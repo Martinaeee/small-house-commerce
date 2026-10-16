@@ -196,7 +196,7 @@ export class BackInStockService {
     const result = new Map<string, number>(affected.map((id) => [id, 0]));
     const grouped = await tx.inventory.groupBy({
       by: ['skuId'],
-      where: { skuId: { in: affected } },
+      where: { skuId: { in: affected }, sku: { isBundle: false } },
       _sum: { onHand: true, reserved: true },
     });
     for (const row of grouped) {

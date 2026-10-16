@@ -151,6 +151,7 @@ export const editOrderSchema = z.object({
   items: z
     .array(
       z.object({
+        orderItemId: z.string().uuid().optional(),
         skuId: z.string().uuid(),
         quantity: z.number().int().min(1).max(99),
       }),

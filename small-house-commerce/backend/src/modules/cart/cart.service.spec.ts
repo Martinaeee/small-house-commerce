@@ -22,9 +22,16 @@ const SKU_DISABLED = '00000000-0000-4000-8000-0000000000a8';
 const SKU_UNKNOWN = '00000000-0000-4000-8000-0000000000a9';
 const SKU_DRAFT_PRODUCT = '00000000-0000-4000-8000-0000000000aa';
 const SKU_UNPRICED = '00000000-0000-4000-8000-0000000000ab';
+const SKU_BUNDLE = '00000000-0000-4000-8000-0000000000ac';
+const SKU_BUNDLE_B = '00000000-0000-4000-8000-0000000000ad';
+const SKU_BUNDLE_C = '00000000-0000-4000-8000-0000000000ae';
+const ITEM_BUNDLE = '33333333-3333-4333-8333-333333333335';
+const ITEM_BUNDLE_B = '33333333-3333-4333-8333-333333333336';
+const ITEM_BUNDLE_C = '33333333-3333-4333-8333-333333333337';
 const PRODUCT_ID = '00000000-0000-4000-8000-0000000000c1';
 const PRODUCT_FOREIGN_ID = '00000000-0000-4000-8000-0000000000c2';
 const PRODUCT_DRAFT_ID = '00000000-0000-4000-8000-0000000000c3';
+const PRODUCT_BUNDLE_ID = '00000000-0000-4000-8000-0000000000c4';
 const VARIANT_SOURCE = '00000000-0000-4000-8000-0000000000b1';
 const VARIANT_TARGET = '00000000-0000-4000-8000-0000000000b2';
 const VARIANT_LEGACY = '00000000-0000-4000-8000-0000000000b3';
@@ -35,6 +42,9 @@ const VARIANT_DRIVER_VALUE_OFF = '00000000-0000-4000-8000-0000000000b7';
 const VARIANT_DISABLED = '00000000-0000-4000-8000-0000000000b8';
 const VARIANT_DRAFT = '00000000-0000-4000-8000-0000000000b9';
 const VARIANT_UNPRICED = '00000000-0000-4000-8000-0000000000ba';
+const VARIANT_BUNDLE = '00000000-0000-4000-8000-0000000000bb';
+const VARIANT_BUNDLE_B = '00000000-0000-4000-8000-0000000000bc';
+const VARIANT_BUNDLE_C = '00000000-0000-4000-8000-0000000000bd';
 const OPTION_COLOR_ID = '44444444-4444-4444-8444-444444444441';
 const OPTION_SIZE_ID = '44444444-4444-4444-8444-444444444442';
 const VALUE_BLACK_ID = '55555555-5555-4555-8555-555555555551';
@@ -201,6 +211,28 @@ const SKU_FIXTURES: Record<string, SkuFixture> = {
     assignments: [],
     price: null,
   },
+  [SKU_BUNDLE]: {
+    productId: PRODUCT_BUNDLE_ID,
+    variantId: VARIANT_BUNDLE,
+    variantName: 'Two-seat set',
+    assignments: [],
+    price: new Prisma.Decimal('2499'),
+  },
+  [SKU_BUNDLE_B]: {
+    productId: PRODUCT_BUNDLE_ID,
+    variantId: VARIANT_BUNDLE_B,
+    variantName: 'Discontinued set',
+    assignments: [],
+    status: 'DISABLED',
+    price: new Prisma.Decimal('1999'),
+  },
+  [SKU_BUNDLE_C]: {
+    productId: PRODUCT_BUNDLE_ID,
+    variantId: VARIANT_BUNDLE_C,
+    variantName: 'Three-seat set',
+    assignments: [],
+    price: new Prisma.Decimal('2999'),
+  },
 };
 
 const SHARED_IMAGE: ImageFixture = {
@@ -246,12 +278,18 @@ function skuInclude(skuId: string) {
   return {
     id: skuId,
     skuCode: `SKU-${skuId.slice(-2).toUpperCase()}`,
+    status: fixture.status ?? 'ACTIVE',
     price: fixture.price !== undefined ? fixture.price : new Prisma.Decimal('199'),
     compareAtPrice: new Prisma.Decimal('249'),
     variant: {
       id: fixture.variantId,
       name: fixture.variantName,
-      product: { id: fixture.productId, name: 'Rattan Chair', slug: 'rattan-chair' },
+      product: {
+        id: fixture.productId,
+        name: 'Rattan Chair',
+        slug: 'rattan-chair',
+        status: fixture.productStatus ?? 'ACTIVE',
+      },
       optionValues: fixture.assignments.map((a) => ({
         optionId: a.optionId,
         optionValueId: a.optionValueId,
@@ -273,8 +311,21 @@ function skuInclude(skuId: string) {
   };
 }
 
+interface BundleComponentFixture {
+  componentSkuId: string;
+  quantity: number;
+  status?: string;
+  productStatus?: string;
+  isBundle?: boolean;
+}
+
 function createHarness(
-  options: { rows?: Row[]; images?: ImageFixture[]; inventory?: InventoryGroup[] } = {},
+  options: {
+    rows?: Row[];
+    images?: ImageFixture[];
+    inventory?: InventoryGroup[];
+    bundles?: Record<string, BundleComponentFixture[]>;
+  } = {},
 ) {
   const rows = options.rows ?? [row(ITEM_SOURCE, SKU_SOURCE, 1)];
   // DB order: the query orders by (sortOrder asc, id asc); the fake mirrors it.
@@ -360,6 +411,27 @@ function createHarness(
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => ({
         productId: SKU_FIXTURES[where.id]!.productId,
       })),
+      // Virtual SKUs are exactly the ids with a stored definition.
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in
+          .filter((id) => id in (options.bundles ?? {}))
+          .map((id) => ({
+            id,
+            skuCode: `SKU-${id.slice(-2).toUpperCase()}`,
+            status: SKU_FIXTURES[id]?.status ?? 'ACTIVE',
+            product: { status: SKU_FIXTURES[id]?.productStatus ?? 'ACTIVE' },
+            bundleComponents: (options.bundles![id] ?? []).map((component, position) => ({
+              componentSkuId: component.componentSkuId,
+              quantity: component.quantity,
+              position,
+              componentSku: {
+                status: component.status ?? 'ACTIVE',
+                isBundle: component.isBundle ?? false,
+                variant: { product: { status: component.productStatus ?? 'ACTIVE' } },
+              },
+            })),
+          })),
+      ),
     },
     inventory: { groupBy: vi.fn(async () => options.inventory ?? []) },
     productImage: { findMany: vi.fn(async () => images) },
@@ -743,5 +815,127 @@ describe('CartService existing regressions', () => {
     });
     expect(cart.subtotal).toBe(398);
     expect(cart.total).toBe(398);
+  });
+});
+
+describe('CartService Bundle lines', () => {
+  it('derives a Bundle line from its components and keeps it one customer row', async () => {
+    const { service } = createHarness({
+      rows: [row(ITEM_BUNDLE, SKU_BUNDLE, 2)],
+      bundles: { [SKU_BUNDLE]: [{ componentSkuId: SKU_TARGET, quantity: 2 }] },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 11, reserved: 1 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items).toHaveLength(1);
+    expect(cart.items[0]).toMatchObject({
+      skuId: SKU_BUNDLE,
+      quantity: 2,
+      unitPrice: 2499,
+      lineTotal: 4998,
+      availableInventory: 5,
+      unavailable: false,
+    });
+    expect(JSON.stringify(cart.items[0])).not.toContain(SKU_TARGET);
+    expect(cart.subtotal).toBe(4998);
+  });
+
+  it('flags every line sharing an over-demanded component', async () => {
+    const { service } = createHarness({
+      rows: [
+        row(ITEM_BUNDLE, SKU_BUNDLE, 2),
+        row(ITEM_BUNDLE_C, SKU_BUNDLE_C, 1),
+        row(ITEM_TARGET, SKU_TARGET, 1),
+      ],
+      bundles: {
+        [SKU_BUNDLE]: [{ componentSkuId: SKU_TARGET, quantity: 2 }],
+        [SKU_BUNDLE_C]: [{ componentSkuId: SKU_TARGET, quantity: 1 }],
+      },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 4, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items.map((item) => item.unavailable)).toEqual([true, true, true]);
+    expect(cart.items[2]).toMatchObject({ skuId: SKU_TARGET, availableInventory: 4 });
+  });
+
+  it('leaves the same lines available when the aggregate demand fits', async () => {
+    const { service } = createHarness({
+      rows: [
+        row(ITEM_BUNDLE, SKU_BUNDLE, 2),
+        row(ITEM_BUNDLE_C, SKU_BUNDLE_C, 1),
+        row(ITEM_TARGET, SKU_TARGET, 1),
+      ],
+      bundles: {
+        [SKU_BUNDLE]: [{ componentSkuId: SKU_TARGET, quantity: 2 }],
+        [SKU_BUNDLE_C]: [{ componentSkuId: SKU_TARGET, quantity: 1 }],
+      },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 6, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items.map((item) => item.unavailable)).toEqual([false, false, false]);
+    expect(cart.items[0]).toMatchObject({ availableInventory: 3 });
+  });
+
+  it('keeps an empty definition unavailable without demanding the virtual SKU itself', async () => {
+    const { service } = createHarness({
+      rows: [row(ITEM_BUNDLE, SKU_BUNDLE, 1)],
+      bundles: { [SKU_BUNDLE]: [] },
+      inventory: [{ skuId: SKU_BUNDLE, _sum: { onHand: 50, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items[0]).toMatchObject({ skuId: SKU_BUNDLE, availableInventory: 0, unavailable: true });
+  });
+
+  it('does not let an unpurchasable line consume shared component demand', async () => {
+    const { service } = createHarness({
+      rows: [row(ITEM_BUNDLE, SKU_BUNDLE, 1), row(ITEM_BUNDLE_B, SKU_BUNDLE_B, 1)],
+      bundles: {
+        [SKU_BUNDLE]: [{ componentSkuId: SKU_TARGET, quantity: 1 }],
+        [SKU_BUNDLE_B]: [{ componentSkuId: SKU_TARGET, quantity: 100 }],
+      },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 2, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items[0]).toMatchObject({ skuId: SKU_BUNDLE, availableInventory: 2, unavailable: false });
+    expect(cart.items[1]).toMatchObject({ skuId: SKU_BUNDLE_B, availableInventory: 0, unavailable: true });
+  });
+
+  it.each(['disabled', 'nested'])('does not let a %s component definition block a valid ordinary line', async (mode) => {
+    const { service } = createHarness({
+      rows: [row(ITEM_BUNDLE, SKU_BUNDLE, 1), row(ITEM_TARGET, SKU_TARGET, 1)],
+      bundles: { [SKU_BUNDLE]: [
+        { componentSkuId: SKU_TARGET, quantity: 2 },
+        mode === 'disabled'
+          ? { componentSkuId: SKU_DISABLED, quantity: 1, status: 'DISABLED' }
+          : { componentSkuId: SKU_BUNDLE_C, quantity: 1, isBundle: true },
+      ] },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 2, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items[0]).toMatchObject({ skuId: SKU_BUNDLE, availableInventory: 0, unavailable: true });
+    expect(cart.items[1]).toMatchObject({ skuId: SKU_TARGET, availableInventory: 2, unavailable: false });
+  });
+
+  it('keeps a virtual SKU unavailable when a component is disabled or nested', async () => {
+    const { service } = createHarness({
+      rows: [row(ITEM_BUNDLE, SKU_BUNDLE, 1)],
+      bundles: { [SKU_BUNDLE]: [{ componentSkuId: SKU_TARGET, quantity: 1, status: 'DISABLED' }] },
+      inventory: [{ skuId: SKU_TARGET, _sum: { onHand: 9, reserved: 0 } }],
+    });
+
+    const cart = await service.summary(CART_ID);
+
+    expect(cart.items[0]).toMatchObject({ availableInventory: 0, unavailable: true });
   });
 });

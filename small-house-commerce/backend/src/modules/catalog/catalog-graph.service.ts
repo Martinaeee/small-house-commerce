@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import { assertSceneMedia, resolveSceneFlag } from './product-scene-policy.js';
 import { validateProductCardReadiness } from './product-card-readiness.js';
+import { validateBundlePublishReadiness } from './bundle-readiness.js';
 import {
   canonicalCombinationKey,
   deriveVariantName,
@@ -54,6 +55,7 @@ const GRAPH_SNAPSHOT_INCLUDE = {
               reservations: true,
               inventoryMovements: true,
               orderItems: true,
+              componentOfBundles: true,
             },
           },
         },
@@ -614,6 +616,9 @@ export class CatalogGraphService {
       const skuWrite = variant.incoming?.write.sku;
       const existingSku = variant.existing?.sku ?? null;
       if (skuWrite && existingSku) {
+        if (skuWrite.isBundle !== undefined && skuWrite.isBundle !== existingSku.isBundle) {
+          throw new BadRequestException('SKU inventory mode is immutable. Create a new SKU to change it.');
+        }
         skuUpdates.push({
           id: existingSku.id,
           productId,
@@ -913,7 +918,10 @@ export class CatalogGraphService {
       where: { id: productId },
       include: GRAPH_SNAPSHOT_INCLUDE,
     });
-    if (saved.status === 'ACTIVE') await validateProductCardReadiness(tx, [productId]);
+    if (saved.status === 'ACTIVE') {
+      await validateProductCardReadiness(tx, [productId]);
+      await validateBundlePublishReadiness(tx, [productId]);
+    }
     return saved;
   }
 

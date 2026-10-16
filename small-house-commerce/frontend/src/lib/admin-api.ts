@@ -409,10 +409,44 @@ export interface AdminOrderDetail extends AdminOrderListRow {
 
 // --- catalog -----------------------------------------------------------------
 
+export interface AdminBundleComponentInput {
+  componentSkuId: string;
+  quantity: number;
+  position: number;
+}
+
+export interface AdminBundleComponentView extends AdminBundleComponentInput {
+  id: string;
+  componentSkuCode: string;
+  componentProductName: string;
+  componentVariantName: string;
+  availableInventory: number;
+  status: "ACTIVE" | "DISABLED";
+  productStatus: "DRAFT" | "ACTIVE" | "DISABLED";
+  isBundle: boolean;
+}
+
+export interface AdminBundleDefinition {
+  version: number;
+  components: AdminBundleComponentView[];
+  availableInventory: number;
+}
+
+export interface AdminBundleSkuCandidate {
+  id: string;
+  skuCode: string;
+  productId: string;
+  productName: string;
+  variantName: string;
+  availableInventory: number;
+}
+
 export interface AdminSku {
   id: string;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
+  isBundle: boolean;
+  bundleVersion: number;
   // Present on graph-aware payloads (the SKU write contract sends it); the
   // legacy product list path does not rely on it.
   supplierId?: string | null;
@@ -1131,6 +1165,7 @@ export interface CreateProductInput {
     sku?: {
       skuCode: string;
       status?: "ACTIVE" | "DISABLED";
+      isBundle?: boolean;
       price?: number;
       compareAtPrice?: number;
       supplierSku?: string;
@@ -1180,6 +1215,7 @@ export interface WireEntityRef {
 export interface WireSkuWrite {
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
+  isBundle?: boolean;
   supplierId?: string | null;
   supplierSku?: string | null;
   supplierCost?: number | null;
@@ -1288,6 +1324,26 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const adminApi = {
+  searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
+    adminAuthedFetch<AdminBundleSkuCandidate[]>(
+      `/api/v1/admin/products/bundle/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+    ),
+
+  getBundleComponents: (productId: string, skuId: string): Promise<AdminBundleDefinition> =>
+    adminAuthedFetch<AdminBundleDefinition>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/bundles/${encodeURIComponent(skuId)}`,
+    ),
+
+  setBundleComponents: (
+    productId: string,
+    skuId: string,
+    input: { expectedVersion: number; components: AdminBundleComponentInput[] },
+  ): Promise<AdminBundleDefinition> =>
+    adminAuthedFetch<AdminBundleDefinition>(
+      `/api/v1/admin/products/${encodeURIComponent(productId)}/bundles/${encodeURIComponent(skuId)}`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+
   notifications: (signal?: AbortSignal): Promise<unknown> =>
     adminAuthedFetch<unknown>("/api/v1/admin/notifications", { signal }),
 
@@ -1405,7 +1461,7 @@ export const adminApi = {
       { method: "POST", body: JSON.stringify({ status, comment }) },
     ),
 
-  editOrder: (id: string, input: { shippingAddress?: Record<string, unknown>; items?: { skuId: string; quantity: number }[]; note?: string }): Promise<AdminOrderDetail> =>
+  editOrder: (id: string, input: { shippingAddress?: Record<string, unknown>; items?: { orderItemId?: string; skuId: string; quantity: number }[]; note?: string }): Promise<AdminOrderDetail> =>
     adminAuthedFetch<AdminOrderDetail>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify(input) },

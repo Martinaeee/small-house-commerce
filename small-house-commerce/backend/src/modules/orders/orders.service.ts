@@ -11,13 +11,28 @@ import {
   revalidateCache,
 } from '../../common/revalidation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import {
+  aggregateRequirements,
+  cartRequirements,
+  computeBundleAvailability,
+  requirementsFromBundleSnapshot,
+  validateBundleDefinition,
+  type BundleRequirement,
+} from '../inventory/bundle-inventory.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
-import { buildOrderItemSnapshot, type OrderItemSnapshotWrite } from './order-item-snapshot.js';
+import {
+  buildBundleSnapshot,
+  buildOrderItemSnapshot,
+  readBundleSnapshot,
+  sameBundleSnapshot,
+  type OrderBundleSnapshotV1,
+  type OrderItemSnapshotWrite,
+} from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 
 const ORDER_DETAIL_INCLUDE = {
@@ -42,6 +57,24 @@ const ORDER_DETAIL_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
   },
 } satisfies Prisma.OrderInclude;
+
+/** A SKU loaded with the Bundle bindings needed to validate and freeze it. */
+type SkuWithBundleComponents = {
+  id: string;
+  skuCode: string;
+  isBundle: boolean;
+  bundleComponents: readonly {
+    componentSkuId: string;
+    quantity: number;
+    position: number;
+    componentSku: {
+      skuCode: string;
+      status: string;
+      isBundle: boolean;
+      variant: { name: string; product: { name: string; status: string } };
+    };
+  }[];
+};
 
 @Injectable()
 export class OrdersService {
@@ -71,6 +104,14 @@ export class OrdersService {
       create: { name: input.customer.name, normalizedPhone },
     });
 
+    // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
+    // the new order from prior history; stored on the order, never recomputed.
+    const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
+
+    const { order, orderNumber, offerAvailabilityChanged } = await this.prisma.$transaction(async (tx) => {
+    for (const skuId of [...new Set(input.items.map(item => item.skuId))].sort()) {
+      await tx.$queryRaw`SELECT id FROM skus WHERE id = ${skuId}::uuid AND is_bundle = TRUE FOR UPDATE`;
+    }
     // Validate SKUs and gather the current catalog state for snapshots.
     const lines: {
       skuId: string;
@@ -80,18 +121,36 @@ export class OrdersService {
       productId: string;
       variantId: string;
       snapshot: OrderItemSnapshotWrite;
+      isBundle: boolean;
+      bundleSnapshot: OrderBundleSnapshotV1 | null;
+      components: {
+        componentSkuId: string;
+        quantity: number;
+        skuCode: string;
+        status: string;
+        productStatus: string;
+        isBundle: boolean;
+      }[];
       unitPrice: Prisma.Decimal;
       unitCost: Prisma.Decimal | null;
     }[] = [];
 
     for (const item of input.items) {
-      const sku = await this.prisma.sku.findUnique({
+      const sku = await tx.sku.findUnique({
         where: { id: item.skuId },
         include: {
           variant: {
             include: {
               product: true,
               optionValues: { include: { option: true, optionValue: true } },
+            },
+          },
+          bundleComponents: {
+            orderBy: { position: 'asc' as const },
+            include: {
+              componentSku: {
+                include: { variant: { include: { product: true } } },
+              },
             },
           },
         },
@@ -112,20 +171,70 @@ export class OrdersService {
         productId: sku.variant.productId,
         variantId: sku.variant.id,
         snapshot: buildOrderItemSnapshot(sku),
+        isBundle: sku.isBundle,
+        bundleSnapshot: this.currentBundleSnapshot(sku, item.quantity),
+        components: sku.bundleComponents.map((component) => ({
+          componentSkuId: component.componentSkuId,
+          quantity: component.quantity,
+          skuCode: component.componentSku.skuCode,
+          status: component.componentSku.status,
+          productStatus: component.componentSku.variant.product.status,
+          isBundle: component.componentSku.isBundle,
+        })),
         unitPrice: sku.price,
         unitCost: sku.landedCost,
       });
     }
 
-    // Stock validation: any shortfall rejects the whole order.
-    const skuIds = [...new Set(lines.map((line) => line.skuId))];
-    const availableBySku = await this.inventory.availableBySku(skuIds);
+    // Stock validation: any shortfall rejects the whole order. A virtual
+    // Bundle line derives its availability from its components' free stock —
+    // it has no inventory row of its own.
+    const skuIds = [...new Set([
+      ...lines.map((line) => line.skuId),
+      ...lines.flatMap((line) => line.components.map((component) => component.componentSkuId)),
+    ])];
+    const availableBySku = await this.inventory.availableBySku(skuIds, tx);
 
     for (const line of lines) {
-      const available = availableBySku.get(line.skuId) ?? 0;
+      const available = line.isBundle
+        ? computeBundleAvailability(line.components.map((component) => ({
+            ...component,
+            availableInventory: availableBySku.get(component.componentSkuId) ?? 0,
+          })))
+        : availableBySku.get(line.skuId) ?? 0;
       if (available < line.quantity) {
         throw new BadRequestException(
           `Insufficient stock for ${line.skuCode}: available ${available}, requested ${line.quantity}`,
+        );
+      }
+    }
+
+    // Bundle lines share their physical components with the rest of the
+    // order, so every per-line check above can pass while the order as a
+    // whole over-commits a component. Re-check the aggregate demand of the
+    // components a Bundle touches; demand that only ordinary lines create
+    // keeps its per-line error above.
+    if (lines.some((line) => line.isBundle)) {
+      const requirements = cartRequirements(lines.map((line) => ({
+        skuId: line.skuId,
+        isBundle: line.isBundle,
+        quantity: line.quantity,
+        components: line.components,
+      })));
+      for (const requirement of requirements) {
+        const available = availableBySku.get(requirement.skuId) ?? 0;
+        if (requirement.quantity <= available) continue;
+        const owner = lines.find(
+          (line) =>
+            line.isBundle &&
+            line.components.some((component) => component.componentSkuId === requirement.skuId),
+        );
+        if (!owner) continue;
+        const component = owner.components.find(
+          (entry) => entry.componentSkuId === requirement.skuId,
+        )!;
+        throw new BadRequestException(
+          `Insufficient stock for ${owner.skuCode}: this order needs ${requirement.quantity} of ${component.skuCode}, but only ${available} are available`,
         );
       }
     }
@@ -141,15 +250,9 @@ export class OrdersService {
     }
     const shippingTotal = 0;
 
-    const orderNumber = await this.nextOrderNumber();
-    const warehouse = await this.inventory.defaultWarehouse();
+    const orderNumber = await this.nextOrderNumber(tx);
+    const warehouse = await this.inventory.defaultWarehouse(tx);
 
-    // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
-    // the new order from prior history; stored on the order, never recomputed.
-    const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
-
-    const { order, offerAvailabilityChanged } = await this.prisma.$transaction(
-      async (tx) => {
         const touch = await this.marketingTouch.resolve(input.marketingCredential);
         const promo = input.promoCode
           ? await this.promotions.resolveForCheckout(
@@ -193,6 +296,9 @@ export class OrdersService {
               ...(line.snapshot.optionSnapshot
                 ? { optionSnapshot: line.snapshot.optionSnapshot }
                 : {}),
+              // The physical components this line owes are frozen here; the
+              // virtual SKU itself is never an inventory demand.
+              ...(line.bundleSnapshot ? { bundleSnapshot: line.bundleSnapshot } : {}),
               quantity: line.quantity,
               unitPrice: line.unitPrice,
               unitDiscount: new Prisma.Decimal(0),
@@ -261,9 +367,15 @@ export class OrdersService {
         });
       }
 
-      // Reserve stock per line (§30); any failure rolls back the order.
-      for (const line of lines) {
-        await this.inventory.reserveWithin(tx, line.skuId, warehouse.id, line.quantity, created.id);
+      if (lines.some(line => line.isBundle)) {
+        const requirements = aggregateRequirements(lines.flatMap(line =>
+          this.lineRequirements(line.skuId, line.bundleSnapshot, line.quantity),
+        ));
+        await this.reserveRequirementsWithin(tx, requirements, true, warehouse.id, created.id);
+      } else {
+        for (const line of [...lines].sort((left, right) => left.skuId.localeCompare(right.skuId))) {
+          await this.inventory.reserveWithin(tx, line.skuId, warehouse.id, line.quantity, created.id);
+        }
       }
 
       await tx.orderStatusHistory.create({
@@ -277,6 +389,7 @@ export class OrdersService {
 
       return {
         order: created,
+        orderNumber,
         offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
       };
       },
@@ -322,7 +435,9 @@ export class OrdersService {
     operatorId: string,
     decision?: { decision: 'CONFIRM' | 'CANCEL' | 'REQUEST_INFO'; note?: string },
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    return this.prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DENIED') {
       throw new BadRequestException('Cancelled or denied orders cannot be confirmed');
@@ -344,7 +459,6 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -609,19 +723,18 @@ export class OrdersService {
    * reservations per-line (§30–§32) and recompute totals server-side.
    */
   async edit(orderId: string, input: EditOrderInput, operatorId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: true, shippingAddress: true },
-    });
-    if (!order) throw new NotFoundException('Order not found');
-    const terminal = new Set(['CANCELLED', 'DENIED', 'SIGNED', 'AFTER_SALES']);
-    if (terminal.has(order.orderStatus)) {
-      throw new BadRequestException(`Order ${order.orderStatus} cannot be edited`);
-    }
-
-    const warehouse = await this.inventory.defaultWarehouse();
-
-    return this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true, shippingAddress: true, shipments: { include: { items: true } } },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+      const terminal = new Set(['CANCELLED', 'DENIED', 'SIGNED', 'AFTER_SALES']);
+      if (terminal.has(order.orderStatus)) {
+        throw new BadRequestException(`Order ${order.orderStatus} cannot be edited`);
+      }
+      const warehouse = await this.inventory.defaultWarehouse(tx);
       // --- Shipping address snapshot ---
       if (input.shippingAddress) {
         const a = input.shippingAddress;
@@ -658,9 +771,38 @@ export class OrdersService {
 
       // --- Items: diff against current lines, adjust reservations ---
       if (input.items) {
-        const current = new Map(order.items.map((i) => [i.skuId, i]));
-        const next = new Map(input.items.map((i) => [i.skuId, i.quantity]));
-        const skuIds = [...new Set([...current.keys(), ...next.keys()])];
+        await this.validateStoredBundleLines(tx, order.items);
+        const current = new Map(order.items.map(item => [item.id, item]));
+        const currentBySku = new Map<string, typeof order.items>();
+        for (const item of order.items) {
+          const matching = currentBySku.get(item.skuId) ?? [];
+          matching.push(item);
+          currentBySku.set(item.skuId, matching);
+        }
+        const next = new Map<string, { skuId: string; quantity: number }>();
+        for (const requested of input.items) {
+          let existing;
+          if (requested.orderItemId) {
+            existing = current.get(requested.orderItemId);
+            if (!existing || existing.skuId !== requested.skuId) {
+              throw new BadRequestException('Order item does not match this order and SKU');
+            }
+          } else {
+            const matching = currentBySku.get(requested.skuId) ?? [];
+            if (matching.length > 1) {
+              throw new BadRequestException('Ambiguous SKU; specify the order item ID for each historical line');
+            }
+            existing = matching[0];
+          }
+          const identity = existing?.id ?? `new:${requested.skuId}`;
+          if (next.has(identity)) throw new BadRequestException('Duplicate order item');
+          next.set(identity, requested);
+        }
+        const skuIds = [...new Set([...order.items.map(item => item.skuId), ...input.items.map(item => item.skuId)])];
+        const addedSkuIds = [...next].filter(([identity]) => !current.has(identity)).map(([, item]) => item.skuId).sort();
+        for (const skuId of addedSkuIds) {
+          await tx.$queryRaw`SELECT id FROM skus WHERE id = ${skuId}::uuid AND is_bundle = TRUE FOR UPDATE`;
+        }
         const skus = await tx.sku.findMany({
           where: { id: { in: skuIds } },
           include: {
@@ -670,19 +812,64 @@ export class OrdersService {
                 optionValues: { include: { option: true, optionValue: true } },
               },
             },
+            bundleComponents: {
+              orderBy: { position: 'asc' as const },
+              include: {
+                componentSku: {
+                  include: { variant: { include: { product: true } } },
+                },
+              },
+            },
           },
         });
         const skuById = new Map(skus.map((s) => [s.id, s]));
+        const bundleOrder = order.items.some(item => item.bundleSnapshot != null) || skus.some(sku => sku.isBundle);
+        const shippedByLine = new Map<string, number>();
+        if (bundleOrder) {
+          for (const shipment of order.shipments) {
+            for (const item of shipment.items) {
+              shippedByLine.set(item.orderItemId, (shippedByLine.get(item.orderItemId) ?? 0) + item.quantity);
+            }
+          }
+          if (order.items.some(item => (next.get(item.id)?.quantity ?? 0) < (shippedByLine.get(item.id) ?? 0))) {
+            throw new BadRequestException('Order item quantity cannot be less than the quantity already shipped');
+          }
+          const physicalIds = new Set(order.items.flatMap(item =>
+            this.lineRequirements(item.skuId, item.bundleSnapshot, 1).map(requirement => requirement.skuId),
+          ));
+          for (const [identity, item] of next) {
+            if (current.has(identity)) continue;
+            const sku = skuById.get(item.skuId);
+            if (!sku || sku.status !== 'ACTIVE' || sku.variant.product.status !== 'ACTIVE') {
+              throw new BadRequestException(`SKU ${item.skuId} is not available`);
+            }
+            for (const requirement of this.lineRequirements(sku.id, this.currentBundleSnapshot(sku, item.quantity), 1)) {
+              physicalIds.add(requirement.skuId);
+            }
+          }
+          if (physicalIds.size > 0) {
+            await tx.$queryRaw`
+              SELECT id FROM inventory
+              WHERE sku_id IN (${Prisma.join([...physicalIds].sort().map(id => Prisma.sql`${id}::uuid`))})
+              ORDER BY sku_id, warehouse_id FOR UPDATE
+            `;
+          }
+        }
+        const rebuildReservations = bundleOrder && order.items.some(item =>
+          !next.has(item.id) || next.get(item.id)!.quantity < item.quantity,
+        );
+        const pendingRequirements: BundleRequirement[] = [];
+        if (rebuildReservations) await this.inventory.releaseForOrder(tx, orderId);
 
         // Removed lines: delete + release reservation.
-        for (const [skuId, item] of current) {
-          if (next.has(skuId)) continue;
+        for (const [identity, item] of current) {
+          if (next.has(identity)) continue;
           await tx.orderItem.delete({ where: { id: item.id } });
-          await this.inventory.releaseForOrder(tx, orderId);
+          if (!bundleOrder) await this.inventory.releaseForOrder(tx, orderId);
         }
         // Quantity changes: diff reservation.
-        for (const [skuId, qty] of next) {
-          const existing = current.get(skuId);
+        for (const [identity, { skuId, quantity: qty }] of next) {
+          const existing = current.get(identity);
           if (!existing) {
             // New line: validate and reserve.
             const sku = skuById.get(skuId);
@@ -693,6 +880,8 @@ export class OrdersService {
               throw new BadRequestException(`SKU ${sku.skuCode} is not priced`);
             }
             const snapshot = buildOrderItemSnapshot(sku);
+            const bundleSnapshot = this.currentBundleSnapshot(sku, qty);
+            const requirements = this.lineRequirements(skuId, bundleSnapshot, qty);
             await tx.orderItem.create({
               data: {
                 orderId,
@@ -705,6 +894,7 @@ export class OrdersService {
                 ...(snapshot.optionSnapshot
                   ? { optionSnapshot: snapshot.optionSnapshot }
                   : {}),
+                ...(bundleSnapshot ? { bundleSnapshot } : {}),
                 quantity: qty,
                 unitPrice: sku.price,
                 unitDiscount: new Prisma.Decimal(0),
@@ -712,26 +902,46 @@ export class OrdersService {
                 lineTotal: new Prisma.Decimal(Number(sku.price) * qty),
               },
             });
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, qty, orderId);
+            if (bundleOrder) {
+              pendingRequirements.push(...requirements);
+            } else {
+              await this.reserveRequirementsWithin(tx, requirements, false, warehouse.id, orderId);
+            }
             continue;
           }
-          if (existing.quantity === qty) continue;
+          const outstanding = qty - (shippedByLine.get(existing.id) ?? 0);
+          if (existing.quantity === qty) {
+            if (rebuildReservations && outstanding > 0) pendingRequirements.push(...this.lineRequirements(skuId, existing.bundleSnapshot, outstanding));
+            continue;
+          }
+          const delta = qty - existing.quantity;
+          const reservationQuantity = rebuildReservations ? outstanding : delta <= 0 ? qty : delta;
+          const requirements = reservationQuantity === 0 ? [] : this.lineRequirements(
+            skuId,
+            existing.bundleSnapshot,
+            reservationQuantity,
+          );
+          const frozen = readBundleSnapshot(existing.bundleSnapshot);
           await tx.orderItem.update({
             where: { id: existing.id },
             data: {
               quantity: qty,
               lineTotal: new Prisma.Decimal(Number(existing.unitPrice) * qty),
+              ...(frozen ? { bundleSnapshot: {
+                ...frozen,
+                components: frozen.components.map(component => ({ ...component, totalQuantity: component.quantity * qty })),
+              } } : {}),
             },
           });
-          const delta = qty - existing.quantity;
-          if (delta > 0) {
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, delta, orderId);
+          if (bundleOrder) {
+            pendingRequirements.push(...requirements);
           } else {
-            // Release the surplus back; releaseForOrder releases everything,
-            // so manually re-reserve what should stay.
-            await this.inventory.releaseForOrder(tx, orderId);
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, qty, orderId);
+            if (delta <= 0) await this.inventory.releaseForOrder(tx, orderId);
+            await this.reserveRequirementsWithin(tx, requirements, false, warehouse.id, orderId);
           }
+        }
+        if (bundleOrder) {
+          await this.reserveRequirementsWithin(tx, aggregateRequirements(pendingRequirements), true, warehouse.id, orderId);
         }
 
         // Recompute totals from the resulting lines.
@@ -761,8 +971,8 @@ export class OrdersService {
           comment: input.note ?? 'Order edited',
         },
       });
-      return this.get(orderId);
     });
+    return this.get(orderId);
   }
 
   /** Append an internal order note (§46). */
@@ -829,16 +1039,18 @@ export class OrdersService {
    * CONFIRMED orders, same customer+phone+address, keep the oldest order.
    */
   async merge(input: MergeOrdersInput, operatorId: string) {
-    const [primary, merged] = await Promise.all([
-      this.prisma.order.findUnique({
-        where: { id: input.primaryOrderId },
-        include: { shippingAddress: true, items: true },
-      }),
-      this.prisma.order.findUnique({
-        where: { id: input.mergedOrderId },
-        include: { shippingAddress: true, items: true },
-      }),
-    ]);
+    const { keptId, promoReleased } = await this.prisma.$transaction(async (tx) => {
+    for (const orderId of [...new Set([input.primaryOrderId, input.mergedOrderId])].sort()) {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    }
+    const primary = await tx.order.findUnique({
+      where: { id: input.primaryOrderId },
+      include: { shippingAddress: true, items: true },
+    });
+    const merged = await tx.order.findUnique({
+      where: { id: input.mergedOrderId },
+      include: { shippingAddress: true, items: true },
+    });
     if (!primary || !merged) throw new NotFoundException('Order not found');
     if (primary.id === merged.id) throw new BadRequestException('Cannot merge an order with itself');
 
@@ -864,23 +1076,49 @@ export class OrdersService {
         ? [primary, merged]
         : [merged, primary];
 
-    const { keptId, promoReleased } = await this.prisma.$transaction(
-      async (tx) => {
+      await this.validateStoredBundleLines(tx, [...kept.items, ...dropped.items]);
+      const bundleOrder = [...kept.items, ...dropped.items].some(item => item.bundleSnapshot != null);
+      const mergeTargets = [...kept.items];
       // Move merged items into the kept order.
       for (const item of dropped.items) {
-        const existing = kept.items.find(
-          (k) => k.skuId === item.skuId && k.unitPrice.equals(item.unitPrice),
+        const existing = mergeTargets.find(
+          (k) =>
+            k.skuId === item.skuId &&
+            k.unitPrice.equals(item.unitPrice) &&
+            // Bundle lines collapse only when their frozen definitions match:
+            // two lines owing different components stay separate lines.
+            sameBundleSnapshot(k.bundleSnapshot, item.bundleSnapshot),
         );
         if (existing) {
-          await tx.orderItem.update({
+          const quantity = existing.quantity + item.quantity;
+          const frozen = readBundleSnapshot(existing.bundleSnapshot);
+          const updated = await tx.orderItem.update({
             where: { id: existing.id },
-            data: { quantity: existing.quantity + item.quantity, lineTotal: existing.lineTotal.add(item.lineTotal) },
+            data: {
+              quantity,
+              lineTotal: existing.lineTotal.add(item.lineTotal),
+              // The per-line totals follow the line quantity, not the
+              // definition, so they are restated for the collapsed line.
+              ...(frozen
+                ? {
+                    bundleSnapshot: {
+                      ...frozen,
+                      components: frozen.components.map((component) => ({
+                        ...component,
+                        totalQuantity: component.quantity * quantity,
+                      })),
+                    },
+                  }
+                : {}),
+            },
           });
+          if (bundleOrder) mergeTargets[mergeTargets.indexOf(existing)] = updated;
         } else {
-          await tx.orderItem.update({
+          const moved = await tx.orderItem.update({
             where: { id: item.id },
             data: { orderId: kept.id },
           });
+          if (bundleOrder) mergeTargets.push(moved);
         }
       }
 
@@ -896,8 +1134,14 @@ export class OrdersService {
         },
       });
 
-      // Cancel the dropped order: release its reservation, mark CANCELLED.
-      await this.inventory.releaseForOrder(tx, dropped.id);
+      if (bundleOrder) {
+        await tx.inventoryReservation.updateMany({
+          where: { orderId: dropped.id, status: 'ACTIVE' },
+          data: { orderId: kept.id },
+        });
+      } else {
+        await this.inventory.releaseForOrder(tx, dropped.id);
+      }
       await tx.order.update({
         where: { id: dropped.id },
         data: { orderStatus: 'CANCELLED' },
@@ -1013,7 +1257,9 @@ export class OrdersService {
    * quantity minus what earlier shipments already covered) is rejected.
    */
   async ship(orderId: string, input: ShipOrderInput, operatorId: string) {
-    const order = await this.prisma.order.findUnique({
+    return this.prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await tx.order.findUnique({
       where: { id: orderId },
       include: {
         items: true,
@@ -1047,6 +1293,7 @@ export class OrdersService {
       );
     }
 
+    await this.validateStoredBundleLines(tx, order.items);
     // Per-line: shippedLine must fit within the line quantity minus what
     // previous shipments already boxed (multiple packages per order, §61).
     const shippedByLine = new Map<string, number>();
@@ -1056,6 +1303,9 @@ export class OrdersService {
       }
     }
     const lineById = new Map(order.items.map((i) => [i.id, i]));
+    if (order.items.some(line => line.bundleSnapshot != null) && new Set(input.items.map(item => item.orderItemId)).size !== input.items.length) {
+      throw new BadRequestException('Duplicate shipment order item IDs are not allowed');
+    }
     for (const item of input.items) {
       const line = lineById.get(item.orderItemId);
       if (!line) {
@@ -1070,15 +1320,17 @@ export class OrdersService {
       }
     }
 
-    // Aggregate the reservation consumption per SKU.
+    // Aggregate the reservation consumption per SKU. A Bundle line consumes
+    // the physical components its snapshot froze, never the virtual SKU.
     const bySku = new Map<string, number>();
     for (const item of input.items) {
       const line = lineById.get(item.orderItemId)!;
-      bySku.set(line.skuId, (bySku.get(line.skuId) ?? 0) + item.quantity);
+      for (const requirement of this.lineRequirements(line.skuId, line.bundleSnapshot, item.quantity)) {
+        bySku.set(requirement.skuId, (bySku.get(requirement.skuId) ?? 0) + requirement.quantity);
+      }
     }
 
-    const warehouse = await this.inventory.defaultWarehouse();
-    return this.prisma.$transaction(async (tx) => {
+    const warehouse = await this.inventory.defaultWarehouse(tx);
       const shipment = await tx.shipment.create({
         data: {
           orderId,
@@ -1096,7 +1348,10 @@ export class OrdersService {
         },
       });
 
-      await this.inventory.consumeForOrder(tx, orderId, bySku);
+      const physicalRequirements = order.items.some(line => line.bundleSnapshot != null)
+        ? new Map([...bySku].sort(([left], [right]) => left.localeCompare(right)))
+        : bySku;
+      await this.inventory.consumeForOrder(tx, orderId, physicalRequirements);
 
       // First shipment of a confirmed order flips it to SHIPPING; later
       // partial shipments leave it as is (§69 until every box is signed).
@@ -1255,7 +1510,7 @@ export class OrdersService {
   async lookup(orderNumber: string, phone: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderNumber },
-      include: ORDER_DETAIL_INCLUDE,
+      include: { ...ORDER_DETAIL_INCLUDE, items: { omit: { bundleSnapshot: true } } },
     });
 
     const notFound = () =>
@@ -1297,6 +1552,110 @@ export class OrdersService {
     return order;
   }
 
+  private async validateStoredBundleLines(
+    tx: Prisma.TransactionClient,
+    lines: readonly { skuId: string; quantity: number; bundleSnapshot?: unknown }[],
+  ): Promise<void> {
+    if (lines.length === 0) return;
+    const snapshots = lines.map(line => readBundleSnapshot(line.bundleSnapshot));
+    const skuIds = [...new Set([
+      ...lines.map(line => line.skuId),
+      ...snapshots.flatMap(snapshot => snapshot?.components.map(component => component.componentSkuId) ?? []),
+    ])];
+    const virtualSkus = await tx.sku.findMany({
+      where: { id: { in: skuIds }, isBundle: true },
+      select: { id: true, isBundle: true },
+    });
+    const virtualIds = new Set(virtualSkus.filter(sku => sku.isBundle).map(sku => sku.id));
+    if (lines.some((line, index) => {
+      const snapshot = snapshots[index];
+      if (!snapshot) return line.bundleSnapshot != null || virtualIds.has(line.skuId);
+      return !virtualIds.has(line.skuId) || snapshot.bundleSkuId !== line.skuId || snapshot.components.some(component =>
+        virtualIds.has(component.componentSkuId) || component.totalQuantity !== component.quantity * line.quantity,
+      );
+    })) {
+      throw new BadRequestException('This Bundle line snapshot is unreadable; restore its recorded definition before continuing.');
+    }
+  }
+
+  /**
+   * Freezes the current definition for a new Bundle line, refusing a Bundle
+   * that is not sellable. Ordinary SKUs snapshot as null.
+   */
+  private currentBundleSnapshot(
+    sku: SkuWithBundleComponents,
+    quantity: number,
+  ): OrderBundleSnapshotV1 | null {
+    if (!sku.isBundle) return null;
+    const reason = validateBundleDefinition(
+      sku.bundleComponents.map((component) => ({
+        componentSkuId: component.componentSkuId,
+        quantity: component.quantity,
+        status: component.componentSku.status,
+        productStatus: component.componentSku.variant.product.status,
+        isBundle: component.componentSku.isBundle,
+      })),
+    );
+    if (reason !== null) {
+      throw new BadRequestException(`Bundle ${sku.skuCode} is not available for purchase`);
+    }
+    return buildBundleSnapshot({
+      skuId: sku.id,
+      skuCode: sku.skuCode,
+      quantity,
+      components: sku.bundleComponents,
+    });
+  }
+
+  /**
+   * Physical demand of one stored line. Bundle lines follow their frozen
+   * snapshot, never the current definition, so a later redefinition cannot
+   * change what an existing order owes. An unreadable snapshot refuses the
+   * operation instead of silently demanding nothing.
+   */
+  private lineRequirements(
+    skuId: string,
+    bundleSnapshot: unknown,
+    quantity: number,
+  ): BundleRequirement[] {
+    if (bundleSnapshot == null) return [{ skuId, quantity }];
+    const snapshot = readBundleSnapshot(bundleSnapshot);
+    if (snapshot === null) {
+      throw new BadRequestException(
+        'This Bundle line snapshot is unreadable; restore its recorded definition before continuing.',
+      );
+    }
+    return requirementsFromBundleSnapshot(snapshot, quantity);
+  }
+
+  private async reserveRequirementsWithin(
+    tx: Prisma.TransactionClient,
+    requirements: readonly BundleRequirement[],
+    conditional: boolean,
+    warehouseId: string,
+    orderId: string,
+  ): Promise<void> {
+    for (const requirement of requirements) {
+      if (conditional) {
+        await this.inventory.reserveConditionalWithin(
+          tx,
+          requirement.skuId,
+          warehouseId,
+          requirement.quantity,
+          orderId,
+        );
+      } else {
+        await this.inventory.reserveWithin(
+          tx,
+          requirement.skuId,
+          warehouseId,
+          requirement.quantity,
+          orderId,
+        );
+      }
+    }
+  }
+
   private async releasePromoSlot(
     tx: Prisma.TransactionClient,
     orderId: string,
@@ -1316,8 +1675,8 @@ export class OrdersService {
     return normalized;
   }
 
-  private async nextOrderNumber(): Promise<string> {
-    const rows = await this.prisma.$queryRaw<{ nextval: bigint }[]>`
+  private async nextOrderNumber(tx: Prisma.TransactionClient): Promise<string> {
+    const rows = await tx.$queryRaw<{ nextval: bigint }[]>`
       SELECT nextval('order_number_seq') AS nextval
     `;
     return `PH${rows[0].nextval}`;

@@ -768,6 +768,8 @@ describe("ProductForm variants tab modes", () => {
           sku: {
             skuCode: "LEGACY-1",
             status: "ACTIVE",
+            isBundle: false,
+            bundleVersion: 0,
             price: "1299",
             compareAtPrice: "",
             supplierSku: "",
@@ -791,6 +793,8 @@ describe("ProductForm variants tab modes", () => {
           sku: {
             skuCode: "LEGACY-2",
             status: "ACTIVE",
+            isBundle: false,
+            bundleVersion: 0,
             price: "1399",
             compareAtPrice: "",
             supplierSku: "",
@@ -1375,6 +1379,8 @@ describe("ProductForm variants tab modes", () => {
             id: "sku-1",
             skuCode: "RED-1",
             status: "ACTIVE",
+            isBundle: false,
+            bundleVersion: 0,
             supplierSku: null,
             supplierCost: null,
             costCurrency: null,
@@ -1431,6 +1437,8 @@ describe("ProductForm Task 3 localization and structure", () => {
         sku: {
           skuCode: "SH-1",
           status: "ACTIVE",
+          isBundle: false,
+          bundleVersion: 0,
           price: "1299",
           compareAtPrice: "",
           supplierSku: "",
