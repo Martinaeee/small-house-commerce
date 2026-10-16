@@ -166,6 +166,103 @@ describe('CatalogGraphService final card publish check', () => {
   });
 });
 
+describe('CatalogGraphService shared physical specifications', () => {
+  it('synchronizes the changed physical field across colors without touching price or history', async () => {
+    const initial = baseState();
+    initial.skus.forEach((sku, index) => { sku.packageWidth = 100; sku.price = 100 + index; });
+    const harness = createGraphHarness(initial);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', packageWidth: 120 },
+    }] }));
+    expect(harness.state.skus.map(sku => sku.packageWidth)).toEqual([120, 120]);
+    expect(harness.state.skus.map(sku => ({ id: sku.id, price: sku.price })))
+      .toEqual(initial.skus.map(sku => ({ id: sku.id, price: sku.price })));
+    expect(harness.state.history).toEqual(initial.history);
+  });
+
+  it('rolls back conflicting new specifications together with the graph version', async () => {
+    const initial = baseState();
+    initial.skus.forEach(sku => { sku.packageWidth = 100; });
+    const harness = createGraphHarness(initial);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [
+      { id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }], sku: { skuCode: 'CHAIR-RED', packageWidth: 120 } },
+      { id: BLUE_VARIANT_ID, position: 1, optionValueRefs: [{ id: BLUE_ID }], sku: { skuCode: 'CHAIR-BLUE', packageWidth: 140 } },
+    ] }))).rejects.toMatchObject({ response: { code: 'PRODUCT_PHYSICAL_SPEC_CONFLICT' } });
+    expect(harness.state).toEqual(initial);
+    expect(harness.committed).toBe(false);
+  });
+
+  it('does not normalize old conflicting specifications from a price-only full SKU write', async () => {
+    const initial = baseState();
+    initial.skus[0].packageWidth = 100;
+    initial.skus[1].packageWidth = 90;
+    const harness = createGraphHarness(initial);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', packageWidth: 100, price: 250 },
+    }] }));
+    expect(harness.state.skus.map(sku => sku.packageWidth)).toEqual([100, 90]);
+    expect(harness.state.skus.map(sku => sku.price)).toEqual([250, 100]);
+  });
+
+  it.each([null, 0])('propagates explicit override %s without treating it as omitted', async value => {
+    const initial = baseState();
+    initial.skus.forEach(sku => { sku.productWidth = 120; });
+    const harness = createGraphHarness(initial);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', productWidth: value },
+    }] }));
+    expect(harness.state.skus.map(sku => sku.productWidth)).toEqual([value, value]);
+  });
+
+  it('inherits a consistent physical specification when creating another color SKU', async () => {
+    const initial = baseState({ includeBlue: false });
+    Object.assign(initial.skus[0], { productWidth: 120, packageWidth: 130, packageWeight: 5 });
+    const harness = createGraphHarness(initial);
+    const saved = await harness.service.applyPatch(PRODUCT_ID, 1, addBluePatch());
+    expect(saved.variants.find(variant => variant.name === 'Blue')?.sku)
+      .toMatchObject({ productWidth: 120, packageWidth: 130, packageWeight: 5 });
+  });
+
+  it('does not fan out to a disabled retained color SKU', async () => {
+    const initial = baseState();
+    initial.skus.forEach(sku => { sku.packageWidth = 100; });
+    initial.skus[1].status = 'DISABLED';
+    const harness = createGraphHarness(initial);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', packageWidth: 120 },
+    }] }));
+    expect(harness.state.skus[1]).toMatchObject({ status: 'DISABLED', packageWidth: 100 });
+  });
+
+  it('requires resolution before reactivating a conflicting retained color', async () => {
+    const initial = baseState();
+    initial.skus[0].packageWidth = 100;
+    Object.assign(initial.skus[1], { status: 'DISABLED', packageWidth: 90 });
+    const harness = createGraphHarness(initial);
+    await expect(harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: BLUE_VARIANT_ID, position: 1, optionValueRefs: [{ id: BLUE_ID }],
+      sku: { skuCode: 'CHAIR-BLUE', status: 'ACTIVE', packageWidth: 90 },
+    }] }))).rejects.toMatchObject({ response: { code: 'PRODUCT_PHYSICAL_SPEC_CONFLICT' } });
+    expect(harness.state).toEqual(initial);
+  });
+
+  it('does not infer color sharing from the names of STYLE values', async () => {
+    const initial = baseState();
+    initial.options[0].kind = 'STYLE';
+    initial.skus.forEach(sku => { sku.packageWidth = 100; });
+    const harness = createGraphHarness(initial);
+    await harness.service.applyPatch(PRODUCT_ID, 1, parsePatch({ variants: [{
+      id: RED_VARIANT_ID, position: 0, optionValueRefs: [{ id: RED_ID }],
+      sku: { skuCode: 'CHAIR-RED', packageWidth: 120 },
+    }] }));
+    expect(harness.state.skus.map(sku => sku.packageWidth)).toEqual([120, 100]);
+  });
+});
+
 describe('CatalogGraphService scene persistence', () => {
   const mediaWrite = (row: MediaRow, changes: Record<string, unknown> = {}) => ({
     id: row.id, url: row.url, type: row.type, sortOrder: row.sortOrder,
@@ -311,7 +408,7 @@ describe('CatalogGraphService admin snapshot query', () => {
 interface OptionRow {
   id: string;
   productId: string;
-  kind: 'COLOR' | 'SIZE';
+  kind: 'COLOR' | 'SIZE' | 'STYLE' | 'MATERIAL';
   name: string;
   position: number;
   presentation: 'SWATCH' | 'TEXT';
@@ -358,6 +455,9 @@ interface SkuRow {
   landedCost?: number | null;
   price?: number | null;
   compareAtPrice?: number | null;
+  productWidth?: number | null;
+  productDepth?: number | null;
+  productHeight?: number | null;
   productWeight?: number | null;
   packageWidth?: number | null;
   packageHeight?: number | null;

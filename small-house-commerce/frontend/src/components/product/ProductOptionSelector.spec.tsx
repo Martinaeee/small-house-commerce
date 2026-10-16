@@ -475,6 +475,37 @@ describe("isolated landing purchase presentation", () => {
 });
 
 describe("PDP conversion hero", () => {
+  it("uses the Bundle dimension summary and matching component size guide without multiplying quantities", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item, { width: 999, depth: 999, height: 999 });
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { specificationSource: "BUNDLE_COMPONENTS", productWidth: 999, bundleComponents: [{
+      productName: "Chair", variantName: "Oak", quantity: 4, width: 45, depth: 50, height: 80,
+      foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: 4, materials: "Wood",
+    }] });
+    renderPdp({ item, variantId: "red-small" });
+    const summary = screen.getByTestId("pdp-dimensions-line");
+    expect(summary).toHaveTextContent("Component dimensions:");
+    expect(summary).toHaveTextContent("Chair × 4");
+    expect(summary).toHaveTextContent("45 × 80 × 50 cm");
+    expect(summary).not.toHaveTextContent("999");
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const guide = within(screen.getByRole("dialog", { name: "Product details" }));
+    expect(guide.getByRole("heading", { name: "Chair × 4" })).toBeVisible();
+    expect(guide.getByText("45 cm")).toBeVisible();
+    expect(guide.queryByText("999 cm")).not.toBeInTheDocument();
+    expect(guide.queryByText("180 cm")).not.toBeInTheDocument();
+  });
+
+  it.each([{ components: [] }, { components: [{ productName: "Chair", variantName: "Oak", quantity: 4, width: null, depth: null, height: null,
+    foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: null, materials: "Wood" }] }])("hides the Bundle dimension summary and size guide for unprovided component measurements %j", ({ components }) => {
+    const item = structuredClone(product);
+    Object.assign(item, { width: 999, depth: 999, height: 999 });
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { specificationSource: "BUNDLE_COMPONENTS", bundleComponents: components });
+    renderPdp({ item, variantId: "red-small" });
+    expect(screen.queryByTestId("pdp-dimensions-summary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Size guide" })).not.toBeInTheDocument();
+  });
   it("switches the hero dimensions with the displayed SKU and preserves zero overrides", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);

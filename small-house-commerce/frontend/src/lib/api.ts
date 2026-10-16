@@ -79,7 +79,23 @@ export interface ProductCardMedia {
   variants: Array<ProductCardMediaPair & { variantId: string }>;
 }
 
+export interface BundleComponentSpecification {
+  productName: string;
+  variantName: string;
+  quantity: number;
+  width: number | null;
+  depth: number | null;
+  height: number | null;
+  foldedWidth: number | null;
+  foldedDepth: number | null;
+  foldedHeight: number | null;
+  productWeight: number | null;
+  materials: string | null;
+}
+
 export interface StorefrontSku {
+  specificationSource?: "SKU" | "BUNDLE_COMPONENTS";
+  bundleComponents?: BundleComponentSpecification[];
   id: string;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";

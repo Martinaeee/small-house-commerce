@@ -834,25 +834,36 @@ export function applyProductDimensionsToVariants(
   dimensions: { width: number | null; depth: number | null; height: number | null },
   mode: "all" | "empty-only",
 ): ProductDimensionApplyResult {
-  const activeKeys = new Set(buildVariantCandidates(draft).map(row => row.combinationKey));
-  let changedCount = 0;
-  let skippedCount = 0;
+  const candidates = new Map(buildVariantCandidates(draft).map(row => [row.combinationKey, row]));
+  const options = new Map(draft.options.map(option => [entityRowKey(option), option]));
+  const groups = new Map<string, AdminVariantDraft[]>();
   for (const variant of draft.variants) {
     const sku = variant.sku;
-    if (!sku || sku.status !== "ACTIVE" || !activeKeys.has(variant.combinationKey)) continue;
-    const productWidth = mode === "all" ? dimensions.width : sku.productWidth ?? dimensions.width;
-    const productDepth = mode === "all" ? dimensions.depth : sku.productDepth ?? dimensions.depth;
-    const productHeight = mode === "all" ? dimensions.height : sku.productHeight ?? dimensions.height;
-    if (
-      productWidth === sku.productWidth &&
-      productDepth === sku.productDepth &&
-      productHeight === sku.productHeight
-    ) {
-      skippedCount++;
-      continue;
+    const candidate = candidates.get(variant.combinationKey);
+    if (!sku || sku.status !== "ACTIVE" || sku.isBundle || !candidate) continue;
+    const refs = new Set(variant.optionValueRefs.map(entityRowKey));
+    if (refs.size !== candidate.pairs.length || variant.optionValueRefs.length !== candidate.pairs.length || candidate.pairs.some(pair => !refs.has(pair.valueId))) continue;
+    const key = canonicalCombinationKey(candidate.pairs.filter(pair => options.get(pair.optionId)!.kind !== "COLOR"));
+    const members = groups.get(key) ?? [];
+    members.push(variant);
+    groups.set(key, members);
+  }
+  const axes = [["productWidth", "width"], ["productDepth", "depth"], ["productHeight", "height"]] as const;
+  let changedCount = 0;
+  let skippedCount = 0;
+  for (const members of groups.values()) {
+    const patch: Partial<Pick<AdminSkuDraft, "productWidth" | "productDepth" | "productHeight">> = {};
+    for (const [field, source] of axes) {
+      if (mode === "all" || members.every(row => row.sku![field] === null)) patch[field] = dimensions[source];
     }
-    variant.sku = { ...sku, productWidth, productDepth, productHeight };
-    changedCount++;
+    for (const variant of members) {
+      const sku = variant.sku!;
+      const changed = axes.some(([field]) => Object.hasOwn(patch, field) && !Object.is(patch[field], sku[field]));
+      if (changed) {
+        variant.sku = { ...sku, ...patch };
+        changedCount++;
+      } else skippedCount++;
+    }
   }
   return { changedCount, skippedCount };
 }

@@ -4,6 +4,8 @@
 import { useEffect, useRef, type ReactNode, type TouchEvent } from "react";
 import type { Product } from "@/lib/api";
 import { DimensionRows } from "./SizeGuide";
+import type { ResolvedPdpSpecifications } from "./pdp-facts";
+import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
 
 function Section({
   title,
@@ -30,9 +32,11 @@ function Section({
 
 export function ProductDetailsModal({
   product,
+  specifications,
   onClose,
 }: {
   product: Product;
+  specifications: ResolvedPdpSpecifications;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -143,7 +147,9 @@ export function ProductDetailsModal({
 
         <div className="overflow-y-auto px-5 pb-6">
           <Section title="Dimensions" defaultOpen>
-            <DimensionRows product={product} />
+            {specifications.kind === "BUNDLE_COMPONENTS"
+              ? <BundleComponentSpecifications components={specifications.components} />
+              : <DimensionRows product={specifications.product} />}
           </Section>
 
           {product.description && (

@@ -10,6 +10,7 @@ import {
 import { MaterialDimensions, ProductSpecs } from "./ProductSpecs";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { partitionDetailBlocks } from "./pdp-detail-blocks";
+import { resolveSelectedPdpSpecifications } from "./pdp-facts";
 
 export function PdpDetails({
   product,
@@ -24,8 +25,7 @@ export function PdpDetails({
   const { featured, remaining } = partitionDetailBlocks(
     product.detailBlocks ?? [],
   );
-  const productWeight =
-    primaryDerived.displayVariant?.sku?.productWeight ?? null;
+  const specifications = resolveSelectedPdpSpecifications(product, primaryDerived.displayVariant?.sku);
 
   return (
     <div className="flex flex-col gap-8">
@@ -36,12 +36,11 @@ export function PdpDetails({
       />
       <ProductSpecs
         product={product}
-        variantDimensions={primaryDerived.displayVariant?.sku}
-        productWeight={productWeight}
+        specifications={specifications}
         includeFeatures={false}
       />
       <ProductDetailMedia blocks={remaining} />
-      <MaterialDimensions product={product} variantDimensions={primaryDerived.displayVariant?.sku} />
+      <MaterialDimensions product={product} specifications={specifications} />
       <PdpInfoSections
         items={product.effectiveFaq ?? []}
         supportEmail={supportEmail}

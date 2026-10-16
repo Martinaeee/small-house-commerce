@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,14 @@ import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import { assertSceneMedia, resolveSceneFlag } from './product-scene-policy.js';
 import { validateProductCardReadiness } from './product-card-readiness.js';
 import { validateBundlePublishReadiness } from './bundle-readiness.js';
+import {
+  PHYSICAL_FIELDS,
+  planSharedPhysicalSpecUpdates,
+  type PhysicalPatch,
+  type PhysicalSpecRow,
+  type PhysicalValues,
+  type SharedPhysicalSpecInput,
+} from './shared-physical-specs.js';
 import {
   canonicalCombinationKey,
   deriveVariantName,
@@ -163,7 +172,7 @@ interface PlannedSkuUpdate {
   id: string;
   productId: string;
   variantId: string;
-  data: SkuWrite;
+  data: Partial<SkuWrite>;
 }
 
 interface PlannedMedia {
@@ -183,6 +192,7 @@ interface PlannedMedia {
 
 interface PersistencePlan {
   expectedVersion: number;
+  physicalSpecs: SharedPhysicalSpecInput;
   options: MutableOption[];
   changedOptionIds: Set<string>;
   values: MutableValue[];
@@ -680,6 +690,7 @@ export class CatalogGraphService {
 
     return {
       expectedVersion,
+      physicalSpecs: this.physicalSpecInput(snapshot, optionList, variants, skuCreates, skuUpdates),
       options: optionList,
       changedOptionIds,
       values: valueList,
@@ -720,6 +731,31 @@ export class CatalogGraphService {
     }
 
     if (mutateProduct) await mutateProduct(tx);
+
+    const physical = planSharedPhysicalSpecUpdates(plan.physicalSpecs);
+    if (physical.conflicts.length > 0) {
+      throw new ConflictException({
+        code: 'PRODUCT_PHYSICAL_SPEC_CONFLICT',
+        message: 'Resolve conflicting shared specifications before saving this color group.',
+        conflicts: physical.conflicts,
+      });
+    }
+    const skuCreates = plan.skuCreates.map(row => ({ ...row, data: { ...row.data } }));
+    const skuUpdates = new Map(plan.skuUpdates.map(row => [row.id, { ...row, data: { ...row.data } }]));
+    for (const [id, patch] of physical.updates) {
+      const created = skuCreates.find(row => row.id === id);
+      if (created) {
+        Object.assign(created.data, patch);
+      } else {
+        const update = skuUpdates.get(id) ?? {
+          id, productId,
+          variantId: plan.physicalSpecs.after.find(row => row.skuKey === id)!.variantKey,
+          data: {},
+        };
+        update.data = { ...update.data, ...patch };
+        skuUpdates.set(id, update);
+      }
+    }
 
     const changedExistingOptionIds = plan.options
       .filter(({ id, isNew }) => !isNew && plan.changedOptionIds.has(id))
@@ -823,9 +859,9 @@ export class CatalogGraphService {
       ),
     ]);
 
-    if (plan.skuCreates.length > 0) {
+    if (skuCreates.length > 0) {
       await tx.sku.createMany({
-        data: plan.skuCreates.map(({ data, ...identity }) => ({
+        data: skuCreates.map(({ data, ...identity }) => ({
           id: identity.id,
           productId: identity.productId,
           variantId: identity.variantId,
@@ -834,7 +870,7 @@ export class CatalogGraphService {
       });
     }
     await Promise.all(
-      plan.skuUpdates.map(({ id, productId: skuProductId, variantId, data }) =>
+      [...skuUpdates.values()].map(({ id, productId: skuProductId, variantId, data }) =>
         tx.sku.update({
           where: { id },
           data: {
@@ -923,6 +959,61 @@ export class CatalogGraphService {
       await validateBundlePublishReadiness(tx, [productId]);
     }
     return saved;
+  }
+
+  private physicalSpecInput(
+    snapshot: GraphSnapshot,
+    options: MutableOption[],
+    variants: PlannedVariant[],
+    creates: PlannedSkuCreate[],
+    updates: PlannedSkuUpdate[],
+  ): SharedPhysicalSpecInput {
+    const valuesOf = (sku: Partial<PhysicalValues>): PhysicalValues =>
+      Object.fromEntries(PHYSICAL_FIELDS.map(field => [field, sku[field] ?? null])) as PhysicalValues;
+    const beforeOptions = new Map(snapshot.options.filter(option => option.isActive).map(option => [option.id, option]));
+    const beforeValues = new Map(snapshot.options.flatMap(option => option.values.filter(value => value.isActive).map(value => [value.id, value] as const)));
+    const before: PhysicalSpecRow[] = snapshot.variants.flatMap(variant => {
+      if (!variant.sku || variant.sku.status !== 'ACTIVE') return [];
+      const pairs = variant.optionValues.map(pair => ({ optionId: pair.optionId, valueId: pair.optionValueId }));
+      if (pairs.length !== beforeOptions.size ||
+        new Set(pairs.map(pair => pair.optionId)).size !== beforeOptions.size ||
+        pairs.some(pair => !beforeOptions.has(pair.optionId) || beforeValues.get(pair.valueId)?.optionId !== pair.optionId) ||
+        canonicalCombinationKey(pairs) !== variant.combinationKey) return [];
+      return [{
+        variantKey: variant.id, skuKey: variant.sku.id,
+        isBundle: variant.sku.isBundle, shareable: snapshot.catalogGraphVersion > 0,
+        pairs: pairs.map(pair => ({ optionKey: pair.optionId, valueKey: pair.valueId, kind: beforeOptions.get(pair.optionId)!.kind })),
+        values: valuesOf(variant.sku),
+      }];
+    });
+    const byVariant = new Map([...updates, ...creates].map(row => [row.variantId, row]));
+    const optionById = new Map(options.map(option => [option.id, option]));
+    const after: PhysicalSpecRow[] = variants.flatMap(variant => {
+      const write = byVariant.get(variant.id);
+      const existing = variant.existing?.sku;
+      if (!existing && !write) return [];
+      if ((write?.data.status ?? existing?.status ?? 'ACTIVE') !== 'ACTIVE') return [];
+      return [{
+        variantKey: variant.id, skuKey: write?.id ?? existing!.id,
+        isBundle: write?.data.isBundle ?? existing?.isBundle ?? false,
+        shareable: true,
+        pairs: variant.pairs.map(pair => ({ optionKey: pair.optionId, valueKey: pair.valueId, kind: optionById.get(pair.optionId)!.kind })),
+        values: valuesOf({ ...existing, ...(write ? this.withoutUndefined(write.data) : {}) }),
+      }];
+    });
+    const requested = new Map<string, PhysicalPatch>();
+    for (const write of [...updates, ...creates]) {
+      const patch: PhysicalPatch = {};
+      for (const field of PHYSICAL_FIELDS) {
+        if (Object.hasOwn(write.data, field) && write.data[field] !== undefined) patch[field] = write.data[field];
+      }
+      requested.set(write.id, patch);
+    }
+    return {
+      before, after, requested,
+      persistedValues: new Map(snapshot.variants.flatMap(variant => variant.sku ? [[variant.sku.id, valuesOf(variant.sku)] as const] : [])),
+      createdSkuKeys: new Set(creates.map(row => row.id)),
+    };
   }
 
   private buildCandidates(

@@ -36,7 +36,7 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { pdpDimensionSummary, pdpSolutionBadges, resolveSkuProductDimensions } from "./pdp-facts";
+import { hasPdpSpecificationDimensions, pdpDimensionSummary, pdpSolutionBadges, resolveSelectedPdpSpecifications } from "./pdp-facts";
 import { SolutionIcon } from "./pdp-solution-icons";
 
 function TruckGlyph() {
@@ -223,10 +223,16 @@ export function PdpClient({
   const price = primaryDerived.price;
   const compareAt = primaryDerived.compareAtPrice;
   const selectableCount = primaryDerived.selectableVariants.length;
-  const dimensionProduct = { ...product, ...resolveSkuProductDimensions(product, displayVariant?.sku) };
-  const dimensions = pdpDimensionSummary(dimensionProduct);
-  const hasDimensions =
-    dimensions.assembled !== null || dimensions.folded !== null;
+  const specifications = resolveSelectedPdpSpecifications(product, displayVariant?.sku);
+  const hasDimensions = hasPdpSpecificationDimensions(specifications);
+  const dimensions = specifications.kind === "SKU" ? pdpDimensionSummary(specifications.product) : null;
+  const dimensionSummary = specifications.kind === "BUNDLE_COMPONENTS"
+    ? specifications.components.flatMap(component => {
+      const summary = pdpDimensionSummary(component);
+      const value = summary.assembled ?? summary.folded;
+      return value === null ? [] : [`${component.productName} × ${component.quantity}: ${value}`];
+    }).join(" · ")
+    : dimensions?.assembled ?? dimensions?.folded;
   const sellingPoints = pdpSolutionBadges(product);
   const basePath = productPath ?? `/products/${product.slug}`;
   const urlVariantValues = searchParams.getAll("variant");
@@ -689,8 +695,8 @@ export function PdpClient({
                 data-testid="pdp-dimensions-line"
                 className="text-ink-secondary"
               >
-                <span className="font-semibold text-ink">Dimensions:</span>{" "}
-                {dimensions.assembled ?? dimensions.folded}
+                <span className="font-semibold text-ink">{specifications.kind === "BUNDLE_COMPONENTS" ? "Component dimensions:" : "Dimensions:"}</span>{" "}
+                {dimensionSummary}
               </p>
               <button
                 type="button"
@@ -818,7 +824,7 @@ export function PdpClient({
           }
         />
       )}
-      {detailsOpen && <ProductDetailsModal product={dimensionProduct} onClose={() => setDetailsOpen(false)} />}
+      {detailsOpen && <ProductDetailsModal product={product} specifications={specifications} onClose={() => setDetailsOpen(false)} />}
       {pendingIntent && (
         <VariantPickerDialog
           lineId={primaryLine.clientLineId}

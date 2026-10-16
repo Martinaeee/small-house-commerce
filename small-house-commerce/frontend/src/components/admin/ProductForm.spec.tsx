@@ -11,7 +11,7 @@ import {
   serializeFormValue,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
-import { cardGraphFromLegacyForm, type AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import { canonicalCombinationKey, cardGraphFromLegacyForm, type AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 import { adminApi } from "@/lib/admin-api";
 import { en } from "@/i18n/en";
 
@@ -601,6 +601,71 @@ describe("ProductForm confirmation-assist integration", () => {
   });
 });
 
+describe("ProductForm shared color specifications", () => {
+  beforeEach(() => setAdminLang("zh"));
+
+  function initialValue(bundleModes = [false, false]): ProductFormValue {
+    const initial = baseValue({
+      width: "80", depth: "50", height: "70", graphTyped: true,
+      variants: ["Red", "Blue"].map((name, index) => ({
+        id: `variant-${index + 1}`, name, position: String(index),
+        sku: {
+          ...emptySkuFormValue(), id: `sku-${index + 1}`,
+          skuCode: `COLOR-${index}`, price: String(100 + index), stock: String(10 + index),
+          isBundle: bundleModes[index], productWidth: "100", packageWidth: "110", packageWeight: "5",
+        },
+      })),
+    });
+    const converted = cardGraphFromLegacyForm(initial);
+    const graph = structuredClone(typedGraph);
+    graph.options[0].values.push({ ...graph.options[0].values[0], id: "value-2", label: "Blue", position: 1 });
+    graph.variants = converted.variants.map((variant, index) => ({
+      ...variant, name: index === 0 ? "Red" : "Blue",
+      combinationKey: canonicalCombinationKey([{ optionId: "option-1", valueId: `value-${index + 1}` }]),
+      optionValueRefs: [{ id: `value-${index + 1}` }],
+    }));
+    initial.graph = graph;
+    return initial;
+  }
+
+  it("edits one packaging group for two colors while preserving their separate price and stock", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const view = renderForm(initialValue(), onSubmit);
+    await user.click(screen.getByRole("tab", { name: /包装/ }));
+    const widths = screen.getAllByLabelText(/外包装长/);
+    expect(widths).toHaveLength(1);
+    await user.clear(widths[0]);
+    await user.type(widths[0], "140");
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = (onSubmit.mock.calls[0][0] as ProductFormValue).graph!.variants;
+    expect(saved.map(variant => variant.sku?.packageWidth)).toEqual([140, 140]);
+    expect(saved.map(variant => variant.sku?.price)).toEqual([100, 101]);
+    expect(saved.map(variant => variant.sku?.onHand)).toEqual([10, 11]);
+  });
+
+  it("hides own product dimensions and the parser for a pure Bundle product", async () => {
+    const user = userEvent.setup();
+    renderForm(initialValue([true, true]));
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    expect(screen.queryByLabelText("粘贴商品尺寸")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^长（cm）/)).not.toBeInTheDocument();
+    expect(screen.getByText("产品尺寸沿用组件商品")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /包装/ }));
+    expect(screen.getAllByLabelText(/外包装长/)).toHaveLength(1);
+  });
+
+  it("retains ordinary product defaults but does not offer per-Bundle product-size inputs", async () => {
+    const user = userEvent.setup();
+    renderForm(initialValue([false, true]));
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    expect(screen.getByLabelText("粘贴商品尺寸")).toBeVisible();
+    await openVariantsTab();
+    expect(screen.queryByLabelText("Blue 的商品长（cm）")).not.toBeInTheDocument();
+  });
+});
+
 describe("ProductForm SKU dimension integration", () => {
   it("copies current product defaults through the matrix into the submitted draft", async () => {
     setAdminLang("zh");
@@ -615,6 +680,8 @@ describe("ProductForm SKU dimension integration", () => {
     await user.type(screen.getByLabelText("Red 的售价"), "1000");
     expect(screen.getByText("继承商品：100 cm")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" }));
+    await user.click(screen.getByRole("button", { name: "编辑规格组" }));
+    expect(screen.getByRole("tab", { name: "商品规格" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByLabelText("Red 的商品长（cm）")).toHaveValue("100");
     expect(screen.getByLabelText("Red 的商品宽（cm）")).toHaveValue("50");
     expect(screen.getByLabelText("Red 的商品高（cm）")).toHaveValue("70");
@@ -1373,7 +1440,7 @@ describe("ProductForm variants tab modes", () => {
           id: "variant-1",
           name: "Red",
           position: 0,
-          combinationKey: "k1",
+          combinationKey: canonicalCombinationKey([{ optionId: "option-1", valueId: "value-1" }]),
           optionValueRefs: [{ id: "value-1" }],
           sku: {
             id: "sku-1",

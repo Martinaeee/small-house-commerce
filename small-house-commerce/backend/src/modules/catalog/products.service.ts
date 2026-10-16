@@ -33,6 +33,7 @@ import type { VariantCardMedia } from './variant-card-media.js';
 import { validateProductCardReadiness } from './product-card-readiness.js';
 import { validateBundlePublishReadiness } from './bundle-readiness.js';
 import { getBundleAvailabilityForSkus } from '../inventory/bundle-inventory.js';
+import { projectBundleComponentSpecifications } from './bundle-public-specifications.js';
 import { CatalogGraphService } from './catalog-graph.service.js';
 import type { AdminProduct } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
@@ -217,6 +218,46 @@ const STOREFRONT_SELECT = {
  */
 const STOREFRONT_PDP_SELECT = {
   ...STOREFRONT_SELECT,
+  variants: {
+    ...STOREFRONT_SELECT.variants,
+    select: {
+      ...STOREFRONT_SELECT.variants.select,
+      sku: {
+        select: {
+          ...STOREFRONT_SELECT.variants.select.sku.select,
+          isBundle: true,
+          bundleComponents: {
+            orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
+            select: {
+              componentSkuId: true,
+              quantity: true,
+              componentSku: {
+                select: {
+                  status: true,
+                  isBundle: true,
+                  productWidth: true,
+                  productDepth: true,
+                  productHeight: true,
+                  productWeight: true,
+                  variant: {
+                    select: {
+                      name: true,
+                      product: {
+                        select: {
+                          name: true, status: true, width: true, depth: true, height: true,
+                          foldedWidth: true, foldedDepth: true, foldedHeight: true, materials: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   // Structured specifications are PDP-only (lists never need them).
   materials: true,
   features: true,
@@ -1528,12 +1569,47 @@ export class ProductsService {
       productItems: (productFaq?.items ?? []) as FaqItem[],
       sharedItems: sharedItems as FaqItem[],
     }).map(({ origin: _origin, ...item }) => item);
-    const presented = presentCatalogGraph(productWithoutFaq);
+    const publicVariants = productWithoutFaq.variants.map(variant => {
+      if (!variant.sku) return { ...variant, sku: null };
+      const { isBundle, bundleComponents, ...sku } = variant.sku;
+      return {
+        ...variant,
+        sku: isBundle ? {
+          ...sku,
+          specificationSource: 'BUNDLE_COMPONENTS' as const,
+          bundleComponents: projectBundleComponentSpecifications(bundleComponents.map(component => {
+            const current = component.componentSku;
+            const product = current.variant.product;
+            return {
+              componentSkuId: component.componentSkuId,
+              quantity: component.quantity,
+              status: current.status,
+              productStatus: product.status,
+              isBundle: current.isBundle,
+              productName: product.name,
+              variantName: current.variant.name,
+              skuDimensions: { width: current.productWidth, depth: current.productDepth, height: current.productHeight },
+              productDimensions: { width: product.width, depth: product.depth, height: product.height },
+              foldedWidth: product.foldedWidth,
+              foldedDepth: product.foldedDepth,
+              foldedHeight: product.foldedHeight,
+              productWeight: current.productWeight,
+              materials: product.materials,
+            };
+          })),
+        } : { ...sku, specificationSource: 'SKU' as const },
+      };
+    });
+    const publicProduct = { ...productWithoutFaq, variants: publicVariants };
+    const skuByVariant = new Map(publicVariants.map(variant => [variant.id, variant.sku]));
+    const presented = presentCatalogGraph(publicProduct);
     const base = {
-      ...productWithoutFaq,
+      ...publicProduct,
       ...presented,
       images: presented.images.map(publicStorefrontMedia),
-      variants: presented.variants.map(({ cardMedia: _cardMedia, ...variant }) => variant),
+      variants: presented.variants.map(({ cardMedia: _cardMedia, ...variant }) => ({
+        ...variant, sku: skuByVariant.get(variant.id) ?? null,
+      })),
       cardMedia: buildProductCardMedia(product.variants.map(variant => ({
         id: variant.id, cardMedia: variant.cardMedia as VariantCardMedia | null,
       })), product.variants

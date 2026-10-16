@@ -276,8 +276,9 @@ describe("materialized SKU product dimension bulk actions", () => {
   const dimensions = { width: 120, depth: 60, height: 75 };
   const overrides = { productWidth: 120, productDepth: 60, productHeight: 75 };
 
-  it("fills empty materialized overrides while skipping a fully overridden SKU", () => {
+  it("fills an empty STYLE group while skipping a fully overridden STYLE group", () => {
     const draft = draftFor();
+    draft.options[0].kind = "STYLE";
     Object.assign(draft.variants[1].sku!, overrides);
     const unchanged = structuredClone(draft.variants[1]);
     expect(applyProductDimensionsToVariants(draft, dimensions, "empty-only"))
@@ -309,8 +310,9 @@ describe("materialized SKU product dimension bulk actions", () => {
     expect(draft.variants[0].sku).not.toBe(oldSku);
   });
 
-  it("fills null axes individually and never treats zero as empty", () => {
+  it("fills null axes within independent STYLE groups and never treats zero as empty", () => {
     const draft = draftFor();
+    draft.options[0].kind = "STYLE";
     Object.assign(draft.variants[0].sku!, { productWidth: 0, productDepth: null, productHeight: 80 });
     Object.assign(draft.variants[1].sku!, overrides);
     expect(applyProductDimensionsToVariants(draft, dimensions, "empty-only"))

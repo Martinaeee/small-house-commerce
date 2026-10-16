@@ -167,6 +167,66 @@ function contentOrder(container: HTMLElement): string[] {
 }
 
 describe("PdpDetails", () => {
+  it("switches ordinary, dining Bundle and bench Bundle specifications with no parent-size fallback", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    item.options[0].kind = "STYLE";
+    Object.assign(item.variants[0].sku!, { productWidth: 120 });
+    const component = (productName: string, quantity: number) => ({
+      productName, variantName: "Oak", quantity, width: 45, depth: 50, height: 80,
+      foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: 4, materials: "Solid oak",
+    });
+    Object.assign(item.variants[1].sku!, {
+      specificationSource: "BUNDLE_COMPONENTS", productWidth: 999, productDepth: 999, productHeight: 999,
+      bundleComponents: [component("Table", 1), component("Chair", 4)],
+    });
+    item.options[0].values.push({ ...item.options[0].values[1], id: "bench", label: "With Bench", position: 2 });
+    item.variants.push({ ...structuredClone(item.variants[1]), id: "bench-variant", name: "With Bench", position: 2,
+      combinationKey: "finish:bench", optionValueIds: ["bench"], sku: {
+        ...item.variants[1].sku!, id: "bench-sku", skuCode: "BENCH-SET", bundleComponents: [component("Bench", 2)],
+      },
+    });
+    render(<PdpPurchaseProvider product={item}>
+      <ProductOptionSelector lineId="primary" instanceId="bundle-spec-test" />
+      <PdpSectionNavGate product={item} hasDetails />
+      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+    </PdpPurchaseProvider>);
+    expect(screen.getAllByText("120 cm").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "White" }));
+    for (const name of ["Product Specifications", "Material & Dimensions"]) {
+      const section = within(screen.getByRole("region", { name }));
+      expect(section.getByRole("heading", { name: "Table × 1" })).toBeVisible();
+      expect(section.getByRole("heading", { name: "Chair × 4" })).toBeVisible();
+      expect(section.getAllByText("45 cm")).toHaveLength(2);
+      expect(section.queryByText("180 cm")).not.toBeInTheDocument();
+      expect(section.queryByText("999 cm")).not.toBeInTheDocument();
+      expect(section.queryByText("120 cm")).not.toBeInTheDocument();
+      expect(section.queryByText("Powder-coated steel")).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: "Specifications" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "With Bench" }));
+    expect(screen.getAllByRole("heading", { name: "Bench × 2" })).toHaveLength(2);
+    expect(screen.queryByRole("heading", { name: "Chair × 4" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Black" }));
+    expect(screen.queryByRole("heading", { name: "Bench × 2" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("120 cm").length).toBeGreaterThan(0);
+  });
+
+  it("hides the specifications section and its navigation for invalid empty Bundle components", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    item.options[0].kind = "STYLE";
+    Object.assign(item.variants[1].sku!, { specificationSource: "BUNDLE_COMPONENTS", bundleComponents: [] });
+    render(<PdpPurchaseProvider product={item}>
+      <ProductOptionSelector lineId="primary" instanceId="invalid-bundle-spec" />
+      <PdpSectionNavGate product={item} hasDetails />
+      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+    </PdpPurchaseProvider>);
+    await user.click(screen.getByRole("button", { name: "White" }));
+    expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Product Specifications" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Material & Dimensions" })).not.toBeInTheDocument();
+  });
   it("switches both dimension sections with the displayed SKU and per-axis fallback", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);

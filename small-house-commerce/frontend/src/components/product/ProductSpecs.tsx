@@ -1,7 +1,8 @@
 // src/components/product/ProductSpecs.tsx
 import type { ReactNode } from "react";
 import { DimensionRows, type SpecDimensions } from "./SizeGuide";
-import { pdpSpecsVisible, resolveSkuProductDimensions, type SkuProductDimensions } from "./pdp-facts";
+import { pdpSpecsVisible, resolveSkuProductDimensions, type ResolvedPdpSpecifications, type SkuProductDimensions } from "./pdp-facts";
+import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
 
 /** Narrow spec source so the admin live preview can pass a plain object. */
 export interface ProductSpecSource extends SpecDimensions {
@@ -30,23 +31,27 @@ function hasDimensions(product: SpecDimensions): boolean {
 export function ProductSpecs({
   product: sourceProduct,
   variantDimensions = null,
-  productWeight = null,
+  productWeight: sourceWeight = null,
   includeFeatures = true,
+  specifications,
 }: {
   product: ProductSpecSource;
   variantDimensions?: SkuProductDimensions | null;
   productWeight?: number | null;
+  specifications?: ResolvedPdpSpecifications;
   /** Admin live preview compatibility; the real PDP moves features above media. */
   includeFeatures?: boolean;
 }): ReactNode {
-  const product = { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
-  const materials = product.materials?.trim() ?? "";
-  const features = includeFeatures ? featureLines(product.features) : [];
-  const dimensions = hasDimensions(product);
+  const bundle = specifications?.kind === "BUNDLE_COMPONENTS" ? specifications : null;
+  const product = specifications?.kind === "SKU" ? specifications.product : { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
+  const productWeight = bundle ? null : specifications?.kind === "SKU" ? specifications.productWeight : sourceWeight;
+  const materials = bundle ? "" : product.materials?.trim() ?? "";
+  const features = includeFeatures ? featureLines(bundle ? bundle.features : product.features) : [];
+  const dimensions = !bundle && hasDimensions(product);
 
   // The PDP passes includeFeatures={false}, so this is exactly the predicate
   // the sticky nav uses — one rule, no drift between link and anchor.
-  if (!pdpSpecsVisible(product, productWeight) && features.length === 0) {
+  if (!pdpSpecsVisible(product, productWeight, specifications) && features.length === 0) {
     return null;
   }
 
@@ -63,6 +68,7 @@ export function ProductSpecs({
         Product Specifications
       </h2>
       <div className="flex flex-col gap-5">
+        {bundle ? <BundleComponentSpecifications components={bundle.components} /> : null}
         {dimensions ? <DimensionRows product={product} /> : null}
         {materials !== "" ? (
           <div>
@@ -108,14 +114,17 @@ export function ProductSpecs({
 export function MaterialDimensions({
   product: sourceProduct,
   variantDimensions = null,
+  specifications,
 }: {
   product: ProductSpecSource;
   variantDimensions?: SkuProductDimensions | null;
+  specifications?: ResolvedPdpSpecifications;
 }): ReactNode {
-  const product = { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
-  const materials = product.materials?.trim() ?? "";
-  const dimensions = hasDimensions(product);
-  if (materials === "" && !dimensions) return null;
+  const bundle = specifications?.kind === "BUNDLE_COMPONENTS" ? specifications : null;
+  const product = specifications?.kind === "SKU" ? specifications.product : { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
+  const materials = bundle ? "" : product.materials?.trim() ?? "";
+  const dimensions = !bundle && hasDimensions(product);
+  if (materials === "" && !dimensions && !bundle?.components.length) return null;
 
   return (
     <section
@@ -128,7 +137,8 @@ export function MaterialDimensions({
       >
         Material &amp; Dimensions
       </h2>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className={bundle ? "" : "grid gap-6 lg:grid-cols-2"}>
+        {bundle ? <BundleComponentSpecifications components={bundle.components} /> : null}
         {materials !== "" ? (
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">

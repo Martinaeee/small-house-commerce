@@ -1,0 +1,91 @@
+diff --git a/dist/esm/server/lib/incremental-cache/file-system-cache.js b/dist/esm/server/lib/incremental-cache/file-system-cache.js
+index fd0b5c2fc3ae163f4abf9b2c2f624d7b3d479d39..ca6a4b93a3298f61f4956473dadf893fc75bca54 100644
+--- a/dist/esm/server/lib/incremental-cache/file-system-cache.js
++++ b/dist/esm/server/lib/incremental-cache/file-system-cache.js
+@@ -204,7 +204,7 @@ export default class FileSystemCache {
+                 // we trigger a blocking validation if an ISR page
+                 // had a tag revalidated, if we want to be a background
+                 // revalidation instead we return data.lastModified = -1
+-                if (cacheTags.length > 0 && areTagsExpired(cacheTags, data.lastModified)) {
++                if (cacheTags.length > 0 && areTagsExpired(cacheTags, data.lastModified, Date.now())) {
+                     if (FileSystemCache.debug) {
+                         console.log('FileSystemCache: expired tags', cacheTags);
+                     }
+@@ -224,7 +224,7 @@ export default class FileSystemCache {
+                 }
+                 return null;
+             }
+-            if (areTagsExpired(combinedTags, data.lastModified)) {
++            if (areTagsExpired(combinedTags, data.lastModified, Date.now())) {
+                 if (FileSystemCache.debug) {
+                     console.log('FileSystemCache: expired tags', combinedTags);
+                 }
+diff --git a/dist/esm/server/lib/incremental-cache/tags-manifest.external.js b/dist/esm/server/lib/incremental-cache/tags-manifest.external.js
+index c7988e275ce6d36e05cf00a94a229b0d056ae929..9f561fffa8f4eccca950b2fbbc05509a3827037c 100644
+--- a/dist/esm/server/lib/incremental-cache/tags-manifest.external.js
++++ b/dist/esm/server/lib/incremental-cache/tags-manifest.external.js
+@@ -1,12 +1,11 @@
+ // We share the tags manifest between the "use cache" handlers and the previous
+ // file-system cache.
+ export const tagsManifest = new Map();
+-export const areTagsExpired = (tags, timestamp)=>{
++export const areTagsExpired = (tags, timestamp, now = performance.timeOrigin + performance.now())=>{
+     for (const tag of tags){
+         const entry = tagsManifest.get(tag);
+         const expiredAt = entry == null ? void 0 : entry.expired;
+         if (typeof expiredAt === 'number') {
+-            const now = performance.timeOrigin + performance.now();
+             // For immediate expiration (expiredAt <= now) and tag was invalidated after entry was created
+             // OR for future expiration that has now passed (expiredAt > timestamp && expiredAt <= now)
+             const isImmediatelyExpired = expiredAt <= now && expiredAt > timestamp;
+diff --git a/dist/server/lib/incremental-cache/file-system-cache.js b/dist/server/lib/incremental-cache/file-system-cache.js
+index b3ef47ca3b2e8c32dbf9649fefd8f08a9bfa3797..314a7f9c627c32709e70e32b264b20487d23cdc5 100644
+--- a/dist/server/lib/incremental-cache/file-system-cache.js
++++ b/dist/server/lib/incremental-cache/file-system-cache.js
+@@ -219,7 +219,7 @@ class FileSystemCache {
+                 // we trigger a blocking validation if an ISR page
+                 // had a tag revalidated, if we want to be a background
+                 // revalidation instead we return data.lastModified = -1
+-                if (cacheTags.length > 0 && (0, _tagsmanifestexternal.areTagsExpired)(cacheTags, data.lastModified)) {
++                if (cacheTags.length > 0 && (0, _tagsmanifestexternal.areTagsExpired)(cacheTags, data.lastModified, Date.now())) {
+                     if (FileSystemCache.debug) {
+                         console.log('FileSystemCache: expired tags', cacheTags);
+                     }
+@@ -239,7 +239,7 @@ class FileSystemCache {
+                 }
+                 return null;
+             }
+-            if ((0, _tagsmanifestexternal.areTagsExpired)(combinedTags, data.lastModified)) {
++            if ((0, _tagsmanifestexternal.areTagsExpired)(combinedTags, data.lastModified, Date.now())) {
+                 if (FileSystemCache.debug) {
+                     console.log('FileSystemCache: expired tags', combinedTags);
+                 }
+diff --git a/dist/server/lib/incremental-cache/tags-manifest.external.d.ts b/dist/server/lib/incremental-cache/tags-manifest.external.d.ts
+index 697e3a15cc6003e05be3ffd4fc755459e66b6881..5823cd871dd4f553329a459dbeef8b03957ad654 100644
+--- a/dist/server/lib/incremental-cache/tags-manifest.external.d.ts
++++ b/dist/server/lib/incremental-cache/tags-manifest.external.d.ts
+@@ -4,5 +4,5 @@ export interface TagManifestEntry {
+     expired?: number;
+ }
+ export declare const tagsManifest: Map<string, TagManifestEntry>;
+-export declare const areTagsExpired: (tags: string[], timestamp: Timestamp) => boolean;
++export declare const areTagsExpired: (tags: string[], timestamp: Timestamp, now?: number) => boolean;
+ export declare const areTagsStale: (tags: string[], timestamp: Timestamp) => boolean;
+diff --git a/dist/server/lib/incremental-cache/tags-manifest.external.js b/dist/server/lib/incremental-cache/tags-manifest.external.js
+index 580e770aeaf477bed332fcf34c02a409f6f99e7e..2e226368984dd0a1073518b6e45a11022123b34b 100644
+--- a/dist/server/lib/incremental-cache/tags-manifest.external.js
++++ b/dist/server/lib/incremental-cache/tags-manifest.external.js
+@@ -25,12 +25,11 @@ _export(exports, {
+     }
+ });
+ const tagsManifest = new Map();
+-const areTagsExpired = (tags, timestamp)=>{
++const areTagsExpired = (tags, timestamp, now = performance.timeOrigin + performance.now())=>{
+     for (const tag of tags){
+         const entry = tagsManifest.get(tag);
+         const expiredAt = entry == null ? void 0 : entry.expired;
+         if (typeof expiredAt === 'number') {
+-            const now = performance.timeOrigin + performance.now();
+             // For immediate expiration (expiredAt <= now) and tag was invalidated after entry was created
+             // OR for future expiration that has now passed (expiredAt > timestamp && expiredAt <= now)
+             const isImmediatelyExpired = expiredAt <= now && expiredAt > timestamp;

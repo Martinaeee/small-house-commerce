@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { Product } from "@/lib/api";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { pdpSpecsVisible, resolveSkuProductDimensions } from "./pdp-facts";
+import { pdpSpecsVisible, resolveSelectedPdpSpecifications } from "./pdp-facts";
 import { PdpSectionNav } from "./PdpSectionNav";
 import { hasFaqContent } from "./ProductFaqSection";
 
@@ -25,8 +25,9 @@ export function PdpSectionNavGate({
   const { primaryDerived } = usePdpPurchase();
   const sku = primaryDerived.displayVariant?.sku;
   const hasSpecifications = pdpSpecsVisible(
-    { ...product, ...resolveSkuProductDimensions(product, sku) },
+    product,
     sku?.productWeight ?? null,
+    resolveSelectedPdpSpecifications(product, sku),
   );
 
   return (

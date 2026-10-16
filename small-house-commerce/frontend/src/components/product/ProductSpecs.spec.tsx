@@ -19,6 +19,33 @@ function expectDimension(label: string, value: string) {
 
 for (const Component of [ProductSpecs, MaterialDimensions]) {
   describe(`${Component.name} selected SKU dimensions`, () => {
+    it("uses resolved component specifications rather than parent dimensions and material", () => {
+      render(<Component product={product} specifications={{ kind: "BUNDLE_COMPONENTS", features: null, components: [{
+        productName: "Chair", variantName: "Walnut", quantity: 4, width: 45, depth: null, height: 0,
+        foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: 4, materials: "Walnut",
+      }] }} />);
+      expect(screen.getByRole("heading", { name: "Chair × 4" })).toBeVisible();
+      expect(screen.getByText("45 cm")).toBeVisible();
+      expect(screen.getByText("0 cm")).toBeVisible();
+      expect(screen.queryByText("100 cm")).not.toBeInTheDocument();
+      expect(screen.queryByText("Oak")).not.toBeInTheDocument();
+    });
+
+    it("keeps a materials-only component visible with a missing-dimensions explanation", () => {
+      render(<Component product={product} specifications={{ kind: "BUNDLE_COMPONENTS", features: null, components: [{
+        productName: "Chair", variantName: "Walnut", quantity: 4, width: null, depth: null, height: null,
+        foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: null, materials: "Walnut",
+      }] }} />);
+      expect(screen.getByText("Dimensions not provided")).toBeVisible();
+      expect(screen.getAllByText("Walnut")).toHaveLength(2);
+      expect(screen.queryByText("100 cm")).not.toBeInTheDocument();
+    });
+
+    it("renders no parent specifications for an invalid empty Bundle", () => {
+      const { container } = render(<Component product={product} specifications={{ kind: "BUNDLE_COMPONENTS", features: null, components: [] }} />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
     it("renders selected SKU overrides without changing storefront axes or folded dimensions", () => {
       render(<Component product={product} variantDimensions={{ productWidth: 120, productDepth: 60, productHeight: 75 }} />);
       expectDimension("Width", "120 cm");

@@ -16,7 +16,6 @@ import {
   Textarea,
 } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
-import { DecimalInput } from "./DecimalInput";
 import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
 import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
 import { ProductEditorRail } from "./product-form/ProductEditorRail";
@@ -63,6 +62,8 @@ import { ProductFaqPanel } from "./ProductFaqPanel";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductDimensionsAssist } from "./ProductDimensionsAssist";
 import { SkuPackagingAssist } from "./SkuPackagingAssist";
+import { PhysicalSpecificationGroups } from "./product-form/PhysicalSpecificationGroups";
+import { deriveAdminPhysicalSpecificationGroups } from "@/lib/admin-physical-specs";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
 import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
@@ -958,6 +959,10 @@ export function ProductForm({
   const typed = value.graphTyped === true && value.graph !== undefined;
   const graphLocked = !typed && (value.graph?.catalogGraphVersion ?? 0) > 0;
   const graphDraft = typed && value.graph ? value.graph : null;
+  const physicalModes = graphDraft
+    ? deriveAdminPhysicalSpecificationGroups(graphDraft).map(group => group.isBundle)
+    : value.variants.flatMap(variant => variant.sku?.status === "ACTIVE" ? [variant.sku.isBundle] : []);
+  const pureBundle = physicalModes.length > 0 && physicalModes.every(Boolean);
   const cardDraft = useMemo(() => {
     if (!graphDraft) return cardGraphFromLegacyForm(value);
     const draft = structuredClone(graphDraft);
@@ -1023,26 +1028,6 @@ export function ProductForm({
       return [];
     }
   }, [graphDraft]);
-
-  // Shipping tab on typed products: numeric SKU fields commit only valid
-  // values (blank → null clears); invalid keystrokes are ignored rather than
-  // fighting the controlled input.
-  const setDraftSkuField = (
-    combinationKey: string,
-    key: (typeof SHIPPING_SKU_KEYS)[number],
-    value: number | null,
-  ): void => {
-    updateGraph((draft) => {
-      const variant = draft.variants.find(
-        (item) => item.combinationKey === combinationKey,
-      );
-      if (!variant?.sku) return;
-      variant.sku = {
-        ...variant.sku,
-        [key]: value,
-      };
-    });
-  };
 
   const flatCategories = flattenCategories(categories);
   const err = (key: string): string | undefined => fieldErrors[key];
@@ -1851,38 +1836,36 @@ export function ProductForm({
 
           {activeTab === "specs" && (
             <>
-              <Section
-                title={t("product_specs_dimensions_title")}
-                hint={t("product_specs_dimensions_hint")}
-              >
-                <div className="mb-4">
-                  <ProductDimensionsAssist
-                    value={value}
-                    onApply={patch}
+              {pureBundle ? (
+                <Section title={t("product_specs_dimensions_title")}>
+                  <p className="text-sm text-ink-muted">{t("physical_group_bundle_dimensions")}</p>
+                </Section>
+              ) : (
+                <Section
+                  title={t("product_specs_dimensions_title")}
+                  hint={t("product_specs_dimensions_hint")}
+                >
+                  {physicalModes.some(Boolean) ? <p className="mb-3 text-xs text-ink-muted">{t("physical_group_ordinary_defaults")}</p> : null}
+                  <div className="mb-4">
+                    <ProductDimensionsAssist value={value} onApply={patch} disabled={pending || batchUpload.uploading} />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
+                      <Field key={key} label={t(labelKey)} htmlFor={`pf-${key}`} error={err(key)} hint={t(hintKey)}>
+                        <TextInput id={`pf-${key}`} inputMode="decimal" placeholder={t("product_specs_optional_placeholder")}
+                          value={value[key]} onChange={(e) => patch({ [key]: e.target.value })} autoComplete="off" />
+                      </Field>
+                    ))}
+                  </div>
+                </Section>
+              )}
+              {graphDraft && !pureBundle ? (
+                <Section title={t("physical_group_shared")} hint={t("physical_group_hint")}>
+                  <PhysicalSpecificationGroups draft={graphDraft} section="dimensions" onChange={updateGraph}
                     disabled={pending || batchUpload.uploading}
-                  />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
-                    <Field
-                      key={key}
-                      label={t(labelKey)}
-                      htmlFor={`pf-${key}`}
-                      error={err(key)}
-                      hint={t(hintKey)}
-                    >
-                      <TextInput
-                        id={`pf-${key}`}
-                        inputMode="decimal"
-                        placeholder={t("product_specs_optional_placeholder")}
-                        value={value[key]}
-                        onChange={(e) => patch({ [key]: e.target.value })}
-                        autoComplete="off"
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </Section>
+                    productDimensions={{ width: previewNumber(value.width), depth: previewNumber(value.depth), height: previewNumber(value.height) }} />
+                </Section>
+              ) : null}
 
               <Section
                 title={t("product_specs_materials_title")}
@@ -1986,6 +1969,7 @@ export function ProductForm({
             />
             <div className="mt-8">
               <VariantMatrix
+                onOpenSpecifications={() => setActiveTab("specs")}
                 candidates={candidates}
                 draft={graphDraft}
                 onChange={updateGraph}
@@ -2277,81 +2261,8 @@ export function ProductForm({
         )}
 
         {activeTab === "shipping" && typed && graphDraft ? (
-          /* Task 11: on typed products the SKU rows live in the graph draft,
-             so shipping fields write there (the legacy list rows would be
-             dropped from the PATCH and the edits silently lost). */
-          <Section
-            title={t("product_shipping_title")}
-            hint={t("product_shipping_typed_hint")}
-          >
-            {graphDraft.variants.length === 0 ? (
-              <p className="text-sm text-ink-muted">
-                {t("product_shipping_typed_empty")}
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {graphDraft.variants.map((variant) => (
-                  <li
-                    key={variant.id ?? variant.clientKey}
-                    className="rounded-lg bg-background p-4"
-                  >
-                    <p className="text-sm font-semibold text-ink">
-                      {variant.name.trim() || t("product_shipping_unnamed")}
-                      {variant.sku?.skuCode.trim() ? (
-                        <span className="ml-2 font-normal text-ink-muted">
-                          {variant.sku.skuCode.trim()}
-                        </span>
-                      ) : null}
-                    </p>
-                    {variant.sku ? (
-                      <>
-                      <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {SHIPPING_SKU_KEYS.map((key) => {
-                          const labelKey = SKU_LABEL_KEYS[key];
-                          return (
-                            <Field
-                              key={key}
-                              label={labelKey ? t(labelKey) : String(key)}
-                            >
-                              <DecimalInput
-                                aria-label={t("product_shipping_field_aria", {
-                                  field: labelKey ? t(labelKey) : String(key),
-                                  variant:
-                                    variant.name.trim() || t("product_shipping_unnamed"),
-                                })}
-                                inputMode="decimal"
-                                value={variant.sku?.[key] ?? null}
-                                onValueChange={(nextValue) =>
-                                  setDraftSkuField(
-                                    variant.combinationKey,
-                                    key,
-                                    nextValue,
-                                  )
-                                }
-                                autoComplete="off"
-                              />
-                            </Field>
-                          );
-                        })}
-                      </div>
-                      <SkuPackagingAssist
-                        value={variant.sku}
-                        disabled={pending || batchUpload.uploading}
-                        onApply={(packagePatch) => updateGraph((draft) => {
-                          const target = draft.variants.find(row => row.combinationKey === variant.combinationKey);
-                          if (target?.sku) target.sku = { ...target.sku, ...packagePatch };
-                        })}
-                      />
-                      </>
-                    ) : (
-                      <p className="mt-2 text-xs text-ink-muted">
-                        {t("product_shipping_typed_no_sku")}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+          <Section title={t("product_shipping_title")} hint={t("physical_group_hint")}>
+            <PhysicalSpecificationGroups draft={graphDraft} section="shipping" onChange={updateGraph} disabled={pending || batchUpload.uploading} />
           </Section>
         ) : activeTab === "shipping" && graphLocked ? (
           <Section
@@ -2519,15 +2430,16 @@ export function ProductForm({
                     altText: block.altText,
                   }))}
                 />
+                {physicalModes.some(Boolean) ? <p className="text-sm text-ink-muted">{t(pureBundle ? "physical_group_bundle_dimensions" : "physical_group_ordinary_defaults")}</p> : null}
                 <ProductSpecs
                   product={{
-                    width: previewNumber(value.width),
-                    height: previewNumber(value.height),
-                    depth: previewNumber(value.depth),
-                    foldedWidth: previewNumber(value.foldedWidth),
-                    foldedHeight: previewNumber(value.foldedHeight),
-                    foldedDepth: previewNumber(value.foldedDepth),
-                    materials: value.materials.trim() || null,
+                    width: pureBundle ? null : previewNumber(value.width),
+                    height: pureBundle ? null : previewNumber(value.height),
+                    depth: pureBundle ? null : previewNumber(value.depth),
+                    foldedWidth: pureBundle ? null : previewNumber(value.foldedWidth),
+                    foldedHeight: pureBundle ? null : previewNumber(value.foldedHeight),
+                    foldedDepth: pureBundle ? null : previewNumber(value.foldedDepth),
+                    materials: pureBundle ? null : value.materials.trim() || null,
                     features:
                       value.features.map((l) => l.trim()).filter(Boolean).join("\n") ||
                       null,

@@ -1,4 +1,22 @@
-import type { Product, Solution, StorefrontSku } from "@/lib/api";
+import type { BundleComponentSpecification, Product, Solution, StorefrontSku } from "@/lib/api";
+
+export type SpecificationProduct = Pick<Product, "width" | "depth" | "height" | "foldedWidth" | "foldedDepth" | "foldedHeight" | "materials" | "features">;
+export type ResolvedPdpSpecifications =
+  | { kind: "SKU"; product: SpecificationProduct; productWeight: number | null }
+  | { kind: "BUNDLE_COMPONENTS"; components: BundleComponentSpecification[]; features: string | null };
+
+export function resolveSelectedPdpSpecifications(product: SpecificationProduct, sku?: StorefrontSku | null): ResolvedPdpSpecifications {
+  if (sku?.specificationSource === "BUNDLE_COMPONENTS") {
+    return { kind: "BUNDLE_COMPONENTS", components: sku.bundleComponents ?? [], features: product.features ?? null };
+  }
+  return { kind: "SKU", product: { ...product, ...resolveSkuProductDimensions(product, sku) }, productWeight: sku?.productWeight ?? null };
+}
+
+export function hasPdpSpecificationDimensions(specifications: ResolvedPdpSpecifications): boolean {
+  const sources = specifications.kind === "SKU" ? [specifications.product] : specifications.components;
+  return sources.some(source => [source.width, source.depth, source.height, source.foldedWidth, source.foldedDepth, source.foldedHeight]
+    .some(value => value != null));
+}
 
 export type SkuProductDimensions = Pick<StorefrontSku, "productWidth" | "productDepth" | "productHeight">;
 
@@ -101,9 +119,13 @@ export type PdpSpecSource = Pick<
  * rendered).
  */
 export function pdpSpecsVisible(
-  product: PdpSpecSource,
-  productWeight: number | null,
+  sourceProduct: PdpSpecSource,
+  sourceWeight: number | null,
+  specifications?: ResolvedPdpSpecifications,
 ): boolean {
+  if (specifications?.kind === "BUNDLE_COMPONENTS") return specifications.components.length > 0;
+  const product = specifications?.kind === "SKU" ? specifications.product : sourceProduct;
+  const productWeight = specifications?.kind === "SKU" ? specifications.productWeight : sourceWeight;
   return (
     Boolean(product.materials?.trim()) ||
     product.width !== null ||

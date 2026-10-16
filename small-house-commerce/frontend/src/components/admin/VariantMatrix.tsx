@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { inputClsCompact } from "@/components/admin/Field";
 import { DecimalInput } from "@/components/admin/DecimalInput";
+import { inheritNewColorPhysicalSpecifications } from "@/lib/admin-physical-specs";
 import { Dialog } from "@/components/admin/Dialog";
 import { BundleComponentsEditor } from "@/components/admin/BundleComponentsEditor";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -121,8 +122,10 @@ export function VariantMatrix({
   productDimensions = null,
   productId = null,
   onBundleSavingChange,
+  onOpenSpecifications,
 }: {
   candidates: readonly VariantCandidate[];
+  onOpenSpecifications?: () => void;
   productId?: string | null;
   onBundleSavingChange?: (skuKey: string, saving: boolean) => void;
   draft?: AdminCatalogGraphDraft | null;
@@ -210,7 +213,10 @@ export function VariantMatrix({
 
   const canApplyDimensions = editable && productDimensions !== null &&
     Object.values(productDimensions).some(value => value !== null) &&
-    candidates.some(candidate => rowFor(candidate)?.sku?.status === "ACTIVE");
+    candidates.some(candidate => {
+      const sku = rowFor(candidate)?.sku;
+      return sku?.status === "ACTIVE" && !sku.isBundle;
+    });
 
   const applyDimensions = (mode: "all" | "empty-only"): void => {
     if (!draft || !productDimensions || !canApplyDimensions) return;
@@ -225,7 +231,11 @@ export function VariantMatrix({
   ): void =>
     onChange?.((draft) => {
       const row = findOrCreateRow(draft, candidate);
-      row.sku = { ...emptySkuDraft(), ...(row.sku ?? {}), ...patch };
+      const previous = row.sku;
+      row.sku = { ...emptySkuDraft(), ...(previous ?? {}), ...patch };
+      if (!previous || previous.isBundle !== row.sku.isBundle || (previous.status === "DISABLED" && row.sku.status === "ACTIVE")) {
+        Object.assign(draft, inheritNewColorPhysicalSpecifications(draft, entityRowKey(row)).draft);
+      }
     });
 
   const setWarning = (key: string, message: string | null): void =>
@@ -576,52 +586,21 @@ export function VariantMatrix({
                         )}
                       </td>
                       <td className="py-2 pr-3">
-                        <div className="grid min-w-80 grid-cols-3 gap-2">
-                          {PRODUCT_DIMENSION_FIELDS.map(({ skuKey, productKey, labelKey }) => {
-                            const inherited = sku?.[skuKey] === null;
-                            const parentValue = productDimensions?.[productKey] ?? null;
-                            return (
-                              <label key={skuKey} className="text-xs text-ink-secondary">
-                                <span className="mb-1 block">{t(labelKey)}</span>
-                                <DecimalInput
-                                  aria-label={t("product_matrix_dimension_aria", { name: candidate.name, dimension: t(labelKey) })}
-                                  value={sku?.[skuKey] ?? null}
-                                  placeholder={parentValue === null ? "" : String(parentValue)}
-                                  inputMode="decimal"
-                                  onValueChange={value => {
-                                    if (value !== null && !Number.isFinite(value)) {
-                                      setWarning(candidate.combinationKey, t("product_matrix_dimension_error"));
-                                      return;
-                                    }
-                                    editSku(candidate, { [skuKey]: value });
-                                    setWarning(candidate.combinationKey, null);
-                                  }}
-                                  onValidityChange={valid => setWarning(candidate.combinationKey, valid ? null : t("product_matrix_dimension_error"))}
-                                  disabled={!editable || sku?.status !== "ACTIVE"}
-                                  autoComplete="off"
-                                />
-                                {sku ? (
-                                  <span className="mt-1 block text-ink-muted">
-                                    {inherited
-                                      ? parentValue === null
-                                        ? t("product_matrix_dimension_unset")
-                                        : t("product_matrix_dimension_inherited", { value: parentValue })
-                                      : t("product_matrix_dimension_overridden")}
-                                  </span>
-                                ) : null}
-                              </label>
-                            );
-                          })}
-                        </div>
-                        <button
-                          type="button"
-                          className="mt-1 min-h-11 text-xs font-semibold text-primary disabled:text-ink-muted"
-                          aria-label={t("product_matrix_dimensions_clear_aria", { name: candidate.name })}
-                          disabled={!editable || sku?.status !== "ACTIVE" || PRODUCT_DIMENSION_FIELDS.every(({ skuKey }) => sku[skuKey] === null)}
-                          onClick={() => editSku(candidate, { productWidth: null, productDepth: null, productHeight: null })}
-                        >
-                          {t("product_matrix_dimensions_clear")}
-                        </button>
+                        {sku?.isBundle ? <p className="max-w-56 text-xs text-ink-muted">{t("physical_group_bundle_dimensions")}</p> : sku ? <>
+                          <dl className="min-w-40 text-xs text-ink-secondary">
+                            {PRODUCT_DIMENSION_FIELDS.map(({ skuKey, productKey, labelKey }) => {
+                              const parent = productDimensions?.[productKey] ?? null;
+                              return <div key={skuKey} className="mb-1">
+                                <dt className="font-medium">{t(labelKey)}</dt>
+                                <dd>{sku[skuKey] === null
+                                  ? parent === null ? t("product_matrix_dimension_unset") : t("product_matrix_dimension_inherited", { value: parent })
+                                  : `${sku[skuKey]} cm`}</dd>
+                              </div>;
+                            })}
+                          </dl>
+                          {onOpenSpecifications ? <button type="button" onClick={onOpenSpecifications} disabled={!editable || sku.status !== "ACTIVE"}
+                            className="min-h-10 text-xs font-semibold text-primary disabled:text-ink-muted">{t("physical_group_edit")}</button> : null}
+                        </> : <span className="text-xs text-ink-muted">{t("product_matrix_no_sku")}</span>}
                       </td>
                       <td className="py-2 text-right">
                         {!persisted && editable ? (
