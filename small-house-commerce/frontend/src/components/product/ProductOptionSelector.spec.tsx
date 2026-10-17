@@ -475,6 +475,35 @@ describe("isolated landing purchase presentation", () => {
 });
 
 describe("PDP conversion hero", () => {
+  it.each([
+    { materials: "Solid oak", weight: null, expected: "Solid oak" },
+    { materials: null, weight: 2.4, expected: "2.4 kg · Net weight" },
+  ])("opens the full guide without a dimensions summary for $expected", async ({ materials, weight, expected }) => {
+    const item = structuredClone(product);
+    item.materials = materials;
+    item.variants.forEach((row) => Object.assign(row.sku!, {
+      productWidth: null, productDepth: null, productHeight: null,
+      productWeight: weight, packageWeight: null,
+    }));
+    const user = userEvent.setup();
+    renderPdp({ item, variantId: "red-small" });
+    expect(screen.queryByTestId("pdp-dimensions-line")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const dialog = screen.getByRole("dialog", { name: "Product details" });
+    expect(within(dialog).getByText(expected, { exact: true })).toBeVisible();
+    expect(within(dialog).queryByText("Dimensions", { exact: true })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Close product details" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(cart.addItem).not.toHaveBeenCalled();
+  });
+
+  it("does not offer an empty guide when no public specification fact exists", () => {
+    const item = { ...product, options: [], variants: [{ ...product.variants[0], name: "Default", optionValueIds: [] }] };
+    renderPdp({ item, variantId: "red-small" });
+    expect(screen.queryByRole("button", { name: "Size guide" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pdp-dimensions-line")).not.toBeInTheDocument();
+  });
+
   it("uses the Bundle dimension summary and matching component size guide without multiplying quantities", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
@@ -501,13 +530,22 @@ describe("PDP conversion hero", () => {
   });
 
   it.each([{ components: [] }, { components: [{ productName: "Chair", variantName: "Oak", quantity: 4, width: null, depth: null, height: null,
-    foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: null, materials: "Wood" }] }])("hides the Bundle dimension summary and size guide for unprovided component measurements %j", ({ components }) => {
+    foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: null, materials: "Wood" }] }])("keeps the full guide accessible without borrowing a Bundle parent's measurements %j", async ({ components }) => {
     const item = structuredClone(product);
     Object.assign(item, { width: 999, depth: 999, height: 999 });
     Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { specificationSource: "BUNDLE_COMPONENTS", bundleComponents: components });
+    const user = userEvent.setup();
     renderPdp({ item, variantId: "red-small" });
-    expect(screen.queryByTestId("pdp-dimensions-summary")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Size guide" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pdp-dimensions-line")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const guide = within(screen.getByRole("dialog", { name: "Product details" }));
+    const selected = guide.getAllByRole("table")[0].querySelector('tr[data-selection="selected"]');
+    expect(selected).toHaveTextContent("Not provided");
+    expect(selected).not.toHaveTextContent("393.3");
+    if (components.length) {
+      await user.click(guide.getByText("Details"));
+      expect([...screen.getByRole("dialog").querySelectorAll('[data-field="materials"]')].some(cell => cell.textContent?.includes("Wood"))).toBe(true);
+    }
   });
   it("switches the hero dimensions with the displayed SKU and preserves zero overrides", async () => {
     const user = userEvent.setup();
@@ -530,7 +568,7 @@ describe("PDP conversion hero", () => {
     renderPdp({ item, variantId: "red-small" });
     await user.click(screen.getByRole("button", { name: "Size guide" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("table")).toHaveTextContent("47.2W × 29.5H × 23.6D in");
+    expect(within(dialog).getAllByRole("table")[0]).toHaveTextContent("47.2W × 29.5H × 23.6D in");
     const folded = dialog.querySelector('[data-block="folded"]')!;
     expect(
       [...folded.querySelectorAll("dt, dd")].map((node) => node.textContent?.trim()),

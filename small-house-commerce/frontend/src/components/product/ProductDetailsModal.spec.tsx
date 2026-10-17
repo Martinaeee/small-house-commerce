@@ -132,6 +132,138 @@ function tableRows(scope: HTMLElement) {
 }
 
 describe("ProductDetailsModal", () => {
+  it("includes the shared product name and material without repeating size or weight facts", async () => {
+    const user = userEvent.setup();
+    const { dialog } = renderModal(product(), "bs");
+    await user.click(within(dialog()).getByText("Details"));
+
+    expect(dialog().querySelector('[data-field="productName"]')).toHaveTextContent("Modular Storage Shelf");
+    expect(dialog().querySelector('[data-field="materials"]')).toHaveTextContent("Solid oak");
+    expect(within(dialog()).getAllByText("Solid oak", { exact: true })).toHaveLength(1);
+    expect(within(dialog()).getAllByText("4 kg · Net weight", { exact: true })).toHaveLength(1);
+    expect(within(dialog()).getAllByText("37W × 36.6H × 16.9D in", { exact: true })).toHaveLength(1);
+    expect(dialog().querySelector('[data-field="variant"]')).toBeNull();
+    expect(within(dialog()).getAllByRole("button", { name: "Black" })).toHaveLength(1);
+    expect(dialog().querySelector('#specifications')).toBeNull();
+  });
+
+  it("shows real MATERIAL option facts without repeating the material as its own owner", async () => {
+    const material = {
+      ...STYLE, id: "o-material", kind: "MATERIAL" as const, name: "材质",
+      values: [
+        { ...STYLE.values[0], id: "oak", label: "Oak" },
+        { ...STYLE.values[1], id: "bamboo", label: "Bamboo" },
+      ],
+    };
+    const source = product({
+      materials: "UNRELATED PARENT MATERIAL", options: [COLOR, material],
+      variants: [
+        variant("oak", "Black / Oak", [["o-color", "black"], ["o-material", "oak"]]),
+        variant("oak-white", "White / Oak", [["o-color", "white"], ["o-material", "oak"]]),
+        variant("bamboo-black", "Black / Bamboo", [["o-color", "black"], ["o-material", "bamboo"]]),
+        variant("bamboo", "White / Bamboo", [["o-color", "white"], ["o-material", "bamboo"]]),
+      ],
+      defaultDisplayVariantId: "oak",
+    });
+    const user = userEvent.setup();
+    const { dialog } = renderModal(source, "oak");
+    await user.click(within(dialog()).getByText("Details"));
+    const table = within(dialog()).getByRole("table", { name: "Materials by Material" });
+    expect(tableRows(table)).toEqual([
+      { selection: "selected", cells: ["Oak Selected"] },
+      { selection: null, cells: ["Bamboo"] },
+    ]);
+    expect(dialog().textContent).not.toContain("UNRELATED PARENT MATERIAL");
+  });
+
+  it("marks a missing material binding instead of borrowing the product material", async () => {
+    const material = {
+      ...STYLE, id: "o-material", kind: "MATERIAL" as const, name: "Material",
+      values: [{ ...STYLE.values[0], id: "oak", label: "Oak" }],
+    };
+    const source = product({
+      materials: "DO NOT BORROW", options: [COLOR, material],
+      variants: [
+        variant("known", "Black / Oak", [["o-color", "black"], ["o-material", "oak"]]),
+        variant("missing", "White / unknown", [["o-color", "white"]]),
+      ],
+      defaultDisplayVariantId: "known",
+    });
+    const user = userEvent.setup();
+    const { dialog } = renderModal(source, "known");
+    await user.click(within(dialog()).getByText("Details"));
+    const cells = [...dialog().querySelectorAll('td[data-field="materials"], th[data-field="materials"]')];
+    expect(cells).toHaveLength(2);
+    expect(cells.map(cell => cell.textContent)).toEqual(["Oak", "Not provided"]);
+    expect(dialog().querySelector('dl [data-field="materials"]')).toBeNull();
+    expect(dialog().textContent).not.toContain("DO NOT BORROW");
+  });
+
+  it("keeps sparse available colors scoped to their real style", async () => {
+    const source = product();
+    source.variants = source.variants.filter(row => row.id !== "wt");
+    const user = userEvent.setup();
+    const { dialog } = renderModal(source, "bt");
+    await user.click(within(dialog()).getByText("Details"));
+    const table = within(dialog()).getByRole("table", { name: "Available colors by Style" });
+    expect(tableRows(table)).toEqual([
+      { selection: null, cells: ["3-Tier", "Black / White"] },
+      { selection: "selected", cells: ["4-Tier Selected", "Black"] },
+    ]);
+    expect(within(dialog()).getByRole("group", { name: "Color" })).toBeVisible();
+  });
+
+  it("opens Details when material is present but every dimension is absent", () => {
+    const source = product({
+      width: null, depth: null, height: null, description: null, options: [],
+      variants: [variant("plain", "Default", [])], defaultDisplayVariantId: "plain",
+    });
+    const { dialog } = renderModal(source, "plain");
+    expect(within(dialog()).getByText("Solid oak", { exact: true })).toBeVisible();
+    expect(within(dialog()).queryByText("Product size", { exact: true })).not.toBeInTheDocument();
+    expect(within(dialog()).queryByText("Dimensions", { exact: true })).not.toBeInTheDocument();
+    expect(dialog().querySelector('[data-field="weight"]')).toBeNull();
+  });
+
+  it("keeps equal numeric Net and Gross weights as different facts", async () => {
+    const source = product();
+    source.variants.forEach(row => Object.assign(row.sku!, row.id.endsWith("s")
+      ? { productWeight: 4, packageWeight: 4 }
+      : { productWeight: null, packageWeight: 4 }));
+    const { dialog } = renderModal(source, "bt");
+    await userEvent.setup().click(within(dialog()).getByText("Details"));
+    const table = within(dialog()).getByRole("table", { name: "Weight by Style" });
+    expect(tableRows(table)).toEqual([
+      { selection: null, cells: ["3-Tier", "4 kg · Net weight"] },
+      { selection: "selected", cells: ["4-Tier Selected", "4 kg · Gross weight"] },
+    ]);
+    expect(dialog().querySelector('dl [data-field="weight"]')).toBeNull();
+  });
+
+  it("omits entirely missing material and weight fields without placeholder headings", async () => {
+    const source = product({ materials: null });
+    source.variants.forEach(row => Object.assign(row.sku!, { productWeight: null, packageWeight: null }));
+    const { dialog } = renderModal(source, "bs");
+    await userEvent.setup().click(within(dialog()).getByText("Details"));
+    expect(dialog().querySelector('[data-field="materials"]')).toBeNull();
+    expect(dialog().querySelector('[data-field="weight"]')).toBeNull();
+    expect(within(dialog()).queryByRole("heading", { name: "Materials" })).not.toBeInTheDocument();
+    expect(within(dialog()).queryByRole("heading", { name: "Weight" })).not.toBeInTheDocument();
+    expect(dialog().querySelector('[data-field="productName"]')).toHaveTextContent(source.name);
+  });
+
+  it("does not offer colors that have no selectable SKU binding", async () => {
+    const source = product({
+      options: [{ ...COLOR, values: [...COLOR.values, { ...COLOR.values[0], id: "green", label: "Green", position: 2 }] }, STYLE],
+    });
+    const user = userEvent.setup();
+    const { dialog } = renderModal(source, "bs");
+    await user.click(within(dialog()).getByText("Details"));
+    const picker = within(dialog()).getByRole("group", { name: "Color" });
+    expect(within(picker).queryByRole("button", { name: "Green" })).not.toBeInTheDocument();
+    expect(within(picker).getAllByRole("button")).toHaveLength(2);
+  });
+
   it("preserves close, Escape and body scroll-lock lifecycle", () => {
     document.body.style.overflow = "auto";
     const { onClose, view } = renderModal(product());
@@ -184,9 +316,10 @@ describe("ProductDetailsModal", () => {
     expect(within(dialog()).queryByText(/package/i)).not.toBeInTheDocument();
   });
 
-  it("keeps Bundle facts component-specific without the parent product's sizes", () => {
+  it("keeps Bundle facts component-specific without the parent product's sizes", async () => {
     const source = product({
       name: "Dining Set",
+      materials: "PARENT MATERIAL MUST NOT APPEAR",
       width: 999,
       height: 999,
       depth: 999,
@@ -227,10 +360,17 @@ describe("ProductDetailsModal", () => {
       "Folded depth",
       "15.7 in",
     ]);
+    await userEvent.setup().click(within(dialog()).getByText("Details"));
+    expect(dialog().querySelector('[data-field="materials"]')).toHaveTextContent("Chair / Oak × 2 Solid oak");
+    expect(dialog().querySelector('[data-field="materials"]')).toHaveTextContent("Table / White × 1 Solid oak");
+    expect(dialog().querySelector('[data-field="weight"]')).toHaveTextContent("4 kg · Net weight / per item");
+    expect(dialog().querySelector('[data-field="weight"]')).toHaveTextContent("Not provided");
+    expect(dialog().textContent).not.toContain("PARENT MATERIAL MUST NOT APPEAR");
+    expect(dialog().textContent).not.toContain("99 kg");
   });
 
   it("omits an empty Details block instead of leaving a blank disclosure", () => {
-    const source = product({ description: null, options: [], variants: [variant("plain", "Default", [])] });
+    const source = product({ name: "", materials: null, description: null, options: [], variants: [variant("plain", "Default", [])] });
     const { dialog } = renderModal(source);
     expect(within(dialog()).queryByText("Details")).not.toBeInTheDocument();
     expect(within(dialog()).getByText("Product size")).toBeVisible();

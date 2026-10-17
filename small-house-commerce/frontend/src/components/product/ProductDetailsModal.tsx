@@ -14,6 +14,7 @@ import {
   pdpFoldedGuideEntries,
   pdpSizeGuideRows,
   type PdpFoldedEntry,
+  type PdpSpecField,
   type PdpSpecModel,
   type PdpSizeGuideRow,
 } from "./pdp-specification-display";
@@ -23,7 +24,7 @@ const SUBHEADING =
 const POLICY_ROW = "flex justify-between gap-4 border-b border-border py-2 last:border-0";
 const POLICY_LABEL = "text-sm text-ink-secondary";
 const POLICY_VALUE = "text-right text-sm font-medium text-ink";
-const GUIDE_CELL = "border-b border-border px-1.5 py-2.5 text-left align-top text-sm text-ink first:pl-0 whitespace-pre-line";
+const GUIDE_CELL = "border-b border-border px-1.5 py-2.5 text-left align-top text-sm text-ink first:pl-0 whitespace-pre-line break-words";
 const GUIDE_HEAD = "border-b border-border px-1.5 py-2.5 text-left align-top text-xs text-ink-muted first:pl-0";
 
 const FOLDED_AXES = [
@@ -65,10 +66,10 @@ function GuideTable({
   chosenId: string | null;
 }) {
   return (
-    <table className="w-full border-collapse">
+    <table className="w-full table-fixed border-collapse">
       <thead>
         <tr>
-          <th scope="col" className={GUIDE_HEAD}>
+          <th scope="col" className={`${GUIDE_HEAD} w-[30%]`}>
             Variant
           </th>
           <th scope="col" className={GUIDE_HEAD}>
@@ -120,65 +121,86 @@ function FoldedBlock({ entries }: { entries: PdpFoldedEntry[] }) {
   );
 }
 
-function WeightBlock({
+function SpecificationFieldBlock({
   product,
   model,
+  field,
   chosenId,
 }: {
   product: Product;
   model: PdpSpecModel;
+  field: PdpSpecField;
   chosenId: string | null;
 }) {
-  const field = model.fields.find((candidate) => candidate.key === "weight");
-  if (!field || field.classification === "D") return null;
+  if (field.classification === "D") return null;
+  const nonColor = product.options.filter((option) => option.kind !== "COLOR");
+  const label = field.key === "variant"
+    ? nonColor.length ? pdpBasisLabel(product, nonColor.map((option) => option.id)) : "Variant"
+    : field.label;
 
   if (field.classification === "A") {
+    const text = model.formatCell(field.cell);
+    const wide = field.key === "productName" || field.cell.type === "components" || text.length > 48;
     return (
-      <div>
-        <h3 className={SUBHEADING}>Weight</h3>
+      <div className={wide ? "col-span-full" : undefined}>
+        <h3 className={SUBHEADING}>{label}</h3>
         <dl>
-          <div className={POLICY_ROW} data-field="weight">
-            <dt className={POLICY_LABEL}>{field.label}</dt>
-            <dd className={POLICY_VALUE}>{model.formatCell(field.cell)}</dd>
+          <div className="border-b border-border pb-2" data-field={field.key}>
+            <dt className="sr-only">{label}</dt>
+            <dd className="min-w-0 whitespace-pre-line break-words text-sm font-medium text-ink">{text}</dd>
           </div>
         </dl>
       </div>
     );
   }
 
-  const group = pdpFieldGroup(model, "weight");
+  const group = pdpFieldGroup(model, field.key);
   if (!group) return null;
+  const basisLabel = pdpBasisLabel(product, group.basis);
+  const materialOwner = field.key === "materials" && group.basis.length === 1 &&
+    product.options.some((option) => option.id === group.basis[0] && option.kind === "MATERIAL") &&
+    group.rows.every((row) => row.cells.materials.type === "material" && row.cells.materials.status === "complete");
 
   return (
-    <div>
-      <h3 className={SUBHEADING}>Weight</h3>
-      <table className="w-full border-collapse">
+    <div className="col-span-full">
+      <h3 className={SUBHEADING}>{label}</h3>
+      <table className="w-full table-fixed border-collapse">
+        <caption className="sr-only">{label} by {basisLabel}</caption>
         <thead>
           <tr>
+            {!materialOwner && <th scope="col" className={`${GUIDE_HEAD} w-[36%]`}>
+              {basisLabel}
+            </th>}
             <th scope="col" className={GUIDE_HEAD}>
-              {pdpBasisLabel(product, group.basis)}
-            </th>
-            <th scope="col" className={GUIDE_HEAD}>
-              {field.label}
+              {label}
             </th>
           </tr>
         </thead>
         <tbody>
           {group.rows.map((row) => {
             const selected = chosenId !== null && row.memberIds.includes(chosenId);
+            const selectedLabel = selected && (
+              <span className="mt-0.5 block text-xs font-normal text-ink-muted">Selected</span>
+            );
             return (
-              <tr key={row.memberIds.join(",")} data-selection={selected ? "selected" : undefined}>
-                <th scope="row" className={`${GUIDE_CELL} font-semibold`}>
-                  <span className="block">{row.labels.join(" · ")}</span>
-                  {selected && (
-                    <span className="mt-0.5 block text-xs font-normal text-ink-muted">
-                      Selected
-                    </span>
-                  )}
-                </th>
-                <td className={GUIDE_CELL} data-field="weight">
-                  {model.formatCell(row.cells.weight)}
-                </td>
+              <tr key={row.memberIds.join(",")} data-selection={selected ? "selected" : undefined}
+                className={selected ? "bg-primary-light/40" : undefined}>
+                {materialOwner ? (
+                  <th scope="row" className={`${GUIDE_CELL} font-semibold`} data-field={field.key}>
+                    <span className="block">{model.formatCell(row.cells[field.key])}</span>
+                    {selectedLabel}
+                  </th>
+                ) : (
+                  <>
+                    <th scope="row" className={`${GUIDE_CELL} font-semibold`}>
+                      <span className="block">{row.labels.join(" · ")}</span>
+                      {selectedLabel}
+                    </th>
+                    <td className={GUIDE_CELL} data-field={field.key}>
+                      {model.formatCell(row.cells[field.key])}
+                    </td>
+                  </>
+                )}
               </tr>
             );
           })}
@@ -292,8 +314,20 @@ export function ProductDetailsModal({
     }
   };
 
-  const hasDetails = Boolean(product.description?.trim()) || Boolean(colorOption?.values.length) ||
-    model.fields.some((field) => field.key === "weight" && field.classification !== "D");
+  const hasDimensions = guideRows.length > 0 || folded.length > 0;
+  const colorValues = colorOption?.values
+    .filter((value) => selectableVariants.some((variant) => variant.optionValueIds.includes(value.id)))
+    .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id)) ?? [];
+  const nonColor = product.options.filter((option) => option.kind !== "COLOR");
+  const dimensionGroup = pdpFieldGroup(model, "dimensions");
+  const guideCoversVariant = guideRows.length > 0 && nonColor.length > 0 && (
+    (model.common.some((field) => field.key === "dimensions") && model.rows.every((row) => row.graphComplete)) ||
+    nonColor.every((option) => dimensionGroup?.basis.includes(option.id))
+  );
+  const detailFields = model.fields.filter((field) => field.key !== "dimensions" && field.classification !== "D" &&
+    !(field.key === "variant" && guideCoversVariant) &&
+    !(field.key === "colors" && field.classification === "A" && colorValues.length > 0));
+  const hasDetails = Boolean(product.description?.trim()) || colorValues.length > 0 || detailFields.length > 0;
   const chosenId = chosen?.id ?? null;
 
   return (
@@ -333,7 +367,7 @@ export function ProductDetailsModal({
         </div>
 
         <div className="overflow-y-auto px-5 pb-6">
-          {(guideRows.length > 0 || folded.length > 0) && (
+          {hasDimensions && (
             <Section title="Dimensions" defaultOpen>
               {guideRows.length > 0 && (
                 <>
@@ -353,14 +387,18 @@ export function ProductDetailsModal({
             </Section>
           )}
 
-          {hasDetails && <Section title="Details">
+          {hasDetails && <Section title="Details" defaultOpen={!hasDimensions}>
             {product.description && (
               <p className="whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
                 {product.description}
               </p>
             )}
-            <WeightBlock product={product} model={model} chosenId={chosenId} />
-            {colorOption && (
+            <div className="grid grid-cols-2 gap-x-5 gap-y-3">
+              {detailFields.map((field) => (
+                <SpecificationFieldBlock key={field.key} product={product} model={model} field={field} chosenId={chosenId} />
+              ))}
+            </div>
+            {colorOption && colorValues.length > 0 && (
               <div>
                 <h3 className={SUBHEADING}>{pdpBasisLabel(product, [colorOption.id])}</h3>
                 <div
@@ -368,12 +406,7 @@ export function ProductDetailsModal({
                   aria-label={pdpBasisLabel(product, [colorOption.id])}
                   className="flex flex-wrap gap-2"
                 >
-                  {[...colorOption.values]
-                    .sort(
-                      (left, right) =>
-                        left.position - right.position || left.id.localeCompare(right.id),
-                    )
-                    .map((value) => {
+                  {colorValues.map((value) => {
                       const selected = selectedValueIds[colorOption.id] === value.id;
                       const compatible = isCompatibleValue(
                         product.options,

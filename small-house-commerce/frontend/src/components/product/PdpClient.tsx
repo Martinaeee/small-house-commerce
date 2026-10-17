@@ -43,6 +43,7 @@ import {
   formatFoldedLine,
   formatSkuDimensions,
   pdpFoldedEntries,
+  pdpInformationVisible,
 } from "./pdp-specification-display";
 import { SolutionIcon } from "./pdp-solution-icons";
 
@@ -248,6 +249,7 @@ export function PdpClient({
   const specificationModel = useMemo(() => analyzePdpSpecifications(product), [product]);
   const hasGuideMeasurements = specificationModel.rows.some((row) => row.cells.dimensions.status !== "missing") ||
     primaryDerived.selectableVariants.some((variant) => pdpFoldedEntries(product, variant.sku).length > 0);
+  const hasSizeGuide = hasGuideMeasurements || pdpInformationVisible(product);
   const dimensionLine = !resolvedVariant
     ? hasGuideMeasurements ? { label: "Dimensions:", value: "Select a configuration" } : null
     : componentSummary
@@ -710,18 +712,18 @@ export function PdpClient({
 
           <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" preview={preview} />
 
-          {dimensionLine && (
+          {hasSizeGuide && (
             <div
               data-testid="pdp-dimensions-summary"
               className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
             >
-              <p
+              {dimensionLine && <p
                 data-testid="pdp-dimensions-line"
                 className="text-ink-secondary"
               >
                 <span className="font-semibold text-ink">{dimensionLine.label}</span>{" "}
                 {dimensionLine.value}
-              </p>
+              </p>}
               <button
                 type="button"
                 onClick={() => setDetailsOpen(true)}
