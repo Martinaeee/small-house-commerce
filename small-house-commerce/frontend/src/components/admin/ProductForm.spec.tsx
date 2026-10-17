@@ -101,6 +101,20 @@ describe("legacy SKU product dimension serialization", () => {
     });
 });
 
+describe("compact product specifications", () => {
+  it("offers a batch import and a compact SKU table instead of repeated dimension cards", async () => {
+    const user = userEvent.setup();
+    const form = baseValue({ width: "120", depth: "60", height: "75", variants: [{ id: "chair", name: "3-Tier", position: "0", sku: { ...emptySkuFormValue(), id: "sku-chair", skuCode: "TIER-3" } }] });
+    renderForm(form, vi.fn());
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    expect(screen.getByRole("button", { name: "批量导入" })).toBeVisible();
+    expect(screen.getByRole("table", { name: "变体尺寸" })).toBeVisible();
+    expect(screen.getByText("TIER-3")).toBeVisible();
+    expect(screen.getByText("继承尺寸")).toBeVisible();
+    expect(screen.queryByText("前台商品规格自动展示")).not.toBeInTheDocument();
+  });
+});
+
 describe("SKU product dimension defaults", () => {
   it("starts new legacy SKU dimensions as inherited empty inputs", () => {
     expect(emptySkuFormValue()).toMatchObject({
@@ -422,6 +436,8 @@ describe("ProductForm confirmation-assist integration", () => {
     const initial = initialValue();
     const view = renderForm(initial, onSubmit);
     await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.click(screen.getByText("解析尺寸", { selector: "summary" }));
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
     await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm weight 5kg");
     await user.click(screen.getByRole("button", { name: "解析尺寸" }));
     expect(screen.getByLabelText(/^长/)).toHaveValue("0");
@@ -441,6 +457,8 @@ describe("ProductForm confirmation-assist integration", () => {
     const onSubmit = vi.fn();
     const view = renderForm(initialValue(), onSubmit);
     await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.click(screen.getByText("解析尺寸", { selector: "summary" }));
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
     await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
     await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm");
     await user.click(screen.getByRole("button", { name: "解析尺寸" }));
@@ -660,6 +678,7 @@ describe("ProductForm shared color specifications", () => {
     const user = userEvent.setup();
     renderForm(initialValue([false, true]));
     await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.click(screen.getByText("解析尺寸", { selector: "summary" }));
     expect(screen.getByLabelText("粘贴商品尺寸")).toBeVisible();
     await openVariantsTab();
     expect(screen.queryByLabelText("Blue 的商品长（cm）")).not.toBeInTheDocument();
@@ -682,9 +701,11 @@ describe("ProductForm SKU dimension integration", () => {
     await user.click(screen.getByRole("button", { name: "应用商品尺寸到全部已有 SKU" }));
     await user.click(screen.getByRole("button", { name: "编辑规格组" }));
     expect(screen.getByRole("tab", { name: "商品规格" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("Red 的商品长（cm）")).toHaveValue("100");
-    expect(screen.getByLabelText("Red 的商品宽（cm）")).toHaveValue("50");
-    expect(screen.getByLabelText("Red 的商品高（cm）")).toHaveValue("70");
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    expect(screen.getByLabelText("Red 长（cm）")).toHaveValue("100");
+    expect(screen.getByLabelText("Red 宽（cm）")).toHaveValue("50");
+    expect(screen.getByLabelText("Red 高（cm）")).toHaveValue("70");
+    await user.click(screen.getByRole("button", { name: "取消编辑" }));
     fireEvent.submit(view.container.querySelector("form")!);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect((onSubmit.mock.calls[0][0] as ProductFormValue).graph!.variants[0].sku)

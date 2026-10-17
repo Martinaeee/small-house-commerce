@@ -71,6 +71,23 @@ describe.skipIf(!database)('shared physical specifications on PostgreSQL', () =>
   }
   async function sku(id: string) { return prisma.sku.findUniqueOrThrow({ where: { id } }); }
 
+  it('preserves every existing variant position across consecutive partial dimension saves', async () => {
+    const f = await fixture('STYLE');
+    const variantSnapshot = () => prisma.productVariant.findMany({ where: { productId: f.product.id }, orderBy: { id: 'asc' }, select: { id: true, productId: true, position: true, combinationKey: true } });
+    const protectedSnapshot = async () => ({
+      skus: await prisma.sku.findMany({ where: { productId: f.product.id }, orderBy: { id: 'asc' }, select: { id: true, variantId: true, skuCode: true, price: true, packageWidth: true, packageWeight: true } }),
+      inventory: await prisma.inventory.findMany({ where: { skuId: { in: f.rows.map(row => row.sku.id) } }, orderBy: { skuId: 'asc' } }),
+    });
+    const beforeVariants = await variantSnapshot();
+    const beforeProtected = await protectedSnapshot();
+    await graph.applyPatch(f.product.id, 1, catalogGraphPatchSchema.parse({ variants: f.rows.slice(0, 2).map(row => write(row, { productWidth: 120 })) }));
+    expect(await variantSnapshot()).toEqual(beforeVariants);
+    await graph.applyPatch(f.product.id, 2, catalogGraphPatchSchema.parse({ variants: f.rows.slice(2).map(row => write(row, { productWidth: 140 })) }));
+    expect(await variantSnapshot()).toEqual(beforeVariants);
+    expect((await Promise.all(f.rows.map(row => sku(row.sku.id)))).map(row => row.productWidth)).toEqual([120, 120, 140, 140]);
+    expect(await protectedSnapshot()).toEqual(beforeProtected);
+  });
+
   it('fans out only physical fields and keeps price, inventory and identities independent', async () => {
     const f = await fixture();
     const inventory = await prisma.inventory.findMany({ where: { skuId: { in: f.rows.map(r => r.sku.id) } }, orderBy: { skuId: 'asc' } });

@@ -18,6 +18,7 @@ type Candidate = { field: PackageField; raw: string; unit?: string };
 export interface PackagingAxisConvention {
   triplet: readonly [PackageField, PackageField, PackageField];
   labels: Record<string, PackageField>;
+  compactLabels?: boolean;
 }
 
 // Admin LWH maps to stored Width/Depth/Height without rewriting saved values.
@@ -31,7 +32,11 @@ export const PACKAGING_AXES: PackagingAxisConvention = {
   },
 };
 
-export const PRODUCT_SIZE_AXES = PACKAGING_AXES;
+export const PRODUCT_SIZE_AXES: PackagingAxisConvention = {
+  ...PACKAGING_AXES,
+  compactLabels: true,
+  labels: { ...PACKAGING_AXES.labels, 长: "packageWidth", 宽: "packageDepth", 高: "packageHeight" },
+};
 
 const NUMBER = "(?:[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[-+]?\\d+)?|[-+]?Infinity|NaN)";
 const LABEL = "width|height|depth|length|weight|wt|w|h|d|l";
@@ -74,7 +79,9 @@ export function parsePackagingText(
   if (mode !== "weight") {
     const labelled: Candidate[] = [];
     const axisWords = Object.keys(axes.labels).sort((a, b) => b.length - a.length).join("|");
-    const labelExpression = new RegExp(`\\b(${axisWords})\\b\\s*[:=]?\\s*${TOKEN}`, "gi");
+    const labelExpression = axes.compactLabels
+      ? new RegExp(`(?<![\\p{L}_])(${axisWords})(?![\\p{L}_])\\s*[:：=]?\\s*(${NUMBER})(?![\\d.])\\s*((?!(?:${axisWords})\\s*[:：=]?\\s*${NUMBER})[a-z]+)?`, "giu")
+      : new RegExp(`\\b(${axisWords})\\b\\s*[:=]?\\s*${TOKEN}`, "gi");
     for (const match of source.matchAll(labelExpression)) {
       labelled.push({ field: axes.labels[match[1].toLowerCase()], raw: match[2], unit: match[3]?.toLowerCase() });
     }

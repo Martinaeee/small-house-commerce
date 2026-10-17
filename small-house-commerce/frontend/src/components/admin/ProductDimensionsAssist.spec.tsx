@@ -12,6 +12,7 @@ function setup(value = empty, disabled = false) {
 }
 async function parse() {
   const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
   await user.type(screen.getByLabelText("粘贴商品尺寸"), "120 x 60 x 75 cm; weight 5kg");
   await user.click(screen.getByRole("button", { name: "解析尺寸" }));
   return user;
@@ -19,6 +20,24 @@ async function parse() {
 
 describe("ProductDimensionsAssist confirmation boundary", () => {
   beforeEach(() => setAdminLang("zh"));
+
+  it("requires an explicit axis order before applying an unlabelled triplet", async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm");
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+    expect(screen.getByText("无标签尺寸需要先选择长宽高顺序")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "应用解析值" })).not.toBeEnabled();
+  });
+
+  it("never applies the positive subset of an invalid dimension triplet", async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
+    await user.type(screen.getByLabelText("粘贴商品尺寸"), "0x60x75cm");
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+    expect(screen.queryByRole("button", { name: "应用解析值" })).not.toBeEnabled();
+  });
 
   it("previews LWH product dimensions without applying or accepting weight fields", async () => {
     const { onApply } = setup();
@@ -39,6 +58,7 @@ describe("ProductDimensionsAssist confirmation boundary", () => {
     const { onApply } = setup({ ...empty, width: "99", foldedWidth: "99", foldedDepth: "88", foldedHeight: "77" });
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
     await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm");
     await user.click(screen.getByRole("button", { name: "解析尺寸" }));
     await user.selectOptions(screen.getByLabelText("应用方式"), "replace");
@@ -50,6 +70,7 @@ describe("ProductDimensionsAssist confirmation boundary", () => {
     const { onApply } = setup();
     const user = await parse();
     await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
     expect(screen.queryByRole("button", { name: "应用解析值" })).not.toBeInTheDocument();
     expect(onApply).not.toHaveBeenCalled();
   });
@@ -66,6 +87,7 @@ describe("ProductDimensionsAssist confirmation boundary", () => {
     setup();
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
+    await user.selectOptions(screen.getByLabelText("尺寸顺序"), "LWH");
     await user.type(screen.getByLabelText("粘贴商品尺寸"), "120x60x75cm");
     await user.click(screen.getByRole("button", { name: "解析尺寸" }));
     expect(within(screen.getByRole("status")).getAllByRole("term").map(row => row.textContent))
@@ -77,6 +99,7 @@ describe("ProductDimensionsAssist confirmation boundary", () => {
     setup();
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Fill target"), target);
+    await user.selectOptions(screen.getByLabelText("Dimension order"), "LWH");
     await user.type(screen.getByLabelText("Paste product dimensions"), "120x60x75cm");
     await user.click(screen.getByRole("button", { name: "Parse dimensions" }));
     expect(within(screen.getByRole("status")).getAllByRole("term").map(row => row.textContent))

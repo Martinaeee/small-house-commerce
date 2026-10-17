@@ -61,6 +61,8 @@ import { ProductOptionsEditor } from "./ProductOptionsEditor";
 import { ProductFaqPanel } from "./ProductFaqPanel";
 import { VariantMatrix } from "./VariantMatrix";
 import { ProductDimensionsAssist } from "./ProductDimensionsAssist";
+import { ProductDimensionTable } from "./product-form/ProductDimensionTable";
+import { buildProductDimensionTargets } from "@/lib/admin-dimension-import";
 import { SkuPackagingAssist } from "./SkuPackagingAssist";
 import { PhysicalSpecificationGroups } from "./product-form/PhysicalSpecificationGroups";
 import { deriveAdminPhysicalSpecificationGroups } from "@/lib/admin-physical-specs";
@@ -963,6 +965,10 @@ export function ProductForm({
     ? deriveAdminPhysicalSpecificationGroups(graphDraft).map(group => group.isBundle)
     : value.variants.flatMap(variant => variant.sku?.status === "ACTIVE" ? [variant.sku.isBundle] : []);
   const pureBundle = physicalModes.length > 0 && physicalModes.every(Boolean);
+  const [dimensionPreviewKey, setDimensionPreviewKey] = useState<string | null>(null);
+  const dimensionPreviewMember = dimensionPreviewKey
+    ? buildProductDimensionTargets(value).flatMap(target => target.members).find(member => member.key === dimensionPreviewKey)
+    : undefined;
   const cardDraft = useMemo(() => {
     if (!graphDraft) return cardGraphFromLegacyForm(value);
     const draft = structuredClone(graphDraft);
@@ -1841,36 +1847,37 @@ export function ProductForm({
                   <p className="text-sm text-ink-muted">{t("physical_group_bundle_dimensions")}</p>
                 </Section>
               ) : (
-                <Section
-                  title={t("product_specs_dimensions_title")}
-                  hint={t("product_specs_dimensions_hint")}
-                >
-                  {physicalModes.some(Boolean) ? <p className="mb-3 text-xs text-ink-muted">{t("physical_group_ordinary_defaults")}</p> : null}
-                  <div className="mb-4">
-                    <ProductDimensionsAssist value={value} onApply={patch} disabled={pending || batchUpload.uploading} />
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
-                      <Field key={key} label={t(labelKey)} htmlFor={`pf-${key}`} error={err(key)} hint={t(hintKey)}>
-                        <TextInput id={`pf-${key}`} inputMode="decimal" placeholder={t("product_specs_optional_placeholder")}
-                          value={value[key]} onChange={(e) => patch({ [key]: e.target.value })} autoComplete="off" />
+                <Section title={t("product_specs_dimensions_title")}>
+                  <div className="mb-4 grid min-w-0 grid-cols-3 gap-3">
+                    {DIMENSION_FIELDS.slice(0, 3).map(({ key, labelKey }) => (
+                      <Field key={key} label={`${t(labelKey)} (cm)`} htmlFor={`pf-${key}`} error={err(key)}>
+                        <TextInput id={`pf-${key}`} inputMode="decimal" placeholder="—"
+                          value={value[key]} onChange={event => patch({ [key]: event.target.value })} autoComplete="off" />
                       </Field>
                     ))}
                   </div>
+                  <details className="mb-4 rounded-lg border border-border">
+                    <summary className="min-h-10 cursor-pointer px-3 py-2 text-sm font-medium">{t("dimension_parse")}</summary>
+                    <ProductDimensionsAssist value={value} onApply={patch} disabled={pending || batchUpload.uploading} />
+                  </details>
+                  <ProductDimensionTable value={value} disabled={pending || batchUpload.uploading}
+                    onChange={update => { setValue(update); clearValidation(); }}
+                    onPreview={memberKey => { setDimensionPreviewKey(memberKey ?? buildProductDimensionTargets(value).find(target => target.editable)?.members[0]?.key ?? null); setActiveTab("preview"); }} />
+                  <details className="mt-4 border-t border-border pt-3" open={DIMENSION_FIELDS.slice(3).some(({ key }) => Boolean(err(key))) || undefined}>
+                    <summary className="min-h-10 cursor-pointer py-2 text-sm font-medium">{t("dimension_folded")}</summary>
+                    <div className="mt-2 grid min-w-0 grid-cols-3 gap-3">
+                      {DIMENSION_FIELDS.slice(3).map(({ key, labelKey }) => (
+                        <Field key={key} label={`${t(labelKey)} (cm)`} htmlFor={`pf-${key}`} error={err(key)}>
+                          <TextInput id={`pf-${key}`} inputMode="decimal" placeholder="—"
+                            value={value[key]} onChange={event => patch({ [key]: event.target.value })} autoComplete="off" />
+                        </Field>
+                      ))}
+                    </div>
+                  </details>
                 </Section>
               )}
-              {graphDraft && !pureBundle ? (
-                <Section title={t("physical_group_shared")} hint={t("physical_group_hint")}>
-                  <PhysicalSpecificationGroups draft={graphDraft} section="dimensions" onChange={updateGraph}
-                    disabled={pending || batchUpload.uploading}
-                    productDimensions={{ width: previewNumber(value.width), depth: previewNumber(value.depth), height: previewNumber(value.height) }} />
-                </Section>
-              ) : null}
 
-              <Section
-                title={t("product_specs_materials_title")}
-                hint={t("product_specs_materials_hint")}
-              >
+              <Section title={t("product_specs_materials_title")}>
                 <Field
                   label={t("product_specs_materials_label")}
                   htmlFor="pf-materials"
@@ -1878,7 +1885,7 @@ export function ProductForm({
                 >
                   <Textarea
                     id="pf-materials"
-                    rows={3}
+                    rows={2}
                     value={value.materials}
                     maxLength={1000}
                     onChange={(e) => patch({ materials: e.target.value })}
@@ -1886,10 +1893,7 @@ export function ProductForm({
                 </Field>
               </Section>
 
-              <Section
-                title={t("product_specs_features_title")}
-                hint={t("product_specs_features_hint")}
-              >
+              <Section title={t("product_specs_features_title")}>
                 {value.features.length === 0 ? (
                   <p className="text-sm text-ink-muted">
                     {t("product_specs_features_empty")}
@@ -1899,7 +1903,7 @@ export function ProductForm({
                     {value.features.map((line, i) => (
                       <li key={i} className="flex items-center gap-2">
                         <span aria-hidden className="w-5 shrink-0 text-center text-sm font-semibold text-cta">
-                          ✓
+                          {i + 1}
                         </span>
                         <TextInput
                           aria-label={t("product_specs_feature_aria", { number: i + 1 })}
@@ -2431,7 +2435,9 @@ export function ProductForm({
                   }))}
                 />
                 {physicalModes.some(Boolean) ? <p className="text-sm text-ink-muted">{t(pureBundle ? "physical_group_bundle_dimensions" : "physical_group_ordinary_defaults")}</p> : null}
+                {dimensionPreviewMember && !pureBundle ? <p className="text-sm font-semibold">{dimensionPreviewMember.name} · {dimensionPreviewMember.skuCode}</p> : null}
                 <ProductSpecs
+                  variantDimensions={pureBundle ? null : dimensionPreviewMember?.values}
                   product={{
                     width: pureBundle ? null : previewNumber(value.width),
                     height: pureBundle ? null : previewNumber(value.height),

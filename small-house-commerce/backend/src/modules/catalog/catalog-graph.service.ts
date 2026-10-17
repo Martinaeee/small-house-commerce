@@ -606,7 +606,7 @@ export class CatalogGraphService {
         id,
         isNew: !existing,
         name: candidate.name || 'Default',
-        position: incoming?.write.position ?? index,
+        position: incoming?.write.position ?? existing?.position ?? index,
         combinationKey: candidate.combinationKey,
         pairs: candidate.pairs,
         incoming,

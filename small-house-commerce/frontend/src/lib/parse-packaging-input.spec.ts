@@ -20,6 +20,17 @@ describe("parsePackagingText", () => {
     expect(parsePackagingText(input, "dimensions")).toMatchObject({ fields: lwh, warnings: [], assumptions: [], complete: true });
   });
 
+  it.each(["长120 宽60 高75 cm", "长：120cm，宽：600mm，高：0.75m", "L120 W60 H75cm"])
+    ("parses product labels without requiring ASCII word boundaries in %s", input => {
+      expect(parsePackagingText(input, "dimensions", PRODUCT_SIZE_AXES)).toMatchObject({
+        fields: lwh, warnings: [], assumptions: [], complete: true,
+      });
+    });
+
+  it("does not enable Chinese product labels in the packaging convention", () => {
+    expect(parsePackagingText("长120 宽60 高75cm", "dimensions").fields).toEqual({});
+  });
+
   it("reports missing dimension units once as an explicit cm assumption", () => {
     expect(parsePackagingText("120 x 60 x 75", "dimensions")).toMatchObject({
       fields: lwh, assumptions: ["Assumed cm for a value without a unit."], warnings: [], complete: true,
