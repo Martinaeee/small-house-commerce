@@ -7,7 +7,7 @@ import {
   ProductDetailBody,
   ProductDetailMedia,
 } from "./ProductDetailBody";
-import { MaterialDimensions, ProductSpecs } from "./ProductSpecs";
+import { ProductInformation } from "./ProductInformation";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { partitionDetailBlocks } from "./pdp-detail-blocks";
 import { resolveSelectedPdpSpecifications } from "./pdp-facts";
@@ -34,13 +34,8 @@ export function PdpDetails({
         features={product.features}
         featured={featured}
       />
-      <ProductSpecs
-        product={product}
-        specifications={specifications}
-        includeFeatures={false}
-      />
       <ProductDetailMedia blocks={remaining} />
-      <MaterialDimensions product={product} specifications={specifications} />
+      <ProductInformation specifications={specifications} />
       <PdpInfoSections
         items={product.effectiveFaq ?? []}
         supportEmail={supportEmail}

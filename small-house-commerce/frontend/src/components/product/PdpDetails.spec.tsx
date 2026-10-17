@@ -193,19 +193,18 @@ describe("PdpDetails", () => {
     </PdpPurchaseProvider>);
     expect(screen.getAllByText("120 cm").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "White" }));
-    for (const name of ["Product Specifications", "Material & Dimensions"]) {
-      const section = within(screen.getByRole("region", { name }));
-      expect(section.getByRole("heading", { name: "Table × 1" })).toBeVisible();
-      expect(section.getByRole("heading", { name: "Chair × 4" })).toBeVisible();
-      expect(section.getAllByText("45 cm")).toHaveLength(2);
-      expect(section.queryByText("180 cm")).not.toBeInTheDocument();
-      expect(section.queryByText("999 cm")).not.toBeInTheDocument();
-      expect(section.queryByText("120 cm")).not.toBeInTheDocument();
-      expect(section.queryByText("Powder-coated steel")).not.toBeInTheDocument();
-    }
+    const bundleSection = screen.getByRole("region", { name: "Product information" });
+    await user.click(within(bundleSection).getByText("Component specifications"));
+    expect(within(bundleSection).getByRole("heading", { name: "Table × 1" })).toBeVisible();
+    expect(within(bundleSection).getByRole("heading", { name: "Chair × 4" })).toBeVisible();
+    expect(within(bundleSection).getAllByText("45 cm")).toHaveLength(2);
+    expect(within(bundleSection).queryByText("180 cm")).not.toBeInTheDocument();
+    expect(within(bundleSection).queryByText("999 cm")).not.toBeInTheDocument();
+    expect(within(bundleSection).queryByText("120 cm")).not.toBeInTheDocument();
+    expect(within(bundleSection).queryByText("Powder-coated steel")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Specifications" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "With Bench" }));
-    expect(screen.getAllByRole("heading", { name: "Bench × 2" })).toHaveLength(2);
+    expect(screen.getAllByRole("heading", { name: "Bench × 2" })).toHaveLength(1);
     expect(screen.queryByRole("heading", { name: "Chair × 4" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Black" }));
     expect(screen.queryByRole("heading", { name: "Bench × 2" })).not.toBeInTheDocument();
@@ -224,10 +223,9 @@ describe("PdpDetails", () => {
     </PdpPurchaseProvider>);
     await user.click(screen.getByRole("button", { name: "White" }));
     expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Product Specifications" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Material & Dimensions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Product information" })).not.toBeInTheDocument();
   });
-  it("switches both dimension sections with the displayed SKU and per-axis fallback", async () => {
+  it("switches the merged specification rows with the displayed SKU and per-axis fallback", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
     item.width = 100; item.depth = 50; item.height = 70;
@@ -237,20 +235,17 @@ describe("PdpDetails", () => {
       <ProductOptionSelector lineId="primary" instanceId="dimension-test" />
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
-    const sections = ["Product Specifications", "Material & Dimensions"].map(name => screen.getByRole("region", { name }));
-    for (const section of sections) {
-      expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
-      expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("60 cm");
-      expect(within(section).getByText("Height").nextElementSibling).toHaveTextContent("75 cm");
-      expect(within(section).queryByText("130 cm")).not.toBeInTheDocument();
-    }
+    const section = screen.getByRole("region", { name: "Product information" });
+    await user.click(within(section).getByText("Measurements"));
+    expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
+    expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("60 cm");
+    expect(within(section).getByText("Height").nextElementSibling).toHaveTextContent("75 cm");
+    expect(within(section).queryByText("130 cm")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "White" }));
-    for (const section of sections) {
-      expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("100 cm");
-      expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("80 cm");
-      expect(within(section).getByText("Height").nextElementSibling?.textContent).toBe("0 cm");
-      expect(within(section).queryByText("132 cm")).not.toBeInTheDocument();
-    }
+    expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("100 cm");
+    expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("80 cm");
+    expect(within(section).getByText("Height").nextElementSibling?.textContent).toBe("0 cm");
+    expect(within(section).queryByText("132 cm")).not.toBeInTheDocument();
   });
 
   it("keeps navigation and anchors aligned for SKU-only dimensions and empty selections", async () => {
@@ -266,11 +261,10 @@ describe("PdpDetails", () => {
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
     expect(screen.getByRole("link", { name: "Specifications" })).toHaveAttribute("href", "#specifications");
-    expect(screen.getByRole("region", { name: "Product Specifications" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Product information" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "White" }));
     expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Product Specifications" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Material & Dimensions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Product information" })).not.toBeInTheDocument();
   });
 
   it("conserves mixed detail media around truthful structured sections", () => {
@@ -288,10 +282,9 @@ describe("PdpDetails", () => {
       "Description",
       "Why You’ll Love It",
       "featured.jpg",
-      "Product Specifications",
       "remaining-1.jpg",
       "remaining-2.mp4",
-      "Material & Dimensions",
+      "Product information",
       "Delivery, Returns & FAQs",
     ]);
 
@@ -339,8 +332,10 @@ describe("PdpDetails", () => {
     );
 
     const specifications = screen.getByRole("region", {
-      name: "Product Specifications",
+      name: "Product information",
     });
+    await user.click(within(specifications).getByText("Materials"));
+    await user.click(within(specifications).getByText("Product weight"));
     expect(within(specifications).getByText("8.5 kg")).toBeVisible();
     expect(
       within(specifications).getByText("Powder-coated steel"),
