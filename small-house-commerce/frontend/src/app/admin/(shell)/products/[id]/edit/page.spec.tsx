@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import { AdminApiError } from "@/lib/admin-auth";
 
 /**
  * Regression cover for the admin edit form's server-truth mapping.
@@ -1340,6 +1341,22 @@ describe("EditProductPage save orchestration", () => {
         { skuId: "sku-1", onHand: 9, reason: "Product form" },
       ]),
     );
+  });
+
+  it("shows a published slug conflict without losing unsaved changes or writing inventory", async () => {
+    const user = userEvent.setup();
+    getProduct.mockResolvedValue(typedProduct());
+    updateProduct.mockRejectedValue(new AdminApiError("Publication conflict", 409, undefined, { code: "PRODUCT_SLUG_CONFLICT" }));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await setInput(user, screen.getByLabelText("Default 的售价"), "1499");
+    await clickSave(user);
+
+    expect(await screen.findByText(/已上架商品/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Default 的售价")).toHaveValue("1499");
+    expect(setStockBatch).not.toHaveBeenCalled();
+    expect(setStock).not.toHaveBeenCalled();
   });
 
   it("derives savedPreview from server truth and updates it after a save", async () => {

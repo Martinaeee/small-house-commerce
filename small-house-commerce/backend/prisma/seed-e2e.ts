@@ -624,8 +624,8 @@ async function ensurePdpUxFixtures(
   categoryId: string,
   warehouseId: string,
 ): Promise<void> {
-  const product = await ctx.prisma.product.findUnique({
-    where: { slug: PDP_SLUG },
+  const product = await ctx.prisma.product.findFirst({
+    where: { slug: PDP_SLUG, status: ProductStatus.ACTIVE },
     select: { id: true },
   });
   if (!product) {
@@ -727,8 +727,8 @@ async function ensurePdpUxFixtures(
     });
   }
 
-  const existingOos = await ctx.prisma.product.findUnique({
-    where: { slug: RELATED_OOS_SLUG },
+  const existingOos = await ctx.prisma.product.findFirst({
+    where: { slug: RELATED_OOS_SLUG, status: ProductStatus.ACTIVE },
     select: { id: true },
   });
   const oosProduct = existingOos
@@ -781,7 +781,7 @@ async function ensureNotificationFixtures(
   categoryId: string,
 ): Promise<void> {
   await ctx.prisma.product.upsert({
-    where: { slug: 'e2e-notification-no-price' },
+    where: { id: '00000000-0000-7000-8000-000000000120' },
     create: {
       id: '00000000-0000-7000-8000-000000000120',
       name: 'E2E Notification No Price',
@@ -801,7 +801,7 @@ async function ensureNotificationFixtures(
 
   const staleAt = new Date('2020-01-01T00:00:00.000Z');
   await ctx.prisma.product.upsert({
-    where: { slug: 'e2e-notification-stale-draft' },
+    where: { id: '00000000-0000-7000-8000-000000000121' },
     create: {
       id: '00000000-0000-7000-8000-000000000121',
       name: 'E2E Notification Stale Draft',

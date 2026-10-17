@@ -640,17 +640,50 @@ describe("NewProductPage two-phase save", () => {
     ]);
   });
 
-  it("maps a create-time slug conflict to the slug copy with no continue link", async () => {
+  it("maps a published slug conflict to publication-specific copy with no continue link", async () => {
     const user = userEvent.setup();
     createProduct.mockRejectedValue(
-      new AdminApiError("Products_service: slug conflict", 409),
+      new AdminApiError("Publication conflict", 409, undefined, { code: "PRODUCT_SLUG_CONFLICT" }),
     );
 
     renderNewProductPage();
     await fillAndSubmit(user);
 
-    expect(await screen.findByText(/相同 slug/)).toBeInTheDocument();
+    expect(await screen.findByText(/已上架商品/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /继续编辑该商品/ })).not.toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the created draft and retries only PATCH after a published slug conflict", async () => {
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockRejectedValueOnce(new AdminApiError("Publication conflict", 409, undefined, { code: "PRODUCT_SLUG_CONFLICT" }));
+    setStockBatch.mockResolvedValue([{ skuId: "sku-1", ok: true, onHand: 0, reserved: 0, available: 0 }]);
+    renderNewProductPage();
+    await fillAndSubmit(user, undefined, "ACTIVE");
+
+    expect(await screen.findByText(/已上架商品/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /继续编辑该商品/ })).toHaveAttribute("href", "/admin/products/created-1/edit");
+    expect(setStockBatch).not.toHaveBeenCalled();
+    await user.clear(screen.getByLabelText(/Slug \*/));
+    await user.type(screen.getByLabelText(/Slug \*/), "chair-new");
+    updateProduct.mockResolvedValueOnce(SAVED_WITH_SKU);
+    await user.click(screen.getByRole("button", { name: "保存并发布" }));
+
+    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(updateProduct).toHaveBeenCalledTimes(2);
+    expect(updateProduct).toHaveBeenLastCalledWith("created-1", expect.objectContaining({ slug: "chair-new", status: "ACTIVE", catalogGraphVersion: 0 }));
+  });
+
+  it("does not report a non-slug create conflict as a published slug collision", async () => {
+    const user = userEvent.setup();
+    createProduct.mockRejectedValue(new AdminApiError('SKU code "TAKEN" is already used', 409));
+
+    renderNewProductPage();
+    await fillAndSubmit(user);
+
+    expect(await screen.findByText('SKU code "TAKEN" is already used')).toBeInTheDocument();
+    expect(screen.queryByText(/已上架商品/)).not.toBeInTheDocument();
   });
 });

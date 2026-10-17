@@ -35,7 +35,7 @@ import {
   type ProductStatus,
 } from "@/lib/admin-api";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
-import { errorStatus } from "@/lib/admin-auth";
+import { AdminApiError, errorStatus } from "@/lib/admin-auth";
 
 // ProductStatus union, in declaration order (admin-api.ts).
 const PRODUCT_STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "DISABLED"];
@@ -582,7 +582,10 @@ function ProductsPageContent() {
         status,
         updated: 0,
         notFound: 0,
-        error: err instanceof Error ? err.message : "Update failed.",
+        error: err instanceof AdminApiError && err.status === 409 &&
+          (err.body as { code?: string } | undefined)?.code === "PRODUCT_SLUG_CONFLICT"
+            ? t("product_save_slug_conflict")
+            : err instanceof Error ? err.message : "Update failed.",
       });
     } finally {
       setStatusPending(false);
@@ -591,7 +594,7 @@ function ProductsPageContent() {
       // Server truth: badges and counters refresh from the saved rows.
       setNonce((n) => n + 1);
     }
-  }, [statusAction, selectedOnPage]);
+  }, [statusAction, selectedOnPage, t]);
 
   const bulkResultHasProblems =
     bulkResult !== null &&

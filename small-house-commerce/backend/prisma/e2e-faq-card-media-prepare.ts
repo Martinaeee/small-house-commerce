@@ -66,8 +66,8 @@ const LEGACY_SHARED_ITEM = {
 
 async function main(): Promise<void> {
   for (const slug of SLUGS) {
-    const product = await prisma.product.findUnique({
-      where: { slug },
+    const product = await prisma.product.findFirst({
+      where: { slug, status: 'ACTIVE' },
       select: {
         id: true,
         defaultDisplayVariantId: true,

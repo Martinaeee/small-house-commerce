@@ -68,7 +68,11 @@ export class MarketingTouchService {
       const user = await this.prisma.user.findUnique({ where: { id: profile.userId }, select: { status: true } });
       if (user?.status !== 'ACTIVE') return emptyTouch;
       const productSlug = pathSlug(input.path, 'products');
-      const product = page?.product ?? (input.productId || productSlug ? await this.prisma.product.findUnique({ where: input.productId ? { id: input.productId } : { slug: productSlug! }, select: productFields }) : null);
+      const product = page?.product ?? (input.productId
+        ? await this.prisma.product.findUnique({ where: { id: input.productId }, select: productFields })
+        : productSlug
+          ? await this.prisma.product.findFirst({ where: { slug: productSlug, status: 'ACTIVE' }, select: productFields })
+          : null);
       if ((input.productId || productSlug) && (!product || product.status !== 'ACTIVE')) return emptyTouch;
       return this.sign({
         ...emptyMetadata,

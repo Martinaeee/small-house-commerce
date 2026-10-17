@@ -23,7 +23,7 @@ import {
   type AdminCategoryNode,
   type AdminProduct,
 } from "@/lib/admin-api";
-import { errorStatus } from "@/lib/admin-auth";
+import { AdminApiError } from "@/lib/admin-auth";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { bundleComponentWrites, saveBundleComponentWrites, type BundleComponentWrite, type BundleSaveFailure } from "@/lib/admin-bundle";
 import {
@@ -391,23 +391,11 @@ export default function NewProductPage(): ReactNode {
       } catch (err: unknown) {
         if (!mounted.current) return;
         const message =
-          err instanceof Error ? err.message : t("product_new_create_failed");
-        if (created) {
-          // Post-create failure (Phase A graph PATCH / batch transport): the
-          // product exists — surface the backend message verbatim; the
-          // continue-on-edit link below is the way forward.
-          setError(t("product_new_later_step_failed", { message }));
-          setPending(false);
-          return;
-        }
-        // POST /admin/products 409s (products.service rethrowKnown, Prisma
-        // P2002): the unique violation here is the typed slug, so spec §8.7
-        // maps 409 to the slug-specific alert; other messages stay verbatim.
-        setError(
-          errorStatus(err) === 409
+          err instanceof AdminApiError && err.status === 409 &&
+          (err.body as { code?: string } | undefined)?.code === "PRODUCT_SLUG_CONFLICT"
             ? t("product_save_slug_conflict")
-            : message,
-        );
+            : err instanceof Error ? err.message : t("product_new_create_failed");
+        setError(created ? t("product_new_later_step_failed", { message }) : message);
         setPending(false);
       }
     })();

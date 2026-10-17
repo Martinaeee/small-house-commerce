@@ -29,7 +29,11 @@ function setup() {
     campaignLink: { findUnique: vi.fn(async ({ where }: { where: { code: string } }) => where.code === link.code ? link : where.code === second.code ? second : null) },
     optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid: string } }) => where.aid === profile.aid ? profile : null) },
     user: { findUnique: vi.fn(async () => user) },
-    product: { findUnique: vi.fn(async () => product) },
+    product: {
+      findUnique: vi.fn(async () => product),
+      findFirst: vi.fn(async ({ where }: { where: { id?: string; slug?: string; status: string } }) =>
+        product.status === where.status && (!where.id || where.id === product.id) && (!where.slug || where.slug === product.slug) ? product : null),
+    },
     productLandingPage: { findUnique: vi.fn(async ({ where }: { where: { id?: string; slug?: string } }) => where.id === PAGE || where.slug === page.slug ? page : null) },
     campaignLinkVisit: { createMany: vi.fn(async ({ data }: { data: VisitData }) => { const key = `${data.linkId}/${data.visitKey}/${data.visitDay.toISOString()}`; if (!linkVisits.has(key)) linkVisits.set(key, data); return { count: 1 }; }) },
     landingPageVisit: { createMany: vi.fn(async ({ data }: { data: VisitData }) => { const key = `${data.landingPageId}/${data.visitKey}/${data.visitDay.toISOString()}`; if (!pageVisits.has(key)) pageVisits.set(key, data); return { count: 1 }; }) },
@@ -145,6 +149,23 @@ describe('server-signed marketing touch', () => {
     const result = await service.touch({ aid: ' op-1 ', sourceType: 'FB_POST', adId: 'legacy-ad', path: '/products/chair', visitKey: 'tab-1' });
     expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', legacy: true, linkId: null, sourceType: 'FB_POST', productId: PRODUCT, adId: 'legacy-ad' });
     expect(linkVisits.size).toBe(0);
+  });
+
+  it('attributes a public slug to the ACTIVE product even when a draft shares that slug', async () => {
+    const { service, prisma, product } = setup();
+    prisma.product.findUnique.mockResolvedValueOnce({ ...product, id: PROFILE, status: 'DRAFT' });
+
+    const result = await service.touch({ aid: 'OP-1', path: '/products/chair', visitKey: 'tab-1' });
+
+    expect(await service.resolve(result.credential)).toMatchObject({ productId: PRODUCT, productName: 'Saved chair' });
+  });
+
+  it.each(['DRAFT', 'DISABLED'])('does not attribute a public slug when its only product is %s', async status => {
+    const { service, product } = setup();
+    product.status = status;
+
+    expect(await service.touch({ aid: 'OP-1', path: '/products/chair', visitKey: 'tab-1' }))
+      .toEqual({ credential: null, expiresAt: null });
   });
 
   it('does not guess an unknown legacy AID from an otherwise owned page', async () => {

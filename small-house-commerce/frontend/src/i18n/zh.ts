@@ -1445,7 +1445,7 @@ export const zh = {
   product_edit_save_failed: "商品保存失败。",
   product_edit_retry_none: "没有可重试的行——请重新保存商品。",
   product_edit_stock_updated: "库存已更新。",
-  product_save_slug_conflict: "已存在相同 slug 的商品。",
+  product_save_slug_conflict: "该 slug 已被其他已上架商品使用（或本次上架的多个商品互相重复），无法上架。请修改 slug，或先将冲突商品下架。",
   product_edit_replacement_warning: "款式与图片按整表替换保存。",
   nav_newsletter: "邮件订阅",
   newsletter_title: "邮件订阅与优惠",

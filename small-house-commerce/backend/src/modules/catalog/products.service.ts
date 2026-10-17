@@ -1154,14 +1154,18 @@ export class ProductsService {
     });
     const foundIds = existing.map((row) => row.id);
     if (foundIds.length > 0) {
-      if (status === 'ACTIVE') {
-        await this.prisma.$transaction(async tx => {
-          await tx.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
-          await validateProductCardReadiness(tx, foundIds);
-          await validateBundlePublishReadiness(tx, foundIds);
-        });
-      } else {
-        await this.prisma.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
+      try {
+        if (status === 'ACTIVE') {
+          await this.prisma.$transaction(async tx => {
+            await tx.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
+            await validateProductCardReadiness(tx, foundIds);
+            await validateBundlePublishReadiness(tx, foundIds);
+          });
+        } else {
+          await this.prisma.product.updateMany({ where: { id: { in: foundIds } }, data: { status } });
+        }
+      } catch (error) {
+        this.rethrowKnown(error);
       }
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
@@ -1804,6 +1808,19 @@ export class ProductsService {
         }
       }
       if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        const cause = (error.meta?.driverAdapterError as {
+          cause?: { constraint?: { index?: string } };
+        } | undefined)?.cause;
+        if (error.meta?.modelName === 'Product' &&
+          ((Array.isArray(target) && target.includes('slug')) ||
+            cause?.constraint?.index === 'products_active_slug_key')) {
+          throw new ConflictException({
+            code: 'PRODUCT_SLUG_CONFLICT',
+            field: 'slug',
+            message: 'This slug is already used by another published product, or duplicated within this publish. Change the slug or unpublish the conflicting product.',
+          });
+        }
         throw new ConflictException(
           'A record with the same unique value already exists',
         );

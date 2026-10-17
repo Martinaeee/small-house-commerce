@@ -591,6 +591,37 @@ describe('ProductsService.update — variant reconcile', () => {
     expect(nameWrites).toEqual(['__pending_rename__v1', '__pending_rename__v2', 'Beta', 'Alpha']);
   });
 
+  it.each([
+    { modelName: 'Product', target: ['slug'] },
+    {
+      modelName: 'Product',
+      driverAdapterError: { cause: { constraint: { index: 'products_active_slug_key' } } },
+    },
+  ])('reports an active-product slug collision with a dedicated conflict code (%j)', async meta => {
+    const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002', clientVersion: '7.10.0', meta,
+    });
+    const { service } = createHarness({ productWriteError: error });
+
+    const failure = await service.update('p1', { status: 'ACTIVE' } as UpdateProductInput)
+      .catch(caught => caught);
+
+    expect(failure).toBeInstanceOf(ConflictException);
+    expect(failure.getResponse()).toMatchObject({ code: 'PRODUCT_SLUG_CONFLICT' });
+  });
+
+  it('does not classify an unrelated product unique constraint as a slug conflict', async () => {
+    const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002', clientVersion: '7.10.0', meta: { modelName: 'Product', target: ['product_code'] },
+    });
+    const { service } = createHarness({ productWriteError: error });
+    const failure = await service.update('p1', { name: 'Chair' } as UpdateProductInput)
+      .catch(caught => caught);
+
+    expect(failure).toBeInstanceOf(ConflictException);
+    expect(failure.getResponse()).not.toMatchObject({ code: 'PRODUCT_SLUG_CONFLICT' });
+  });
+
   it('surfaces a variant-name collision as a variant problem, not a slug problem', async () => {
     const { service } = createHarness({
       existingVariants: [

@@ -497,6 +497,20 @@ describe("AdminProductsPage bulk delete", () => {
     expect(await screen.findByText("已下架 2 个商品。")).toBeInTheDocument();
   });
 
+  it("shows a published slug conflict for a rejected bulk publish without a success report", async () => {
+    const user = userEvent.setup();
+    bulkSetProductStatus.mockRejectedValue(new AdminApiError("Publication conflict", 409, undefined, { code: "PRODUCT_SLUG_CONFLICT" }));
+    renderListPage();
+    await screen.findAllByText("Chair");
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "批量上架" }));
+    const dialog = screen.getByRole("dialog", { name: "批量上架商品" });
+    await user.click(within(dialog).getByRole("button", { name: "上架" }));
+
+    expect(await screen.findByText(/已上架商品/)).toBeInTheDocument();
+    expect(screen.queryByText("已上架 2 个商品。")).not.toBeInTheDocument();
+  });
+
   it("bulk publishes the selected products and reports rows that vanished", async () => {
     const user = userEvent.setup();
     bulkSetProductStatus.mockResolvedValue({ updated: 1, notFound: 1 });

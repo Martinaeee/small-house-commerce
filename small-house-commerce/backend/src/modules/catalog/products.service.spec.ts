@@ -1191,6 +1191,22 @@ describe("ProductsService.remove", () => {
 });
 
 describe("ProductsService.bulkSetStatus", () => {
+  it("returns a slug conflict instead of a server error for a colliding ACTIVE batch", async () => {
+    const violation = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002', clientVersion: '7.10.0',
+      meta: { modelName: 'Product', target: ['slug'] },
+    });
+    const prisma = {
+      product: { findMany: vi.fn(async () => [{ id: 'draft-a' }, { id: 'draft-b' }]) },
+      $transaction: vi.fn(async () => { throw violation; }),
+    };
+    const service = new ProductsService(prisma as never, reviewsStub, inventoryStub);
+
+    await expect(service.bulkSetStatus(['draft-a', 'draft-b'], 'ACTIVE')).rejects.toMatchObject({
+      response: { code: 'PRODUCT_SLUG_CONFLICT' },
+    });
+  });
+
   it("rolls back the entire ACTIVE batch when one product lacks an independent cover", async () => {
     let rows = [
       { id: "ready", name: "Ready", status: "DISABLED", defaultDisplayVariantId: null,

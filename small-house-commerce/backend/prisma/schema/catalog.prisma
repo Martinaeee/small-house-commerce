@@ -118,7 +118,8 @@ model Category {
 model Product {
   id             String              @id @default(uuid(7)) @db.Uuid
   name           String
-  slug           String              @unique
+  /// ACTIVE-only uniqueness is enforced by a SQL-managed partial index.
+  slug           String
   /// Internal, operator-facing product number ("P-000001"). Assigned once from
   /// `product_code_seq`, never reused, and never rendered on the storefront.
   productCode    String?             @unique @map("product_code")

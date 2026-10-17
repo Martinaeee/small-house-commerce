@@ -1491,7 +1491,7 @@ export const en: Record<ZhKey, string> = {
   product_edit_save_failed: "Failed to save product.",
   product_edit_retry_none: "Nothing to retry — save the product again.",
   product_edit_stock_updated: "Stock updated.",
-  product_save_slug_conflict: "A product with this slug already exists.",
+  product_save_slug_conflict: "This slug is already used by another published product (or duplicated within this publish). Change the slug, or unpublish the conflicting product first.",
   product_edit_replacement_warning: "Variants and images are saved as a full replacement.",
   nav_newsletter: "Email Subscribers",
   newsletter_title: "Email subscriptions & offers",

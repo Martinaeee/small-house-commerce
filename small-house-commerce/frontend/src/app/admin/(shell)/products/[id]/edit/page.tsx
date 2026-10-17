@@ -29,7 +29,7 @@ import {
   type AdminProduct,
   type CreateProductInput,
 } from "@/lib/admin-api";
-import { errorStatus } from "@/lib/admin-auth";
+import { AdminApiError, errorStatus } from "@/lib/admin-auth";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { bundleComponentWrites, saveBundleComponentWrites, type BundleComponentWrite, type BundleSaveFailure } from "@/lib/admin-bundle";
 import {
@@ -63,7 +63,6 @@ import {
 // other unique column (sku_code, variant name) carries a message that names
 // what actually collided, so it is shown verbatim instead of being rewritten
 // into a claim about a field the operator never touched.
-const GENERIC_CONFLICT_BACKEND = "same unique value";
 
 /**
  * The stock batch settles one entry per requested SKU. An entry that never
@@ -575,14 +574,11 @@ export default function EditProductPage(): ReactNode {
           router.refresh();
         } catch (err: unknown) {
           if (!mounted.current) return;
-          // The backend's own message is already specific for a taken SKU code
-          // or a duplicated variant name; only its generic wording (or a bare
-          // 409) is the slug, which needs the friendly copy.
           const backendMessage =
             err instanceof Error ? err.message : t("product_edit_save_failed");
           const message =
-            errorStatus(err) === 409 &&
-            backendMessage.includes(GENERIC_CONFLICT_BACKEND)
+            err instanceof AdminApiError && err.status === 409 &&
+            (err.body as { code?: string } | undefined)?.code === "PRODUCT_SLUG_CONFLICT"
               ? t("product_save_slug_conflict")
               : backendMessage;
           setError(
