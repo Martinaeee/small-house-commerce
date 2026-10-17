@@ -1,113 +1,207 @@
-import type { ReactNode } from "react";
-import { DimensionRows } from "./SizeGuide";
-import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
+"use client";
+
+import { useMemo, type CSSProperties, type ReactNode } from "react";
+import styles from "./ProductInformation.module.css";
+import type { Product } from "@/lib/api";
+import { usePdpPurchase } from "./PdpPurchaseProvider";
 import {
-  hasPdpSpecificationDimensions,
-  pdpSpecsVisible,
-  type ResolvedPdpSpecifications,
-} from "./pdp-facts";
+  analyzePdpSpecifications,
+  pdpBasisLabel,
+  pdpInformationVisible,
+  rowMatchesSelection,
+  type PdpSpecGroup,
+  type PdpSpecModel,
+} from "./pdp-specification-display";
 
-/**
- * The resolved specifications always carry the real source, so this empty
- * stand-in only satisfies the shared visibility predicate's fallback branch.
- */
-const EMPTY_SOURCE = {
-  width: null,
-  height: null,
-  depth: null,
-  foldedWidth: null,
-  foldedHeight: null,
-  foldedDepth: null,
-  materials: null,
-};
+const FACT_LABEL_CLASS = "text-xs text-ink-muted";
+const FACT_VALUE_CLASS = "mt-1 whitespace-pre-line text-sm font-semibold text-ink";
+const CELL_CLASS =
+  "border-b border-border px-2.5 py-3 align-top text-sm leading-relaxed text-ink first:pl-0";
+const HEAD_CLASS =
+  "border-b border-border px-2.5 py-3 text-left align-top text-sm font-semibold leading-relaxed text-ink first:pl-0";
 
-function Chevron() {
+function CommonFacts({ product, model }: { product: Product; model: PdpSpecModel }) {
+  const nonColor = product.options.filter((option) => option.kind !== "COLOR");
+  const facts = model.common.filter((field) => !(
+    field.key === "variant" && nonColor.length > 0 &&
+    model.groups.some((group) => nonColor.every((option) => group.basis.includes(option.id)))
+  ));
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="h-5 w-5 shrink-0 text-ink-muted transition-transform group-open:rotate-180"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-    >
-      <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <dl className={`${styles.facts} gap-x-6 gap-y-4 px-5 py-4`}>
+      {facts.map((field) => {
+        const text = model.formatCell(field.cell);
+        const wide = field.key === "productName" || field.cell.type === "components" || text.length > 48;
+        return (
+          <div key={field.key} data-field={field.key} className={wide ? styles.full : text.length > 32 ? styles.mobileFull : undefined}>
+            <dt className={FACT_LABEL_CLASS}>{field.label}</dt>
+            <dd className={FACT_VALUE_CLASS}>{text}</dd>
+          </div>
+        );
+      })}
+    </dl>
   );
 }
 
-function Row({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <details className="group border-b border-border px-5 last:border-0">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-base font-semibold text-ink [&::-webkit-details-marker]:hidden">
-        {title}
-        <Chevron />
-      </summary>
-      <div className="pb-5 text-sm leading-relaxed text-ink-secondary">
-        {children}
-      </div>
-    </details>
-  );
-}
-
-/**
- * The single specification block on the PDP: dimensions, materials and weight
- * merged into one Amazon-style disclosure list instead of two cards that
- * repeated the same material and measurement values.
- */
-export function ProductInformation({
-  specifications,
+function DifferenceTable({
+  product,
+  group,
+  model,
+  selectedValueIds,
+  selectionComplete,
 }: {
-  specifications: ResolvedPdpSpecifications;
-}): ReactNode {
-  // The same predicate the sticky nav uses, so a visible link always has an
-  // anchor and an empty Bundle never falls back to the parent product's sizes.
-  if (!pdpSpecsVisible(EMPTY_SOURCE, null, specifications)) return null;
+  product: Product;
+  group: PdpSpecGroup;
+  model: PdpSpecModel;
+  selectedValueIds: Readonly<Record<string, string>>;
+  selectionComplete: boolean;
+}) {
+  const materialOption = product.options.find((option) => option.kind === "MATERIAL");
+  // A MATERIAL-owned value is already the row label.
+  const ownerField = group.basis.length === 1 && group.basis[0] === materialOption?.id
+    ? group.fields.find(
+        (field) =>
+          field.key === "materials" &&
+          group.rows.every(
+            (row) =>
+              row.cells.materials.type === "material" &&
+              row.cells.materials.status === "complete",
+          ),
+      )
+    : undefined;
+  const basisLabel = pdpBasisLabel(product, group.basis);
+  const hasSelection = Object.keys(selectedValueIds).length > 0;
+  const matchingRows = hasSelection
+    ? model.rows.filter((row) => rowMatchesSelection(row, selectedValueIds))
+    : [];
+  const chosen =
+    selectionComplete && matchingRows.length === 1 ? matchingRows[0] : null;
 
-  const materials =
-    specifications.kind === "SKU"
-      ? specifications.product.materials?.trim() ?? ""
-      : "";
+  return (
+    <table
+      className={styles.table}
+      style={{ "--difference-fields": Math.max(1, group.fields.length - (ownerField ? 1 : 0)) } as CSSProperties}
+    >
+      <caption className="sr-only">
+        {group.fields.map((field) => field.label).join(" and ")} by {basisLabel}
+      </caption>
+      <thead>
+        <tr>
+          {ownerField ? null : (
+            <th
+              scope="col"
+              className="w-[28%] border-y border-border bg-background px-2.5 py-3 text-left text-xs font-medium text-ink-muted first:pl-0"
+            >
+              {basisLabel}
+            </th>
+          )}
+          {group.fields.map((field) => (
+            <th
+              key={field.key}
+              scope="col"
+              data-field={field.key}
+              className="border-y border-border bg-background px-2.5 py-3 text-left text-xs font-medium text-ink-muted first:pl-0"
+            >
+              {field.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {group.rows.map((row) => {
+          const isSelected =
+            chosen !== null && row.memberIds.includes(chosen.id);
+          const isPartial =
+            !isSelected &&
+            !selectionComplete &&
+            hasSelection &&
+            matchingRows.some((match) => row.memberIds.includes(match.id));
+          const label = (
+            <>
+              <span className="block">{row.labels.join(" · ")}</span>
+              {isSelected && (
+                <span className="mt-0.5 block text-xs font-normal text-ink-muted">
+                  Selected
+                </span>
+              )}
+            </>
+          );
+          return (
+            <tr
+              key={row.memberIds.join(",")}
+              data-members={row.memberIds.join(",")}
+              data-selection={isSelected ? "selected" : isPartial ? "partial" : undefined}
+              className={
+                isSelected
+                  ? "bg-primary-light/40 shadow-[inset_3px_0_0_var(--color-cta)]"
+                  : isPartial
+                    ? "bg-background/60"
+                    : undefined
+              }
+            >
+              {ownerField ? null : (
+                <th scope="row" className={HEAD_CLASS}>
+                  {label}
+                </th>
+              )}
+              {group.fields.map((field) =>
+                field.key === ownerField?.key ? (
+                  <th key={field.key} scope="row" data-field={field.key} data-label={field.label} className={HEAD_CLASS}>
+                    {label}
+                  </th>
+                ) : (
+                  <td
+                    key={field.key}
+                    data-field={field.key}
+                    data-label={field.label}
+                    className={CELL_CLASS}
+                  >
+                    {model.formatCell(row.cells[field.key])}
+                  </td>
+                ),
+              )}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+export function ProductInformation({ product }: { product: Product }): ReactNode {
+  const { primaryLine, primaryDerived } = usePdpPurchase();
+  const model = useMemo(() => analyzePdpSpecifications(product), [product]);
+
+  if (!pdpInformationVisible(product)) return null;
 
   return (
     <section
       id="specifications"
       aria-labelledby="product-information-title"
-      className="scroll-mt-28 overflow-hidden rounded-lg border border-border bg-card"
+      className={`${styles.section} scroll-mt-28 overflow-hidden rounded-lg border border-border bg-card`}
     >
-      <h2
-        id="product-information-title"
-        className="border-b border-border px-5 py-4 text-2xl font-semibold text-ink"
-      >
-        Product information
-      </h2>
-      {specifications.kind === "BUNDLE_COMPONENTS" ? (
-        <Row title="Component specifications">
-          <BundleComponentSpecifications
-            components={specifications.components}
+      <div className="border-b border-border px-5 py-4">
+        <h2 id="product-information-title" className="text-2xl font-semibold text-ink">
+          Product information
+        </h2>
+        <p className="mt-1 text-sm text-ink-secondary">
+          Shared details shown once. Differences are listed below.
+        </p>
+      </div>
+      {model.common.length > 0 && <CommonFacts product={product} model={model} />}
+      {model.groups.map((group) => (
+        <div
+          key={group.basis.join("|")}
+          className="border-b border-border px-5 py-4 last:border-b-0"
+        >
+          <DifferenceTable
+            product={product}
+            group={group}
+            model={model}
+            selectedValueIds={primaryLine.selectedValueIds}
+            selectionComplete={primaryDerived.missingOptionIds.length === 0}
           />
-        </Row>
-      ) : (
-        <>
-          {hasPdpSpecificationDimensions(specifications) ? (
-            <Row title="Measurements">
-              <DimensionRows product={specifications.product} />
-            </Row>
-          ) : null}
-          {materials !== "" ? (
-            <Row title="Materials">
-              <p className="whitespace-pre-line">{materials}</p>
-            </Row>
-          ) : null}
-          {specifications.productWeight !== null ? (
-            <Row title="Product weight">
-              <p className="font-medium text-ink">
-                {specifications.productWeight} kg
-              </p>
-            </Row>
-          ) : null}
-        </>
-      )}
+        </div>
+      ))}
     </section>
   );
 }

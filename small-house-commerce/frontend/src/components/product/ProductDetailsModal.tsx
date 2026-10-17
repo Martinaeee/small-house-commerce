@@ -1,11 +1,36 @@
 // src/components/product/ProductDetailsModal.tsx
 "use client";
 
-import { useEffect, useRef, type ReactNode, type TouchEvent } from "react";
+import { useEffect, useMemo, useRef, type ReactNode, type TouchEvent } from "react";
 import type { Product } from "@/lib/api";
-import { DimensionRows } from "./SizeGuide";
-import type { ResolvedPdpSpecifications } from "./pdp-facts";
-import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
+import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
+import { isCompatibleValue, isSelectableVariant } from "@/lib/product-selection";
+import { usePdpPurchase } from "./PdpPurchaseProvider";
+import {
+  analyzePdpSpecifications,
+  formatLength,
+  pdpBasisLabel,
+  pdpFieldGroup,
+  pdpFoldedGuideEntries,
+  pdpSizeGuideRows,
+  type PdpFoldedEntry,
+  type PdpSpecModel,
+  type PdpSizeGuideRow,
+} from "./pdp-specification-display";
+
+const SUBHEADING =
+  "mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted first:mt-0";
+const POLICY_ROW = "flex justify-between gap-4 border-b border-border py-2 last:border-0";
+const POLICY_LABEL = "text-sm text-ink-secondary";
+const POLICY_VALUE = "text-right text-sm font-medium text-ink";
+const GUIDE_CELL = "border-b border-border px-1.5 py-2.5 text-left align-top text-sm text-ink first:pl-0 whitespace-pre-line";
+const GUIDE_HEAD = "border-b border-border px-1.5 py-2.5 text-left align-top text-xs text-ink-muted first:pl-0";
+
+const FOLDED_AXES = [
+  { index: 0, label: "Width" },
+  { index: 2, label: "Folded height" },
+  { index: 1, label: "Folded depth" },
+] as const;
 
 function Section({
   title,
@@ -30,15 +55,173 @@ function Section({
   );
 }
 
-export function ProductDetailsModal({
+function GuideTable({
+  rows,
+  model,
+  chosenId,
+}: {
+  rows: PdpSizeGuideRow[];
+  model: PdpSpecModel;
+  chosenId: string | null;
+}) {
+  return (
+    <table className="w-full border-collapse">
+      <thead>
+        <tr>
+          <th scope="col" className={GUIDE_HEAD}>
+            Variant
+          </th>
+          <th scope="col" className={GUIDE_HEAD}>
+            Dimensions (in)
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const selected = chosenId !== null && row.memberIds.includes(chosenId);
+          return (
+            <tr key={row.memberIds.join(",")} data-selection={selected ? "selected" : undefined}>
+              <th scope="row" className={`${GUIDE_CELL} font-semibold`}>
+                <span className="block">{row.labels.join(" · ")}</span>
+                {selected && (
+                  <span className="mt-0.5 block text-xs font-normal text-ink-muted">
+                    Selected
+                  </span>
+                )}
+              </th>
+              <td className={GUIDE_CELL}>{model.formatCell(row.cell)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function FoldedBlock({ entries }: { entries: PdpFoldedEntry[] }) {
+  return (
+    <div data-block="folded">
+      {entries.map((entry) => (
+        <div key={entry.label ?? "product"}>
+          {entry.label && (
+            <h4 className="mb-1 mt-3 text-sm font-semibold text-ink">{entry.label}</h4>
+          )}
+          <dl>
+            {FOLDED_AXES.map((axis) => (
+              <div key={axis.label} className={POLICY_ROW}>
+                <dt className={POLICY_LABEL}>{axis.label}</dt>
+                <dd className={POLICY_VALUE}>{formatLength(entry.values[axis.index])}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeightBlock({
   product,
-  specifications,
-  onClose,
+  model,
+  chosenId,
 }: {
   product: Product;
-  specifications: ResolvedPdpSpecifications;
-  onClose: () => void;
+  model: PdpSpecModel;
+  chosenId: string | null;
 }) {
+  const field = model.fields.find((candidate) => candidate.key === "weight");
+  if (!field || field.classification === "D") return null;
+
+  if (field.classification === "A") {
+    return (
+      <div>
+        <h3 className={SUBHEADING}>Weight</h3>
+        <dl>
+          <div className={POLICY_ROW} data-field="weight">
+            <dt className={POLICY_LABEL}>{field.label}</dt>
+            <dd className={POLICY_VALUE}>{model.formatCell(field.cell)}</dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
+
+  const group = pdpFieldGroup(model, "weight");
+  if (!group) return null;
+
+  return (
+    <div>
+      <h3 className={SUBHEADING}>Weight</h3>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            <th scope="col" className={GUIDE_HEAD}>
+              {pdpBasisLabel(product, group.basis)}
+            </th>
+            <th scope="col" className={GUIDE_HEAD}>
+              {field.label}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {group.rows.map((row) => {
+            const selected = chosenId !== null && row.memberIds.includes(chosenId);
+            return (
+              <tr key={row.memberIds.join(",")} data-selection={selected ? "selected" : undefined}>
+                <th scope="row" className={`${GUIDE_CELL} font-semibold`}>
+                  <span className="block">{row.labels.join(" · ")}</span>
+                  {selected && (
+                    <span className="mt-0.5 block text-xs font-normal text-ink-muted">
+                      Selected
+                    </span>
+                  )}
+                </th>
+                <td className={GUIDE_CELL} data-field="weight">
+                  {model.formatCell(row.cells.weight)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ProductDetailsModal({
+  product,
+  onClose,
+  preview = false,
+}: {
+  product: Product;
+  onClose: () => void;
+  preview?: boolean;
+}) {
+  const {
+    primaryLine,
+    primaryDerived,
+    purchaseLocked,
+    selectOption,
+    changeLineVariant,
+  } = usePdpPurchase();
+  const model = useMemo(() => analyzePdpSpecifications(product), [product]);
+  const guideRows = useMemo(() => pdpSizeGuideRows(product), [product]);
+  const folded = useMemo(() => pdpFoldedGuideEntries(product), [product]);
+
+  const selectedValueIds = primaryLine.selectedValueIds;
+  const chosen = model.rows.find((row) => row.id === primaryDerived.resolvedVariant?.id) ?? null;
+
+  const colorOption = product.options.find((option) => option.kind === "COLOR");
+  const selectableVariants = product.variants.filter(isSelectableVariant);
+  const missingOption = product.options.find((option) =>
+    primaryDerived.missingOptionIds.includes(option.id),
+  );
+  const selectionHint = chosen
+    ? `Selected configuration: ${chosen.name}`
+    : missingOption
+      ? `Choose a ${pdpBasisLabel(product, [missingOption.id]).toLowerCase()} to complete your selection.`
+      : "This combination is not available.";
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
@@ -109,6 +292,10 @@ export function ProductDetailsModal({
     }
   };
 
+  const hasDetails = Boolean(product.description?.trim()) || Boolean(colorOption?.values.length) ||
+    model.fields.some((field) => field.key === "weight" && field.classification !== "D");
+  const chosenId = chosen?.id ?? null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
@@ -146,31 +333,112 @@ export function ProductDetailsModal({
         </div>
 
         <div className="overflow-y-auto px-5 pb-6">
-          <Section title="Dimensions" defaultOpen>
-            {specifications.kind === "BUNDLE_COMPONENTS"
-              ? <BundleComponentSpecifications components={specifications.components} />
-              : <DimensionRows product={specifications.product} />}
-          </Section>
-
-          {product.description && (
-            <Section title="Details">
-              <p className="whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
-                {product.description}
+          {(guideRows.length > 0 || folded.length > 0) && (
+            <Section title="Dimensions" defaultOpen>
+              {guideRows.length > 0 && (
+                <>
+                  <h3 className={SUBHEADING}>Product size</h3>
+                  <GuideTable rows={guideRows} model={model} chosenId={chosenId} />
+                </>
+              )}
+              {folded.length > 0 && (
+                <>
+                  <h3 className={SUBHEADING}>Folded size</h3>
+                  <FoldedBlock entries={folded} />
+                </>
+              )}
+              <p className="mt-3 text-xs text-ink-muted">
+                Measurements may vary slightly. Measure your doorway before delivery.
               </p>
             </Section>
           )}
 
+          {hasDetails && <Section title="Details">
+            {product.description && (
+              <p className="whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
+                {product.description}
+              </p>
+            )}
+            <WeightBlock product={product} model={model} chosenId={chosenId} />
+            {colorOption && (
+              <div>
+                <h3 className={SUBHEADING}>{pdpBasisLabel(product, [colorOption.id])}</h3>
+                <div
+                  role="group"
+                  aria-label={pdpBasisLabel(product, [colorOption.id])}
+                  className="flex flex-wrap gap-2"
+                >
+                  {[...colorOption.values]
+                    .sort(
+                      (left, right) =>
+                        left.position - right.position || left.id.localeCompare(right.id),
+                    )
+                    .map((value) => {
+                      const selected = selectedValueIds[colorOption.id] === value.id;
+                      const compatible = isCompatibleValue(
+                        product.options,
+                        selectableVariants,
+                        selectedValueIds,
+                        colorOption.id,
+                        value.id,
+                      );
+                      return (
+                        <button
+                          key={value.id}
+                          type="button"
+                          disabled={purchaseLocked || !compatible}
+                          aria-pressed={selected}
+                          aria-label={value.label}
+                          title={
+                            compatible
+                              ? undefined
+                              : `${value.label} is unavailable with your current options`
+                          }
+                          onClick={() => {
+                            if (!preview && !selected) {
+                              emitCommerceEvent(
+                                optionSelectEvent({
+                                  productId: product.id,
+                                  optionKind: colorOption.kind,
+                                  optionValueId: value.id,
+                                  selectionSource: "USER",
+                                }),
+                              );
+                            }
+                            const invalidatesConfirmedPrimary =
+                              primaryDerived.purchaseConfirmed && !selected;
+                            selectOption(primaryLine.clientLineId, colorOption.id, value.id);
+                            if (invalidatesConfirmedPrimary) {
+                              changeLineVariant(primaryLine.clientLineId);
+                            }
+                          }}
+                          className={`inline-flex min-h-11 items-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                            selected
+                              ? "border-cta bg-primary-light/40 text-cta"
+                              : "border-border bg-card text-ink hover:border-primary"
+                          }`}
+                        >
+                          {value.label}
+                        </button>
+                      );
+                    })}
+                </div>
+                <p className="mt-2.5 text-xs text-ink-muted">{selectionHint}</p>
+              </div>
+            )}
+          </Section>}
+
           <Section title="Delivery, warranty and returns">
             <dl>
-              <div className="flex justify-between gap-4 border-b border-border py-2">
-                <dt className="text-sm text-ink-secondary">Delivery</dt>
-                <dd className="text-right text-sm font-medium text-ink">
+              <div className={POLICY_ROW}>
+                <dt className={POLICY_LABEL}>Delivery</dt>
+                <dd className={POLICY_VALUE}>
                   Metro Manila 3–5 days, provinces 5–7 days
                 </dd>
               </div>
-              <div className="flex justify-between gap-4 border-b border-border py-2">
-                <dt className="text-sm text-ink-secondary">Payment</dt>
-                <dd className="text-right text-sm font-medium text-ink">Cash on Delivery</dd>
+              <div className={POLICY_ROW}>
+                <dt className={POLICY_LABEL}>Payment</dt>
+                <dd className={POLICY_VALUE}>Cash on Delivery</dd>
               </div>
             </dl>
           </Section>

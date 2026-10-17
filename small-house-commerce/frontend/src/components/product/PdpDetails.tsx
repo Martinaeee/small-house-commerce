@@ -8,9 +8,7 @@ import {
   ProductDetailMedia,
 } from "./ProductDetailBody";
 import { ProductInformation } from "./ProductInformation";
-import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { partitionDetailBlocks } from "./pdp-detail-blocks";
-import { resolveSelectedPdpSpecifications } from "./pdp-facts";
 
 export function PdpDetails({
   product,
@@ -21,11 +19,9 @@ export function PdpDetails({
   supportEmail: string;
   supportHours: string;
 }): ReactNode {
-  const { primaryDerived } = usePdpPurchase();
   const { featured, remaining } = partitionDetailBlocks(
     product.detailBlocks ?? [],
   );
-  const specifications = resolveSelectedPdpSpecifications(product, primaryDerived.displayVariant?.sku);
 
   return (
     <div className="flex flex-col gap-8">
@@ -35,7 +31,7 @@ export function PdpDetails({
         featured={featured}
       />
       <ProductDetailMedia blocks={remaining} />
-      <ProductInformation specifications={specifications} />
+      <ProductInformation product={product} />
       <PdpInfoSections
         items={product.effectiveFaq ?? []}
         supportEmail={supportEmail}

@@ -36,7 +36,14 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { hasPdpSpecificationDimensions, pdpDimensionSummary, pdpSolutionBadges, resolveSelectedPdpSpecifications } from "./pdp-facts";
+import { pdpSolutionBadges } from "./pdp-facts";
+import {
+  analyzePdpSpecifications,
+  formatBundleComponentDimensions,
+  formatFoldedLine,
+  formatSkuDimensions,
+  pdpFoldedEntries,
+} from "./pdp-specification-display";
 import { SolutionIcon } from "./pdp-solution-icons";
 
 function TruckGlyph() {
@@ -223,16 +230,33 @@ export function PdpClient({
   const price = primaryDerived.price;
   const compareAt = primaryDerived.compareAtPrice;
   const selectableCount = primaryDerived.selectableVariants.length;
-  const specifications = resolveSelectedPdpSpecifications(product, displayVariant?.sku);
-  const hasDimensions = hasPdpSpecificationDimensions(specifications);
-  const dimensions = specifications.kind === "SKU" ? pdpDimensionSummary(specifications.product) : null;
-  const dimensionSummary = specifications.kind === "BUNDLE_COMPONENTS"
-    ? specifications.components.flatMap(component => {
-      const summary = pdpDimensionSummary(component);
-      const value = summary.assembled ?? summary.folded;
-      return value === null ? [] : [`${component.productName} × ${component.quantity}: ${value}`];
-    }).join(" · ")
-    : dimensions?.assembled ?? dimensions?.folded;
+  const displaySku = displayVariant?.sku ?? null;
+  const isBundle = displaySku?.specificationSource === "BUNDLE_COMPONENTS";
+  const componentSummary = isBundle
+    ? (displaySku?.bundleComponents ?? [])
+        .flatMap((component) => {
+          const value = formatBundleComponentDimensions(component);
+          return value === null
+            ? []
+            : [`${component.productName} × ${component.quantity}: ${value}`];
+        })
+        .join(" · ")
+    : "";
+  const assembledSummary = isBundle ? null : formatSkuDimensions(product, displaySku);
+  const foldedEntry = isBundle ? undefined : pdpFoldedEntries(product, displaySku)[0];
+  const foldedSummary = foldedEntry ? formatFoldedLine(foldedEntry) : null;
+  const specificationModel = useMemo(() => analyzePdpSpecifications(product), [product]);
+  const hasGuideMeasurements = specificationModel.rows.some((row) => row.cells.dimensions.status !== "missing") ||
+    primaryDerived.selectableVariants.some((variant) => pdpFoldedEntries(product, variant.sku).length > 0);
+  const dimensionLine = !resolvedVariant
+    ? hasGuideMeasurements ? { label: "Dimensions:", value: "Select a configuration" } : null
+    : componentSummary
+      ? { label: "Component dimensions:", value: componentSummary }
+      : assembledSummary !== null
+        ? { label: "Dimensions:", value: assembledSummary }
+        : foldedSummary !== null
+          ? { label: "Folded size:", value: foldedSummary }
+          : null;
   const sellingPoints = pdpSolutionBadges(product);
   const basePath = productPath ?? `/products/${product.slug}`;
   const urlVariantValues = searchParams.getAll("variant");
@@ -686,7 +710,7 @@ export function PdpClient({
 
           <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" preview={preview} />
 
-          {hasDimensions && (
+          {dimensionLine && (
             <div
               data-testid="pdp-dimensions-summary"
               className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
@@ -695,8 +719,8 @@ export function PdpClient({
                 data-testid="pdp-dimensions-line"
                 className="text-ink-secondary"
               >
-                <span className="font-semibold text-ink">{specifications.kind === "BUNDLE_COMPONENTS" ? "Component dimensions:" : "Dimensions:"}</span>{" "}
-                {dimensionSummary}
+                <span className="font-semibold text-ink">{dimensionLine.label}</span>{" "}
+                {dimensionLine.value}
               </p>
               <button
                 type="button"
@@ -824,7 +848,7 @@ export function PdpClient({
           }
         />
       )}
-      {detailsOpen && <ProductDetailsModal product={product} specifications={specifications} onClose={() => setDetailsOpen(false)} />}
+      {detailsOpen && <ProductDetailsModal product={product} onClose={() => setDetailsOpen(false)} preview={preview} />}
       {pendingIntent && (
         <VariantPickerDialog
           lineId={primaryLine.clientLineId}

@@ -6,9 +6,10 @@ import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 
 /**
- * The Specifications link must follow the DISPLAYED variant's weight. A
- * catalogue-wide scan used to leave the link visible while the section itself
- * rendered nothing.
+ * The Specifications link must stay aligned with the section, which now
+ * describes every variant at once: a variant without its own measurements no
+ * longer removes real facts from the page, so the link stays while the
+ * difference table still marks that variant explicitly.
  */
 
 const sharedMedia: ProductMediaSet = {
@@ -37,7 +38,7 @@ const product: Product = {
   room: null,
   internalRole: null,
   solutions: [],
-  // No product-level specs: the section's existence rests on the variant weight.
+  // No product-level specs: the section's existence rests on the variant facts.
   materials: null,
   width: null,
   height: null,
@@ -141,19 +142,19 @@ function SelectColor({ valueId }: { valueId: string }) {
   );
 }
 
-function renderGate() {
+function renderGate(item: Product) {
   return render(
-    <PdpPurchaseProvider product={product}>
-      <PdpSectionNavGate product={product} hasDetails={false} />
+    <PdpPurchaseProvider product={item}>
+      <PdpSectionNavGate product={item} hasDetails={false} />
       <SelectColor valueId="blue" />
     </PdpPurchaseProvider>,
   );
 }
 
 describe("PdpSectionNavGate", () => {
-  it("shows the Specifications link only while the displayed variant has specs", async () => {
+  it("keeps the Specifications link while the section still has real facts", async () => {
     const user = userEvent.setup();
-    renderGate();
+    renderGate(product);
 
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     expect(
@@ -162,6 +163,37 @@ describe("PdpSectionNavGate", () => {
 
     await user.click(screen.getByRole("button", { name: "pick blue" }));
 
+    expect(
+      within(nav).getByRole("link", { name: "Specifications" }),
+    ).toBeVisible();
+  });
+
+  it("hides the Specifications link when no variant carries a public fact", () => {
+    const empty: Product = {
+      ...product,
+      options: [],
+      variants: [
+        {
+          id: "plain",
+          name: "Default",
+          position: 0,
+          combinationKey: "",
+          optionValueIds: [],
+          sku: {
+            id: "sku-plain",
+            skuCode: "PLAIN",
+            status: "ACTIVE",
+            price: 100,
+            compareAtPrice: null,
+            availableInventory: 3,
+          },
+        },
+      ],
+      defaultDisplayVariantId: "plain",
+    };
+    renderGate(empty);
+
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
     expect(
       within(nav).queryByRole("link", { name: "Specifications" }),
     ).toBeNull();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product } from "@/lib/api";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
@@ -166,24 +166,36 @@ function contentOrder(container: HTMLElement): string[] {
   );
 }
 
+function tableRows(scope: HTMLElement) {
+  return [...scope.querySelectorAll("tbody tr")].map((row) => ({
+    selection: row.getAttribute("data-selection"),
+    cells: [...row.querySelectorAll("th, td")].map((cell) =>
+      cell.textContent?.replace(/\s+/g, " ").trim(),
+    ),
+  }));
+}
+
+function bundleComponent(productName: string, quantity: number) {
+  return {
+    productName, variantName: "Oak", quantity, width: 45, depth: 50, height: 80,
+    foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: 4, materials: "Solid oak",
+  };
+}
+
 describe("PdpDetails", () => {
-  it("switches ordinary, dining Bundle and bench Bundle specifications with no parent-size fallback", async () => {
+  it("lists ordinary and Bundle facts together with no parent-size fallback", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
     item.options[0].kind = "STYLE";
     Object.assign(item.variants[0].sku!, { productWidth: 120 });
-    const component = (productName: string, quantity: number) => ({
-      productName, variantName: "Oak", quantity, width: 45, depth: 50, height: 80,
-      foldedWidth: null, foldedDepth: null, foldedHeight: null, productWeight: 4, materials: "Solid oak",
-    });
     Object.assign(item.variants[1].sku!, {
       specificationSource: "BUNDLE_COMPONENTS", productWidth: 999, productDepth: 999, productHeight: 999,
-      bundleComponents: [component("Table", 1), component("Chair", 4)],
+      bundleComponents: [bundleComponent("Table", 1), bundleComponent("Chair", 4)],
     });
     item.options[0].values.push({ ...item.options[0].values[1], id: "bench", label: "With Bench", position: 2 });
     item.variants.push({ ...structuredClone(item.variants[1]), id: "bench-variant", name: "With Bench", position: 2,
       combinationKey: "finish:bench", optionValueIds: ["bench"], sku: {
-        ...item.variants[1].sku!, id: "bench-sku", skuCode: "BENCH-SET", bundleComponents: [component("Bench", 2)],
+        ...item.variants[1].sku!, id: "bench-sku", skuCode: "BENCH-SET", bundleComponents: [bundleComponent("Bench", 2)],
       },
     });
     render(<PdpPurchaseProvider product={item}>
@@ -191,41 +203,56 @@ describe("PdpDetails", () => {
       <PdpSectionNavGate product={item} hasDetails />
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
-    expect(screen.getAllByText("120 cm").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "White" }));
-    const bundleSection = screen.getByRole("region", { name: "Product information" });
-    await user.click(within(bundleSection).getByText("Component specifications"));
-    expect(within(bundleSection).getByRole("heading", { name: "Table × 1" })).toBeVisible();
-    expect(within(bundleSection).getByRole("heading", { name: "Chair × 4" })).toBeVisible();
-    expect(within(bundleSection).getAllByText("45 cm")).toHaveLength(2);
-    expect(within(bundleSection).queryByText("180 cm")).not.toBeInTheDocument();
-    expect(within(bundleSection).queryByText("999 cm")).not.toBeInTheDocument();
-    expect(within(bundleSection).queryByText("120 cm")).not.toBeInTheDocument();
-    expect(within(bundleSection).queryByText("Powder-coated steel")).not.toBeInTheDocument();
+
+    const section = screen.getByRole("region", { name: "Product information" });
+    const table = within(section).getByRole("table");
+    expect(
+      within(table).getAllByRole("columnheader").map((cell) => cell.textContent?.trim()),
+    ).toEqual(["Style", "Dimensions", "Weight", "Materials"]);
+    const rows = tableRows(table);
+    expect(rows[0].cells[0]).toBe("Black");
+    expect(rows[0].cells[1]).toBe("47.2W × 29.5H × 23.6D in");
+    expect(rows[0].cells[3]).toBe("Powder-coated steel");
+    const bundleRow = rows[1].cells.join(" | ");
+    expect(bundleRow).toContain("Table / Oak × 1");
+    expect(bundleRow).toContain("Chair / Oak × 4");
+    expect(bundleRow).not.toMatch(/999|47\.2W/);
+    expect(bundleRow).toContain("4 kg · Net weight / per item");
+    expect(bundleRow).toContain("Solid oak");
     expect(screen.getByRole("link", { name: "Specifications" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "With Bench" }));
-    expect(screen.getAllByRole("heading", { name: "Bench × 2" })).toHaveLength(1);
-    expect(screen.queryByRole("heading", { name: "Chair × 4" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "White" }));
+    const selected = tableRows(within(section).getByRole("table"));
+    expect(selected[1].selection).toBe("selected");
+    expect(selected[1].cells.join(" | ")).toContain("Chair / Oak × 4");
+    expect(selected[2].cells.join(" | ")).toContain("Bench / Oak × 2");
+
     await user.click(screen.getByRole("button", { name: "Black" }));
-    expect(screen.queryByRole("heading", { name: "Bench × 2" })).not.toBeInTheDocument();
-    expect(screen.getAllByText("120 cm").length).toBeGreaterThan(0);
+    expect(tableRows(within(section).getByRole("table"))[0].selection).toBe("selected");
   });
 
-  it("hides the specifications section and its navigation for invalid empty Bundle components", async () => {
-    const user = userEvent.setup();
+  it("hides the specifications section and its navigation for an empty Bundle product", async () => {
     const item = structuredClone(product);
     item.options[0].kind = "STYLE";
+    item.materials = null;
+    item.width = null;
+    item.depth = null;
+    item.height = null;
+    item.foldedWidth = null;
+    item.foldedDepth = null;
+    item.foldedHeight = null;
+    Object.assign(item.variants[0].sku!, { specificationSource: "BUNDLE_COMPONENTS", bundleComponents: [] });
     Object.assign(item.variants[1].sku!, { specificationSource: "BUNDLE_COMPONENTS", bundleComponents: [] });
     render(<PdpPurchaseProvider product={item}>
       <ProductOptionSelector lineId="primary" instanceId="invalid-bundle-spec" />
       <PdpSectionNavGate product={item} hasDetails />
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
-    await user.click(screen.getByRole("button", { name: "White" }));
     expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Product information" })).not.toBeInTheDocument();
   });
-  it("switches the merged specification rows with the displayed SKU and per-axis fallback", async () => {
+
+  it("keeps the per-axis SKU fallback and the zero override in the difference table", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
     item.width = 100; item.depth = 50; item.height = 70;
@@ -235,20 +262,20 @@ describe("PdpDetails", () => {
       <ProductOptionSelector lineId="primary" instanceId="dimension-test" />
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
+
     const section = screen.getByRole("region", { name: "Product information" });
-    await user.click(within(section).getByText("Measurements"));
-    expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
-    expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("60 cm");
-    expect(within(section).getByText("Height").nextElementSibling).toHaveTextContent("75 cm");
+    const table = within(section).getByRole("table");
+    expect(tableRows(table).map((row) => row.cells[0])).toEqual(["Black", "White"]);
+    expect(tableRows(table)[0].cells[1]).toBe("47.2W × 29.5H × 23.6D in");
+    expect(tableRows(table)[1].cells[1]).toBe("39.4W × 0H × 31.5D in");
     expect(within(section).queryByText("130 cm")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "White" }));
-    expect(within(section).getAllByText("Width")[0].nextElementSibling?.textContent).toBe("100 cm");
-    expect(within(section).getByText("Depth").nextElementSibling).toHaveTextContent("80 cm");
-    expect(within(section).getByText("Height").nextElementSibling?.textContent).toBe("0 cm");
     expect(within(section).queryByText("132 cm")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "White" }));
+    expect(tableRows(within(section).getByRole("table"))[1].selection).toBe("selected");
   });
 
-  it("keeps navigation and anchors aligned for SKU-only dimensions and empty selections", async () => {
+  it("keeps navigation and anchors aligned while a variant lacks its own dimensions", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
     Object.assign(item, { materials: null, features: null, width: null, depth: null, height: null, foldedWidth: null, foldedDepth: null, foldedHeight: null });
@@ -261,10 +288,16 @@ describe("PdpDetails", () => {
       <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
     </PdpPurchaseProvider>);
     expect(screen.getByRole("link", { name: "Specifications" })).toHaveAttribute("href", "#specifications");
-    expect(screen.getByRole("region", { name: "Product information" })).toBeVisible();
+    const section = screen.getByRole("region", { name: "Product information" });
+    expect(section).toBeVisible();
+    const rows = tableRows(within(section).getByRole("table"));
+    expect(rows[0].cells[1]).toBe("0W in · H, D not provided");
+    expect(rows[1].cells[1]).toBe("Not provided");
+
     await user.click(screen.getByRole("button", { name: "White" }));
-    expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Product information" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Specifications" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Product information" })).toBeVisible();
+    expect(tableRows(within(section).getByRole("table"))[1].selection).toBe("selected");
   });
 
   it("conserves mixed detail media around truthful structured sections", () => {
@@ -318,7 +351,7 @@ describe("PdpDetails", () => {
     expect(screen.getAllByText("Locking frame")).toHaveLength(1);
   });
 
-  it("shows only real public specification fields and follows the current display SKU weight", async () => {
+  it("shows only real public specification fields and marks the displayed variant", async () => {
     const user = userEvent.setup();
     render(
       <PdpPurchaseProvider product={product}>
@@ -334,24 +367,23 @@ describe("PdpDetails", () => {
     const specifications = screen.getByRole("region", {
       name: "Product information",
     });
-    await user.click(within(specifications).getByText("Materials"));
-    await user.click(within(specifications).getByText("Product weight"));
-    expect(within(specifications).getByText("8.5 kg")).toBeVisible();
-    expect(
-      within(specifications).getByText("Powder-coated steel"),
-    ).toBeVisible();
+    const facts = specifications.querySelector("dl")!;
+    expect(facts.textContent).toContain("Powder-coated steel");
+    expect(facts.textContent).not.toContain("Weight");
+    const table = within(specifications).getByRole("table");
+    expect(tableRows(table)).toEqual([
+      { selection: null, cells: ["Black", "8.5 kg · Net weight"] },
+      { selection: null, cells: ["White", "9.25 kg · Net weight"] },
+    ]);
     expect(within(specifications).queryByText(/package/i)).not.toBeInTheDocument();
     expect(within(specifications).queryByText(/assembly/i)).not.toBeInTheDocument();
     expect(
       within(specifications).queryByText(/load capacity/i),
     ).not.toBeInTheDocument();
     expect(within(specifications).queryByText("130 cm")).not.toBeInTheDocument();
+    expect(within(specifications).queryByText("132 cm")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "White" }));
-
-    await waitFor(() =>
-      expect(within(specifications).getByText("9.25 kg")).toBeVisible(),
-    );
-    expect(within(specifications).queryByText("8.5 kg")).not.toBeInTheDocument();
+    expect(tableRows(within(specifications).getByRole("table"))[1].selection).toBe("selected");
   });
 });

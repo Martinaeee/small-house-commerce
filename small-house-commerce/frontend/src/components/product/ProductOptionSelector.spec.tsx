@@ -487,13 +487,16 @@ describe("PDP conversion hero", () => {
     const summary = screen.getByTestId("pdp-dimensions-line");
     expect(summary).toHaveTextContent("Component dimensions:");
     expect(summary).toHaveTextContent("Chair × 4");
-    expect(summary).toHaveTextContent("45 × 80 × 50 cm");
+    expect(summary).toHaveTextContent("17.7W × 31.5H × 19.7D in");
     expect(summary).not.toHaveTextContent("999");
     await user.click(screen.getByRole("button", { name: "Size guide" }));
     const guide = within(screen.getByRole("dialog", { name: "Product details" }));
-    expect(guide.getByRole("heading", { name: "Chair × 4" })).toBeVisible();
-    expect(guide.getByText("45 cm")).toBeVisible();
-    expect(guide.queryByText("999 cm")).not.toBeInTheDocument();
+    const sizeTable = guide.getAllByRole("table")[0];
+    const bundleRow = [...sizeTable.querySelectorAll("tbody tr")].find((row) =>
+      row.textContent?.includes("Chair / Oak × 4"),
+    )!;
+    expect(bundleRow).toHaveTextContent("17.7W × 31.5H × 19.7D in");
+    expect(bundleRow).not.toHaveTextContent("393.3");
     expect(guide.queryByText("180 cm")).not.toBeInTheDocument();
   });
 
@@ -514,9 +517,9 @@ describe("PDP conversion hero", () => {
     Object.assign(item.variants.find(row => row.id === "red-large")!.sku!, { productWidth: 0, productDepth: null, productHeight: 95 });
     renderPdp({ item, variantId: "red-small" });
     const hero = screen.getByTestId("pdp-purchase");
-    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 120 × 75 × 60 cm");
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 47.2W × 29.5H × 23.6D in");
     await user.click(within(within(hero).getByRole("group", { name: "Size" })).getByRole("button", { name: "Large" }));
-    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0 × 95 × 50 cm");
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W × 37.4H × 19.7D in");
   });
 
   it("shows the selected SKU dimensions in the size guide without changing folded values", async () => {
@@ -526,20 +529,33 @@ describe("PDP conversion hero", () => {
     Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 120, productDepth: 60, productHeight: 75 });
     renderPdp({ item, variantId: "red-small" });
     await user.click(screen.getByRole("button", { name: "Size guide" }));
-    const guide = within(screen.getByRole("dialog"));
-    expect(guide.getAllByText("Width")[0].nextElementSibling?.textContent).toBe("120 cm");
-    expect(guide.getByText("Depth").nextElementSibling?.textContent).toBe("60 cm");
-    expect(guide.getByText("Height").nextElementSibling?.textContent).toBe("75 cm");
-    expect(guide.getAllByText("Width")[1].nextElementSibling?.textContent).toBe("90 cm");
-    expect(guide.getByText("Folded depth").nextElementSibling?.textContent).toBe("40 cm");
-    expect(guide.getByText("Folded height").nextElementSibling?.textContent).toBe("10 cm");
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("table")).toHaveTextContent("47.2W × 29.5H × 23.6D in");
+    const folded = dialog.querySelector('[data-block="folded"]')!;
+    expect(
+      [...folded.querySelectorAll("dt, dd")].map((node) => node.textContent?.trim()),
+    ).toEqual(["Width", "35.4 in", "Folded height", "3.9 in", "Folded depth", "15.7 in"]);
+  });
+
+  it("does not show the default SKU size when only a different size option is selected", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 94, productDepth: 43, productHeight: 93 });
+    Object.assign(item.variants.find(row => row.id === "red-large")!.sku!, { productWidth: 141, productDepth: 60, productHeight: 120 });
+    renderPdp({ item });
+    expect(screen.getByTestId("pdp-dimensions-line")).toHaveTextContent("Select a configuration");
+    const hero = screen.getByTestId("pdp-purchase");
+    await user.click(within(within(hero).getByRole("group", { name: "Size" })).getByRole("button", { name: "Large" }));
+    expect(screen.getByTestId("pdp-dimensions-line")).toHaveTextContent("Select a configuration");
+    expect(screen.getByTestId("pdp-dimensions-line")).not.toHaveTextContent("37W");
+    expect(screen.getByRole("button", { name: "Size guide" })).toBeEnabled();
   });
 
   it("shows a SKU-only zero dimension summary even without parent dimensions", () => {
     const item = structuredClone(product);
     Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 0, productDepth: null, productHeight: null });
     renderPdp({ item, variantId: "red-small" });
-    expect(screen.getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0 × — × — cm");
+    expect(screen.getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W in · H, D not provided");
   });
 
   it("orders real product facts, purchase actions, then truthful service assurances", () => {
@@ -603,7 +619,7 @@ describe("PDP conversion hero", () => {
     // One compact dimension line with the size guide right beside it; no
     // folded line and no framed card in the hero.
     expect(within(hero).getByTestId("pdp-dimensions-line")).toHaveTextContent(
-      "Dimensions: 120 × 74 × 60 cm",
+      "Dimensions: 47.2W × 29.1H × 23.6D in",
     );
     expect(within(hero).queryByText(/Folded:/)).not.toBeInTheDocument();
     expect(
