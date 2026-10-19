@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Dialog } from "@/components/admin/Dialog";
+import { newId } from "@/lib/admin-id";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -32,7 +33,7 @@ function withPositions(items: AdminFaqItem[]): AdminFaqItem[] {
 
 function newItem(position: number): AdminFaqItem {
   return {
-    id: crypto.randomUUID(),
+    id: newId(),
     title: "",
     answer: [{ kind: "paragraph", text: "" }],
     enabled: true,

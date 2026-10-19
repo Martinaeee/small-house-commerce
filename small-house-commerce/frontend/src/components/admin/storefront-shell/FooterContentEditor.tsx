@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { newId } from "@/lib/admin-id";
 import {
   SHELL_LIMITS,
   type FooterColumn,
@@ -37,7 +38,7 @@ function emptyLinksColumn(id: string): FooterColumn {
     title: "Links",
     rows: [
       {
-        id: crypto.randomUUID(),
+        id: newId(),
         kind: "LINK",
         label: "New link",
         link: { type: "INTERNAL", path: "/" },
@@ -203,7 +204,7 @@ export function FooterContentEditor({
           type="button"
           disabled={locked || atColumnLimit}
           onClick={() =>
-            emit({ columns: [...columns, emptyLinksColumn(crypto.randomUUID())] })
+            emit({ columns: [...columns, emptyLinksColumn(newId())] })
           }
           className="rounded-lg bg-admin-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -460,7 +461,7 @@ function FooterColumnCard({
                         rows: [
                           ...current.rows,
                           {
-                            id: crypto.randomUUID(),
+                            id: newId(),
                             kind: "LINK",
                             label: "New link",
                             link: { type: "INTERNAL", path: "/" },

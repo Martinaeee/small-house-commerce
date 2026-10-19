@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Dialog } from "@/components/admin/Dialog";
+import { newId } from "@/lib/admin-id";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -548,7 +549,7 @@ export function FaqWorkspace({
         );
         setPickerOpen(false);
         setProductDialog({
-          key: `add-${group.product.id}-${crypto.randomUUID()}`,
+          key: `add-${group.product.id}-${newId()}`,
           group,
           existedInList,
           mode: "add",
@@ -913,7 +914,7 @@ export function FaqWorkspace({
           onDuplicate={(item) =>
             openSharedDialog("duplicate", {
               ...toDraft(item),
-              id: crypto.randomUUID(),
+              id: newId(),
               title: item.title.slice(0, 200 - t("product_faq_duplicate_suffix").length) + t("product_faq_duplicate_suffix"),
             })
           }
@@ -960,7 +961,7 @@ export function FaqWorkspace({
           canEdit={canEditProducts}
           onAdd={(group) =>
             setProductDialog({
-              key: `add-${group.product.id}-${crypto.randomUUID()}`,
+              key: `add-${group.product.id}-${newId()}`,
               group,
               existedInList: true,
               mode: "add",
@@ -982,13 +983,13 @@ export function FaqWorkspace({
           }
           onDuplicateItem={(group, item) =>
             setProductDialog({
-              key: `duplicate-${group.product.id}-${crypto.randomUUID()}`,
+              key: `duplicate-${group.product.id}-${newId()}`,
               group,
               existedInList: true,
               mode: "add",
               draft: {
                 ...toDraft(item),
-                id: crypto.randomUUID(),
+                id: newId(),
                 title: item.title.slice(0, 200 - t("product_faq_duplicate_suffix").length) + t("product_faq_duplicate_suffix"),
                 position: group.faq.items.length,
               },

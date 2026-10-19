@@ -247,6 +247,29 @@ describe("HeaderContentEditor", () => {
     );
   });
 
+  it("still adds a collection row when crypto.randomUUID is unavailable (plain http)", async () => {
+    // The production admin is served over plain http, where the secure-context-only
+    // crypto.randomUUID does not exist; the add flow must not depend on it.
+    delete (globalThis.crypto as { randomUUID?: unknown }).randomUUID;
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: undefined, configurable: true,
+    });
+    await renderSettled(<Harness />);
+
+    await chooseAddKind("COLLECTION");
+    expect(await screen.findByRole("option", { name: "New Arrivals" })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "storefront_shell_header_add" }),
+    );
+
+    delete (globalThis.crypto as { randomUUID?: unknown }).randomUUID;
+    const items = state();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual(
+      expect.objectContaining({ kind: "COLLECTION", targetId: COLLECTION_ID }),
+    );
+  });
+
   it("focuses the stable addressed row from an unavailable-target issue", async () => {
     const issue: ShellIssue = {
       code: "HEADER_TARGET_UNAVAILABLE",

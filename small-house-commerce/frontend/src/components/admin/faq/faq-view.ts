@@ -1,4 +1,5 @@
 import type { TKey } from "@/lib/admin-i18n";
+import { newId } from "@/lib/admin-id";
 import type {
   AdminFaqAnswerBlock,
   AdminFaqCategory,
@@ -66,7 +67,7 @@ export function copyApplicableSharedItems(
   sharedItems: AdminFaqItem[],
   productId: string | null,
   startPosition: number,
-  createId: () => string = () => crypto.randomUUID(),
+  createId: () => string = () => newId(),
 ): AdminFaqItem[] {
   return sharedItems
     .filter((item) => item.enabled && audienceAppliesTo(item, productId))

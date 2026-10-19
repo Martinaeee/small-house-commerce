@@ -5,6 +5,7 @@ import { Dialog } from "@/components/admin/Dialog";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { newId } from "@/lib/admin-id";
 import {
   ADMIN_FAQ_CATEGORIES,
   type AdminFaqAnswerBlock,
@@ -29,7 +30,7 @@ export interface FaqItemDraft {
 
 export function emptyFaqItemDraft(position: number): FaqItemDraft {
   return {
-    id: crypto.randomUUID(),
+    id: newId(),
     title: "",
     answer: [{ kind: "paragraph", text: "" }],
     enabled: true,

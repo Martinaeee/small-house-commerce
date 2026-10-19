@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { adminApi, type AdminCategoryNode, type AdminCollectionRow } from "@/lib/admin-api";
+import { newId } from "@/lib/admin-id";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   SHELL_LIMITS,
@@ -127,7 +128,7 @@ export function HeaderContentEditor({
       return;
     }
     const enabled = enabledCount < SHELL_LIMITS.maxEnabledHeaderItems;
-    const id = crypto.randomUUID();
+    const id = newId();
     let next: HeaderItem;
     if (addKind === "STRUCTURED_LINK") {
       next = {
