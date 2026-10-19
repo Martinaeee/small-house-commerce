@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../../common/site-media-url.js';
 import { HomepageSectionType } from '../../../generated/prisma/client.js';
+import { sectionLayoutSchemas } from '../homepage-document.js';
+import { categoryNavigationShape, refineNavigationIds, ugcPayloadPublishSchema } from '../homepage-content-schema.js';
 
 /** In-app path/hash ("/collections", "#solutions") or absolute https URL. */
 const inAppOrHttps = z
@@ -47,7 +49,8 @@ const uspPayloadSchema = z.object({
 
 const categoryTilesPayloadSchema = z.object({
   categoryIds: z.array(z.string().uuid()).max(6).optional(),
-});
+  layout: sectionLayoutSchemas.CATEGORY_TILES.optional(),
+}).extend(categoryNavigationShape).superRefine(refineNavigationIds);
 
 const solutionItemSchema = z.object({
   title: z.string().min(1).max(120),
@@ -61,9 +64,11 @@ const solutionsPayloadSchema = z.object({
 
 const productGridPayloadSchema = z.object({
   columns: z.union([z.literal(2), z.literal(4)]).optional(),
+  layout: sectionLayoutSchemas.PRODUCT_GRID.optional(),
 });
 
 const productStoryPayloadSchema = z.object({
+  layout: sectionLayoutSchemas.PRODUCT_STORY.optional(),
   imageUrl: mediaUrl().optional(),
   heading: z.string().max(120).optional(),
   body: z.string().max(2000).optional(),
@@ -109,18 +114,6 @@ const roomPayloadSchema = z.object({
   scenes: z.array(roomSceneSchema).max(5).optional(),
 });
 
-const ugcEntrySchema = z.object({
-  imageUrl: mediaUrl().optional(),
-  name: z.string().min(1).max(120),
-  location: z.string().max(120).optional(),
-  comment: z.string().min(1).max(1000),
-  productId: z.string().uuid().optional(),
-});
-
-const ugcPayloadSchema = z.object({
-  entries: z.array(ugcEntrySchema).max(6).optional(),
-});
-
 const textBlockPayloadSchema = z.object({
   heading: z.string().max(120).optional(),
   body: z.string().max(3000).optional(),
@@ -136,7 +129,7 @@ export const homepagePayloadSchemas: Record<HomepageSectionType, z.ZodType> = {
   [HomepageSectionType.SOLUTIONS]: solutionsPayloadSchema,
   [HomepageSectionType.PRODUCT_STORY]: productStoryPayloadSchema,
   [HomepageSectionType.ROOM_INSPIRATION]: roomPayloadSchema,
-  [HomepageSectionType.UGC]: ugcPayloadSchema,
+  [HomepageSectionType.UGC]: ugcPayloadPublishSchema,
   [HomepageSectionType.BRAND_STORY]: textBlockPayloadSchema,
   [HomepageSectionType.CONFIDENCE]: textBlockPayloadSchema,
 };

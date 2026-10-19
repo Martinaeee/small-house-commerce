@@ -66,7 +66,7 @@ const productRows = [
 ];
 
 describe("ProductGridSectionEditor", () => {
-  it("limits columns to two or four and edits product badge through product-id rows", async () => {
+  it("leaves layout to the single responsive panel and edits product badges through product-id rows", async () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({
       items: productRows,
@@ -84,14 +84,11 @@ describe("ProductGridSectionEditor", () => {
     );
 
     expect(await screen.findByText("Oak table")).toBeVisible();
-    fireEvent.change(screen.getByRole("combobox", { name: "Grid columns" }), {
-      target: { value: "2" },
-    });
+    expect(screen.queryByRole("combobox", { name: "Grid columns" })).toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Badge for Oak table" }), {
       target: { value: "New" },
     });
 
-    expect(screen.getByRole("combobox", { name: "Grid columns" })).toHaveValue("2");
     expect(screen.getByRole("textbox", { name: "Badge for Oak table" })).toHaveValue(
       "New",
     );

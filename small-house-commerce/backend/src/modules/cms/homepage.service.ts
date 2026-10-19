@@ -14,6 +14,8 @@ import {
 import { HomepageDocumentService } from './homepage-document.service.js';
 import { PrismaLinkLookup } from './homepage-link-lookup.js';
 import { verifyPreviewToken } from './homepage-preview-token.js';
+import { categoryNavigationDraftSchema } from './homepage-content-schema.js';
+import type { NavigationTarget } from './homepage-validation.js';
 
 type SectionWithProducts = Prisma.HomepageSectionGetPayload<{
   include: { products: true };
@@ -76,10 +78,24 @@ function mergeSectionStyle(
   defaults: SectionStyle,
   style: unknown,
 ): Record<string, unknown> | undefined {
-  const merged: Record<string, unknown> = { ...defaults };
-  if (style && typeof style === 'object' && !Array.isArray(style)) {
-    Object.assign(merged, style);
+  const section = style && typeof style === 'object' && !Array.isArray(style)
+    ? style as SectionStyle
+    : {};
+  const { overrides: globalOverrides, ...globalBase } = defaults;
+  const { overrides: sectionOverrides, ...sectionBase } = section;
+  const merged: Record<string, unknown> = { ...globalBase, ...sectionBase };
+  const overrides: Record<string, unknown> = {};
+  for (const device of ['tablet', 'mobile'] as const) {
+    const effective = {
+      ...globalBase, ...globalOverrides?.[device],
+      ...sectionBase, ...sectionOverrides?.[device],
+    };
+    const difference = Object.fromEntries(Object.entries(effective).filter(
+      ([key, value]) => value !== merged[key],
+    ));
+    if (Object.keys(difference).length > 0) overrides[device] = difference;
   }
+  if (Object.keys(overrides).length > 0) merged.overrides = overrides;
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
@@ -101,11 +117,13 @@ export class HomepageService {
     const sections = this.activeSections(source.sections, now);
     const productById = await this.hydrateProducts(sections);
     const heroLinks = await this.resolveHeroLinks(sections, now);
+    const navigationTargets = await this.resolveNavigationTargets(sections);
 
     return {
+      ...(source.document?.appearance === 'STUDIO_V3' ? { appearance: 'STUDIO_V3' as const } : {}),
       sections: await Promise.all(
         sections.map((section) =>
-          this.presentSection(section, productById, heroLinks, now),
+          this.presentSection(section, productById, heroLinks, navigationTargets, now),
         ),
       ),
     };
@@ -311,10 +329,29 @@ export class HomepageService {
     return new Map(hydrated.map((product) => [product.id, product]));
   }
 
+  private async resolveNavigationTargets(sections: StorefrontSection[]): Promise<Map<string, NavigationTarget>> {
+    const categoryIds = new Set<string>();
+    const collectionIds = new Set<string>();
+    for (const section of sections) {
+      if (section.type !== HomepageSectionType.CATEGORY_TILES) continue;
+      const payload = this.payloadObject(section);
+      if (!('entries' in payload)) continue;
+      const parsed = categoryNavigationDraftSchema.safeParse(payload);
+      if (!parsed.success) continue;
+      for (const entry of parsed.data.entries ?? []) {
+        if (entry.link?.type === 'CATEGORY') categoryIds.add(entry.link.id);
+        else if (entry.link?.type === 'COLLECTION') collectionIds.add(entry.link.id);
+      }
+    }
+    if (categoryIds.size === 0 && collectionIds.size === 0) return new Map();
+    return (this.links ?? new PrismaLinkLookup(this.prisma)).navigationTargets({ categoryIds: [...categoryIds], collectionIds: [...collectionIds] });
+  }
+
   private async presentSection(
     section: StorefrontSection,
     productById: Map<string, HydratedProduct>,
     heroLinks: LinkHrefs,
+    navigationTargets: Map<string, NavigationTarget>,
     now: Date,
   ) {
     const payload = this.payloadObject(section);
@@ -338,6 +375,19 @@ export class HomepageService {
     }
 
     if (section.type === HomepageSectionType.CATEGORY_TILES) {
+      if ('entries' in payload) {
+        const parsed = categoryNavigationDraftSchema.safeParse(payload);
+        const entries = parsed.success ? parsed.data.entries ?? [] : [];
+        const navigationEntries = entries.flatMap((entry) => {
+          if (!entry.link || !entry.imageUrl) return [];
+          const target = navigationTargets.get(`${entry.link.type}:${entry.link.id}`);
+          if (!target) return [];
+          const prefix = target.type === 'CATEGORY' ? 'categories' : 'collections';
+          return [{ id: entry.id, name: entry.label?.trim() || target.name, imageUrl: entry.imageUrl,
+            href: `/${prefix}/${encodeURIComponent(target.slug)}`, link: entry.link }];
+        });
+        return { ...base, payload, navigationEntries };
+      }
       const ids = Array.isArray(payload.categoryIds)
         ? payload.categoryIds.filter((x): x is string => typeof x === 'string')
         : [];
@@ -399,6 +449,7 @@ export class HomepageService {
       const nextEntries = entries.map((entry) => {
         if (!entry || typeof entry !== 'object') return entry;
         const { productId, ...rest } = entry as Record<string, unknown>;
+        if (this.isRecord(payload.presentation) && payload.presentation.layout === 'COLLAGE') delete rest.product;
         if (typeof productId !== 'string') return rest;
         const product = productById.get(productId);
         return product ? { ...rest, product } : rest;

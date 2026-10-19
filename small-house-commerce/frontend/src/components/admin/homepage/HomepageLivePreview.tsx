@@ -25,7 +25,9 @@ import type {
   HomepageSection,
   LinkValue,
 } from "@/lib/homepage-document";
-import { normalizeSectionForEditor } from "@/lib/homepage-section-normalize";
+import { normalizeSectionForEditor, readCategoryTilesPayload } from "@/lib/homepage-section-normalize";
+import { mergeSectionStyles } from "@/lib/homepage-responsive";
+import { HomepageAppearance } from "@/components/home/HomepageAppearance";
 import { HeroCanvas } from "./HeroCanvas";
 import { ANNOUNCEMENT_SELECTION_ID } from "./ModuleTree";
 import { PreviewStorefrontShell } from "./PreviewStorefrontShell";
@@ -46,7 +48,7 @@ const HERO_HEIGHTS: Record<PreviewDevice, number> = {
   mobile: 390 * 1.25,
 };
 
-function previewStyle(value: unknown): HomepageSectionStyle | undefined {
+function previewStyle(value: unknown, includeOverrides = true): HomepageSectionStyle | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const style = value as Record<string, unknown>;
   const next: HomepageSectionStyle = {};
@@ -67,6 +69,13 @@ function previewStyle(value: unknown): HomepageSectionStyle | undefined {
   if (typeof style.paddingBottom === "number") {
     next.paddingBottom = style.paddingBottom;
   }
+  if (includeOverrides && style.overrides && typeof style.overrides === "object" && !Array.isArray(style.overrides)) {
+    const overrides = style.overrides as Record<string, unknown>;
+    for (const device of ["tablet", "mobile"] as const) {
+      const fields = previewStyle(overrides[device], false);
+      if (fields) (next.overrides ??= {})[device] = fields;
+    }
+  }
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
@@ -78,8 +87,7 @@ function mergedPreviewStyle(
   defaults: unknown,
   style: unknown,
 ): HomepageSectionStyle | undefined {
-  const merged = { ...(previewStyle(defaults) ?? {}), ...(previewStyle(style) ?? {}) };
-  return Object.keys(merged).length > 0 ? merged : undefined;
+  return mergeSectionStyles(previewStyle(defaults), previewStyle(style));
 }
 
 function flattenCategories(
@@ -306,13 +314,16 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
   const categoryIdsKey = stableIdKey(
     sections.flatMap((section) => {
       if (section.type !== "CATEGORY_TILES") return [];
-      const value = (section.payload as { categoryIds?: unknown }).categoryIds;
-      return Array.isArray(value)
-        ? value.filter(
-            (id): id is string => typeof id === "string" && id.trim() !== "",
-          )
-        : [];
+      const payload = readCategoryTilesPayload(section.payload);
+      return payload.entries !== undefined
+        ? payload.entries.flatMap((entry) => entry.link?.type === "CATEGORY" ? [entry.link.id] : [])
+        : payload.categoryIds ?? [];
     }),
+  );
+  const collectionIdsKey = stableIdKey(
+    sections.flatMap((section) => section.type === "CATEGORY_TILES"
+      ? (readCategoryTilesPayload(section.payload).entries ?? []).flatMap((entry) => entry.link?.type === "COLLECTION" ? [entry.link.id] : [])
+      : []),
   );
   const productIds = useMemo(
     () => JSON.parse(productIdsKey) as string[],
@@ -326,8 +337,10 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
   const [categoriesById, setCategoriesById] = useState<
     Record<string, HomepageCategoryTile>
   >({});
+  const [navigationTargets, setNavigationTargets] = useState<PreviewCatalog["navigationTargets"]>({});
   const productRequests = useRef(new Map<string, Promise<AdminProduct | null>>());
   const categoryRequest = useRef<Promise<AdminCategoryNode[]> | null>(null);
+  const collectionRequest = useRef<ReturnType<typeof adminApi.listCollections> | null>(null);
 
   useEffect(() => {
     const currentIds = new Set(productIds);
@@ -372,7 +385,17 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
     let active = true;
     void request
       .then((categories) => {
-        if (active) setCategoriesById(flattenCategories(categories));
+        if (!active) return;
+        setCategoriesById(flattenCategories(categories));
+        const targets: PreviewCatalog["navigationTargets"] = {};
+        const visit = (nodes: AdminCategoryNode[]): void => {
+          for (const category of nodes) {
+            if (category.status === "ACTIVE") targets[`CATEGORY:${category.id}`] = { type: "CATEGORY", id: category.id, name: category.name, slug: category.slug };
+            visit(category.children);
+          }
+        };
+        visit(categories);
+        setNavigationTargets((current) => ({ ...current, ...targets }));
       })
       .catch(() => {
         if (active) categoryRequest.current = null;
@@ -382,12 +405,31 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
     };
   }, [categoryIds]);
 
-  return { productsById, categoriesById };
+  useEffect(() => {
+    if (collectionIdsKey === "[]") return;
+    const request = collectionRequest.current ?? adminApi.listCollections();
+    collectionRequest.current = request;
+    let active = true;
+    void request.then(({ items }) => {
+      if (!active) return;
+      const targets: PreviewCatalog["navigationTargets"] = {};
+      for (const collection of items) {
+        if (collection.status === "ACTIVE") targets[`COLLECTION:${collection.id}`] = { type: "COLLECTION", id: collection.id, name: collection.name, slug: collection.slug };
+      }
+      setNavigationTargets((current) => ({ ...current, ...targets }));
+    }).catch(() => {
+      if (active) collectionRequest.current = null;
+    });
+    return () => { active = false; };
+  }, [collectionIdsKey]);
+
+  return { productsById, categoriesById, navigationTargets };
 }
 
 type PreviewCatalog = {
   productsById: Record<string, AdminProduct>;
   categoriesById: Record<string, HomepageCategoryTile>;
+  navigationTargets: Record<string, { type: "CATEGORY" | "COLLECTION"; id: string; name: string; slug: string }>;
 };
 
 function previewSection(
@@ -416,6 +458,17 @@ function previewSection(
     const category = catalog.categoriesById[id];
     return category ? [category] : [];
   });
+
+  const navigationEntries = section.type === "CATEGORY_TILES" && "entries" in sourcePayload
+    ? (readCategoryTilesPayload(sourcePayload).entries ?? []).flatMap((entry) => {
+        if (!entry.link || !entry.imageUrl) return [];
+        const target = catalog.navigationTargets[`${entry.link.type}:${entry.link.id}`];
+        if (!target) return [];
+        const prefix = target.type === "CATEGORY" ? "categories" : "collections";
+        return [{ id: entry.id, name: entry.label?.trim() || target.name, imageUrl: entry.imageUrl,
+          href: `/${prefix}/${encodeURIComponent(target.slug)}`, link: entry.link }];
+      })
+    : undefined;
 
   if (section.type === "PRODUCT_STORY" && typeof sourcePayload.productId === "string") {
     const product = catalog.productsById[sourcePayload.productId];
@@ -459,14 +512,14 @@ function previewSection(
     payload,
     style: mergedPreviewStyle(defaults, section.style),
     products,
-    categories,
+    ...(navigationEntries !== undefined ? { navigationEntries } : { categories }),
   };
 }
 
 function unresolvedJoinIds(
   section: Exclude<HomepageSection, { type: "HERO" }>,
   catalog: PreviewCatalog,
-): { kind: "products" | "categories"; ids: string[] } | null {
+): { kind: "products" | "categories" | "navigation"; ids: string[] } | null {
   if (section.type === "PRODUCT_GRID") {
     const ids = section.products
       .map((product) => product.productId)
@@ -477,6 +530,11 @@ function unresolvedJoinIds(
     return ids.length > 0 ? { kind: "products", ids } : null;
   }
   if (section.type === "CATEGORY_TILES") {
+    if ("entries" in section.payload) {
+      const entries = readCategoryTilesPayload(section.payload).entries ?? [];
+      const ids = entries.filter((entry) => !entry.imageUrl || !entry.link || !catalog.navigationTargets[`${entry.link.type}:${entry.link.id}`]).map((entry) => entry.id);
+      return entries.length === 0 || ids.length > 0 ? { kind: "navigation", ids } : null;
+    }
     const value = (section.payload as { categoryIds?: unknown }).categoryIds;
     const ids = Array.isArray(value)
       ? value.filter(
@@ -492,7 +550,7 @@ function PreviewJoinNotice({
   kind,
   ids,
 }: {
-  kind: "products" | "categories";
+  kind: "products" | "categories" | "navigation";
   ids: string[];
 }): ReactNode {
   return (
@@ -503,7 +561,9 @@ function PreviewJoinNotice({
       <p>
         {kind === "products"
           ? "Selected products are unavailable in this preview."
-          : "Selected categories are unavailable in this preview."}
+          : kind === "navigation"
+            ? "Selected homepage entries need images and available targets."
+            : "Selected categories are unavailable in this preview."}
       </p>
       <ul className="mt-2 flex flex-wrap gap-2 text-xs text-ink-muted">
         {ids.map((id) => (
@@ -522,14 +582,21 @@ function renderSection(
   catalog: PreviewCatalog,
   defaults: unknown,
   device: PreviewDevice,
+  appearance?: HomepageDocument["appearance"],
 ): ReactNode {
   const Renderer = SECTION_REGISTRY[section.type] as ComponentType<SectionProps>;
   const storefrontSection = previewSection(section, catalog, defaults);
+  if (storefrontSection.style) {
+    const { overrides, ...common } = storefrontSection.style;
+    storefrontSection.style = { ...common, ...(device === "desktop" ? {} : overrides?.[device]) };
+  }
   const unresolved = unresolvedJoinIds(section, catalog);
   const hideEmptyJoinRenderer =
     unresolved !== null &&
     ((section.type === "PRODUCT_GRID" && storefrontSection.products?.length === 0) ||
-      (section.type === "CATEGORY_TILES" && storefrontSection.categories?.length === 0));
+      (section.type === "CATEGORY_TILES" && (storefrontSection.navigationEntries !== undefined
+        ? storefrontSection.navigationEntries.length === 0
+        : storefrontSection.categories?.length === 0)));
   const showEmptyUspTitle =
     section.type === "USP" &&
     (!Array.isArray(storefrontSection.payload.items) ||
@@ -540,6 +607,7 @@ function renderSection(
     <div
       key={section.id}
       data-preview-section={section.type}
+      data-homepage-section-type={section.type}
       data-preview-section-id={section.id}
       className="min-w-0 shrink-0"
     >
@@ -550,7 +618,7 @@ function renderSection(
       ) : null}
       {unresolved ? <PreviewJoinNotice {...unresolved} /> : null}
       {!hideEmptyJoinRenderer ? (
-        <Renderer section={storefrontSection} previewDevice={device} interactionMode="preview" />
+        <Renderer section={storefrontSection} previewDevice={device} appearance={appearance} interactionMode="preview" />
       ) : null}
     </div>
   );
@@ -591,11 +659,14 @@ export function HomepageLivePreview({
   document,
   device,
   selectedSectionId,
+  compareCurrentAppearance = false,
 }: {
   document: HomepageDocument;
   device: PreviewDevice;
   selectedSectionId: string | null;
+  compareCurrentAppearance?: boolean;
 }): ReactNode {
+  const appearance = compareCurrentAppearance ? undefined : document.appearance;
   const previewRef = useRef<HTMLDivElement>(null);
   const shellData = useHomepagePreviewShellData();
   const announcement = useMemo(
@@ -665,21 +736,24 @@ export function HomepageLivePreview({
         announcement={announcement}
         device={device}
       >
-        {sections.map((section) =>
-          section.type === "HERO" ? (
-            <div
-              key={section.id}
-              data-preview-section="HERO"
-              data-preview-section-id={section.id}
-              className="relative min-w-0 shrink-0"
-              style={{ height: HERO_HEIGHTS[device] }}
-            >
-              <HeroCanvas style={mergedPreviewStyle(document.defaults, section.style)} />
-            </div>
-          ) : (
-            renderSection(section, catalog, document.defaults, device)
-          ),
-        )}
+        <HomepageAppearance appearance={appearance} previewDevice={device}>
+          {sections.map((section) =>
+            section.type === "HERO" ? (
+              <div
+                key={section.id}
+                data-preview-section="HERO"
+                data-homepage-section-type="HERO"
+                data-preview-section-id={section.id}
+                className="relative min-w-0 shrink-0"
+                style={{ height: ((device === "desktop" ? undefined : section.payload.display?.overrides?.[device]?.heightMode) ?? section.payload.display?.heightMode) === undefined ? HERO_HEIGHTS[device] : undefined }}
+              >
+                <HeroCanvas style={mergedPreviewStyle(document.defaults, section.style)} previewViewportHeight={DEVICE_HEIGHTS[device]} />
+              </div>
+            ) : (
+              renderSection(section, catalog, document.defaults, device, appearance)
+            ),
+          )}
+        </HomepageAppearance>
       </PreviewStorefrontShell>
     </div>
   );

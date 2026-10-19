@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import studioStyles from "./HomepageStudio.module.css";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
@@ -406,6 +407,11 @@ function renderHarnessWithDocument(document: HomepageDocument) {
   );
 }
 
+function selectPreviewDevice(view: "desktop" | "tablet" | "mobile"): void {
+  const labels = { desktop: "Desktop", tablet: "Tablet", mobile: "Mobile" };
+  fireEvent.click(within(screen.getByRole("group", { name: "Preview device" })).getByRole("button", { name: labels[view] }));
+}
+
 function renderEditor() {
   return render(
     <AdminI18nProvider>
@@ -438,11 +444,33 @@ describe("HomepageEditor", () => {
       publishAt: "2026-10-01T09:30:00.000Z",
     });
     hasPermission.mockReturnValue(true);
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, writable: true, value: vi.fn() });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("compares only the canvas, keeps autosave idle and offers a visible way to stop comparing", async () => {
+    vi.useFakeTimers();
+    const document = documentWithUsp();
+    document.appearance = "STUDIO_V3";
+    const { container } = renderHarnessWithDocument(document);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "select-defaults" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Compare current appearance" }));
+    expect(container.querySelector("[data-homepage-appearance]")).toBeNull();
+    const toolbar = screen.getByRole("group", { name: "Preview device" });
+    expect(within(toolbar).getByText("Preview only: current appearance")).toBeVisible();
+    expect(screen.getByTestId("dirty")).toHaveTextContent("clean");
+    await advance(5000);
+    expect(saveHomepageDraft).not.toHaveBeenCalled();
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Stop comparing" }));
+    expect(container.querySelector('[data-homepage-appearance="STUDIO_V3"]')).not.toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Compare current appearance" })).not.toBeChecked();
+    expect(screen.getByTestId("dirty")).toHaveTextContent("clean");
   });
 
   it("loads the draft on mount and renders the three panes with the status bar", async () => {
@@ -475,21 +503,45 @@ describe("HomepageEditor", () => {
     expect(screen.getByText("Published")).toBeVisible();
 
     expect(screen.getByRole("button", { name: "Save Draft" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview Draft" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Independent preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Versions" })).toHaveAttribute(
       "href",
       "/admin/homepage/versions",
     );
 
-    expect(screen.getByTestId("homepage-status-bar")).toHaveClass(
-      "sticky",
-      "top-14",
-      "z-10",
-    );
+    expect(screen.getByTestId("homepage-status-bar").closest("[data-studio-columns]")).toBeNull();
 
     const style = document.querySelector("style");
     expect(style?.textContent).toContain(`#hp-hero-${HERO_SECTION_ID}`);
+  });
+
+  it("reveals the settings workspace and the exact navigation row from a publish issue", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const draft = documentWithUsp();
+    draft.sections.push({ ...draft.sections[1], id: "navigation-section", type: "CATEGORY_TILES", payload: { entries: [{ id: "navigation-entry", imageUrl: "/uploads/nav.jpg", link: null }], presentation: "CIRCLES" } });
+    getHomepageDraft.mockResolvedValue(draftSnapshot({ draft }));
+    validateHomepage.mockResolvedValue({ errors: [{ severity: "ERROR", code: "NAVIGATION_TARGET_UNAVAILABLE", message: "Entry needs a target.", sectionId: "navigation-section", entryId: "navigation-entry" }], warnings: [] });
+    renderEditor();
+    await flush();
+    fireEvent.click(screen.getByRole("tab", { name: "Live Preview" }));
+    expect(document.querySelector('[data-pane="settings"]')).toHaveAttribute("data-pane-active", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
+    await flush();
+    const pane = document.querySelector<HTMLElement>("[data-homepage-settings-scroll]")!;
+    const scroll = vi.fn();
+    pane.scrollTo = scroll;
+    act(() => {
+      for (let frame = 0; frame < 2; frame += 1) frames.splice(0).forEach((callback) => callback(0));
+    });
+    expect(pane.closest('[data-pane="settings"]')).toHaveAttribute("data-pane-active", "true");
+    expect(pane.querySelector('[data-entry-id="navigation-entry"]')).not.toBeNull();
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Publish homepage" })).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("does not save or validate until the publish dialog is opened", async () => {
@@ -684,6 +736,26 @@ describe("HomepageEditor", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps undo and redo in the page actions and uses the shared document history", async () => {
+    renderHarness();
+    await flush();
+    const actions = within(screen.getByTestId("homepage-status-bar"));
+    const undo = actions.getByRole("button", { name: "Undo" });
+    const redo = actions.getByRole("button", { name: "Redo" });
+    expect(undo).toBeDisabled();
+    expect(redo).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5001");
+    expect(undo).toBeEnabled();
+    fireEvent.click(undo);
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5000");
+    expect(undo).toBeDisabled();
+    expect(redo).toBeEnabled();
+    fireEvent.click(redo);
+    expect(screen.getByTestId("rotation")).toHaveTextContent("5001");
+    expect(redo).toBeDisabled();
+  });
+
   it("undo/redo shortcuts walk the history and ignore unrelated keys", async () => {
     renderHarness();
     await flush();
@@ -744,6 +816,25 @@ describe("HomepageEditor", () => {
     expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps all Hero editing groups reachable through right-pane shortcuts", async () => {
+    renderHarness();
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "select-slide" }));
+    const settings = document.querySelector<HTMLElement>('[data-pane="settings"]')!;
+    const shortcuts = within(settings).getByRole("navigation", { name: "Hero settings shortcuts" });
+    for (const name of ["Page layout", "Text", "Buttons and links", "Images and video"]) {
+      expect(within(shortcuts).getByRole("button", { name })).toBeVisible();
+    }
+    fireEvent.click(within(shortcuts).getByRole("button", { name: "Buttons and links" }));
+    expect(settings.querySelector('details[data-settings-group="buttons"]')).toHaveAttribute("open");
+    for (const key of ["eyebrow", "heading", "subheading", "offer", "countdown", "ctaPrimary", "ctaSecondary"]) {
+      expect(settings.querySelector(`[data-hero-element="${key}"] textarea`)).not.toBeNull();
+    }
+    fireEvent.click(within(shortcuts).getByRole("button", { name: "Images and video" }));
+    expect(settings.querySelector('[data-panel="hero-media-settings"]')).not.toBeNull();
+    expect(settings.querySelector('[data-hero-element="ctaPrimary"] textarea')).not.toBeNull();
+  });
+
   it("routes the settings pane by selection priority", async () => {
     renderHarness();
     await flush();
@@ -751,20 +842,27 @@ describe("HomepageEditor", () => {
     const panel = (name: string): Element | null =>
       document.querySelector(`[data-panel="${name}"]`);
 
-    // Nothing selected yet: the hero style (section/slide) panel is the default.
+    // Hero controls coexist; selection opens the relevant group.
+    expect(panel("hero-settings")).not.toBeNull();
     expect(panel("hero-style-settings")).not.toBeNull();
-    expect(panel("hero-media-settings")).toBeNull();
-    expect(panel("settings-panel")).toBeNull();
+    expect(panel("hero-media-settings")).not.toBeNull();
+    expect(panel("settings-panel")).not.toBeNull();
+    expect(panel("section-display-settings")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "select-element" }));
     expect(panel("settings-panel")).not.toBeNull();
-    expect(panel("hero-media-settings")).toBeNull();
-    expect(panel("hero-style-settings")).toBeNull();
+    expect(panel("hero-media-settings")).not.toBeNull();
+    expect(panel("hero-style-settings")).not.toBeNull();
+    expect(panel("section-display-settings")).not.toBeNull();
+    expect(document.querySelector('[data-settings-group="text"]')).toHaveAttribute("open");
+    expect(within(document.querySelector<HTMLElement>('fieldset[data-hero-element="heading"]')!).getByRole("textbox", { name: "Text" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "select-slide" }));
     expect(panel("hero-media-settings")).not.toBeNull();
     expect(panel("hero-style-settings")).not.toBeNull();
-    expect(panel("settings-panel")).toBeNull();
+    expect(panel("section-display-settings")).not.toBeNull();
+    expect(panel("settings-panel")).not.toBeNull();
+    expect(document.querySelector('[data-settings-group="media"]')).toHaveAttribute("open");
 
     fireEvent.click(screen.getByRole("button", { name: "select-announcement" }));
     expect(panel("announcement-settings")).not.toBeNull();
@@ -797,7 +895,54 @@ describe("HomepageEditor", () => {
 
     expect(screen.getByTestId("selected-element")).toHaveTextContent("");
     expect(document.querySelector('[data-panel="hero-media-settings"]')).not.toBeNull();
-    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(document.querySelector('[data-settings-group="media"]')).toHaveAttribute("open");
+    expect(document.querySelector('[data-hero-element="heading"] textarea')).not.toBeNull();
+  });
+
+  it("labels the editing canvas with the real device width and the scale it applied", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 300,
+      height: 600,
+    } as DOMRect);
+
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    const metrics = (): string | null =>
+      document.querySelector("[data-preview-metrics]")?.textContent ?? null;
+
+    // The desktop frame is 1440 wide; a 300px frame box is 20.83% → 21%.
+    await act(async () => {});
+    expect(metrics()).toBe("Scaled editing preview · 1440px · 21%");
+
+    selectPreviewDevice("mobile");
+    expect(metrics()).toBe("Scaled editing preview · 390px · 71%");
+  });
+
+  it("lays out the V3 toolbar with icon device segments, live metrics and a compact independent preview action", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+
+    const toolbar = document.querySelector('[data-panel-head="preview"]');
+    expect(toolbar).not.toBeNull();
+    const segments = toolbar!.querySelector("[data-device-segments]");
+    expect(segments).not.toBeNull();
+    const deviceButtons = within(segments as HTMLElement).getAllByRole("button");
+    expect(deviceButtons).toHaveLength(3);
+    for (const button of deviceButtons) {
+      expect(button.querySelector("svg")).not.toBeNull();
+    }
+    expect(within(segments as HTMLElement).getByRole("button", { name: "Desktop" })).toHaveAttribute("aria-pressed", "true");
+
+    const metrics = within(toolbar as HTMLElement).getByText(/^Scaled editing preview · 1440px · \d+%$/);
+    const preview = within(toolbar as HTMLElement).getByRole("button", { name: "Independent preview" });
+    expect(preview.querySelector("svg")).not.toBeNull();
+    expect(preview.className).toContain("bg-cta");
+
+    // Design order inside the single toolbar row: device segments → metrics → action.
+    const order = Array.from(toolbar!.querySelectorAll("[data-preview-metrics], [data-device-segments], button"));
+    expect(order.indexOf(segments as Element)).toBeLessThan(order.indexOf(metrics));
+    expect(order.indexOf(metrics)).toBeLessThan(order.indexOf(preview));
   });
 
   it("routes a selected non-HERO section to the typed section editor and clears Hero selection", async () => {
@@ -841,8 +986,9 @@ describe("HomepageEditor", () => {
     expect(shell).toHaveStyle({ backgroundColor: "#F2EFE9", paddingTop: "40px" });
   });
 
-  it("applies homepage defaults to Hero in the live preview", async () => {
+  it("applies homepage defaults to an unstyled Hero in the live preview", async () => {
     const draft = emptyDocument();
+    delete draft.sections[0].style;
     draft.defaults = {
       backgroundColor: "#F2EFE9",
       textColor: "#112233",
@@ -963,7 +1109,7 @@ describe("HomepageEditor", () => {
       targetHeight: 100,
       scale: 0.42,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+    selectPreviewDevice("mobile");
 
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 2128 });
   });
@@ -1051,7 +1197,12 @@ describe("HomepageEditor", () => {
     expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
   });
 
-  it("uses the storefront-equivalent Hero height for each preview device", async () => {
+  it("preserves the legacy storefront-equivalent Hero height without display settings", async () => {
+    const draft = emptyDocument();
+    const heroSection = draft.sections[0];
+    if (heroSection.type !== "HERO") throw new Error("fixture requires HERO");
+    delete heroSection.payload.display;
+    getHomepageDraft.mockResolvedValueOnce(draftSnapshot({ draft }));
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
@@ -1062,11 +1213,23 @@ describe("HomepageEditor", () => {
     );
     expect(hero).toHaveStyle({ height: "648px" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
+    selectPreviewDevice("tablet");
     expect(hero).toHaveStyle({ height: "960px" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+    selectPreviewDevice("mobile");
     expect(hero).toHaveStyle({ height: "487.5px" });
+  });
+
+  it("lets new SCREEN Heroes grow instead of fixing their preview wrapper height", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+    fireEvent.click(screen.getByRole("tab", { name: "Live Preview" }));
+    const hero = document.querySelector<HTMLElement>('[data-preview-section="HERO"]')!;
+    expect(hero.style.height).toBe("");
+    for (const name of ["Tablet", "Mobile"]) {
+      selectPreviewDevice(name === "Tablet" ? "tablet" : "mobile");
+      expect(hero.style.height).toBe("");
+    }
   });
 
   it("switches the full-width preview device without a device frame", async () => {
@@ -1084,11 +1247,11 @@ describe("HomepageEditor", () => {
     expect(viewport).toHaveStyle({ width: "1440px", height: "900px" });
     expect(viewport).toHaveStyle({ transform: "scale(0.42)" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
+    selectPreviewDevice("tablet");
     expect(viewport).toHaveStyle({ width: "768px", height: "1024px" });
     expect(surface).toHaveAttribute("data-preview-device", "tablet");
 
-    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+    selectPreviewDevice("mobile");
     expect(viewport).toHaveStyle({ width: "390px", height: "844px" });
     expect(surface).toHaveAttribute("data-preview-device", "mobile");
   });
@@ -1111,21 +1274,49 @@ describe("HomepageEditor", () => {
     const modulesPane = document.querySelector('[data-pane="modules"]');
     const previewPane = document.querySelector('[data-pane="preview"]');
     const settingsPane = document.querySelector('[data-pane="settings"]');
-    // Narrow layout: only the active pane is visible, through the
-    // `max-[1279px]:hidden` class (Tailwind v4 preflight makes the `hidden`
-    // attribute `!important`, so it can never be used with the desktop grid).
-    expect(modulesPane).not.toHaveClass(/max-\[1279px\]\:hidden/);
-    expect(previewPane).toHaveClass(/max-\[1279px\]\:hidden/);
-    expect(settingsPane).toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(modulesPane).not.toHaveClass(studioStyles.inactive);
+    expect(previewPane).toHaveClass(studioStyles.inactive);
+    expect(settingsPane).toHaveClass(studioStyles.inactive);
 
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(modulesPane).toHaveClass(/max-\[1279px\]\:hidden/);
-    expect(settingsPane).not.toHaveClass(/max-\[1279px\]\:hidden/);
-    expect(previewPane).toHaveClass(/max-\[1279px\]\:hidden/);
+    expect(modulesPane).toHaveClass(studioStyles.inactive);
+    expect(settingsPane).not.toHaveClass(studioStyles.inactive);
+    expect(previewPane).toHaveClass(studioStyles.inactive);
     expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+  });
+
+  it("keeps the settings scroll marker on one body below its fixed panel header", async () => {
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+    const settings = document.querySelector<HTMLElement>('[data-pane="settings"]')!;
+    const bodies = settings.querySelectorAll<HTMLElement>("[data-homepage-settings-scroll]");
+    expect(settings).not.toHaveAttribute("data-homepage-settings-scroll");
+    expect(bodies).toHaveLength(1);
+    expect(settings.querySelector('[data-panel-head="settings"]')).not.toBeNull();
+    expect(bodies[0].contains(settings.querySelector('[data-panel-head="settings"]'))).toBe(false);
+  });
+
+  it("keeps the current settings target and device in the fixed header without editing the draft", async () => {
+    const fixture = documentWithUsp();
+    fixture.sections.find((section) => section.type === "USP")!.title = "Room details";
+    renderHarnessWithDocument(fixture);
+    await flush();
+    const header = document.querySelector<HTMLElement>('[data-panel-head="settings"]')!;
+    expect(header).toHaveTextContent("Desktop");
+    fireEvent.click(screen.getByRole("button", { name: "select-nonhero" }));
+    expect(within(header).getByRole("heading", { name: "Room details" })).toBeVisible();
+    selectPreviewDevice("mobile");
+    expect(header).toHaveTextContent("Mobile");
+    fireEvent.click(screen.getByRole("button", { name: "select-defaults" }));
+    expect(within(header).getByRole("heading", { name: /Homepage defaults/i })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "select-announcement" }));
+    expect(within(header).getByRole("heading", { name: /Announcement/i })).toBeVisible();
+    expect(header).toHaveTextContent("Mobile");
+    expect(screen.getByTestId("dirty")).toHaveTextContent("clean");
+    expect(saveHomepageDraft).not.toHaveBeenCalled();
   });
 
   it("gives each desktop pane an independent scroll container", async () => {
@@ -1133,19 +1324,37 @@ describe("HomepageEditor", () => {
     await screen.findByRole("button", { name: "Save Draft" });
 
     const shell = document.querySelector("[data-homepage-editor-shell]");
-    expect(shell).not.toBeNull();
-    expect(shell).toHaveClass("min-[1280px]:h-[calc(100vh-3.5rem)]");
-    expect(shell).toHaveClass("min-[1280px]:overflow-hidden");
-
-    const status = screen.getByTestId("homepage-status-bar");
-    expect(status).toHaveClass("min-[1280px]:top-0");
+    expect(shell).toHaveClass(studioStyles.studio);
+    const columns = document.querySelector("[data-studio-columns]");
+    expect(columns).toHaveClass(studioStyles.columns);
+    expect(columns?.contains(screen.getByTestId("homepage-status-bar"))).toBe(false);
 
     for (const name of ["modules", "preview", "settings"]) {
       const pane = document.querySelector(`[data-pane="${name}"]`);
-      expect(pane).toHaveClass("min-[1280px]:min-h-0");
-      expect(pane).toHaveClass("min-[1280px]:overflow-y-auto");
-      expect(pane).toHaveClass("min-[1280px]:overscroll-contain");
+      expect(pane).toHaveClass(studioStyles.panel);
+      const body = pane?.querySelector(`[data-panel-body="${name}"]`);
+      expect(body).not.toBeNull();
+      if (name === "preview") {
+        expect(body?.querySelector("[data-homepage-live-preview]")).toHaveClass("overflow-y-auto");
+      } else {
+        expect(body).toHaveClass(studioStyles.panelBody);
+      }
     }
+    expect(document.querySelector('[data-panel-head="modules"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel-head="preview"]')).toBe(screen.getByRole("group", { name: "Preview device" }));
+  });
+
+  it("clamps keyboard rail resizing to 360–560 without changing the draft", async () => {
+    renderHarness();
+    await flush();
+    const separator = screen.getByRole("separator", { name: "Resize settings panel" });
+    for (let step = 0; step < 20; step += 1) fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(separator).toHaveAttribute("aria-valuenow", "560");
+    expect(document.querySelector("[data-studio-columns]")).toHaveStyle({ "--homepage-settings-width": "560px" });
+    for (let step = 0; step < 20; step += 1) fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator).toHaveAttribute("aria-valuenow", "360");
+    expect(document.querySelector("[data-studio-columns]")).toHaveStyle({ "--homepage-settings-width": "360px" });
+    expect(screen.getByTestId("dirty")).toHaveTextContent("clean");
   });
 
   it("resizes the settings pane and keeps the preview surface flat", async () => {
@@ -1153,9 +1362,9 @@ describe("HomepageEditor", () => {
     await screen.findByRole("button", { name: "Save Draft" });
 
     const separator = screen.getByRole("separator", { name: "Resize settings panel" });
-    expect(separator).toHaveAttribute("aria-valuenow", "440");
+    expect(separator).toHaveAttribute("aria-valuenow", "360");
     fireEvent.keyDown(separator, { key: "ArrowLeft" });
-    expect(separator).toHaveAttribute("aria-valuenow", "456");
+    expect(separator).toHaveAttribute("aria-valuenow", "376");
 
     const surface = document.querySelector("[data-preview-surface]");
     expect(surface).not.toBeNull();
@@ -1166,15 +1375,11 @@ describe("HomepageEditor", () => {
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
-    // Tailwind v4 preflight maps `[hidden]` to `display: none !important`
-    // (a bare `min-[1280px]:block` cannot override it), so a pane that keeps
-    // the hidden attribute stays invisible in the desktop three-pane grid.
-    // The desktop layout must rely on classes alone.
     for (const name of ["modules", "preview", "settings"]) {
       const pane = document.querySelector(`[data-pane="${name}"]`);
       expect(pane).not.toBeNull();
       expect(pane).not.toHaveAttribute("hidden");
-      expect(pane).toHaveClass(/min-\[1280px\]\:block/);
+      expect(pane).toHaveClass(studioStyles.panel);
     }
   });
 
@@ -1226,7 +1431,51 @@ describe("HomepageEditor", () => {
     );
   });
 
-  it("opens the draft preview with a fresh token in a new tab", async () => {
+  it("opens tablet preview from the device toolbar rather than the save and publish bar", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    renderEditor();
+    await screen.findByRole("button", { name: "Save Draft" });
+    const toolbar = screen.getByRole("group", { name: "Preview device" });
+    selectPreviewDevice("tablet");
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Independent preview" }));
+    await flush();
+    expect(open).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("&view=tablet"), "_blank", "noopener,noreferrer");
+    expect(screen.getAllByRole("button", { name: "Independent preview" })).toHaveLength(1);
+    expect(screen.getByTestId("homepage-status-bar")).not.toHaveTextContent("Independent preview");
+  });
+
+  it("keeps the requested tablet view and fallback label if the device changes while signing", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    let resolveToken!: (value: { token: string; expiresInMs: number }) => void;
+    createHomepagePreviewToken.mockImplementationOnce(() => new Promise((resolve) => { resolveToken = resolve; }));
+    renderEditor();
+    await flush();
+    selectPreviewDevice("tablet");
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
+    await flush();
+    selectPreviewDevice("mobile");
+    await act(async () => { resolveToken({ token: "tablet-request", expiresInMs: 1800000 }); });
+    expect(String(open.mock.calls[0][0])).toContain("&view=tablet");
+    expect(screen.getByRole("link", { name: "Open ready preview · Tablet" })).toHaveAttribute("href", expect.stringContaining("&view=tablet"));
+  });
+
+  it("does not open a token if only the saved revision changes during signing", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    let resolveToken!: (value: { token: string; expiresInMs: number }) => void;
+    createHomepagePreviewToken.mockImplementationOnce(() => new Promise((resolve) => { resolveToken = resolve; }));
+    renderEditor();
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
+    await flush();
+    await act(async () => { resolveToken({ token: "earlier-revision", expiresInMs: 1800000 }); });
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
+    expect(screen.getByText("The draft changed or could not be saved. Save it and try preview again.")).toBeVisible();
+  });
+
+  it.each(["desktop", "tablet", "mobile"] as const)("opens a signed %s preview and retains a manual link even if noopener returns null", async (view) => {
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     createHomepagePreviewToken.mockResolvedValue({
       token: "tok a/b+c=",
@@ -1235,29 +1484,33 @@ describe("HomepageEditor", () => {
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview Draft" }));
+    selectPreviewDevice(view);
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
     await flush();
 
     expect(createHomepagePreviewToken).toHaveBeenCalledTimes(1);
     expect(openSpy).toHaveBeenCalledTimes(1);
     const [url, target, features] = openSpy.mock.calls[0];
-    expect(url).toBe(
-      `/preview/homepage?token=${encodeURIComponent("tok a/b+c=")}`,
-    );
+    expect(url).toBe(`/preview/homepage?token=${encodeURIComponent("tok a/b+c=")}&view=${view}`);
+    const manual = screen.getByRole("link", { name: /^Open ready preview/ });
+    expect(manual).toHaveAttribute("href", String(url));
+    expect(manual).toHaveAttribute("rel", "noopener noreferrer");
+    expect(manual).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(target).toBe("_blank");
     expect(features).toContain("noopener");
     expect(features).toContain("noreferrer");
     openSpy.mockRestore();
   });
 
-  it("saves a dirty draft before minting its preview token", async () => {
+  it.each(["desktop", "tablet", "mobile"] as const)("saves a dirty draft before minting its token for %s", async (view) => {
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     renderHarness();
-    await screen.findByRole("button", { name: "Preview Draft" });
+    await screen.findByRole("button", { name: "Independent preview" });
+    selectPreviewDevice(view);
 
     fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
     expect(screen.getByTestId("dirty")).toHaveTextContent("dirty");
-    fireEvent.click(screen.getByRole("button", { name: "Preview Draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
     await flush();
 
     expect(saveHomepageDraft).toHaveBeenCalledTimes(1);
@@ -1269,7 +1522,71 @@ describe("HomepageEditor", () => {
     openSpy.mockRestore();
   });
 
-  it("disables the preview button for the session when the token endpoint answers 503", async () => {
+  it.each([409, 500])("neither signs nor opens when preview's save fails with %s", async (status) => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    saveHomepageDraft.mockRejectedValue(new AdminApiError("Save failed", status));
+    renderHarness(); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    selectPreviewDevice("mobile");
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
+    await flush();
+    expect(createHomepagePreviewToken).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Independent preview" })).toBeEnabled();
+  });
+
+  it("disables the independent action while signing and invalidates the ready link after another edit", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    let resolveToken!: (value: { token: string; expiresInMs: number }) => void;
+    createHomepagePreviewToken.mockImplementationOnce(() => new Promise((resolve) => { resolveToken = resolve; }));
+    renderHarness(); await flush();
+    selectPreviewDevice("mobile");
+    const preview = screen.getByRole("button", { name: "Independent preview" });
+    fireEvent.click(preview); await flush();
+    expect(preview).toBeDisabled();
+    fireEvent.click(preview);
+    expect(createHomepagePreviewToken).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveToken({ token: "signed", expiresInMs: 1800000 }); });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("link", { name: /^Open ready preview/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
+  });
+
+  it("does not open an older document if edits continue during both save attempts", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    const saves: Array<(result: ReturnType<typeof savedResponse>) => void> = [];
+    saveHomepageDraft.mockImplementation(() => new Promise((resolve) => { saves.push(resolve); }));
+    renderHarness(); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    selectPreviewDevice("mobile");
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" })); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    await act(async () => { saves[0](savedResponse(6)); });
+    expect(saves).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    await act(async () => { saves[1](savedResponse(7)); });
+    expect(createHomepagePreviewToken).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
+    expect(screen.getByText("The draft changed or could not be saved. Save it and try preview again.")).toBeVisible();
+  });
+
+  it("does not open when the draft changes while the token is in flight", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    let resolveToken!: (value: { token: string; expiresInMs: number }) => void;
+    createHomepagePreviewToken.mockImplementationOnce(() => new Promise((resolve) => { resolveToken = resolve; }));
+    renderHarness(); await flush();
+    selectPreviewDevice("mobile");
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" })); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "commit-change" }));
+    await act(async () => { resolveToken({ token: "old", expiresInMs: 1800000 }); });
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
+  });
+
+  it("disables the preview buttons for the session when the token endpoint answers 503", async () => {
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     createHomepagePreviewToken.mockRejectedValue(
       new AdminApiError("Homepage preview is not configured", 503),
@@ -1277,13 +1594,15 @@ describe("HomepageEditor", () => {
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
-    const button = screen.getByRole("button", { name: "Preview Draft" });
+    const button = screen.getByRole("button", { name: "Independent preview" });
     fireEvent.click(button);
     await flush();
 
     expect(openSpy).not.toHaveBeenCalled();
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("title", "Preview is not configured");
+    expect(screen.getByRole("button", { name: "Independent preview" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /^Open ready preview/ })).toBeNull();
 
     fireEvent.click(button);
     await flush();
@@ -1299,11 +1618,11 @@ describe("HomepageEditor", () => {
     renderEditor();
     await screen.findByRole("button", { name: "Save Draft" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview Draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Independent preview" }));
     await flush();
 
     expect(screen.getByText("Token service exploded")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview Draft" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Independent preview" })).toBeEnabled();
     expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
   });

@@ -1105,6 +1105,7 @@ export type PublishIssue = {
   message: string;
   sectionId?: string;
   slideId?: string;
+  entryId?: string;
   announcementItemId?: string;
 };
 

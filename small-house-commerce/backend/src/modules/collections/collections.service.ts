@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import { ProductsService } from '../catalog/products.service.js';
 import { saveHeroStyle, loadHeroStyles } from '../catalog/hero-style.util.js';
 import type {
@@ -188,7 +189,7 @@ export class CollectionsService {
       throw new BadRequestException('A collection with this slug already exists');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const collection = await tx.collection.create({
         data: {
           ...data,
@@ -204,6 +205,8 @@ export class CollectionsService {
       await saveHeroStyle(tx, 'COLLECTION', collection.id, heroStyle);
       return collection;
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    return result;
   }
 
   async update(id: string, input: UpdateCollectionInput) {
@@ -213,7 +216,7 @@ export class CollectionsService {
       throw new NotFoundException('Collection not found');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (data.slug) {
         const clash = await tx.collection.findUnique({ where: { slug: data.slug } });
         if (clash && clash.id !== id) {
@@ -240,6 +243,8 @@ export class CollectionsService {
       await saveHeroStyle(tx, 'COLLECTION', id, heroStyle);
       return collection;
     });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    return result;
   }
 
   async remove(id: string) {
@@ -248,6 +253,7 @@ export class CollectionsService {
       throw new NotFoundException('Collection not found');
     }
     await this.prisma.collection.delete({ where: { id } });
+    await revalidateCache([CACHE_TAGS.STOREFRONT]);
     return { id };
   }
 }

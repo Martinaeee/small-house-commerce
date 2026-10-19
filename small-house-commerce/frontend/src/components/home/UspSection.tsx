@@ -51,23 +51,23 @@ export function UspSection({ section, previewDevice }: SectionProps) {
         : "grid grid-cols-2 gap-4 md:grid-cols-4";
   if (items.length === 0) {
     return (
-      <SectionShell className="py-10" style={section.style}>
+      <SectionShell className="py-10" style={section.style} previewDevice={previewDevice}>
         <TrustBar previewDevice={previewDevice} />
       </SectionShell>
     );
   }
 
   return (
-    <SectionShell style={section.style} className="py-10">
-      <div className={gridClass}>
+    <SectionShell style={section.style} previewDevice={previewDevice} className="py-10">
+      <div className={gridClass} data-usp-count={items.length}>
         {items.slice(0, 4).map((item, index) => (
           <div key={index} className="flex flex-col items-center gap-2 text-center">
             <UspIcon icon={str((item as { icon?: unknown }).icon) || undefined} />
-            <span className="text-sm font-semibold text-ink">
+            <span data-homepage-role="label" className="text-sm font-semibold text-ink">
               {str((item as { label?: unknown }).label)}
             </span>
             {str((item as { sub?: unknown }).sub) ? (
-              <span className="text-xs text-ink-secondary">
+              <span data-homepage-role="body" className="text-xs text-ink-secondary">
                 {str((item as { sub?: unknown }).sub)}
               </span>
             ) : null}

@@ -655,7 +655,7 @@ describe("ModuleTree in the editor shell", () => {
     expect(
       document.querySelector('[data-panel="announcement-settings"]'),
     ).toBeNull();
-    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
     expect(
       document.querySelector('[data-panel="hero-style-settings"]'),
     ).not.toBeNull();
@@ -668,6 +668,8 @@ describe("ModuleTree in the editor shell", () => {
     expect(
       document.querySelector('[data-panel="hero-style-settings"]'),
     ).toBeNull();
+    expect(document.querySelector('[data-panel="settings-panel"]')).toBeNull();
+    expect(document.querySelector('[data-panel="hero-settings"]')).toBeNull();
   });
 
   it("saves a newly added USP through the shell with its typed payload", async () => {
@@ -717,9 +719,10 @@ describe("ModuleTree in the editor shell", () => {
     await screen.findByRole("button", { name: "Save Draft" });
 
     fireEvent.click(screen.getByRole("button", { name: "Featured grid" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: "Grid columns" }), {
-      target: { value: "2" },
-    });
+    const columns = await screen.findByRole("combobox", { name: "Columns" });
+    expect(screen.getAllByRole("combobox", { name: "Columns" })).toHaveLength(1);
+    expect(screen.queryByRole("combobox", { name: "Grid columns" })).toBeNull();
+    fireEvent.change(columns, { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
 
     await waitFor(() => expect(saveHomepageDraft).toHaveBeenCalledTimes(1));
@@ -729,7 +732,7 @@ describe("ModuleTree in the editor shell", () => {
     );
     expect(savedGrid).toMatchObject({
       type: "PRODUCT_GRID",
-      payload: { columns: 2 },
+      payload: { layout: { columns: 2 } },
     });
   });
 });

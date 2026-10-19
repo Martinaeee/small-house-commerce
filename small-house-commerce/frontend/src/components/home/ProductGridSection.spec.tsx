@@ -17,6 +17,20 @@ const section: HomepageSection = {
 beforeEach(() => vi.clearAllMocks());
 
 describe("ProductGridSection preview isolation", () => {
+  it("applies mobile grid settings without changing the hydrated ProductCard", () => {
+    const { container, rerender } = render(<ProductGridSection section={section} previewDevice="mobile" interactionMode="preview" />);
+    const card = container.querySelector("article")!.outerHTML;
+    rerender(<ProductGridSection section={{ ...section, payload: { layout: { overrides: { mobile: { columns: 1, gap: 6 } } } } }} previewDevice="mobile" interactionMode="preview" />);
+    const grid = container.querySelector<HTMLElement>(".grid")!;
+    expect(grid.style.gridTemplateColumns).toBe("repeat(1, minmax(0, 1fr))");
+    expect(grid.style.gap).toBe("6px");
+    expect(container.querySelector("article")!.outerHTML).toBe(card);
+  });
+
+  it.each(["desktop", "tablet", "mobile"] as const)("retains legacy two columns on %s when only a gap field is added", previewDevice => {
+    const { container } = render(<ProductGridSection section={{ ...section, payload: { columns: 2, layout: { gap: 8 } } }} previewDevice={previewDevice} interactionMode="preview" />);
+    expect(container.querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+  });
   it.each(["desktop", "tablet", "mobile"] as const)("renders inert cards without cart context on the %s canvas", previewDevice => {
     const { container } = render(<ProductGridSection section={section} previewDevice={previewDevice} interactionMode="preview" />);
     expect(screen.queryAllByRole("link")).toHaveLength(0);

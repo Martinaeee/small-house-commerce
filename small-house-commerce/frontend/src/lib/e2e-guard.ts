@@ -15,10 +15,17 @@ export interface E2EDatabaseTarget {
 export function assertE2EDatabaseUrl(
   databaseUrl: string | undefined,
   approvedPort = "5432",
+  profile: "task5" | "homepage-studio" = "task5",
 ): E2EDatabaseTarget {
+  const approvedDatabase = profile === "homepage-studio"
+    ? "small_house_homepage_studio_20261016_test"
+    : APPROVED_DATABASE;
+  if (profile === "homepage-studio" && approvedPort !== "5556") {
+    throw new Error("Homepage Studio E2E guard requires port 5556.");
+  }
   if (!databaseUrl) {
     throw new Error(
-      `Task 5 E2E guard refused DATABASE_URL: it must target PostgreSQL database "${APPROVED_DATABASE}" on a loopback host.`,
+      `Task 5 E2E guard refused DATABASE_URL: it must target PostgreSQL database "${approvedDatabase}" on a loopback host.`,
     );
   }
 
@@ -51,9 +58,9 @@ export function assertE2EDatabaseUrl(
       `Task 5 E2E guard refused DATABASE_URL: port must be ${approvedPort}, received "${port}".`,
     );
   }
-  if (database !== APPROVED_DATABASE) {
+  if (database !== approvedDatabase) {
     throw new Error(
-      `Task 5 E2E guard refused DATABASE_URL: database must be exactly "${APPROVED_DATABASE}", received "${database || "<empty>"}".`,
+      `Task 5 E2E guard refused DATABASE_URL: database must be exactly "${approvedDatabase}", received "${database || "<empty>"}".`,
     );
   }
 

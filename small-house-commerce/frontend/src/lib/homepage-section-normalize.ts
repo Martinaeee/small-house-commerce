@@ -3,6 +3,7 @@ import type {
   NonHeroHomepageSection,
 } from "./homepage-document";
 import { isBannerHref } from "./banner-href";
+import { normalizeModuleLayout } from "./homepage-responsive";
 import type {
   CategoryTilesPayload,
   CountdownBannerPayload,
@@ -116,9 +117,32 @@ function safeProductStoryPayload(
   };
 }
 
-function safeUgcPayload(payload: Record<string, unknown>): UgcPayload {
+export function readCategoryTilesPayload(value: unknown): CategoryTilesPayload {
+  const payload = safeRecord(value);
+  const layout = normalizeModuleLayout("CATEGORY_TILES", payload.layout);
+  return {
+    ...("entries" in payload ? {
+      entries: Array.isArray(payload.entries) ? payload.entries.filter(isRecord).map((entry) => ({
+        id: typeof entry.id === "string" ? entry.id : "",
+        ...(typeof entry.label === "string" ? { label: entry.label } : {}),
+        ...(typeof entry.imageUrl === "string" ? { imageUrl: entry.imageUrl } : {}),
+        link: isRecord(entry.link) && (entry.link.type === "CATEGORY" || entry.link.type === "COLLECTION") && typeof entry.link.id === "string"
+          ? { type: entry.link.type, id: entry.link.id } : null,
+      })) : [],
+    } : {
+      categoryIds: Array.isArray(payload.categoryIds)
+        ? payload.categoryIds.filter((id): id is string => typeof id === "string") : [],
+    }),
+    ...(payload.presentation === "TILES" || payload.presentation === "CIRCLES" ? { presentation: payload.presentation } : {}),
+    ...(layout !== undefined ? { layout } : {}),
+  };
+}
+
+export function readUgcPayload(value: unknown): UgcPayload {
+  const payload = safeRecord(value);
   const entries: UgcEntry[] = Array.isArray(payload.entries)
     ? payload.entries.filter(isRecord).map((entry) => ({
+        ...(typeof entry.id === "string" ? { id: entry.id } : {}),
         ...(typeof entry.imageUrl === "string"
           ? { imageUrl: entry.imageUrl }
           : {}),
@@ -132,7 +156,18 @@ function safeUgcPayload(payload: Record<string, unknown>): UgcPayload {
           : {}),
       }))
     : [];
-  return { entries };
+  const presentation = payload.presentation;
+  return {
+    entries,
+    ...(isRecord(presentation) && (presentation.layout === "CARDS" || presentation.layout === "COLLAGE") ? {
+      presentation: {
+        layout: presentation.layout,
+        ...(typeof presentation.featuredEntryId === "string" ? { featuredEntryId: presentation.featuredEntryId } : {}),
+        ...(typeof presentation.showQuote === "boolean" ? { showQuote: presentation.showQuote } : {}),
+        ...(presentation.overlay === "SOFT" || presentation.overlay === "STRONG" ? { overlay: presentation.overlay } : {}),
+      },
+    } : {}),
+  };
 }
 
 function safeTextPayload(payload: Record<string, unknown>): TextBlockPayload {
@@ -174,11 +209,7 @@ function normalizePayload<T extends NonHeroSectionType>(
     case "USP":
       return { items: safeUspItems(payload.items) } as SectionPayloadMap[T];
     case "CATEGORY_TILES":
-      return {
-        categoryIds: Array.isArray(payload.categoryIds)
-          ? payload.categoryIds.filter((id): id is string => typeof id === "string")
-          : [],
-      } as CategoryTilesPayload as SectionPayloadMap[T];
+      return readCategoryTilesPayload(payload) as SectionPayloadMap[T];
     case "PRODUCT_GRID": {
       const columns: ProductGridPayload["columns"] =
         payload.columns === 2 || payload.columns === 4 ? payload.columns : 4;
@@ -193,7 +224,7 @@ function normalizePayload<T extends NonHeroSectionType>(
     case "ROOM_INSPIRATION":
       return safeRoomPayload(payload) as SectionPayloadMap[T];
     case "UGC":
-      return safeUgcPayload(payload) as SectionPayloadMap[T];
+      return readUgcPayload(payload) as SectionPayloadMap[T];
     case "BRAND_STORY":
     case "CONFIDENCE":
       return safeTextPayload(payload) as SectionPayloadMap[T];
@@ -219,6 +250,11 @@ export function normalizeSectionForEditor(
   if (next.type === "HERO") return next;
 
   next.payload = normalizePayload(next.type, section.payload);
+  if ((next.type === "CATEGORY_TILES" || next.type === "PRODUCT_GRID" || next.type === "PRODUCT_STORY") &&
+    isRecord(section.payload)) {
+    const layout = normalizeModuleLayout(next.type, (section.payload as Record<string, unknown>).layout);
+    if (layout !== undefined) next.payload = { ...next.payload, layout };
+  }
   if (!isRecord(section.style)) {
     delete next.style;
   } else {

@@ -53,7 +53,7 @@ function Harness({
 }
 
 function StyleProbe(): ReactNode {
-  const { state, setSelectedSlideId } = useHomepageEditor();
+  const { state, setSelectedSlideId, setDevice } = useHomepageEditor();
   const hero = state.document.sections.find((section) => section.type === "HERO");
   const slides = hero && hero.type === "HERO" ? hero.payload.slides : [];
   const overlayOf = (slideId: string) =>
@@ -65,6 +65,8 @@ function StyleProbe(): ReactNode {
       </pre>
       <pre data-testid="overlay">{JSON.stringify(overlayOf(SLIDE_ID))}</pre>
       <pre data-testid="overlay-two">{JSON.stringify(overlayOf(SLIDE_TWO_ID))}</pre>
+      <button onClick={() => setDevice("mobile")}>switch-mobile</button>
+      <button onClick={() => setDevice("desktop")}>switch-desktop</button>
       <span data-testid="commits">{state.past.length}</span>
       <button
         type="button"
@@ -128,6 +130,39 @@ describe("HeroStyleSettings", () => {
     vi.useRealTimers();
   });
 
+  it("merges mobile overlay edits sparsely, preserves zero, and resets only the requested scope", () => {
+    renderStyleSettings();
+    fireEvent.click(screen.getByRole("button", { name: "switch-mobile" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Overlay gradient" }), { target: { value: "FULL" } });
+    const opacity = screen.getByRole("slider", { name: "Overlay opacity" });
+    fireEvent.change(opacity, { target: { value: "0" } }); fireEvent.blur(opacity);
+    const color = screen.getByRole("textbox", { name: "Overlay color" });
+    fireEvent.change(color, { target: { value: "#112233" } }); fireEvent.blur(color);
+    expect(overlay()).toEqual({ color: "#000000", opacity: 0.3, gradient: "BOTTOM",
+      overrides: { mobile: { color: "#112233", opacity: 0, gradient: "FULL" } } });
+    fireEvent.click(screen.getByRole("button", { name: "Overlay color: Reset to inherit" }));
+    expect(overlay()?.overrides?.mobile).toEqual({ opacity: 0, gradient: "FULL" });
+    fireEvent.click(screen.getByRole("button", { name: "Restore overlay inheritance" }));
+    expect(overlay()).toEqual({ color: "#000000", opacity: 0.3, gradient: "BOTTOM" });
+  });
+
+  it("cancels a pending overlay input when the editing device changes", async () => {
+    vi.useFakeTimers(); renderStyleSettings();
+    fireEvent.change(screen.getByRole("textbox", { name: "Overlay color" }), { target: { value: "#112233" } });
+    fireEvent.click(screen.getByRole("button", { name: "switch-mobile" }));
+    await advance(1000);
+    expect(overlay()?.color).toBe("#000000");
+    expect(overlay()?.overrides?.mobile?.color).toBeUndefined();
+  });
+
+  it("persists a local readability gradient through the existing overlay control", () => {
+    renderStyleSettings();
+    const field = screen.getByRole("combobox", { name: "Overlay gradient" });
+    fireEvent.change(field, { target: { value: "LOCAL" } });
+    expect(overlay()?.gradient).toBe("LOCAL");
+    expect(field).toHaveValue("LOCAL");
+  });
+
   it("commits behavior values and clamps the duration", async () => {
     vi.useFakeTimers();
     renderStyleSettings();
@@ -177,7 +212,10 @@ describe("HeroStyleSettings", () => {
     vi.useFakeTimers();
     renderStyleSettings();
 
-    expect(overlay()).toEqual({ color: "#000000", opacity: 0.3, gradient: "BOTTOM" });
+    expect(overlay()).toEqual({
+      color: "#000000", opacity: 0.3, gradient: "BOTTOM",
+      overrides: { mobile: { gradient: "LOCAL", opacity: 0.65 } },
+    });
 
     const color = screen.getByRole("textbox", { name: "Overlay color" });
     fireEvent.change(color, { target: { value: "#112233" } });

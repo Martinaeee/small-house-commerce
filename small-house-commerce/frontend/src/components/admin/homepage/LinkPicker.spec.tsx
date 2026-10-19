@@ -165,6 +165,33 @@ describe("LinkPicker", () => {
     vi.useRealTimers();
   });
 
+  it.each(([['CATEGORY', 'COLLECTION'], []] as const).map((entityTypes) => ({ entityTypes })))("restricts the caller's entity choices without changing defaults (%j)", ({ entityTypes }) => {
+    render(<AdminI18nProvider><LinkPicker value={null} onChange={vi.fn()} allowExternal={false} entityTypes={entityTypes} /></AdminI18nProvider>);
+    const select = screen.getByRole("combobox", { name: "Link type" });
+    expect(within(select).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", ...entityTypes]);
+  });
+
+  it.each(["missing", "disabled"] as const)("keeps a %s restricted target with an explicit repair hint", async (state) => {
+    const onChange = vi.fn();
+    listCategories.mockResolvedValue(state === "missing" ? [] : [{ ...categoryNode("category-unavailable", "Unavailable category"), status: "DISABLED" }]);
+    render(<AdminI18nProvider><LinkPicker value={{ type: "CATEGORY", id: "category-unavailable" }} onChange={onChange} allowExternal={false} entityTypes={["CATEGORY", "COLLECTION"]} /></AdminI18nProvider>);
+    expect(await screen.findByRole("status")).toHaveTextContent("This saved target is unavailable. Choose an available target.");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("refuses a disallowed type even if a stale option is submitted", () => {
+    const onChange = vi.fn();
+    render(<AdminI18nProvider><LinkPicker value={null} onChange={onChange} allowExternal={false} entityTypes={["CATEGORY", "COLLECTION"]} /></AdminI18nProvider>);
+    const select = screen.getByRole("combobox", { name: "Link type" });
+    const stale = document.createElement("option");
+    stale.value = "PRODUCT";
+    stale.textContent = "Stale product option";
+    select.appendChild(stale);
+    fireEvent.change(select, { target: { value: "PRODUCT" } });
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("searches products and stores {type:'PRODUCT', id}", async () => {
     vi.useFakeTimers();
     listProducts.mockResolvedValue({

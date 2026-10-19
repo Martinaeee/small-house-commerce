@@ -27,14 +27,14 @@ export function RoomInspirationSection({ section, previewDevice }: SectionProps)
   // imageUrl / joins stay in the DB but are not rendered while scenes exist.
   if (scenes) {
     return (
-      <SectionShell style={section.style}>
+      <SectionShell style={section.style} previewDevice={previewDevice}>
         <SectionHeading title={heading} />
         <RoomSceneGallery
           section={{ id: section.id, title: section.title }}
           scenes={scenes}
           previewDevice={previewDevice}
         />
-        {body ? <p className="mt-4 text-ink-secondary">{body}</p> : null}
+        {body ? <p data-homepage-role="body" className="mt-4 text-ink-secondary">{body}</p> : null}
       </SectionShell>
     );
   }
@@ -44,23 +44,23 @@ export function RoomInspirationSection({ section, previewDevice }: SectionProps)
       <SectionPlaceholder
         title={section.title}
         message="Room inspiration coming soon."
-        style={section.style}
+        style={section.style} previewDevice={previewDevice}
       />
     );
   }
 
   return (
-    <SectionShell style={section.style}>
+    <SectionShell style={section.style} previewDevice={previewDevice}>
       <SectionHeading title={heading} />
       <div className={legacyGridClass}>
         <div>
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" />
+            <img data-homepage-role="media" src={image} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" />
           ) : (
             <PlaceholderImage label="" className="aspect-[4/3] w-full rounded-xl" />
           )}
-          {body ? <p className="mt-4 text-ink-secondary">{body}</p> : null}
+          {body ? <p data-homepage-role="body" className="mt-4 text-ink-secondary">{body}</p> : null}
         </div>
         {products.length > 0 ? (
           <div className="flex flex-col gap-3">

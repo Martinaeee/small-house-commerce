@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { api } from "@/lib/api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { HomepageNavigationEntry } from "@/lib/homepage-section-payloads";
 import { HomepageLivePreview } from "@/components/admin/homepage/HomepageLivePreview";
 import { ANNOUNCEMENT_SELECTION_ID } from "@/components/admin/homepage/ModuleTree";
 import type {
@@ -36,11 +37,13 @@ vi.mock(
   },
 );
 const listCategories = vi.hoisted(() => vi.fn());
+const listCollections = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/admin-api", () => ({
   adminApi: {
     getProduct,
     listCategories,
+    listCollections,
   },
 }));
 
@@ -185,6 +188,111 @@ describe("HomepageLivePreview", () => {
     tracking.trackCustom.mockClear();
     listCategories.mockReset();
     listCategories.mockResolvedValue([]);
+    listCollections.mockReset();
+    listCollections.mockResolvedValue({ items: [] });
+  });
+
+  it("wraps only content in the selected appearance and supplies its gap defaults", async () => {
+    listCategories.mockResolvedValue([category()]);
+    const document = documentWith(categoryTiles());
+    document.appearance = "STUDIO_V3";
+    const { container, rerender } = render(<HomepageLivePreview document={document} device="tablet" selectedSectionId={null} />);
+    await flush();
+    const root = container.querySelector('[data-homepage-appearance="STUDIO_V3"]');
+    expect(root).toHaveAttribute("data-homepage-device", "tablet");
+    expect(screen.getByRole("heading", { name: "Selected categories" }).closest("[data-homepage-appearance]")).toBe(root);
+    const link = screen.getByRole("link", { name: /^Preview category/ });
+    expect(link.parentElement).toHaveStyle({ gap: "24px" });
+    expect(container.querySelector('[data-homepage-section-type="CATEGORY_TILES"]')).not.toBeNull();
+    expect(container.querySelector("header")?.closest("[data-homepage-appearance]")).toBeNull();
+    expect(container.querySelector("footer")?.closest("[data-homepage-appearance]")).toBeNull();
+    rerender(<HomepageLivePreview document={{ ...document, appearance: undefined }} device="tablet" selectedSectionId={null} />);
+    expect(container.querySelector("[data-homepage-appearance]")).toBeNull();
+    expect(screen.getByRole("link", { name: /^Preview category/ }).parentElement?.style.gap).toBe("");
+  });
+
+  it("hydrates custom navigation from active category and collection targets without global covers", async () => {
+    listCategories.mockResolvedValue([category({ imageUrl: null })]);
+    listCollections.mockResolvedValue({ items: [{ id: CATEGORY_ID, name: "Small spaces", slug: "small-spaces", status: "ACTIVE", heroImage: null }] });
+    const entries: HomepageNavigationEntry[] = [
+      { id: "first", imageUrl: "/uploads/category.jpg", link: { type: "CATEGORY", id: CATEGORY_ID } },
+      { id: "second", imageUrl: "/uploads/collection.jpg", label: " Our collection ", link: { type: "COLLECTION", id: CATEGORY_ID } },
+      { id: "third", imageUrl: "/uploads/repeat.jpg", link: { type: "CATEGORY", id: CATEGORY_ID } },
+    ];
+    const navigation = section("CATEGORY_TILES", { payload: { entries, presentation: "CIRCLES" } });
+    const { container } = render(<StrictMode><HomepageLivePreview document={documentWith(navigation)} device="mobile" selectedSectionId={null} /></StrictMode>);
+    await flush();
+    const region = container.querySelector('[data-preview-section="CATEGORY_TILES"]')!;
+    expect(within(region as HTMLElement).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+      "/categories/preview-category", "/collections/small-spaces", "/categories/preview-category",
+    ]);
+    expect(within(region as HTMLElement).getByRole("link", { name: "Our collection" })).toBeVisible();
+    expect(region.querySelectorAll("img")[0]).toHaveAttribute("src", "/uploads/category.jpg");
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    region.querySelector("a")!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(region.querySelector("[data-track-event]")).toBeNull();
+    expect(listCategories).toHaveBeenCalledTimes(1);
+    expect(listCollections).toHaveBeenCalledTimes(1);
+    expect(tracking.track).not.toHaveBeenCalled();
+  });
+
+  it("does not substitute a same-id category for a disabled collection and keeps an editor-only notice", async () => {
+    listCategories.mockResolvedValue([category()]);
+    listCollections.mockResolvedValue({ items: [{ id: CATEGORY_ID, name: "Unavailable collection", slug: "disabled", status: "DISABLED" }] });
+    const navigation = section("CATEGORY_TILES", { payload: { entries: [
+      { id: "valid", imageUrl: "/uploads/category.jpg", link: { type: "CATEGORY", id: CATEGORY_ID } },
+      { id: "invalid", imageUrl: "/uploads/collection.jpg", link: { type: "COLLECTION", id: CATEGORY_ID } },
+    ] } });
+    const { container } = render(<HomepageLivePreview document={documentWith(navigation)} device="desktop" selectedSectionId={null} />);
+    await flush();
+    const region = container.querySelector('[data-preview-section="CATEGORY_TILES"]')!;
+    expect(region.querySelectorAll("a")).toHaveLength(1);
+    expect(region.querySelector("a")).toHaveAttribute("href", "/categories/preview-category");
+    expect(region.querySelector('[data-preview-join="navigation"]')).toHaveTextContent("invalid");
+    expect(region.querySelector('[href="/collections/disabled"]')).toBeNull();
+  });
+
+  it("never requests or revives legacy category ids when entries is explicitly empty", async () => {
+    listCategories.mockResolvedValue([category()]);
+    const navigation = section("CATEGORY_TILES", { payload: { entries: [], categoryIds: [CATEGORY_ID], presentation: "CIRCLES" } });
+    const { container } = render(<HomepageLivePreview document={documentWith(navigation)} device="desktop" selectedSectionId={null} />);
+    await flush();
+    expect(container.querySelector('[data-preview-section="CATEGORY_TILES"] a')).toBeNull();
+    expect(listCategories).not.toHaveBeenCalled();
+    expect(listCollections).not.toHaveBeenCalled();
+  });
+
+  it("hydrates a collage's own featured product without losing identity or presentation", async () => {
+    getProduct.mockResolvedValue(product());
+    const ugc = section("UGC", { payload: { entries: [
+      { id: "first", name: "", comment: "Supporting sample", imageUrl: "/uploads/a.jpg" },
+      { id: "second", name: "", comment: "Featured sample", imageUrl: "/uploads/b.jpg", productId: PRODUCT_ID },
+    ], presentation: { layout: "COLLAGE", featuredEntryId: "second", overlay: "STRONG" } } });
+    const { container } = render(<HomepageLivePreview document={documentWith(ugc)} device="tablet" selectedSectionId={null} />);
+    await flush();
+    const featured = container.querySelector<HTMLElement>("[data-ugc-featured]")!;
+    expect(featured).toHaveAttribute("data-ugc-entry-id", "second");
+    expect(within(featured).getByRole("link", { name: /View Preview product/ })).toHaveAttribute("href", "/products/preview-product");
+    expect(featured.querySelector("img")).toHaveAttribute("src", "/uploads/b.jpg");
+    expect(featured).not.toHaveTextContent("Supporting sample");
+    expect(container.querySelector('[data-ugc-layout="collage"]')).toHaveAttribute("data-device", "tablet");
+    expect(featured.querySelector("[data-track-event]")).toBeNull();
+    expect(getProduct).toHaveBeenCalledExactlyOnceWith(PRODUCT_ID);
+  });
+
+  it("resolves merged style for the selected canvas device even for legacy module renderers", async () => {
+    const usp = section("USP", { payload: { items: [{ icon: "truck", label: "Nationwide delivery" }] },
+      style: { paddingTop: 22, overrides: { mobile: { paddingTop: 0 } } } });
+    const draft = documentWith(usp);
+    draft.defaults = { paddingTop: 100, overrides: { mobile: { paddingTop: 8, paddingBottom: 0, textColor: "#123456" } } };
+    const { container, rerender } = render(<HomepageLivePreview document={draft} device="mobile" selectedSectionId={null} />);
+    await flush();
+    const shell = () => container.querySelector('[data-preview-section="USP"] section');
+    expect(shell()).toHaveStyle({ paddingTop: "0px", paddingBottom: "0px", color: "#123456" });
+    rerender(<HomepageLivePreview document={{ ...draft, sections: [{ ...usp, style: { paddingTop: 22 } }] }} device="mobile" selectedSectionId={null} />);
+    await flush();
+    expect(shell()).toHaveStyle({ paddingTop: "22px", paddingBottom: "0px" });
   });
 
   it("hydrates product joins through Strict Mode effect replay without a second request", async () => {

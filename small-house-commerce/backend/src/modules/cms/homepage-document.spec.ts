@@ -94,6 +94,191 @@ function legacyDocument(
   };
 }
 
+describe('explicit homepage appearance', () => {
+  it('retains an explicitly selected V3 appearance', () => {
+    expect(homepageDocumentSchema.parse({ ...emptyDocument(), appearance: 'STUDIO_V3' }))
+      .toHaveProperty('appearance', 'STUDIO_V3');
+  });
+  it.each(['LEGACY', 'V4', '', { preset: 'STUDIO_V3' }, null])('rejects unsupported appearance %j', (appearance) => {
+    expect(homepageDocumentSchema.safeParse({ ...emptyDocument(), appearance }).success).toBe(false);
+  });
+  it('does not insert an appearance into existing documents', () => {
+    expect(homepageDocumentSchema.parse(emptyDocument())).not.toHaveProperty('appearance');
+  });
+});
+
+describe('new homepage content draft contracts', () => {
+  const entry = { id: uuid(701), link: null };
+  const photo = { id: uuid(702), imageUrl: '/uploads/e2e/home.jpg', name: '', comment: '' };
+  function contentDocument(type: 'CATEGORY_TILES' | 'UGC', payload: Record<string, unknown>) {
+    const doc = emptyDocument();
+    doc.sections.push({ ...doc.sections[0], id: uuid(700), type, enabled: false, payload });
+    return doc;
+  }
+
+  it.each([
+    { entries: [{ ...entry, id: 'bad-id' }] },
+    { entries: [{ ...entry, link: { type: 'PRODUCT', id: uuid(703) } }] },
+    { entries: [{ ...entry, link: { type: 'CATEGORY', id: 'bad-id' } }] },
+    { entries: [{ ...entry, imageUrl: 'blob:local' }] },
+    { entries: [{ ...entry, imageUrl: 'javascript:alert(1)' }] },
+    { entries: [{ ...entry, label: 'x'.repeat(121) }] },
+    { entries: [entry, entry] },
+    { entries: Array.from({ length: 7 }, (_, i) => ({ ...entry, id: uuid(710 + i) })) },
+    { entries: 'unfinished' },
+    { presentation: 'OVAL' },
+  ])('rejects malformed navigation shape even in a disabled draft: %j', (payload) => {
+    expect(homepageDocumentSchema.safeParse(contentDocument('CATEGORY_TILES', payload)).success).toBe(false);
+  });
+
+  it.each([
+    { entries: [], categoryIds: [uuid(730)] },
+    { entries: [entry], presentation: 'CIRCLES' },
+    { entries: [{ ...entry, imageUrl: '/uploads/e2e/nav.jpg', label: 'x'.repeat(120), link: { type: 'COLLECTION', id: uuid(731) } }], presentation: 'TILES' },
+  ])('retains structurally valid unfinished navigation JSON: %j', (payload) => {
+    expect(homepageDocumentSchema.parse(contentDocument('CATEGORY_TILES', payload)).sections[1].payload).toEqual(payload);
+  });
+
+  it.each([
+    { entries: [photo], presentation: { layout: 'MASONRY' } },
+    { entries: [photo], presentation: { layout: 'COLLAGE', showQuote: 'yes' } },
+    { entries: [photo], presentation: { layout: 'COLLAGE', overlay: 'NONE' } },
+    { entries: [photo], presentation: { layout: 'COLLAGE', featuredEntryId: uuid(799) } },
+    { entries: [{ ...photo, id: undefined }], presentation: { layout: 'COLLAGE' } },
+    { entries: [{ ...photo, id: 'bad-id' }] },
+    { entries: [photo, photo], presentation: { layout: 'CARDS' } },
+    { entries: [{ ...photo, imageUrl: 'data:image/png;base64,abcd' }] },
+    { entries: [{ ...photo, productId: 'bad-id' }] },
+    { entries: [{ ...photo, name: 'x'.repeat(121) }] },
+    { entries: [{ ...photo, location: 'x'.repeat(121) }] },
+    { entries: [{ ...photo, comment: 'x'.repeat(1001) }] },
+    { entries: Array.from({ length: 7 }, (_, i) => ({ ...photo, id: uuid(750 + i) })) },
+  ])('rejects malformed new UGC shape without requiring publish completeness: %j', (payload) => {
+    expect(homepageDocumentSchema.safeParse(contentDocument('UGC', payload)).success).toBe(false);
+  });
+
+  it('keeps a valid empty/unfinished collage and the full 1000-character quote', () => {
+    for (const payload of [
+      { entries: [], presentation: { layout: 'COLLAGE', showQuote: false } },
+      { entries: [photo], presentation: { layout: 'COLLAGE', featuredEntryId: photo.id } },
+      { entries: [{ ...photo, comment: 'x'.repeat(1000) }], presentation: { layout: 'CARDS' } },
+    ]) expect(homepageDocumentSchema.parse(contentDocument('UGC', payload)).sections[1].payload).toEqual(payload);
+  });
+
+  it('does not tighten opaque legacy non-Hero drafts', () => {
+    for (const type of ['CATEGORY_TILES', 'UGC'] as const) {
+      const payload = type === 'UGC' ? { entries: 'unfinished' } : { categoryIds: 'unfinished' };
+      expect(homepageDocumentSchema.parse(contentDocument(type, payload)).sections[1].payload).toEqual(payload);
+    }
+  });
+});
+
+describe('responsive display contracts', () => {
+  it('round trips automatic Hero flow and its independent device override without changing coordinates', () => {
+    const doc = emptyDocument();
+    const before = structuredClone(heroSlidesOf(doc));
+    heroPayloadOf(doc).display = { contentLayout: 'AUTO', overrides: { mobile: { contentLayout: 'FREE' } } };
+    const parsed = homepageDocumentSchema.parse(doc);
+    expect(parsed.sections[0].payload.display).toEqual(heroPayloadOf(doc).display);
+    expect(heroSlidesOf(parsed)).toEqual(before);
+    heroPayloadOf(doc).display = { contentLayout: 'url(unsafe)' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+  it('creates a new full-width screen Hero without relying on implicit read defaults', () => {
+    const doc = emptyDocument();
+    expect(doc.sections[0].style).toEqual({ contentWidth: 'FULL' });
+    expect(doc.sections[0].payload.display).toEqual({ heightMode: 'SCREEN' });
+    expect(heroSlidesOf(doc)[0].overlay).toMatchObject({
+      overrides: { mobile: { gradient: 'LOCAL', opacity: 0.65 } },
+    });
+  });
+  it('preserves sparse responsive defaults without inventing other device fields', () => {
+    const input = {
+      ...emptyDocument(),
+      defaults: { paddingTop: 40, overrides: { mobile: { paddingTop: 12 } } },
+    };
+    const result = homepageDocumentSchema.parse(input);
+    expect(result.defaults).toEqual(input.defaults);
+    expect(result.defaults).not.toHaveProperty('overrides.tablet');
+  });
+
+  it.each([-1, 241, NaN, Infinity, '12', null])('rejects invalid mobile padding %s', (paddingTop) => {
+    expect(homepageDocumentSchema.safeParse({
+      ...emptyDocument(), defaults: { overrides: { mobile: { paddingTop } } },
+    }).success).toBe(false);
+  });
+
+  it.each([
+    { phone: { paddingTop: 12 } },
+    { mobile: { overrides: { mobile: { paddingTop: 12 } } } },
+    { mobile: { paddingTop: 12, css: 'url(unsafe)' } },
+  ])('rejects malformed section device styles %j', (overrides) => {
+    const doc = emptyDocument();
+    doc.sections[0].style = { overrides };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it('accepts device-specific Hero height, fit and local overlay', () => {
+    const doc = emptyDocument();
+    heroPayloadOf(doc).display = { overrides: { mobile: { heightMode: 'NATURAL' } } };
+    const slide = heroSlidesOf(doc)[0];
+    slide.media = { ...imageMedia(), fitOverrides: { mobile: 'CONTAIN' } };
+    slide.overlay = { color: '#000000', opacity: 0, gradient: 'LOCAL', overrides: {
+      mobile: { gradient: 'LOCAL', opacity: 0.65 },
+    } };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it.each([
+    { heightMode: 'STRETCH' },
+    { overrides: { phone: { heightMode: 'SCREEN' } } },
+    { overrides: { mobile: { heightMode: null } } },
+    { overrides: { mobile: { arbitraryCss: 'height:999px' } } },
+  ])('rejects invalid Hero display %j', (display) => {
+    const doc = emptyDocument();
+    heroPayloadOf(doc).display = display;
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it.each(['FILL', null, 1])('rejects invalid device fit %s', (mobile) => {
+    const doc = emptyDocument();
+    heroSlidesOf(doc)[0].media = { ...imageMedia(), fitOverrides: { mobile } };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it.each([-0.1, 1.1, NaN, '0.5'])('rejects invalid device overlay opacity %s', (opacity) => {
+    const doc = emptyDocument();
+    heroSlidesOf(doc)[0].overlay = {
+      color: '#000000', opacity: 0.3, gradient: 'BOTTOM', overrides: { mobile: { opacity } },
+    };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it.each([
+    ['CATEGORY_TILES', { overrides: { mobile: { columns: 7 } } }],
+    ['CATEGORY_TILES', { imageRatio: 'ARBITRARY' }],
+    ['PRODUCT_GRID', { columns: 2.5 }],
+    ['PRODUCT_GRID', { imageRatio: 'SQUARE' }],
+    ['PRODUCT_STORY', { gap: 49 }],
+    ['PRODUCT_STORY', { overrides: { mobile: { gap: Infinity } } }],
+  ] as const)('rejects invalid %s layout at draft time', (type, layout) => {
+    const doc = emptyDocument();
+    doc.sections.push({
+      ...doc.sections[0], id: uuid(200), type, payload: { layout },
+    });
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it('does not add display fields when normalizing an old document', () => {
+    const doc = legacyDocument({ behavior: heroPayloadOf(emptyDocument()).behavior,
+      slides: [slideWith(imageMedia(), { overlay: { color: '#000000', opacity: 0.3, gradient: 'BOTTOM' } })] });
+    const normalized = normalizeLegacyDocument(doc);
+    expect(normalized.sections[0].payload).not.toHaveProperty('display');
+    expect(heroSlidesOf(normalized)[0].media).not.toHaveProperty('fitOverrides');
+    expect(heroSlidesOf(normalized)[0].overlay).not.toHaveProperty('overrides');
+  });
+});
+
 describe('homepage document schema v1', () => {
   it('accepts the empty document and rejects any other schema version', () => {
     const doc = emptyDocument();

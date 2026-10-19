@@ -9,6 +9,7 @@ import {
 } from "react";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { Group, SelectField } from "@/components/admin/homepage/SettingsPanel";
+import { DeviceField } from "./SectionStyleFields";
 import {
   useHomepageEditor,
   type BuilderDevice,
@@ -37,7 +38,6 @@ import {
 const DEFAULT_FOCAL: FocalPoint = { x: 50, y: 50 };
 const DEVICES: readonly BuilderDevice[] = ["desktop", "tablet", "mobile"];
 const FITS = ["COVER", "CONTAIN"] as const;
-type Fit = (typeof FITS)[number];
 type MediaType = "IMAGE" | "VIDEO";
 
 type ImageSlotProps = {
@@ -54,11 +54,6 @@ type VideoSlotProps = {
   slot: HeroVideo | null;
   onUploaded: (uploaded: { url: string; poster: string }) => void;
   onError: (messageKey: TKey) => void;
-};
-
-const FIT_LABEL_KEYS: Record<Fit, TKey> = {
-  COVER: "homepage_builder_media_fit_COVER",
-  CONTAIN: "homepage_builder_media_fit_CONTAIN",
 };
 
 const SAFE_AREA_FIELDS: ReadonlyArray<{
@@ -334,9 +329,13 @@ function DeviceButtons({
 function HeroMediaPanel({
   slideId,
   initialMedia,
+  embedded,
+  view,
 }: {
   slideId: string;
   initialMedia: HeroMedia | null;
+  embedded: boolean;
+  view?: "display" | "media";
 }): ReactNode {
   const { t } = useAdminI18n();
   const {
@@ -583,10 +582,11 @@ function HeroMediaPanel({
   return (
     <div
       data-panel="hero-media-settings"
-      className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
+      className={embedded ? "flex min-w-0 flex-col gap-3" : "flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"}
     >
-      <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_group_media")}</h2>
+      {!embedded ? <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_group_media")}</h2> : null}
 
+      {view !== "display" ? <>
       <div className="flex gap-1" role="group" aria-label={t("homepage_builder_group_media")}>
         {(["IMAGE", "VIDEO"] as const).map((type) => (
           <button
@@ -645,13 +645,20 @@ function HeroMediaPanel({
         </p>
       ) : null}
 
-      <SelectField
-        label={t("homepage_builder_media_fit")}
-        value={fit}
-        options={FITS}
-        labelKeys={FIT_LABEL_KEYS}
-        onChange={(next) => mutateMedia({ fit: next })}
-      />
+      </> : null}
+      {view !== "media" ? <>
+      <DeviceField device={device} overridden={device !== "desktop" && media?.fitOverrides?.[device] !== undefined}
+        resetLabel={t("homepage_builder_display_reset_fit")}
+        onReset={device === "desktop" ? undefined : () => mutateMedia({ fitOverrides: { [device]: undefined } })}>
+        <SelectField
+          label={t("homepage_builder_media_fit")}
+          value={(device === "desktop" ? undefined : media?.fitOverrides?.[device]) ?? fit}
+          options={FITS}
+          presentation={view === "display" ? "cards" : undefined}
+          labelKeys={{ COVER: "homepage_builder_display_fit_COVER", CONTAIN: "homepage_builder_display_fit_CONTAIN" }}
+          onChange={(next) => mutateMedia(device === "desktop" ? { fit: next } : { fitOverrides: { [device]: next } })}
+        />
+      </DeviceField>
 
       <Group title={t("homepage_builder_media_focal")}>
         <PointPreview
@@ -676,6 +683,8 @@ function HeroMediaPanel({
         </button>
       </Group>
 
+      </> : null}
+      {view !== "display" ? <>
       <Group title={t("homepage_builder_media_mobile_override")}>
         <label className="flex items-center gap-2 text-xs text-ink">
           <input
@@ -801,13 +810,15 @@ function HeroMediaPanel({
           ))}
         </div>
       </Group>
+      </> : null}
     </div>
   );
 }
 
-export function HeroMediaSettings(): ReactNode {
+export function HeroMediaSettings({ embedded = false, view }: { embedded?: boolean; view?: "display" | "media" } = {}): ReactNode {
   const { state, selectedSlideId } = useHomepageEditor();
-  const slide = findSlide(state.document, selectedSlideId);
+  const hero = state.document.sections.find((section) => section.type === "HERO");
+  const slide = findSlide(state.document, selectedSlideId) ?? (embedded && hero?.type === "HERO" ? hero.payload.slides[0] : null);
   if (!slide) return null;
-  return <HeroMediaPanel key={slide.id} slideId={slide.id} initialMedia={slide.media} />;
+  return <HeroMediaPanel key={slide.id} slideId={slide.id} initialMedia={slide.media} embedded={embedded} view={view} />;
 }

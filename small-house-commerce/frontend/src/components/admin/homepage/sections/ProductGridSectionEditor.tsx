@@ -19,7 +19,6 @@ type ProductGridEditorProps = SectionPayloadEditorProps<"PRODUCT_GRID"> & {
 
 export function ProductGridSectionEditor({
   section,
-  onPayloadChange,
   onProductsChange,
 }: ProductGridEditorProps): ReactNode {
   const { t } = useAdminI18n();
@@ -29,7 +28,6 @@ export function ProductGridSectionEditor({
   const products = [...(section.products ?? [])].sort(
     (left, right) => left.sortOrder - right.sortOrder,
   );
-  const columns = section.payload.columns === 2 ? 2 : 4;
 
   useEffect(() => {
     let active = true;
@@ -136,21 +134,6 @@ export function ProductGridSectionEditor({
           {t("homepage_builder_product_grid_add")}
         </button>
       </div>
-
-      <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
-        {t("homepage_builder_product_grid_columns")}
-        <select
-          className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-          aria-label={t("homepage_builder_product_grid_columns")}
-          value={columns}
-          onChange={(event) =>
-            onPayloadChange({ columns: Number(event.target.value) as 2 | 4 })
-          }
-        >
-          <option value={2}>2</option>
-          <option value={4}>4</option>
-        </select>
-      </label>
 
       <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-ink-secondary" htmlFor={`product-search-${section.id}`}>

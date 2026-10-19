@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../common/site-media-url.js';
 import { internalPathSchema } from '../../common/internal-path.js';
+import { categoryNavigationDraftSchema, ugcContentDraftSchema } from './homepage-content-schema.js';
 
 /**
  * Homepage V2 versioned document contract (spec
@@ -23,6 +24,40 @@ export const SCHEMA_VERSION = 1;
 
 /** Only `#rrggbb` colours may enter the document (CSS-injection whitelist). */
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+function deviceOverridesSchema<T extends z.ZodRawShape>(shape: T) {
+  const fields = z.object(shape).partial().strict();
+  return z.object({ tablet: fields.optional(), mobile: fields.optional() }).strict();
+}
+
+function responsiveSchema<T extends z.ZodRawShape>(shape: T) {
+  return z.object(shape).partial().extend({
+    overrides: deviceOverridesSchema(shape).optional(),
+  }).strict();
+}
+
+const imageRatioSchema = z.enum(['SQUARE', 'LANDSCAPE', 'PORTRAIT']);
+const layoutGapSchema = z.number().int().min(0).max(48);
+export const sectionLayoutSchemas = {
+  CATEGORY_TILES: responsiveSchema({
+    columns: z.number().int().min(1).max(6),
+    gap: layoutGapSchema,
+    imageRatio: imageRatioSchema,
+  }),
+  PRODUCT_GRID: responsiveSchema({
+    columns: z.number().int().min(1).max(4),
+    gap: layoutGapSchema,
+  }),
+  PRODUCT_STORY: responsiveSchema({
+    gap: layoutGapSchema,
+    imageRatio: imageRatioSchema,
+  }),
+};
+
+const heroDisplaySchema = responsiveSchema({
+  heightMode: z.enum(['SCREEN', 'BANNER', 'NATURAL']),
+  contentLayout: z.enum(['AUTO', 'FREE']),
+});
 
 const horizontalAlignSchema = z.enum(['LEFT', 'CENTER', 'RIGHT']);
 const verticalAlignSchema = z.enum(['TOP', 'MIDDLE', 'BOTTOM']);
@@ -208,6 +243,10 @@ const heroMediaSchema = z
     video: heroVideoSchema.nullable(),
     mobileOverride: mobileOverrideSchema,
     fit: z.enum(['COVER', 'CONTAIN']),
+    fitOverrides: z.object({
+      tablet: z.enum(['COVER', 'CONTAIN']).optional(),
+      mobile: z.enum(['COVER', 'CONTAIN']).optional(),
+    }).strict().optional(),
     focal: focalSchema,
     objectPosition: z.object({
       desktop: focalSchema,
@@ -243,10 +282,14 @@ const heroMediaSchema = z
     }
   });
 
-const slideOverlaySchema = z.object({
+const overlayFields = {
   color: hexColor,
   opacity: z.number().min(0).max(1),
-  gradient: z.enum(['NONE', 'BOTTOM', 'FULL']),
+  gradient: z.enum(['NONE', 'BOTTOM', 'FULL', 'LOCAL']),
+};
+const slideOverlaySchema = z.object({
+  ...overlayFields,
+  overrides: deviceOverridesSchema(overlayFields).optional(),
 });
 
 // --- hero slide / payload ---------------------------------------------------
@@ -277,6 +320,7 @@ const sliderBehaviorSchema = z.object({
 const heroPayloadSchema = z.object({
   behavior: sliderBehaviorSchema,
   slides: z.array(heroSlideSchema).min(1).max(6),
+  display: heroDisplaySchema.optional(),
 });
 
 // --- announcement -----------------------------------------------------------
@@ -420,15 +464,17 @@ const announcementSchema = z.object({
  * field is optional: a section may override any single field, and an unset
  * field falls back to the document default (then to the built-in class).
  */
-const sectionStyleSchema = z
-  .object({
-    backgroundColor: hexColor,
-    textColor: hexColor,
-    contentWidth: z.enum(['FULL', 'STANDARD', 'NARROW']),
-    paddingTop: z.number().min(0).max(240),
-    paddingBottom: z.number().min(0).max(240),
-  })
-  .partial();
+const sectionStyleFields = {
+  backgroundColor: hexColor,
+  textColor: hexColor,
+  contentWidth: z.enum(['FULL', 'STANDARD', 'NARROW']),
+  paddingTop: z.number().min(0).max(240),
+  paddingBottom: z.number().min(0).max(240),
+};
+const sectionStyleOverridesSchema = deviceOverridesSchema(sectionStyleFields);
+const sectionStyleSchema = z.object(sectionStyleFields).partial().extend({
+  overrides: sectionStyleOverridesSchema.optional(),
+});
 
 const sectionProductSchema = z.object({
   productId: z.string().uuid(),
@@ -481,6 +527,25 @@ const sectionSchema = z
     style: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((section, ctx) => {
+    if (section.style?.overrides !== undefined) {
+      const styles = sectionStyleOverridesSchema.safeParse(section.style.overrides);
+      if (!styles.success) {
+        for (const issue of styles.error.issues) {
+          ctx.addIssue({ code: 'custom', path: ['style', 'overrides', ...issue.path], message: issue.message });
+        }
+      }
+    }
+    if (
+      (section.type === 'CATEGORY_TILES' || section.type === 'PRODUCT_GRID' || section.type === 'PRODUCT_STORY') &&
+      section.payload.layout !== undefined
+    ) {
+      const layout = sectionLayoutSchemas[section.type].safeParse(section.payload.layout);
+      if (!layout.success) {
+        for (const issue of layout.error.issues) {
+          ctx.addIssue({ code: 'custom', path: ['payload', 'layout', ...issue.path], message: issue.message });
+        }
+      }
+    }
     if (
       section.type === 'PROMO_BANNER' ||
       section.type === 'COUNTDOWN_BANNER'
@@ -505,8 +570,20 @@ const sectionSchema = z
       return;
     }
 
-    // HERO payloads are validated strictly; existing non-HERO types stay opaque
-    // and are validated by the legacy per-type DTOs at publish time.
+    const contentSchema = section.type === 'CATEGORY_TILES' &&
+      ('entries' in section.payload || 'presentation' in section.payload)
+      ? categoryNavigationDraftSchema
+      : section.type === 'UGC' && ('presentation' in section.payload ||
+        (Array.isArray(section.payload.entries) && section.payload.entries.some((entry) => isRecord(entry) && 'id' in entry)))
+        ? ugcContentDraftSchema : null;
+    if (contentSchema) {
+      const content = contentSchema.safeParse(section.payload);
+      if (!content.success) {
+        for (const issue of content.error.issues) {
+          ctx.addIssue({ code: 'custom', path: ['payload', ...issue.path], message: issue.message });
+        }
+      }
+    }
     if (section.type !== 'HERO') return;
     const hero = heroPayloadSchema.safeParse(section.payload);
     if (hero.success) return;
@@ -571,11 +648,13 @@ export type AnnouncementItem = z.infer<typeof announcementItemSchema>;
 export type AnnouncementBlock = z.infer<typeof announcementSchema>;
 export type HomepageSection = z.infer<typeof sectionSchema>;
 export type SectionStyle = z.infer<typeof sectionStyleSchema>;
+export type HomepageAppearance = 'STUDIO_V3';
 export type HomepageDocument = {
   schemaVersion: typeof SCHEMA_VERSION;
   sections: HomepageSection[];
   announcement: AnnouncementBlock;
   defaults?: SectionStyle;
+  appearance?: HomepageAppearance;
 };
 
 export const homepageDocumentSchema: z.ZodType<HomepageDocument> = z.object({
@@ -583,6 +662,7 @@ export const homepageDocumentSchema: z.ZodType<HomepageDocument> = z.object({
   sections: z.array(sectionSchema),
   announcement: announcementSchema,
   defaults: sectionStyleSchema.optional(),
+  appearance: z.literal('STUDIO_V3').optional(),
 });
 
 // --- publish validation contract --------------------------------------------
@@ -598,6 +678,7 @@ export type PublishIssue = {
   sectionId?: string;
   slideId?: string;
   announcementItemId?: string;
+  entryId?: string;
 };
 
 /**
@@ -739,7 +820,10 @@ export function emptyDocument(): HomepageDocument {
     sortOrder: 0,
     schedule: { publishAt: null, unpublishAt: null },
     media: null,
-    overlay: { ...DEFAULT_OVERLAY },
+    overlay: {
+      ...DEFAULT_OVERLAY,
+      overrides: { mobile: { gradient: 'LOCAL', opacity: 0.65 } },
+    },
     elements: {
       eyebrow: defaultElement('eyebrow'),
       heading: defaultElement('heading'),
@@ -768,7 +852,8 @@ export function emptyDocument(): HomepageDocument {
         enabled: true,
         sortOrder: 0,
         schedule: { publishAt: null, unpublishAt: null },
-        payload: { behavior: { ...DEFAULT_BEHAVIOR }, slides: [slide] },
+        style: { contentWidth: 'FULL' },
+        payload: { behavior: { ...DEFAULT_BEHAVIOR }, slides: [slide], display: { heightMode: 'SCREEN' } },
         products: [],
       },
     ],

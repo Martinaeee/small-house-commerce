@@ -470,7 +470,7 @@ function LockIcon({ locked }: { locked: boolean }): ReactNode {
 const TOOLBAR_BUTTON_CLASS =
   "flex h-7 min-w-7 items-center justify-center gap-1 rounded border border-transparent px-1.5 text-xs font-semibold text-ink-secondary transition-colors hover:border-border hover:text-cta aria-pressed:border-cta aria-pressed:text-cta";
 
-export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
+export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; previewViewportHeight?: number } = {}): ReactNode {
   const { t } = useAdminI18n();
   const {
     state,
@@ -501,6 +501,8 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
     ? locateSlide(state.document, selectedSlideId)
     : null;
   const section = located?.section ?? hero;
+  const display = section?.type === "HERO" ? section.payload.display : undefined;
+  const responsiveHeight = ((device === "desktop" ? undefined : display?.overrides?.[device]?.heightMode) ?? display?.heightMode) !== undefined;
   const slide = located?.slide ?? hero?.payload.slides[0] ?? null;
   const selectedElement =
     slide && selectedElementKey ? slide.elements[selectedElementKey] : null;
@@ -552,13 +554,13 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
     }
     // The shared HeroSlider container reads height:var(--hp-hero-height); in the
     // editor the stage owns the height, so pin the variable to 100%.
-    vars["--hp-hero-height"] = "100%";
+    if (!responsiveHeight) vars["--hp-hero-height"] = "100%";
     if (dragPreview) {
       vars[`--el-${dragPreview.key}-x`] = `${dragPreview.xPct}%`;
       vars[`--el-${dragPreview.key}-y`] = `${dragPreview.yPct}%`;
     }
     return vars as CSSProperties;
-  }, [slide, device, dragPreview]);
+  }, [slide, device, dragPreview, responsiveHeight]);
 
   /**
    * The inline stage vars above read cleanly from tests, but a real browser
@@ -605,14 +607,14 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
       rule.push(`--el-${dragPreview.key}-y: ${dragPreview.yPct}%;`);
     }
     return [
-      `#hp-hero-${section.id} { --hp-hero-height: 100%; }`,
+      !responsiveHeight ? `#hp-hero-${section.id} { --hp-hero-height: 100%; }` : "",
       rule.length > 0
         ? `#hp-hero-${section.id} [data-slide="${slide.id}"] { ${rule.join(" ")} }`
         : "",
     ]
       .filter(Boolean)
       .join("\n");
-  }, [section, slide, device, dragPreview]);
+  }, [section, slide, device, dragPreview, responsiveHeight]);
 
   const focusCanvas = useCallback((): void => {
     const canvas = canvasRef.current;
@@ -956,7 +958,7 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
       role="group"
       aria-label={t("homepage_builder_pane_preview")}
       tabIndex={0}
-      className="relative h-full w-full overflow-hidden outline-none"
+      className={`relative w-full overflow-hidden outline-none ${responsiveHeight ? "" : "h-full"}`}
       onClick={handleCanvasClick}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -967,7 +969,7 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
       <div
         ref={stageRef}
         data-hero-stage
-        className="absolute inset-0"
+        className={responsiveHeight ? "relative" : "absolute inset-0"}
         style={stageVars}
       >
         {viewSection ? (
@@ -979,6 +981,8 @@ export function HeroCanvas({ style }: { style?: unknown } = {}): ReactNode {
                 above) so a real browser resolves the selected device and the
                 frame height. */}
             <HeroSlider
+              previewDevice={device}
+              previewViewportHeight={previewViewportHeight ?? { desktop: 900, tablet: 1024, mobile: 844 }[device]}
               section={{
                 ...viewSection,
                 ...(style !== undefined ? { style } : {}),

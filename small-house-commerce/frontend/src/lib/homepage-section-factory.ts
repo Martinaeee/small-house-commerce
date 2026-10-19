@@ -55,7 +55,7 @@ const DEFAULT_PAYLOADS: {
   [K in NonHeroSectionType]: () => SectionPayloadMap[K];
 } = {
   USP: () => ({ items: [] }),
-  CATEGORY_TILES: () => ({ categoryIds: [] }),
+  CATEGORY_TILES: () => ({ entries: [], presentation: "CIRCLES" }),
   PRODUCT_GRID: () => ({}),
   SOLUTIONS: () => ({ items: [] }),
   PRODUCT_STORY: () => ({}),

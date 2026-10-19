@@ -5,6 +5,23 @@ import {
 } from './homepage-section.dto.js';
 
 describe('homepage payload schemas', () => {
+  it.each([
+    [HomepageSectionType.CATEGORY_TILES, { columns: 6, overrides: { mobile: { gap: 0 } } }],
+    [HomepageSectionType.PRODUCT_GRID, { overrides: { tablet: { columns: 3 } } }],
+    [HomepageSectionType.PRODUCT_STORY, { imageRatio: 'PORTRAIT', gap: 48 }],
+  ])('preserves the supported responsive layout for %s', (type, layout) => {
+    expect(homepagePayloadSchemas[type].parse({ layout })).toEqual({ layout });
+  });
+
+  it.each([
+    [HomepageSectionType.CATEGORY_TILES, { columns: 7 }],
+    [HomepageSectionType.CATEGORY_TILES, { overrides: { mobile: { gap: -1 } } }],
+    [HomepageSectionType.PRODUCT_GRID, { columns: 5 }],
+    [HomepageSectionType.PRODUCT_GRID, { imageRatio: 'SQUARE' }],
+    [HomepageSectionType.PRODUCT_STORY, { overrides: { phone: { gap: 8 } } }],
+  ])('rejects unsupported layout fields for %s', (type, layout) => {
+    expect(homepagePayloadSchemas[type].safeParse({ layout }).success).toBe(false);
+  });
   it('accepts a valid payload for every section type', () => {
     const cases: Array<[HomepageSectionType, unknown]> = [
       [

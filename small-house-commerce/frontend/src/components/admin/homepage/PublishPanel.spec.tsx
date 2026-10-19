@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
@@ -126,16 +126,30 @@ function renderPanel(options: HarnessOptions = {}) {
     : vi.fn<SaveFn>().mockResolvedValue(true);
   const onClose = options.onClose ?? vi.fn();
   const onPublished = options.onPublished ?? vi.fn();
+  const onRevealSettings = vi.fn();
+  const scrollSettings = vi.fn();
+  function Harness() {
+    const [visible, setVisible] = useState(false);
+    return <>
+      <PublishPanel save={save} onClose={onClose} onPublished={onPublished} onRevealSettings={() => { onRevealSettings(); setVisible(true); }} />
+      <SelectionProbe />
+      {visible ? <section data-homepage-settings-scroll ref={(node) => { if (node) node.scrollTo = scrollSettings; }}>
+        <details data-testid="entry-group"><summary>Entries</summary>
+          <div data-entry-id="navigation-entry" data-testid="navigation-entry" />
+        </details>
+      </section> : null}
+      <div data-entry-id="navigation-entry" data-testid="outside-entry" />
+    </>;
+  }
   render(
     <AdminI18nProvider>
       <HomepageEditorProvider>
         <DocumentLoader document={options.document ?? countedDocument()} />
-        <PublishPanel save={save} onClose={onClose} onPublished={onPublished} />
-        <SelectionProbe />
+        <Harness />
       </HomepageEditorProvider>
     </AdminI18nProvider>,
   );
-  return { save, onClose, onPublished };
+  return { save, onClose, onPublished, onRevealSettings, scrollSettings };
 }
 
 async function flush(): Promise<void> {
@@ -246,6 +260,41 @@ describe("PublishPanel", () => {
     expect(screen.getByTestId("selected-slide")).toHaveTextContent(SLIDE_TWO_ID);
     expect(screen.getByTestId("selected-element")).toBeEmptyDOMElement();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("reveals settings, selects the affected module and scrolls only its entry after the dialog closes", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    validateHomepage.mockResolvedValue({ errors: [{ severity: "ERROR", code: "NAVIGATION_IMAGE_REQUIRED", message: "Entry needs an image.", sectionId: "navigation-section", entryId: "navigation-entry" }], warnings: [] });
+    const { onRevealSettings, onClose, scrollSettings } = renderPanel();
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
+    const pane = document.querySelector<HTMLElement>("[data-homepage-settings-scroll]")!;
+    expect(pane).not.toBeNull();
+    expect(screen.getByTestId("selected-section")).toHaveTextContent("navigation-section");
+    expect(onRevealSettings.mock.invocationCallOrder[0]).toBeLessThan((onClose as Mock).mock.invocationCallOrder[0]);
+    const row = screen.getByTestId("navigation-entry");
+    vi.spyOn(pane, "getBoundingClientRect").mockReturnValue({ top: 40 } as DOMRect);
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue({ top: 500, height: 60 } as DOMRect);
+    Object.defineProperty(pane, "clientHeight", { value: 200 });
+    pane.scrollTop = 100;
+    act(() => { frames.shift()?.(0); frames.shift()?.(0); });
+    expect(screen.getByTestId("entry-group")).toHaveAttribute("open");
+    expect(scrollSettings).toHaveBeenCalledWith({ top: 490, behavior: "smooth" });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["removed-entry", 'missing\"] [data-entry-id=\"navigation-entry']) ("ignores unknown or selector-like entry ids safely: %s", async (entryId) => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    validateHomepage.mockResolvedValue({ errors: [{ severity: "ERROR", code: "NAVIGATION_IMAGE_REQUIRED", message: "Entry needs an image.", sectionId: "navigation-section", entryId }], warnings: [] });
+    const { scrollSettings } = renderPanel();
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
+    expect(() => act(() => { frames.shift()?.(0); frames.shift()?.(0); })).not.toThrow();
+    expect(screen.getByTestId("selected-section")).toHaveTextContent("navigation-section");
+    expect(scrollSettings).not.toHaveBeenCalled();
+    expect(screen.getByTestId("entry-group")).not.toHaveAttribute("open");
   });
 
   it("jumps announcement issues to the affected item after closing the dialog", async () => {

@@ -72,12 +72,13 @@ function Loader({ document }: { document: HomepageDocument }): ReactNode {
 }
 
 function Probe(): ReactNode {
-  const { state } = useHomepageEditor();
+  const { state, setDevice } = useHomepageEditor();
   const section = state.document.sections.find((candidate) => candidate.id === USP_ID);
   return (
-    <pre data-testid="document">
-      {JSON.stringify(section)}
-    </pre>
+    <>
+      <button onClick={() => setDevice("mobile")}>switch-mobile</button>
+      <pre data-testid="document">{JSON.stringify(section)}</pre>
+    </>
   );
 }
 
@@ -99,6 +100,20 @@ function section(): Record<string, unknown> {
 }
 
 describe("SectionEditorPanel", () => {
+  it("keeps mobile shared-style edits sparse while preserving opaque legacy fields", () => {
+    const doc = sectionDocument();
+    doc.defaults = { paddingTop: 30, overrides: { mobile: { paddingTop: 10 } } };
+    renderPanel(doc);
+    fireEvent.click(screen.getByRole("button", { name: "switch-mobile" }));
+    fireEvent.click(screen.getByRole("button", { name: /Advanced: individual override/ }));
+    const padding = screen.getByRole("spinbutton", { name: "Top spacing (px)" });
+    expect(padding).toHaveValue(10);
+    fireEvent.change(padding, { target: { value: "0" } }); fireEvent.blur(padding);
+    expect(section().style).toEqual({ backgroundColor: "#112233", customKey: "preserve", overrides: { mobile: { paddingTop: 0 } } });
+    fireEvent.click(screen.getByRole("button", { name: "Restore section style inheritance" }));
+    expect(section().style).toEqual({ backgroundColor: "#112233", customKey: "preserve" });
+  });
+
   it("keeps registry editor props tied to the requested section type", () => {
     const editor = getSectionEditorDefinition("USP").editor;
     const productGrid = defaultSection(

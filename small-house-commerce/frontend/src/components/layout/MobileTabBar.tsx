@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 const ITEMS: Array<{ href: string; label: string; icon: ReactNode }> = [
   {
@@ -51,6 +51,17 @@ const ITEMS: Array<{ href: string; label: string; icon: ReactNode }> = [
 
 export function MobileTabBar() {
   const pathname = usePathname();
+  const clearance = useRef<HTMLDivElement>(null);
+  const navigation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (pathname !== "/") { clearance.current?.style.removeProperty("height"); return; }
+    if (!navigation.current || !clearance.current) return;
+    const update = () => { if (clearance.current && navigation.current) clearance.current.style.height = `${navigation.current.offsetHeight}px`; };
+    const resize = new ResizeObserver(update);
+    resize.observe(navigation.current);
+    update();
+    return () => resize.disconnect();
+  }, [pathname]);
 
   // PDP (/products/*) and LP pages (/lp/*) render PdpClient's own sticky
   // add-to-cart bar; cart/checkout are focused flows. Hidden routes render
@@ -70,8 +81,10 @@ export function MobileTabBar() {
       {/* In-flow footer clearance: last element of the body flex column, so
           the footer copyright strip can scroll above the fixed bar. Collapses
           to zero height at md+ where the bar is hidden. */}
-      <div aria-hidden="true" className="h-[calc(4rem+env(safe-area-inset-bottom))] md:hidden" />
+      <div ref={clearance} data-homepage-bottom-clearance={pathname === "/" ? "" : undefined} aria-hidden="true" className="h-[calc(4rem+env(safe-area-inset-bottom))] md:hidden" />
       <nav
+        ref={navigation}
+        data-homepage-bottom-chrome
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >

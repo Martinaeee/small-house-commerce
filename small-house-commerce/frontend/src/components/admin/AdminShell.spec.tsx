@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminShell } from "./AdminShell";
 
@@ -8,6 +7,7 @@ const shellState = vi.hoisted(() => ({
   permissions: ["ORDER_VIEW_OWN"] as string[],
   replace: vi.fn(),
   logout: vi.fn(),
+  setLang: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -32,21 +32,6 @@ vi.mock("@/components/admin/AdminAuthProvider", () => ({
   }),
 }));
 
-vi.mock("@/components/admin/AdminGlobalHeader", () => ({
-  AdminGlobalHeader: ({
-    searchControl,
-    notificationControl,
-  }: {
-    searchControl?: ReactNode;
-    notificationControl?: ReactNode;
-  }) => (
-    <header>
-      {searchControl}
-      {notificationControl}
-    </header>
-  ),
-}));
-
 vi.mock("@/components/admin/AdminGlobalSearch", () => ({
   AdminGlobalSearch: () => <button type="button">Search</button>,
 }));
@@ -56,7 +41,7 @@ vi.mock("@/components/admin/AdminNotifications", () => ({
 }));
 
 vi.mock("@/lib/admin-i18n", () => ({
-  useAdminI18n: () => ({ t: (key: string) => key }),
+  useAdminI18n: () => ({ t: (key: string) => key, lang: "en", setLang: shellState.setLang }),
 }));
 
 function renderShell(): void {
@@ -66,6 +51,99 @@ function renderShell(): void {
     </AdminShell>,
   );
 }
+
+describe("AdminShell Studio isolation", () => {
+  beforeEach(() => {
+    shellState.pathname = "/admin/homepage";
+    shellState.permissions = ["PRODUCT_MANAGE", "ORDER_VIEW_ALL"];
+    shellState.replace.mockReset();
+    shellState.logout.mockReset();
+    shellState.setLang.mockReset();
+  });
+
+  it.each([
+    ["/admin/homepage", "homepage-studio"],
+    ["/admin/homepage/versions", "default"],
+    ["/admin/homepage/", "default"],
+    ["/admin/homepage-old", "default"],
+    ["/admin/products", "default"],
+    ["/admin/orders", "default"],
+  ])("uses the correct shell mode for %s", (pathname, mode) => {
+    shellState.pathname = pathname;
+    renderShell();
+    expect(document.querySelector(".admin-shell")).toHaveAttribute("data-admin-shell-mode", mode);
+    expect(screen.getByRole("link", { name: "nav_products" })).toHaveAttribute("href", "/admin/products");
+    expect(screen.getByRole("link", { name: "nav_orders" })).toHaveAttribute("href", "/admin/orders");
+    // Every admin route can collapse its rail; Studio starts collapsed, the
+    // rest of the back office starts expanded like before.
+    const toggle = document.querySelector("aside button[aria-expanded]");
+    expect(toggle).not.toBeNull();
+    expect(toggle).toHaveAttribute("aria-expanded", mode === "default" ? "true" : "false");
+  });
+
+  it("collapses the rail on a non-Studio route and keeps the choice across navigation", () => {
+    shellState.pathname = "/admin/products";
+    const { rerender } = render(
+      <AdminShell>
+        <p>Protected route content</p>
+      </AdminShell>,
+    );
+    const toggle = screen.getByRole("button", { name: "admin_nav_collapse" });
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "admin_nav_expand" })).toHaveAttribute("aria-expanded", "false");
+    // The permission-filtered links survive the collapsed icon rail.
+    expect(screen.getByRole("link", { name: "nav_products" })).toHaveAttribute("href", "/admin/products");
+    expect(screen.queryByRole("link", { name: "nav_settings" })).toBeNull();
+
+    // Navigating between admin pages preserves the operator's rail choice.
+    shellState.pathname = "/admin/orders";
+    rerender(
+      <AdminShell>
+        <p>Protected route content</p>
+      </AdminShell>,
+    );
+    expect(screen.getByRole("button", { name: "admin_nav_expand" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "admin_nav_expand" }));
+    expect(screen.getByRole("button", { name: "admin_nav_collapse" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("expands the real permission-filtered navigation without losing header controls and exits with Escape", async () => {
+    renderShell();
+    const toggle = screen.getByRole("button", { name: "admin_nav_expand" });
+    toggle.focus();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "admin_nav_collapse" })).toHaveAttribute("aria-expanded", "true");
+    const nav = screen.getByRole("navigation", { name: "Admin navigation" });
+    expect(within(nav).getByRole("link", { name: "nav_homepage" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).queryByRole("link", { name: "nav_settings" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Search" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Notifications live" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "admin_header_switch_language" }));
+    expect(shellState.setLang).toHaveBeenCalledWith("zh");
+    fireEvent.keyDown(nav, { key: "Escape" });
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const account = screen.getByRole("group", { name: "admin_header_account_menu" });
+    fireEvent.click(account.querySelector("summary")!);
+    await act(async () => fireEvent.click(within(account).getByRole("button", { name: "admin_header_logout" })));
+    expect(shellState.logout).toHaveBeenCalledOnce();
+    expect(shellState.replace).toHaveBeenCalledWith("/admin/login");
+  });
+
+  it("retains the mobile drawer, Escape and focus return on the Studio route", () => {
+    renderShell();
+    const open = screen.getByRole("button", { name: "Open admin menu" });
+    open.focus();
+    fireEvent.click(open);
+    const drawer = screen.getByRole("dialog", { name: "Admin menu" });
+    expect(within(drawer).getByRole("link", { name: "nav_homepage" })).toHaveAttribute("href", "/admin/homepage");
+    expect(within(drawer).getByRole("button", { name: "Close admin menu" })).toHaveFocus();
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Admin menu" })).toBeNull();
+    expect(open).toHaveFocus();
+  });
+});
 
 describe("AdminShell hidden permission-backed destinations", () => {
   beforeEach(() => {

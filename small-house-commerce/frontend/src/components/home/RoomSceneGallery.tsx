@@ -49,7 +49,8 @@ export function RoomSceneGallery({
   const [reduced, setReduced] = useState(false);
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
+  const [cardPos, setCardPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
 
   // SSR = false, client = true: gates the createPortal call (house idiom,
   // shared with MainNav/SiteSearch; avoids set-state-in-effect).
@@ -131,7 +132,17 @@ export function RoomSceneGallery({
   // per scene/index, so opening a different dot detaches and reattaches).
   // preventScroll keeps the fixed card from moving the page behind it.
   const cardRef = useCallback((el: HTMLAnchorElement | null) => {
-    el?.focus({ preventScroll: true });
+    if (!el) return;
+    const bar = document.querySelector<HTMLElement>("[data-homepage-bottom-chrome]");
+    const bottom = bar && getComputedStyle(bar).display !== "none"
+      ? Math.min(window.innerHeight, bar.getBoundingClientRect().top) : window.innerHeight;
+    const maxHeight = Math.max(0, bottom - 16);
+    const bounds = el.getBoundingClientRect();
+    setCardPos((previous) => ({
+      top: Math.max(8, Math.min(previous.top, bottom - Math.min(bounds.height, maxHeight) - 8)),
+      left: Math.max(8, Math.min(previous.left, window.innerWidth - bounds.width - 8)), maxHeight,
+    }));
+    el.focus({ preventScroll: true });
   }, []);
   useEffect(() => {
     if (!openCard) {
@@ -224,7 +235,15 @@ export function RoomSceneGallery({
                 src={scene.imageUrl}
                 alt={scene.alt ?? section.title ?? ""}
                 loading="lazy"
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
+                onLoad={(event) => {
+                  const image = event.currentTarget;
+                  if (image.naturalWidth && image.naturalHeight) {
+                    const ratio = image.naturalWidth / image.naturalHeight;
+                    const key = sceneFailureKey(scene);
+                    setImageRatios((previous) => previous[key] === ratio ? previous : { ...previous, [key]: ratio });
+                  }
+                }}
                 onError={() =>
                   setFailed((prev) => {
                     const next = new Set(prev);
@@ -236,11 +255,16 @@ export function RoomSceneGallery({
               {scene.hotspots.map((hotspot, index) => {
                 const isOpen =
                   openCard?.sceneId === scene.id && openCard.index === index;
+                const ratio = imageRatios[sceneFailureKey(scene)] ?? 1.6;
+                const imageWidth = Math.min(1, ratio / 1.6) * 100;
+                const imageHeight = Math.min(1, 1.6 / ratio) * 100;
+                const position = { left: `${(100 - imageWidth) / 2 + hotspot.xPct * imageWidth / 100}%`,
+                  top: `${(100 - imageHeight) / 2 + hotspot.yPct * imageHeight / 100}%` };
                 return (
                   <span
                     key={hotspot.product.id}
                     className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
-                    style={{ left: `${hotspot.xPct}%`, top: `${hotspot.yPct}%` }}
+                    style={position}
                   >
                     <button
                       type="button"
@@ -368,7 +392,7 @@ export function RoomSceneGallery({
                 {...trackAttrs("ProductClick", section, openCard.index + 1)}
                 onClick={() => setOpenCard(null)}
                 className="fixed z-50 flex w-60 gap-3 rounded-xl border border-border bg-card p-3 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-cta"
-                style={{ top: cardPos.top, left: cardPos.left }}
+                style={{ top: cardPos.top, left: cardPos.left, maxHeight: cardPos.maxHeight, maxWidth: "calc(100vw - 16px)", overflowY: "auto" }}
               >
                 <span className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-primary-light/30">
                   {hotspotCover ? (

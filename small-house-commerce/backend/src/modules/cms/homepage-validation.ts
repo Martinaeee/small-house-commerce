@@ -16,6 +16,7 @@ import {
   bannerPayloadSchemas,
 } from './homepage-document.js';
 import { homepagePayloadSchemas } from './dto/homepage-section.dto.js';
+import { categoryNavigationDraftSchema, ugcContentDraftSchema } from './homepage-content-schema.js';
 
 /**
  * Pre-publish validation for the homepage V2 document (spec §4.3).
@@ -41,6 +42,7 @@ import { homepagePayloadSchemas } from './dto/homepage-section.dto.js';
  */
 
 export type LinkEntityType = 'PRODUCT' | 'COLLECTION' | 'CATEGORY' | 'LANDING';
+export type NavigationTarget = { type: 'CATEGORY' | 'COLLECTION'; id: string; name: string; slug: string };
 
 /** A `LinkValue` that points at a stored entity row (needs a lookup). */
 type EntityLink = Exclude<LinkValue, { type: 'EXTERNAL' } | { type: 'INTERNAL' }>;
@@ -67,6 +69,7 @@ export interface LinkLookup {
   categoryExists(ids: string[]): Promise<Set<string>>;
   landingExists(ids: string[]): Promise<Set<string>>;
   slugs(type: LinkEntityType, ids: string[]): Promise<Map<string, string>>;
+  navigationTargets(ids: { categoryIds: string[]; collectionIds: string[] }): Promise<Map<string, NavigationTarget>>;
 }
 
 export class HomepageValidator implements DocumentValidator {
@@ -100,11 +103,15 @@ export class HomepageValidator implements DocumentValidator {
           new Set<string>(),
         ),
       ]);
+    const navigationTargets = ids.navigationCategoryIds.size > 0 || ids.navigationCollectionIds.size > 0
+      ? await this.lookup.navigationTargets({ categoryIds: [...ids.navigationCategoryIds], collectionIds: [...ids.navigationCollectionIds] })
+      : new Map<string, NavigationTarget>();
     const results: LookupResults = {
       productStatuses,
       collections,
       categories,
       landings,
+      navigationTargets,
     };
 
     const errors: PublishIssue[] = [];
@@ -118,6 +125,8 @@ export class HomepageValidator implements DocumentValidator {
         checkHeroSection(section, results, errors, warnings);
       } else {
         checkSectionPayload(section, errors);
+        if (section.type === 'CATEGORY_TILES') checkNavigation(section, results.navigationTargets, errors);
+        if (section.type === 'UGC') checkUgcCollage(section, results.productStatuses, errors, warnings);
         if (section.type === 'COUNTDOWN_BANNER') {
           checkCountdownBanner(section, now, errors);
         }
@@ -139,6 +148,8 @@ type LookupIds = {
   collectionIds: Set<string>;
   categoryIds: Set<string>;
   landingIds: Set<string>;
+  navigationCategoryIds: Set<string>;
+  navigationCollectionIds: Set<string>;
 };
 
 type LookupResults = {
@@ -146,6 +157,7 @@ type LookupResults = {
   collections: Set<string>;
   categories: Set<string>;
   landings: Set<string>;
+  navigationTargets: Map<string, NavigationTarget>;
 };
 
 /** Every id the rules below will ask about: enabled links + grid products. */
@@ -155,6 +167,8 @@ function collectLookupIds(doc: HomepageDocument): LookupIds {
     collectionIds: new Set(),
     categoryIds: new Set(),
     landingIds: new Set(),
+    navigationCategoryIds: new Set(),
+    navigationCollectionIds: new Set(),
   };
   const addLink = (link: LinkValue | null): void => {
     if (link === null || isSelfResolvingLink(link)) return;
@@ -186,6 +200,18 @@ function collectLookupIds(doc: HomepageDocument): LookupIds {
       }
     } else if (section.type === 'PRODUCT_GRID') {
       for (const row of section.products) ids.productIds.add(row.productId);
+    } else if (section.type === 'UGC' && section.enabled) {
+      const parsed = ugcContentDraftSchema.safeParse(section.payload);
+      if (!parsed.success || parsed.data.presentation?.layout !== 'COLLAGE' || parsed.data.presentation.showQuote === false) continue;
+      const featured = parsed.data.entries?.find((entry) => entry.id === parsed.data.presentation?.featuredEntryId);
+      if (featured?.productId) ids.productIds.add(featured.productId);
+    } else if (section.type === 'CATEGORY_TILES' && section.enabled && 'entries' in section.payload) {
+      const parsed = categoryNavigationDraftSchema.safeParse(section.payload);
+      if (!parsed.success) continue;
+      for (const entry of parsed.data.entries ?? []) {
+        if (entry.link?.type === 'CATEGORY') ids.navigationCategoryIds.add(entry.link.id);
+        else if (entry.link?.type === 'COLLECTION') ids.navigationCollectionIds.add(entry.link.id);
+      }
     }
   }
   if (doc.announcement.enabled) {
@@ -405,6 +431,45 @@ function checkSlideContent(
  * re-runs the same schema so a payload the editor could not have saved (or a
  * schema tightened since) cannot go live.
  */
+function checkUgcCollage(section: HomepageSection, products: Map<string, ProductStatus>, errors: PublishIssue[], warnings: PublishIssue[]): void {
+  if (!section.enabled) return;
+  const parsed = ugcContentDraftSchema.safeParse(section.payload);
+  if (!parsed.success || parsed.data.presentation?.layout !== 'COLLAGE') return;
+  const { entries = [], presentation } = parsed.data;
+  if (entries.length === 0) errors.push(issue('ERROR', 'UGC_PHOTO_REQUIRED', 'Add at least one photo to the collage.', section.id));
+  entries.forEach((entry, index) => {
+    if (!entry.imageUrl) errors.push({ ...issue('ERROR', 'UGC_PHOTO_REQUIRED', `Collage photo ${index + 1} needs an image.`, section.id), entryId: entry.id });
+  });
+  const featured = entries.find((entry) => entry.id === presentation.featuredEntryId);
+  if (!featured) {
+    errors.push(issue('ERROR', 'UGC_FEATURED_REQUIRED', 'Choose a featured photo for the collage.', section.id));
+    return;
+  }
+  if (presentation.showQuote === false) return;
+  if (!featured.comment.trim()) errors.push({ ...issue('ERROR', 'UGC_QUOTE_REQUIRED', 'Add a quote to the featured photo or turn off Show quote.', section.id), entryId: featured.id });
+  if (featured.productId && products.get(featured.productId) !== 'ACTIVE') {
+    warnings.push({ ...issue('WARNING', 'UGC_PRODUCT_UNAVAILABLE', 'The featured product is unavailable; its shop link will be hidden.', section.id), entryId: featured.id });
+  }
+}
+
+function checkNavigation(section: HomepageSection, targets: Map<string, NavigationTarget>, errors: PublishIssue[]): void {
+  if (!section.enabled || !('entries' in section.payload)) return;
+  const parsed = categoryNavigationDraftSchema.safeParse(section.payload);
+  if (!parsed.success) return;
+  const entries = parsed.data.entries ?? [];
+  if (entries.length === 0) {
+    errors.push(issue('ERROR', 'NAVIGATION_EMPTY', 'Add at least one homepage entry.', section.id));
+  }
+  entries.forEach((entry, index) => {
+    if (!entry.imageUrl) {
+      errors.push({ ...issue('ERROR', 'NAVIGATION_IMAGE_REQUIRED', `Homepage entry ${index + 1} needs an image.`, section.id), entryId: entry.id });
+    }
+    if (!entry.link || !targets.has(`${entry.link.type}:${entry.link.id}`)) {
+      errors.push({ ...issue('ERROR', 'NAVIGATION_TARGET_UNAVAILABLE', `Homepage entry ${index + 1} needs an active category or collection.`, section.id), entryId: entry.id });
+    }
+  });
+}
+
 function checkSectionPayload(
   section: HomepageSection,
   errors: PublishIssue[],

@@ -166,6 +166,8 @@ function renderPanel(
     elementKey?: HeroElementKey;
     device?: BuilderDevice;
     document?: HomepageDocument;
+    panelElementKey?: HeroElementKey;
+    embedded?: boolean;
   } = {},
 ) {
   const { elementKey = "heading", device = "desktop", document = panelDocument() } =
@@ -174,7 +176,7 @@ function renderPanel(
     <AdminI18nProvider>
       <HomepageEditorProvider>
         <Harness document={document} elementKey={elementKey} device={device} />
-        <SettingsPanel />
+        <SettingsPanel elementKey={options.panelElementKey} embedded={options.embedded} />
         <PanelProbe />
       </HomepageEditorProvider>
     </AdminI18nProvider>,
@@ -236,6 +238,21 @@ async function advance(ms: number): Promise<void> {
 }
 
 describe("SettingsPanel", () => {
+  it("edits an explicitly embedded element without replacing the canvas selection", () => {
+    setAdminLang("en");
+    renderPanel({ elementKey: "heading", panelElementKey: "offer", embedded: true });
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    const typography = screen.getByText("Typography").closest("details");
+    expect(typography).not.toBeNull();
+    expect(typography).not.toHaveAttribute("open");
+    const text = screen.getByRole("textbox", { name: "Offer text" });
+    fireEvent.change(text, { target: { value: "A little more room" } });
+    fireEvent.blur(text);
+    expect(slideElement("offer").text).toBe("A little more room");
+    expect(heading().text).toBe("Build a calmer home");
+    expect(screen.getByTestId("element-key")).toHaveTextContent("heading");
+  });
+
   beforeEach(() => {
     setAdminLang("en");
   });

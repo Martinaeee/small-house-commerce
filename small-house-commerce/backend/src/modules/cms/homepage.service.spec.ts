@@ -164,6 +164,73 @@ function createContext(sections: SectionFixture[]) {
 }
 
 describe('HomepageService.storefrontGet', () => {
+  it('preserves collage identity, presentation and authoritative product hydration', async () => {
+    const presentation = { layout: 'COLLAGE', featuredEntryId: 'photo', showQuote: true, overlay: 'STRONG' };
+    const ctx = createContext([section({ id: 'ugc', type: T.UGC, payload: { presentation, entries: [{ id: 'photo', name: '', comment: 'Sample quote', imageUrl: '/uploads/e2e/home.jpg', productId: 'p1' }] } })]);
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    expect(result.sections[0]).toHaveProperty('payload', { presentation, entries: [expect.objectContaining({ id: 'photo', name: '', comment: 'Sample quote', product: expect.objectContaining({ id: 'p1', slug: 'p1' }) })] });
+  });
+
+  it('does not accept a draft-supplied product as an active collage target', async () => {
+    const ctx = createContext([section({ id: 'ugc', type: T.UGC, payload: { presentation: { layout: 'COLLAGE', featuredEntryId: 'photo' }, entries: [{ id: 'photo', name: '', comment: 'Sample quote', imageUrl: '/uploads/e2e/home.jpg', productId: 'missing', product: { id: 'missing', name: 'Stale product', slug: 'stale' } }] } })]);
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    expect(result.sections[0]).not.toHaveProperty('payload.entries.0.product');
+    expect(result.sections[0]).toHaveProperty('payload.entries.0.id', 'photo');
+  });
+
+  it('hydrates custom navigation without requiring a global category cover', async () => {
+    const id = '00000000-0000-7000-8000-000000000701';
+    const entryId = '00000000-0000-7000-8000-000000000702';
+    const prisma = {
+      homepageSection: { findMany: vi.fn(async () => [section({ id: 'nav', type: T.CATEGORY_TILES, payload: {
+        entries: [{ id: entryId, imageUrl: '/uploads/e2e/custom.jpg', link: { type: 'CATEGORY', id } }], presentation: 'CIRCLES',
+      } })]) },
+      category: { findMany: vi.fn(async () => [{ id, name: 'Storage', slug: 'storage', imageUrl: null }]) },
+      collection: { findMany: vi.fn(async () => []) },
+    };
+    const products = { storefrontByIds: vi.fn(async () => []) };
+    const result = await new HomepageService(prisma as never, products as never).storefrontGet();
+    expect(result.sections[0]).toHaveProperty('navigationEntries', [{
+      id: entryId, name: 'Storage', imageUrl: '/uploads/e2e/custom.jpg', href: '/categories/storage', link: { type: 'CATEGORY', id },
+    }]);
+    expect(prisma.category.findMany).toHaveBeenCalledWith({ where: { id: { in: [id] }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true } });
+  });
+
+  it('batches repeated references across modules once per entity type while preserving entry order', async () => {
+    const id = '00000000-0000-7000-8000-000000000701';
+    const entryA = '00000000-0000-7000-8000-000000000702';
+    const entryB = '00000000-0000-7000-8000-000000000703';
+    const entryC = '00000000-0000-7000-8000-000000000704';
+    const categoryEntry = { id: entryA, imageUrl: '/uploads/category.jpg', link: { type: 'CATEGORY', id } };
+    const prisma = {
+      homepageSection: { findMany: vi.fn().mockResolvedValue([
+        section({ id: 'first', type: T.CATEGORY_TILES, payload: { entries: [categoryEntry,
+          { id: entryB, imageUrl: '/uploads/collection.jpg', link: { type: 'COLLECTION', id } },
+          { ...categoryEntry, id: entryC }] } }),
+        section({ id: 'second', type: T.CATEGORY_TILES, sortOrder: 10, payload: { entries: [categoryEntry] } }),
+      ]) },
+      category: { findMany: vi.fn().mockResolvedValue([{ id, name: 'Category', slug: 'category' }]) },
+      collection: { findMany: vi.fn().mockResolvedValue([{ id, name: 'Collection', slug: 'collection' }]) },
+    };
+    const result = await new HomepageService(prisma as never, { storefrontByIds: async () => [] } as never).storefrontGet();
+    expect(result.sections[0]).toHaveProperty('navigationEntries', [
+      expect.objectContaining({ id: entryA, href: '/categories/category' }),
+      expect.objectContaining({ id: entryB, href: '/collections/collection' }),
+      expect.objectContaining({ id: entryC, href: '/categories/category' }),
+    ]);
+    expect(result.sections[1]).toHaveProperty('navigationEntries', [expect.objectContaining({ id: entryA })]);
+    expect(prisma.category.findMany).toHaveBeenCalledExactlyOnceWith({ where: { id: { in: [id] }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true } });
+    expect(prisma.collection.findMany).toHaveBeenCalledExactlyOnceWith({ where: { id: { in: [id] }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true } });
+  });
+
+  it('never falls back to legacy categories after explicitly clearing new entries', async () => {
+    const ctx = createContext([section({ id: 'nav', type: T.CATEGORY_TILES, payload: { entries: [], categoryIds: ['c1'] } })]);
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    expect(result.sections[0]).toHaveProperty('navigationEntries', []);
+    expect(result.sections[0]).not.toHaveProperty('categories');
+    expect(ctx.prisma.category.findMany).not.toHaveBeenCalled();
+  });
+
   it('preserves lightweight card media and badges through its single product hydration', async () => {
     const ctx = createContext([section({
       id: 'grid', type: T.PRODUCT_GRID, products: [join('grid', 'p1', 0, 'New')],
@@ -470,6 +537,24 @@ describe('HomepageService versioned storefront source', () => {
     );
   }
 
+  it.each([
+    { live: 'STUDIO_V3', draft: undefined },
+    { live: undefined, draft: 'STUDIO_V3' },
+  ] as const)('uses the selected source appearance, not the other document ($live / $draft)', async ({ live, draft }) => {
+    const liveDocument = emptyDocument();
+    const draftDocument = emptyDocument();
+    if (live) liveDocument.appearance = live;
+    if (draft) draftDocument.appearance = draft;
+    const ctx = versionedContext(liveDocument, draftDocument);
+    const service = versionedService(ctx);
+    const published = await service.storefrontGet();
+    const preview = await service.storefrontGet({ previewToken: signPreviewToken(7, SECRET, new Date()) });
+    if (live) expect(published).toHaveProperty('appearance', live);
+    else expect(published).not.toHaveProperty('appearance');
+    if (draft) expect(preview).toHaveProperty('appearance', draft);
+    else expect(preview).not.toHaveProperty('appearance');
+  });
+
   it('serves the effective document, filters scheduled sections and slides, and resolves hero links in one batch', async () => {
     vi.setSystemTime(NOW);
     const document = structuredClone(emptyDocument());
@@ -638,6 +723,7 @@ describe('HomepageService versioned storefront source', () => {
     inherited.id = '00000000-0000-7000-8000-000000000002';
     inherited.type = 'USP';
     inherited.payload = {};
+    delete inherited.style;
     const overriding = structuredClone(inherited);
     overriding.id = '00000000-0000-7000-8000-000000000003';
     overriding.style = { contentWidth: 'NARROW', paddingTop: 8 };
@@ -657,10 +743,25 @@ describe('HomepageService versioned storefront source', () => {
     });
   });
 
+  it('resolves section common above global device fields without losing unrelated overrides', async () => {
+    const document = emptyDocument();
+    document.defaults = {
+      paddingTop: 40,
+      overrides: { mobile: { paddingTop: 12, paddingBottom: 10 } },
+    };
+    document.sections[0].style = { paddingTop: 30, overrides: { mobile: { contentWidth: 'FULL' } } };
+    const result = await versionedService(versionedContext(document)).storefrontGet();
+    expect(result.sections[0]).toMatchObject({ style: {
+      paddingTop: 30,
+      overrides: { mobile: { paddingBottom: 10, contentWidth: 'FULL' } },
+    } });
+  });
+
   it('omits the style block when neither the section nor the homepage defaults set anything', async () => {
     const document = structuredClone(emptyDocument());
     document.defaults = {};
     const usp = structuredClone(document.sections[0]);
+    delete usp.style;
     usp.id = '00000000-0000-7000-8000-000000000002';
     usp.type = 'USP';
     usp.payload = {};

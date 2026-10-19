@@ -1,3 +1,5 @@
+import { Children, isValidElement, type ReactNode } from "react";
+import { SECTION_REGISTRY } from "@/components/home/sectionRegistry";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCustomRoute } from "next/dist/lib/build-custom-route";
@@ -164,7 +166,57 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("HomepagePreviewPage appearance transport", () => {
+  it.each([undefined, "STUDIO_V3"] as const)("forwards the selected source appearance to shared sections (%s)", async (appearance) => {
+    stubFetch((url) => {
+      if (url.includes("/storefront/homepage")) return jsonResponse({ sections: [draftHeroSection()], ...(appearance ? { appearance } : {}) });
+      if (url.endsWith("/storefront/categories")) return jsonResponse([]);
+      if (url.endsWith("/storefront/collections")) return jsonResponse({ items: [], total: 0 });
+      if (url.endsWith("/storefront/settings")) return jsonResponse(DEFAULT_SITE_SETTINGS);
+      if (url.endsWith("/storefront/shell")) return jsonResponse(DEFAULT_PUBLIC_STOREFRONT_SHELL);
+      return jsonResponse(null);
+    });
+    const tree = await loadPreview({ token: DRAFT_TOKEN, view: "content" });
+    function appearances(node: ReactNode): unknown[] {
+      return Children.toArray(node).flatMap((child) => {
+        if (!isValidElement<{ children?: ReactNode; appearance?: string }>(child)) return [];
+        if (child.type === SECTION_REGISTRY.HERO) return [child.props.appearance];
+        return appearances(child.props.children);
+      });
+    }
+    expect(appearances(tree)).toEqual([appearance]);
+    const { container } = render(tree);
+    const root = container.querySelector("[data-homepage-appearance]");
+    if (appearance) {
+      expect(root).toHaveAttribute("data-homepage-appearance", appearance);
+      expect(screen.getByText(DRAFT_HEADING).closest("[data-homepage-appearance]")).toBe(root);
+      expect(container.querySelector('[data-homepage-section-type="HERO"]')).not.toBeNull();
+      expect(container.querySelector("header")?.closest("[data-homepage-appearance]")).toBeNull();
+      expect(container.querySelector("footer")?.closest("[data-homepage-appearance]")).toBeNull();
+    } else {
+      expect(root).toBeNull();
+    }
+  });
+});
+
 describe("HomepagePreviewPage token gate", () => {
+  it.each(["", " ", "unknown", ["mobile"], ["desktop", "desktop"], ["mobile", "mobile"], ["tablet", "tablet"]].map((view) => ({ view })))(
+    "404s an invalid view before fetching ($view)", async ({ view }) => {
+      await expect(loadPreview({ token: DRAFT_TOKEN, view })).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["desktop", "tablet", "mobile", "content"])("gates every view on a signed token (%s)", async (view) => {
+    for (const token of [undefined, "", " ", [DRAFT_TOKEN, DRAFT_TOKEN]]) {
+      await expect(loadPreview({ token, view })).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    stubFetch(() => new Response("Not Found", { status: 404 }));
+    await expect(loadPreview({ token: DRAFT_TOKEN, view })).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
   it("404s without a token search param", async () => {
     await expect(loadPreview({})).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
     expect(notFoundMock).toHaveBeenCalled();
@@ -244,6 +296,35 @@ describe("HomepagePreviewPage token gate", () => {
 });
 
 describe("HomepagePreviewPage rendering", () => {
+  it.each(["desktop", "tablet", "mobile"])("returns a verified %s wrapper pointing only at canonical same-origin content", async (view) => {
+    const fetchMock = stubFetch();
+    await renderPreview({ token: DRAFT_TOKEN, view, url: "https://example.com", width: "99999" });
+    const frame = document.querySelector("iframe");
+    expect(frame).not.toBeNull();
+    expect(frame).toHaveAttribute("src", `/preview/homepage?${new URLSearchParams({ token: DRAFT_TOKEN, view: "content" })}`);
+    expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchUrls(fetchMock).every((url) => url.includes("previewToken="))).toBe(true);
+    expect(document.querySelector("[data-storefront-preview-shell]")).toBeNull();
+    expect(screen.queryByTestId("meta-pixel-init")).toBeNull();
+    expect(screen.queryByTestId("home-tracking")).toBeNull();
+    // The wrapper's only link is the way back to the editor; it never carries
+    // the token and never points at a shopper destination.
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/admin/homepage");
+    expect(links[0].getAttribute("href")).not.toContain(DRAFT_TOKEN);
+  });
+
+  it("renders canonical content without a duplicate toolbar or viewport wrapper", async () => {
+    await renderPreview({ token: DRAFT_TOKEN, view: "content" });
+    expect(screen.getByRole("heading", { name: DRAFT_HEADING })).toBeVisible();
+    expect(document.querySelector("[data-storefront-preview-shell]")).not.toBeNull();
+    expect(document.querySelector("[data-draft-preview-banner]")).toBeNull();
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(document.documentElement.outerHTML).not.toContain(DRAFT_TOKEN);
+  });
+
   it("renders the draft banner, announcement and sections from the token fetches", async () => {
     const fetchMock = stubFetch();
 

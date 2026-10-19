@@ -33,13 +33,28 @@ export type SectionContentWidth = "FULL" | "STANDARD" | "NARROW";
  * field is optional: a section overrides only the fields it sets, and an unset
  * field falls back to the document default (then to the built-in class).
  */
-export type SectionStyle = {
+export type HomepageDevice = "desktop" | "tablet" | "mobile";
+export type DeviceOverrides<T> = { tablet?: Partial<T>; mobile?: Partial<T> };
+export type ResponsiveFields<T> = Partial<T> & { overrides?: DeviceOverrides<T> };
+
+export type SectionStyleFields = {
   backgroundColor?: string;
   textColor?: string;
   contentWidth?: SectionContentWidth;
   paddingTop?: number;
   paddingBottom?: number;
 };
+export type SectionStyle = ResponsiveFields<SectionStyleFields>;
+export type HeroDisplayFields = { heightMode: "SCREEN" | "BANNER" | "NATURAL"; contentLayout: "AUTO" | "FREE" };
+export type HeroDisplay = ResponsiveFields<HeroDisplayFields>;
+export type ImageRatio = "SQUARE" | "LANDSCAPE" | "PORTRAIT";
+export type CategoryLayoutFields = {
+  columns: 1 | 2 | 3 | 4 | 5 | 6;
+  gap: number;
+  imageRatio: ImageRatio;
+};
+export type ProductGridLayoutFields = { columns: 1 | 2 | 3 | 4; gap: number };
+export type ProductStoryLayoutFields = { gap: number; imageRatio: ImageRatio };
 
 export type LinkValue =
   | {
@@ -151,15 +166,17 @@ export type HeroMedia = {
   video: HeroVideo | null;
   mobileOverride: MobileOverride;
   fit: "COVER" | "CONTAIN";
+  fitOverrides?: { tablet?: "COVER" | "CONTAIN"; mobile?: "COVER" | "CONTAIN" };
   focal: FocalPoint;
   objectPosition: ObjectPosition;
 };
 
-export type SlideOverlay = {
+export type OverlayFields = {
   color: string;
   opacity: number;
-  gradient: "NONE" | "BOTTOM" | "FULL";
+  gradient: "NONE" | "BOTTOM" | "FULL" | "LOCAL";
 };
+export type SlideOverlay = OverlayFields & { overrides?: DeviceOverrides<OverlayFields> };
 
 export type SliderBehavior = {
   autoplay: boolean;
@@ -220,6 +237,7 @@ export type HeroSlide = {
 export type HeroPayload = {
   behavior: SliderBehavior;
   slides: HeroSlide[];
+  display?: HeroDisplay;
 };
 
 export type AnnouncementTextStyleAttrs = {
@@ -318,11 +336,13 @@ export type HomepageSection = HeroSection | NonHeroHomepageSection;
 
 export type HomepageSectionPayload = NonHeroHomepageSection["payload"];
 
+export type HomepageAppearance = "STUDIO_V3";
 export type HomepageDocument = {
   schemaVersion: typeof SCHEMA_VERSION;
   sections: HomepageSection[];
   announcement: AnnouncementBlock;
   defaults?: SectionStyle;
+  appearance?: HomepageAppearance;
 };
 
 export type HeroElementPatch = {
@@ -347,6 +367,7 @@ export type HeroMediaPatch = {
     video?: HeroVideo | Partial<HeroVideo> | null;
   };
   fit?: HeroMedia["fit"];
+  fitOverrides?: HeroMedia["fitOverrides"];
   focal?: Partial<FocalPoint>;
   objectPosition?: {
     desktop?: Partial<FocalPoint>;
@@ -457,7 +478,7 @@ const DEFAULT_BUTTON: HeroButton = {
 const DEFAULT_ANNOUNCEMENT_TEXT =
   "Free Metro Manila delivery on orders ₱3,000+ · Cash on Delivery nationwide";
 
-function newUuid(): string {
+export function newUuid(): string {
   const cryptoApi = globalThis.crypto;
   if (typeof cryptoApi?.randomUUID === "function")
     return cryptoApi.randomUUID();
@@ -479,6 +500,17 @@ function newRoomSceneId(): string {
 
 function cloneDocument(doc: HomepageDocument): HomepageDocument {
   return structuredClone(doc);
+}
+
+export function setHomepageAppearance(
+  document: HomepageDocument,
+  appearance: HomepageAppearance | undefined,
+): HomepageDocument {
+  if (document.appearance === appearance) return document;
+  const next = cloneDocument(document);
+  if (appearance === undefined) delete next.appearance;
+  else next.appearance = appearance;
+  return next;
 }
 
 function defaultElementBase(key: HeroElementKey): HeroElementBase {
@@ -524,7 +556,10 @@ function createEmptySlide(
     sortOrder,
     schedule: { publishAt: null, unpublishAt: null },
     media: null,
-    overlay: structuredClone(DEFAULT_OVERLAY),
+    overlay: {
+      ...structuredClone(DEFAULT_OVERLAY),
+      overrides: { mobile: { gradient: "LOCAL", opacity: 0.65 } },
+    },
     elements: {
       eyebrow: emptyElement("eyebrow") as HeroElementBase,
       heading: emptyElement("heading") as HeroElementBase,
@@ -554,7 +589,9 @@ export function emptyDocument(): HomepageDocument {
         enabled: true,
         sortOrder: 0,
         schedule: { publishAt: null, unpublishAt: null },
+        style: { contentWidth: "FULL" },
         payload: {
+          display: { heightMode: "SCREEN" },
           behavior: structuredClone(DEFAULT_BEHAVIOR),
           slides: [createEmptySlide(0, EMPTY_SLIDE_ID, "Hero 1")],
         },
@@ -768,6 +805,19 @@ function mergeMediaPatch(current: HeroMedia, patch: HeroMediaPatch): HeroMedia {
   }
 
   if (patch.fit !== undefined) next.fit = patch.fit;
+  if (hasOwn(patch, "fitOverrides")) {
+    if (patch.fitOverrides === undefined) delete next.fitOverrides;
+    else {
+      const overrides = { ...next.fitOverrides };
+      for (const device of ["tablet", "mobile"] as const) {
+        if (!hasOwn(patch.fitOverrides, device)) continue;
+        if (patch.fitOverrides[device] === undefined) delete overrides[device];
+        else overrides[device] = patch.fitOverrides[device];
+      }
+      if (Object.keys(overrides).length > 0) next.fitOverrides = overrides;
+      else delete next.fitOverrides;
+    }
+  }
   if (patch.focal && isRecord(patch.focal)) {
     next.focal = mergeFocal(next.focal, patch.focal) ?? next.focal;
   }

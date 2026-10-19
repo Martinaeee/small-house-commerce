@@ -45,10 +45,10 @@ export function BannerCopy({
   return (
     <div className="min-w-0">
       {title ? (
-        <p className="text-lg font-semibold text-ink">{title}</p>
+        <p data-homepage-role="heading" className="text-lg font-semibold text-ink">{title}</p>
       ) : null}
       {subtitle ? (
-        <p className="mt-1 text-sm text-ink-secondary">{subtitle}</p>
+        <p data-homepage-role="body" className="mt-1 text-sm text-ink-secondary">{subtitle}</p>
       ) : null}
     </div>
   );
@@ -59,6 +59,7 @@ export function BannerCta({ payload }: { payload: BannerCtaPayload }): ReactNode
   if (!payload.ctaText || !payload.ctaLink) return null;
   return (
     <SmartLink
+      data-homepage-role="action"
       href={payload.ctaLink}
       className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-cta px-5 text-sm font-semibold text-cta-foreground hover:bg-cta-hover"
     >

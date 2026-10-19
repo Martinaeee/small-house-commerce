@@ -6,17 +6,15 @@ import type { UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 import { BufferedImageUrlInput } from "@/components/admin/homepage/BufferedSectionField";
 import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
+import { readUgcPayload } from "@/lib/homepage-section-normalize";
+import { makeUgcPresentation } from "@/lib/homepage-content-actions";
+import { newUuid } from "@/lib/homepage-document";
 
 const MAX_ENTRIES = 6;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function newRowId(): string {
   const random = globalThis.crypto?.randomUUID?.();
   return random ? `ugc-${random}` : `ugc-${Date.now()}-${Math.random()}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isMediaUrl(value: unknown): value is string {
@@ -28,50 +26,39 @@ function isMediaUrl(value: unknown): value is string {
   );
 }
 
-function safeEntries(value: unknown): UgcEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(isRecord)
-    .map((entry) => ({
-      ...(isMediaUrl(entry.imageUrl) ? { imageUrl: entry.imageUrl } : {}),
-      name: typeof entry.name === "string" ? entry.name.slice(0, 120) : "",
-      ...(typeof entry.location === "string" ? { location: entry.location.slice(0, 120) } : {}),
-      comment: typeof entry.comment === "string" ? entry.comment.slice(0, 1000) : "",
-      ...(typeof entry.productId === "string" && UUID_PATTERN.test(entry.productId)
-        ? { productId: entry.productId }
-        : {}),
-    }))
-    .slice(0, MAX_ENTRIES);
+export function UgcSectionEditor(props: SectionPayloadEditorProps<"UGC">): ReactNode {
+  return <UgcEntriesEditor key={props.section.id} {...props} />;
 }
 
-function safePayload(value: unknown): UgcPayload {
-  if (!isRecord(value)) return {};
-  return Array.isArray(value.entries) ? { entries: safeEntries(value.entries) } : {};
-}
-
-export function UgcSectionEditor({
+function UgcEntriesEditor({
   section,
   onPayloadChange,
 }: SectionPayloadEditorProps<"UGC">): ReactNode {
   const { t } = useAdminI18n();
   const [productSearch, setProductSearch] = useState("");
   const { products, loading } = useProductOptions(productSearch);
-  const payload = safePayload(section.payload);
-  const entries = safeEntries(payload.entries);
+  const payload = readUgcPayload(section.payload);
+  const entries = (payload.entries ?? []).slice(0, MAX_ENTRIES);
+  const collage = payload.presentation?.layout === "COLLAGE";
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const [rowIds, setRowIds] = useState<string[]>(() => entries.map(() => newRowId()));
   const visibleRowIds = entries.map(
-    (_, index) => rowIds[index] ?? `ugc-${section.id}-${index}`,
+    (entry, index) => entry.id ?? rowIds[index] ?? `ugc-${section.id}-${index}`,
   );
   const rowIdsRef = useRef(visibleRowIds);
   useEffect(() => {
     rowIdsRef.current = visibleRowIds;
   }, [visibleRowIds]);
 
+  const indexOfEntry = (items: UgcEntry[], rowId: string): number => items.findIndex((entry, index) => (entry.id ?? rowIdsRef.current[index]) === rowId);
   const updateEntry = (rowId: string, patch: Partial<UgcEntry>): void => {
+    if (!active.current) return;
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(safePayload(payload).entries);
-      const index = rowIdsRef.current.indexOf(rowId);
-      if (index < 0 || index >= currentEntries.length) return payload;
+      const current = readUgcPayload(payload);
+      const currentEntries = (current.entries ?? []).slice(0, MAX_ENTRIES);
+      const index = indexOfEntry(currentEntries, rowId);
+      if (index < 0) return payload;
       const nextEntries = currentEntries.map((entry, entryIndex) => {
         if (entryIndex !== index) return entry;
         const next = { ...entry, ...patch };
@@ -80,19 +67,20 @@ export function UgcSectionEditor({
         }
         return next;
       });
-      return { ...safePayload(payload), entries: nextEntries };
+      return { ...current, entries: nextEntries };
     });
   };
 
   const moveEntry = (rowId: string, delta: -1 | 1): void => {
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(safePayload(payload).entries);
-      const index = visibleRowIds.indexOf(rowId);
+      const current = readUgcPayload(payload);
+      const currentEntries = (current.entries ?? []).slice(0, MAX_ENTRIES);
+      const index = indexOfEntry(currentEntries, rowId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= currentEntries.length) return payload;
       const nextEntries = [...currentEntries];
       [nextEntries[index], nextEntries[target]] = [nextEntries[target], nextEntries[index]];
-      return { ...safePayload(payload), entries: nextEntries };
+      return { ...current, entries: nextEntries };
     });
     setRowIds((current) => {
       const index = current.indexOf(rowId);
@@ -106,24 +94,45 @@ export function UgcSectionEditor({
 
   const removeEntry = (rowId: string): void => {
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(safePayload(payload).entries);
-      const index = visibleRowIds.indexOf(rowId);
+      const current = readUgcPayload(payload);
+      const currentEntries = (current.entries ?? []).slice(0, MAX_ENTRIES);
+      const index = indexOfEntry(currentEntries, rowId);
       if (index < 0) return payload;
       const nextEntries = currentEntries.filter((_, entryIndex) => entryIndex !== index);
-      return { ...safePayload(payload), entries: nextEntries };
+      const next = { ...current, entries: nextEntries };
+      if (current.presentation && current.presentation.featuredEntryId === currentEntries[index].id && currentEntries[index].id) {
+        const presentation = { ...current.presentation };
+        if (nextEntries[0]?.id) presentation.featuredEntryId = nextEntries[0].id;
+        else delete presentation.featuredEntryId;
+        next.presentation = presentation;
+      }
+      return next;
     });
     setRowIds((current) => current.filter((id) => id !== rowId));
   };
 
   const addEntry = (): void => {
-    const nextRowId = newRowId();
+    const nextRowId = newUuid();
     onPayloadChange((payload) => {
-      const currentEntries = safeEntries(safePayload(payload).entries);
+      const current = readUgcPayload(payload);
+      const currentEntries = (current.entries ?? []).slice(0, MAX_ENTRIES);
       if (currentEntries.length >= MAX_ENTRIES) return payload;
-      const nextEntries = [...currentEntries, { name: "", comment: "" }];
-      return { ...safePayload(payload), entries: nextEntries };
+      const persistent = current.presentation?.layout === "COLLAGE" || currentEntries.some((entry) => entry.id);
+      const nextEntries = [...currentEntries, { ...(persistent ? { id: nextRowId } : {}), name: "", comment: "" }];
+      const next = { ...current, entries: nextEntries };
+      if (current.presentation?.layout === "COLLAGE" && !current.presentation.featuredEntryId) next.presentation = { ...current.presentation, featuredEntryId: nextRowId };
+      return next;
     });
     if (entries.length < MAX_ENTRIES) setRowIds((current) => [...current, nextRowId]);
+  };
+
+  const changePresentation = (patch: Partial<NonNullable<UgcPayload["presentation"]>>): void => {
+    onPayloadChange((payload) => {
+      const current = readUgcPayload(payload);
+      if (current.presentation?.layout !== "COLLAGE") return payload;
+      if (patch.featuredEntryId && !current.entries?.some((entry) => entry.id === patch.featuredEntryId)) return payload;
+      return { ...current, presentation: { ...current.presentation, ...patch } };
+    });
   };
 
   return (
@@ -131,6 +140,26 @@ export function UgcSectionEditor({
       data-section-content-editor="UGC"
       className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
     >
+      <div className="grid grid-cols-2 gap-2">
+        {(["CARDS", "COLLAGE"] as const).map((layout) => <button key={layout} type="button"
+          aria-pressed={layout === (payload.presentation?.layout ?? "CARDS")}
+          className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border px-3 py-2 text-sm font-medium aria-pressed:border-cta aria-pressed:bg-primary-light/30"
+          onClick={() => { if (layout !== (payload.presentation?.layout ?? "CARDS")) onPayloadChange((current) => makeUgcPresentation(current, layout, newUuid)); }}>
+          <span aria-hidden="true">{layout === "COLLAGE" ? "▣ ▦" : "▤ ▤"}</span>
+          {t(layout === "COLLAGE" ? "homepage_builder_ugc_collage" : "homepage_builder_ugc_cards")}
+        </button>)}
+      </div>
+      {collage ? <div className="flex flex-col gap-3">
+        <label className="flex min-h-11 items-center gap-2 text-sm">
+          <input type="checkbox" checked={payload.presentation?.showQuote !== false} onChange={(event) => changePresentation({ showQuote: event.target.checked })} />
+          {t("homepage_builder_ugc_show_quote")}
+        </label>
+        <div className="grid grid-cols-2 gap-2">{(["SOFT", "STRONG"] as const).map((overlay) => <button key={overlay} type="button"
+          className="min-h-11 rounded-lg border border-border px-2 py-2 text-sm aria-pressed:border-cta aria-pressed:bg-primary-light/30"
+          aria-pressed={(payload.presentation?.overlay ?? "SOFT") === overlay} onClick={() => changePresentation({ overlay })}>
+          {t(overlay === "SOFT" ? "homepage_builder_ugc_overlay_soft" : "homepage_builder_ugc_overlay_strong")}
+        </button>)}</div>
+      </div> : null}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_ugc_entries")}</h2>
@@ -170,6 +199,7 @@ export function UgcSectionEditor({
               <div
                 key={rowId}
                 data-testid={`ugc-row-${index}`}
+                data-entry-id={entry.id}
                 className="flex flex-col gap-2 rounded-lg border border-border p-3"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -205,6 +235,16 @@ export function UgcSectionEditor({
                     </button>
                   </div>
                 </div>
+                {collage ? <>
+                  <button type="button" className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm aria-pressed:border-cta aria-pressed:bg-primary-light/30"
+                    aria-pressed={payload.presentation?.featuredEntryId === entry.id}
+                    onClick={() => { if (entry.id) changePresentation({ featuredEntryId: entry.id }); }}>
+                    {t("homepage_builder_ugc_set_featured")}
+                  </button>
+                  {!entry.imageUrl ? <p className="text-xs text-sale">{t("homepage_builder_ugc_photo_needed")}</p> : null}
+                  {payload.presentation?.featuredEntryId === entry.id && payload.presentation?.showQuote !== false && !entry.comment.trim()
+                    ? <p className="text-xs text-sale">{t("homepage_builder_ugc_quote_needed")}</p> : null}
+                </> : !entry.name.trim() || !entry.comment.trim() ? <p role="status" className="text-sm text-sale">{t("homepage_builder_ugc_cards_incomplete")}</p> : null}
                 <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                   {t("homepage_builder_ugc_image", { index: index + 1 })}
                   <BufferedImageUrlInput
@@ -230,7 +270,7 @@ export function UgcSectionEditor({
                       className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
                       aria-label={t("homepage_builder_ugc_name", { index: index + 1 })}
                       maxLength={120}
-                      required
+                      required={!collage}
                       value={entry.name}
                       onChange={(event) => updateEntry(rowId, { name: event.target.value })}
                     />
@@ -253,7 +293,7 @@ export function UgcSectionEditor({
                     className="min-h-20 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
                     aria-label={t("homepage_builder_ugc_comment", { index: index + 1 })}
                     maxLength={1000}
-                    required
+                    required={!collage}
                     value={entry.comment}
                     onChange={(event) => updateEntry(rowId, { comment: event.target.value })}
                   />

@@ -7,6 +7,9 @@ import {
   type AdminCategoryNode,
 } from "@/lib/admin-api";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import { newUuid } from "@/lib/homepage-document";
+import { makeCircularNavigation } from "@/lib/homepage-content-actions";
+import { HomepageNavigationEntriesEditor } from "./HomepageNavigationEntriesEditor";
 
 const MAX_CATEGORIES = 6;
 type CategoryOption = { id: string; name: string };
@@ -29,7 +32,33 @@ function safeCategoryIds(value: unknown): string[] {
     : [];
 }
 
-export function CategoryTilesSectionEditor({
+export function CategoryTilesSectionEditor(props: SectionPayloadEditorProps<"CATEGORY_TILES">): ReactNode {
+  const { t } = useAdminI18n();
+  const { section, onPayloadChange } = props;
+  const presentation = section.payload.presentation ?? "TILES";
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <div className="grid grid-cols-2 gap-2">
+        {(["CIRCLES", "TILES"] as const).map((mode) => (
+          <button key={mode} type="button" aria-pressed={presentation === mode}
+            className={`flex min-h-20 min-w-0 flex-col items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cta ${presentation === mode ? "border-cta bg-cta/5 text-cta" : "border-border bg-card text-ink hover:bg-surface"}`}
+            onClick={() => onPayloadChange((payload) => {
+              if ((payload.presentation ?? "TILES") === mode && (mode === "TILES" || "entries" in payload)) return payload;
+              return mode === "CIRCLES" ? makeCircularNavigation(payload, newUuid) : { ...payload, presentation: "TILES" };
+            })}>
+            <span aria-hidden className={`h-7 w-7 border-2 border-current ${mode === "CIRCLES" ? "rounded-full" : "rounded-sm"}`} />
+            {t(mode === "CIRCLES" ? "homepage_builder_navigation_circles" : "homepage_builder_navigation_tiles")}
+          </button>
+        ))}
+      </div>
+      {"entries" in section.payload
+        ? <HomepageNavigationEntriesEditor key={section.id} {...props} />
+        : <LegacyCategoryTilesSectionEditor {...props} />}
+    </div>
+  );
+}
+
+function LegacyCategoryTilesSectionEditor({
   section,
   onPayloadChange,
 }: SectionPayloadEditorProps<"CATEGORY_TILES">): ReactNode {

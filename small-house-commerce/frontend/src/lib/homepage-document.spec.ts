@@ -18,6 +18,7 @@ import {
   removeSection,
   resetElementLayout,
   setElementOverride,
+  setHomepageAppearance,
   updateAnnouncement,
   updateAnnouncementItem,
   updateDefaults,
@@ -30,6 +31,20 @@ import {
   type HomepageDocument,
 } from "@/lib/homepage-document";
 import { SECTION_TYPES, defaultSection } from "@/lib/homepage-section-factory";
+
+describe("explicit homepage appearance", () => {
+  it("changes only the selected appearance and can remove the marker", () => {
+    const original = emptyDocument();
+    original.defaults = { paddingTop: 0, contentWidth: "NARROW", overrides: { mobile: { paddingBottom: 8 } } };
+    const before = structuredClone(original);
+    const selected = setHomepageAppearance(original, "STUDIO_V3");
+    expect(original).toEqual(before);
+    expect(selected).toEqual({ ...before, appearance: "STUDIO_V3" });
+    expect(setHomepageAppearance(selected, undefined)).toEqual(before);
+    expect(setHomepageAppearance(selected, "STUDIO_V3")).toBe(selected);
+    expect(setHomepageAppearance(original, undefined)).toBe(original);
+  });
+});
 
 const SECTION_ID = "00000000-0000-7000-8000-000000000001";
 const SLIDE_ID = "00000000-0000-7000-8000-000000000010";
@@ -90,6 +105,12 @@ function expectFreshChanged(
 }
 
 describe("homepage document mirror defaults", () => {
+  it("starts new Hero content full width with screen height and mobile over-image readability", () => {
+    const section = heroSection(emptyDocument());
+    expect(section.style?.contentWidth).toBe("FULL");
+    expect(section.payload.display).toEqual({ heightMode: "SCREEN" });
+    expect(section.payload.slides[0].overlay.overrides?.mobile).toEqual({ gradient: "LOCAL", opacity: 0.65 });
+  });
   it("matches backend emptyDocument stable ids and exact element defaults", () => {
     const doc = emptyDocument();
     const section = heroSection(doc);
@@ -174,6 +195,16 @@ describe("homepage document mirror defaults", () => {
 });
 
 describe("homepage document pure mutators", () => {
+  it("patches media fit overrides without losing another device or inactive media", () => {
+    let doc = updateHeroMedia(emptyDocument(), SLIDE_ID, imageMedia());
+    doc = updateHeroMedia(doc, SLIDE_ID, { fitOverrides: { tablet: "CONTAIN" } });
+    const next = updateHeroMedia(doc, SLIDE_ID, { fitOverrides: { mobile: "CONTAIN" } });
+    expect(slide(next).media?.fitOverrides).toEqual({ tablet: "CONTAIN", mobile: "CONTAIN" });
+    expect(slide(next).media?.image).toEqual(imageMedia().image);
+    const cleared = updateHeroMedia(next, SLIDE_ID, { fitOverrides: { mobile: undefined } });
+    expect(slide(cleared).media?.fitOverrides).toEqual({ tablet: "CONTAIN" });
+    expect(slide(next).media?.fitOverrides?.mobile).toBe("CONTAIN");
+  });
   it("moves a slide and renumbers sortOrder densely", () => {
     let doc = addHeroSlide(emptyDocument());
     doc = addHeroSlide(doc);

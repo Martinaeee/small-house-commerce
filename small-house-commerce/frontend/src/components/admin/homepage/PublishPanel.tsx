@@ -55,9 +55,11 @@ function formatTimestamp(value: string): string {
 
 export function PublishPanel({
   onClose,
+  onRevealSettings,
   save,
   onPublished,
 }: {
+  onRevealSettings: () => void;
   /** Closes the shell's publish dialog (jump-to-issue and cancel). */
   onClose: () => void;
   /**
@@ -155,6 +157,7 @@ export function PublishPanel({
 
   const jumpToIssue = useCallback(
     (issue: PublishIssue): void => {
+      onRevealSettings();
       setSelectedElementKey(null);
       if (issue.announcementItemId) {
         setSelectedSectionId(ANNOUNCEMENT_SELECTION_ID);
@@ -162,8 +165,24 @@ export function PublishPanel({
       } else {
         if (issue.sectionId) setSelectedSectionId(issue.sectionId);
         if (issue.slideId) setSelectedSlideId(issue.slideId);
+        else if (issue.entryId) setSelectedSlideId(null);
       }
       onClose();
+      if (issue.entryId) {
+        const entryId = issue.entryId;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const settings = document.querySelector<HTMLElement>("[data-homepage-settings-scroll]");
+          const target = Array.from(settings?.querySelectorAll<HTMLElement>("[data-entry-id]") ?? [])
+            .find((row) => row.dataset.entryId === entryId);
+          if (!settings || !target) return;
+          for (let ancestor = target.parentElement; ancestor && ancestor !== settings; ancestor = ancestor.parentElement) {
+            if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+          }
+          const targetRect = target.getBoundingClientRect();
+          const top = settings.scrollTop + targetRect.top - settings.getBoundingClientRect().top - (settings.clientHeight - targetRect.height) / 2;
+          settings.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        }));
+      }
       if (issue.announcementItemId) {
         const itemId = issue.announcementItemId;
         requestAnimationFrame(() =>
@@ -176,7 +195,7 @@ export function PublishPanel({
         );
       }
     },
-    [onClose, setSelectedElementKey, setSelectedSectionId, setSelectedSlideId],
+    [onClose, onRevealSettings, setSelectedElementKey, setSelectedSectionId, setSelectedSlideId],
   );
 
   const handlePublish = useCallback(async (): Promise<void> => {
@@ -265,7 +284,7 @@ export function PublishPanel({
       <li
         key={`${issue.severity}-${issue.code}-${issue.sectionId ?? ""}-${
           issue.slideId ?? ""
-        }-${issue.announcementItemId ?? ""}`}
+        }-${issue.announcementItemId ?? ""}-${issue.entryId ?? ""}`}
         data-issue-code={issue.code}
         className="flex items-start gap-2"
       >

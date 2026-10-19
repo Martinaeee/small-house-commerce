@@ -18,6 +18,7 @@ import { AdminGlobalSearch } from "@/components/admin/AdminGlobalSearch";
 import { AdminNotifications } from "@/components/admin/AdminNotifications";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import studioStyles from "./homepage/HomepageStudio.module.css";
 
 /**
  * Admin back-office chrome + client route guard (spec §6, §8.2).
@@ -164,14 +165,29 @@ function navLinkClass(active: boolean): string {
   ].join(" ");
 }
 
+const NAV_ICON_PATHS: Record<string, string> = {
+  "/admin/orders": "M6 3h12v18l-3-2-3 2-3-2-3 2V3Zm3 5h6m-6 4h6",
+  "/admin/inventory": "M3 7h18v14H3V7Zm3-4h12v4H6V3Zm3 8h6",
+  "/admin/products": "m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 10v9m-9-14 9 5 9-5",
+  "/admin/faq": "M4 4h16v13H9l-5 4V4Zm5 4a3 3 0 0 1 6 0c0 2-3 2-3 4m0 2h.01",
+  "/admin/groupings": "M3 3h7v7H3V3Zm11 0h7v7h-7V3ZM3 14h7v7H3v-7Zm11 0h7v7h-7v-7Z",
+  "/admin/homepage": "m3 10 9-7 9 7v11h-6v-7H9v7H3V10Z",
+  "/admin/storefront-shell": "M3 3h18v18H3V3Zm0 5h18M3 17h18",
+  "/admin/settings": "M4 7h16M4 17h16M8 4v6m8 4v6",
+  "/admin/marketing": "m3 9 17-6v18L3 15V9Zm4 7 2 6h4l-2-5",
+  "/admin/newsletter": "M3 5h18v14H3V5Zm0 0 9 8 9-8",
+};
+
 function NavList({
   entries,
   pathname,
   onNavigate,
+  compact = false,
 }: {
   entries: NavRenderEntry[];
   pathname: string;
   onNavigate?: () => void;
+  compact?: boolean;
 }) {
   return (
     <nav aria-label="Admin navigation">
@@ -179,11 +195,11 @@ function NavList({
         {entries.map((entry) =>
           entry.kind === "item" ? (
             <li key={entry.href}>
-              <NavLink item={entry} pathname={pathname} onNavigate={onNavigate} />
+              <NavLink item={entry} pathname={pathname} onNavigate={onNavigate} compact={compact} />
             </li>
           ) : (
             <li key={entry.label}>
-              <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-admin-rail-muted">
+              <p className={compact ? "sr-only" : "px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-admin-rail-muted"}>
                 {entry.label}
               </p>
               <ul className="flex flex-col gap-1">
@@ -193,6 +209,7 @@ function NavList({
                       item={item}
                       pathname={pathname}
                       onNavigate={onNavigate}
+                      compact={compact}
                     />
                   </li>
                 ))}
@@ -209,10 +226,12 @@ function NavLink({
   item,
   pathname,
   onNavigate,
+  compact = false,
 }: {
   item: { href: string; label: string };
   pathname: string;
   onNavigate?: () => void;
+  compact?: boolean;
 }) {
   const active =
     pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -221,9 +240,13 @@ function NavLink({
       href={item.href}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
-      className={navLinkClass(active)}
+      className={compact ? `${navLinkClass(active)} ${studioStyles.railLink}` : navLinkClass(active)}
+      title={compact ? item.label : undefined}
     >
-      {item.label}
+      {compact ? <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-5 w-5 shrink-0">
+        <path d={NAV_ICON_PATHS[item.href]} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      </svg> : null}
+      <span className={compact ? "sr-only" : undefined}>{item.label}</span>
     </Link>
   );
 }
@@ -233,9 +256,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const { t } = useAdminI18n();
   const router = useRouter();
   const pathname = usePathname();
+  const isStudio = pathname === "/admin/homepage";
   const drawerId = useId();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Studio opens on the icon rail; the rest of the back office keeps the full
+  // menu. The choice is preserved across admin navigation either way.
+  const [railExpanded, setRailExpanded] = useState(pathname !== "/admin/homepage");
+  const railToggleRef = useRef<HTMLButtonElement>(null);
   const hamburgerRef = useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
@@ -382,20 +410,38 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div className="admin-shell min-h-screen bg-background">
-        {/* Desktop fixed sidebar */}
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col bg-admin-rail md:flex">
-          <div className="flex h-14 items-center border-b border-white/10 px-5">
-            <span className="text-base font-bold tracking-tight text-white">
+      <div data-admin-shell-mode={isStudio ? "homepage-studio" : "default"}
+        className={`admin-shell min-h-screen bg-background ${isStudio ? studioStyles.studioShell : ""}`}>
+        <aside
+          className={`fixed inset-y-0 left-0 z-30 hidden w-56 flex-col bg-admin-rail md:flex ${studioStyles.rail}${railExpanded ? ` ${studioStyles.railExpanded}` : ""}`}
+          onKeyDown={(event) => {
+            if (!railExpanded || event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            setRailExpanded(false);
+            railToggleRef.current?.focus();
+          }}
+        >
+          <div className="flex h-14 items-center border-b border-white/10 px-3">
+            <span className={!railExpanded ? "sr-only" : "text-base font-bold tracking-tight text-white"}>
               LUWAG <span className="font-medium text-admin-rail-muted">Admin</span>
             </span>
+            <button ref={railToggleRef} type="button" aria-expanded={railExpanded}
+              aria-controls={`${drawerId}-desktop-navigation`}
+              aria-label={t(railExpanded ? "admin_nav_collapse" : "admin_nav_expand")}
+              onClick={() => setRailExpanded((value) => !value)}
+              className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white hover:bg-admin-rail-hover focus-visible:outline-2 focus-visible:outline-white">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-5 w-5">
+                <path d={railExpanded ? "m14 6-6 6 6 6" : "M4 7h16M4 12h16M4 17h16"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-4">
-            <NavList entries={navEntries} pathname={pathname} />
+          <div id={`${drawerId}-desktop-navigation`} className="flex-1 overflow-y-auto px-3 py-4">
+            <NavList entries={navEntries} pathname={pathname} compact={!railExpanded} />
           </div>
         </aside>
 
-        <div className="md:pl-56">
+        <div className={isStudio ? studioStyles.studioContent : `${studioStyles.railContent}${railExpanded ? "" : ` ${studioStyles.railContentCollapsed}`}`}>
           <AdminGlobalHeader
             moduleTitle={title}
             admin={admin}
@@ -426,7 +472,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             }
           />
 
-          <main className="admin-app">{shellBody}</main>
+          <main className={`admin-app${isStudio ? ` ${studioStyles.studioApp}` : ""}`}>{shellBody}</main>
         </div>
       </div>
 

@@ -27,7 +27,7 @@ export function PromoBannerSection({
   if (!active) return null;
 
   return (
-    <SectionShell style={section.style}>
+    <SectionShell style={section.style} previewDevice={previewDevice}>
       <div data-banner-layout className={bannerLayoutClass(previewDevice)}>
         <BannerCopy title={section.title} subtitle={section.subtitle} />
         <BannerCta payload={cta} />

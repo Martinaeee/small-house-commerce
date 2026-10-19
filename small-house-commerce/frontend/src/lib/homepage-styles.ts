@@ -156,9 +156,21 @@ function renderSlideBlock(
   slide: HeroSlide,
   device: Device,
 ): { variables: string; typography: string } {
-  const variables: Declaration[] = [];
+  const variables: string[] = [];
   const typography: string[] = [];
   const selector = slideSelector(sectionId, slide.id);
+  const media = slide.media;
+  const fit = (device === "desktop" ? undefined : media?.fitOverrides?.[device]) ?? media?.fit;
+  const position = media?.objectPosition?.[device] ?? media?.focal;
+  variables.push(`--hp-media-fit: ${fit === "CONTAIN" ? "contain" : "cover"};`);
+  variables.push(`--hp-media-position: ${inRange(position?.x, 0, 100) ? cssNumber(position.x) : "50"}% ${inRange(position?.y, 0, 100) ? cssNumber(position.y) : "50"}%;`);
+  const overlay = { ...slide.overlay, ...(device === "desktop" ? {} : slide.overlay?.overrides?.[device]) };
+  variables.push(`--hp-overlay: ${overlayCss(overlay)};`);
+  if (overlay.gradient === "LOCAL") {
+    typography.push(`${selector} [data-hero-overlay] { left: var(--hp-copy-left, 0px); top: var(--hp-copy-top, 0px); right: auto; bottom: auto; width: var(--hp-copy-width, 100%); height: var(--hp-copy-height, 100%); mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent); }`);
+  } else {
+    typography.push(`${selector} [data-hero-overlay] { inset: 0; width: auto; height: auto; mask-image: none; }`);
+  }
   for (const key of ELEMENT_KEYS) {
     const declarations = declarationsFor(slide, key, device);
     variables.push(...declarations.variables);
@@ -200,7 +212,31 @@ function renderMediaBlock(query: string, blocks: string[]): string {
  * the clamp formula. The HeroSlider root reads `height: var(--hp-hero-height)`
  * so the canvas can override the variable and the storefront keeps one source.
  */
-export function heroCss(sectionId: string, payload: HeroPayload): string {
+function readableHeroCss(scope: string, payload: HeroPayload, device: Device): string {
+  const display = payload.display;
+  const automatic = ((device === "desktop" ? undefined : display?.overrides?.[device]?.contentLayout) ?? display?.contentLayout) === "AUTO";
+  const mode = (device === "desktop" ? undefined : display?.overrides?.[device]?.heightMode) ?? display?.heightMode ?? (automatic ? "BANNER" : undefined);
+  if (mode !== "SCREEN" && mode !== "BANNER" && mode !== "NATURAL") return "";
+  const minimum = mode === "SCREEN" ? "100svh" : mode === "NATURAL"
+    ? (device === "desktop" ? "clamp(560px, 72vh, 720px)" : "calc(100vw * 1.25)")
+    : device === "mobile" ? "clamp(360px, 62svh, 500px)" : device === "tablet" ? "clamp(400px, 64svh, 600px)" : "clamp(420px, 62svh, 640px)";
+  return [
+    ...(automatic ? [`${scope} { --hp-auto-flow: 1; }`] : []),
+    `${scope} { height: auto !important; min-height: ${minimum}; width: calc(100% - var(--hp-section-gutters, 0px)); }`,
+    `${scope}:not([data-readable-ready]) > [data-slide] { position: relative !important; min-height: ${minimum}; padding: 16px 0; transform: none !important; }`,
+    `${scope}:not([data-readable-ready]) > [data-slide][aria-hidden="true"] { display: none; }`,
+    `${scope}:not([data-readable-ready]) [data-hero-element] { position: relative !important; left: auto !important; top: auto !important; margin: 12px 16px; width: calc(100% - 32px) !important; max-width: calc(100% - 32px); }`,
+    `${scope}[data-readable-ready] { height: var(--hp-readable-height) !important; min-height: 0; }`,
+    `${scope}[data-readable-ready] [data-hero-element] { margin: 0; left: var(--hp-safe-x) !important; top: var(--hp-safe-y) !important; width: var(--hp-safe-w) !important; min-width: var(--hp-safe-min-w, min-content); }`,
+    // Measure readable words first, then clamp and wrap at the viewport's safe width.
+    `${scope}[data-readable-ready] [data-hero-element^="cta"] { min-width: var(--hp-safe-min-w, fit-content); }`,
+    `${scope} [data-hero-element] { overflow-wrap: break-word; }`,
+    `${scope} [data-hero-element]:empty { display: none; }`,
+    `${scope} [data-hero-element^="cta"] > :is(a, span) { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }`,
+  ].join("\n");
+}
+
+export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?: Device): string {
   if (!isUuid(sectionId) || !payload || !Array.isArray(payload.slides)) {
     return "";
   }
@@ -222,6 +258,21 @@ export function heroCss(sectionId: string, payload: HeroPayload): string {
   );
 
   const heightScope = `#hp-hero-${sectionId}`;
+  const mediaCss = `${heightScope} :is([data-hero-media], [data-hero-mobile-media]) :is(img, video) { object-fit: var(--hp-media-fit) !important; object-position: var(--hp-media-position) !important; }\n${heightScope} [data-hero-overlay] { background-image: var(--hp-overlay) !important; }`;
+  if (previewDevice) {
+    const blocks = slides.map((slide) => renderSlideBlock(sectionId, slide, previewDevice));
+    const mediaVisibility = slides.map((slide) => {
+      const mobile = slide.media?.mobileOverride;
+      const useMobile = previewDevice === "mobile" && mobile?.enabled && Boolean(mobile.image || mobile.video);
+      const scope = slideSelector(sectionId, slide.id);
+      return `${scope} [data-hero-media] { display: ${useMobile ? "none" : "block"}; }\n${scope} [data-hero-mobile-media] { display: ${useMobile ? "block" : "none"}; }`;
+    });
+    return [
+      `${heightScope} { --hp-hero-height: ${previewDevice === "desktop" ? "clamp(560px, 72vh, 720px)" : "calc(100vw * 1.25)"}; height: var(--hp-hero-height); }`,
+      ...blocks.flatMap((block) => [block.variables, block.typography]), mediaCss,
+      ...mediaVisibility, readableHeroCss(heightScope, payload, previewDevice),
+    ].join("\n");
+  }
   return [
     `${heightScope} {\n  --hp-hero-height: calc(100vw * 1.25);\n  height: var(--hp-hero-height);\n}`,
     ...mobile.map((block) => block.variables),
@@ -241,6 +292,10 @@ export function heroCss(sectionId: string, payload: HeroPayload): string {
       `${heightScope} {\n  --hp-hero-height: clamp(560px, 72vh, 720px);\n  height: var(--hp-hero-height);\n}`,
       ...desktop.flatMap((block) => [block.variables, block.typography]),
     ]),
+    mediaCss,
+    renderMediaBlock("(max-width: 767.98px)", [readableHeroCss(heightScope, payload, "mobile")]),
+    renderMediaBlock("(min-width: 768px) and (max-width: 1023.98px)", [readableHeroCss(heightScope, payload, "tablet")]),
+    renderMediaBlock("(min-width: 1024px)", [readableHeroCss(heightScope, payload, "desktop")]),
   ].join("\n");
 }
 
@@ -335,6 +390,8 @@ export function overlayCss(overlay: SlideOverlay): string {
       return `linear-gradient(to top, ${opaque}, ${transparent})`;
     case "FULL":
       return `linear-gradient(${opaque}, ${opaque})`;
+    case "LOCAL":
+      return `linear-gradient(to bottom, ${transparent} 0%, ${opaque} 12%, ${opaque} 88%, ${transparent} 100%)`;
     default:
       return "linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))";
   }

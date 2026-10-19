@@ -47,7 +47,7 @@ describe("homepage section factories", () => {
         expect(section.payload).toEqual({ items: [] });
         break;
       case "CATEGORY_TILES":
-        expect(section.payload).toEqual({ categoryIds: [] });
+        expect(section.payload).toEqual({ entries: [], presentation: "CIRCLES" });
         break;
       case "PRODUCT_GRID":
         expect(section.payload).toEqual({});

@@ -55,6 +55,15 @@ const DEVICES = {
 
 export type DeviceName = keyof typeof DEVICES;
 
+/** Editor default language is Chinese; the editor passes its own localized copy. */
+const DEFAULT_METRICS_TEMPLATE = "缩放编辑预览 · {width}px · {scale}%";
+
+export interface DeviceFrameMetrics {
+  width: number;
+  height: number;
+  scale: number;
+}
+
 export function DeviceFrame({
   device,
   children,
@@ -62,87 +71,100 @@ export function DeviceFrame({
   className,
   scrollable = false,
   flat = false,
+  showMetrics = false,
+  metricsTemplate = DEFAULT_METRICS_TEMPLATE,
+  fitAvailable = false,
+  onMetricsChange,
 }: {
   device: DeviceName;
   children: ReactNode;
-  labels?: Pick<
-    PreviewPaneLabels,
-    "desktopDevice" | "mobileDevice" | "tabletDevice"
-  >;
-  /** Extra classes on the outer frame (used for responsive visibility). */
+  labels?: Pick<PreviewPaneLabels, "desktopDevice" | "mobileDevice" | "tabletDevice">;
   className?: string;
-  /** Keep the device viewport in flow so a full-page child can scroll. */
   scrollable?: boolean;
-  /** Preserve device scaling while removing the visible device chrome. */
   flat?: boolean;
+  showMetrics?: boolean;
+  metricsTemplate?: string;
+  fitAvailable?: boolean;
+  onMetricsChange?: (metrics: DeviceFrameMetrics) => void;
 }): ReactNode {
   const d = DEVICES[device];
   const maxWidth = d.width * d.scale;
   const [frameWidth, setFrameWidth] = useState(maxWidth);
+  const [available, setAvailable] = useState<{ width: number; height: number } | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const label = labels[d.labelKey] ?? DEFAULT_LABELS[d.labelKey];
   const scaleCap = flat && device === "desktop" ? 1 : d.scale;
-  const scale = Math.min(scaleCap, frameWidth / d.width);
+  const scale = fitAvailable && available
+    ? Math.min(1, available.width / d.width, available.height / d.height)
+    : Math.min(scaleCap, frameWidth / d.width);
   const frameHeight = d.height * scale;
-  const viewportLeft = flat
-    ? Math.max(0, (frameWidth - d.width * scale) / 2)
-    : 0;
+  const viewportLeft = flat && !fitAvailable ? Math.max(0, (frameWidth - d.width * scale) / 2) : 0;
 
   useEffect(() => {
+    if (fitAvailable) return;
     const frame = frameRef.current;
     if (!frame) return;
-
     const updateWidth = (nextWidth: number | undefined) => {
       if (!nextWidth || !Number.isFinite(nextWidth)) return;
-      setFrameWidth((currentWidth) =>
-        Math.abs(currentWidth - nextWidth) < 0.5 ? currentWidth : nextWidth,
-      );
+      setFrameWidth((currentWidth) => Math.abs(currentWidth - nextWidth) < 0.5 ? currentWidth : nextWidth);
     };
-
     updateWidth(frame.getBoundingClientRect().width);
     if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver((entries) => {
-      updateWidth(entries[0]?.contentRect.width);
-    });
+    const observer = new ResizeObserver((entries) => updateWidth(entries[0]?.contentRect.width));
     observer.observe(frame);
     return () => observer.disconnect();
-  }, [d.width]);
+  }, [d.width, fitAvailable]);
 
-  return (
-    <div
-      className={`flex min-w-0 w-full max-w-full flex-col${flat ? " gap-0" : " gap-2"}${className ? ` ${className}` : ""}`}
-      style={{ width: flat ? "100%" : maxWidth }}
-    >
-      {flat ? null : <span className="text-xs font-semibold text-ink-secondary">{label}</span>}
-      <div
-        ref={frameRef}
-        data-preview-frame={flat ? "flat" : "device"}
-        className={`relative min-h-0 w-full overflow-hidden${
-          flat ? "" : " rounded-lg border border-border bg-white"
-        }`}
-        style={{
-          maxWidth: flat ? "100%" : maxWidth,
-          height: frameHeight,
-          aspectRatio: `${d.width} / ${d.height}`,
-        }}
-      >
-        <div
-          data-preview-viewport
-          className={scrollable ? "relative left-0 top-0" : "absolute left-0 top-0"}
-          style={{
-            left: viewportLeft,
-            width: d.width,
-            height: d.height,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
-        >
-          {children}
-        </div>
-      </div>
+  useEffect(() => {
+    if (!fitAvailable) return;
+    const host = hostRef.current;
+    if (!host) return;
+    const updateSize = (width: number | undefined, height: number | undefined): void => {
+      if (!width || !height || width < 0 || height < 0 || !Number.isFinite(width) || !Number.isFinite(height)) return;
+      setAvailable((current) => current && Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5
+        ? current : { width, height });
+    };
+    const rect = host.getBoundingClientRect();
+    updateSize(rect.width, rect.height);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => updateSize(entries[0]?.contentRect.width, entries[0]?.contentRect.height));
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [fitAvailable]);
+
+  useEffect(() => {
+    onMetricsChange?.({ width: d.width, height: d.height, scale });
+  }, [d.width, d.height, scale, onMetricsChange]);
+
+  const frame = <div
+    ref={frameRef}
+    data-preview-frame={flat ? "flat" : "device"}
+    className={`relative min-h-0 w-full overflow-hidden${flat ? "" : " rounded-lg border border-border bg-white"}`}
+    style={{
+      maxWidth: fitAvailable || flat ? "100%" : maxWidth,
+      width: fitAvailable ? d.width * scale : undefined,
+      height: frameHeight,
+      aspectRatio: `${d.width} / ${d.height}`,
+      flexShrink: fitAvailable ? 0 : undefined,
+    }}
+  >
+    <div data-preview-viewport className={scrollable ? "relative left-0 top-0" : "absolute left-0 top-0"}
+      style={{ left: viewportLeft, width: d.width, height: d.height, transform: `scale(${scale})`, transformOrigin: "top left" }}>
+      {children}
     </div>
-  );
+  </div>;
+
+  return <div
+    className={`flex min-w-0 w-full max-w-full flex-col${fitAvailable ? " h-full min-h-0" : ""}${flat ? " gap-0" : " gap-2"}${className ? ` ${className}` : ""}`}
+    style={{ width: fitAvailable || flat ? "100%" : maxWidth }}
+  >
+    {flat ? null : <span className="text-xs font-semibold text-ink-secondary">{label}</span>}
+    {showMetrics ? <span data-preview-metrics className="text-xs font-medium text-ink-muted">
+      {metricsTemplate.replace("{width}", String(d.width)).replace("{scale}", String(Math.round(scale * 100)))}
+    </span> : null}
+    {fitAvailable ? <div ref={hostRef} data-preview-host className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">{frame}</div> : frame}
+  </div>;
 }
 
 export function PreviewRow({ children }: { children: ReactNode }): ReactNode {

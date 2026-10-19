@@ -58,8 +58,9 @@ function PreviewFixedChrome({ device }: { device?: AnnouncementDevice }) {
       {showMobileTab ? (
         <div
           data-preview-mobile-tab-bar
+          data-homepage-bottom-chrome
           aria-hidden="true"
-          className={`pointer-events-none sticky bottom-0 z-10 mt-auto border-t border-border bg-card pb-1 ${
+          className={`pointer-events-none sticky bottom-0 z-10 mt-auto border-t border-border bg-card pb-[env(safe-area-inset-bottom)] ${
             responsive ? "md:hidden" : ""
           }`}
         >

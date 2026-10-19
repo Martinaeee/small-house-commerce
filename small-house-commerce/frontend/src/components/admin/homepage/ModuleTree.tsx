@@ -219,7 +219,7 @@ export function ModuleTree(): ReactNode {
       data-panel="module-tree"
       className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div data-panel-head="modules" className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-ink">
           {t("homepage_builder_pane_modules")}
         </h2>

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import type { LinkEntityType, LinkLookup } from './homepage-validation.js';
+import type { LinkEntityType, LinkLookup, NavigationTarget } from './homepage-validation.js';
 
 function uniqueIds(ids: string[]): string[] {
   return [...new Set(ids)];
@@ -9,6 +9,23 @@ function uniqueIds(ids: string[]): string[] {
 @Injectable()
 export class PrismaLinkLookup implements LinkLookup {
   constructor(private readonly prisma: PrismaService) {}
+
+  async navigationTargets(ids: { categoryIds: string[]; collectionIds: string[] }): Promise<Map<string, NavigationTarget>> {
+    const categoryIds = uniqueIds(ids.categoryIds);
+    const collectionIds = uniqueIds(ids.collectionIds);
+    const [categories, collections] = await Promise.all([
+      categoryIds.length > 0 ? this.prisma.category.findMany({
+        where: { id: { in: categoryIds }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true },
+      }) : [],
+      collectionIds.length > 0 ? this.prisma.collection.findMany({
+        where: { id: { in: collectionIds }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true },
+      }) : [],
+    ]);
+    const targets = new Map<string, NavigationTarget>();
+    for (const row of categories) targets.set(`CATEGORY:${row.id}`, { ...row, type: 'CATEGORY' });
+    for (const row of collections) targets.set(`COLLECTION:${row.id}`, { ...row, type: 'COLLECTION' });
+    return targets;
+  }
 
   async productStatuses(
     ids: string[],

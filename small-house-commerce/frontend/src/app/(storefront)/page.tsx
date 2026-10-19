@@ -3,7 +3,8 @@ import { DEFAULT_SECTIONS } from "@/components/home/default-sections";
 import { HomeTracking } from "@/components/home/HomeTracking";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 import { SECTION_REGISTRY } from "@/components/home/sectionRegistry";
-import { getHomepage } from "@/lib/api";
+import { HomepageAppearance } from "@/components/home/HomepageAppearance";
+import { getHomepage, type HomepageResponse } from "@/lib/api";
 import { buildHomeJsonLd } from "@/lib/home-jsonld";
 
 // absolute bypasses the root "%s | LUWAG Living" template (avoids a double suffix).
@@ -25,8 +26,10 @@ export const metadata: Metadata = {
 // ISR revalidation is configured inside getHomepage (revalidate: 120 + tags).
 export default async function HomePage() {
   let sections;
+  let appearance: HomepageResponse["appearance"];
   try {
     const response = await getHomepage();
+    appearance = response.appearance;
     // Empty table (seed not run yet) -> use the built-in composition rather
     // than a blank page.
     sections = response.sections.length > 0 ? response.sections : DEFAULT_SECTIONS;
@@ -50,17 +53,19 @@ export default async function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildHomeJsonLd()) }}
       />
-      {validSections.map((section, index) => {
-        const SectionComponent = SECTION_REGISTRY[section.type];
-        if (!SectionComponent) return null;
-        return (
-          <div key={section.id}>
-            {index === rvIndex ? <RecentlyViewed /> : null}
-            <SectionComponent section={section} />
-          </div>
-        );
-      })}
-      {rvIndex === -1 ? <RecentlyViewed /> : null}
+      <HomepageAppearance appearance={appearance}>
+        {validSections.map((section, index) => {
+          const SectionComponent = SECTION_REGISTRY[section.type];
+          if (!SectionComponent) return null;
+          return (
+            <div key={section.id} data-homepage-section-type={section.type}>
+              {index === rvIndex ? <RecentlyViewed /> : null}
+              <SectionComponent section={section} appearance={appearance} />
+            </div>
+          );
+        })}
+        {rvIndex === -1 ? <RecentlyViewed /> : null}
+      </HomepageAppearance>
     </>
   );
 }

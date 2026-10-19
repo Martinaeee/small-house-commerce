@@ -37,7 +37,7 @@ export function CountdownBannerSection({
   if (!active || parts === null) return null;
 
   return (
-    <SectionShell style={section.style}>
+    <SectionShell style={section.style} previewDevice={previewDevice}>
       <div data-banner-layout className={bannerLayoutClass(previewDevice)}>
         <BannerCopy title={section.title} subtitle={section.subtitle} />
         <div className="flex flex-col items-start gap-3">

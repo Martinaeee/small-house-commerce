@@ -90,6 +90,71 @@ beforeEach(() => {
 });
 
 describe('HomepageDocumentService draft rev lock', () => {
+  it('round-trips explicit appearance through draft, immutable snapshot, effective version and old-version restore', async () => {
+    const prisma = createPrismaMock();
+    const document: HomepageDocument = { ...emptyDocument(), appearance: 'STUDIO_V3' };
+    document.sections.push(
+      { ...document.sections[0], type: 'CATEGORY_TILES', id: '00000000-0000-7000-8000-000000000700', enabled: false, payload: {
+        entries: [{ id: '00000000-0000-7000-8000-000000000701', link: { type: 'COLLECTION', id: '00000000-0000-7000-8000-000000000702' }, imageUrl: '/uploads/e2e/nav.jpg', label: 'Sample navigation' }],
+        presentation: 'CIRCLES', layout: { gap: 0, overrides: { mobile: { columns: 2 } } },
+      } },
+      { ...document.sections[0], type: 'UGC', id: '00000000-0000-7000-8000-000000000710', enabled: false, payload: {
+        entries: [{ id: '00000000-0000-7000-8000-000000000711', name: '', comment: 'x'.repeat(1000), imageUrl: '/uploads/e2e/home.jpg' }],
+        presentation: { layout: 'COLLAGE', featuredEntryId: '00000000-0000-7000-8000-000000000711', showQuote: false, overlay: 'STRONG' },
+      } },
+    );
+    const before = structuredClone(document);
+    const service = makeService(prisma);
+    await service.saveDraft(document, 3, 'u');
+    const saved = prisma.homepageDocument.updateMany.mock.calls[0][0].data.draft;
+    expect(saved).toEqual(before);
+    const row = await prisma.homepageDocument.findUniqueOrThrow();
+    prisma.homepageDocument.findUniqueOrThrow.mockResolvedValue({ ...row, draft: saved });
+    expect((await service.getDraft()).draft).toEqual(before);
+    expect((await service.getDraftForPreview()).draft).toEqual(before);
+    await service.publish({ note: null, publishAt: null, unpublishAt: null, confirmWarnings: true, userId: 'u' });
+    const published = prisma.homepageVersion.create.mock.calls[0][0].data.document;
+    expect(published).toEqual(before);
+    document.appearance = undefined;
+    expect(published).toEqual(before);
+    prisma.homepageVersion.findFirst.mockResolvedValue({ id: 'v3', versionNo: 3, document: published, publishAt: new Date(), unpublishAt: null });
+    expect((await service.getEffectiveVersion(new Date()))?.document).toEqual(before);
+    prisma.homepageVersion.findUnique.mockResolvedValue({ id: 'v3', versionNo: 3, document: published });
+    await service.restoreVersion('v3', 'u');
+    expect(prisma.homepageDocument.updateMany.mock.lastCall[0].data.draft).toEqual(before);
+    const legacy = emptyDocument();
+    prisma.homepageVersion.findUnique.mockResolvedValue({ id: 'old', versionNo: 1, document: legacy });
+    await service.restoreVersion('old', 'u');
+    const restored = prisma.homepageDocument.updateMany.mock.lastCall[0].data.draft;
+    expect(restored).toEqual(legacy);
+    expect(restored).not.toHaveProperty('appearance');
+    expect(published).toEqual(before);
+  });
+
+  it('preserves responsive JSON at save, publication snapshot and restore boundaries', async () => {
+    const prisma = createPrismaMock();
+    const document = emptyDocument();
+    document.defaults = { overrides: { mobile: { paddingTop: 0 } } };
+    document.sections[0].payload.display = { overrides: { mobile: { heightMode: 'NATURAL' } } };
+    for (const [index, type] of ['CATEGORY_TILES', 'PRODUCT_GRID', 'PRODUCT_STORY'].entries()) {
+      document.sections.push({
+        ...document.sections[0], id: `00000000-0000-7000-8000-${String(100 + index).padStart(12, '0')}`,
+        type: type as 'CATEGORY_TILES' | 'PRODUCT_GRID' | 'PRODUCT_STORY',
+        payload: { layout: { overrides: { mobile: { gap: 8 } } } },
+      });
+    }
+    const service = makeService(prisma);
+    await service.saveDraft(document, 3, 'u');
+    expect(prisma.homepageDocument.updateMany.mock.calls[0][0].data.draft).toEqual(document);
+    const row = await prisma.homepageDocument.findUniqueOrThrow();
+    prisma.homepageDocument.findUniqueOrThrow.mockResolvedValue({ ...row, draft: document });
+    await service.publish({ note: null, publishAt: null, unpublishAt: null, confirmWarnings: true, userId: 'u' });
+    const published = prisma.homepageVersion.create.mock.calls[0][0].data.document;
+    expect(published).toEqual(document);
+    prisma.homepageVersion.findUnique.mockResolvedValue({ id: 'v-responsive', versionNo: 1, document: published });
+    await service.restoreVersion('v-responsive', 'u');
+    expect(prisma.homepageDocument.updateMany.mock.lastCall[0].data.draft).toEqual(document);
+  });
   it('rejects a save whose expectedRev is stale with DRAFT_REV_MISMATCH', async () => {
     const prisma = createPrismaMock();
     const service = makeService(prisma);

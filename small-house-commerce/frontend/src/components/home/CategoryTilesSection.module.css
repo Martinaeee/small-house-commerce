@@ -1,0 +1,70 @@
+.circle,
+.tile {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 1;
+  background: var(--color-surface);
+}
+
+.circle {
+  width: min(100%, 164px);
+  margin-inline: auto;
+  border-radius: 50%;
+  clip-path: circle(50%);
+}
+
+.tile {
+  width: 100%;
+  border-radius: 8px;
+}
+
+.circle img,
+.tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 180ms ease;
+}
+
+.circle:hover img,
+.tile:hover img {
+  transform: scale(1.04);
+}
+
+.circle:focus-visible,
+.tile:focus-visible {
+  outline: 3px solid var(--color-cta);
+  outline-offset: -5px;
+}
+
+.label {
+  margin-top: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 767.98px) {
+  /* The phone rail is narrower than a tile grid, so a two-word name would
+     ellipsize inside its column. Claim the neighbouring gap on each side and
+     keep the name on one line; the link keeps the full accessible name.
+     The appearance layer sets the label size globally, so this rule carries an
+     extra attribute to win that tie; 12px is what fits the widest real name at
+     375px once the document's own rail gap is subtracted. */
+  :global(.hp-layout) .label:global([data-homepage-role="label"]) {
+    margin-inline: -8px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .circle img,
+  .tile img {
+    transition: none;
+  }
+}

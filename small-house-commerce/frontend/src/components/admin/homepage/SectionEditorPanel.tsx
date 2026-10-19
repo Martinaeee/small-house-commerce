@@ -9,6 +9,8 @@ import {
 } from "@/lib/homepage-document";
 import { updateSectionPayload } from "@/lib/homepage-section-factory";
 import { normalizeSectionForEditor } from "@/lib/homepage-section-normalize";
+import { patchResponsiveFields, resolveResponsiveFields } from "@/lib/homepage-responsive";
+import type { SectionStyle, SectionStyleFields as StyleFields } from "@/lib/homepage-document";
 import type {
   NonHeroSectionType,
   SectionPayloadMap,
@@ -61,7 +63,7 @@ export function SectionEditorPanel({
   sectionId: string;
 }): ReactNode {
   const { t } = useAdminI18n();
-  const { state, dispatch } = useHomepageEditor();
+  const { state, dispatch, device } = useHomepageEditor();
   const [styleOpen, setStyleOpen] = useState(false);
   const section = nonHeroSection(
     state.document.sections.find((candidate) => candidate.id === sectionId),
@@ -206,15 +208,11 @@ export function SectionEditorPanel({
         const next = structuredClone(document);
         const target = next.sections.find((candidate) => candidate.id === sectionId);
         if (!target || target.type === "HERO") return document;
-        const style =
-          target.style && typeof target.style === "object" && !Array.isArray(target.style)
-            ? { ...target.style }
-            : {};
-        for (const [key, value] of Object.entries(patch)) {
-          if (value === undefined || value === "") delete style[key];
-          else style[key] = value;
-        }
-        target.style = Object.keys(style).length > 0 ? style : undefined;
+        const source = target.style && typeof target.style === "object" && !Array.isArray(target.style)
+          ? target.style as SectionStyle : undefined;
+        const style = patchResponsiveFields(source, device, patch);
+        if (style) target.style = style;
+        else delete target.style;
         return next;
       },
     });
@@ -263,7 +261,10 @@ export function SectionEditorPanel({
           </span>
         </button>
         {styleOpen ? (
-          <SectionStyleFields value={style} onChange={applyStylePatch} />
+          <SectionStyleFields key={`${sectionId}:${device}`} value={style} onChange={applyStylePatch} device={device}
+            inheritedValue={resolveResponsiveFields<StyleFields>(
+              { desktop: {}, tablet: {}, mobile: {} }, state.document.defaults, device,
+            )} />
         ) : null}
       </div>
       {renderPayloadEditor()}

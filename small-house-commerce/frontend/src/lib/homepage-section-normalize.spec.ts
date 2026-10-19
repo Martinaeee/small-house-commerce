@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyDocument, type HomepageSection, type NonHeroHomepageSection } from "@/lib/homepage-document";
 import { SECTION_TYPES } from "@/lib/homepage-section-factory";
 import { SECTION_EDITOR_REGISTRY } from "@/components/admin/homepage/section-editor-registry";
-import { normalizeSectionForEditor } from "@/lib/homepage-section-normalize";
+import { normalizeSectionForEditor, readCategoryTilesPayload, readUgcPayload } from "@/lib/homepage-section-normalize";
 
 const SECTION_ID = "00000000-0000-7000-8000-000000000901";
 
@@ -68,6 +68,60 @@ describe("homepage section editor registry", () => {
 });
 
 describe("normalizeSectionForEditor", () => {
+  it("exports read-only content parsers with the same field-preservation contract", () => {
+    const navigation = { entries: [], presentation: "CIRCLES", layout: { gap: 0 } };
+    const ugc = { entries: [{ id: SECTION_ID, name: "", comment: "" }], presentation: { layout: "COLLAGE", showQuote: false, overlay: "SOFT" } };
+    const before = structuredClone({ navigation, ugc });
+    expect(readCategoryTilesPayload(navigation)).toEqual(navigation);
+    expect(readUgcPayload(ugc)).toEqual(ugc);
+    expect({ navigation, ugc }).toEqual(before);
+    expect(readCategoryTilesPayload(null)).toEqual({ categoryIds: [] });
+    expect(readUgcPayload(null)).toEqual({ entries: [] });
+  });
+
+  it("retains UGC identities and presentation without generating or mutating data", () => {
+    const section = malformedSection("UGC");
+    section.payload = {
+      entries: [{ id: SECTION_ID, imageUrl: "/uploads/e2e/home.jpg", name: "", comment: "Sample layout text" }],
+      presentation: { layout: "COLLAGE", featuredEntryId: SECTION_ID, showQuote: false, overlay: "STRONG" },
+    };
+    const before = structuredClone(section);
+    expect(normalizeSectionForEditor(section).payload).toEqual(section.payload);
+    expect(section).toEqual(before);
+  });
+
+  it("retains navigation mode, identities, targets, images and sparse layout", () => {
+    const section = malformedSection("CATEGORY_TILES");
+    section.payload = {
+      entries: [{ id: SECTION_ID, link: { type: "COLLECTION", id: SECTION_ID }, imageUrl: "/uploads/e2e/home.jpg", label: "Rooms" }],
+      presentation: "CIRCLES", layout: { gap: 0, overrides: { mobile: { columns: 2 } } },
+    };
+    const before = structuredClone(section);
+    expect(normalizeSectionForEditor(section).payload).toEqual(before.payload);
+    expect(section).toEqual(before);
+  });
+
+  it("never revives categoryIds when the explicit entries list is empty", () => {
+    const section = malformedSection("CATEGORY_TILES");
+    section.payload = { categoryIds: [SECTION_ID], entries: [], presentation: "TILES" };
+    expect(normalizeSectionForEditor(section).payload).toEqual({ entries: [], presentation: "TILES" });
+  });
+
+  it("does not generate identities or presentation for old cards", () => {
+    const section = malformedSection("UGC");
+    section.payload = { entries: [{ name: "", comment: "" }] };
+    expect(normalizeSectionForEditor(section).payload).toEqual(section.payload);
+    expect(section.payload).not.toHaveProperty("presentation");
+  });
+  it.each(["CATEGORY_TILES", "PRODUCT_GRID", "PRODUCT_STORY"] as const)(
+    "preserves %s sparse responsive settings when reopening the editor", (type) => {
+      const section = malformedSection(type);
+      section.payload = { layout: { overrides: { mobile: { gap: 8 } } } };
+      const result = normalizeSectionForEditor(section);
+      expect(result.payload).toHaveProperty("layout", { overrides: { mobile: { gap: 8 } } });
+      expect(result.payload).not.toHaveProperty("layout.overrides.tablet");
+    },
+  );
   it("fills safe payload defaults without changing the stored section", () => {
     const original = malformedSection("USP");
     const before = structuredClone(original);

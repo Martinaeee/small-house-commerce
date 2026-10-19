@@ -19,6 +19,7 @@ export type SectionPreviewDevice = "desktop" | "tablet" | "mobile";
 export interface SectionProps {
   section: HomepageSection;
   previewDevice?: SectionPreviewDevice;
+  appearance?: import("@/lib/homepage-document").HomepageAppearance;
   interactionMode?: ProductCardInteractionMode;
 }
 

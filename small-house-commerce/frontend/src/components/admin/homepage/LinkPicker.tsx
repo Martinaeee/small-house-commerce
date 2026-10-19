@@ -54,7 +54,7 @@ const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
 
 const SERVER_SEARCH_DEBOUNCE_MS = 250;
 
-type EntityOption = { id: string; name: string };
+type EntityOption = { id: string; name: string; available?: boolean };
 
 function isHttpsUrl(text: string): boolean {
   try {
@@ -68,7 +68,7 @@ function flattenCategoryNodes(nodes: AdminCategoryNode[]): EntityOption[] {
   const out: EntityOption[] = [];
   const walk = (list: AdminCategoryNode[]): void => {
     for (const node of list) {
-      out.push({ id: node.id, name: node.name });
+      out.push({ id: node.id, name: node.name, available: node.status === "ACTIVE" });
       walk(node.children);
     }
   };
@@ -129,6 +129,7 @@ function useEntityOptions(
               ? (res as Paged<AdminCollectionRow>).items.map((row) => ({
                   id: row.id,
                   name: row.name,
+                  available: row.status === "ACTIVE",
                 }))
               : flattenCategoryNodes(res as AdminCategoryNode[]),
           );
@@ -182,13 +183,17 @@ export function LinkPicker({
   onChange,
   allowExternal,
   allowInternal = false,
+  entityTypes = ENTITY_TYPES,
 }: {
   value: LinkValue | null;
   onChange(value: LinkValue | null): void;
   allowExternal: boolean;
   allowInternal?: boolean;
+  entityTypes?: readonly EntityType[];
 }): ReactNode {
   const { t } = useAdminI18n();
+  const permitsType = (candidate: LinkType | "") => candidate === "" ||
+    (candidate === "EXTERNAL" ? allowExternal : candidate === "INTERNAL" ? allowInternal : entityTypes.includes(candidate));
   const [type, setType] = useState<LinkType | "">(value?.type ?? "");
   const [lastSeenType, setLastSeenType] = useState<LinkType | "">(
     value?.type ?? "",
@@ -220,6 +225,7 @@ export function LinkPicker({
   // (e.g. a type switch on an empty picker) would otherwise mint a spurious
   // undo entry, since the panels clone the document on every mutation.
   const commitChange = (next: LinkValue | null): void => {
+    if (next && !permitsType(next.type)) return;
     if (JSON.stringify(next) === JSON.stringify(value)) return;
     onChange(next);
   };
@@ -266,6 +272,7 @@ export function LinkPicker({
   );
 
   const switchType = (nextType: LinkType | ""): void => {
+    if (!permitsType(nextType)) return;
     setType(nextType);
     setSearchInput("");
     if (value !== null && value.type === nextType) {
@@ -291,12 +298,12 @@ export function LinkPicker({
     commitChange(null);
   };
 
-  const { options, result } = useEntityOptions(type, searchInput);
+  const { options, result } = useEntityOptions(permitsType(type) ? type : "", searchInput);
 
   const valueType = value !== null ? value.type : null;
   const productSearchKey =
     type === "PRODUCT" || type === "LANDING" ? searchInput : "";
-  const isEntityType = type !== "" && type !== "EXTERNAL" && type !== "INTERNAL";
+  const isEntityType = permitsType(type) && type !== "" && type !== "EXTERNAL" && type !== "INTERNAL";
   const fresh = result.type === type && isEntityType;
   const settled = result.type === type && result.search === productSearchKey;
 
@@ -321,6 +328,11 @@ export function LinkPicker({
       active = false;
     };
   }, [valueId, valueType, fresh, settled, options]);
+
+  const selectedOption = options.find((option) => option.id === valueId);
+  const unavailable = entityTypes !== ENTITY_TYPES && valueId !== null &&
+    (valueType === "CATEGORY" || valueType === "COLLECTION") && fresh && settled &&
+    (!selectedOption || selectedOption.available === false);
 
   const displayName =
     valueId !== null
@@ -357,11 +369,11 @@ export function LinkPicker({
         <select
           className="rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-ink"
           aria-label={t("homepage_builder_link_type")}
-          value={type}
+          value={permitsType(type) ? type : ""}
           onChange={(event) => switchType(event.target.value as LinkType | "")}
         >
           <option value="">—</option>
-          {ENTITY_TYPES.map((option) => (
+          {entityTypes.map((option) => (
             <option key={option} value={option}>
               {t(LINK_TYPE_LABEL_KEYS[option])}
             </option>
@@ -471,6 +483,7 @@ export function LinkPicker({
         </div>
       ) : null}
 
+      {unavailable ? <p role="status" className="text-sm leading-relaxed text-sale">{t("homepage_builder_navigation_unavailable")}</p> : null}
       {value !== null ? (
         <div className="flex min-w-0 items-center gap-2">
           {value.type === "EXTERNAL" ? (

@@ -181,7 +181,7 @@ export function Group({
   children: ReactNode;
 }): ReactNode {
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border p-2">
+    <section data-settings-field-group className="flex flex-col gap-2 rounded-lg border border-border p-2">
       <h3 className="text-xs font-semibold text-ink">{title}</h3>
       {children}
     </section>
@@ -327,6 +327,7 @@ export function SelectField<T extends string>({
   inheritLabel,
   onChange,
   onClear,
+  presentation,
 }: {
   label: string;
   value: T | undefined;
@@ -337,8 +338,23 @@ export function SelectField<T extends string>({
   inheritLabel?: string;
   onChange: (value: T) => void;
   onClear?: () => void;
+  presentation?: "segments" | "cards";
 }): ReactNode {
   const { t } = useAdminI18n();
+  if (presentation) {
+    const choices = inheritLabel === undefined ? options : ["", ...options.filter(option => option !== "")];
+    return <div className="flex min-w-0 flex-col gap-3">
+      <span data-settings-label className="text-xs font-medium text-ink-secondary">{label}</span>
+      <div role="group" aria-label={label} data-settings-choices={presentation}>
+        {choices.map(option => <button key={option} type="button" data-settings-choice={option}
+          aria-pressed={(value ?? "") === option}
+          onClick={() => option === "" ? onClear?.() : onChange(option as T)}>
+          {presentation === "cards" ? <span data-choice-visual aria-hidden="true"><i /></span> : null}
+          <span>{option === "" && inheritLabel !== undefined ? inheritLabel : labelKeys ? t(labelKeys[option as T]) : option}</span>
+        </button>)}
+      </div>
+    </div>;
+  }
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium text-ink-secondary">{label}</span>
@@ -371,7 +387,10 @@ export function SelectField<T extends string>({
   );
 }
 
-export function SettingsPanel(): ReactNode {
+export function SettingsPanel({ elementKey, embedded = false }: {
+  elementKey?: HeroElementKey;
+  embedded?: boolean;
+} = {}): ReactNode {
   const { t } = useAdminI18n();
   const { state, device, selectedSlideId, selectedElementKey } =
     useHomepageEditor();
@@ -380,7 +399,8 @@ export function SettingsPanel(): ReactNode {
   const slide =
     findSlide(document, selectedSlideId) ?? hero?.payload.slides[0] ?? null;
 
-  if (!slide || !selectedElementKey) {
+  const resolvedElementKey = elementKey ?? selectedElementKey;
+  if (!slide || !resolvedElementKey) {
     return (
       <div
         data-panel="settings-panel"
@@ -393,16 +413,13 @@ export function SettingsPanel(): ReactNode {
     );
   }
 
-  // Mounted only with a resolved element so every hook in the panel below
-  // runs unconditionally (Rules of Hooks). The key carries the full target
-  // identity: a slide/element/device switch remounts the panel, whose unmount
-  // cleanup cancels pending buffered drafts, so a stale draft can never be
-  // committed against the new target.
+  // Remounting cancels buffered edits when the canvas changes target.
   return (
     <ElementSettings
-      key={`${slide.id}:${selectedElementKey}:${device}`}
+      key={`${slide.id}:${resolvedElementKey}:${device}:${selectedElementKey ?? "none"}`}
       slide={slide}
-      elementKey={selectedElementKey}
+      elementKey={resolvedElementKey}
+      embedded={embedded}
     />
   );
 }
@@ -410,9 +427,11 @@ export function SettingsPanel(): ReactNode {
 function ElementSettings({
   slide,
   elementKey,
+  embedded,
 }: {
   slide: HeroSlide;
   elementKey: HeroElementKey;
+  embedded: boolean;
 }): ReactNode {
   const { t } = useAdminI18n();
   const { state, dispatch, device } = useHomepageEditor();
@@ -478,17 +497,16 @@ function ElementSettings({
     updateHeroElement(doc, slide.id, key, { text: next }),
   );
 
+  const Advanced = embedded ? "details" : "div";
   return (
     <div
       data-panel="settings-panel"
-      className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
+      className={embedded ? "flex min-w-0 flex-col gap-3" : "flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"}
     >
-      <h2 className="text-sm font-semibold text-ink">
-        {t("homepage_builder_pane_settings")}
-      </h2>
-      <p data-element-key className="truncate text-xs text-ink-muted">
-        {key}
-      </p>
+      {!embedded ? <>
+        <h2 className="text-sm font-semibold text-ink">{t("homepage_builder_pane_settings")}</h2>
+        <p data-element-key className="truncate text-xs text-ink-muted">{key}</p>
+      </> : null}
 
       <Group title={t("homepage_builder_group_content")}>
         <div className="flex flex-col gap-1">
@@ -548,6 +566,9 @@ function ElementSettings({
         ) : null}
       </Group>
 
+      <Advanced className={embedded ? "rounded-lg border border-border p-3" : undefined}>
+        {embedded ? <summary className="cursor-pointer text-sm font-medium text-ink">{t("homepage_builder_group_advanced")}</summary> : null}
+        <div className={`flex flex-col gap-3 ${embedded ? "mt-3" : ""}`}>
       <Group title={t("homepage_builder_group_typography")}>
         <div className="grid grid-cols-2 gap-2">
           <NumberField
@@ -849,6 +870,8 @@ function ElementSettings({
           </label>
         </Group>
       ) : null}
+        </div>
+      </Advanced>
     </div>
   );
 }

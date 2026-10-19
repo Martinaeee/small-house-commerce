@@ -26,7 +26,8 @@ import {
   type HomepageHeroMedia,
   type HomepageHeroSlide,
 } from "@/lib/api";
-import type { HeroPayload } from "@/lib/homepage-document";
+import type { HeroPayload, HomepageDevice } from "@/lib/homepage-document";
+import { useHeroReadableLayout } from "./useHeroReadableLayout";
 import { HeroSlideCountdown } from "./HeroSlideCountdown";
 import { sectionStylePresentation } from "./sectionShell";
 
@@ -52,6 +53,8 @@ export function HeroSlider({
   section,
   edit,
   interactionMode = "storefront",
+  previewDevice,
+  previewViewportHeight,
 }: {
   /**
    * Structural section accepted by both the storefront registry (api
@@ -61,12 +64,16 @@ export function HeroSlider({
    */
   section: HeroSliderSection;
   interactionMode?: ProductCardInteractionMode;
+  previewDevice?: HomepageDevice;
+  previewViewportHeight?: number;
   edit?: {
     selectedElementKey: HeroElementKey | null;
     onSelectElement(key: HeroElementKey): void;
   };
 }): ReactNode {
   const payload = isHeroPayloadView(section.payload) ? section.payload : null;
+  const rootRef = useRef<HTMLDivElement>(null);
+  useHeroReadableLayout(rootRef, payload, previewDevice, previewViewportHeight);
 
   const slides = useMemo(
     () =>
@@ -164,14 +171,15 @@ export function HeroSlider({
   if (section.type !== "HERO" || payload === null || slides.length === 0) {
     return null;
   }
-  const cssText = heroCss(section.id, payload as unknown as HeroPayload) || "";
-  const presentation = sectionStylePresentation(section.style);
+  const cssText = heroCss(section.id, payload as unknown as HeroPayload, previewDevice) || "";
+  const presentation = sectionStylePresentation(section.style, previewDevice);
 
   return (
     <div
+      ref={rootRef}
       id={`hp-hero-${section.id}`}
       data-hero-slider
-      className={`relative mx-auto w-full overflow-hidden text-white ${presentation.widthClass} ${presentation.textColorClass}`.trim()}
+      className={`relative mx-auto w-full overflow-hidden text-white ${presentation.widthClass} ${presentation.responsiveClass} ${presentation.textColorClass}`.trim()}
       style={{ height: "var(--hp-hero-height, 560px)", ...presentation.style }}
       onMouseEnter={behavior.pauseOnHover && interactive ? () => setHovered(true) : undefined}
       onMouseLeave={behavior.pauseOnHover && interactive ? () => setHovered(false) : undefined}
@@ -521,10 +529,10 @@ function HeroElementContainer({
   const fallback = TYPOGRAPHY_FALLBACKS[elementKey];
   const style: CSSProperties = {
     ...elementInlineVars(elementKey),
-    fontSize: `var(--el-${elementKey}-size, ${fallback.size})`,
-    fontWeight: `var(--el-${elementKey}-weight, ${fallback.weight})`,
-    lineHeight: `var(--el-${elementKey}-lh, inherit)`,
-    letterSpacing: `var(--el-${elementKey}-ls, inherit)`,
+    fontSize: `var(--el-${elementKey}-size, var(--hp-hero-fallback-size, ${fallback.size}))`,
+    fontWeight: `var(--el-${elementKey}-weight, var(--hp-hero-fallback-weight, ${fallback.weight}))`,
+    lineHeight: `var(--el-${elementKey}-lh, var(--hp-hero-fallback-lh, inherit))`,
+    letterSpacing: `var(--el-${elementKey}-ls, var(--hp-hero-fallback-ls, inherit))`,
     color: `var(--el-${elementKey}-color, inherit)`,
     maxWidth: `var(--el-${elementKey}-maxw, none)`,
   };

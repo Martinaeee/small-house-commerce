@@ -46,7 +46,11 @@ const PG_PORT = process.env.E2E_PG_PORT ?? "5432";
 export const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${TEST_DB}?schema=public`;
-assertE2EDatabaseUrl(E2E_DATABASE_URL, PG_PORT);
+assertE2EDatabaseUrl(
+  E2E_DATABASE_URL,
+  PG_PORT,
+  process.env.HOMEPAGE_STUDIO_PG === "1" ? "homepage-studio" : "task5",
+);
 
 const E2E_UPLOAD_DIR =
   process.env.E2E_UPLOAD_DIR ??

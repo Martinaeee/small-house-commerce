@@ -1,35 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { HomepageAppearance } from "@/components/home/HomepageAppearance";
 import { SECTION_REGISTRY } from "@/components/home/sectionRegistry";
 import { PreviewStorefrontShell } from "@/components/admin/homepage/PreviewStorefrontShell";
+import { HomepagePreviewViewport } from "@/components/admin/homepage/HomepagePreviewViewport";
 import {
   serverApiUrl,
   type AnnouncementBlockView,
   type HomepageResponse,
-  type HomepageSection,
 } from "@/lib/api";
 import { loadHomepagePreviewShellData } from "@/lib/homepage-preview-shell-data";
 
-/**
- * Operator-only draft preview of the homepage document (spec §5.2 / Task 21).
- *
- * Deliberately lives OUTSIDE the `(storefront)` group so it inherits neither
- * the storefront layout (MetaPixelInit, Header/Footer, AnnouncementBar wiring)
- * nor the home page's HomeTracking delegation: this route must fire ZERO
- * tracking. The only tracking-shaped thing that survives is the `data-track-*`
- * attributes baked into section components — without the delegation they are
- * inert.
- *
- * Gate: the URL carries `?token=…`; a missing, empty, whitespace-only, repeated,
- * malformed, expired, wrong-scope, or stale-revision token 404s. The backend
- * applies the cryptographic and revision checks; this page treats either
- * preview fetch returning non-200 as the same not-found outcome.
- *
- * Hygiene: the token only ever appears in the server-side fetch URL. It is
- * never rendered, logged, or persisted (no cookie / localStorage /
- * sessionStorage), and `Referrer-Policy: no-referrer` (next.config headers)
- * keeps it out of outbound Referer headers.
- */
+// Signed preview stays outside storefront providers; only the same-origin frame src carries its token.
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +19,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-interface PreviewData {
-  sections: HomepageSection[];
+interface PreviewData extends HomepageResponse {
   announcement: AnnouncementBlockView | null;
 }
 
@@ -78,7 +59,11 @@ async function fetchPreview(token: string): Promise<PreviewData | null> {
 
     const homepage = (await homepageRes.json()) as HomepageResponse;
     const sections = Array.isArray(homepage.sections) ? homepage.sections : [];
-    return { sections, announcement: await parseAnnouncement(announcementRes) };
+    return {
+      sections,
+      ...(homepage.appearance === "STUDIO_V3" ? { appearance: homepage.appearance } : {}),
+      announcement: await parseAnnouncement(announcementRes),
+    };
   } catch {
     return null;
   }
@@ -96,11 +81,16 @@ export default async function HomepagePreviewPage({
   // before any fetch.
   if (typeof rawToken !== "string" || rawToken.trim() === "") notFound();
 
-  const [data, shellData] = await Promise.all([
-    fetchPreview(rawToken),
-    loadHomepagePreviewShellData({ urlFor: serverApiUrl }),
-  ]);
+  const view = params.view;
+  if (view !== undefined && view !== "desktop" && view !== "tablet" && view !== "mobile" && view !== "content") notFound();
+
+  const data = await fetchPreview(rawToken);
   if (!data) notFound();
+  if (view === "desktop" || view === "tablet" || view === "mobile") {
+    const query = new URLSearchParams({ token: rawToken, view: "content" });
+    return <HomepagePreviewViewport view={view} src={`/preview/homepage?${query}`} />;
+  }
+  const shellData = await loadHomepagePreviewShellData({ urlFor: serverApiUrl });
 
   // Same mapping/props as the storefront home page (minus its tracking, the
   // RecentlyViewed slot and the JSON-LD block, none of which belong on a
@@ -111,15 +101,13 @@ export default async function HomepagePreviewPage({
 
   return (
     <>
-      <div
-        data-draft-preview-banner
-        className="fixed inset-x-0 top-0 z-50 bg-amber-500 px-4 py-2 text-center text-xs font-semibold text-black"
-      >
-        草稿预览 · 未发布
-      </div>
-      {/* Spacer matching the fixed banner's height (py-2 + text-xs line-height
-          = 32px = h-8) so it never covers the announcement bar. */}
-      <div aria-hidden className="h-8" />
+      {view === undefined ? <>
+        <div data-draft-preview-banner
+          className="fixed inset-x-0 top-0 z-50 bg-amber-500 px-4 py-2 text-center text-xs font-semibold text-black">
+          草稿预览 · 未发布
+        </div>
+        <div aria-hidden className="h-8" />
+      </> : null}
       <PreviewStorefrontShell
         shell={shellData.shell}
         roots={shellData.roots}
@@ -127,15 +115,17 @@ export default async function HomepagePreviewPage({
         settings={shellData.settings}
         announcement={data.announcement}
       >
+        <HomepageAppearance appearance={data.appearance}>
         {sections.map((section) => {
           const SectionComponent = SECTION_REGISTRY[section.type];
           if (!SectionComponent) return null;
           return (
-            <div key={section.id} data-preview-section-id={section.id}>
-              <SectionComponent section={section} interactionMode="preview" />
+            <div key={section.id} data-preview-section-id={section.id} data-homepage-section-type={section.type}>
+              <SectionComponent section={section} appearance={data.appearance} interactionMode="preview" />
             </div>
           );
         })}
+        </HomepageAppearance>
       </PreviewStorefrontShell>
     </>
   );

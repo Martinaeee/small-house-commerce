@@ -82,6 +82,7 @@ describe("PreviewStorefrontShell", () => {
     expect(root.querySelector("[data-preview-cart-drawer='closed']")).not.toBeNull();
     expect(root.querySelector("[data-preview-messenger]")).not.toBeNull();
     expect(root.querySelector("[data-preview-mobile-tab-bar]")).not.toBeNull();
+    expect(root.querySelector("[data-preview-mobile-tab-bar]")).toHaveClass("pb-[env(safe-area-inset-bottom)]");
     expect(root.querySelector("[data-preview-back-to-top]")).not.toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
     for (const button of screen.queryAllByRole("button")) {

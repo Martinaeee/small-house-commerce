@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { UgcSectionEditor } from "@/components/admin/homepage/sections/UgcSectionEditor";
 import type { SectionOf } from "@/components/admin/homepage/section-editor-registry";
@@ -32,14 +32,21 @@ function makeSection(
 
 function Harness({
   initial = {},
+  switchable = false,
 }: {
   initial?: Partial<SectionPayloadMap["UGC"]>;
+  switchable?: boolean;
 }): ReactNode {
   const [payload, setPayload] = useState<SectionPayloadMap["UGC"]>(initial);
+  const [sectionId, setSectionId] = useState(UGC_ID);
   return (
     <>
+      {switchable ? <button onClick={() => {
+        setSectionId("00000000-0000-7000-8000-000000000108");
+        setPayload({ ...initial, entries: initial.entries?.map((entry) => ({ ...entry, name: "Other module", imageUrl: "/uploads/other.jpg" })) });
+      }}>Switch section</button> : null}
       <UgcSectionEditor
-        section={makeSection(payload)}
+        section={{ ...makeSection(payload), id: sectionId }}
         onPayloadChange={(patch) =>
           setPayload((current) =>
             typeof patch === "function" ? patch(current) : { ...current, ...patch },
@@ -52,6 +59,90 @@ function Harness({
 }
 
 describe("UgcSectionEditor", () => {
+  beforeEach(() => {
+    listProducts.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    uploadImage.mockReset();
+    setAdminLang("en");
+  });
+  it("keeps each quote on its own photo when choosing the featured image", async () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(<AdminI18nProvider><Harness initial={{ entries: [
+      { name: "Layout sample A", comment: "Sample text A", imageUrl: "/uploads/e2e/a.jpg" },
+      { name: "", comment: "", imageUrl: "/uploads/e2e/b.jpg" },
+    ] }} /></AdminI18nProvider>);
+    expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0]).not.toHaveProperty("id");
+    fireEvent.click(screen.getByRole("button", { name: "Photo collage" }));
+    let payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries.every((row: { id?: string }) => /^[0-9a-f-]{36}$/i.test(row.id ?? ""))).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Set as featured photo" })[1]);
+    payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.presentation.featuredEntryId).toBe(payload.entries[1].id);
+    expect(payload.entries[1].comment).toBe("");
+    expect(payload.entries[0].comment).toBe("Sample text A");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show quote" }));
+    fireEvent.click(screen.getByRole("button", { name: "Strong overlay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+    expect(screen.getByText("Complete the name and quote before publishing cards.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Photo collage" }));
+    const restored = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(restored.entries).toEqual(payload.entries);
+    expect(restored.presentation).toMatchObject({ featuredEntryId: payload.entries[1].id, showQuote: false, overlay: "STRONG" });
+    await waitFor(() => expect(listProducts).toHaveBeenCalled());
+  });
+
+  it("preserves stable ids through reorder and chooses a remaining featured photo after deletion", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(<AdminI18nProvider><Harness initial={{ entries: [
+      { id: "first", name: "", comment: "First", imageUrl: "/uploads/a.jpg" },
+      { id: "second", name: "", comment: "Second", imageUrl: "/uploads/b.jpg" },
+    ], presentation: { layout: "COLLAGE", featuredEntryId: "second" } }} /></AdminI18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Move UGC row 2 up" }));
+    let payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries.map((row: { id: string }) => row.id)).toEqual(["second", "first"]);
+    expect(payload.presentation.featuredEntryId).toBe("second");
+    fireEvent.click(screen.getByRole("button", { name: "Remove UGC row 1" }));
+    payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.presentation.featuredEntryId).toBe("first");
+    fireEvent.click(screen.getByRole("button", { name: "Remove UGC row 1" }));
+    payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries).toEqual([]);
+    expect(payload.presentation).not.toHaveProperty("featuredEntryId");
+  });
+  it.each(["reorder", "delete", "switch"] as const)("keeps a late collage upload scoped to its stable row after %s", async (operation) => {
+    let resolveUpload: ((value: { url: string }) => void) | undefined;
+    uploadImage.mockReturnValue(new Promise<{ url: string }>((resolve) => { resolveUpload = resolve; }));
+    render(<AdminI18nProvider><Harness switchable initial={{ entries: [
+      { id: "row-a", name: "Sample A", comment: "Sample quote A", imageUrl: "/uploads/original.jpg" },
+      { id: "row-b", name: "Sample B", comment: "Sample quote B", imageUrl: "/uploads/b.jpg" },
+    ], presentation: { layout: "COLLAGE", featuredEntryId: "row-a" } }} /></AdminI18nProvider>);
+    const file = screen.getByTestId("ugc-row-0").querySelector('input[type="file"]')!;
+    fireEvent.change(file, { target: { files: [new File(["image"], "a.jpg", { type: "image/jpeg" })] } });
+    if (operation === "reorder") {
+      fireEvent.click(screen.getByRole("button", { name: "Move UGC row 1 down" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "UGC comment 2" }), { target: { value: "Edited during upload" } });
+    } else if (operation === "delete") fireEvent.click(screen.getByRole("button", { name: "Remove UGC row 1" }));
+    else fireEvent.click(screen.getByRole("button", { name: "Switch section" }));
+    await act(async () => { resolveUpload?.({ url: "/uploads/new.jpg" }); await Promise.resolve(); });
+    const payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    if (operation === "reorder") {
+      expect(payload.entries[1]).toMatchObject({ id: "row-a", imageUrl: "/uploads/new.jpg", comment: "Edited during upload" });
+      expect(payload.presentation.featuredEntryId).toBe("row-a");
+    } else if (operation === "delete") {
+      expect(payload.entries).toHaveLength(1);
+      expect(payload.entries[0]).toMatchObject({ id: "row-b", imageUrl: "/uploads/b.jpg" });
+    } else expect(payload.entries.every((entry: { imageUrl: string }) => entry.imageUrl === "/uploads/other.jpg")).toBe(true);
+  });
+
+  it("keeps the original collage image when an upload fails", async () => {
+    uploadImage.mockRejectedValue(new Error("Sample upload failure"));
+    render(<AdminI18nProvider><Harness initial={{ entries: [{ id: "row-a", name: "", comment: "Sample quote", imageUrl: "/uploads/original.jpg" }], presentation: { layout: "COLLAGE", featuredEntryId: "row-a" } }} /></AdminI18nProvider>);
+    const file = screen.getByTestId("ugc-row-0").querySelector('input[type="file"]')!;
+    await act(async () => { fireEvent.change(file, { target: { files: [new File(["image"], "a.jpg", { type: "image/jpeg" })] } }); await Promise.resolve(); });
+    expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0].imageUrl).toBe("/uploads/original.jpg");
+  });
+
   it("normalizes malformed entries and caps the editor at six entries", () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });

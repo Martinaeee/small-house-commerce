@@ -97,6 +97,17 @@ function section(
   };
 }
 
+describe("Hero typography fallback precedence", () => {
+  it("keeps saved variables before appearance defaults and original renderer fallbacks", () => {
+    const source = slide(0);
+    render(<HeroSlider section={section([source], { autoplay: false })} />);
+    expect(element("heading").style.fontSize).toBe("var(--el-heading-size, var(--hp-hero-fallback-size, 2.25rem))");
+    expect(element("heading").style.fontWeight).toBe("var(--el-heading-weight, var(--hp-hero-fallback-weight, 600))");
+    expect(element("heading").style.lineHeight).toBe("var(--el-heading-lh, var(--hp-hero-fallback-lh, inherit))");
+    expect(element("heading").style.letterSpacing).toBe("var(--el-heading-ls, var(--hp-hero-fallback-ls, inherit))");
+  });
+});
+
 const threeSlides = (): HomepageHeroSlide[] => [slide(0), slide(1), slide(2)];
 
 function wrapper(): HTMLElement {
@@ -153,6 +164,40 @@ describe("HeroSlider", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("expands explicit mobile SCREEN geometry to contain a colliding title and CTA without saving pixels", async () => {
+    const first = slide(0);
+    for (const value of Object.values(first.elements ?? {})) value.text = "";
+    first.elements!.heading!.text = "A long furniture heading";
+    first.elements!.ctaPrimary!.text = "Shop now";
+    first.elements!.heading!.layout = { xPct: 0, yPct: 0, widthPct: 100, align: "LEFT" };
+    first.elements!.ctaPrimary!.layout = { xPct: 0, yPct: 0, widthPct: 100, align: "LEFT" };
+    const fixture = section([first], { autoplay: false });
+    fixture.payload.display = { overrides: { mobile: { heightMode: "SCREEN" } } };
+    const original = structuredClone(fixture);
+    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-hero-slider") ? 390 : 0;
+    });
+    const readStyle = window.getComputedStyle.bind(window);
+    const elementWidth = vi.spyOn(window, "getComputedStyle").mockImplementation((node, pseudo) => {
+      const style = readStyle(node, pseudo);
+      if (node.hasAttribute("data-hero-element")) style.width = "358px";
+      return style;
+    });
+    const elementHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.dataset.heroElement === "heading" ? 220 : this.dataset.heroElement === "ctaPrimary" ? 48 : 0;
+    });
+    try {
+      render(<HeroSlider section={fixture} previewDevice="mobile" previewViewportHeight={180} interactionMode="preview" />);
+      await advance(50);
+      expect(wrapper().dataset.readableReady).toBe("true");
+      expect(wrapper().style.getPropertyValue("--hp-readable-height")).toBe("312px");
+      expect(element("ctaPrimary").style.getPropertyValue("--hp-safe-y")).toBe("248px");
+      expect(fixture).toEqual(original);
+    } finally {
+      width.mockRestore(); elementWidth.mockRestore(); elementHeight.mockRestore();
+    }
   });
 
   it("applies inherited section presentation to the Hero root", () => {

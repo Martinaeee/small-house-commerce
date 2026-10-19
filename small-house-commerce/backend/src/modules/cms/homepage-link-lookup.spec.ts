@@ -12,6 +12,27 @@ describe('PrismaLinkLookup', () => {
     return { prisma, lookup: new PrismaLinkLookup(prisma as never) };
   }
 
+  it('resolves navigation targets in typed batches without a global cover requirement', async () => {
+    const { prisma, lookup } = makeLookup();
+    prisma.category.findMany.mockResolvedValue([{ id: 'shared', name: 'Category', slug: 'category' }]);
+    prisma.collection.findMany.mockResolvedValue([{ id: 'shared', name: 'Collection', slug: 'collection' }]);
+    const result = await lookup.navigationTargets({ categoryIds: ['shared', 'shared'], collectionIds: ['shared'] });
+    expect(result).toEqual(new Map([
+      ['CATEGORY:shared', { type: 'CATEGORY', id: 'shared', name: 'Category', slug: 'category' }],
+      ['COLLECTION:shared', { type: 'COLLECTION', id: 'shared', name: 'Collection', slug: 'collection' }],
+    ]));
+    for (const delegate of [prisma.category, prisma.collection]) {
+      expect(delegate.findMany).toHaveBeenCalledExactlyOnceWith({ where: { id: { in: ['shared'] }, status: 'ACTIVE' }, select: { id: true, name: true, slug: true } });
+    }
+  });
+
+  it('does not query empty navigation batches', async () => {
+    const { prisma, lookup } = makeLookup();
+    await expect(lookup.navigationTargets({ categoryIds: [], collectionIds: [] })).resolves.toEqual(new Map());
+    expect(prisma.category.findMany).not.toHaveBeenCalled();
+    expect(prisma.collection.findMany).not.toHaveBeenCalled();
+  });
+
   it('deduplicates product ids and returns the stored product statuses', async () => {
     const { prisma, lookup } = makeLookup();
     prisma.product.findMany.mockResolvedValue([

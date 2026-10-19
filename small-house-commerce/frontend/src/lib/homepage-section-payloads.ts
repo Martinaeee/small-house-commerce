@@ -1,3 +1,10 @@
+import type {
+  CategoryLayoutFields,
+  ProductGridLayoutFields,
+  ProductStoryLayoutFields,
+  ResponsiveFields,
+} from "./homepage-document";
+
 export type UspIcon = "shield" | "home" | "lock" | "truck";
 
 export type UspItem = {
@@ -10,12 +17,23 @@ export type UspPayload = {
   items?: UspItem[];
 };
 
+export type HomepageNavigationEntry = {
+  id: string;
+  label?: string;
+  imageUrl?: string;
+  link: { type: "CATEGORY" | "COLLECTION"; id: string } | null;
+};
+
 export type CategoryTilesPayload = {
   categoryIds?: string[];
+  entries?: HomepageNavigationEntry[];
+  presentation?: "TILES" | "CIRCLES";
+  layout?: ResponsiveFields<CategoryLayoutFields>;
 };
 
 export type ProductGridPayload = {
   columns?: 2 | 4;
+  layout?: ResponsiveFields<ProductGridLayoutFields>;
 };
 
 export type SolutionItem = {
@@ -29,6 +47,7 @@ export type SolutionsPayload = {
 };
 
 export type ProductStoryPayload = {
+  layout?: ResponsiveFields<ProductStoryLayoutFields>;
   imageUrl?: string;
   heading?: string;
   body?: string;
@@ -61,6 +80,7 @@ export type RoomInspirationPayload = {
 export type RoomPayload = RoomInspirationPayload;
 
 export type UgcEntry = {
+  id?: string;
   imageUrl?: string;
   name: string;
   location?: string;
@@ -70,6 +90,12 @@ export type UgcEntry = {
 
 export type UgcPayload = {
   entries?: UgcEntry[];
+  presentation?: {
+    layout: "CARDS" | "COLLAGE";
+    featuredEntryId?: string;
+    showQuote?: boolean;
+    overlay?: "SOFT" | "STRONG";
+  };
 };
 
 export type TextBlockPayload = {

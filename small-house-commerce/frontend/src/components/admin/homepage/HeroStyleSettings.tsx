@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { useHomepageEditor } from "@/components/admin/homepage/HomepageEditor";
+import { DeviceField } from "./SectionStyleFields";
+import { patchResponsiveFields } from "@/lib/homepage-responsive";
 import { useBufferedValue } from "@/components/admin/homepage/AnnouncementSettings";
 import {
   ColorField,
@@ -16,6 +18,8 @@ import {
   type HomepageDocument,
   type HomepageSection,
   type SlideOverlay,
+  type OverlayFields,
+  type HomepageDevice,
 } from "@/lib/homepage-document";
 
 /**
@@ -38,7 +42,7 @@ const MANUAL_PAUSE_MAX_MS = 60000;
 
 const TRANSITIONS = ["FADE", "SLIDE"] as const;
 const PAGINATIONS = ["DOTS", "COUNTER", "PROGRESS"] as const;
-const GRADIENTS = ["NONE", "BOTTOM", "FULL"] as const;
+const GRADIENTS = ["NONE", "BOTTOM", "FULL", "LOCAL"] as const;
 
 const TRANSITION_LABEL_KEYS: Record<(typeof TRANSITIONS)[number], TKey> = {
   FADE: "homepage_builder_transition_FADE",
@@ -55,6 +59,7 @@ const GRADIENT_LABEL_KEYS: Record<(typeof GRADIENTS)[number], TKey> = {
   NONE: "homepage_builder_overlay_gradient_NONE",
   BOTTOM: "homepage_builder_overlay_gradient_BOTTOM",
   FULL: "homepage_builder_overlay_gradient_FULL",
+  LOCAL: "homepage_builder_overlay_gradient_LOCAL",
 };
 
 type HeroSection = Extract<HomepageSection, { type: "HERO" }>;
@@ -85,12 +90,13 @@ function findSlide(document: HomepageDocument, slideId: string | null) {
 function slideOverlayDocument(
   document: HomepageDocument,
   slideId: string,
-  patch: Partial<SlideOverlay>,
+  patch: Partial<OverlayFields>,
+  device: HomepageDevice,
 ): HomepageDocument {
   const slide = findSlide(document, slideId);
   if (!slide) return document;
   return updateHeroSlide(document, slideId, {
-    overlay: { ...slide.overlay, ...patch },
+    overlay: patchResponsiveFields(slide.overlay, device, patch) as SlideOverlay,
   });
 }
 
@@ -162,12 +168,13 @@ function OpacitySlider({
   );
 }
 
-export function HeroStyleSettings(): ReactNode {
+export function HeroStyleSettings({ embedded = false, group }: { embedded?: boolean; group?: "overlay" | "behavior" } = {}): ReactNode {
   const { t } = useAdminI18n();
-  const { state, dispatch, selectedSlideId } = useHomepageEditor();
+  const { state, dispatch, selectedSlideId, device } = useHomepageEditor();
   const document = state.document;
   const hero = firstHero(document);
-  const slide = findSlide(document, selectedSlideId);
+  const slide = findSlide(document, selectedSlideId) ?? (embedded ? hero?.payload.slides[0] : null);
+  const overlay = slide ? { ...slide.overlay, ...(device === "desktop" ? {} : slide.overlay.overrides?.[device]) } : null;
 
   const commit = (next: HomepageDocument): void => {
     dispatch({ type: "commit", document: next });
@@ -179,13 +186,13 @@ export function HeroStyleSettings(): ReactNode {
   return (
     <div
       data-panel="hero-style-settings"
-      className="flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"
+      className={embedded ? "flex min-w-0 flex-col gap-3" : "flex min-h-[320px] flex-col gap-3 rounded-xl border border-border bg-card p-4"}
     >
-      <h2 className="text-sm font-semibold text-ink">
+      {!embedded ? <h2 className="text-sm font-semibold text-ink">
         {t("homepage_builder_pane_settings")}
-      </h2>
+      </h2> : null}
 
-      {hero ? (
+      {hero && group !== "overlay" ? (
         <Group title={t("homepage_builder_group_behavior")}>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
             <CheckboxField
@@ -255,39 +262,33 @@ export function HeroStyleSettings(): ReactNode {
         </Group>
       ) : null}
 
-      {slide ? (
-        // Keyed by slide id: switching slides remounts the overlay fields so a
-        // pending buffered draft cannot be committed against the new slide.
-        <Group key={slide.id} title={t("homepage_builder_group_overlay")}>
-          <div className="grid grid-cols-2 gap-2">
-            <ColorField
-              label={t("homepage_builder_field_overlay_color")}
-              value={slide.overlay.color}
-              mutate={(doc, hex) =>
-                slideOverlayDocument(doc, slide.id, { color: hex })
-              }
-            />
-            <SelectField
-              label={t("homepage_builder_field_overlay_gradient")}
-              value={slide.overlay.gradient}
-              options={GRADIENTS}
-              labelKeys={GRADIENT_LABEL_KEYS}
-              onChange={(value) =>
-                commit(updateHeroSlide(document, slide.id, {
-                  overlay: { ...slide.overlay, gradient: value },
-                }))
-              }
-            />
-          </div>
-          <OpacitySlider
-            label={t("homepage_builder_field_overlay_opacity")}
-            value={slide.overlay.opacity}
-            onCommit={(value) =>
-              applyMutation((doc) =>
-                slideOverlayDocument(doc, slide.id, { opacity: value }),
-              )
-            }
-          />
+      {slide && overlay && group !== "behavior" ? (
+        <Group key={`${slide.id}:${device}`} title={t("homepage_builder_group_overlay")}>
+          <p className="text-xs text-ink-muted">{t("homepage_builder_display_overlay_note")}</p>
+          <DeviceField device={device} overridden={device !== "desktop" && slide.overlay.overrides?.[device]?.color !== undefined}
+            resetLabel={`${t("homepage_builder_field_overlay_color")}: ${t("homepage_builder_clear_inherit")}`}
+            onReset={device === "desktop" ? undefined : () => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { color: undefined }, device))}>
+            <ColorField label={t("homepage_builder_field_overlay_color")} value={overlay.color}
+              mutate={(doc, hex) => slideOverlayDocument(doc, slide.id, { color: hex }, device)} />
+          </DeviceField>
+          <DeviceField device={device} overridden={device !== "desktop" && slide.overlay.overrides?.[device]?.gradient !== undefined}
+            resetLabel={`${t("homepage_builder_field_overlay_gradient")}: ${t("homepage_builder_clear_inherit")}`}
+            onReset={device === "desktop" ? undefined : () => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { gradient: undefined }, device))}>
+            <SelectField label={t("homepage_builder_field_overlay_gradient")} value={overlay.gradient}
+              options={GRADIENTS} labelKeys={GRADIENT_LABEL_KEYS}
+              onChange={(gradient) => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { gradient }, device))} />
+          </DeviceField>
+          <DeviceField device={device} overridden={device !== "desktop" && slide.overlay.overrides?.[device]?.opacity !== undefined}
+            resetLabel={`${t("homepage_builder_field_overlay_opacity")}: ${t("homepage_builder_clear_inherit")}`}
+            onReset={device === "desktop" ? undefined : () => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { opacity: undefined }, device))}>
+            <OpacitySlider label={t("homepage_builder_field_overlay_opacity")} value={overlay.opacity}
+              onCommit={(opacity) => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { opacity }, device))} />
+          </DeviceField>
+          {device !== "desktop" ? <button type="button" className="self-start text-xs text-cta"
+            aria-label={t("homepage_builder_display_reset_overlay")}
+            onClick={() => applyMutation((doc) => slideOverlayDocument(doc, slide.id, { color: undefined, opacity: undefined, gradient: undefined }, device))}>
+            {t("homepage_builder_display_reset_overlay_action")}
+          </button> : null}
         </Group>
       ) : null}
     </div>

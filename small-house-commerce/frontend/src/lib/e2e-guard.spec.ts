@@ -33,6 +33,33 @@ describe("Task 5 E2E database guard", () => {
     ).toThrow(/port must be 5432/);
   });
 
+  it("accepts the Studio database only with its explicit profile and port", () => {
+    const url = "postgresql://postgres:postgres@localhost:5556/small_house_homepage_studio_20261016_test?schema=public";
+    expect(assertE2EDatabaseUrl(url, "5556", "homepage-studio")).toEqual({
+      database: "small_house_homepage_studio_20261016_test",
+      host: "localhost",
+      port: "5556",
+    });
+    expect(() => assertE2EDatabaseUrl(url, "5556")).toThrow(/database must be exactly/);
+  });
+
+  it.each([
+    "postgresql://postgres:postgres@example.com:5556/small_house_homepage_studio_20261016_test",
+    "postgresql://postgres:postgres@localhost:5556/small_house",
+    "postgresql://postgres:postgres@localhost:5556/small_house_variant_test",
+    "postgresql://postgres:postgres@localhost:5546/small_house_homepage_studio_20261016_test",
+  ])("rejects an unsafe Studio target %s", (url) => {
+    expect(() => assertE2EDatabaseUrl(url, "5556", "homepage-studio")).toThrow();
+  });
+
+  it("does not let the Studio profile approve a different port", () => {
+    expect(() => assertE2EDatabaseUrl(
+      "postgresql://postgres:postgres@localhost:5432/small_house_homepage_studio_20261016_test",
+      "5432",
+      "homepage-studio",
+    )).toThrow(/5556/);
+  });
+
   it.each([
     ["remote host", "postgresql://postgres:postgres@example.com:5432/small_house_variant_test"],
     ["production database", "postgresql://postgres:postgres@localhost:5432/small_house"],

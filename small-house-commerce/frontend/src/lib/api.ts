@@ -315,6 +315,18 @@ export type HomepageSectionStyle = {
   contentWidth?: "FULL" | "STANDARD" | "NARROW";
   paddingTop?: number;
   paddingBottom?: number;
+  overrides?: {
+    tablet?: {
+      backgroundColor?: string; textColor?: string;
+      contentWidth?: "FULL" | "STANDARD" | "NARROW";
+      paddingTop?: number; paddingBottom?: number;
+    };
+    mobile?: {
+      backgroundColor?: string; textColor?: string;
+      contentWidth?: "FULL" | "STANDARD" | "NARROW";
+      paddingTop?: number; paddingBottom?: number;
+    };
+  };
 };
 
 export interface HomepageSection {
@@ -333,10 +345,20 @@ export interface HomepageSection {
   // Present only on the types hydrated by the backend.
   products?: HomepageSectionProduct[];
   categories?: HomepageCategoryTile[];
+  navigationEntries?: HomepageNavigationEntryView[];
+}
+
+export interface HomepageNavigationEntryView {
+  id: string;
+  name: string;
+  imageUrl: string;
+  href: string;
+  link: { type: "CATEGORY" | "COLLECTION"; id: string };
 }
 
 export interface HomepageResponse {
   sections: HomepageSection[];
+  appearance?: import("@/lib/homepage-document").HomepageAppearance;
 }
 
 // --- HERO payload v2 (homepage document → storefront) -----------------------
@@ -386,6 +408,7 @@ export interface HomepageHeroMedia {
   video?: HomepageHeroVideo | null;
   mobileOverride?: HomepageHeroMobileOverride;
   fit?: "COVER" | "CONTAIN";
+  fitOverrides?: { tablet?: "COVER" | "CONTAIN"; mobile?: "COVER" | "CONTAIN" };
   focal?: { x?: number; y?: number };
   objectPosition?: {
     desktop?: { x?: number; y?: number };
@@ -439,7 +462,13 @@ export interface HomepageHeroSlide {
   sortOrder?: number;
   schedule?: { publishAt?: string | null; unpublishAt?: string | null };
   media?: HomepageHeroMedia | null;
-  overlay?: { color?: string; opacity?: number; gradient?: string };
+  overlay?: {
+    color?: string; opacity?: number; gradient?: string;
+    overrides?: {
+      tablet?: { color?: string; opacity?: number; gradient?: string };
+      mobile?: { color?: string; opacity?: number; gradient?: string };
+    };
+  };
   elements?: Partial<Record<HomepageHeroElementKey, HomepageHeroElement>>;
 }
 
@@ -455,6 +484,7 @@ export interface HomepageHeroBehavior {
 
 export interface HomepageHeroPayload {
   behavior?: HomepageHeroBehavior;
+  display?: import("./homepage-document").HeroDisplay;
   slides?: HomepageHeroSlide[];
   // Loose storefront view: unknown/extra payload fields must not break the
   // type; the index signature also makes payloads narrow cleanly from a

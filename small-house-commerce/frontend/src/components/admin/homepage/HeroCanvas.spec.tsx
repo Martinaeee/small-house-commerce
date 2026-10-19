@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
@@ -428,6 +428,13 @@ describe("HeroCanvas", () => {
     capturedDocument = null;
     getHomepageDraft.mockReset();
     saveHomepageDraft.mockReset();
+  });
+
+  it.each(["desktop", "tablet", "mobile"] as const)("only releases the fixed canvas height for the device opted into display geometry: %s", (device) => {
+    const doc = canvasDocument();
+    heroSectionOf(doc).payload.display = { overrides: { mobile: { heightMode: "SCREEN" } } };
+    renderCanvas({ document: doc, device });
+    expect(stage().style.getPropertyValue("--hp-hero-height")).toBe(device === "mobile" ? "" : "100%");
   });
 
   it("renders the selected slide and falls back to the first slide", () => {
@@ -936,6 +943,9 @@ describe("HeroCanvas", () => {
     expect(document.querySelector('[data-panel="settings-panel"]')).not.toBeNull();
     expect(
       document.querySelector('[data-panel="hero-media-settings"]'),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(document.querySelector('[data-settings-group="text"]')).toHaveAttribute("open");
+    const headingFields = document.querySelector<HTMLElement>('fieldset[data-hero-element="heading"]')!;
+    expect(within(headingFields).getByRole("textbox", { name: "Text" })).toBeVisible();
   });
 });

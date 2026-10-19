@@ -18,29 +18,31 @@ import Link from "next/link";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { DeviceFrame } from "@/components/admin/PreviewPane";
+import { DeviceFrame, type DeviceFrameMetrics } from "@/components/admin/PreviewPane";
 import { Button } from "@/components/ui/Button";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { AnnouncementSettings } from "@/components/admin/homepage/AnnouncementSettings";
+import { sectionTypeLabelKey } from "@/components/admin/homepage/AddSectionDialog";
 import { HomepageDefaultsPanel } from "@/components/admin/homepage/HomepageDefaultsPanel";
 import { HomepageLivePreview } from "@/components/admin/homepage/HomepageLivePreview";
-import { HeroMediaSettings } from "@/components/admin/homepage/HeroMediaSettings";
-import { HeroStyleSettings } from "@/components/admin/homepage/HeroStyleSettings";
+import { HeroSettingsPanel } from "@/components/admin/homepage/HeroSettingsPanel";
 import {
   ANNOUNCEMENT_SELECTION_ID,
   HOMEPAGE_DEFAULTS_SELECTION_ID,
   ModuleTree,
 } from "@/components/admin/homepage/ModuleTree";
 import { PublishPanel } from "@/components/admin/homepage/PublishPanel";
-import { SettingsPanel } from "@/components/admin/homepage/SettingsPanel";
 import { SectionEditorPanel } from "@/components/admin/homepage/SectionEditorPanel";
+import { SectionDisplaySettings } from "@/components/admin/homepage/SectionDisplaySettings";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { errorStatus } from "@/lib/admin-auth";
 import { adminApi, type HomepageDraftSnapshot } from "@/lib/admin-api";
+import studioStyles from "./HomepageStudio.module.css";
 import { heroCss } from "@/lib/homepage-styles";
 import {
   emptyDocument,
   type HeroElementKey,
+  type HomepageDocument,
   type HomepageSection,
 } from "@/lib/homepage-document";
 import {
@@ -66,7 +68,7 @@ import {
  */
 
 const AUTOSAVE_DELAY_MS = 3000;
-const SETTINGS_WIDTH_DEFAULT = 440;
+const SETTINGS_WIDTH_DEFAULT = 360;
 const SETTINGS_WIDTH_MIN = 360;
 const SETTINGS_WIDTH_MAX = 560;
 const SETTINGS_WIDTH_STEP = 16;
@@ -90,6 +92,8 @@ export type HomepageEditorContextValue = {
   dispatch: Dispatch<EditorAction>;
   device: BuilderDevice;
   setDevice: Dispatch<SetStateAction<BuilderDevice>>;
+  compareCurrentAppearance: boolean;
+  setCompareCurrentAppearance: Dispatch<SetStateAction<boolean>>;
   selectedSectionId: string | null;
   setSelectedSectionId: Dispatch<SetStateAction<string | null>>;
   selectedSlideId: string | null;
@@ -127,6 +131,12 @@ const DEVICE_OPTIONS = [
   { id: "mobile", labelKey: "homepage_builder_device_mobile" },
 ] as const;
 
+const DEVICE_ICONS: Record<BuilderDevice, string> = {
+  desktop: "M3 5h18v11H3V5Zm6 14h6m-3-3v3",
+  tablet: "M6 3h12v18H6V3Zm4.5 15h3",
+  mobile: "M8 3h8v18H8V3Zm3 15h2",
+};
+
 type HeroSection = Extract<HomepageSection, { type: "HERO" }>;
 
 function formatTimestamp(value: string | null): string {
@@ -144,6 +154,7 @@ export function HomepageEditorProvider({
     initEditorState({ document: emptyDocument(), rev: 0, savedAt: null }),
   );
   const [device, setDevice] = useState<BuilderDevice>("desktop");
+  const [compareCurrentAppearance, setCompareCurrentAppearance] = useState(false);
   const [selectedSectionId, setSelectedSectionIdState] = useState<string | null>(
     null,
   );
@@ -193,6 +204,8 @@ export function HomepageEditorProvider({
       dispatch,
       device,
       setDevice,
+      compareCurrentAppearance,
+      setCompareCurrentAppearance,
       selectedSectionId,
       setSelectedSectionId,
       selectedSlideId,
@@ -205,6 +218,7 @@ export function HomepageEditorProvider({
     [
       state,
       device,
+      compareCurrentAppearance,
       selectedSectionId,
       setSelectedSectionId,
       selectedSlideId,
@@ -230,8 +244,8 @@ export function HomepageEditorShell(): ReactNode {
     device,
     setDevice,
     selectedSectionId,
-    selectedSlideId,
-    selectedElementKey,
+    compareCurrentAppearance,
+    setCompareCurrentAppearance,
   } = useHomepageEditor();
 
   const [snapshot, setSnapshot] = useState<HomepageDraftSnapshot | null>(null);
@@ -242,11 +256,16 @@ export function HomepageEditorShell(): ReactNode {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<BuilderPane>("modules");
   const [settingsWidth, setSettingsWidth] = useState(SETTINGS_WIDTH_DEFAULT);
+  const [previewMetrics, setPreviewMetrics] = useState<DeviceFrameMetrics>({ width: 1440, height: 900, scale: 0.42 });
   const settingsResizeStart = useRef<{ clientX: number; width: number } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [previewPending, setPreviewPending] = useState(false);
   const [previewDisabled, setPreviewDisabled] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [readyPreview, setReadyPreview] = useState<{ url: string; view: BuilderDevice; document: HomepageDocument; rev: number } | null>(null);
+  const previewInFlightRef = useRef(false);
+  // A save response can arrive before React commits its revision update.
+  const draftOperationRef = useRef(0);
 
   // Latest committed state for event handlers that outlive a render
   // (keyboard shortcuts, autosave timers).
@@ -298,6 +317,7 @@ export function HomepageEditorShell(): ReactNode {
     if (saveInFlightRef.current) return saveInFlightRef.current;
 
     const { document, rev } = stateRef.current;
+    draftOperationRef.current += 1;
     dispatch({ type: "saving" });
     // DEFERRED (Task 12 minor ④): a PUT that never settles leaves `saveState`
     // stuck on "saving" (autosave then waits forever). P1 ships without a
@@ -361,28 +381,38 @@ export function HomepageEditorShell(): ReactNode {
     return false;
   }, [save]);
 
-  const openPreview = useCallback(async (): Promise<void> => {
+  const openPreview = useCallback(async (view: BuilderDevice): Promise<void> => {
+    if (previewInFlightRef.current) return;
+    previewInFlightRef.current = true;
     setPreviewPending(true);
     setPreviewError(null);
+    setReadyPreview(null);
     try {
-      if (!(await saveForPublish())) return;
+      if (!(await saveForPublish())) {
+        setPreviewError(t("homepage_builder_preview_save_required"));
+        return;
+      }
+      const document = stateRef.current.document;
+      const operation = draftOperationRef.current;
       const { token } = await adminApi.createHomepagePreviewToken();
-      window.open(
-        `/preview/homepage?token=${encodeURIComponent(token)}`,
-        "_blank",
-        "noopener,noreferrer",
-      );
+      if (stateRef.current.document !== document || draftOperationRef.current !== operation || stateRef.current.dirty || stateRef.current.conflict) {
+        setPreviewError(t("homepage_builder_preview_save_required"));
+        return;
+      }
+      const url = `/preview/homepage?token=${encodeURIComponent(token)}&view=${view}`;
+      setReadyPreview({ url, view, document, rev: stateRef.current.rev });
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (error: unknown) {
       if (errorStatus(error) === 503) {
-        // Server secret unset: preview stays unavailable for this session.
         setPreviewDisabled(true);
         return;
       }
       setPreviewError(error instanceof Error ? error.message : String(error));
     } finally {
+      previewInFlightRef.current = false;
       setPreviewPending(false);
     }
-  }, [saveForPublish]);
+  }, [saveForPublish, t]);
 
   const handlePublished = useCallback(
     (result: { versionNo: number; publishAt: string }): void => {
@@ -448,6 +478,7 @@ export function HomepageEditorShell(): ReactNode {
   }, [save, dispatch]);
 
   const loadLatest = useCallback(async (): Promise<void> => {
+    draftOperationRef.current += 1;
     try {
       const data = await adminApi.getHomepageDraft();
       setSnapshot(data);
@@ -468,6 +499,7 @@ export function HomepageEditorShell(): ReactNode {
   // loses the race and surfaces a second 409 — acceptable for P1 (the conflict
   // bar simply reappears); a retry loop is deliberately not implemented here.
   const keepMine = useCallback(async (): Promise<void> => {
+    draftOperationRef.current += 1;
     const local = stateRef.current.document;
     let latest: HomepageDraftSnapshot;
     try {
@@ -568,15 +600,22 @@ export function HomepageEditorShell(): ReactNode {
     : undefined;
   const selectedNonHeroSection =
     selectedSection && selectedSection.type !== "HERO" ? selectedSection : null;
+  const settingsTitle = selectedSectionId === HOMEPAGE_DEFAULTS_SELECTION_ID
+    ? t("homepage_builder_defaults_title")
+    : selectedSectionId === ANNOUNCEMENT_SELECTION_ID
+      ? t("homepage_builder_announcement_title")
+      : selectedNonHeroSection
+        ? selectedNonHeroSection.title?.trim() || t(sectionTypeLabelKey(selectedNonHeroSection.type))
+        : heroSection?.title?.trim() || "HERO";
   return (
     <div
       data-homepage-editor-shell
-      className="flex min-w-0 flex-col gap-3 px-4 py-4 md:px-6 min-[1280px]:h-[calc(100vh-3.5rem)] min-[1280px]:min-h-0 min-[1280px]:overflow-hidden"
+      className={studioStyles.studio}
     >
       {/* Status bar */}
       <div
         data-testid="homepage-status-bar"
-        className="sticky top-14 min-[1280px]:top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-3"
+        className={studioStyles.statusBar}
       >
         <Badge value={t("homepage_builder_draft_badge")} tone="amber" />
         {published ? (
@@ -638,6 +677,14 @@ export function HomepageEditorShell(): ReactNode {
         ) : null}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="md" disabled={state.past.length === 0}
+            onClick={() => dispatch({ type: "undo" })}>
+            {t("homepage_builder_undo")}
+          </Button>
+          <Button variant="secondary" size="md" disabled={state.future.length === 0}
+            onClick={() => dispatch({ type: "redo" })}>
+            {t("homepage_builder_redo")}
+          </Button>
           <Button
             variant="secondary"
             size="md"
@@ -646,24 +693,6 @@ export function HomepageEditorShell(): ReactNode {
           >
             {t("homepage_builder_save_draft")}
           </Button>
-          <Button
-            variant="secondary"
-            size="md"
-            disabled={previewDisabled || previewPending}
-            title={
-              previewDisabled
-                ? t("homepage_builder_preview_unconfigured")
-                : undefined
-            }
-            onClick={() => void openPreview()}
-          >
-            {t("homepage_builder_preview_draft")}
-          </Button>
-          {previewError ? (
-            <span role="alert" className="text-xs text-sale">
-              {previewError}
-            </span>
-          ) : null}
           <Button size="md" onClick={() => setPublishOpen(true)}>
             {t("homepage_builder_publish")}
           </Button>
@@ -680,7 +709,7 @@ export function HomepageEditorShell(): ReactNode {
       {state.conflict ? (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-xl border border-admin-warning bg-admin-warning-soft px-4 py-3"
+          className={`${studioStyles.conflictBar} flex flex-wrap items-center gap-3 rounded-xl border border-admin-warning bg-admin-warning-soft px-4 py-3`}
         >
           <div className="flex min-w-0 flex-col">
             <p className="text-sm font-semibold text-ink">
@@ -710,7 +739,7 @@ export function HomepageEditorShell(): ReactNode {
       ) : null}
 
       {/* Narrow layout: pane switcher (hidden from 1280px up) */}
-      <div role="tablist" className="flex flex-wrap gap-1 min-[1280px]:hidden">
+      <div role="tablist" className={`${studioStyles.workspaceSwitch} flex flex-wrap gap-1`}>
         {PANES.map((pane) => (
           <button
             key={pane.id}
@@ -733,56 +762,99 @@ export function HomepageEditorShell(): ReactNode {
       {/* Three panes: stacked switcher below 1280px, resizable settings rail above. */}
       <div
         style={{ "--homepage-settings-width": `${settingsWidth}px` } as CSSProperties}
-        className="grid min-w-0 gap-4 min-[1280px]:min-h-0 min-[1280px]:flex-1 min-[1280px]:grid-cols-[280px_minmax(0,1fr)_12px_var(--homepage-settings-width)]"
+        data-studio-columns
+        className={studioStyles.columns}
       >
         <section
           id="homepage-pane-modules"
           data-pane="modules"
           aria-label={t("homepage_builder_pane_modules")}
-          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
-            activePane !== "modules" ? "max-[1279px]:hidden" : ""
-          }`}
+          data-pane-active={activePane === "modules"}
+          className={`${studioStyles.panel} ${activePane !== "modules" ? studioStyles.inactive : ""}`}
         >
-          <ModuleTree />
+          <div data-panel-body="modules" className={`${studioStyles.panelBody} ${studioStyles.moduleBody}`}><ModuleTree /></div>
         </section>
 
         <section
           id="homepage-pane-preview"
           data-pane="preview"
           aria-label={t("homepage_builder_pane_preview")}
-          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
-            activePane !== "preview" ? "max-[1279px]:hidden" : ""
-          }`}
+          data-pane-active={activePane === "preview"}
+          className={`${studioStyles.panel} ${activePane !== "preview" ? studioStyles.inactive : ""}`}
         >
-          <div data-preview-surface className="flex min-w-0 flex-col gap-3">
+          <div data-preview-surface className={studioStyles.previewSurface}>
             <div
               role="group"
+              data-panel-head="preview"
               aria-label={t("homepage_builder_device_switch")}
-              className="flex flex-wrap items-center gap-1"
+              className={studioStyles.previewToolbar}
             >
-              {DEVICE_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  aria-pressed={device === option.id}
-                  onClick={() => setDevice(option.id)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    device === option.id
-                      ? "bg-cta text-white"
-                      : "border border-border text-ink-secondary hover:text-cta"
-                  }`}
-                >
-                  {t(option.labelKey)}
-                </button>
-              ))}
+              <div
+                data-device-segments
+                className={studioStyles.deviceSegments}
+              >
+                {DEVICE_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={device === option.id}
+                    onClick={() => setDevice(option.id)}
+                    className={studioStyles.deviceSegment}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4 shrink-0">
+                      <path d={DEVICE_ICONS[option.id]} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {t(option.labelKey)}
+                  </button>
+                ))}
+              </div>
+              <span data-preview-metrics className={studioStyles.previewMetrics}>
+                {t("homepage_builder_preview_scale_label", { width: previewMetrics.width, scale: Math.round(previewMetrics.scale * 100) })}
+              </span>
+              <Button size="md" className={studioStyles.previewAction}
+                disabled={previewDisabled || previewPending} aria-busy={previewPending}
+                title={previewDisabled ? t("homepage_builder_preview_unconfigured") : undefined}
+                onClick={() => void openPreview(device)}>
+                {t("homepage_builder_preview_independent")}
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4 shrink-0">
+                  <path d="M7 17 17 7m0 0h-7m7 0v7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </Button>
+              {previewPending ? <span role="status" className="basis-full text-xs text-ink-secondary">{t("homepage_builder_preview_preparing")}</span> : null}
+              {previewDisabled ? <span role="status" className="basis-full text-xs text-ink-secondary">{t("homepage_builder_preview_unconfigured")}</span> : null}
+              {readyPreview && !state.dirty && !state.conflict && readyPreview.document === state.document && readyPreview.rev === state.rev ? (
+                <span className="basis-full text-xs text-ink-secondary">
+                  {t("homepage_builder_preview_ready")}{" "}
+                  <a href={readyPreview.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"
+                    className="font-semibold text-cta underline">
+                    {t("homepage_builder_preview_open")} · {t(readyPreview.view === "mobile" ? "homepage_builder_device_mobile" : readyPreview.view === "tablet" ? "homepage_builder_device_tablet" : "homepage_builder_device_desktop")}
+                  </a>
+                </span>
+              ) : null}
+              {previewError ? <span role="alert" className="basis-full text-xs text-sale">{previewError}</span> : null}
+              {compareCurrentAppearance && state.document.appearance === "STUDIO_V3" ? (
+                <div data-appearance-comparison className="flex basis-full flex-wrap items-center gap-2 text-xs text-ink-secondary">
+                  <span role="status">{t("homepage_builder_studio_comparing")}</span>
+                  <button type="button" onClick={() => setCompareCurrentAppearance(false)} className="rounded-lg border border-border px-3 py-1.5 text-cta">
+                    {t("homepage_builder_studio_compare_stop")}
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div
               data-preview-device={device}
+              data-panel-body="preview"
               data-full-width-preview="true"
-              className="min-w-0 w-full overflow-hidden bg-background"
+              className={studioStyles.canvasSlot}
               style={{ width: "100%" }}
             >
-              <DeviceFrame device={device} flat scrollable>
+              <DeviceFrame
+                device={device}
+                flat
+                scrollable
+                fitAvailable
+                onMetricsChange={setPreviewMetrics}
+              >
                 {heroSection ? (
                   <style>{heroCss(heroSection.id, heroSection.payload)}</style>
                 ) : null}
@@ -790,6 +862,7 @@ export function HomepageEditorShell(): ReactNode {
                   document={state.document}
                   device={device}
                   selectedSectionId={selectedSectionId}
+                  compareCurrentAppearance={compareCurrentAppearance}
                 />
               </DeviceFrame>
             </div>
@@ -841,32 +914,30 @@ export function HomepageEditorShell(): ReactNode {
           id="homepage-pane-settings"
           data-pane="settings"
           aria-label={t("homepage_builder_pane_settings")}
-          className={`min-w-0 min-[1280px]:min-h-0 min-[1280px]:overflow-y-auto min-[1280px]:overscroll-contain min-[1280px]:block ${
-            activePane !== "settings" ? "max-[1279px]:hidden" : ""
-          }`}
+          data-pane-active={activePane === "settings"}
+          className={`${studioStyles.panel} ${activePane !== "settings" ? studioStyles.inactive : ""}`}
         >
-          {/* Right-pane routing priority: the homepage-defaults pseudo-node,
-              then the announcement pseudo-node, then a selected non-HERO
-              section, then a selected Hero element/slide. */}
+          <div data-panel-head="settings" className={`${studioStyles.panelHead} flex items-start justify-between gap-3`}>
+            <h2 className="min-w-0 break-words text-sm font-semibold text-ink">{settingsTitle}</h2>
+            <span className="shrink-0 text-xs text-ink-muted">{t(`homepage_builder_device_${device}`)}</span>
+          </div>
+          <div data-homepage-settings-scroll data-panel-body="settings" className={studioStyles.panelBody}>
           {selectedSectionId === HOMEPAGE_DEFAULTS_SELECTION_ID ? (
             <HomepageDefaultsPanel />
           ) : selectedSectionId === ANNOUNCEMENT_SELECTION_ID ? (
             <AnnouncementSettings />
           ) : selectedNonHeroSection ? (
-            <SectionEditorPanel
-              key={selectedNonHeroSection.id}
-              sectionId={selectedNonHeroSection.id}
-            />
-          ) : selectedElementKey !== null ? (
-            <SettingsPanel />
-          ) : selectedSlideId !== null ? (
             <>
-              <HeroMediaSettings />
-              <HeroStyleSettings />
+              <SectionEditorPanel
+                key={selectedNonHeroSection.id}
+                sectionId={selectedNonHeroSection.id}
+              />
+              <SectionDisplaySettings />
             </>
           ) : (
-            <HeroStyleSettings />
+            <HeroSettingsPanel />
           )}
+          </div>
         </section>
       </div>
 
@@ -877,6 +948,7 @@ export function HomepageEditorShell(): ReactNode {
       >
         <PublishPanel
           onClose={() => setPublishOpen(false)}
+          onRevealSettings={() => setActivePane("settings")}
           save={saveForPublish}
           onPublished={handlePublished}
         />

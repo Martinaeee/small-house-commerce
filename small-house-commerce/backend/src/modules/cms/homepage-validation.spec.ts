@@ -23,6 +23,135 @@ import { HomepageValidator } from './homepage-validation.js';
 /** Deterministic uuid v7-shaped ids for fixtures. */
 const uuid = (n: number) => `00000000-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
+describe('navigation and UGC payload format', () => {
+  it('retains new navigation JSON through the publish DTO', () => {
+    const payload = { entries: [{ id: uuid(701), imageUrl: '/uploads/e2e/nav.jpg', link: { type: 'COLLECTION', id: uuid(702) } }], presentation: 'CIRCLES' };
+    expect(homepagePayloadSchemas.CATEGORY_TILES.parse(payload)).toEqual(payload);
+  });
+
+  it('accepts a pure supporting photo in a collage while retaining its configuration', () => {
+    const payload = {
+      entries: [{ id: uuid(701), imageUrl: '/uploads/e2e/home.jpg', name: '', comment: '' }],
+      presentation: { layout: 'COLLAGE', featuredEntryId: uuid(701), showQuote: false, overlay: 'SOFT' },
+    };
+    expect(homepagePayloadSchemas.UGC.parse(payload)).toEqual(payload);
+  });
+
+  it.each([undefined, { layout: 'CARDS', showQuote: false }])('keeps old card name/comment requirements (%j)', (presentation) => {
+    const payload = { entries: [{ name: '', comment: '' }], ...(presentation ? { presentation } : {}) };
+    expect(homepagePayloadSchemas.UGC.safeParse(payload).success).toBe(false);
+  });
+
+  it.each([1000, 1001])('keeps the existing maximum quote length (%i)', (length) => {
+    expect(homepagePayloadSchemas.UGC.safeParse({ entries: [{ name: 'Sample fixture', comment: 'x'.repeat(length) }] }).success).toBe(length <= 1000);
+  });
+});
+
+describe('collage publish completeness', () => {
+  function collageDocument(payload: Record<string, unknown>, enabled = true) {
+    const doc = validDoc();
+    doc.sections.push({ ...heroOf(doc), id: uuid(700), type: 'UGC', enabled, payload });
+    return doc;
+  }
+  const photo = { id: uuid(701), name: '', comment: 'Sample quote', imageUrl: '/uploads/e2e/home.jpg' };
+  const presentation = { layout: 'COLLAGE', featuredEntryId: uuid(701) };
+
+  it('requires at least one photo and a featured photo in an enabled collage', async () => {
+    const result = await makeValidator(createLookup()).validate(collageDocument({ entries: [], presentation: { layout: 'COLLAGE' } }));
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'UGC_PHOTO_REQUIRED', sectionId: uuid(700) }),
+      expect.objectContaining({ code: 'UGC_FEATURED_REQUIRED', sectionId: uuid(700) }),
+    ]));
+  });
+
+  it('locates missing photos and a blank featured quote by entry id', async () => {
+    const result = await makeValidator(createLookup()).validate(collageDocument({ entries: [{ id: uuid(701), name: '', comment: '  ' }], presentation }));
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'UGC_PHOTO_REQUIRED', entryId: uuid(701), sectionId: uuid(700) }),
+      expect.objectContaining({ code: 'UGC_QUOTE_REQUIRED', entryId: uuid(701), sectionId: uuid(700) }),
+    ]));
+  });
+
+  it('requires an explicit featured id rather than silently choosing a photo', async () => {
+    const result = await makeValidator(createLookup()).validate(collageDocument({ entries: [photo], presentation: { layout: 'COLLAGE' } }));
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'UGC_FEATURED_REQUIRED' }));
+  });
+
+  it('allows anonymous quotes, pure supporting photos and no-quote collages', async () => {
+    for (const payload of [
+      { entries: [photo, { ...photo, id: uuid(702), comment: '' }], presentation },
+      { entries: [{ ...photo, comment: '' }], presentation: { ...presentation, showQuote: false } },
+    ]) expect((await makeValidator(createLookup()).validate(collageDocument(payload))).errors).toEqual([]);
+  });
+
+  it('warns only for the visible featured CTA and batches its status lookup', async () => {
+    const lookup = createLookup({ products: { [uuid(800)]: 'DISABLED' } });
+    const result = await makeValidator(lookup).validate(collageDocument({ entries: [{ ...photo, productId: uuid(800) }, { ...photo, id: uuid(702), productId: uuid(801) }], presentation }));
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toContainEqual(expect.objectContaining({ severity: 'WARNING', code: 'UGC_PRODUCT_UNAVAILABLE', sectionId: uuid(700), entryId: uuid(701) }));
+    expect(lookup.productStatuses).toHaveBeenCalledExactlyOnceWith([uuid(800)]);
+  });
+
+  it.each(['ACTIVE', 'DRAFT', 'DISABLED', 'MISSING'] as const)('handles %s featured product status without requiring sellable stock', async (status) => {
+    const lookup = createLookup({ products: status === 'MISSING' ? {} : { [uuid(800)]: status } });
+    const result = await makeValidator(lookup).validate(collageDocument({ entries: [{ ...photo, productId: uuid(800) }], presentation }));
+    expect(result.warnings.some((issue) => issue.code === 'UGC_PRODUCT_UNAVAILABLE')).toBe(status !== 'ACTIVE');
+  });
+
+  it('does not apply collage completeness or hidden-CTA checks to disabled collages', async () => {
+    const lookup = createLookup();
+    const result = await makeValidator(lookup).validate(collageDocument({ entries: [{ id: uuid(701), name: '', comment: '', productId: uuid(800) }], presentation }, false));
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.filter((issue) => issue.code.startsWith('UGC_'))).toEqual([]);
+    expect(lookup.productStatuses).not.toHaveBeenCalled();
+  });
+
+  it('keeps hidden product associations without lookup or warnings when quotes are off', async () => {
+    const lookup = createLookup();
+    const result = await makeValidator(lookup).validate(collageDocument({ entries: [{ ...photo, productId: uuid(800) }], presentation: { ...presentation, showQuote: false } }));
+    expect(result.warnings.filter((issue) => issue.code.startsWith('UGC_'))).toEqual([]);
+    expect(lookup.productStatuses).not.toHaveBeenCalled();
+  });
+});
+
+describe('navigation publish completeness', () => {
+  function navigationDocument(payload: Record<string, unknown>, enabled = true) {
+    const doc = validDoc();
+    doc.sections.push({ ...heroOf(doc), id: uuid(700), type: 'CATEGORY_TILES', enabled, payload });
+    return doc;
+  }
+
+  it('blocks an empty enabled new navigation section', async () => {
+    const result = await makeValidator(createLookup()).validate(navigationDocument({ entries: [] }));
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'NAVIGATION_EMPTY', sectionId: uuid(700) }));
+  });
+
+  it('locates missing images and unavailable targets by section and stable entry identity', async () => {
+    const result = await makeValidator(createLookup()).validate(navigationDocument({ entries: [{ id: uuid(701), link: null }] }));
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'NAVIGATION_IMAGE_REQUIRED', sectionId: uuid(700), entryId: uuid(701) }),
+      expect.objectContaining({ code: 'NAVIGATION_TARGET_UNAVAILABLE', sectionId: uuid(700), entryId: uuid(701) }),
+    ]));
+    expect(result.errors.every((issue) => issue.message.includes('1'))).toBe(true);
+  });
+
+  it('accepts active targets without requiring a global category cover', async () => {
+    const lookup = createLookup();
+    lookup.navigationTargets.mockResolvedValue(new Map([[`CATEGORY:${uuid(702)}`, { type: 'CATEGORY', id: uuid(702), name: 'Storage', slug: 'storage' }]]));
+    const result = await makeValidator(lookup).validate(navigationDocument({ entries: [{ id: uuid(701), link: { type: 'CATEGORY', id: uuid(702) }, imageUrl: '/uploads/e2e/custom.jpg' }] }));
+    expect(result.errors).toEqual([]);
+    expect(lookup.navigationTargets).toHaveBeenCalledExactlyOnceWith({ categoryIds: [uuid(702)], collectionIds: [] });
+  });
+
+  it('does not give disabled new navigation or legacy categoryIds new content requirements', async () => {
+    for (const doc of [navigationDocument({ entries: [{ id: uuid(701), link: null }] }, false), navigationDocument({ categoryIds: [] })]) {
+      const lookup = createLookup();
+      expect((await makeValidator(lookup).validate(doc)).errors).toEqual([]);
+      expect(lookup.navigationTargets).not.toHaveBeenCalled();
+    }
+  });
+});
+
 const HERO_SECTION_ID = uuid(1);
 const HERO_SLIDE_ID = uuid(10);
 
@@ -74,6 +203,8 @@ function createLookup(
       async (ids: string[]) => new Set(ids.filter((id) => landings.has(id))),
     ),
     slugs: vi.fn(async () => new Map<string, string>()),
+    navigationTargets: vi.fn(async (_ids: { categoryIds: string[]; collectionIds: string[] }) =>
+      new Map<string, { type: 'CATEGORY' | 'COLLECTION'; id: string; name: string; slug: string }>()),
   };
 }
 

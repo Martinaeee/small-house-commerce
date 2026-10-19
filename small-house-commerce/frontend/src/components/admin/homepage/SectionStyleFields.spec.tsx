@@ -79,9 +79,9 @@ describe("SectionStyleFields", () => {
       </AdminI18nProvider>,
     );
 
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Top spacing (px)" }), {
-      target: { value: "900" },
-    });
+    const padding = screen.getByRole("spinbutton", { name: "Top spacing (px)" });
+    fireEvent.change(padding, { target: { value: "900" } });
+    fireEvent.blur(padding);
     expect(onChange).toHaveBeenCalledWith({ paddingTop: 240 });
   });
 

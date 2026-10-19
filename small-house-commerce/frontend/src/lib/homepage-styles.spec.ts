@@ -77,6 +77,39 @@ function typographyRules(css: string) {
 }
 
 describe("heroCss", () => {
+  it("bounds a local overlay to the measured copy region instead of darkening the whole image", () => {
+    const { payload, slide } = heroFixture();
+    slide.overlay = { color: "#000000", opacity: .7, gradient: "LOCAL" };
+    expect(heroCss(SECTION_ID, payload, "desktop")).toContain("var(--hp-copy-width, 100%)");
+    slide.overlay.gradient = "FULL";
+    expect(heroCss(SECTION_ID, payload, "desktop")).not.toContain("var(--hp-copy-width, 100%)");
+  });
+  it("enables auto flow without replacing saved free-position coordinates", () => {
+    const { payload, slide } = heroFixture();
+    payload.display = { contentLayout: "AUTO" } as NonNullable<HeroPayload["display"]>;
+    const css = heroCss(SECTION_ID, payload, "mobile");
+    expect(css).toContain("--hp-auto-flow: 1");
+    expect(css).toContain("clamp(360px, 62svh, 500px)");
+    expect(slide.elements.heading.layout.widthPct).toBe(40);
+    payload.display = { contentLayout: "FREE" } as NonNullable<HeroPayload["display"]>;
+    expect(heroCss(SECTION_ID, payload, "mobile")).not.toContain("--hp-auto-flow: 1");
+  });
+
+  it("uses mobile media fit and focal overrides without applying them to desktop", () => {
+    const { payload, slide } = heroFixture();
+    slide.media = {
+      type: "IMAGE", image: { url: "/uploads/hero.jpg", alt: "Hero" }, video: null,
+      mobileOverride: { enabled: false, image: null, video: null },
+      fit: "COVER", fitOverrides: { mobile: "CONTAIN" }, focal: { x: 50, y: 50 },
+      objectPosition: { desktop: { x: 50, y: 50 }, tablet: null, mobile: { x: 80, y: 20 } },
+    };
+    const mobile = heroCss(SECTION_ID, payload, "mobile");
+    const desktop = heroCss(SECTION_ID, payload, "desktop");
+    expect(mobile).toContain("--hp-media-fit: contain;");
+    expect(mobile).toContain("--hp-media-position: 80% 20%;");
+    expect(desktop).toContain("--hp-media-fit: cover;");
+    expect(desktop).not.toContain("--hp-media-fit: contain;");
+  });
   it("emits mobile values in the base block and desktop in the min-width:1024 block", () => {
     const { payload, slide } = heroFixture();
     slide.elements.heading.layout.xPct = 12;
@@ -274,7 +307,7 @@ describe("heroCss", () => {
     expect(css).toContain(`[data-slide="${TABLET_ID}"]`);
     expect(css).not.toContain('bad"]');
     expect(css).not.toContain("color: red");
-    expect(css.match(/\[data-slide=/g)).toHaveLength(6);
+    expect([...new Set([...css.matchAll(/\[data-slide="([^"]+)"\]/g)].map((match) => match[1]))]).toEqual([SLIDE_ID, TABLET_ID]);
   });
 
   it("rejects unsafe section IDs but accepts stable zero-version UUIDs", () => {
@@ -578,6 +611,11 @@ describe("safeHex", () => {
 });
 
 describe("overlayCss", () => {
+  it("keeps LOCAL edges transparent and darkens the central readable region", () => {
+    expect(overlayCss({ color: "#000000", opacity: 0.65, gradient: "LOCAL" })).toBe(
+      "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.65) 12%, rgba(0, 0, 0, 0.65) 88%, rgba(0, 0, 0, 0) 100%)",
+    );
+  });
   it.each(["NONE", "BOTTOM", "FULL"] as const)(
     "returns a deterministic gradient for %s",
     (gradient) => {
