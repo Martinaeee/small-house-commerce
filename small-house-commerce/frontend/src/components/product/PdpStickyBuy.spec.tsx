@@ -291,6 +291,22 @@ describe("PdpStickyBuy", () => {
     );
   });
 
+  it("lets both sticky actions shrink inside a narrow phone viewport", () => {
+    // The shared md Button pins `min-w-[120px]`; the bar's own `min-w-0` only
+    // wins with the important modifier. Without it two 120px actions plus the
+    // price block overflow 390px and push ADD TO CART off-screen (the shopper
+    // can neither see nor scroll to it), which is the reported phone bug.
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+    observer.leave();
+
+    for (const testId of ["sticky-order-now", "sticky-add-to-cart"]) {
+      const className = screen.getByTestId(testId).className;
+      expect(className).toMatch(/\bmin-w-0!/);
+      expect(className).toMatch(/\bsm:min-w-\[120px\]!/);
+    }
+  });
+
   it("forwards quantity and both purchase intents without owning purchase state", async () => {
     const observer = installIntersectionObserver();
     const onQuantityChange = vi.fn();

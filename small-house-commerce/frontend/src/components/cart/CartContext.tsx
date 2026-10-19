@@ -28,6 +28,13 @@ import {
  */
 export type DrawerView = "cart" | "picker" | "change";
 
+/**
+ * What the picker view does once the shopper confirms a combination. ADD TO
+ * CART (the default) adds the line; ORDER NOW hands the same combination to
+ * checkout, so the PDP's two actions share one picker.
+ */
+export type PickerIntent = "ADD_TO_CART" | "ORDER_NOW";
+
 interface CartContextValue {
   cart: CartSummary | null;
   loading: boolean;
@@ -42,12 +49,18 @@ interface CartContextValue {
   pickerInitialVariantId: string | null;
   /** Quantity the picker view starts on; null means the default of 1. */
   pickerInitialQuantity: number | null;
+  /** What the picker view confirms into (add to cart, or straight to checkout). */
+  pickerIntent: PickerIntent;
   /** The cart line whose options are being changed (view === "change"). */
   changeTarget: CartItem | null;
   /** Open the drawer in the variant-picker view for the given product. */
   openPicker: (
     product: Product,
-    options?: { initialVariantId?: string | null; initialQuantity?: number },
+    options?: {
+      initialVariantId?: string | null;
+      initialQuantity?: number;
+      intent?: PickerIntent;
+    },
   ) => void;
   /**
    * Open the drawer in the Change Options view for the given cart line.
@@ -99,6 +112,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [pickerInitialQuantity, setPickerInitialQuantity] = useState<
     number | null
   >(null);
+  const [pickerIntent, setPickerIntent] = useState<PickerIntent>("ADD_TO_CART");
   const [changeTarget, setChangeTarget] = useState<CartItem | null>(null);
   // Captured synchronously in the add-to-cart click task — before the busy
   // rerender disables the trigger and Chrome moves focus to <body> — and
@@ -115,6 +129,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setPickerProduct(null);
     setPickerInitialVariantId(null);
     setPickerInitialQuantity(null);
+    setPickerIntent("ADD_TO_CART");
     setChangeTarget(null);
     setView("cart");
     setIsOpen(true);
@@ -122,12 +137,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const openPicker = useCallback(
     (
       product: Product,
-      options?: { initialVariantId?: string | null; initialQuantity?: number },
+      options?: {
+        initialVariantId?: string | null;
+        initialQuantity?: number;
+        intent?: PickerIntent;
+      },
     ) => {
       captureOpener();
       setPickerProduct(product);
       setPickerInitialVariantId(options?.initialVariantId ?? null);
       setPickerInitialQuantity(options?.initialQuantity ?? null);
+      setPickerIntent(options?.intent ?? "ADD_TO_CART");
       setChangeTarget(null);
       setView("picker");
       setIsOpen(true);
@@ -320,6 +340,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     pickerProduct,
     pickerInitialVariantId,
     pickerInitialQuantity,
+    pickerIntent,
     changeTarget,
     openPicker,
     openChangeOptions,
@@ -347,6 +368,7 @@ function rejectPreviewAction(): never {
 const previewCart: CartContextValue = {
   cart: null, loading: false, isOpen: false, view: "cart",
   pickerProduct: null, pickerInitialVariantId: null, pickerInitialQuantity: null,
+  pickerIntent: "ADD_TO_CART",
   changeTarget: null, itemKindCount: 0,
   openPicker: rejectPreviewAction, openChangeOptions: rejectPreviewAction,
   goToCartView: rejectPreviewAction, openCart: rejectPreviewAction, closeCart: rejectPreviewAction,

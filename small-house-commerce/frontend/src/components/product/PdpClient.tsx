@@ -523,21 +523,18 @@ export function PdpClient({
       if (purchaseBusy) return;
       intentTriggerRef.current = trigger;
       // Multi-variant products always route through an explicit picker, even
-      // when a combination is already chosen: ORDER NOW confirms in the
-      // dialog and then goes to checkout; ADD TO CART opens the right-side
-      // drawer picker (the same one the PLP uses), pre-set to the current
-      // selection, so the combination is reviewed before it is added.
+      // when a combination is already chosen. Both purchase actions open the
+      // SAME picker (the one the PLP uses), pre-set to the current selection,
+      // so the two behave identically; only the confirmation differs — ADD TO
+      // CART adds the line, ORDER NOW goes straight to checkout.
       // Single-variant products have nothing to pick and keep the direct
       // paths below.
       if (selectableCount > 1) {
-        if (intent === "ADD_TO_CART") {
-          openPicker(product, {
-            initialVariantId: resolvedVariant?.id ?? null,
-            initialQuantity: primaryLine.quantity,
-          });
-          return;
-        }
-        setPendingIntent(intent);
+        openPicker(product, {
+          initialVariantId: resolvedVariant?.id ?? null,
+          initialQuantity: primaryLine.quantity,
+          intent,
+        });
         return;
       }
       if (

@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Product, ProductMedia } from "@/lib/api";
-import { useCart } from "./CartContext";
+import { useCart, type PickerIntent } from "./CartContext";
 import {
   addToCartEvent,
   emitCommerceEvent,
   variantConfirmEvent,
+  variantUnavailableEvent,
 } from "@/lib/commerce-events";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -28,9 +30,15 @@ interface QuickAddViewProps {
   initialVariantId?: string | null;
   /** Quantity the picker starts on; the PDP hands over its current quantity. */
   initialQuantity?: number | null;
+  /**
+   * What the confirmation does: ADD_TO_CART (default) adds the line, ORDER_NOW
+   * hands the same combination to checkout. The PDP uses one picker for both of
+   * its purchase actions so the two stay identical.
+   */
+  intent?: PickerIntent;
   /** Called exactly once after a successful add; the drawer swaps to cart. */
   onAdded: () => void;
-  /** Close the whole drawer (product link). */
+  /** Close the whole drawer (product link, or an order-now handoff). */
   onClose: () => void;
 }
 
@@ -48,6 +56,7 @@ export function QuickAddView({
   product,
   initialVariantId = null,
   initialQuantity = null,
+  intent = "ADD_TO_CART",
   onAdded,
   onClose,
 }: QuickAddViewProps) {
@@ -57,7 +66,12 @@ export function QuickAddView({
       initialVariantId={initialVariantId}
       initialQuantity={initialQuantity ?? 1}
     >
-      <QuickAddPicker product={product} onAdded={onAdded} onClose={onClose} />
+      <QuickAddPicker
+        product={product}
+        intent={intent}
+        onAdded={onAdded}
+        onClose={onClose}
+      />
     </PdpPurchaseProvider>
   );
 }
@@ -96,15 +110,19 @@ function activeDriverMedia(
 
 function QuickAddPicker({
   product,
+  intent,
   onAdded,
   onClose,
 }: QuickAddViewProps) {
+  const router = useRouter();
   const { addItem } = useCart();
   const { primaryLine, primaryDerived, confirmLine, setQuantity } =
     usePdpPurchase();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const aliveRef = useRef(true);
+  // A double click must not queue two checkouts; the first confirmation wins.
+  const orderNowHandledRef = useRef(false);
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -134,6 +152,40 @@ function QuickAddPicker({
       return;
     }
     const resolvedVariant = primaryDerived.resolvedVariant;
+    if (intent === "ORDER_NOW") {
+      if (orderNowHandledRef.current) return;
+      orderNowHandledRef.current = true;
+      // The PDP's Order Now, confirmed in the same picker Add to Cart uses:
+      // name the combination once, then hand it to checkout. Nothing is added
+      // to the cart, and an unavailable combination never navigates.
+      confirmLine(primaryLine.clientLineId);
+      if (available <= 0) {
+        setError("This item is out of stock");
+        emitCommerceEvent(
+          variantUnavailableEvent({
+            productId: product.id,
+            selectedValueIds: primaryLine.selectedValueIds,
+            reason: "OOS",
+          }),
+        );
+        return;
+      }
+      emitCommerceEvent(
+        variantConfirmEvent({
+          productId: product.id,
+          variantId: resolvedVariant.id,
+          skuId: sku.id,
+          source: "PDP",
+        }),
+      );
+      // Close before navigating: the drawer outlives the product page, so
+      // leaving it open would drop it over checkout.
+      onClose();
+      router.push(
+        `/checkout?skuId=${sku.id}&qty=${primaryLine.quantity}&slug=${encodeURIComponent(product.slug)}`,
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     // The Confirm click is the explicit confirmation for the chosen
@@ -307,6 +359,8 @@ function QuickAddPicker({
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               Adding…
             </>
+          ) : intent === "ORDER_NOW" ? (
+            "ORDER NOW"
           ) : (
             "Confirm"
           )}

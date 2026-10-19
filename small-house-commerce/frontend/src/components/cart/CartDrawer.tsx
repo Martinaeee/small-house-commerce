@@ -48,6 +48,7 @@ export function CartDrawer() {
     pickerProduct,
     pickerInitialVariantId,
     pickerInitialQuantity,
+    pickerIntent,
     changeTarget,
     closeCart,
     updateItem,
@@ -241,6 +242,7 @@ export function CartDrawer() {
             product={pickerProduct}
             initialVariantId={pickerInitialVariantId}
             initialQuantity={pickerInitialQuantity}
+            intent={pickerIntent}
             onClose={handleClose}
             onAdded={() => {
               goToCartView();

@@ -733,6 +733,7 @@ describe("shared-state sticky buy", () => {
     expect(cart.openPicker).toHaveBeenCalledWith(product, {
       initialVariantId: "red-small",
       initialQuantity: 2,
+      intent: "ADD_TO_CART",
     });
     expect(cart.addItem).not.toHaveBeenCalled();
     expect(
@@ -745,7 +746,7 @@ describe("shared-state sticky buy", () => {
     ).toHaveLength(0);
   });
 
-  it("opens the same confirmation dialog for unresolved sticky Order Now", async () => {
+  it("opens the same drawer picker for a sticky Order Now, carrying the order-now intent", async () => {
     const observer = installStickyObserver();
     const user = userEvent.setup();
     renderPdp();
@@ -753,9 +754,13 @@ describe("shared-state sticky buy", () => {
     observer.leave();
     await user.click(screen.getByTestId("sticky-order-now"));
 
-    expect(
-      screen.getByRole("dialog", { name: "Confirm your options" }),
-    ).toBeVisible();
+    // Both purchase actions share one picker; the intent is what makes the
+    // confirmation go to checkout instead of the cart.
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: null,
+      initialQuantity: 1,
+      intent: "ORDER_NOW",
+    });
     expect(navigation.push).not.toHaveBeenCalled();
   });
 });
@@ -875,6 +880,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.openPicker).toHaveBeenCalledWith(product, {
       initialVariantId: "blue-large",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(
       screen.queryByRole("dialog", { name: "Confirm your options" }),
@@ -886,43 +892,46 @@ describe("PDP option confirmation and deep links", () => {
     );
   });
 
-  it("does not navigate for an unconfirmed Order Now and performs it once after confirmation", async () => {
+  it("hands an Order Now to the drawer picker without navigating the PDP", async () => {
     installMediaFetch();
     navigation.search = new URLSearchParams("variant=blue-large");
     const user = userEvent.setup();
     renderPdp({ variantId: "blue-large" });
 
     await user.click(screen.getByTestId("order-now"));
-    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeVisible();
-    expect(navigation.push).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/checkout?skuId=sku-blue-large&qty=1&slug=chair",
-    );
-    expect(navigation.push).toHaveBeenCalledTimes(1);
+    // Order Now rides the same picker as Add to Cart; only the confirmation
+    // inside the drawer reaches checkout, so the PDP itself neither navigates
+    // nor converts here (QuickAddView owns the checkout handoff and its
+    // variant_confirm).
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "blue-large",
+      initialQuantity: 1,
+      intent: "ORDER_NOW",
+    });
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
+      "ViewContent",
+    ]);
   });
 
-  it("always opens the Order Now dialog, even for an already-confirmed combination", async () => {
+  it("still routes an already-confirmed Order Now through the picker", async () => {
     installMediaFetch();
     const user = userEvent.setup();
     renderPdp();
 
     // Both groups explicitly touched: the combination is complete and
-    // confirmed, and Order Now still asks before going to checkout.
+    // confirmed, and Order Now still asks in the same picker before checkout.
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByRole("button", { name: "Small" }));
     await user.click(screen.getByTestId("order-now"));
 
-    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
-    expect(dialog).toBeVisible();
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "red-small",
+      initialQuantity: 1,
+      intent: "ORDER_NOW",
+    });
     expect(navigation.push).not.toHaveBeenCalled();
-
-    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/checkout?skuId=sku-red-small&qty=1&slug=chair",
-    );
-    expect(navigation.push).toHaveBeenCalledTimes(1);
   });
 
   it("hands every add-to-cart to the drawer pre-set to the current combination", async () => {
@@ -936,6 +945,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.openPicker).toHaveBeenLastCalledWith(product, {
       initialVariantId: "red-small",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(cart.addItem).not.toHaveBeenCalled();
 
@@ -946,6 +956,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.openPicker).toHaveBeenLastCalledWith(product, {
       initialVariantId: "red-large",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(cart.openPicker).toHaveBeenCalledTimes(2);
     expect(
@@ -968,6 +979,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.openPicker).toHaveBeenCalledWith(product, {
       initialVariantId: "red-large",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(cart.addItem).not.toHaveBeenCalled();
     expect(screen.queryByTestId("order-now")).not.toBeInTheDocument();
@@ -977,18 +989,22 @@ describe("PDP option confirmation and deep links", () => {
     );
   });
 
-  it("executes a confirmed Order Now only once even on repeated confirm clicks", async () => {
+  it("hands a confirmed Order Now to the picker exactly once", async () => {
     navigation.search = new URLSearchParams("variant=blue-large");
     const user = userEvent.setup();
     renderPdp({ variantId: "blue-large" });
 
     await user.click(screen.getByTestId("order-now"));
-    const confirm = screen.getByRole("button", { name: "Confirm" });
-    await user.dblClick(confirm);
-    expect(navigation.push).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument(),
-    );
+
+    // The handoff is a single picker opening; checkout happens only from the
+    // picker's own confirmation (covered by QuickAddView).
+    expect(cart.openPicker).toHaveBeenCalledTimes(1);
+    expect(cart.openPicker).toHaveBeenCalledWith(product, {
+      initialVariantId: "blue-large",
+      initialQuantity: 1,
+      intent: "ORDER_NOW",
+    });
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it("lets a single selectable SKU resolve and add directly", async () => {
@@ -1299,6 +1315,7 @@ describe("browser history navigation", () => {
     expect(cart.openPicker).toHaveBeenCalledWith(product, {
       initialVariantId: "blue-large",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(cart.addItem).not.toHaveBeenCalled();
   });
@@ -1355,6 +1372,7 @@ describe("browser history navigation", () => {
     expect(cart.openPicker).toHaveBeenCalledWith(product, {
       initialVariantId: "red-small",
       initialQuantity: 1,
+      intent: "ADD_TO_CART",
     });
     expect(cart.addItem).not.toHaveBeenCalled();
     expect(
@@ -1491,64 +1509,5 @@ describe("browser history navigation", () => {
         source: "PDP",
       }),
     );
-  });
-
-  it("emits variant_confirm before Order Now navigates to the final SKU", async () => {
-    installMediaFetch();
-    navigation.search = new URLSearchParams("variant=blue-large");
-    const user = userEvent.setup();
-    renderPdp({ variantId: "blue-large" });
-
-    await user.click(screen.getByTestId("order-now"));
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/checkout?skuId=sku-blue-large&qty=1&slug=chair",
-    );
-    expect(tracking.trackCustom).toHaveBeenCalledWith(
-      "variant_confirm",
-      expect.objectContaining({
-        variant_id: "blue-large",
-        sku_id: "sku-blue-large",
-        source: "PDP",
-      }),
-    );
-    // No conversion event on the PDP for an Order Now; checkout owns those.
-    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
-      "ViewContent",
-    ]);
-  });
-
-  it("fires variant_unavailable and no conversion when a dialog pick turns the Order Now combination sold out", async () => {
-    const user = userEvent.setup();
-    renderPdp();
-
-    await user.click(screen.getByRole("button", { name: "Red" }));
-    await user.click(screen.getByTestId("order-now"));
-    const dialog = screen.getByRole("dialog", { name: "Confirm your options" });
-    // Red/Large is ACTIVE and priced but sold out — switching to it inside
-    // the dialog makes the confirm attempt a diagnostic event, never a
-    // conversion.
-    await user.click(within(dialog).getByRole("button", { name: "Large" }));
-    await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
-
-    expect(tracking.trackCustom).toHaveBeenCalledWith(
-      "variant_unavailable",
-      expect.objectContaining({
-        product_id: "product-1",
-        selected_value_ids: { color: "red", size: "large" },
-        missing_or_oos: "OOS",
-      }),
-    );
-    expect(tracking.track.mock.calls.map(([name]) => name)).toEqual([
-      "ViewContent",
-    ]);
-    expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
-      "option_select",
-      "option_select",
-      "variant_unavailable",
-    ]);
-    expect(navigation.push).not.toHaveBeenCalled();
-    expect(cart.addItem).not.toHaveBeenCalled();
   });
 });

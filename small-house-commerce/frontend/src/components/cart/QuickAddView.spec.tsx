@@ -18,16 +18,17 @@ import { QuickAddView } from "./QuickAddView";
 
 const cart = vi.hoisted(() => ({ addItem: vi.fn() }));
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
+const router = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  prefetch: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
+  refresh: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
-    prefetch: vi.fn(),
-    back: vi.fn(),
-    forward: vi.fn(),
-    refresh: vi.fn(),
-  }),
+  useRouter: () => router,
   usePathname: () => "/products/chair",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -478,5 +479,108 @@ describe("QuickAddView", () => {
       expect.objectContaining({ content_ids: ["sku-red-small"] }),
     );
     expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the plain add-to-cart confirm when the picker carries no order-now intent", () => {
+    render(
+      <QuickAddView
+        product={swatchProduct}
+        initialVariantId="blue-large"
+        initialQuantity={2}
+        onAdded={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // ADD TO CART keeps its own wording and its cart mutation; only the
+    // ORDER NOW intent may navigate away.
+    expect(screen.getByTestId("picker-confirm-chair")).toHaveTextContent(
+      "Confirm",
+    );
+  });
+
+  it("labels an order-now confirmation and goes straight to checkout without touching the cart", async () => {
+    const user = userEvent.setup();
+    const onAdded = vi.fn();
+    render(
+      <QuickAddView
+        product={swatchProduct}
+        initialVariantId="blue-large"
+        initialQuantity={2}
+        intent="ORDER_NOW"
+        onAdded={onAdded}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const confirm = screen.getByTestId("picker-confirm-chair");
+    expect(confirm).toHaveTextContent("ORDER NOW");
+    expect(confirm).toBeEnabled();
+
+    await user.click(confirm);
+
+    // Order Now is the same picker as Add to Cart, but the confirmation hands
+    // the chosen combination to checkout instead of the cart.
+    expect(router.push).toHaveBeenCalledWith(
+      "/checkout?skuId=sku-blue-large&qty=2&slug=chair",
+    );
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it("names the confirmed SKU once for an order-now handoff, with no cart conversion", async () => {
+    const user = userEvent.setup();
+    render(
+      <QuickAddView
+        product={swatchProduct}
+        initialVariantId="blue-large"
+        intent="ORDER_NOW"
+        onAdded={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByTestId("picker-confirm-chair"));
+
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "variant_confirm",
+      expect.objectContaining({
+        variant_id: "blue-large",
+        sku_id: "sku-blue-large",
+        source: "PDP",
+      }),
+    );
+    // Checkout owns the conversion events; the picker must not fire AddToCart.
+    expect(tracking.track).not.toHaveBeenCalled();
+  });
+
+  it("refuses an out-of-stock order-now confirmation without navigating", async () => {
+    const user = userEvent.setup();
+    render(
+      <QuickAddView
+        product={swatchProduct}
+        initialVariantId="red-large"
+        intent="ORDER_NOW"
+        onAdded={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByTestId("picker-confirm-chair"));
+
+    expect(screen.getByTestId("picker-error-chair")).toHaveTextContent(
+      "This item is out of stock",
+    );
+    expect(router.push).not.toHaveBeenCalled();
+    expect(cart.addItem).not.toHaveBeenCalled();
+    // An unavailable combination is a diagnostic, never a conversion.
+    expect(tracking.trackCustom).toHaveBeenCalledWith(
+      "variant_unavailable",
+      expect.objectContaining({
+        product_id: "product-1",
+        missing_or_oos: "OOS",
+      }),
+    );
+    expect(tracking.track).not.toHaveBeenCalled();
   });
 });

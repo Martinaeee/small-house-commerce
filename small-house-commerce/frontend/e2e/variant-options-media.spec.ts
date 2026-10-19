@@ -567,11 +567,11 @@ test.describe("Size-only stock behavior", () => {
 
     await selectValue(page, "Size", "Medium");
     await page.getByTestId("order-now").click();
-    // Order Now always confirms in the dialog before checkout.
-    await page
-      .getByRole("dialog", { name: "Confirm your options" })
-      .getByRole("button", { name: "Confirm" })
-      .click();
+    // Order Now opens the SAME picker Add to Cart uses, pre-set to the chosen
+    // combination; its ORDER NOW confirmation hands over to checkout.
+    const picker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(picker).toBeVisible();
+    await picker.getByTestId(`picker-confirm-${SLUGS.sizeOnly}`).click();
     await expect(page).toHaveURL(/\/checkout/);
     await expect(page.getByTestId("review-order")).toBeVisible();
     await stopErrors();
@@ -686,11 +686,10 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Blue");
     await selectValue(page, "Size", "Medium");
     await page.getByTestId("order-now").click();
-    // Order Now confirms in the dialog before checkout.
-    await page
-      .getByRole("dialog", { name: "Confirm your options" })
-      .getByRole("button", { name: "Confirm" })
-      .click();
+    // Order Now confirms in the shared drawer picker before checkout.
+    const orderPicker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(orderPicker).toBeVisible();
+    await orderPicker.getByTestId(`picker-confirm-${SLUGS.colorSize}`).click();
     await expect(page).toHaveURL(/\/checkout/);
 
     await fillAddress(page);
@@ -728,10 +727,10 @@ test.describe("Color x Size end-to-end purchase", () => {
     await selectValue(page, "Color", "Red");
     await selectValue(page, "Size", "Small");
     await page.getByTestId("order-now").click();
-    await page
-      .getByRole("dialog", { name: "Confirm your options" })
-      .getByRole("button", { name: "Confirm" })
-      .click();
+    // Order Now confirms in the shared drawer picker before checkout.
+    const accountPicker = page.getByRole("dialog", { name: "Add to cart" });
+    await expect(accountPicker).toBeVisible();
+    await accountPicker.getByTestId(`picker-confirm-${SLUGS.colorSize}`).click();
     await expect(page).toHaveURL(/\/checkout/);
     await fillAddress(page);
     await page.getByPlaceholder("0917 123 4567").fill(phone);
