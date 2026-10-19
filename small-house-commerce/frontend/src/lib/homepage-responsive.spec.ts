@@ -26,15 +26,6 @@ describe("responsive homepage fields", () => {
     expect(moduleLayoutPresentation("CATEGORY_TILES", undefined, "tablet", undefined, "STUDIO_V3")?.style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
   });
 
-  it("sizes the mobile category rail to the approved circle width so fixed tracks overflow and swipe", () => {
-    const autoCol = (style: React.CSSProperties) => (style as Record<string, unknown>)["--hp-layout-mobile-auto-col"];
-    const auto = moduleLayoutPresentation("CATEGORY_TILES", undefined, undefined, undefined, "STUDIO_V3")!;
-    expect(autoCol(auto.style)).toBe("104px");
-    const manual = moduleLayoutPresentation("CATEGORY_TILES", { columns: 3 }, undefined, undefined, "STUDIO_V3")!;
-    expect(autoCol(manual.style)).toBeUndefined();
-    expect(autoCol(moduleLayoutPresentation("CATEGORY_TILES", undefined, undefined, 2, "STUDIO_V3")!.style)).toBeUndefined();
-  });
-
   it("allows automatic product columns to shrink within a narrow container without stretching the last product", () => {
     const auto = moduleLayoutPresentation("PRODUCT_GRID", undefined, "desktop", undefined, "STUDIO_V3")!;
     expect(auto.style.gridTemplateColumns).toContain("auto-fill");

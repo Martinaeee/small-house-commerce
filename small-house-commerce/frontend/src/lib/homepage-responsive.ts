@@ -170,9 +170,6 @@ export function moduleLayoutPresentation(
     style[`--hp-layout-${device}-row-gap`] = `${appearance === "STUDIO_V3" && type === "PRODUCT_GRID" && device === "mobile" && configured.gap === undefined ? 20 : value.gap}px`;
     style[`--hp-layout-${device}-template`] = templates[device];
     style[`--hp-layout-${device}-flow`] = flows[device];
-    // Fixed implicit tracks keep the rail at the approved circle width; content-sized
-    // tracks shrink to fit instead of overflowing, which kills the swipe.
-    if (rail) style[`--hp-layout-${device}-auto-col`] = "104px";
     if (value.columns !== undefined) style[`--hp-layout-${device}-columns`] = value.columns;
     if (value.imageRatio) style[`--hp-layout-${device}-ratio`] = IMAGE_RATIOS[value.imageRatio];
   }
