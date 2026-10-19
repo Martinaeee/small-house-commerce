@@ -44,9 +44,13 @@
 .root :global([data-hero-element^="cta"] > :is(a, span)) { min-height: 44px; }
 .root :global([data-homepage-confidence-inner]) { max-width: var(--hp-config-content-width, 1336px); padding-inline: clamp(24px, 3.33cqw, 48px); }
 
-.root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout) { grid-auto-columns: min(84px, calc((100% - 3 * var(--hp-layout-mobile-gap, 16px)) / 4)); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; align-items: start; scrollbar-width: none; }
+.root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout) { grid-auto-columns: min(84px, calc((100% - 3 * var(--hp-layout-mobile-gap, 16px)) / 4)); overflow-x: auto; overscroll-behavior-x: contain; align-items: start; scrollbar-width: none; }
 .root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout)::-webkit-scrollbar { display: none; }
-.root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout > *) { scroll-snap-align: start; }
+/* No scroll-snap here. The rail's scrollbar is hidden, so the only cue that it
+   swipes is a neighbour showing at the edge — and proximity snapping used to
+   throw a short swipe back to the start, which reads as "the rail does not
+   move". The benefit strip has always scrolled without snapping; the rail now
+   matches it. */
 .root :global([data-homepage-section-type="CATEGORY_TILES"] [data-homepage-navigation-entry] > a) { max-width: 160px; margin-inline: auto; }
 .root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout > a) { max-width: 160px; }
 
@@ -121,7 +125,14 @@
      copying Costway's flat 3.2vw would drop a 320px phone to 10.24px. */
   .root :global([data-homepage-section-type="USP"] [data-homepage-role="label"]) { font-size: clamp(14px, calc(12.75px + 0.446cqw), 16px); }
   .root :global([data-homepage-section-type="USP"] [data-homepage-role="body"]) { font-size: clamp(12px, calc(11.06px + 0.335cqw), 13.5px); }
-  .root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout) { grid-auto-columns: min(84px, calc((100% - 3 * var(--hp-layout-mobile-gap, 16px)) / 4)); }
+  /* Four tiles used to fill the row exactly, so the fifth sat one gap past the
+     edge and nothing showed: the rail read as "four categories" and, with the
+     scrollbar hidden, gave no reason to swipe. Dividing by 4.5 instead of 4
+     leaves part of the fifth tile in view on the widths that can afford it.
+     The 67px floor is the narrowest tile that still fits the widest name on one
+     line — the label claims 8px of the gap on each side, so 67 + 16 = 83px.
+     Narrower phones keep today's layout rather than ellipsizing a name. */
+  .root :global([data-homepage-section-type="CATEGORY_TILES"] .hp-layout) { grid-auto-columns: clamp(67px, calc((100% - 3 * var(--hp-layout-mobile-gap, 16px)) / 4.5), 84px); }
   .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] > div:last-child) { padding: 8px 10px 10px; gap: 4px; }
   .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] [data-testid="price"]) { font-size: 1rem; line-height: 1.4375; }
   .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] > div:last-child > div:last-child button) { min-height: 48px; }
