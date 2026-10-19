@@ -216,6 +216,7 @@
 .hp-layout-columns {
   grid-template-columns: var(--hp-layout-mobile-template, repeat(var(--hp-layout-mobile-columns), minmax(0, 1fr)));
   grid-auto-flow: var(--hp-layout-mobile-flow, row);
+  grid-auto-columns: var(--hp-layout-mobile-auto-col, auto);
 }
 .hp-section-frame { --hp-section-gutters: var(--hp-gutter-mobile, 0px); }
 
