@@ -696,6 +696,46 @@ describe("PDP conversion hero", () => {
       }),
     ).not.toBeInTheDocument();
   });
+
+  it("keeps the selling points and the delivery card on one slidable row on phones", () => {
+    const item: Product = {
+      ...product,
+      solutions: ["FOLDABLE", "MOBILE"],
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+    };
+    renderPdp({ item, variantId: "red-small" });
+
+    const hero = screen.getByTestId("pdp-purchase");
+
+    // Phones keep both blocks on one line and let them slide sideways; from sm
+    // up the selling points wrap again and the card stops scrolling.
+    const sellingPoints = within(hero).getByRole("list", {
+      name: "Selling points",
+    });
+    expect(sellingPoints.className).toMatch(/\bflex-nowrap\b/);
+    expect(sellingPoints.className).toMatch(/\boverflow-x-auto\b/);
+    expect(sellingPoints.className).toMatch(/\bsm:flex-wrap\b/);
+    within(sellingPoints)
+      .getAllByRole("listitem")
+      .forEach((pill) => expect(pill.className).toMatch(/\bshrink-0\b/));
+
+    // Delivery estimate and the assurances share one row at every width, and
+    // the card slides instead of stacking them vertically on a phone.
+    const delivery = within(hero).getByTestId("pdp-delivery");
+    expect(delivery.className).toMatch(/\boverflow-x-auto\b/);
+    expect(delivery.className).not.toMatch(/\bflex-col\b/);
+    expect(delivery.className).toMatch(/\bsm:overflow-visible\b/);
+    expect(delivery.firstElementChild?.className).toMatch(/\bshrink-0\b/);
+    const assurances = within(delivery).getByRole("list", {
+      name: "Service assurances",
+    });
+    expect(assurances.className).toMatch(/\bshrink-0\b/);
+    expect(
+      within(delivery).getByText("Estimated delivery").compareDocumentPosition(
+        within(delivery).getByText("COD & Free Shipping"),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
 
 describe("shared-state sticky buy", () => {

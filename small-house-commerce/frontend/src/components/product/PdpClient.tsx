@@ -680,11 +680,16 @@ export function PdpClient({
           )}
 
           {sellingPoints.length > 0 && (
-            <ul aria-label="Selling points" className="flex flex-wrap gap-2">
+            // One line on phones that slides when the tags do not fit; from sm
+            // up there is room to wrap again.
+            <ul
+              aria-label="Selling points"
+              className="flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain sm:flex-wrap"
+            >
               {sellingPoints.map((point) => (
                 <li
                   key={point.value}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-ink"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-ink"
                 >
                   <SolutionIcon value={point.value} />
                   {point.label}
@@ -783,9 +788,12 @@ export function PdpClient({
 
           <div
             data-testid="pdp-delivery"
-            className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-6"
+            // Estimate and assurances sit side by side at every width, like
+            // the desktop layout; on a phone the card slides sideways instead
+            // of stacking the assurances underneath.
+            className="flex items-start gap-3 overflow-x-auto overscroll-x-contain rounded-lg border border-border bg-background p-3 text-sm sm:justify-between sm:gap-6 sm:overflow-visible"
           >
-            <div className="flex items-start gap-2.5">
+            <div className="flex shrink-0 items-start gap-2.5">
               <TruckGlyph />
               <div>
                 <p className="font-semibold text-ink">Estimated delivery</p>
@@ -795,7 +803,7 @@ export function PdpClient({
             </div>
             <ul
               aria-label="Service assurances"
-              className="flex flex-col gap-1.5 text-ink-secondary sm:shrink-0"
+              className="flex shrink-0 flex-col gap-1.5 text-ink-secondary"
             >
               {SERVICE_ASSURANCES.map((line) => (
                 <li key={line} className="flex items-center gap-2">
