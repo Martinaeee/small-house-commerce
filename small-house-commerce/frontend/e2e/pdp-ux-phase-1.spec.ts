@@ -546,11 +546,20 @@ test.describe("PDP UX Phase 1", () => {
         const actionBox = await stickyActions.nth(index).boundingBox();
         expect(actionBox, `sticky action ${index + 1} has a box`).not.toBeNull();
         expect(actionBox!.height).toBeGreaterThanOrEqual(44);
-        expect(actionBox!.x).toBeGreaterThanOrEqual(0);
-        expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(
-          entry.width,
-        );
       }
+      // The bar scrolls sideways instead of squeezing its actions: the first
+      // action is fully visible at rest, and scrolling brings the second one
+      // fully into view rather than leaving it clipped off-screen.
+      const restingBox = await stickyActions.nth(0).boundingBox();
+      expect(restingBox!.x).toBeGreaterThanOrEqual(0);
+      expect(restingBox!.x + restingBox!.width).toBeLessThanOrEqual(entry.width);
+      const stickyRow = sticky.locator(":scope > div").first();
+      await stickyRow.evaluate((node) => {
+        node.scrollLeft = node.scrollWidth;
+      });
+      const scrolledBox = await stickyActions.nth(1).boundingBox();
+      expect(scrolledBox!.x).toBeGreaterThanOrEqual(0);
+      expect(scrolledBox!.x + scrolledBox!.width).toBeLessThanOrEqual(entry.width);
       if (entry.width === 375) {
         const bodyPadding = await page.evaluate(() =>
           Number.parseFloat(window.getComputedStyle(document.body).paddingBottom),

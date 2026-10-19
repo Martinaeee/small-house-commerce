@@ -192,6 +192,9 @@ export function CartDrawer() {
 
   const items = cart?.items ?? [];
   const hasItems = items.length > 0;
+  // One picker serves both PDP actions, so its title names the action the
+  // shopper actually took instead of always reading Add to Cart.
+  const pickerIsOrderNow = pickerIntent === "ORDER_NOW";
 
   return (
     <div
@@ -200,7 +203,9 @@ export function CartDrawer() {
       aria-modal="true"
       aria-label={
         view === "picker"
-          ? "Add to cart"
+          ? pickerIsOrderNow
+            ? "Order now"
+            : "Add to cart"
           : view === "change"
             ? "Change options"
             : "Your cart"
@@ -219,7 +224,9 @@ export function CartDrawer() {
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-base font-bold uppercase tracking-wide text-ink">
             {view === "picker"
-              ? "Add to Cart"
+              ? pickerIsOrderNow
+                ? "Order Now"
+                : "Add to Cart"
               : view === "change"
                 ? "Change Options"
                 : `Your Cart (${unitCount})`}

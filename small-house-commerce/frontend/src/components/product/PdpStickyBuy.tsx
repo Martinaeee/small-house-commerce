@@ -112,7 +112,10 @@ export function PdpStickyBuy({
       aria-label="Sticky purchase controls"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(0,0,0,0.08)] backdrop-blur motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-reduce:transition-none sm:px-4 md:py-3"
     >
-      <div className="mx-auto flex max-w-[1200px] items-center gap-2 sm:gap-3">
+      {/* One row that scrolls sideways when it does not fit: squeezing two
+          120px actions into a 390px bar wrapped their labels onto two lines,
+          so the actions keep their width and the bar scrolls instead. */}
+      <div className="mx-auto flex max-w-[1200px] items-center gap-2 overflow-x-auto overscroll-x-contain sm:gap-3">
         {coverMedia ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -135,6 +138,7 @@ export function PdpStickyBuy({
           <PriceBox
             price={derived.price}
             compareAtPrice={derived.compareAtPrice}
+            hideDiscountBadgeOnMobile
           />
           <p className="max-w-24 truncate text-[11px] text-ink-secondary md:hidden">
             {variantLabel ?? "Choose options"}
@@ -179,7 +183,7 @@ export function PdpStickyBuy({
             size="md"
             onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
             disabled={busy || unavailable}
-            className="min-w-0! shrink px-3 text-xs sm:min-w-[120px]! sm:px-5 sm:text-sm"
+            className="shrink-0 whitespace-nowrap px-4 text-xs sm:px-5 sm:text-sm"
             data-testid="sticky-order-now"
           >
             ORDER NOW
@@ -190,7 +194,7 @@ export function PdpStickyBuy({
           variant={resolvedOutOfStock ? "primary" : "secondary"}
           onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
           disabled={busy || unavailable}
-          className="min-w-0! shrink px-3 text-xs sm:min-w-[120px]! sm:px-5 sm:text-sm"
+          className="shrink-0 whitespace-nowrap px-4 text-xs sm:px-5 sm:text-sm"
           data-testid="sticky-add-to-cart"
         >
           ADD TO CART

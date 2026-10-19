@@ -11,13 +11,24 @@ interface PriceBoxProps {
   compareAtPrice?: number | null;
   /** PHP formatting is the only formatting here; prices come from the API. */
   currency?: string;
+  /**
+   * Drop the sale badge below the sm breakpoint. The sticky buy bar sets this
+   * so its narrow phone layout keeps the price and strikethrough while making
+   * room for both purchase actions.
+   */
+  hideDiscountBadgeOnMobile?: boolean;
 }
 
 export function formatPrice(value: number, currency = "₱"): string {
   return `${currency}${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function PriceBox({ price, compareAtPrice, currency = "₱" }: PriceBoxProps) {
+export function PriceBox({
+  price,
+  compareAtPrice,
+  currency = "₱",
+  hideDiscountBadgeOnMobile = false,
+}: PriceBoxProps) {
   if (price === null) return null;
 
   const hasDiscount =
@@ -36,7 +47,11 @@ export function PriceBox({ price, compareAtPrice, currency = "₱" }: PriceBoxPr
           <span className="text-sm text-ink-muted line-through">
             {formatPrice(compareAtPrice!, currency)}
           </span>
-          <span className="rounded bg-sale px-1.5 py-0.5 text-xs font-semibold text-white">
+          <span
+            className={`rounded bg-sale px-1.5 py-0.5 text-xs font-semibold text-white ${
+              hideDiscountBadgeOnMobile ? "hidden sm:inline" : ""
+            }`}
+          >
             {discountPct}% OFF
           </span>
         </>

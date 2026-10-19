@@ -291,20 +291,35 @@ describe("PdpStickyBuy", () => {
     );
   });
 
-  it("lets both sticky actions shrink inside a narrow phone viewport", () => {
-    // The shared md Button pins `min-w-[120px]`; the bar's own `min-w-0` only
-    // wins with the important modifier. Without it two 120px actions plus the
-    // price block overflow 390px and push ADD TO CART off-screen (the shopper
-    // can neither see nor scroll to it), which is the reported phone bug.
+  it("keeps both sticky actions at full width inside a horizontally scrollable bar", () => {
+    // Squeezing two 120px actions into a 390px bar wrapped their labels onto
+    // two lines. The bar scrolls horizontally instead, so each action keeps
+    // its own width and label; the shopper swipes to reach the second one.
     const observer = installIntersectionObserver();
     render(<Harness />);
     observer.leave();
 
+    const row = screen.getByTestId("sticky-buy").firstElementChild as HTMLElement;
+    expect(row.className).toMatch(/overflow-x-auto/);
     for (const testId of ["sticky-order-now", "sticky-add-to-cart"]) {
       const className = screen.getByTestId(testId).className;
-      expect(className).toMatch(/\bmin-w-0!/);
-      expect(className).toMatch(/\bsm:min-w-\[120px\]!/);
+      expect(className).toMatch(/\bshrink-0\b/);
+      expect(className).toMatch(/\bwhitespace-nowrap\b/);
     }
+  });
+
+  it("hides the discount badge on phones so both actions fit the bar", () => {
+    // The badge is the widest part of the price block. On a 375px bar it
+    // pushed ORDER NOW past the edge and left ADD TO CART entirely off-screen,
+    // so the sticky bar drops the badge below sm and keeps the strikethrough.
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+    observer.leave();
+
+    const badge = screen.getByText(/OFF$/);
+    expect(badge.className).toMatch(/\bhidden\b/);
+    expect(badge.className).toMatch(/\bsm:inline\b/);
+    expect(screen.getByText("₱999.00").className).toMatch(/line-through/);
   });
 
   it("forwards quantity and both purchase intents without owning purchase state", async () => {
