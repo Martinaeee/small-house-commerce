@@ -351,6 +351,64 @@ describe("PdpDetails", () => {
     expect(screen.getAllByText("Locking frame")).toHaveLength(1);
   });
 
+  it("shows four detail media first and expands or folds the rest", async () => {
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    // Seven media in total: the featured one plus six that the fold governs.
+    item.detailBlocks = Array.from({ length: 7 }, (_, index) => ({
+      id: `detail-${index + 1}`,
+      type: "IMAGE" as const,
+      url: `detail-${index + 1}.jpg`,
+      altText: `Detail ${index + 1}`,
+      sortOrder: index,
+    }));
+    render(
+      <PdpPurchaseProvider product={item}>
+        <PdpDetails
+          product={item}
+          supportEmail="help@luwag.ph"
+          supportHours="Daily, 9am–6pm"
+        />
+      </PdpPurchaseProvider>,
+    );
+
+    // First four are visible without any interaction.
+    for (const index of [1, 2, 3, 4]) {
+      expect(screen.getByAltText(`Detail ${index}`)).toBeInTheDocument();
+    }
+    for (const index of [5, 6, 7]) {
+      expect(screen.queryByAltText(`Detail ${index}`)).not.toBeInTheDocument();
+    }
+
+    const more = screen.getByRole("button", { name: "See more (3)" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    await user.click(more);
+
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(more).toHaveTextContent("Show less");
+    for (const index of [5, 6, 7]) {
+      expect(screen.getByAltText(`Detail ${index}`)).toBeInTheDocument();
+    }
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByAltText("Detail 5")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "See more (3)" })).toBeInTheDocument();
+  });
+
+  it("offers no fold control when the detail media already fit in four", () => {
+    render(
+      <PdpPurchaseProvider product={product}>
+        <PdpDetails
+          product={product}
+          supportEmail="help@luwag.ph"
+          supportHours="Daily, 9am–6pm"
+        />
+      </PdpPurchaseProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: /See more/ })).not.toBeInTheDocument();
+  });
+
   it("shows only real public specification fields and marks the displayed variant", async () => {
     const user = userEvent.setup();
     render(
