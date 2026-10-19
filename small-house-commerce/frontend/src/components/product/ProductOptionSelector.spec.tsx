@@ -697,6 +697,19 @@ describe("PDP conversion hero", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("hides the tagline on phones while keeping it from sm up", () => {
+    const item: Product = {
+      ...product,
+      tagline: "A compact chair for flexible homes.",
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+    };
+    renderPdp({ item, variantId: "red-small" });
+
+    const tagline = screen.getByText("A compact chair for flexible homes.");
+    expect(tagline.classList.contains("hidden")).toBe(true);
+    expect(tagline.classList.contains("sm:block")).toBe(true);
+  });
+
   it("keeps the selling points and the delivery card on one slidable row on phones", () => {
     const item: Product = {
       ...product,

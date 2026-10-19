@@ -674,7 +674,9 @@ export function PdpClient({
           </h1>
 
           {product.tagline?.trim() && (
-            <p className="text-product-subtitle text-ink-secondary lg:text-product-subtitle-desktop">
+            // Hidden on phones to keep the first screen compact; the title and
+            // price carry the message there.
+            <p className="hidden text-product-subtitle text-ink-secondary sm:block lg:text-product-subtitle-desktop">
               {product.tagline}
             </p>
           )}
