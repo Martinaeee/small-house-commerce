@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HomepageSection } from "@/lib/api";
@@ -275,6 +277,27 @@ describe("UgcSection collage quote reading", () => {
     const { container } = render(<UgcSection section={section} />);
     expect(container.querySelector("[data-ugc-meta]")).toBeNull();
     expect(container.querySelector("[data-ugc-featured] [data-homepage-role='name']")).not.toBeNull();
+  });
+});
+
+describe("UgcSection stylesheet wiring", () => {
+  it("renders every data attribute the stylesheet selects on", () => {
+    const css = readFileSync(join(process.cwd(), "src/components/home/UgcSection.module.css"), "utf8");
+    const selected = new Set([...css.matchAll(/\[data-([a-z-]+)/g)].map((match) => `data-${match[1]}`));
+    expect(selected.size).toBeGreaterThan(0);
+
+    const rendered = new Set<string>();
+    for (const node of [
+      render(<UgcSection section={section} previewDevice="desktop" />).container,
+      render(<UgcSection section={collage(photos(1), "photo-0")} />).container,
+    ]) {
+      for (const element of node.querySelectorAll("*")) {
+        for (const attribute of element.attributes) {
+          if (attribute.name.startsWith("data-")) rendered.add(attribute.name);
+        }
+      }
+    }
+    expect([...selected].filter((name) => !rendered.has(name))).toEqual([]);
   });
 });
 

@@ -113,14 +113,14 @@
 
 /* --- layout variants ----------------------------------------------------- */
 /* STRIP: the small photos become one row that keeps extending to the right. */
-.collage[data-variant="STRIP"] { --ugc-strip-size: clamp(96px, 22cqw, 260px); }
-.collage[data-variant="STRIP"] .canvas { display: flex; width: max-content; min-width: 100%; }
-.collage[data-variant="STRIP"] .featured { flex: 1 0 auto; width: 54cqw; }
-.collage[data-variant="STRIP"] .supporting { display: flex; flex: 0 0 auto; align-items: center; gap: var(--ugc-gap); }
-.collage[data-variant="STRIP"] .supporting > figure { flex: 0 0 auto; width: var(--ugc-strip-size); height: var(--ugc-strip-size); }
+.collage[data-ugc-variant="STRIP"] { --ugc-strip-size: clamp(96px, 22cqw, 260px); }
+.collage[data-ugc-variant="STRIP"] .canvas { display: flex; width: max-content; min-width: 100%; }
+.collage[data-ugc-variant="STRIP"] .featured { flex: 1 0 auto; width: 54cqw; }
+.collage[data-ugc-variant="STRIP"] .supporting { display: flex; flex: 0 0 auto; align-items: center; gap: var(--ugc-gap); }
+.collage[data-ugc-variant="STRIP"] .supporting > figure { flex: 0 0 auto; width: var(--ugc-strip-size); height: var(--ugc-strip-size); }
 
 /* PORTRAIT: the large photo is portrait; the others keep the photo grid. */
-.collage[data-variant="PORTRAIT"] { --ugc-columns: .72fr 1fr; --ugc-height-scale: 1.45; }
+.collage[data-ugc-variant="PORTRAIT"] { --ugc-columns: .72fr 1fr; --ugc-height-scale: 1.45; }
 
 @media (max-width: 767.98px) {
   .collage:not([data-device]) { --ugc-primary: .52; --ugc-columns: 1.083333fr 1fr; --ugc-gap: 8px; --ugc-height-base: clamp(230px, 70cqw, 260px); --ugc-min-width: 500px; --ugc-quote-size: 16px; --ugc-quote-line: 26px; }
@@ -128,8 +128,8 @@
   .collage:not([data-device]) .quote { padding: 12px; }
   .collage:not([data-device]) .measure { left: 12px; width: calc(100% - 24px); }
   .collage:not([data-device]) .readerPanel { width: 100%; max-height: min(94%, 300px); padding: 8px 12px 12px; gap: 8px; }
-  .collage:not([data-device])[data-variant="PORTRAIT"] { --ugc-height-scale: 1.2; }
-  .collage:not([data-device])[data-variant="STRIP"] .featured { width: 50cqw; }
+  .collage:not([data-device])[data-ugc-variant="PORTRAIT"] { --ugc-height-scale: 1.2; }
+  .collage:not([data-device])[data-ugc-variant="STRIP"] .featured { width: 50cqw; }
 }
 @media (min-width: 768px) and (max-width: 1023.98px) {
   .collage:not([data-device]) { --ugc-primary: .52; --ugc-columns: 1.083333fr 1fr; --ugc-gap: 10px; --ugc-height-base: clamp(300px, 48cqw, 380px); --ugc-quote-size: 18px; --ugc-quote-line: 28px; }
