@@ -8,6 +8,7 @@ import type { SectionPreviewDevice } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import { RatingStars } from "@/components/product/RatingStars";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
 import {
   createInitialSelection,
@@ -49,6 +50,7 @@ export function RoomSceneGallery({
   const [reduced, setReduced] = useState(false);
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
+  const [activeHotspot, setActiveHotspot] = useState<OpenCard | null>(null);
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const [cardPos, setCardPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
 
@@ -192,6 +194,23 @@ export function RoomSceneGallery({
       ? "hidden"
       : "mt-3 flex justify-center gap-1.5"
     : "mt-3 flex justify-center gap-1.5 lg:hidden";
+  // The marker is sized for the device it is drawn on: the admin canvas
+  // passes the device it simulates, the storefront follows its own
+  // breakpoints (24px phone, 28px tablet, 32px desktop).
+  const markerSize = previewDevice
+    ? previewDevice === "mobile"
+      ? "h-6 w-6"
+      : previewDevice === "tablet"
+        ? "h-7 w-7"
+        : "h-8 w-8"
+    : "h-6 w-6 sm:h-7 sm:w-7 lg:h-8 lg:w-8";
+  const plusSize = previewDevice
+    ? previewDevice === "mobile"
+      ? "h-3 w-3"
+      : previewDevice === "tablet"
+        ? "h-3.5 w-3.5"
+        : "h-4 w-4"
+    : "h-3 w-3 sm:h-3.5 sm:w-3.5 lg:h-4 lg:w-4";
 
   if (visibleScenes.length === 0) {
     return (
@@ -222,156 +241,184 @@ export function RoomSceneGallery({
     : null;
 
   return (
-    <div>
-      <div
-        ref={railRef}
-        className="flex snap-x snap-mandatory overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {visibleScenes.map((scene) => (
-          <div key={scene.id} data-scene-id={scene.id} className="w-full shrink-0 snap-center px-0.5">
-            <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-primary-light/30">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={scene.imageUrl}
-                alt={scene.alt ?? section.title ?? ""}
-                loading="lazy"
-                className="h-full w-full object-contain"
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  if (image.naturalWidth && image.naturalHeight) {
-                    const ratio = image.naturalWidth / image.naturalHeight;
-                    const key = sceneFailureKey(scene);
-                    setImageRatios((previous) => previous[key] === ratio ? previous : { ...previous, [key]: ratio });
+    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-8">
+      <div className="min-w-0 flex-1">
+        <div
+          ref={railRef}
+          className="flex snap-x snap-mandatory overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {visibleScenes.map((scene) => (
+            <div key={scene.id} data-scene-id={scene.id} className="w-full shrink-0 snap-center px-0.5">
+              <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-primary-light/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={scene.imageUrl}
+                  alt={scene.alt ?? section.title ?? ""}
+                  loading="lazy"
+                  className="h-full w-full object-contain"
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    if (image.naturalWidth && image.naturalHeight) {
+                      const ratio = image.naturalWidth / image.naturalHeight;
+                      const key = sceneFailureKey(scene);
+                      setImageRatios((previous) => previous[key] === ratio ? previous : { ...previous, [key]: ratio });
+                    }
+                  }}
+                  onError={() =>
+                    setFailed((prev) => {
+                      const next = new Set(prev);
+                      next.add(sceneFailureKey(scene));
+                      return next;
+                    })
                   }
-                }}
-                onError={() =>
-                  setFailed((prev) => {
-                    const next = new Set(prev);
-                    next.add(sceneFailureKey(scene));
-                    return next;
-                  })
-                }
-              />
-              {scene.hotspots.map((hotspot, index) => {
-                const isOpen =
-                  openCard?.sceneId === scene.id && openCard.index === index;
-                const ratio = imageRatios[sceneFailureKey(scene)] ?? 1.6;
-                const imageWidth = Math.min(1, ratio / 1.6) * 100;
-                const imageHeight = Math.min(1, 1.6 / ratio) * 100;
-                const position = { left: `${(100 - imageWidth) / 2 + hotspot.xPct * imageWidth / 100}%`,
-                  top: `${(100 - imageHeight) / 2 + hotspot.yPct * imageHeight / 100}%` };
-                return (
-                  <span
-                    key={hotspot.product.id}
-                    className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
-                    style={position}
-                  >
-                    <button
-                      type="button"
-                      data-hotspot={`${scene.id}-${index}`}
-                      aria-expanded={isOpen}
-                      aria-controls={`room-card-${scene.id}-${index}`}
-                      aria-label={`查看商品：${hotspot.product.name}`}
-                      onClick={() =>
-                        isOpen
-                          ? setOpenCard(null)
-                          : openHotspot(scene.id, index)
-                      }
-                      className="relative h-7 w-7 transition-transform hover:scale-110"
+                />
+                {scene.hotspots.map((hotspot, index) => {
+                  const isOpen =
+                    openCard?.sceneId === scene.id && openCard.index === index;
+                  const ratio = imageRatios[sceneFailureKey(scene)] ?? 1.6;
+                  const imageWidth = Math.min(1, ratio / 1.6) * 100;
+                  const imageHeight = Math.min(1, 1.6 / ratio) * 100;
+                  const position = { left: `${(100 - imageWidth) / 2 + hotspot.xPct * imageWidth / 100}%`,
+                    top: `${(100 - imageHeight) / 2 + hotspot.yPct * imageHeight / 100}%` };
+                  return (
+                    <span
+                      key={hotspot.product.id}
+                      className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
+                      style={position}
                     >
-                      {/* Animations stay mounted but paused until the scene
-                          enters view: the 0% keyframe (opacity 0) hides the
-                          dots pre-pop, so a slow scroll-in can't flash static
-                          dots before the staggered sequence starts. */}
-                      {!reduced ? (
-                        <span
-                          className="hotspot-ring pointer-events-none absolute inset-0 rounded-full border border-cta/50"
-                          style={{
-                            animationDelay: `${index * 90 + 120}ms`,
-                            animationPlayState: played.has(scene.id) ? "running" : "paused",
-                          }}
-                        />
-                      ) : null}
-                      {/* Inner layer owns the pop animation AND the disc shell
-                          so the whole dot lights up together; its fill-mode
-                          transform never overrides the button's hover scale. */}
-                      <span
-                        className={`inline-flex h-full w-full items-center justify-center rounded-full bg-white/95 shadow-md ${
-                          isOpen ? "ring-2 ring-cta" : "ring-1 ring-border"
-                        } ${!reduced ? "hotspot-pop" : ""}`}
-                        style={
-                          !reduced
-                            ? {
-                                animationDelay: `${index * 90}ms`,
-                                animationPlayState: played.has(scene.id) ? "running" : "paused",
-                              }
-                            : undefined
-                        }
+                      <button
+                        type="button"
+                        data-hotspot={`${scene.id}-${index}`}
+                        aria-expanded={isOpen}
+                        aria-controls={`room-card-${scene.id}-${index}`}
+                        aria-label={`View product: ${hotspot.product.name}`}
+                        onClick={() => {
+                          if (isOpen) {
+                            setOpenCard(null);
+                            return;
+                          }
+                          setActiveHotspot({ sceneId: scene.id, index });
+                          openHotspot(scene.id, index);
+                        }}
+                        className={`relative ${markerSize} rounded-full transition-transform duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2`}
                       >
-                        <span className="h-2 w-2 rounded-full bg-cta" />
-                      </span>
-                    </button>
-                  </span>
-                );
-              })}
+                        {/* Animations stay mounted but paused until the scene
+                            enters view: the 0% keyframe (opacity 0) hides the
+                            halo pre-pop, so a slow scroll-in can't flash static
+                            markers before the staggered sequence starts. */}
+                        {!reduced ? (
+                          <span
+                            className="hotspot-ring pointer-events-none absolute inset-0 rounded-full bg-white/70"
+                            style={{
+                              animationDelay: `${index * 90 + 120}ms`,
+                              animationPlayState: played.has(scene.id) ? "running" : "paused",
+                            }}
+                          />
+                        ) : null}
+                        {/* A quiet white disc with a hairline edge and a small
+                            plus - the marker reads as "there is a product here"
+                            without shouting over the photograph. */}
+                        <span
+                          data-hotspot-disc
+                          className={`relative inline-flex h-full w-full items-center justify-center rounded-full shadow-[0_2px_10px_rgba(34,34,34,0.22)] transition-colors ${
+                            isOpen ? "bg-cta ring-1 ring-cta" : "bg-white/95 ring-1 ring-black/10"
+                          } ${!reduced ? "hotspot-pop" : ""}`}
+                          style={
+                            !reduced
+                              ? {
+                                  animationDelay: `${index * 90}ms`,
+                                  animationPlayState: played.has(scene.id) ? "running" : "paused",
+                                }
+                              : undefined
+                          }
+                        >
+                          <svg
+                            data-hotspot-plus
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            aria-hidden="true"
+                            className={`${plusSize} ${isOpen ? "text-cta-foreground" : "text-cta"}`}
+                          >
+                            <path d="M8 3.5v9M3.5 8h9" />
+                          </svg>
+                        </span>
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
             </div>
+          ))}
+        </div>
+
+        {/* Desktop thumbnail selector */}
+        {visibleScenes.length > 1 ? (
+          <div className={thumbnailClass}>
+            {visibleScenes.map((scene, index) => (
+              <button
+                key={scene.id}
+                type="button"
+                aria-label={`View scene ${index + 1}`}
+                onClick={() => {
+                  railRef.current
+                    ?.querySelector(`[data-scene-id="${scene.id}"]`)
+                    ?.scrollIntoView({
+                      behavior: reduced ? "auto" : "smooth",
+                      inline: "center",
+                      block: "nearest",
+                    });
+                }}
+                className={`relative h-16 w-28 overflow-hidden rounded-lg ring-offset-2 ${
+                  active === index ? "ring-2 ring-cta" : "ring-1 ring-border"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={scene.imageUrl}
+                  alt=""
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                  onError={() =>
+                    setFailed((prev) => {
+                      const next = new Set(prev);
+                      next.add(sceneFailureKey(scene));
+                      return next;
+                    })
+                  }
+                />
+              </button>
+            ))}
           </div>
-        ))}
+        ) : null}
+
+        {/* Mobile indicator dots */}
+        {visibleScenes.length > 1 ? (
+          <div className={indicatorClass} aria-hidden>
+            {visibleScenes.map((scene, index) => (
+              <span
+                key={scene.id}
+                className={`h-2 rounded-full transition-all ${
+                  active === index ? "w-4 bg-cta" : "w-2 bg-border"
+                }`}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      {/* Desktop thumbnail selector */}
-      {visibleScenes.length > 1 ? (
-        <div className={thumbnailClass}>
-          {visibleScenes.map((scene, index) => (
-            <button
-              key={scene.id}
-              type="button"
-              aria-label={`查看第 ${index + 1} 张场景图`}
-              onClick={() => {
-                railRef.current
-                  ?.querySelector(`[data-scene-id="${scene.id}"]`)
-                  ?.scrollIntoView({
-                    behavior: reduced ? "auto" : "smooth",
-                    inline: "center",
-                    block: "nearest",
-                  });
-              }}
-              className={`relative h-16 w-28 overflow-hidden rounded-lg ring-offset-2 ${
-                active === index ? "ring-2 ring-cta" : "ring-1 ring-border"
-              }`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={scene.imageUrl}
-                alt=""
-                loading="lazy"
-                className="h-full w-full object-cover"
-                onError={() =>
-                  setFailed((prev) => {
-                    const next = new Set(prev);
-                    next.add(sceneFailureKey(scene));
-                    return next;
-                  })
-                }
-              />
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {/* Mobile indicator dots */}
-      {visibleScenes.length > 1 ? (
-        <div className={indicatorClass} aria-hidden>
-          {visibleScenes.map((scene, index) => (
-            <span
-              key={scene.id}
-              className={`h-2 rounded-full transition-all ${
-                active === index ? "w-4 bg-cta" : "w-2 bg-border"
-              }`}
-            />
-          ))}
-        </div>
-      ) : null}
+      {/* The products of the scene in view: beside the photo on desktop,
+          under it on smaller screens. */}
+      <RoomProductList
+        scene={visibleScenes[active] ?? visibleScenes[0]}
+        activeIndex={
+          activeHotspot && activeHotspot.sceneId === (visibleScenes[active] ?? visibleScenes[0])?.id
+            ? activeHotspot.index
+            : null
+        }
+      />
 
       {/* Portaled product card (fixed positioning escapes rail overflow) */}
       {mounted && openCard && openHotspotData
@@ -380,7 +427,7 @@ export function RoomSceneGallery({
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label="关闭商品卡"
+                aria-label="Close product card"
                 className="fixed inset-0 z-40 cursor-default"
                 onClick={() => setOpenCard(null)}
               />
@@ -430,5 +477,118 @@ export function RoomSceneGallery({
           )
         : null}
     </div>
+  );
+}
+
+/**
+ * The products of the scene in view, listed beside the photo on desktop and
+ * under it on smaller screens: thumbnail, single-line name, the real price,
+ * the real rating and a link to the product page. The price comes from the
+ * same selection contract the product cards use, and the rating only appears
+ * when the product actually has reviews.
+ */
+function RoomProductList({
+  scene,
+  activeIndex,
+}: {
+  scene: HydratedRoomScene | undefined;
+  activeIndex: number | null;
+}) {
+  if (!scene || scene.hotspots.length === 0) return null;
+  return (
+    <aside
+      data-room-product-list
+      className="w-full shrink-0 lg:w-[300px] xl:w-[340px]"
+    >
+      <h3 className="mb-2 text-sm font-semibold text-ink">Shop this room</h3>
+      <ul className="flex flex-col gap-1">
+        {scene.hotspots.map((hotspot, index) => {
+          const product = hotspot.product;
+          const cover = product.effectiveCoverMedia ?? null;
+          // The storefront hydrates a full product; a partial one (admin
+          // payloads) still renders, it just carries no price.
+          const price = Array.isArray(product.variants)
+            ? cardPricePresentation(
+                resolveSelection(
+                  product,
+                  createInitialSelection(product, null),
+                ),
+              )
+            : null;
+          const rating =
+            product.ratingAverage != null && product.reviewCount > 0
+              ? { value: product.ratingAverage, count: product.reviewCount }
+              : null;
+          const isActive = activeIndex === index;
+          return (
+            <li
+              key={hotspot.product.id}
+              data-room-product-row={product.id}
+              data-active={isActive ? "true" : "false"}
+            >
+              <Link
+                href={`/products/${product.slug}`}
+                className={`flex items-start gap-3 rounded-lg p-2 transition-colors ${
+                  isActive
+                    ? "bg-primary-light/40 ring-1 ring-cta"
+                    : "hover:bg-primary-light/30"
+                }`}
+              >
+                <span className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-primary-light/30">
+                  {cover ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={cover.url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <PlaceholderImage label="" className="h-full w-full" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-ink">
+                    {product.name}
+                  </span>
+                  {rating ? (
+                    <span className="mt-0.5 flex items-center gap-1">
+                      <RatingStars
+                        value={rating.value}
+                        className="text-[11px] leading-none"
+                      />
+                      <span className="text-[11px] text-ink-muted">
+                        ({rating.count})
+                      </span>
+                    </span>
+                  ) : null}
+                  <span className="mt-0.5 flex items-baseline gap-2">
+                    {price ? (
+                      <>
+                        <span className="whitespace-nowrap text-[16px] font-bold leading-tight text-sale">
+                          {price.kind === "from"
+                            ? `From ${formatPrice(price.price)}`
+                            : formatPrice(price.price)}
+                        </span>
+                        {price.kind === "exact" &&
+                        price.compareAtPrice != null &&
+                        price.compareAtPrice > price.price ? (
+                          <span className="whitespace-nowrap text-xs leading-tight text-ink-muted line-through">
+                            {formatPrice(price.compareAtPrice)}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <span className="ml-auto whitespace-nowrap text-xs font-medium text-cta">
+                      View product
+                    </span>
+                  </span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
   );
 }
