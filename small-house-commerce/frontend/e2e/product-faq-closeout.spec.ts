@@ -647,10 +647,10 @@ test.describe("FAQ closeout acceptance", () => {
       expect(copied.id).not.toBe(ORDER_SHARED_ITEM.id);
 
       await page.goto("/products/e2e-color-size");
+      const storefrontFeedback = page.locator("#reviews");
+      await storefrontFeedback.getByRole("tab", { name: /^Q&A \(/ }).click();
       await expect
-        .poll(
-          async () => page.locator("#shipping-faq:visible summary").allTextContents(),
-        )
+        .poll(async () => storefrontFeedback.locator("summary").allTextContents())
         .toEqual([
           PRODUCT_ITEM_TWO.title,
           PRODUCT_ITEM_ONE.title,
@@ -664,9 +664,8 @@ test.describe("FAQ closeout acceptance", () => {
       ]) {
         await expect(main.getByText(title, { exact: true })).toBeVisible();
       }
-      const storefrontFaq = page.locator("#shipping-faq:visible");
-      await expect(storefrontFaq).toHaveCount(1);
-      await storefrontFaq.scrollIntoViewIfNeeded();
+      await expect(page.locator("#reviews:visible")).toHaveCount(1);
+      await storefrontFeedback.scrollIntoViewIfNeeded();
       await shot(page, "storefront-custom-copy");
 
       const landing = await api.get(`${API}/storefront/lp/e2e-lp-color-size`);

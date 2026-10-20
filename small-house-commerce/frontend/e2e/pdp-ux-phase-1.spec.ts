@@ -203,7 +203,7 @@ function sectionByHeading(page: Page, heading: string): Locator {
 }
 
 test.describe("PDP UX Phase 1", () => {
-  test("renders the conversion hero, five truthful anchors, and conserved structured details", async ({
+  test("renders the conversion hero, four truthful anchors, and conserved structured details", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -283,8 +283,7 @@ test.describe("PDP UX Phase 1", () => {
     await expect(navigation.getByRole("link")).toHaveText([
       "Details",
       "Specifications",
-      "Delivery & FAQs",
-      "Reviews",
+      "Reviews & Q&A",
       "Order Now",
     ]);
     await expect(

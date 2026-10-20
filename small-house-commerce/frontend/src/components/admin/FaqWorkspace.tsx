@@ -31,6 +31,7 @@ import {
 } from "./faq/FaqItemDialog";
 import { FaqProductPickerDialog } from "./faq/FaqProductPickerDialog";
 import { FaqProductSection } from "./faq/FaqProductSection";
+import { FaqQuestionsSection } from "./faq/FaqQuestionsSection";
 import { FaqSettingsDialog } from "./faq/FaqSettingsDialog";
 import { FaqSharedSection } from "./faq/FaqSharedSection";
 import {
@@ -949,6 +950,12 @@ export function FaqWorkspace({
       ) : null}
 
       {showProduct ? (
+        <>
+        <FaqQuestionsSection
+          key={productFilter}
+          productId={productFilter === "all" ? null : productFilter}
+          onConverted={reloadProducts}
+        />
         <FaqProductSection
           groups={groups}
           total={total}
@@ -1026,6 +1033,7 @@ export function FaqWorkspace({
           onPage={(nextPage) => patchParams({ page: String(nextPage) })}
           onReload={reloadProducts}
         />
+        </>
       ) : null}
 
       {sharedDialog && !pendingSharedSave ? (

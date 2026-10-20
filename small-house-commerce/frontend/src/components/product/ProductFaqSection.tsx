@@ -102,6 +102,35 @@ export function hasFaqContent(items: ProductFaqItem[]): boolean {
   return items.some((item) => item.enabled);
 }
 
+/**
+ * Renders one FAQ answer. Shared by the landing-page FAQ accordion and the PDP
+ * Q&A tab so both apply the same inline-link and support-placeholder rules.
+ */
+export function ProductFaqAnswer({
+  blocks,
+  supportEmail,
+  supportHours,
+  idPrefix,
+}: {
+  blocks: ProductFaqItem["answer"];
+  supportEmail?: string;
+  supportHours?: string;
+  idPrefix?: string;
+}): ReactNode {
+  return (
+    <>
+      {blocks.map((block, index) => (
+        <AnswerBlock
+          key={`${idPrefix ?? "faq"}:${index}`}
+          block={block}
+          supportEmail={supportEmail}
+          supportHours={supportHours}
+        />
+      ))}
+    </>
+  );
+}
+
 export function ProductFaqSection({
   items,
   supportEmail,
@@ -141,14 +170,12 @@ export function ProductFaqSection({
             <Chevron />
           </summary>
           <div className="pb-5 text-sm leading-relaxed text-ink-secondary">
-            {item.answer.map((block, index) => (
-              <AnswerBlock
-                key={`${item.id}:${index}`}
-                block={block}
-                supportEmail={supportEmail}
-                supportHours={supportHours}
-              />
-            ))}
+            <ProductFaqAnswer
+              blocks={item.answer}
+              idPrefix={item.id}
+              supportEmail={supportEmail}
+              supportHours={supportHours}
+            />
           </div>
         </details>
       ))}

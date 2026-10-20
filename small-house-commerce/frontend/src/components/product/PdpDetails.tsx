@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import type { Product } from "@/lib/api";
-import { PdpInfoSections } from "./PdpInfoSections";
 import {
   ProductDetailBody,
   ProductDetailMedia,
@@ -52,12 +51,8 @@ function FoldableDetailMedia({
 
 export function PdpDetails({
   product,
-  supportEmail,
-  supportHours,
 }: {
   product: Product;
-  supportEmail: string;
-  supportHours: string;
 }): ReactNode {
   const { featured, remaining } = partitionDetailBlocks(
     product.detailBlocks ?? [],
@@ -72,11 +67,6 @@ export function PdpDetails({
       />
       <FoldableDetailMedia blocks={remaining} />
       <ProductInformation product={product} />
-      <PdpInfoSections
-        items={product.effectiveFaq ?? []}
-        supportEmail={supportEmail}
-        supportHours={supportHours}
-      />
     </div>
   );
 }

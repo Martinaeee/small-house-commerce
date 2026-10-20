@@ -374,6 +374,7 @@ test("FAQ management lists, edits in dialogs, and stays one source of truth", as
     ]);
     await page.goto(`/products/${SLUG}`);
     const storefrontMain = page.getByRole("main");
+    await storefrontMain.getByRole("tab", { name: /^Q&A \(/ }).click();
     await expect(
       storefrontMain.getByText(newProductTitle, { exact: true }),
     ).toBeVisible();
@@ -515,11 +516,13 @@ test("a targeted shared question reaches only its selected products", async ({
     // The storefront renders it on exactly the selected products.
     for (const slug of targets) {
       await page.goto(`/products/${slug}`);
+      await page.getByRole("tab", { name: /^Q&A \(/ }).click();
       await expect(
         page.getByRole("main").getByText(title, { exact: true }),
       ).toBeVisible();
     }
     await page.goto(`/products/${control}`);
+    await page.getByRole("tab", { name: /^Q&A \(/ }).click();
     await expect(
       page.getByRole("main").getByText(title, { exact: true }),
     ).toHaveCount(0);

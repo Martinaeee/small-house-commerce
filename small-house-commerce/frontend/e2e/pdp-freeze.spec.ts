@@ -241,8 +241,7 @@ test.describe("PDP V1 freeze", () => {
     await expect(navigation.getByRole("link")).toHaveText([
       "Details",
       "Specifications",
-      "Delivery & FAQs",
-      "Reviews",
+      "Reviews & Q&A",
       "Order Now",
     ]);
     await navigation.getByRole("link", { name: "Details" }).click();
@@ -275,7 +274,7 @@ test.describe("PDP V1 freeze", () => {
     ).toEqual(validBlocks.map((block) => block.url));
     await page.screenshot({ path: screenshotPath("phase5-pdp-details-1440.png") });
 
-    // --- Specifications + Material & Dimensions + FAQ -----------------------
+    // --- Specifications + Material & Dimensions + Q&A -----------------------
     await expect(page.locator("#specifications")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Product Specifications" }),
@@ -284,13 +283,12 @@ test.describe("PDP V1 freeze", () => {
       page.getByRole("heading", { name: "Material & Dimensions" }),
     ).toBeVisible();
     await expect(page.getByText("23 kg")).toBeVisible();
-    const faq = page.locator("#shipping-faq");
-    await expect(faq).toBeVisible();
+    // FAQ entries share the Reviews section under the Q&A tab.
+    const feedback = page.locator("#reviews");
+    await expect(feedback).toBeVisible();
+    await feedback.getByRole("tab", { name: /^Q&A \(/ }).click();
     await expect(
-      faq.getByRole("heading", { name: "Delivery, Returns & FAQs" }),
-    ).toBeVisible();
-    await expect(
-      faq.getByText("Delivery & Cash on Delivery", { exact: true }),
+      feedback.getByText("Delivery & Cash on Delivery", { exact: true }),
     ).toBeVisible();
 
     // --- Inline COD ---------------------------------------------------------
@@ -319,12 +317,13 @@ test.describe("PDP V1 freeze", () => {
     await expect(sticky).toContainText("₱1,299.00");
     await page.screenshot({ path: screenshotPath("phase5-sticky-buy.png") });
 
-    // --- Reviews / Related / Recently Viewed --------------------------------
+    // --- Reviews & Q&A / Related / Recently Viewed --------------------------
     const reviews = page.locator("#reviews");
     await reviews.scrollIntoViewIfNeeded();
+    await reviews.getByRole("tab", { name: /^Reviews \(/ }).click();
     await expect(
-      reviews.getByRole("heading", { name: "Customer Reviews" }),
-    ).toBeVisible();
+      reviews.getByRole("tab", { name: /^Reviews \(/ }),
+    ).toHaveAttribute("aria-selected", "true");
     await reviews.screenshot({ path: screenshotPath("phase5-reviews.png") });
 
     const related = sectionByHeading(page, "You May Also Like");

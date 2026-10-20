@@ -13,6 +13,7 @@ import type {
   AdminFaqProductGroup,
   AdminFaqProductPage,
   AdminProduct,
+  AdminQuestion,
 } from "@/lib/admin-api";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { AdminApiError } from "@/lib/admin-auth";
@@ -76,6 +77,9 @@ vi.mock("@/lib/admin-api", async () => {
       listProducts: vi.fn(),
       getProduct: vi.fn(),
       updateProduct: vi.fn(),
+      listQuestions: vi.fn(),
+      convertQuestion: vi.fn(),
+      dismissQuestion: vi.fn(),
     },
   };
 });
@@ -168,6 +172,17 @@ const productWithoutFaq = {
   images: [],
 } as unknown as AdminProduct;
 
+const pendingQuestion: AdminQuestion = {
+  id: "44444444-4444-4444-8444-444444444445",
+  productId: "product-1",
+  question: "Will this fit beside a queen bed?",
+  askerName: null,
+  askerEmail: null,
+  status: "PENDING",
+  createdAt: "2026-10-19T04:30:00.000Z",
+  product: { name: "Narrow Storage Cart", slug: "narrow-cart" },
+};
+
 function renderWorkspace(props: {
   canEditShared: boolean;
   canEditProducts: boolean;
@@ -249,6 +264,14 @@ function stubApi() {
     ...productWithoutFaq,
     faq: { mode: "EXTEND", version: 3, items: [productItem] },
   } as AdminProduct);
+  vi.mocked(adminApi.listQuestions).mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 50,
+  });
+  vi.mocked(adminApi.convertQuestion).mockResolvedValue({ ok: true });
+  vi.mocked(adminApi.dismissQuestion).mockResolvedValue({ ok: true });
 }
 
 describe("FaqWorkspace", () => {
@@ -272,6 +295,32 @@ describe("FaqWorkspace", () => {
     // The list is the structure view: every editor lives behind a dialog.
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     expect(screen.queryAllByRole("dialog")).toHaveLength(0);
+  });
+
+  it("reloads the product FAQ after a customer question is converted", async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminApi.listQuestions).mockResolvedValue({
+      items: [pendingQuestion],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    });
+    renderWorkspace({ canEditShared: true, canEditProducts: true });
+    await screen.findByText(pendingQuestion.question);
+
+    const loadsBefore = vi.mocked(faqApi.getProductGroups).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Answer & add to FAQ" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Answer and add to the product FAQ",
+    });
+    await user.type(within(dialog).getByLabelText("Answer"), "Yes, it fits.");
+    await user.click(within(dialog).getByRole("button", { name: "Save & publish" }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(faqApi.getProductGroups).mock.calls.length,
+      ).toBeGreaterThan(loadsBefore),
+    );
   });
 
   it("uses a wide list shell and a single compact filter toolbar", async () => {
@@ -1645,6 +1694,12 @@ describe("FaqWorkspace permission split", () => {
       page: 1,
       pageSize: 50,
     });
+    vi.mocked(adminApi.listQuestions).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
   });
 
   it("hides the shared section and reads no shared data without its permission", async () => {
@@ -1658,6 +1713,10 @@ describe("FaqWorkspace permission split", () => {
       screen.queryByRole("tab", { name: "Shared FAQ" }),
     ).not.toBeInTheDocument();
     expect(faqApi.getShared).not.toHaveBeenCalled();
+    expect(adminApi.listQuestions).toHaveBeenCalledWith({
+      status: "PENDING",
+      pageSize: 50,
+    });
     expect(
       screen.queryByRole("button", { name: "+ New shared FAQ" }),
     ).not.toBeInTheDocument();

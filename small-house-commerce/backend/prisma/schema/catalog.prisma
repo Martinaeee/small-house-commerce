@@ -155,6 +155,7 @@ model Product {
   detailBlocks          ProductDetailBlock[]
   faq                   ProductFaq?
   reviews               ProductReview[]
+  questions             ProductQuestion[]
   landingPages          ProductLandingPage[]
   campaignLinks         CampaignLink[]
   options               ProductOption[]

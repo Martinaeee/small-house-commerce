@@ -763,6 +763,17 @@ export interface AdminReview {
   _count?: { helpfulVotes: number; reports: number };
 }
 
+export interface AdminQuestion {
+  id: string;
+  productId: string;
+  question: string;
+  askerName: string | null;
+  askerEmail: string | null;
+  status: "PENDING" | "CONVERTED" | "DISMISSED";
+  createdAt: string;
+  product: { name: string; slug: string };
+}
+
 export interface CreateAdminReviewInput {
   authorName: string;
   location?: string;
@@ -1708,6 +1719,36 @@ export const adminApi = {
     adminAuthedFetch<{ cleared: number }>(
       `/api/v1/admin/reviews/${encodeURIComponent(id)}/reports`,
       { method: "DELETE" },
+    ),
+
+  // --- customer questions ("Ask a question" inbox) ------------------------
+
+  listQuestions: (params?: {
+    status?: "PENDING" | "CONVERTED" | "DISMISSED";
+    productId?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<Paged<AdminQuestion>> => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.productId) q.set("productId", params.productId);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("pageSize", String(params.pageSize));
+    return adminAuthedFetch<Paged<AdminQuestion>>(
+      `/api/v1/admin/questions?${q.toString()}`,
+    );
+  },
+
+  convertQuestion: (id: string, answer: string): Promise<{ ok: boolean }> =>
+    adminAuthedFetch<{ ok: boolean }>(
+      `/api/v1/admin/questions/${encodeURIComponent(id)}/convert`,
+      { method: "POST", body: JSON.stringify({ answer }) },
+    ),
+
+  dismissQuestion: (id: string): Promise<{ ok: boolean }> =>
+    adminAuthedFetch<{ ok: boolean }>(
+      `/api/v1/admin/questions/${encodeURIComponent(id)}/dismiss`,
+      { method: "POST", body: "{}" },
     ),
 
   listCategories: (): Promise<AdminCategoryNode[]> =>

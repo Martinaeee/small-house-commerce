@@ -30,6 +30,9 @@ import { StorefrontMarketingTouchController } from '../marketing/storefront/mark
 import { AdminSharedFaqController } from './faq/admin/shared-faq.controller.js';
 import { AdminSharedFaqPreviewController } from './faq/admin/shared-faq-preview.controller.js';
 import { AdminProductFaqController } from './faq/admin/product-faq.controller.js';
+import { AdminQuestionsController } from './admin/questions.controller.js';
+import { StorefrontQuestionsController } from './storefront/questions.controller.js';
+import { QuestionsService } from './questions.service.js';
 import { SharedFaqService } from './faq/shared-faq.service.js';
 import { LinkBuilderContextService } from './link-builder-context.service.js';
 import { StorefrontLandingPagesController } from './landing/storefront/landing-pages.controller.js';
@@ -66,6 +69,8 @@ import { BundlesService } from './bundles.service.js';
     AdminSharedFaqController,
     AdminSharedFaqPreviewController,
     AdminProductFaqController,
+    AdminQuestionsController,
+    StorefrontQuestionsController,
     StorefrontCategoriesController,
     StorefrontProductsController,
     StorefrontReviewsController,
@@ -89,6 +94,7 @@ import { BundlesService } from './bundles.service.js';
     OptimizersService,
     MarketingGuard,
     SharedFaqService,
+    QuestionsService,
   ],
   exports: [ReviewsService, ProductsService, SharedFaqService, MarketingTouchService],
 })

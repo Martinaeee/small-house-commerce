@@ -5,23 +5,19 @@ import { PdpSectionNav } from "./PdpSectionNav";
 function renderPage({
   hasDetails = true,
   hasSpecifications = true,
-  hasFaq = true,
 }: {
   hasDetails?: boolean;
   hasSpecifications?: boolean;
-  hasFaq?: boolean;
 } = {}) {
   render(
     <>
       <PdpSectionNav
         hasDetails={hasDetails}
         hasSpecifications={hasSpecifications}
-        hasFaq={hasFaq}
       />
       <main>
         <section id="details" className="scroll-mt-28" />
         <section id="specifications" className="scroll-mt-28" />
-        <section id="shipping-faq" className="scroll-mt-28" />
         <section id="reviews" className="scroll-mt-28" />
         <section id="pdp-purchase" className="scroll-mt-28" />
       </main>
@@ -30,15 +26,14 @@ function renderPage({
 }
 
 describe("PdpSectionNav", () => {
-  it("renders five native anchors with unique scroll-safe targets on every viewport", () => {
+  it("renders four native anchors with unique scroll-safe targets on every viewport", () => {
     renderPage();
 
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     const expected = [
       ["Details", "#details"],
       ["Specifications", "#specifications"],
-      ["Delivery & FAQs", "#shipping-faq"],
-      ["Reviews", "#reviews"],
+      ["Reviews & Q&A", "#reviews"],
       ["Order Now", "#pdp-purchase"],
     ] as const;
 
@@ -61,14 +56,14 @@ describe("PdpSectionNav", () => {
     }
   });
 
-  it("hides the FAQ anchor when there is no effective FAQ content", () => {
-    renderPage({ hasFaq: false });
+  it("keeps the combined Q&A anchor available when no FAQ has been published", () => {
+    renderPage();
 
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     expect(
-      within(nav).queryByRole("link", { name: "Delivery & FAQs" }),
-    ).toBeNull();
-    expect(document.querySelector("#shipping-faq")).toHaveClass("scroll-mt-28");
+      within(nav).getByRole("link", { name: "Reviews & Q&A" }),
+    ).toHaveAttribute("href", "#reviews");
+    expect(document.querySelector("#shipping-faq")).toBeNull();
   });
 
   it("omits only unavailable Details and Specifications anchors", () => {
@@ -80,8 +75,7 @@ describe("PdpSectionNav", () => {
       within(nav).queryByRole("link", { name: "Specifications" }),
     ).toBeNull();
     expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Delivery & FAQs",
-      "Reviews",
+      "Reviews & Q&A",
       "Order Now",
     ]);
   });

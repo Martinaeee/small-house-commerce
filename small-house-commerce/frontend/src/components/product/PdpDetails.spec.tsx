@@ -201,7 +201,7 @@ describe("PdpDetails", () => {
     render(<PdpPurchaseProvider product={item}>
       <ProductOptionSelector lineId="primary" instanceId="bundle-spec-test" />
       <PdpSectionNavGate product={item} hasDetails />
-      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+      <PdpDetails product={item} />
     </PdpPurchaseProvider>);
 
     const section = screen.getByRole("region", { name: "Product information" });
@@ -246,7 +246,7 @@ describe("PdpDetails", () => {
     render(<PdpPurchaseProvider product={item}>
       <ProductOptionSelector lineId="primary" instanceId="invalid-bundle-spec" />
       <PdpSectionNavGate product={item} hasDetails />
-      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+      <PdpDetails product={item} />
     </PdpPurchaseProvider>);
     expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Product information" })).not.toBeInTheDocument();
@@ -260,7 +260,7 @@ describe("PdpDetails", () => {
     Object.assign(item.variants[1].sku!, { productWidth: null, productDepth: 80, productHeight: 0 });
     render(<PdpPurchaseProvider product={item}>
       <ProductOptionSelector lineId="primary" instanceId="dimension-test" />
-      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+      <PdpDetails product={item} />
     </PdpPurchaseProvider>);
 
     const section = screen.getByRole("region", { name: "Product information" });
@@ -285,7 +285,7 @@ describe("PdpDetails", () => {
     render(<PdpPurchaseProvider product={item}>
       <PdpSectionNavGate product={item} hasDetails={false} />
       <ProductOptionSelector lineId="primary" instanceId="dimension-nav-test" />
-      <PdpDetails product={item} supportEmail="help@luwag.ph" supportHours="Daily" />
+      <PdpDetails product={item} />
     </PdpPurchaseProvider>);
     expect(screen.getByRole("link", { name: "Specifications" })).toHaveAttribute("href", "#specifications");
     const section = screen.getByRole("region", { name: "Product information" });
@@ -303,11 +303,7 @@ describe("PdpDetails", () => {
   it("conserves mixed detail media around truthful structured sections", () => {
     const { container } = render(
       <PdpPurchaseProvider product={product}>
-        <PdpDetails
-          product={product}
-          supportEmail="help@luwag.ph"
-          supportHours="Daily, 9am–6pm"
-        />
+        <PdpDetails product={product} />
       </PdpPurchaseProvider>,
     );
 
@@ -318,10 +314,9 @@ describe("PdpDetails", () => {
       "remaining-1.jpg",
       "remaining-2.mp4",
       "Product information",
-      "Delivery, Returns & FAQs",
     ]);
 
-    for (const id of ["details", "specifications", "shipping-faq"]) {
+    for (const id of ["details", "specifications"]) {
       const target = container.querySelector(`#${id}`);
       expect(target).not.toBeNull();
       expect(target).toHaveClass("scroll-mt-28");
@@ -364,11 +359,7 @@ describe("PdpDetails", () => {
     }));
     render(
       <PdpPurchaseProvider product={item}>
-        <PdpDetails
-          product={item}
-          supportEmail="help@luwag.ph"
-          supportHours="Daily, 9am–6pm"
-        />
+        <PdpDetails product={item} />
       </PdpPurchaseProvider>,
     );
 
@@ -398,11 +389,7 @@ describe("PdpDetails", () => {
   it("offers no fold control when the detail media already fit in four", () => {
     render(
       <PdpPurchaseProvider product={product}>
-        <PdpDetails
-          product={product}
-          supportEmail="help@luwag.ph"
-          supportHours="Daily, 9am–6pm"
-        />
+        <PdpDetails product={product} />
       </PdpPurchaseProvider>,
     );
 
@@ -414,11 +401,7 @@ describe("PdpDetails", () => {
     render(
       <PdpPurchaseProvider product={product}>
         <ProductOptionSelector lineId="primary" instanceId="detail-test" />
-        <PdpDetails
-          product={product}
-          supportEmail="help@luwag.ph"
-          supportHours="Daily, 9am–6pm"
-        />
+        <PdpDetails product={product} />
       </PdpPurchaseProvider>,
     );
 

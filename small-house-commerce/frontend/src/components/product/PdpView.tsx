@@ -5,7 +5,7 @@ import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 import { ProductCard } from "./ProductCard";
-import { ReviewSection } from "./ReviewSection";
+import { ProductFeedback } from "./ProductFeedback";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 import { TrustBar } from "@/components/ui/TrustBar";
 import { fetchSiteSettings } from "@/lib/site-settings";
@@ -73,13 +73,13 @@ export async function PdpView({
           <PdpSectionNavGate product={product} hasDetails={hasDetails} />
 
           <section className="mt-12 flex flex-col gap-8 lg:mt-8">
-            <PdpDetails
+            <PdpDetails product={product} />
+            <PdpQuickCodOrder />
+            <ProductFeedback
               product={product}
               supportEmail={settings.supportEmail}
               supportHours={settings.supportHours}
             />
-            <PdpQuickCodOrder />
-            <ReviewSection product={product} />
             <TrustBar />
           </section>
         </PdpPurchaseProvider>

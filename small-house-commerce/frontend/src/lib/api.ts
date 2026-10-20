@@ -737,6 +737,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(reason ? { reason } : {}),
     }),
+  /**
+   * "Ask a question" from the PDP. The submission lands in the operator inbox
+   * and is not published until it is answered and converted into a product FAQ
+   * entry, so the response deliberately says nothing about moderation state.
+   */
+  askProductQuestion: (
+    slug: string,
+    input: { question: string; name?: string; email?: string },
+  ) =>
+    request<{ ok: boolean }>(
+      `/api/v1/storefront/products/${encodeURIComponent(slug)}/questions`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
   getLandingPage: (slug: string) =>
     request<LandingPageComposite>(
       `/api/v1/storefront/lp/${encodeURIComponent(slug)}`,
