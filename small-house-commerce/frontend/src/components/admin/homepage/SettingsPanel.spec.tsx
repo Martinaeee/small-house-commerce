@@ -499,6 +499,27 @@ describe("SettingsPanel", () => {
     expect(ctaButton().borderRadius).toBe(8);
   });
 
+  it("keeps the manual padding inputs next to the button size selector", () => {
+    renderPanel({ elementKey: "ctaPrimary" });
+
+    const size = screen.getByRole("combobox", { name: "Button size" });
+    const paddingX = screen.getByRole("textbox", { name: "Padding X (px)" });
+    const paddingY = screen.getByRole("textbox", { name: "Padding Y (px)" });
+    const background = screen.getByRole("textbox", { name: "Background" });
+
+    const follows = (first: Node, second: Node): boolean =>
+      Boolean(
+        first.compareDocumentPosition(second) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+    // Manual margins must sit directly under the size preset, ahead of the
+    // colour pickers, or the only findable control is Small/Medium/Large.
+    expect(follows(size, paddingX)).toBe(true);
+    expect(follows(paddingX, paddingY)).toBe(true);
+    expect(follows(paddingY, background)).toBe(true);
+  });
+
   it("commits the countdown endsAt as ISO and clears it back to null", () => {
     renderPanel({ elementKey: "countdown" });
 

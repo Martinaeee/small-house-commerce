@@ -814,6 +814,30 @@ function ElementSettings({
                 )
               }
             />
+            {/* Manual margins sit directly under the size preset so the two
+                ways to size a button are found together. */}
+            <NumberField
+              label={t("homepage_builder_field_padding_x")}
+              value={slide.elements[key].button.paddingX}
+              min={4}
+              max={48}
+              onCommit={(value) =>
+                applyMutation((doc) =>
+                  elementDocument(doc, { button: { paddingX: value } }),
+                )
+              }
+            />
+            <NumberField
+              label={t("homepage_builder_field_padding_y")}
+              value={slide.elements[key].button.paddingY}
+              min={2}
+              max={32}
+              onCommit={(value) =>
+                applyMutation((doc) =>
+                  elementDocument(doc, { button: { paddingY: value } }),
+                )
+              }
+            />
             {BUTTON_COLOR_FIELDS.map(({ prop, labelKey }) => (
               <ColorField
                 key={prop}
@@ -837,28 +861,6 @@ function ElementSettings({
               onCommit={(value) =>
                 applyMutation((doc) =>
                   elementDocument(doc, { button: { borderRadius: value } }),
-                )
-              }
-            />
-            <NumberField
-              label={t("homepage_builder_field_padding_x")}
-              value={slide.elements[key].button.paddingX}
-              min={4}
-              max={48}
-              onCommit={(value) =>
-                applyMutation((doc) =>
-                  elementDocument(doc, { button: { paddingX: value } }),
-                )
-              }
-            />
-            <NumberField
-              label={t("homepage_builder_field_padding_y")}
-              value={slide.elements[key].button.paddingY}
-              min={2}
-              max={32}
-              onCommit={(value) =>
-                applyMutation((doc) =>
-                  elementDocument(doc, { button: { paddingY: value } }),
                 )
               }
             />
