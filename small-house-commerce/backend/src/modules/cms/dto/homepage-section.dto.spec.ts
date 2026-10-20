@@ -144,7 +144,7 @@ describe('homepage payload schemas', () => {
     ).toBe(false);
     expect(
       homepagePayloadSchemas[HomepageSectionType.UGC]
-        .safeParse({ entries: Array.from({ length: 7 }, () => ({ name: 'n', comment: 'c' })) })
+        .safeParse({ entries: Array.from({ length: 13 }, () => ({ name: 'n', comment: 'c' })) })
         .success,
     ).toBe(false);
   });
