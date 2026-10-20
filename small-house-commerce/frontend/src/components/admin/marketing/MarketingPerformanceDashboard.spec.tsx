@@ -48,7 +48,7 @@ const allReport = report([
 });
 const options: MarketingPerformanceOptions = {
   onlyOwn: false,
-  products: [{ id: "product-1", name: "Chair", productCode: "LUW-001", status: "ACTIVE", pageCount: 3 }],
+  products: [{ id: "product-1", name: "Chair", productCode: "LUW-001", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg", pageCount: 3 }],
   owners: [{ userId: "u1", name: "Optimizer", aid: "OP-1", isActive: true, pageCount: 3 }],
 };
 const ownOptions: MarketingPerformanceOptions = { ...options, onlyOwn: true, owners: [] };

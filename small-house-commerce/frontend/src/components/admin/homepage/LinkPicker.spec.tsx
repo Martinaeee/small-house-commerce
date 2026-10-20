@@ -29,7 +29,7 @@ vi.mock("@/lib/admin-api", () => ({
   },
 }));
 
-function productRow(id: string, name: string): AdminProduct {
+function productRow(id: string, name: string, imageUrl?: string): AdminProduct {
   return {
     id,
     name,
@@ -54,7 +54,9 @@ function productRow(id: string, name: string): AdminProduct {
     updatedAt: "2026-01-01T00:00:00.000Z",
     catalogGraphVersion: 0,
     defaultDisplayVariantId: null,
-    images: [],
+    images: imageUrl
+      ? [{ id: "image-1", url: imageUrl, type: "IMAGE", altText: null, sortOrder: 0 }]
+      : [],
     detailBlocks: [],
     variants: [],
   };
@@ -230,6 +232,32 @@ describe("LinkPicker", () => {
 
     // The wire value the consumer receives is the complete PRODUCT link.
     expect(onChange).toHaveBeenLastCalledWith({ type: "PRODUCT", id: "p1" });
+  });
+
+  it("shows a product photo next to the product name in the entity list", async () => {
+    vi.useFakeTimers();
+    listProducts.mockResolvedValue({
+      items: [productRow("p1", "Oak Side Table", "/uploads/oak.jpg")],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    renderPicker();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Link type" }), {
+      target: { value: "PRODUCT" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const option = within(screen.getByLabelText("Pick a Product")).getByRole("button", {
+      name: "Oak Side Table",
+    });
+    expect(within(option).getByTestId("link-picker-thumb-p1")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
   });
 
   it("rejects an http:// external url and accepts https://", async () => {

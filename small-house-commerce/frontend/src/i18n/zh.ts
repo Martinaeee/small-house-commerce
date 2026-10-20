@@ -1777,7 +1777,7 @@ export const zh = {
   homepage_builder_product_grid_empty: "暂未选择商品。",
   homepage_builder_product_grid_move_up: "上移商品 {index}",
   homepage_builder_product_grid_move_down: "下移商品 {index}",
-  homepage_builder_product_grid_remove: "删除商品 {productId}",
+  homepage_builder_product_grid_remove: "删除商品 {name}",
   homepage_builder_product_grid_badge: "{name} 的角标",
 
   // --- Homepage builder: remaining section editors ---

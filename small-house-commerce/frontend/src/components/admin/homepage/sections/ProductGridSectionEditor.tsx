@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import {
-  adminApi,
-  type AdminProduct,
-} from "@/lib/admin-api";
 import type { SectionProduct } from "@/lib/homepage-document";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
+import {
+  ProductPickerDialog,
+  ProductThumbnail,
+  useProductSummaries,
+} from "@/components/admin/ProductPicker";
 
 const MAX_PRODUCTS = 24;
 
@@ -22,47 +23,15 @@ export function ProductGridSectionEditor({
   onProductsChange,
 }: ProductGridEditorProps): ReactNode {
   const { t } = useAdminI18n();
-  const [options, setOptions] = useState<AdminProduct[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const products = [...(section.products ?? [])].sort(
     (left, right) => left.sortOrder - right.sortOrder,
   );
-
-  useEffect(() => {
-    let active = true;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      adminApi
-        .listProducts({
-          search: search.trim() || undefined,
-          page: 1,
-          pageSize: 20,
-        })
-        .then((result) => {
-          if (active) setOptions(result.items);
-        })
-        .catch(() => {
-          if (active) setOptions([]);
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-    }, search === "" ? 0 : 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [search]);
-
-  const productById = useMemo(
-    () => new Map(options.map((product) => [product.id, product.name])),
-    [options],
+  const selectedIds = useMemo(
+    () => products.map((product) => product.productId),
+    [products],
   );
-  const selectedIds = new Set(products.map((product) => product.productId));
-  const availableProducts = options.filter(
-    (product) => !selectedIds.has(product.id),
-  );
+  const linkedProducts = useProductSummaries(selectedIds);
 
   const changeProducts = (
     patch: SectionProduct[] | ((products: SectionProduct[]) => SectionProduct[]),
@@ -129,49 +98,10 @@ export function ProductGridSectionEditor({
           type="button"
           className="rounded-lg border border-cta/40 px-3 py-1.5 text-sm font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:border-border disabled:text-ink-muted"
           disabled={!onProductsChange || products.length >= MAX_PRODUCTS}
-          onClick={() => setSearch("")}
+          onClick={() => setPickerOpen(true)}
         >
           {t("homepage_builder_product_grid_add")}
         </button>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-ink-secondary" htmlFor={`product-search-${section.id}`}>
-          {t("homepage_builder_product_grid_search")}
-        </label>
-        <input
-          id={`product-search-${section.id}`}
-          type="search"
-          className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-          aria-label={t("homepage_builder_product_grid_search")}
-          placeholder={t("homepage_builder_product_grid_search")}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        {loading ? (
-          <p className="text-xs text-ink-muted">
-            {t("homepage_builder_product_grid_loading")}
-          </p>
-        ) : availableProducts.length > 0 ? (
-          <div className="mt-1 flex max-h-36 flex-col overflow-y-auto rounded-lg border border-border">
-            {availableProducts.map((product) => (
-              <button
-                key={product.id}
-                type="button"
-                className="border-b border-border px-2 py-1.5 text-left text-sm text-ink last:border-b-0 hover:bg-surface disabled:cursor-not-allowed disabled:text-ink-muted"
-                aria-label={product.name}
-                disabled={!onProductsChange || products.length >= MAX_PRODUCTS}
-                onClick={() => addProduct(product.id)}
-              >
-                {product.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-1 text-xs text-ink-muted">
-            {t("homepage_builder_product_grid_no_results")}
-          </p>
-        )}
       </div>
 
       {products.length === 0 ? (
@@ -181,7 +111,8 @@ export function ProductGridSectionEditor({
       ) : (
         <div className="flex flex-col gap-2">
           {products.map((product, index) => {
-            const name = productById.get(product.productId) ?? product.productId;
+            const linked = linkedProducts.get(product.productId);
+            const name = linked?.name ?? product.productId;
             return (
               <div
                 key={product.productId}
@@ -189,8 +120,15 @@ export function ProductGridSectionEditor({
                 className="flex flex-col gap-2 rounded-lg border border-border p-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
-                    {name}
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <ProductThumbnail
+                      imageUrl={linked?.imageUrl ?? null}
+                      className="h-9 w-9"
+                      testId="product-grid-thumb"
+                    />
+                    <span className="min-w-0 truncate text-sm font-medium text-ink">
+                      {name}
+                    </span>
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -219,13 +157,13 @@ export function ProductGridSectionEditor({
                       type="button"
                       className="rounded px-2 py-1 text-xs text-sale hover:bg-sale/10 disabled:cursor-not-allowed disabled:text-ink-muted"
                       aria-label={t("homepage_builder_product_grid_remove", {
-                        productId: product.productId,
+                        name,
                       })}
                       disabled={!onProductsChange || products.length <= 0}
                       onClick={() => removeProduct(product.productId)}
                     >
                       {t("homepage_builder_product_grid_remove", {
-                        productId: product.productId,
+                        name,
                       })}
                     </button>
                   </div>
@@ -249,6 +187,16 @@ export function ProductGridSectionEditor({
           })}
         </div>
       )}
+
+      <ProductPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(product) => addProduct(product.id)}
+        selectedIds={selectedIds}
+        disabledIds={selectedIds}
+        title={t("homepage_builder_product_grid_add")}
+        searchLabel={t("homepage_builder_product_grid_search")}
+      />
     </section>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Dialog } from "@/components/admin/Dialog";
+import { ProductPickerInline, type ProductOption } from "@/components/admin/ProductPicker";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { canManageMarketingPage, marketingApi, type CampaignLinkRow, type MarketingLinkContext, type MarketingSourceType } from "@/lib/marketing-api";
 
@@ -37,6 +38,17 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
   }, []);
 
   const product = context?.products.find((item) => item.id === productId);
+  const productOptions = useMemo<ProductOption[]>(
+    () =>
+      (context?.products ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        slug: item.slug,
+        productCode: item.productCode,
+        thumbnailUrl: item.thumbnailUrl,
+      })),
+    [context],
+  );
   const pages = product?.landingPages.filter((page) => page.ownerUserId && canManageMarketingPage(admin, page.ownerUserId) && (!copyFrom || page.ownerUserId === copyFrom.ownerUserId)) ?? [];
   const page = pages.find((item) => item.id === landingPageId);
   const unavailable = Boolean(context && (!product || (landingPageId && !page)));
@@ -58,10 +70,16 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
       {!context && !error && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
       {unavailable && <p role="alert" className="text-sm text-amber-800">{t("marketing_target_unavailable")}</p>}
       <fieldset disabled={busy || !context} className="grid min-w-0 gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm sm:col-span-2">{t("link_builder_product")}<select required className={fieldClass} value={productId} disabled={Boolean(initialProductId)} onChange={(event) => { setProductId(event.target.value); setLandingPageId(""); setVariantId(""); }}>
-          <option value="">{t("marketing_choose_product")}</option>
-          {context?.products.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.productCode ?? item.slug}</option>)}
-        </select></label>
+        <div className="sm:col-span-2"><ProductPickerInline
+          label={t("link_builder_product")}
+          scope="link-builder-product"
+          value={productId}
+          onChange={(next) => { setProductId(next ?? ""); setLandingPageId(""); setVariantId(""); }}
+          products={productOptions}
+          loading={!context}
+          disabled={Boolean(initialProductId)}
+          searchLabel={t("marketing_product_search")}
+        /></div>
         <label className="space-y-1 text-sm">{t("link_builder_landing_page")}<select className={fieldClass} value={landingPageId} disabled={Boolean(initialPageId)} onChange={(event) => setLandingPageId(event.target.value)}>
           <option value="">{t("link_builder_no_landing_page")}</option>
           {pages.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}

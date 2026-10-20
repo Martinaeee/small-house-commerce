@@ -11,7 +11,7 @@ vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => aut
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
 vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn() } }));
 const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1", pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
-const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
+const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"];
@@ -29,7 +29,8 @@ describe("persisted campaign links", () => {
     await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "创建投放链接" }));
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("落地页（可选）")).toHaveValue("page-1"));
-    expect(within(dialog).getByLabelText("商品")).toHaveValue("p1");
+    await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
+    expect(within(dialog).getByTestId("link-builder-product-thumb")).toHaveAttribute("src", "/uploads/chair.jpg");
     expect(within(dialog).getByText(/OP-1/)).toBeInTheDocument();
     expect(within(dialog).queryByRole("textbox", { name: /AID/ })).not.toBeInTheDocument();
     expect(within(dialog).getByText(/开始时间前不可访问/)).toBeInTheDocument();
@@ -76,7 +77,7 @@ describe("persisted campaign links", () => {
   it("prefills a new-link copy and sends the edited ad parameters without changing ownership", async () => {
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制记录" }));
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getByLabelText("商品")).toHaveValue("p1"));
+    await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
     expect(within(dialog).getByLabelText("内部名称")).toHaveValue("Ad A copy");
     expect(within(dialog).getByText(/OP-1/)).toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("Ad ID"), { target: { value: "another-ad" } });

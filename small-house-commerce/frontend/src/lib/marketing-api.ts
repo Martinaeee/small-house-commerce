@@ -42,6 +42,7 @@ export interface MarketingProductOption {
   productCode: string | null;
   slug: string;
   status: ProductStatus;
+  thumbnailUrl: string | null;
 }
 export interface MarketingOwnerOption {
   userId: string;
@@ -112,6 +113,7 @@ export interface MarketingLinkContext {
     name: string;
     productCode: string | null;
     slug: string;
+    thumbnailUrl: string | null;
     variants: { id: string; name: string }[];
     landingPages: { id: string; slug: string; title: string; ownerUserId: string | null; ownerName: string | null; aid: string | null; effectiveStatus: MarketingPageStatus }[];
   }[];
@@ -306,7 +308,7 @@ export interface MarketingPerformanceReport {
 }
 export interface MarketingPerformanceOptions {
   onlyOwn: boolean;
-  products: Array<{ id: string; name: string; productCode: string | null; status: string; pageCount: number }>;
+  products: Array<{ id: string; name: string; productCode: string | null; status: string; thumbnailUrl: string | null; pageCount: number }>;
   owners: Array<{ userId: string; name: string; aid: string | null; isActive: boolean; pageCount: number }>;
 }
 
@@ -411,7 +413,7 @@ export const marketingApi = {
   disableLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/disable`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   cloneLink: (id: string, input: Partial<CampaignLinkInput> = {}) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/clone`, { method: "POST", body: JSON.stringify(input) }),
   listPages: (query: MarketingPageQuery = {}) => request<Paged<MarketingPageListRow>>(queryString(query)),
-  productOptions: (query: { search?: string; page?: number; pageSize?: number } = {}) => request<Paged<MarketingProductOption>>(`/product-options${queryString(query)}`),
+  productOptions: (query: { search?: string; id?: string; page?: number; pageSize?: number } = {}) => request<Paged<MarketingProductOption>>(`/product-options${queryString(query)}`),
   ownerOptions: () => request<MarketingOwnerOption[]>("/owner-options"),
   getPage: (id: string) => request<MarketingPageDetail>(pagePath(id)),
   uploadMedia: (id: string, file: File, contentType: string) => request<{ url: string; key: string }>(`${pagePath(id)}/uploads`, { method: "POST", headers: { "Content-Type": contentType }, body: file }),

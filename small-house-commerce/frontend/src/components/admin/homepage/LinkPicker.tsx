@@ -15,8 +15,13 @@ import {
   adminApi,
   type AdminCategoryNode,
   type AdminCollectionRow,
+  type AdminProduct,
   type Paged,
 } from "@/lib/admin-api";
+import {
+  ProductThumbnail,
+  productThumbnailUrl,
+} from "@/components/admin/ProductPicker";
 
 /**
  * Full link picker (plan Task 18, design spec §5.6). Replaces the minimal
@@ -54,7 +59,7 @@ const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
 
 const SERVER_SEARCH_DEBOUNCE_MS = 250;
 
-type EntityOption = { id: string; name: string; available?: boolean };
+type EntityOption = { id: string; name: string; available?: boolean; imageUrl?: string | null };
 
 function isHttpsUrl(text: string): boolean {
   try {
@@ -161,7 +166,15 @@ function useEntityOptions(
         request
           .then((res) => {
             if (seqRef.current !== seq) return;
-            setOptions(res.items.map((row) => ({ id: row.id, name: row.name })));
+            setOptions(
+              res.items.map((row) => ({
+                id: row.id,
+                name: row.name,
+                ...(type === "PRODUCT"
+                  ? { imageUrl: productThumbnailUrl(row as AdminProduct) }
+                  : {}),
+              })),
+            );
             setResult({ type, search: productSearch });
           })
           .catch(() => {
@@ -424,13 +437,20 @@ export function LinkPicker({
                         aria-pressed={selected}
                         title={option.name}
                         onClick={() => selectEntity(option)}
-                        className={`w-full truncate px-2 py-1 text-left text-xs ${
+                        className={`flex w-full items-center gap-2 px-2 py-1 text-left text-xs ${
                           selected
                             ? "bg-cta/10 font-medium text-cta"
                             : "text-ink hover:bg-surface"
                         }`}
                       >
-                        {option.name}
+                        {option.imageUrl ? (
+                          <ProductThumbnail
+                            imageUrl={option.imageUrl}
+                            className="h-6 w-6"
+                            testId={`link-picker-thumb-${option.id}`}
+                          />
+                        ) : null}
+                        <span className="min-w-0 flex-1 truncate">{option.name}</span>
                       </button>
                     </li>
                   );

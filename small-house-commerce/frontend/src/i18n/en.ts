@@ -1837,7 +1837,7 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_product_grid_empty: "No products selected yet.",
   homepage_builder_product_grid_move_up: "Move product {index} up",
   homepage_builder_product_grid_move_down: "Move product {index} down",
-  homepage_builder_product_grid_remove: "Remove product {productId}",
+  homepage_builder_product_grid_remove: "Remove product {name}",
   homepage_builder_product_grid_badge: "Badge for {name}",
 
   // --- Homepage builder: remaining section editors ---

@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { RoomInspirationSectionEditor } from "@/components/admin/homepage/sections/RoomInspirationSectionEditor";
 import type { SectionOf } from "@/components/admin/homepage/section-editor-registry";
 import type { SectionPayloadMap } from "@/lib/homepage-section-payloads";
 
 const listProducts = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts } }));
+const getProduct = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts, getProduct } }));
 
 type RoomSection = SectionOf<"ROOM_INSPIRATION">;
 const ROOM_ID = "00000000-0000-7000-8000-000000000106";
@@ -52,11 +53,92 @@ function Harness({
 }
 
 const products = [
-  { id: PRODUCT_ONE, name: "Oak coffee table" },
-  { id: PRODUCT_TWO, name: "Linen lounge chair" },
+  {
+    id: PRODUCT_ONE,
+    name: "Oak coffee table",
+    slug: "oak-coffee-table",
+    images: [
+      { id: "image-1", url: "/uploads/oak.jpg", type: "IMAGE" as const, altText: null, sortOrder: 0 },
+    ],
+    variants: [],
+  },
+  {
+    id: PRODUCT_TWO,
+    name: "Linen lounge chair",
+    slug: "linen-lounge-chair",
+    images: [
+      { id: "image-2", url: "/uploads/linen.jpg", type: "IMAGE" as const, altText: null, sortOrder: 0 },
+    ],
+    variants: [],
+  },
 ];
 
 describe("RoomInspirationSectionEditor", () => {
+  beforeEach(() => {
+    listProducts.mockReset().mockResolvedValue({ items: products, total: products.length, page: 1, pageSize: 20 });
+    getProduct.mockReset().mockRejectedValue(new Error("not linked"));
+  });
+
+  it("shows the linked product photo and name on the hotspot row", async () => {
+    setAdminLang("en");
+    getProduct.mockResolvedValue(products[0]);
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            scenes: [
+              {
+                id: "scene001",
+                imageUrl: "https://example.com/room.jpg",
+                hotspots: [{ productId: PRODUCT_ONE, xPct: 20, yPct: 30 }],
+              },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    const row = await waitFor(() => {
+      const found = document.querySelector('[data-room-hotspot-row="scene001-0"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(row).toHaveTextContent("Oak coffee table");
+    expect(within(row).getByTestId("room-hotspot-product-thumb")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
+    expect(row).not.toHaveTextContent(PRODUCT_ONE);
+  });
+
+  it("shows the product photo next to each name in the hotspot picker", async () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            scenes: [{ id: "scene001", imageUrl: "https://example.com/room.jpg", hotspots: [] }],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    const canvas = document.querySelector('[data-room-scene-canvas="scene001"]');
+    expect(canvas).not.toBeNull();
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 100, top: 50, width: 200, height: 100 }),
+    });
+    fireEvent.click(canvas as HTMLElement, { clientX: 150, clientY: 100 });
+
+    const dialog = await screen.findByRole("dialog", { name: "Choose product for hotspot" });
+    const option = await within(dialog).findByRole("button", { name: "Oak coffee table" });
+    expect(within(option).getByTestId("room-hotspot-option-thumb-oak-coffee-table")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
+  });
+
   it("requires a scene image before creating a scene", async () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: products, total: products.length, page: 1, pageSize: 20 });

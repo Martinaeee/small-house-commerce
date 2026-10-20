@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { ProductGridSectionEditor } from "@/components/admin/homepage/sections/ProductGridSectionEditor";
 import type { SectionOf } from "@/components/admin/homepage/section-editor-registry";
@@ -8,8 +8,9 @@ import type { SectionPayloadMap } from "@/lib/homepage-section-payloads";
 import type { SectionProduct } from "@/lib/homepage-document";
 
 const listProducts = vi.hoisted(() => vi.fn());
+const getProduct = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/admin-api", () => ({
-  adminApi: { listProducts },
+  adminApi: { listProducts, getProduct },
 }));
 
 const PRODUCT_GRID_ID = "00000000-0000-7000-8000-000000000103";
@@ -61,19 +62,41 @@ function Harness({
 }
 
 const productRows = [
-  { id: "00000000-0000-7000-8000-000000000301", name: "Oak table" },
-  { id: "00000000-0000-7000-8000-000000000302", name: "Linen chair" },
+  {
+    id: "00000000-0000-7000-8000-000000000301",
+    name: "Oak table",
+    slug: "oak-table",
+    productCode: "P-000301",
+    images: [
+      { id: "image-1", url: "/uploads/oak.jpg", type: "IMAGE" as const, altText: null, sortOrder: 0 },
+    ],
+    variants: [],
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000302",
+    name: "Linen chair",
+    slug: "linen-chair",
+    productCode: "P-000302",
+    images: [
+      { id: "image-2", url: "/uploads/linen.jpg", type: "IMAGE" as const, altText: null, sortOrder: 0 },
+    ],
+    variants: [],
+  },
 ];
 
 describe("ProductGridSectionEditor", () => {
-  it("leaves layout to the single responsive panel and edits product badges through product-id rows", async () => {
-    setAdminLang("en");
-    listProducts.mockResolvedValue({
+  beforeEach(() => {
+    listProducts.mockReset().mockResolvedValue({
       items: productRows,
       total: productRows.length,
       page: 1,
       pageSize: 20,
     });
+    getProduct.mockReset().mockRejectedValue(new Error("not linked"));
+  });
+
+  it("leaves layout to the single responsive panel and edits product badges through product-id rows", async () => {
+    setAdminLang("en");
     render(
       <AdminI18nProvider>
         <Harness
@@ -95,14 +118,26 @@ describe("ProductGridSectionEditor", () => {
     expect(screen.getByTestId(`product-grid-row-${productRows[0].id}`)).toBeVisible();
   });
 
+  it("shows the linked product photo and name on the selected row", async () => {
+    setAdminLang("en");
+    getProduct.mockResolvedValue(productRows[0]);
+    render(
+      <AdminI18nProvider>
+        <Harness products={[{ productId: productRows[0].id, sortOrder: 0, badge: null }]} />
+      </AdminI18nProvider>,
+    );
+
+    const row = await screen.findByTestId(`product-grid-row-${productRows[0].id}`);
+    expect(row).toHaveTextContent("Oak table");
+    expect(within(row).getByTestId("product-grid-thumb")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
+    expect(row).not.toHaveTextContent(productRows[0].id);
+  });
+
   it("adds, reorders, and removes products by productId while preserving badge rows", async () => {
     setAdminLang("en");
-    listProducts.mockResolvedValue({
-      items: productRows,
-      total: productRows.length,
-      page: 1,
-      pageSize: 20,
-    });
     render(
       <AdminI18nProvider>
         <Harness
@@ -121,9 +156,30 @@ describe("ProductGridSectionEditor", () => {
     expect(rows[1]).toHaveTextContent("Oak table");
     expect(
       screen.getByRole("button", {
-        name: `Remove product ${productRows[0].id}`,
+        name: "Remove product Oak table",
       }),
     ).toBeEnabled();
+  });
+
+  it("picks a product from the large picker with its photo and name", async () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add product" }));
+    const option = await screen.findByTestId("product-picker-option-oak-table");
+    expect(within(option).getByTestId("product-picker-thumb-oak-table")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
+    fireEvent.click(option);
+
+    expect(
+      screen.getByTestId(`product-grid-row-${productRows[0].id}`),
+    ).toBeVisible();
   });
 
   it("renders an explicit empty state for a safe legacy payload", async () => {

@@ -64,7 +64,7 @@ beforeEach(() => {
   vi.mocked(marketingApi.listCosts).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
   vi.mocked(marketingApi.ownerOptions).mockResolvedValue([]);
   vi.mocked(marketingApi.report).mockResolvedValue({ from: "2026-10-01", to: "2026-10-03", groupBy: "LINK", asOf: "2026-10-11T01:00:00Z", rows: [], otherSources: [], total: 0, page: 1, pageSize: 20 });
-  vi.mocked(marketingApi.performanceOptions).mockResolvedValue({ onlyOwn: false, products: [{ id: "product-1", name: "Chair", productCode: "LUW-001", status: "ACTIVE", pageCount: 1 }], owners: [] });
+  vi.mocked(marketingApi.performanceOptions).mockResolvedValue({ onlyOwn: false, products: [{ id: "product-1", name: "Chair", productCode: "LUW-001", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg", pageCount: 1 }], owners: [] });
   vi.mocked(marketingApi.performance).mockResolvedValue(perfReport);
 });
 

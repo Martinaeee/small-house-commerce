@@ -10,6 +10,7 @@ import type {
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { Dialog } from "@/components/admin/Dialog";
+import { ProductThumbnail, productThumbnailUrl, useProductSummaries } from "@/components/admin/ProductPicker";
 import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
 
 const MAX_SCENES = 5;
@@ -137,6 +138,10 @@ export function RoomInspirationSectionEditor({
   const { products, loading } = useProductOptions(productSearch);
   const payload = safePayload(section.payload);
   const scenes = safeScenes(payload.scenes);
+  const linkedProductIds = scenes.flatMap((scene) =>
+    scene.hotspots.map((hotspot) => hotspot.productId).filter(Boolean),
+  );
+  const linkedProducts = useProductSummaries(linkedProductIds);
 
   const updatePayloadField = (field: "imageUrl" | "heading" | "body", value: string): void => {
     onPayloadChange((current) => {
@@ -574,7 +579,11 @@ export function RoomInspirationSectionEditor({
                 <div className="flex flex-col gap-2">
                   {scene.hotspots.map((hotspot, hotspotIndex) => {
                     const selectedProduct = products.find((product) => product.id === hotspot.productId);
-                    const selectedProductName = selectedProduct?.name ?? hotspot.productId;
+                    const linkedProduct = linkedProducts.get(hotspot.productId);
+                    const selectedProductName =
+                      selectedProduct?.name ?? linkedProduct?.name ?? hotspot.productId;
+                    const selectedProductImage =
+                      selectedProduct ? productThumbnailUrl(selectedProduct) : linkedProduct?.imageUrl ?? null;
                     return (
                       <div
                         key={`${scene.id}-${hotspotIndex}`}
@@ -584,23 +593,32 @@ export function RoomInspirationSectionEditor({
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cta text-[10px] font-bold text-white">
                           {hotspotIndex + 1}
                         </span>
-                        <div className="min-w-[12rem] flex-1">
+                        <div className="flex min-w-[12rem] flex-1 items-center gap-2">
                           <span className="sr-only">
                             {t("homepage_builder_room_inspiration_hotspot_product", {
                               scene: sceneIndex + 1,
                               hotspot: hotspotIndex + 1,
                             })}
                           </span>
-                          <p className="text-sm font-medium text-ink">
-                            {selectedProductName || t("homepage_builder_room_inspiration_hotspot_product_empty")}
-                          </p>
-                          {selectedProduct ? (
-                            <p className="text-xs text-ink-muted">
-                              {selectedProduct.status === "ACTIVE"
-                                ? t("homepage_builder_room_inspiration_hotspot_product_status_active")
-                                : t("homepage_builder_room_inspiration_hotspot_product_status_unavailable")}
-                            </p>
+                          {hotspot.productId ? (
+                            <ProductThumbnail
+                              imageUrl={selectedProductImage}
+                              className="h-9 w-9"
+                              testId="room-hotspot-product-thumb"
+                            />
                           ) : null}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink">
+                              {selectedProductName || t("homepage_builder_room_inspiration_hotspot_product_empty")}
+                            </p>
+                            {selectedProduct ? (
+                              <p className="text-xs text-ink-muted">
+                                {selectedProduct.status === "ACTIVE"
+                                  ? t("homepage_builder_room_inspiration_hotspot_product_status_active")
+                                  : t("homepage_builder_room_inspiration_hotspot_product_status_unavailable")}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <label className="flex items-center gap-1 text-xs text-ink-muted">
@@ -787,7 +805,14 @@ export function RoomInspirationSectionEditor({
                       disabled={duplicate}
                       onClick={() => setPendingProductId(product.id)}
                     >
-                      <span className="min-w-0 truncate font-medium">{product.name}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ProductThumbnail
+                          imageUrl={productThumbnailUrl(product)}
+                          className="h-10 w-10"
+                          testId={`room-hotspot-option-thumb-${product.slug}`}
+                        />
+                        <span className="min-w-0 truncate font-medium">{product.name}</span>
+                      </span>
                       <span className="shrink-0 text-xs text-ink-muted">
                         {product.status === "ACTIVE"
                           ? t("homepage_builder_room_inspiration_hotspot_product_status_active")

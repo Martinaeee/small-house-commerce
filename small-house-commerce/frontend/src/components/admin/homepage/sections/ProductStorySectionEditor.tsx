@@ -8,7 +8,7 @@ import {
   BufferedImageUrlInput,
   BufferedTextInput,
 } from "@/components/admin/homepage/BufferedSectionField";
-import { SectionProductPicker } from "@/components/admin/homepage/sections/SectionProductPicker";
+import { ProductPickerField } from "@/components/admin/ProductPicker";
 import { isBannerHref } from "@/lib/banner-href";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -135,11 +135,11 @@ export function ProductStorySectionEditor({
           />
         </label>
       </div>
-      <SectionProductPicker
+      <ProductPickerField
         label={t("homepage_builder_product_story_product")}
         value={safeString(payload.productId) || undefined}
-        mode="buttons"
         clearLabel={t("homepage_builder_product_story_product_clear")}
+        scope="product-story-product"
         onChange={(productId) => updateField("productId", productId)}
       />
     </section>

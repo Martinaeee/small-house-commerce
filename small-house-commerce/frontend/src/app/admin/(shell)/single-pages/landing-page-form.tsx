@@ -5,10 +5,9 @@ import { Button } from "@/components/ui/Button";
 import { Field, TextInput, Textarea } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { StorefrontPreview } from "@/components/admin/PreviewPane";
+import { ProductPickerField } from "@/components/admin/ProductPicker";
 import {
-  adminApi,
   type AdminLandingPageDetail,
-  type AdminProduct,
   type LandingImageOverrideInput,
   type LandingPageInput,
   type LandingStatus,
@@ -156,25 +155,11 @@ export function LandingPageForm({
 }) {
   const [form, setForm] = useState<LandingFormValue>(initial);
   const [errors, setErrors] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
-  const [candidates, setCandidates] = useState<AdminProduct[]>([]);
-  const [searching, setSearching] = useState(false);
   const [productId, setProductId] = useState<string | null>(lockedProduct?.id ?? null);
   const [productName, setProductName] = useState<string>(lockedProduct?.name ?? "");
 
   const set = <K extends keyof LandingFormValue>(key: K, value: LandingFormValue[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
-
-  async function runSearch() {
-    if (!search.trim()) return;
-    setSearching(true);
-    try {
-      const result = await adminApi.listProducts({ search: search.trim(), page: 1, pageSize: 8 });
-      setCandidates(result.items);
-    } finally {
-      setSearching(false);
-    }
-  }
 
   function submit() {
     const next = validateLandingForm(form, mode === "create");
@@ -202,59 +187,14 @@ export function LandingPageForm({
 
       {mode === "create" ? (
         <Field label="所属产品">
-          {productId ? (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
-              <span className="font-medium text-ink">{productName}</span>
-              <button
-                type="button"
-                className="text-xs font-semibold text-cta hover:underline"
-                onClick={() => {
-                  setProductId(null);
-                  setProductName("");
-                }}
-              >
-                更换
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <TextInput
-                  value={search}
-                  placeholder="按产品名搜索"
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void runSearch();
-                    }
-                  }}
-                />
-                <Button type="button" variant="secondary" size="md" onClick={() => void runSearch()}>
-                  {searching ? "搜索中…" : "搜索"}
-                </Button>
-              </div>
-              {candidates.length > 0 ? (
-                <ul className="rounded-lg border border-border">
-                  {candidates.map((candidate) => (
-                    <li key={candidate.id}>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-primary-light/40"
-                        onClick={() => {
-                          setProductId(candidate.id);
-                          setProductName(candidate.name);
-                          setCandidates([]);
-                        }}
-                      >
-                        {candidate.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          )}
+          <ProductPickerField
+            scope="landing-page-product"
+            value={productId ?? undefined}
+            onChange={(next) => {
+              setProductId(next ?? null);
+              setProductName("");
+            }}
+          />
         </Field>
       ) : (
         <Field label="所属产品">

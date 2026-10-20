@@ -1,5 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketingPagesList } from "@/components/admin/marketing/MarketingPagesList";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
@@ -14,7 +15,7 @@ vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi:
 const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null, blocks: [{ id: "buy", type: "buy", sourceKey: null, props: {} }] };
 const row: MarketingPageDetail & MarketingPageListRow = { status: "ACTIVE", publishedAt: "2026-10-09T01:00:00Z", startAt: null, endAt: null, draftContent: content, publishedContent: content, sourceContentHash: "source", id: "page-1", productId: "p1", productName: "Chair", productCode: "CHAIR-1", productSlug: "chair", productStatus: "ACTIVE", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", name: "My launch", slug: "chair-ad", effectiveStatus: "LIVE", hasUnpublishedChanges: true, linkCount: 2, periodViews: 3, periodOrders: 1, publishedRevision: 1, version: 2, updatedAt: "2026-10-09T01:00:00Z" };
 const mount = (props = {}) => render(<AdminI18nProvider><MarketingPagesList {...props} /></AdminI18nProvider>);
-beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"]; vi.mocked(marketingApi.listPages).mockResolvedValue({ items: [row], total: 1, page: 1, pageSize: 20 }); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u1", aid: "OP-1", displayName: "Optimizer", status: "ACTIVE", userStatus: "ACTIVE" }]); vi.mocked(marketingApi.productOptions).mockResolvedValue({ items: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", status: "ACTIVE" }], total: 1, page: 1, pageSize: 50 }); vi.mocked(marketingApi.createPage).mockResolvedValue({ ...row, id: "new-page", effectiveStatus: "DRAFT" }); });
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"]; vi.mocked(marketingApi.listPages).mockResolvedValue({ items: [row], total: 1, page: 1, pageSize: 20 }); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u1", aid: "OP-1", displayName: "Optimizer", status: "ACTIVE", userStatus: "ACTIVE" }]); vi.mocked(marketingApi.productOptions).mockResolvedValue({ items: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg" }], total: 1, page: 1, pageSize: 50 }); vi.mocked(marketingApi.createPage).mockResolvedValue({ ...row, id: "new-page", effectiveStatus: "DRAFT" }); });
 
 describe("marketing page workbench", () => {
   it("shows bounded period counts rather than lifetime values", async () => {
@@ -74,19 +75,22 @@ describe("marketing page workbench", () => {
     mount({ productId: "p1" }); await screen.findByText("My launch");
     fireEvent.click(screen.getByRole("button", { name: "创建页面" }));
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getByLabelText("商品")).toHaveValue("p1"));
+    await waitFor(() => expect(within(dialog).getByTestId("marketing-page-product-current")).toHaveTextContent("Chair"));
+    expect(within(dialog).getByTestId("marketing-page-product-thumb")).toHaveAttribute("src", "/uploads/chair.jpg");
     fireEvent.change(within(dialog).getByLabelText("内部名称"), { target: { value: "My independent page" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "创建草稿并编辑" }));
     await waitFor(() => expect(marketingApi.createPage).toHaveBeenCalledWith("p1", "My independent page", undefined));
     expect(router.push).toHaveBeenCalledWith("/admin/marketing/new-page/edit");
   });
-  it("keeps the parent picker enabled when repeating an unchanged search", async () => {
+  it("keeps the parent picker usable and shows each candidate product's photo", async () => {
     mount(); await screen.findByText("My launch");
     fireEvent.click(screen.getByRole("button", { name: "创建页面" }));
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getByLabelText("商品")).toBeEnabled());
-    fireEvent.click(within(dialog).getByRole("button", { name: "搜索" }));
-    await waitFor(() => expect(within(dialog).getByLabelText("商品")).toBeEnabled());
+    await userEvent.click(within(dialog).getByTestId("marketing-page-product-open"));
+    const option = await within(dialog).findByTestId("marketing-page-product-grid-option-chair");
+    expect(option).toHaveTextContent("Chair");
+    await userEvent.click(option);
+    expect(within(dialog).getByTestId("marketing-page-product-current")).toHaveTextContent("Chair");
   });
 
   it("assigns a legacy page using its real version, preserves a conflicted choice and reloads only explicitly", async () => {
