@@ -788,6 +788,113 @@ describe("HeroSlider", () => {
       expect(cta.querySelector("[data-hero-btn-arrow]")).not.toBeNull();
     });
   });
+
+  describe("swipe", () => {
+    /**
+     * jsdom ships no PointerEvent, so the gesture is dispatched as a plain
+     * event carrying the coordinates React reads (clientX/clientY/pointerId).
+     */
+    function pointer(
+      target: HTMLElement,
+      type: "pointerdown" | "pointermove" | "pointerup",
+      clientX: number,
+      clientY: number,
+    ): void {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        clientX: { value: clientX },
+        clientY: { value: clientY },
+        pointerId: { value: 1 },
+        isPrimary: { value: true },
+        button: { value: 0 },
+        pointerType: { value: "touch" },
+      });
+      fireEvent(target, event);
+    }
+
+    function swipe(from: [number, number], to: [number, number]): void {
+      const root = wrapper();
+      pointer(root, "pointerdown", from[0], from[1]);
+      pointer(root, "pointermove", to[0], to[1]);
+      pointer(root, "pointerup", to[0], to[1]);
+    }
+
+    it("advances to the next slide when the hero is swiped left", () => {
+      render(<HeroSlider section={section(threeSlides())} />);
+      swipe([600, 300], [420, 306]);
+      expect(activeIndex()).toBe(1);
+    });
+
+    it("wraps to the last slide when the hero is swiped right", () => {
+      render(<HeroSlider section={section(threeSlides())} />);
+      swipe([420, 300], [600, 306]);
+      expect(activeIndex()).toBe(2);
+    });
+
+    it("keeps the slide when the drag is shorter than the swipe distance", () => {
+      render(<HeroSlider section={section(threeSlides())} />);
+      swipe([600, 300], [575, 302]);
+      expect(activeIndex()).toBe(0);
+    });
+
+    it("keeps the slide when the gesture is vertical so the page can scroll", () => {
+      render(<HeroSlider section={section(threeSlides())} />);
+      swipe([600, 300], [588, 430]);
+      expect(activeIndex()).toBe(0);
+    });
+
+    it("swallows the click that follows a swipe so a swipe over a CTA does not open it", () => {
+      const hashed = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          ctaPrimary: { ...slide(0).elements!.ctaPrimary!, linkHref: "#shop" },
+        },
+      });
+      render(<HeroSlider section={section([hashed, slide(1), slide(2)])} />);
+      const link = element("ctaPrimary").querySelector("a") as HTMLAnchorElement;
+      swipe([600, 300], [420, 306]);
+      // fireEvent returns false when the default action (the navigation) was
+      // prevented by the slider.
+      expect(fireEvent.click(link)).toBe(false);
+    });
+
+    it("leaves an ordinary CTA click alone", () => {
+      const hashed = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          ctaPrimary: { ...slide(0).elements!.ctaPrimary!, linkHref: "#shop" },
+        },
+      });
+      render(<HeroSlider section={section([hashed, slide(1), slide(2)])} />);
+      const link = element("ctaPrimary").querySelector("a") as HTMLAnchorElement;
+      expect(fireEvent.click(link)).toBe(true);
+    });
+
+    it("rotates and paginates in the signed draft preview", async () => {
+      render(
+        <HeroSlider section={section(threeSlides())} interactionMode="preview" />,
+      );
+      expect(document.querySelectorAll("[data-pag-dot]")).toHaveLength(3);
+      await advance(DURATION_MS);
+      expect(activeIndex()).toBe(1);
+    });
+
+    it("swipes in the signed draft preview too", () => {
+      render(
+        <HeroSlider section={section(threeSlides())} interactionMode="preview" />,
+      );
+      swipe([600, 300], [420, 306]);
+      expect(activeIndex()).toBe(1);
+    });
+
+    it("stops the browser from dragging the hero photo, which would hijack a swipe", () => {
+      render(<HeroSlider section={section(threeSlides())} />);
+      const image = slideWrappers()[0].querySelector("img") as HTMLElement;
+      const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+      // dispatchEvent returns false when the default action was prevented.
+      expect(image.dispatchEvent(dragStart)).toBe(false);
+    });
+  });
 });
 
 function screenWithin(root: HTMLElement, selector: string): HTMLElement | null {

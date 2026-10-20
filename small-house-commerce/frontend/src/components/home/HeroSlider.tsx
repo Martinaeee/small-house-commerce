@@ -8,6 +8,9 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { ViewportVideo } from "@/components/product/ViewportVideo";
@@ -117,7 +120,11 @@ export function HeroSlider({
 
   const editing = edit !== undefined;
   const previewing = interactionMode === "preview";
-  const interactive = !editing && !previewing;
+  // The admin canvas is the only inert surface: it passes `edit`, because the
+  // canvas edits one slide at a time and must not rotate under the editor.
+  // The signed draft preview runs the storefront slider, so it rotates and
+  // swipes exactly like the live site; its CTAs stay inert through `preview`.
+  const interactive = !editing;
   const reducedMotion = usePrefersReducedMotion();
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -125,6 +132,16 @@ export function HeroSlider({
   const [unmuted, setUnmuted] = useState(false);
   const manualPauseUntilRef = useRef(0);
   const slideNodesRef = useRef(new Map<string, HTMLElement | null>());
+  // Swipe state: where the gesture started, whether it turned horizontal and
+  // when the last swipe ended (so the click it produces can be swallowed).
+  const swipeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    horizontal: boolean;
+  } | null>(null);
+  const swipeEndedAtRef = useRef(0);
+  const draggingRef = useRef(false);
 
   const goTo = useCallback(
     (next: number): void => {
@@ -136,6 +153,63 @@ export function HeroSlider({
     [behavior.manualPauseMs, slides.length],
   );
 
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!interactive || slides.length < 2) return;
+    if (event.button !== 0) return; // left button / touch / pen only
+    swipeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      horizontal: false,
+    };
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const start = swipeRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.startX;
+    const dy = event.clientY - start.startY;
+    if (start.horizontal) return;
+    if (Math.abs(dx) < DRAG_TOLERANCE_PX) return;
+    if (Math.abs(dx) <= Math.abs(dy)) {
+      // A vertical gesture belongs to the page: let it scroll.
+      swipeRef.current = null;
+      return;
+    }
+    start.horizontal = true;
+    draggingRef.current = true;
+  };
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const start = swipeRef.current;
+    swipeRef.current = null;
+    draggingRef.current = false;
+    if (!start || !start.horizontal || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.startX;
+    if (Math.abs(dx) < SWIPE_DISTANCE_PX) return;
+    swipeEndedAtRef.current = Date.now();
+    goTo(activeIndex + (dx < 0 ? 1 : -1));
+  };
+
+  const handleClickCapture = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    // A swipe ends with a click on whatever was under the pointer. Swallow it
+    // so swiping across a CTA does not open the link.
+    if (Date.now() - swipeEndedAtRef.current > SWIPE_CLICK_WINDOW_MS) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleDragStart = (event: ReactDragEvent<HTMLDivElement>): void => {
+    // A native drag of the hero photo would hijack the swipe before the
+    // pointer moves far enough to be one; text selection keeps working.
+    const target = event.target;
+    const isMedia =
+      target instanceof HTMLElement &&
+      (target.tagName === "IMG" || target.tagName === "VIDEO");
+    if (!draggingRef.current && !isMedia) return;
+    event.preventDefault();
+  };
+
   // Autoplay rotation (spec: durationMs, pauseOnHover, manualPauseMs). Edit
   // mode and prefers-reduced-motion never rotate.
   useEffect(() => {
@@ -144,6 +218,7 @@ export function HeroSlider({
     }
     const id = setInterval(() => {
       if (hovered && behavior.pauseOnHover) return;
+      if (draggingRef.current) return; // a swipe in progress owns the slide
       if (Date.now() < manualPauseUntilRef.current) return;
       setActiveIndex((current) => (current + 1) % slides.length);
       setUnmuted(false); // reset the sound toggle on rotation (Fix round 2)
@@ -181,9 +256,21 @@ export function HeroSlider({
       id={`hp-hero-${section.id}`}
       data-hero-slider
       className={`relative mx-auto w-full overflow-hidden text-white ${presentation.widthClass} ${presentation.responsiveClass} ${presentation.textColorClass}`.trim()}
-      style={{ height: "var(--hp-hero-height, 560px)", ...presentation.style }}
+      style={{
+        height: "var(--hp-hero-height, 560px)",
+        ...presentation.style,
+        // Horizontal gestures belong to the slider; vertical ones still scroll
+        // the page. Pinch-zoom stays available.
+        touchAction: interactive ? "pan-y pinch-zoom" : undefined,
+      }}
       onMouseEnter={behavior.pauseOnHover && interactive ? () => setHovered(true) : undefined}
       onMouseLeave={behavior.pauseOnHover && interactive ? () => setHovered(false) : undefined}
+      onPointerDown={interactive ? handlePointerDown : undefined}
+      onPointerMove={interactive ? handlePointerMove : undefined}
+      onPointerUp={interactive ? handlePointerEnd : undefined}
+      onPointerCancel={interactive ? handlePointerEnd : undefined}
+      onClickCapture={interactive ? handleClickCapture : undefined}
+      onDragStart={interactive ? handleDragStart : undefined}
     >
       <style>{cssText}</style>
       <style>
@@ -325,6 +412,12 @@ const TYPOGRAPHY_FALLBACKS: Record<
 
 const DEFAULT_TEXT_COLOR = "#292724";
 const DEFAULT_CHIP_BG = "#F2EFE9";
+/** A drag shorter than this is a stray move, not a swipe. */
+const DRAG_TOLERANCE_PX = 8;
+/** A horizontal drag past this distance pages to the next/previous slide. */
+const SWIPE_DISTANCE_PX = 40;
+/** How long after a swipe its trailing click stays suppressed. */
+const SWIPE_CLICK_WINDOW_MS = 500;
 const BUTTON_DEVICE_SCALE: Record<HomepageDevice, number> = {
   desktop: 1,
   tablet: 0.85,
