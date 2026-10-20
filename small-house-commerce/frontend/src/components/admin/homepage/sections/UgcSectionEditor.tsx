@@ -5,7 +5,7 @@ import { useAdminI18n } from "@/lib/admin-i18n";
 import type { UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 import { BufferedImageUrlInput } from "@/components/admin/homepage/BufferedSectionField";
-import { useProductOptions } from "@/components/admin/homepage/sections/SectionProductPicker";
+import { ProductPickerField } from "@/components/admin/ProductPicker";
 import { readUgcPayload } from "@/lib/homepage-section-normalize";
 import { makeUgcPresentation } from "@/lib/homepage-content-actions";
 import { newUuid } from "@/lib/homepage-document";
@@ -35,8 +35,6 @@ function UgcEntriesEditor({
   onPayloadChange,
 }: SectionPayloadEditorProps<"UGC">): ReactNode {
   const { t } = useAdminI18n();
-  const [productSearch, setProductSearch] = useState("");
-  const { products, loading } = useProductOptions(productSearch);
   const payload = readUgcPayload(section.payload);
   const entries = (payload.entries ?? []).slice(0, MAX_ENTRIES);
   const collage = payload.presentation?.layout === "COLLAGE";
@@ -175,18 +173,6 @@ function UgcEntriesEditor({
         </button>
       </div>
 
-      <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
-        {t("homepage_builder_product_search")}
-        <input
-          type="search"
-          className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-          aria-label={t("homepage_builder_product_search")}
-          placeholder={t("homepage_builder_product_search")}
-          value={productSearch}
-          onChange={(event) => setProductSearch(event.target.value)}
-        />
-      </label>
-
       {entries.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-ink-muted">
           {t("homepage_builder_ugc_empty")}
@@ -298,28 +284,12 @@ function UgcEntriesEditor({
                     onChange={(event) => updateEntry(rowId, { comment: event.target.value })}
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
-                  {t("homepage_builder_ugc_product", { index: index + 1 })}
-                  <select
-                    className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
-                    aria-label={t("homepage_builder_ugc_product", { index: index + 1 })}
-                    value={entry.productId ?? ""}
-                    disabled={loading}
-                    onChange={(event) => updateEntry(rowId, { productId: event.target.value || undefined })}
-                  >
-                    <option value="">
-                      {loading ? t("homepage_builder_product_loading") : t("homepage_builder_product_no_results")}
-                    </option>
-                    {entry.productId && !products.some((product) => product.id === entry.productId) ? (
-                      <option value={entry.productId}>{entry.productId}</option>
-                    ) : null}
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <ProductPickerField
+                  label={t("homepage_builder_ugc_product", { index: index + 1 })}
+                  value={entry.productId}
+                  onChange={(productId) => updateEntry(rowId, { productId })}
+                  scope={`ugc-row-${index + 1}-product`}
+                />
               </div>
             );
           })}

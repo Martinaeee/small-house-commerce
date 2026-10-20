@@ -8,7 +8,8 @@ import type { SectionPayloadMap } from "@/lib/homepage-section-payloads";
 
 const listProducts = vi.hoisted(() => vi.fn());
 const uploadImage = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts, uploadImage } }));
+const getProduct = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin-api", () => ({ adminApi: { listProducts, uploadImage, getProduct } }));
 
 type UgcSection = SectionOf<"UGC">;
 const UGC_ID = "00000000-0000-7000-8000-000000000107";
@@ -62,7 +63,68 @@ describe("UgcSectionEditor", () => {
   beforeEach(() => {
     listProducts.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     uploadImage.mockReset();
+    getProduct.mockReset().mockRejectedValue(new Error("not linked"));
     setAdminLang("en");
+  });
+
+  it("shows the linked product photo and name instead of a raw id", async () => {
+    setAdminLang("en");
+    getProduct.mockResolvedValue({
+      id: "00000000-0000-7000-8000-000000000601",
+      name: "Classic Oak Shelf",
+      slug: "classic-oak-shelf",
+      productCode: "P-000001",
+      images: [
+        { id: "image-1", url: "/uploads/oak.jpg", type: "IMAGE", altText: null, sortOrder: 0 },
+      ],
+      variants: [],
+    });
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: [
+              {
+                id: "row-a",
+                name: "Ana",
+                comment: "Fits our corner",
+                imageUrl: "/uploads/ugc.jpg",
+                productId: "00000000-0000-7000-8000-000000000601",
+              },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    const current = await screen.findByTestId("ugc-row-1-product-current");
+    expect(current).toHaveTextContent("Classic Oak Shelf");
+    expect(screen.getByTestId("ugc-row-1-product-thumb")).toHaveAttribute(
+      "src",
+      "/uploads/oak.jpg",
+    );
+    expect(
+      screen.queryByText("00000000-0000-7000-8000-000000000601"),
+    ).not.toBeInTheDocument();
+  });
+  it("keeps the raw product id visible when the linked product can no longer be loaded", async () => {
+    setAdminLang("en");
+    getProduct.mockRejectedValue(new Error("gone"));
+    render(
+      <AdminI18nProvider>
+        <Harness
+          initial={{
+            entries: [
+              { id: "row-a", name: "Ana", comment: "Nice", productId: PRODUCT_ID },
+            ],
+          }}
+        />
+      </AdminI18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("ugc-row-1-product-id")).toHaveTextContent(PRODUCT_ID),
+    );
   });
   it("keeps each quote on its own photo when choosing the featured image", async () => {
     setAdminLang("en");
@@ -88,7 +150,7 @@ describe("UgcSectionEditor", () => {
     const restored = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
     expect(restored.entries).toEqual(payload.entries);
     expect(restored.presentation).toMatchObject({ featuredEntryId: payload.entries[1].id, showQuote: false, overlay: "STRONG" });
-    await waitFor(() => expect(listProducts).toHaveBeenCalled());
+    await waitFor(() => expect(listProducts).not.toHaveBeenCalled());
   });
 
   it("preserves stable ids through reorder and chooses a remaining featured photo after deletion", () => {
@@ -237,10 +299,9 @@ describe("UgcSectionEditor", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "UGC name 1" }), {
       target: { value: "Mia Santos" },
     });
-    await waitFor(() => expect(within(screen.getByTestId("ugc-row-0")).getByRole("option", { name: "Oak coffee table" })).toBeVisible());
-    fireEvent.change(screen.getByRole("combobox", { name: "UGC product 1" }), {
-      target: { value: PRODUCT_ID },
-    });
+    fireEvent.click(screen.getByTestId("ugc-row-1-product-open"));
+    const option = await screen.findByTestId("product-picker-option-oak-coffee-table");
+    fireEvent.click(option);
     fireEvent.click(screen.getByRole("button", { name: "Move UGC row 1 down" }));
 
     expect(screen.getByRole("textbox", { name: "UGC name 1" })).toHaveValue("Noah");
@@ -290,9 +351,17 @@ describe("UgcSectionEditor", () => {
     });
   });
 
-  it("keeps an existing product option visible when search results exclude it", async () => {
+  it("keeps the linked product visible when the product list excludes it", async () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    getProduct.mockResolvedValue({
+      id: PRODUCT_ID,
+      name: "Oak coffee table",
+      slug: "oak-coffee-table",
+      productCode: null,
+      images: [],
+      variants: [],
+    });
     render(
       <AdminI18nProvider>
         <Harness
@@ -303,8 +372,12 @@ describe("UgcSectionEditor", () => {
       </AdminI18nProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("option", { name: PRODUCT_ID })).toBeVisible());
-    expect(screen.getByRole("combobox", { name: "UGC product 1" })).toHaveValue(PRODUCT_ID);
+    expect(await screen.findByTestId("ugc-row-1-product-current")).toHaveTextContent(
+      "Oak coffee table",
+    );
+    expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0].productId).toBe(
+      PRODUCT_ID,
+    );
   });
 
   it("keeps an in-progress location edit focused", () => {
