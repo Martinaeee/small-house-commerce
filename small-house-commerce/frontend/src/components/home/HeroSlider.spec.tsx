@@ -624,6 +624,43 @@ describe("HeroSlider", () => {
       expect(element("ctaPrimary").querySelector("span")).not.toBeNull();
     });
 
+    it("keeps saved desktop padding and derives tablet and mobile values", () => {
+      const responsive = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          ctaPrimary: {
+            ...slide(0).elements!.ctaPrimary!,
+            button: {
+              ...slide(0).elements!.ctaPrimary!.button,
+              size: "LG",
+              paddingX: 40,
+              paddingY: 20,
+            },
+          },
+        },
+      });
+      render(
+        <HeroSlider
+          section={section([responsive])}
+          previewDevice="mobile"
+          edit={{ selectedElementKey: null, onSelectElement: () => undefined }}
+        />,
+      );
+
+      const button = element("ctaPrimary").querySelector<HTMLElement>(
+        "[data-hero-button]",
+      );
+      expect(button).not.toBeNull();
+      expect(button).toHaveAttribute("data-hero-button-size", "LG");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-x-desktop")).toBe("40px");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-y-desktop")).toBe("20px");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-x-tablet")).toBe("34px");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-y-tablet")).toBe("17px");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-x-mobile")).toBe("28px");
+      expect(button?.style.getPropertyValue("--hp-hero-button-padding-y-mobile")).toBe("14px");
+      expect(button?.style.padding).toBe("");
+    });
+
     it("shows no placeholder watermark for elements without content", () => {
       const empty = slide(0, {
         elements: {

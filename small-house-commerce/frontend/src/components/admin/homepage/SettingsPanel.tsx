@@ -59,6 +59,14 @@ const TEXT_ALIGNS: HorizontalAlign[] = ["LEFT", "CENTER", "RIGHT"];
 const VERTICAL_ALIGNS: VerticalAlign[] = ["TOP", "MIDDLE", "BOTTOM"];
 const BUTTON_VARIANTS = ["SOLID", "OUTLINE", "LINK"] as const;
 const BUTTON_SIZES = ["SM", "MD", "LG"] as const;
+const BUTTON_SIZE_PADDING: Record<
+  (typeof BUTTON_SIZES)[number],
+  { paddingX: number; paddingY: number }
+> = {
+  SM: { paddingX: 16, paddingY: 8 },
+  MD: { paddingX: 28, paddingY: 14 },
+  LG: { paddingX: 40, paddingY: 20 },
+};
 
 /** The five nullable CTA colours, each with a clear-to-null button. */
 const BUTTON_COLOR_FIELDS: ReadonlyArray<{
@@ -799,7 +807,11 @@ function ElementSettings({
               options={BUTTON_SIZES}
               labelKeys={BUTTON_SIZE_LABEL_KEYS}
               onChange={(value) =>
-                commit(elementDocument(document, { button: { size: value } }))
+                commit(
+                  elementDocument(document, {
+                    button: { size: value, ...BUTTON_SIZE_PADDING[value] },
+                  }),
+                )
               }
             />
             {BUTTON_COLOR_FIELDS.map(({ prop, labelKey }) => (

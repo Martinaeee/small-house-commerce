@@ -33,6 +33,12 @@ const OPTIONAL_PROPERTIES = {
 
 type Device = "desktop" | "tablet" | "mobile";
 
+const BUTTON_PADDING_FALLBACKS: Record<Device, { x: number; y: number }> = {
+  desktop: { x: 24, y: 14 },
+  tablet: { x: 20.4, y: 11.9 },
+  mobile: { x: 16.8, y: 9.8 },
+};
+
 type Declaration = `--el-${string}: ${string};`;
 
 function isUuid(value: unknown): value is string {
@@ -202,6 +208,11 @@ function renderMediaBlock(query: string, blocks: string[]): string {
   return [`@media ${query} {`, indented, "}"].join("\n");
 }
 
+function responsiveButtonCss(scope: string, device: Device): string {
+  const fallback = BUTTON_PADDING_FALLBACKS[device];
+  return `${scope} [data-hero-button] { box-sizing: border-box; padding: var(--hp-hero-button-padding-y-${device}, ${cssNumber(fallback.y)}px) var(--hp-hero-button-padding-x-${device}, ${cssNumber(fallback.x)}px); }`;
+}
+
 /**
  * Compile hero element values into SSR-safe, section/slide-scoped CSS.
  * Variables cascade mobile-first; optional typography uses exclusive ranges so
@@ -269,12 +280,14 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     });
     return [
       `${heightScope} { --hp-hero-height: ${previewDevice === "desktop" ? "clamp(560px, 72vh, 720px)" : "calc(100vw * 1.25)"}; height: var(--hp-hero-height); }`,
+      responsiveButtonCss(heightScope, previewDevice),
       ...blocks.flatMap((block) => [block.variables, block.typography]), mediaCss,
       ...mediaVisibility, readableHeroCss(heightScope, payload, previewDevice),
     ].join("\n");
   }
   return [
     `${heightScope} {\n  --hp-hero-height: calc(100vw * 1.25);\n  height: var(--hp-hero-height);\n}`,
+    responsiveButtonCss(heightScope, "mobile"),
     ...mobile.map((block) => block.variables),
     renderMediaBlock(
       "(min-width: 768px)",
@@ -286,11 +299,15 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     ),
     renderMediaBlock(
       "(min-width: 768px) and (max-width: 1023.98px)",
-      tablet.map((block) => block.typography),
+      [
+        ...tablet.map((block) => block.typography),
+        responsiveButtonCss(heightScope, "tablet"),
+      ],
     ),
     renderMediaBlock("(min-width: 1024px)", [
       `${heightScope} {\n  --hp-hero-height: clamp(560px, 72vh, 720px);\n  height: var(--hp-hero-height);\n}`,
       ...desktop.flatMap((block) => [block.variables, block.typography]),
+      responsiveButtonCss(heightScope, "desktop"),
     ]),
     mediaCss,
     renderMediaBlock("(max-width: 767.98px)", [readableHeroCss(heightScope, payload, "mobile")]),

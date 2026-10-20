@@ -490,6 +490,8 @@ describe("SettingsPanel", () => {
       target: { value: "LG" },
     });
     expect(ctaButton().size).toBe("LG");
+    expect(ctaButton().paddingX).toBe(40);
+    expect(ctaButton().paddingY).toBe(20);
 
     const radius = screen.getByRole("textbox", { name: "Border radius (px)" });
     fireEvent.change(radius, { target: { value: "8" } });

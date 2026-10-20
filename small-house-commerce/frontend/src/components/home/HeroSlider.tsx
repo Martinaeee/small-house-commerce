@@ -21,6 +21,7 @@ import {
 } from "@/lib/homepage-styles";
 import {
   isHeroPayloadView,
+  type HomepageHeroButton,
   type HomepageHeroElement,
   type HomepageHeroElementKey,
   type HomepageHeroMedia,
@@ -324,6 +325,20 @@ const TYPOGRAPHY_FALLBACKS: Record<
 
 const DEFAULT_TEXT_COLOR = "#292724";
 const DEFAULT_CHIP_BG = "#F2EFE9";
+const BUTTON_DEVICE_SCALE: Record<HomepageDevice, number> = {
+  desktop: 1,
+  tablet: 0.85,
+  mobile: 0.7,
+};
+
+type ResponsiveButtonStyle = CSSProperties & {
+  "--hp-hero-button-padding-x-desktop": string;
+  "--hp-hero-button-padding-y-desktop": string;
+  "--hp-hero-button-padding-x-tablet": string;
+  "--hp-hero-button-padding-y-tablet": string;
+  "--hp-hero-button-padding-x-mobile": string;
+  "--hp-hero-button-padding-y-mobile": string;
+};
 
 function subscribePrefersReducedMotion(onChange: () => void): () => void {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -621,7 +636,7 @@ function HeroElementContent({
           : undefined,
       textDecoration: button?.variant === "LINK" ? "underline" : undefined,
       borderRadius: `${numOr(button?.borderRadius, 0)}px`,
-      padding: `${numOr(button?.paddingY, 14)}px ${numOr(button?.paddingX, 24)}px`,
+      ...responsiveButtonStyle(button),
     };
 
     if (!edit && !preview) {
@@ -631,6 +646,8 @@ function HeroElementContent({
       return (
         <a
           href={href}
+          data-hero-button
+          data-hero-button-size={button?.size ?? "MD"}
           className="inline-flex items-center justify-center"
           style={linkStyle}
           {...trackAttrs(
@@ -646,6 +663,8 @@ function HeroElementContent({
     }
     return (
       <span
+        data-hero-button
+        data-hero-button-size={button?.size ?? "MD"}
         className="inline-flex items-center justify-center"
         style={linkStyle}
       >
@@ -670,6 +689,24 @@ function HeroElementContent({
 function readTextViewAlign(style: Record<string, unknown> | undefined): string {
   const align = style?.textAlign;
   return typeof align === "string" ? align : "";
+}
+
+function responsiveButtonStyle(
+  button: HomepageHeroButton | undefined,
+): ResponsiveButtonStyle {
+  const paddingX = numOr(button?.paddingX, 24);
+  const paddingY = numOr(button?.paddingY, 14);
+  const scaled = (value: number, device: HomepageDevice): string =>
+    `${Math.round(value * BUTTON_DEVICE_SCALE[device] * 100) / 100}px`;
+
+  return {
+    "--hp-hero-button-padding-x-desktop": scaled(paddingX, "desktop"),
+    "--hp-hero-button-padding-y-desktop": scaled(paddingY, "desktop"),
+    "--hp-hero-button-padding-x-tablet": scaled(paddingX, "tablet"),
+    "--hp-hero-button-padding-y-tablet": scaled(paddingY, "tablet"),
+    "--hp-hero-button-padding-x-mobile": scaled(paddingX, "mobile"),
+    "--hp-hero-button-padding-y-mobile": scaled(paddingY, "mobile"),
+  };
 }
 
 function numOr(value: unknown, fallback: number): number {

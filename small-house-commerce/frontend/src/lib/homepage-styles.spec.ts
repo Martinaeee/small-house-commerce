@@ -77,6 +77,37 @@ function typographyRules(css: string) {
 }
 
 describe("heroCss", () => {
+  it("uses the simulated device's responsive button padding in previews", () => {
+    const { payload } = heroFixture();
+    const selector = `#hp-hero-${SECTION_ID} [data-hero-button]`;
+    const mobileRule = `${selector} { box-sizing: border-box; padding: var(--hp-hero-button-padding-y-mobile, 9.8px) var(--hp-hero-button-padding-x-mobile, 16.8px); }`;
+    const tabletRule = `${selector} { box-sizing: border-box; padding: var(--hp-hero-button-padding-y-tablet, 11.9px) var(--hp-hero-button-padding-x-tablet, 20.4px); }`;
+    const desktopRule = `${selector} { box-sizing: border-box; padding: var(--hp-hero-button-padding-y-desktop, 14px) var(--hp-hero-button-padding-x-desktop, 24px); }`;
+
+    expect(heroCss(SECTION_ID, payload, "mobile")).toContain(mobileRule);
+    expect(heroCss(SECTION_ID, payload, "mobile")).not.toContain(tabletRule);
+    expect(heroCss(SECTION_ID, payload, "tablet")).toContain(tabletRule);
+    expect(heroCss(SECTION_ID, payload, "desktop")).toContain(desktopRule);
+  });
+
+  it("emits mobile, tablet and desktop button padding rules for the live viewport", () => {
+    const { payload } = heroFixture();
+    const css = heroCss(SECTION_ID, payload);
+    expect(css).toContain(
+      "padding: var(--hp-hero-button-padding-y-mobile, 9.8px) var(--hp-hero-button-padding-x-mobile, 16.8px);",
+    );
+    expect(css).toContain(
+      "@media (min-width: 768px) and (max-width: 1023.98px)",
+    );
+    expect(css).toContain(
+      "padding: var(--hp-hero-button-padding-y-tablet, 11.9px) var(--hp-hero-button-padding-x-tablet, 20.4px);",
+    );
+    expect(css).toContain("@media (min-width: 1024px)");
+    expect(css).toContain(
+      "padding: var(--hp-hero-button-padding-y-desktop, 14px) var(--hp-hero-button-padding-x-desktop, 24px);",
+    );
+  });
+
   it("bounds a local overlay to the measured copy region instead of darkening the whole image", () => {
     const { payload, slide } = heroFixture();
     slide.overlay = { color: "#000000", opacity: .7, gradient: "LOCAL" };
