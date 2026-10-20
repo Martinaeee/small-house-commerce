@@ -573,22 +573,22 @@ describe("ProductCard rating row", () => {
   });
 });
 
-describe("ProductCard discount chip", () => {
+describe("ProductCard sale price presentation", () => {
   const discountedProduct = buildProduct({
     options: [styleOption(["Oak"])],
     variants: [singleVariant({ price: 100, compareAtPrice: 125 })],
     defaultDisplayVariantId: "v-single",
   });
 
-  it("shows one honest discount beside the price without repeating it over the image", () => {
+  it("shows the sale price and struck-through compare-at price without a discount chip", () => {
     renderCard(<ProductCard product={discountedProduct} />);
-    expect(screen.getAllByText("20% OFF")).toHaveLength(1);
+    expect(screen.queryByText(/% OFF/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("card-discount")).not.toBeInTheDocument();
     expect(screen.getByText("₱125.00")).toHaveClass("line-through");
     expect(screen.queryByText("Out of Stock")).toBeNull();
   });
 
-  it("keeps stock over the image while the discount stays beside the price", () => {
+  it("keeps stock over the image while the compare-at price stays beside the price", () => {
     renderCard(
       <ProductCard
         product={buildProduct({
@@ -607,15 +607,15 @@ describe("ProductCard discount chip", () => {
     const left = screen.getByTestId("card-left-chips");
     const outOfStock = screen.getByText("Out of Stock");
     expect(left).toContainElement(outOfStock);
-    expect(left).not.toHaveTextContent("20% OFF");
-    expect(screen.getAllByText("20% OFF")).toHaveLength(1);
+    expect(left).not.toHaveTextContent(/% OFF/);
+    expect(screen.getByText("₱125.00")).toHaveClass("line-through");
   });
 
-  it("keeps the section badge in the top-right slot next to the discount chip", () => {
+  it("keeps the section badge in the top-right slot without a discount chip", () => {
     renderCard(<ProductCard product={discountedProduct} badge="New" />);
 
     const badge = screen.getByText("New");
-    expect(screen.getAllByText("20% OFF")).toHaveLength(1);
+    expect(screen.queryByText(/% OFF/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("card-discount")).not.toBeInTheDocument();
     expect(badge).toHaveClass("right-3");
   });
@@ -727,5 +727,49 @@ describe("ProductCard discount chip", () => {
     );
 
     expect(screen.queryByTestId("card-discount")).toBeNull();
+  });
+});
+
+describe("ProductCard compact commerce summary", () => {
+  it("shows a fixed-size red sale price and a gray struck-through original on one row", () => {
+    const product = buildProduct({
+      options: [styleOption(["Oak"])],
+      variants: [singleVariant({ price: 100, compareAtPrice: 125 })],
+      defaultDisplayVariantId: "v-single",
+    });
+    renderCard(<ProductCard product={product} />);
+
+    const row = screen.getByTestId("card-price-row");
+    const sale = screen.getByTestId("price");
+    const original = screen.getByTestId("card-compare-at");
+    expect(row).toHaveClass("flex", "flex-wrap", "items-baseline", "gap-x-1.5");
+    expect(sale).toHaveClass("text-[16px]", "font-bold", "text-sale", "whitespace-nowrap", "sm:text-[18px]");
+    expect(original).toHaveClass("text-xs", "text-ink-muted", "line-through", "whitespace-nowrap");
+    expect(screen.queryByText(/% OFF/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the product name to one truncated line", () => {
+    renderCard(<ProductCard product={cardTestProduct({ name: "An exceptionally long product name that must not take two lines" })} />);
+    const name = screen.getByTestId("card-name");
+    expect(name).toHaveClass("truncate");
+    expect(name).not.toHaveClass("line-clamp-2");
+  });
+
+  it("puts the tiny variant choices directly below the price with their real thumbnails", () => {
+    const product = cardTestProduct();
+    const color = product.options[0]!;
+    color.presentation = "SWATCH";
+    color.values[0]!.thumbnailUrl = "/red-thumb.jpg";
+    color.values[1]!.thumbnailUrl = "/blue-thumb.jpg";
+    renderCard(<ProductCard product={product} />);
+
+    const strip = screen.getByTestId("card-variant-strip");
+    expect(screen.getByTestId("card-price-row").nextElementSibling).toBe(strip);
+    const stripImages = within(strip).getByRole("group", { name: "Color" }).querySelectorAll("img");
+    expect(stripImages).toHaveLength(2);
+    expect(stripImages[0]).toHaveAttribute("src", "/red-thumb.jpg");
+    for (const button of within(strip).getAllByRole("button")) {
+      expect(button).toHaveClass("h-6", "w-6");
+    }
   });
 });

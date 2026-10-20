@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode, RefObject } from "react";
 import type { ProductSelectionDerived } from "@/lib/product-selection";
 import { cardMediaForSelection, cardPricePresentation } from "@/lib/product-card-presentation";
-import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import { formatPrice } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
 import type { ProductCardProps } from "./ProductCard";
 import { ProductCardImage } from "./ProductCardImage";
@@ -29,6 +29,9 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
     : cardPricePresentation(derived);
   const stock = variant?.sku?.availableInventory;
   const outOfStock = derived.selectableVariants.length === 0 || (stock !== undefined && stock <= 0);
+  const showVariantStrip =
+    product.options.length > 0 &&
+    (preview ? product.variants.length : derived.selectableVariants.length) > 1;
   return (
     <article data-product-id={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card transition-[translate,box-shadow] duration-200 motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-[0_8px_24px_rgba(0,0,0,0.14)] [@media(hover:hover)_and_(pointer:fine)_and_(prefers-reduced-motion:no-preference)]:hover:-translate-y-1.5">
       <ProductCardImage productName={product.name} media={media} href={href} navigationTrackAttrs={navigationTrackAttrs}>
@@ -43,8 +46,8 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
           </span>
         ) : null}
       </ProductCardImage>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 sm:p-4">
-        <h3 className="line-clamp-2 text-sm font-semibold text-ink">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-2 sm:p-3">
+        <h3 data-testid="card-name" title={product.name} className="truncate text-sm font-semibold text-ink">
           {href ? <Link href={href} prefetch={false} className="hover:text-cta" {...navigationTrackAttrs}>{product.name}</Link> : product.name}
         </h3>
         {product.ratingAverage != null && product.reviewCount > 0 ? (
@@ -54,14 +57,25 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
             <span className="text-xs text-ink-muted">({product.reviewCount})</span>
           </div>
         ) : null}
-        {price ? price.kind === "exact"
-          ? <PriceBox price={price.price} compareAtPrice={price.compareAtPrice} />
-          : <p className="text-lg font-bold text-ink" data-testid="price">From {formatPrice(price.price)}</p> : null}
+        {price ? (
+          <div data-testid="card-price-row" className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <span data-testid="price" className="whitespace-nowrap text-[16px] font-bold leading-tight text-sale sm:text-[18px]">
+              {price.kind === "from" ? `From ${formatPrice(price.price)}` : formatPrice(price.price)}
+            </span>
+            {price.kind === "exact" && price.compareAtPrice != null && price.compareAtPrice > price.price ? (
+              <span data-testid="card-compare-at" className="whitespace-nowrap text-xs leading-tight text-ink-muted line-through">
+                {formatPrice(price.compareAtPrice)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {showVariantStrip ? (
+          <div ref={selectorRoot} data-testid="card-variant-strip" className="min-w-0">
+            <ProductCardVariantSelector lineId={primaryLine.clientLineId} disabled={preview} preview={preview} />
+          </div>
+        ) : null}
         {stock !== undefined && stock > 0 && stock <= 5 ? <p className="text-xs text-ink-muted">Only {stock} left</p> : null}
-        <div ref={selectorRoot}>
-          <ProductCardVariantSelector lineId={primaryLine.clientLineId} disabled={preview} preview={preview} />
-        </div>
-        <div className="relative mt-auto pt-2">{action}</div>
+        <div className="relative mt-auto pt-1.5">{action}</div>
       </div>
     </article>
   );

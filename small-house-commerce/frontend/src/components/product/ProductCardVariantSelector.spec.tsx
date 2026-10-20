@@ -227,6 +227,18 @@ describe("ProductCardVariantSelector", () => {
     expect(screen.getByTestId("selection")).toHaveTextContent('{"color":"red"}');
   });
 
+  it("uses the real option thumbnail instead of only the solid swatch when one exists", () => {
+    const product = cardTestProduct();
+    product.options[0]!.presentation = "SWATCH";
+    product.options[0]!.values[1]!.swatchHex = "#0000ff";
+    product.options[0]!.values[1]!.thumbnailUrl = "/uploads/blue-option.webp";
+    renderSelector(product);
+    const blue = screen.queryByRole("button", { name: "Blue" });
+    expect(blue).toBeInTheDocument();
+    expect(blue!.querySelector("img")).toHaveAttribute("src", "/uploads/blue-option.webp");
+    expect(blue).not.toHaveStyle({ backgroundColor: "#0000ff" });
+  });
+
   it("uses only the option's thumbnail for an IMAGE choice", () => {
     const product = cardTestProduct();
     product.options[0]!.presentation = "IMAGE";

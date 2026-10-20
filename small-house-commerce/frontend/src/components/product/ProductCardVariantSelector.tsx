@@ -8,18 +8,18 @@ import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductCardOptionPanel } from "./ProductCardOptionPanel";
 
-const choiceClass = "relative inline-flex h-7 min-w-7 max-w-28 shrink-0 items-center justify-center rounded-sm border text-xs font-medium";
+const choiceClass = "relative inline-flex h-6 min-w-6 max-w-24 shrink-0 items-center justify-center rounded-sm border text-[11px] font-medium";
 
 function isVisualChoice(option: StorefrontProductOption, value: StorefrontOptionValue) {
-  return option.presentation === "SWATCH" || (option.presentation === "IMAGE" && Boolean(value.thumbnailUrl));
+  return Boolean(value.thumbnailUrl) || option.presentation === "SWATCH";
 }
 
 function ValueVisual({ option, value }: { option: StorefrontProductOption; value: StorefrontOptionValue }) {
-  if (option.presentation === "SWATCH") return null;
-  if (option.presentation === "IMAGE" && value.thumbnailUrl) return (
+  if (value.thumbnailUrl) return (
     /* eslint-disable-next-line @next/next/no-img-element */
-    <img src={value.thumbnailUrl} alt="" className="h-full w-full rounded-[inherit] object-cover" />
+    <img src={value.thumbnailUrl} alt="" loading="lazy" className="h-full w-full rounded-[inherit] object-cover" />
   );
+  if (option.presentation === "SWATCH") return null;
   return <span className="min-w-0 truncate">{value.label}</span>;
 }
 
@@ -82,8 +82,8 @@ function OptionRow({ option, productOptions, variants, selectedValueIds, disable
         return <button key={value.id} type="button" aria-label={value.label} aria-pressed={pressed}
           disabled={disabled || !compatible} onClick={() => { if (!disabled && compatible) onSelect(option.id, value.id); }}
           title={!compatible ? `${value.label} is unavailable with your current options` : outOfStock ? `${value.label} is out of stock` : value.label}
-          style={option.presentation === "SWATCH" ? { backgroundColor: value.swatchHex ?? "transparent" } : undefined}
-          className={`${choiceClass} ${visual ? "w-7 p-0" : "px-2"} focus-visible:outline-2 focus-visible:outline-cta disabled:cursor-not-allowed disabled:opacity-40 ${pressed ? visual ? "border-card ring-2 ring-cta ring-offset-1" : "border-cta bg-primary-light/40 text-cta" : "border-border bg-card text-ink hover:border-primary"}`}>
+          style={option.presentation === "SWATCH" && !value.thumbnailUrl ? { backgroundColor: value.swatchHex ?? "transparent" } : undefined}
+          className={`${choiceClass} ${visual ? "w-6 p-0" : "px-1.5"} focus-visible:outline-2 focus-visible:outline-cta disabled:cursor-not-allowed disabled:opacity-40 ${pressed ? visual ? "border-card ring-2 ring-cta ring-offset-1" : "border-cta bg-primary-light/40 text-cta" : "border-border bg-card text-ink hover:border-primary"}`}>
           <ValueVisual option={option} value={value} />
           {outOfStock ? <span className="absolute bottom-0 right-0 rounded-sm bg-card/90 px-0.5 text-[9px] text-sale" aria-hidden="true">×</span> : null}
         </button>;
@@ -93,7 +93,7 @@ function OptionRow({ option, productOptions, variants, selectedValueIds, disable
         className={`${choiceClass} border-border px-2 text-ink hover:border-primary focus-visible:outline-2 focus-visible:outline-cta disabled:cursor-not-allowed disabled:opacity-40`}>{hiddenCount > 0 ? `+${hiddenCount}` : "More"}</button> : null}
     </div>
     <div ref={measurementsRef} aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 flex h-0 gap-1 overflow-hidden">
-      {values.map(value => <span key={value.id} data-card-value-measure={value.id} className={`${choiceClass} ${isVisualChoice(option, value) ? "w-7 p-0" : "px-2"}`}><ValueVisual option={option} value={value} /></span>)}
+      {values.map(value => <span key={value.id} data-card-value-measure={value.id} className={`${choiceClass} ${isVisualChoice(option, value) ? "w-6 p-0" : "px-1.5"}`}><ValueVisual option={option} value={value} /></span>)}
       <span data-card-more-measure className={`${choiceClass} px-2`}>+{values.length}</span>
       {hasAdditionalOptions ? <span data-card-more-measure className={`${choiceClass} px-2`}>More</span> : null}
     </div>

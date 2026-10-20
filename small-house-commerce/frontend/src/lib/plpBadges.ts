@@ -2,7 +2,7 @@
  * Unified merchandise badges driven entirely by collection membership
  * (spec §4.3). A product can carry one promo badge (collection.badgeLabel)
  * plus at most one identity badge (best-sellers / new-arrivals). Discount is
- * never shown here — strikethrough pricing in PriceBox carries that alone.
+ * never shown here — the card's strikethrough price carries that alone.
  */
 export type BadgeKind = "bestseller" | "new" | "promo";
 
