@@ -1,16 +1,36 @@
 "use client";
 
 import { useEffect, useState, useRef, type ReactNode } from "react";
-import { useAdminI18n } from "@/lib/admin-i18n";
-import type { UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import type { UgcCollageVariant, UgcEntry, UgcPayload } from "@/lib/homepage-section-payloads";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 import { BufferedImageUrlInput } from "@/components/admin/homepage/BufferedSectionField";
 import { ProductPickerField } from "@/components/admin/ProductPicker";
+import { UgcFocalFrame } from "@/components/admin/homepage/sections/UgcFocalFrame";
 import { readUgcPayload } from "@/lib/homepage-section-normalize";
-import { makeUgcPresentation } from "@/lib/homepage-content-actions";
+import { makeUgcPresentation, type UgcLayoutChoice } from "@/lib/homepage-content-actions";
 import { newUuid } from "@/lib/homepage-document";
 
-const MAX_ENTRIES = 6;
+const MAX_ENTRIES = 12;
+
+const LAYOUT_CHOICES: { value: UgcLayoutChoice; labelKey: TKey }[] = [
+  { value: "CARDS", labelKey: "homepage_builder_ugc_layout_cards" },
+  { value: "GRID", labelKey: "homepage_builder_ugc_layout_grid" },
+  { value: "STRIP", labelKey: "homepage_builder_ugc_layout_strip" },
+  { value: "PORTRAIT", labelKey: "homepage_builder_ugc_layout_portrait" },
+];
+
+/**
+ * The box the photo is cropped into, so the preview matches the storefront.
+ * The storefront's boxes are viewport dependent, so these are the desktop
+ * proportions of each layout.
+ */
+function focalAspect(layout: "CARDS" | "COLLAGE", variant: UgcCollageVariant, featured: boolean): string {
+  if (layout === "CARDS") return "1 / 1";
+  if (variant === "STRIP") return featured ? "5 / 3" : "1 / 1";
+  if (variant === "PORTRAIT") return featured ? "9 / 10" : "5 / 4";
+  return featured ? "5 / 3" : "3 / 2";
+}
 
 function newRowId(): string {
   const random = globalThis.crypto?.randomUUID?.();
@@ -38,6 +58,8 @@ function UgcEntriesEditor({
   const payload = readUgcPayload(section.payload);
   const entries = (payload.entries ?? []).slice(0, MAX_ENTRIES);
   const collage = payload.presentation?.layout === "COLLAGE";
+  const variant: UgcCollageVariant = payload.presentation?.collageVariant ?? "GRID";
+  const choice: UgcLayoutChoice = collage ? variant : "CARDS";
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const [rowIds, setRowIds] = useState<string[]>(() => entries.map(() => newRowId()));
@@ -60,7 +82,7 @@ function UgcEntriesEditor({
       const nextEntries = currentEntries.map((entry, entryIndex) => {
         if (entryIndex !== index) return entry;
         const next = { ...entry, ...patch };
-        for (const field of ["imageUrl", "location", "productId"] as const) {
+        for (const field of ["imageUrl", "location", "productId", "focalX", "focalY"] as const) {
           if (field in patch && patch[field] === undefined) delete next[field];
         }
         return next;
@@ -138,14 +160,18 @@ function UgcEntriesEditor({
       data-section-content-editor="UGC"
       className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
     >
-      <div className="grid grid-cols-2 gap-2">
-        {(["CARDS", "COLLAGE"] as const).map((layout) => <button key={layout} type="button"
-          aria-pressed={layout === (payload.presentation?.layout ?? "CARDS")}
-          className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border px-3 py-2 text-sm font-medium aria-pressed:border-cta aria-pressed:bg-primary-light/30"
-          onClick={() => { if (layout !== (payload.presentation?.layout ?? "CARDS")) onPayloadChange((current) => makeUgcPresentation(current, layout, newUuid)); }}>
-          <span aria-hidden="true">{layout === "COLLAGE" ? "▣ ▦" : "▤ ▤"}</span>
-          {t(layout === "COLLAGE" ? "homepage_builder_ugc_collage" : "homepage_builder_ugc_cards")}
-        </button>)}
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-ink-secondary">{t("homepage_builder_ugc_layout")}</span>
+        <div className="grid grid-cols-2 gap-2">
+          {LAYOUT_CHOICES.map((layout) => <button key={layout.value} type="button"
+            data-testid={`ugc-layout-${layout.value}`}
+            aria-pressed={layout.value === choice}
+            className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border px-3 py-2 text-sm font-medium aria-pressed:border-cta aria-pressed:bg-primary-light/30"
+            onClick={() => { if (layout.value !== choice) onPayloadChange((current) => makeUgcPresentation(current, layout.value, newUuid)); }}>
+            <span aria-hidden="true">{layout.value === "CARDS" ? "▤ ▤" : layout.value === "STRIP" ? "▣ ▤▤▤" : layout.value === "PORTRAIT" ? "▯ ▦" : "▣ ▦"}</span>
+            {t(layout.labelKey)}
+          </button>)}
+        </div>
       </div>
       {collage ? <div className="flex flex-col gap-3">
         <label className="flex min-h-11 items-center gap-2 text-sm">
@@ -248,6 +274,18 @@ function UgcEntriesEditor({
                     }}
                   />
                 </label>
+                <UgcFocalFrame
+                  imageUrl={entry.imageUrl}
+                  focalX={entry.focalX ?? 50}
+                  focalY={entry.focalY ?? 50}
+                  aspect={focalAspect(collage ? "COLLAGE" : "CARDS", variant, collage && payload.presentation?.featuredEntryId === entry.id)}
+                  label={`${t("homepage_builder_ugc_focal")} ${index + 1}`}
+                  hint={t("homepage_builder_ugc_focal_hint")}
+                  resetLabel={t("homepage_builder_ugc_focal_reset")}
+                  testId={`ugc-focal-${index + 1}`}
+                  onChange={(focal) => updateEntry(rowId, focal)}
+                  onReset={() => updateEntry(rowId, { focalX: undefined, focalY: undefined })}
+                />
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
                     {t("homepage_builder_ugc_name", { index: index + 1 })}

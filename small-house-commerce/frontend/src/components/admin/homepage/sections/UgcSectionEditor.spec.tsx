@@ -134,7 +134,7 @@ describe("UgcSectionEditor", () => {
       { name: "", comment: "", imageUrl: "/uploads/e2e/b.jpg" },
     ] }} /></AdminI18nProvider>);
     expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0]).not.toHaveProperty("id");
-    fireEvent.click(screen.getByRole("button", { name: "Photo collage" }));
+    fireEvent.click(screen.getByTestId("ugc-layout-GRID"));
     let payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
     expect(payload.entries.every((row: { id?: string }) => /^[0-9a-f-]{36}$/i.test(row.id ?? ""))).toBe(true);
     fireEvent.click(screen.getAllByRole("button", { name: "Set as featured photo" })[1]);
@@ -144,9 +144,9 @@ describe("UgcSectionEditor", () => {
     expect(payload.entries[0].comment).toBe("Sample text A");
     fireEvent.click(screen.getByRole("checkbox", { name: "Show quote" }));
     fireEvent.click(screen.getByRole("button", { name: "Strong overlay" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+    fireEvent.click(screen.getByTestId("ugc-layout-CARDS"));
     expect(screen.getByText("Complete the name and quote before publishing cards.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Photo collage" }));
+    fireEvent.click(screen.getByTestId("ugc-layout-GRID"));
     const restored = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
     expect(restored.entries).toEqual(payload.entries);
     expect(restored.presentation).toMatchObject({ featuredEntryId: payload.entries[1].id, showQuote: false, overlay: "STRONG" });
@@ -205,7 +205,7 @@ describe("UgcSectionEditor", () => {
     expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0].imageUrl).toBe("/uploads/original.jpg");
   });
 
-  it("normalizes malformed entries and caps the editor at six entries", () => {
+  it("normalizes malformed entries and caps the editor at twelve entries", () => {
     setAdminLang("en");
     listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     render(
@@ -215,11 +215,11 @@ describe("UgcSectionEditor", () => {
     );
 
     expect(screen.getByText("No UGC entries yet.")).toBeVisible();
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       fireEvent.click(screen.getByRole("button", { name: "Add UGC entry" }));
     }
     expect(screen.getByRole("button", { name: "Add UGC entry" })).toBeDisabled();
-    expect(screen.getByText("The backend accepts up to 6 UGC entries.")).toBeVisible();
+    expect(screen.getByText("The backend accepts up to 12 UGC entries.")).toBeVisible();
   });
 
   it("sanitizes malformed oversized entries before writing another field", () => {
@@ -229,7 +229,7 @@ describe("UgcSectionEditor", () => {
       <AdminI18nProvider>
         <Harness
           initial={{
-            entries: Array.from({ length: 7 }, (_, index) => ({
+            entries: Array.from({ length: 13 }, (_, index) => ({
               name: `Name ${index + 1}`,
               comment: `Comment ${index + 1}`,
             })),
@@ -242,7 +242,7 @@ describe("UgcSectionEditor", () => {
       target: { value: "Updated name" },
     });
     const payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
-    expect(payload.entries).toHaveLength(6);
+    expect(payload.entries).toHaveLength(12);
     expect(payload.entries[0].name).toBe("Updated name");
   });
 
@@ -378,6 +378,64 @@ describe("UgcSectionEditor", () => {
     expect(JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}").entries[0].productId).toBe(
       PRODUCT_ID,
     );
+  });
+
+  it("sets the photo display area by dragging inside the preview frame", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ entries: [{ name: "Mia", comment: "Love it.", imageUrl: "/uploads/mia.jpg" }] }} />
+      </AdminI18nProvider>,
+    );
+
+    const frame = screen.getByTestId("ugc-focal-1");
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.pointerDown(frame, { clientX: 50, clientY: 25 });
+    let payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries[0]).toMatchObject({ focalX: 25, focalY: 25 });
+
+    fireEvent.pointerMove(frame, { clientX: 150, clientY: 75 });
+    payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries[0]).toMatchObject({ focalX: 75, focalY: 75 });
+  });
+
+  it("resets the photo display area back to the stored centre", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ entries: [{ name: "Mia", comment: "Love it.", imageUrl: "/uploads/mia.jpg", focalX: 20, focalY: 30 }] }} />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    const payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.entries[0]).not.toHaveProperty("focalX");
+    expect(payload.entries[0]).not.toHaveProperty("focalY");
+  });
+
+  it("stores the chosen photo layout", () => {
+    setAdminLang("en");
+    listProducts.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ entries: [{ name: "Mia", comment: "Love it.", imageUrl: "/uploads/mia.jpg" }] }} />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("ugc-layout-STRIP"));
+    let payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.presentation).toMatchObject({ layout: "COLLAGE", collageVariant: "STRIP" });
+
+    fireEvent.click(screen.getByTestId("ugc-layout-CARDS"));
+    payload = JSON.parse(screen.getByTestId("ugc-payload").textContent ?? "{}");
+    expect(payload.presentation.layout).toBe("CARDS");
+    expect(payload.presentation).not.toHaveProperty("collageVariant");
   });
 
   it("keeps an in-progress location edit focused", () => {

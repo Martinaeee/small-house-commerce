@@ -86,12 +86,20 @@ export type UgcEntry = {
   location?: string;
   comment: string;
   productId?: string;
+  /** Focal point of the photo in percent; the storefront crops around it. */
+  focalX?: number;
+  focalY?: number;
 };
+
+/** How the photos are arranged next to the large one. */
+export type UgcCollageVariant = "GRID" | "STRIP" | "PORTRAIT";
 
 export type UgcPayload = {
   entries?: UgcEntry[];
   presentation?: {
     layout: "CARDS" | "COLLAGE";
+    /** Only meaningful for the collage layout; GRID is the default. */
+    collageVariant?: UgcCollageVariant;
     featuredEntryId?: string;
     showQuote?: boolean;
     overlay?: "SOFT" | "STRONG";

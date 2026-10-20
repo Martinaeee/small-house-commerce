@@ -152,7 +152,11 @@ describe('new homepage content draft contracts', () => {
     { entries: [{ ...photo, name: 'x'.repeat(121) }] },
     { entries: [{ ...photo, location: 'x'.repeat(121) }] },
     { entries: [{ ...photo, comment: 'x'.repeat(1001) }] },
-    { entries: Array.from({ length: 7 }, (_, i) => ({ ...photo, id: uuid(750 + i) })) },
+    { entries: Array.from({ length: 13 }, (_, i) => ({ ...photo, id: uuid(750 + i) })) },
+    { entries: [{ ...photo, focalX: 101 }] },
+    { entries: [{ ...photo, focalY: -1 }] },
+    { entries: [{ ...photo, focalX: '40' }] },
+    { entries: [photo], presentation: { layout: 'COLLAGE', collageVariant: 'DIAGONAL' } },
   ])('rejects malformed new UGC shape without requiring publish completeness: %j', (payload) => {
     expect(homepageDocumentSchema.safeParse(contentDocument('UGC', payload)).success).toBe(false);
   });
@@ -163,6 +167,14 @@ describe('new homepage content draft contracts', () => {
       { entries: [photo], presentation: { layout: 'COLLAGE', featuredEntryId: photo.id } },
       { entries: [{ ...photo, comment: 'x'.repeat(1000) }], presentation: { layout: 'CARDS' } },
     ]) expect(homepageDocumentSchema.parse(contentDocument('UGC', payload)).sections[1].payload).toEqual(payload);
+  });
+
+  it('keeps the photo focal point, the collage layout and twelve photos', () => {
+    const payload = {
+      entries: Array.from({ length: 12 }, (_, i) => ({ ...photo, id: uuid(760 + i), focalX: 25, focalY: 75 })),
+      presentation: { layout: 'COLLAGE', collageVariant: 'STRIP', featuredEntryId: uuid(760) },
+    };
+    expect(homepageDocumentSchema.parse(contentDocument('UGC', payload)).sections[1].payload).toEqual(payload);
   });
 
   it('does not tighten opaque legacy non-Hero drafts', () => {

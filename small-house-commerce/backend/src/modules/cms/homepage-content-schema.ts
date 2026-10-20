@@ -41,17 +41,22 @@ export const ugcEntryDraftSchema = z.object({
   location: z.string().max(120).optional(),
   comment: z.string().max(1000),
   productId: z.string().uuid().optional(),
+  // Focal point of the photo in percent; the storefront crops around it.
+  focalX: z.number().min(0).max(100).optional(),
+  focalY: z.number().min(0).max(100).optional(),
 });
 
 export const ugcPresentationSchema = z.object({
   layout: z.enum(['CARDS', 'COLLAGE']),
+  // How the photos sit next to the large one; GRID is the default.
+  collageVariant: z.enum(['GRID', 'STRIP', 'PORTRAIT']).optional(),
   featuredEntryId: z.string().uuid().optional(),
   showQuote: z.boolean().optional(),
   overlay: z.enum(['SOFT', 'STRONG']).optional(),
 }).strict();
 
 export const ugcContentDraftSchema = z.object({
-  entries: z.array(ugcEntryDraftSchema).max(6).optional(),
+  entries: z.array(ugcEntryDraftSchema).max(12).optional(),
   presentation: ugcPresentationSchema.optional(),
 }).passthrough().superRefine((payload, ctx) => {
   const seen = new Set<string>();

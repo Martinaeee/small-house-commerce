@@ -96,14 +96,23 @@ export function resetStudioVisualFields(document: HomepageDocument, scope: Studi
   return next;
 }
 
-export function makeUgcPresentation(payload: UgcPayload, layout: "CARDS" | "COLLAGE", idFactory: () => string): UgcPayload {
+/** How the operator arranges the photos: a card grid, or a large photo plus the rest. */
+export type UgcLayoutChoice = "CARDS" | "GRID" | "STRIP" | "PORTRAIT";
+
+export function makeUgcPresentation(payload: UgcPayload, choice: UgcLayoutChoice, idFactory: () => string): UgcPayload {
   const current = readUgcPayload(payload);
-  if (layout === "CARDS") return { ...current, presentation: { ...current.presentation, layout } };
+  if (choice === "CARDS") {
+    const presentation = { ...(current.presentation ?? { layout: "CARDS" as const }) };
+    delete presentation.collageVariant;
+    presentation.layout = "CARDS";
+    return { ...current, presentation };
+  }
   const entries = (current.entries ?? []).map((entry) => ({ ...entry, id: entry.id ?? idFactory() }));
   const selected = current.presentation?.featuredEntryId;
   const featuredEntryId = entries.some((entry) => entry.id === selected) ? selected : entries[0]?.id;
   return { ...current, entries, presentation: {
-    layout, showQuote: current.presentation?.showQuote ?? true, overlay: current.presentation?.overlay ?? "SOFT",
+    layout: "COLLAGE", collageVariant: choice,
+    showQuote: current.presentation?.showQuote ?? true, overlay: current.presentation?.overlay ?? "SOFT",
     ...(featuredEntryId ? { featuredEntryId } : {}),
   } };
 }

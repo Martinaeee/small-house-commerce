@@ -113,14 +113,14 @@ describe("makeUgcPresentation", () => {
     const source = { entries: [{ name: "Layout sample", comment: "Sample text", imageUrl: "/uploads/a.jpg" }, { name: "", comment: "", imageUrl: "/uploads/b.jpg" }] };
     const before = structuredClone(source);
     let count = 0;
-    const result = makeUgcPresentation(source, "COLLAGE", () => `id-${++count}`);
+    const result = makeUgcPresentation(source, "GRID", () => `id-${++count}`);
     expect(source).toEqual(before);
     expect(result.entries).toEqual(source.entries.map((entry, index) => ({ ...entry, id: `id-${index + 1}` })));
-    expect(result.presentation).toEqual({ layout: "COLLAGE", featuredEntryId: "id-1", showQuote: true, overlay: "SOFT" });
+    expect(result.presentation).toEqual({ layout: "COLLAGE", collageVariant: "GRID", featuredEntryId: "id-1", showQuote: true, overlay: "SOFT" });
     const neverGenerate = () => { throw new Error("Do not regenerate saved ids"); };
     const selected = { ...result, presentation: { ...result.presentation!, featuredEntryId: "id-2", showQuote: false, overlay: "STRONG" as const } };
     const cards = makeUgcPresentation(selected, "CARDS", neverGenerate);
-    expect(makeUgcPresentation(cards, "COLLAGE", neverGenerate)).toEqual(selected);
+    expect(makeUgcPresentation(cards, "GRID", neverGenerate)).toEqual(selected);
   });
 
   it("converts and undoes a collage as one reducer operation without regenerating redo ids", () => {
@@ -130,7 +130,7 @@ describe("makeUgcPresentation", () => {
     document.sections.push(section);
     const initial = initEditorState({ document, rev: 7, savedAt: null });
     const converted = editorReducer(initial, { type: "mutate", mutate: (doc) => ({ ...doc, sections: doc.sections.map((row) => row.id === sectionId && row.type === "UGC"
-      ? { ...row, payload: makeUgcPresentation(row.payload, "COLLAGE", () => entryId) } : row) }) });
+      ? { ...row, payload: makeUgcPresentation(row.payload, "GRID", () => entryId) } : row) }) });
     expect(converted.past).toHaveLength(1);
     const undone = editorReducer(converted, { type: "undo" });
     expect(undone.document).toEqual(document);

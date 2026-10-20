@@ -13,7 +13,13 @@ import { HomepageContentImage } from "./HomepageContentImage";
 import styles from "./UgcSection.module.css";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
-type CollageEntry = { id?: string; name?: string; location?: string; comment?: string; imageUrl?: string; product?: Product };
+type CollageEntry = { id?: string; name?: string; location?: string; comment?: string; imageUrl?: string; focalX?: number; focalY?: number; product?: Product };
+
+/** The crop the operator chose: the storefront keeps that part of the photo. */
+function focalStyle(entry: CollageEntry): { objectPosition: string } | undefined {
+  if (typeof entry.focalX !== "number" || typeof entry.focalY !== "number") return undefined;
+  return { objectPosition: `${entry.focalX}% ${entry.focalY}%` };
+}
 
 function subscribeMobile(callback: () => void) {
   const media = window.matchMedia("(max-width: 767.98px)");
@@ -40,6 +46,7 @@ function UgcCollage({ rows, featured, presentation, section, previewDevice, inte
   const gesture = useRef<{ id: number; x: number; y: number; left: number; moved: boolean } | null>(null);
   const readerId = useId();
   const supporting = rows.filter((entry) => entry !== featured);
+  const variant = presentation.collageVariant ?? "GRID";
   const attribution = [str(featured.name).trim(), str(featured.location).trim()].filter(Boolean).join(" · ");
   const quote = str(featured.comment);
   const showQuote = presentation.showQuote !== false && quote.trim() !== "";
@@ -81,7 +88,7 @@ function UgcCollage({ rows, featured, presentation, section, previewDevice, inte
     viewport.current?.scrollTo({ left, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   };
   const photo = (entry: CollageEntry) => <>
-    {entry.imageUrl ? <HomepageContentImage src={entry.imageUrl} className={styles.photo} /> : <PlaceholderImage label="" className={styles.photo} />}
+    {entry.imageUrl ? <HomepageContentImage src={entry.imageUrl} className={styles.photo} style={focalStyle(entry)} /> : <PlaceholderImage label="" className={styles.photo} />}
     {entry.product?.slug ? <Link
       href={`/products/${encodeURIComponent(entry.product.slug)}`}
       aria-label={`View ${entry.product.name} from ${str(entry.name).trim() || "this home photo"}`}
@@ -113,7 +120,7 @@ function UgcCollage({ rows, featured, presentation, section, previewDevice, inte
 
   return <SectionShell style={section.style} previewDevice={previewDevice}>
     <SectionHeading title={section.title} subtitle={section.subtitle} />
-    <div className={styles.collage} data-ugc-layout="collage" data-device={previewDevice} data-mobile={mobile} data-single={supporting.length === 0 ? "true" : undefined}>
+    <div className={styles.collage} data-ugc-layout="collage" data-ugc-variant={variant} data-device={previewDevice} data-mobile={mobile} data-single={supporting.length === 0 ? "true" : undefined}>
       <div className={styles.stage}>
         <div ref={viewport} className={styles.viewport} data-ugc-viewport tabIndex={0} role="group" aria-label="Real home photos"
           onDragStart={(event) => event.preventDefault()}
@@ -181,7 +188,7 @@ export function UgcSection({ section, previewDevice, interactionMode }: SectionP
   const entries = Array.isArray(section.payload?.entries) ? section.payload.entries : [];
   const presentation = readUgcPayload(section.payload).presentation;
   if (presentation?.layout === "COLLAGE") {
-    const rows = entries.slice(0, 6) as CollageEntry[];
+    const rows = entries.slice(0, 12) as CollageEntry[];
     const featured = rows.find((entry) => entry.id === presentation.featuredEntryId);
     if (!featured) return null;
     return <UgcCollage key={featured.id} rows={rows} featured={featured} presentation={presentation} section={section} previewDevice={previewDevice} interactionMode={interactionMode} />;
@@ -203,14 +210,14 @@ export function UgcSection({ section, previewDevice, interactionMode }: SectionP
     <SectionShell style={section.style} previewDevice={previewDevice}>
       <SectionHeading title={section.title} subtitle={section.subtitle} />
       <div data-homepage-role="ugc-grid" className={gridClass}>
-        {entries.slice(0, 6).map((entry, index) => {
-          const row = entry as { imageUrl?: unknown; name?: unknown; location?: unknown; comment?: unknown; product?: Product };
+        {entries.slice(0, 12).map((entry, index) => {
+          const row = entry as { imageUrl?: unknown; name?: unknown; location?: unknown; comment?: unknown; focalX?: unknown; focalY?: unknown; product?: Product };
           const image = str(row.imageUrl);
           return (
             <figure data-homepage-role="media" key={index} className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
               {image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={image} alt="" loading="lazy" className="aspect-square w-full object-cover" />
+                <img src={image} alt="" loading="lazy" className="aspect-square w-full object-cover" style={focalStyle(row as CollageEntry)} />
               ) : <PlaceholderImage label="" className="aspect-square w-full" />}
               <figcaption className="flex flex-1 flex-col gap-2 p-4">
                 <blockquote data-homepage-role="quote" className="flex-1 text-sm text-ink-secondary">“{str(row.comment)}”</blockquote>

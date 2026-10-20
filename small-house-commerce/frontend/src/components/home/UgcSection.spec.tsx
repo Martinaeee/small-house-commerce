@@ -277,3 +277,46 @@ describe("UgcSection collage quote reading", () => {
     expect(container.querySelector("[data-ugc-featured] [data-homepage-role='name']")).not.toBeNull();
   });
 });
+
+describe("UgcSection photo framing", () => {
+  it("marks the collage layout so the storefront can switch arrangement", () => {
+    const { container } = render(<UgcSection section={section} />);
+    expect(container.querySelector("[data-ugc-layout='collage']")).toHaveAttribute("data-ugc-variant", "GRID");
+  });
+
+  it("marks the strip and portrait layouts", () => {
+    for (const variant of ["STRIP", "PORTRAIT"]) {
+      const { container } = render(<UgcSection section={{
+        ...section,
+        payload: { entries, presentation: { layout: "COLLAGE", collageVariant: variant, featuredEntryId: "second" } },
+      }} />);
+      expect(container.querySelector("[data-ugc-layout='collage']")).toHaveAttribute("data-ugc-variant", variant);
+    }
+  });
+
+  it("crops the photos around the stored focal point", () => {
+    const rows = [
+      { id: "first", name: "A", comment: "A", imageUrl: "/uploads/a.jpg", focalX: 25, focalY: 30 },
+      { id: "second", name: "B", comment: "B", imageUrl: "/uploads/b.jpg", focalX: 80, focalY: 10 },
+    ];
+    const { container } = render(<UgcSection section={collage(rows, "first")} />);
+    expect(container.querySelector("[data-ugc-featured] img")).toHaveStyle({ objectPosition: "25% 30%" });
+    expect(container.querySelector("[data-ugc-entry-id='second'] img")).toHaveStyle({ objectPosition: "80% 10%" });
+  });
+
+  it("leaves photos without a focal point uncropped", () => {
+    const { container } = render(<UgcSection section={collage(photos(2), "photo-0")} />);
+    expect(container.querySelector("[data-ugc-featured] img")?.getAttribute("style")).toBeNull();
+  });
+
+  it("crops the card grid photos around the stored focal point", () => {
+    const { container } = render(<UgcSection section={{
+      ...section,
+      payload: {
+        entries: [{ id: "first", name: "A", comment: "A", imageUrl: "/uploads/a.jpg", focalX: 40, focalY: 60 }],
+        presentation: { layout: "CARDS" },
+      },
+    }} />);
+    expect(container.querySelector("[data-homepage-role='ugc-grid'] img")).toHaveStyle({ objectPosition: "40% 60%" });
+  });
+});

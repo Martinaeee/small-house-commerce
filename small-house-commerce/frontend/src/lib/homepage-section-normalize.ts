@@ -16,6 +16,7 @@ import type {
   SolutionItem,
   SolutionsPayload,
   TextBlockPayload,
+  UgcCollageVariant,
   UgcEntry,
   UgcPayload,
   UspItem,
@@ -141,20 +142,26 @@ export function readCategoryTilesPayload(value: unknown): CategoryTilesPayload {
 export function readUgcPayload(value: unknown): UgcPayload {
   const payload = safeRecord(value);
   const entries: UgcEntry[] = Array.isArray(payload.entries)
-    ? payload.entries.filter(isRecord).map((entry) => ({
-        ...(typeof entry.id === "string" ? { id: entry.id } : {}),
-        ...(typeof entry.imageUrl === "string"
-          ? { imageUrl: entry.imageUrl }
-          : {}),
-        name: typeof entry.name === "string" ? entry.name : "",
-        ...(typeof entry.location === "string"
-          ? { location: entry.location }
-          : {}),
-        comment: typeof entry.comment === "string" ? entry.comment : "",
-        ...(typeof entry.productId === "string"
-          ? { productId: entry.productId }
-          : {}),
-      }))
+    ? payload.entries.filter(isRecord).map((entry) => {
+        const focalX = focalPercent(entry.focalX);
+        const focalY = focalPercent(entry.focalY);
+        return {
+          ...(typeof entry.id === "string" ? { id: entry.id } : {}),
+          ...(typeof entry.imageUrl === "string"
+            ? { imageUrl: entry.imageUrl }
+            : {}),
+          name: typeof entry.name === "string" ? entry.name : "",
+          ...(typeof entry.location === "string"
+            ? { location: entry.location }
+            : {}),
+          comment: typeof entry.comment === "string" ? entry.comment : "",
+          ...(typeof entry.productId === "string"
+            ? { productId: entry.productId }
+            : {}),
+          ...(focalX === undefined ? {} : { focalX }),
+          ...(focalY === undefined ? {} : { focalY }),
+        };
+      })
     : [];
   const presentation = payload.presentation;
   return {
@@ -162,12 +169,23 @@ export function readUgcPayload(value: unknown): UgcPayload {
     ...(isRecord(presentation) && (presentation.layout === "CARDS" || presentation.layout === "COLLAGE") ? {
       presentation: {
         layout: presentation.layout,
+        ...(isUgcCollageVariant(presentation.collageVariant) ? { collageVariant: presentation.collageVariant } : {}),
         ...(typeof presentation.featuredEntryId === "string" ? { featuredEntryId: presentation.featuredEntryId } : {}),
         ...(typeof presentation.showQuote === "boolean" ? { showQuote: presentation.showQuote } : {}),
         ...(presentation.overlay === "SOFT" || presentation.overlay === "STRONG" ? { overlay: presentation.overlay } : {}),
       },
     } : {}),
   };
+}
+
+/** Keeps a stored focal point inside the 0-100 range the storefront uses. */
+function focalPercent(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function isUgcCollageVariant(value: unknown): value is UgcCollageVariant {
+  return value === "GRID" || value === "STRIP" || value === "PORTRAIT";
 }
 
 function safeTextPayload(payload: Record<string, unknown>): TextBlockPayload {
