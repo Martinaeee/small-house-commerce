@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { cardTestProduct } from "@/test/product-card-fixtures";
 import { RoomSceneGallery } from "@/components/home/RoomSceneGallery";
 import type { HydratedRoomScene } from "@/lib/api";
@@ -26,24 +26,6 @@ function sceneWith(imageUrl: string, products: ReturnType<typeof cardTestProduct
 }
 
 describe("RoomSceneGallery", () => {
-  it("fits a tall product card above the real bottom navigation using its measured height", () => {
-    const bar = document.createElement("nav"); bar.setAttribute("data-homepage-bottom-chrome", ""); document.body.append(bar);
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function(this: HTMLElement) {
-      if (this === bar) return new DOMRect(0, 300, 390, 64);
-      if (this.hasAttribute("data-hotspot")) return new DOMRect(100, 250, 28, 28);
-      if (this.id.startsWith("room-card-")) return new DOMRect(8, 286, 240, 260);
-      return new DOMRect(0, 0, 390, 300);
-    });
-    try {
-      const product = cardTestProduct();
-      const source = scene("/room.jpg"); source.hotspots = [{ productId: product.id, xPct: 50, yPct: 50, product }];
-      render(<RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />);
-      fireEvent.click(screen.getByRole("button", { name: new RegExp(product.name) }));
-      const popup = document.querySelector<HTMLElement>('[id^="room-card-"]')!;
-      expect(Number.parseFloat(popup.style.top)).toBeLessThanOrEqual(32);
-      expect(Number.parseFloat(popup.style.maxHeight)).toBe(284);
-    } finally { rect.mockRestore(); bar.remove(); }
-  });
   it("maps hotspot coordinates into an uncropped portrait image inside the 16:10 frame", () => {
     const source = scene("/portrait.jpg");
     source.hotspots = [{ productId: "chair", xPct: 0, yPct: 50, product: { id: "chair", name: "Chair" } as HydratedRoomScene["hotspots"][number]["product"] }];
@@ -99,7 +81,7 @@ describe("RoomSceneGallery", () => {
       expect(marker.className).toContain(size);
     });
 
-    it("draws the marker as a white disc with a plus instead of a filled dot", () => {
+    it("draws the marker as a white disc that carries the product's number", () => {
       const product = cardTestProduct();
       const source = sceneWith("/room.jpg", [product]);
       render(<RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />);
@@ -107,7 +89,19 @@ describe("RoomSceneGallery", () => {
       const disc = marker.querySelector("[data-hotspot-disc]");
       expect(disc).not.toBeNull();
       expect(disc?.className).toContain("bg-white");
-      expect(marker.querySelector("[data-hotspot-plus]")).not.toBeNull();
+      expect(marker.querySelector("[data-hotspot-number]")?.textContent).toBe("1");
+    });
+
+    it("numbers the markers in the order of the scene's products", () => {
+      const products = [
+        cardTestProduct({ id: "p1", name: "Chair", slug: "chair" }),
+        cardTestProduct({ id: "p2", name: "Lamp", slug: "lamp" }),
+        cardTestProduct({ id: "p3", name: "Table", slug: "table" }),
+      ];
+      const source = sceneWith("/room.jpg", products);
+      render(<RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />);
+      const numbers = Array.from(document.querySelectorAll("[data-hotspot-number]"));
+      expect(numbers.map((node) => node.textContent)).toEqual(["1", "2", "3"]);
     });
 
     it("labels the marker in the storefront language", () => {
@@ -212,6 +206,60 @@ describe("RoomSceneGallery", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /Chair/ }));
       expect(row.getAttribute("data-active")).toBe("true");
+    });
+
+    it("numbers the product cards to match the markers", () => {
+      const products = [
+        cardTestProduct({ id: "p1", name: "Chair", slug: "chair" }),
+        cardTestProduct({ id: "p2", name: "Lamp", slug: "lamp" }),
+      ];
+      const source = sceneWith("/room.jpg", products);
+      render(<RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />);
+      const numbers = Array.from(document.querySelectorAll("[data-room-product-number]"));
+      expect(numbers.map((node) => node.textContent)).toEqual(["1", "2"]);
+    });
+
+    it("lays the products out as a horizontal rail that a phone can swipe", () => {
+      const product = cardTestProduct({ id: "p1", name: "Chair", slug: "chair" });
+      const source = sceneWith("/room.jpg", [product]);
+      const { container } = render(
+        <RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />,
+      );
+      const rail = container.querySelector("[data-room-product-rail]") as HTMLElement;
+      expect(rail.className).toContain("overflow-x-auto");
+      expect(rail.className).toContain("snap-x");
+      const row = container.querySelector("[data-room-product-row]") as HTMLElement;
+      expect(row.className).toContain("shrink-0");
+    });
+
+    it("scrolls the matching product card into view when its marker is clicked", () => {
+      const products = [
+        cardTestProduct({ id: "p1", name: "Chair", slug: "chair" }),
+        cardTestProduct({ id: "p2", name: "Lamp", slug: "lamp" }),
+      ];
+      const source = sceneWith("/room.jpg", products);
+      const calls: Array<{ el: HTMLElement; arg: unknown }> = [];
+      const original = HTMLElement.prototype.scrollIntoView;
+      HTMLElement.prototype.scrollIntoView = function (this: HTMLElement, arg?: unknown) {
+        calls.push({ el: this, arg });
+      };
+      try {
+        render(<RoomSceneGallery section={{ id: "room", title: "Room" }} scenes={[source]} />);
+        fireEvent.click(screen.getByRole("button", { name: /Lamp/ }));
+
+        const card = document.querySelector<HTMLElement>(
+          '[data-room-product-card="scene001-1"]',
+        );
+        expect(card).not.toBeNull();
+        expect(calls.at(-1)?.el).toBe(card);
+        expect(calls.at(-1)?.arg).toEqual({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      } finally {
+        HTMLElement.prototype.scrollIntoView = original;
+      }
     });
   });
 });
