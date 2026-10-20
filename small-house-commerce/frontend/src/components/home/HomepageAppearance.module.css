@@ -62,6 +62,39 @@
 .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] > div:last-child > div:empty) { display: none; }
 .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] > div:last-child > div:last-child) { padding-top: 2px; }
 .root :global([data-homepage-section-type="PRODUCT_GRID"] [data-product-id] > div:last-child > div:last-child button) { height: auto; min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+/* One swipeable row instead of a wrapped grid: every card keeps its own column
+   fraction (the admin "columns" = cards per screen), extra cards scroll
+   sideways with the scrollbar hidden. Same affordance as the category rail —
+   a neighbour peeking at the edge is the only cue, so no scroll-snap. The
+   named homepage container query follows the device frame (like the rest of
+   the appearance), so the admin canvas shows the same row even when it nests
+   a phone-width frame in a desktop viewport. */
+.root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail) {
+  display: flex;
+  gap: var(--hp-layout-mobile-gap, 16px);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+.root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail::-webkit-scrollbar) { display: none; }
+.root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail-cell) {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: calc((100% - (var(--hp-layout-mobile-columns, 2) - 1) * var(--hp-layout-mobile-gap, 16px)) / var(--hp-layout-mobile-columns, 2));
+}
+@container homepage (min-width: 768px) {
+  .root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail) { gap: var(--hp-layout-tablet-gap, 16px); }
+  .root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail-cell) {
+    width: calc((100% - (var(--hp-layout-tablet-columns, 3) - 1) * var(--hp-layout-tablet-gap, 16px)) / var(--hp-layout-tablet-columns, 3));
+  }
+}
+@container homepage (min-width: 1024px) {
+  .root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail) { gap: var(--hp-layout-desktop-gap, 16px); }
+  .root :global([data-homepage-section-type="PRODUCT_GRID"] .hp-product-rail-cell) {
+    width: calc((100% - (var(--hp-layout-desktop-columns, 4) - 1) * var(--hp-layout-desktop-gap, 16px)) / var(--hp-layout-desktop-columns, 4));
+  }
+}
 
 .root :global([data-homepage-section-type="PRODUCT_STORY"] .hp-layout) { grid-template-columns: minmax(0, 1fr); }
 .root :global([data-homepage-section-type="PRODUCT_STORY"] .hp-layout > div) { order: initial; min-width: 0; }

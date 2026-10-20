@@ -17,19 +17,48 @@ const section: HomepageSection = {
 beforeEach(() => vi.clearAllMocks());
 
 describe("ProductGridSection preview isolation", () => {
-  it("applies mobile grid settings without changing the hydrated ProductCard", () => {
+  it("renders a single horizontal swipe rail without changing the hydrated ProductCard", () => {
     const { container, rerender } = render(<ProductGridSection section={section} previewDevice="mobile" interactionMode="preview" />);
     const card = container.querySelector("article")!.outerHTML;
     rerender(<ProductGridSection section={{ ...section, payload: { layout: { overrides: { mobile: { columns: 1, gap: 6 } } } } }} previewDevice="mobile" interactionMode="preview" />);
-    const grid = container.querySelector<HTMLElement>(".grid")!;
-    expect(grid.style.gridTemplateColumns).toBe("repeat(1, minmax(0, 1fr))");
-    expect(grid.style.gap).toBe("6px");
+    const rail = container.querySelector<HTMLElement>("[data-homepage-product-rail]")!;
+    expect(rail).not.toBeNull();
+    expect(rail.className).toContain("hp-product-rail");
+    expect(rail.style.gap).toBe("6px");
+    expect(rail.style.getPropertyValue("--hp-layout-mobile-columns")).toBe("1");
+    expect(rail.style.getPropertyValue("gridTemplateColumns")).toBe("");
     expect(container.querySelector("article")!.outerHTML).toBe(card);
   });
 
-  it.each(["desktop", "tablet", "mobile"] as const)("retains legacy two columns on %s when only a gap field is added", previewDevice => {
+  it.each(["desktop", "tablet", "mobile"] as const)("retains legacy two columns per screen on %s when only a gap field is added", previewDevice => {
     const { container } = render(<ProductGridSection section={{ ...section, payload: { columns: 2, layout: { gap: 8 } } }} previewDevice={previewDevice} interactionMode="preview" />);
-    expect(container.querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+    const rail = container.querySelector<HTMLElement>("[data-homepage-product-rail]")!;
+    expect(rail).not.toBeNull();
+    expect(rail.style.getPropertyValue(`--hp-layout-${previewDevice}-columns`)).toBe("2");
+    expect(rail.style.getPropertyValue("gridTemplateColumns")).toBe("");
+  });
+
+  it("wraps each product in its own fixed-width rail cell", () => {
+    const second = { ...section.products![0]!, id: "product-2", slug: "/products/two" };
+    const { container } = render(<ProductGridSection section={{ ...section, products: [section.products![0]!, second] }} previewDevice="mobile" interactionMode="preview" />);
+    const rail = container.querySelector("[data-homepage-product-rail]")!;
+    const cells = rail.querySelectorAll(".hp-product-rail-cell");
+    expect(cells).toHaveLength(2);
+    cells.forEach(cell => expect(cell.querySelector("article")).not.toBeNull());
+  });
+
+  it("applies the STUDIO appearance gap to the rail", () => {
+    const { container } = render(<ProductGridSection section={section} previewDevice="desktop" interactionMode="preview" appearance="STUDIO_V3" />);
+    expect(container.querySelector<HTMLElement>("[data-homepage-product-rail]")!.style.gap).toBe("24px");
+  });
+
+  it("renders a plain rail outside preview with no inline grid styles", () => {
+    const { container } = render(<ProductGridSection section={section} interactionMode="preview" />);
+    const rail = container.querySelector<HTMLElement>("[data-homepage-product-rail]")!;
+    expect(rail).not.toBeNull();
+    expect(rail.className).toContain("hp-product-rail");
+    expect(rail.style.length).toBe(0);
+    expect(container.querySelector("article")).not.toBeNull();
   });
   it.each(["desktop", "tablet", "mobile"] as const)("renders inert cards without cart context on the %s canvas", previewDevice => {
     const { container } = render(<ProductGridSection section={section} previewDevice={previewDevice} interactionMode="preview" />);
