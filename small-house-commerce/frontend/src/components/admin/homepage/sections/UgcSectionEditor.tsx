@@ -22,14 +22,14 @@ const LAYOUT_CHOICES: { value: UgcLayoutChoice; labelKey: TKey }[] = [
 
 /**
  * The box the photo is cropped into, so the preview matches the storefront.
- * The storefront's boxes are viewport dependent, so these are the desktop
- * proportions of each layout.
+ * Measured on the desktop storefront: the collage boxes are viewport
+ * dependent, so these are the proportions an operator sees while editing.
  */
 function focalAspect(layout: "CARDS" | "COLLAGE", variant: UgcCollageVariant, featured: boolean): string {
   if (layout === "CARDS") return "1 / 1";
-  if (variant === "STRIP") return featured ? "5 / 3" : "1 / 1";
-  if (variant === "PORTRAIT") return featured ? "9 / 10" : "5 / 4";
-  return featured ? "5 / 3" : "3 / 2";
+  if (variant === "STRIP") return featured ? "3 / 2" : "1 / 1";
+  if (variant === "PORTRAIT") return featured ? "4 / 5" : "7 / 4";
+  return "3 / 2";
 }
 
 function newRowId(): string {
