@@ -541,6 +541,7 @@ function HeroElementContainer({
   };
 }): ReactNode {
   const selected = edit?.selectedElementKey === elementKey;
+  const ctaElement = elementKey === "ctaPrimary" || elementKey === "ctaSecondary";
   const fallback = TYPOGRAPHY_FALLBACKS[elementKey];
   const style: CSSProperties = {
     ...elementInlineVars(elementKey),
@@ -566,7 +567,7 @@ function HeroElementContainer({
         edit={edit}
         preview={preview}
       />
-      {selected ? <SelectionChrome /> : null}
+      {selected && !ctaElement ? <SelectionChrome /> : null}
     </div>
   );
 }
@@ -661,7 +662,7 @@ function HeroElementContent({
         </a>
       );
     }
-    return (
+    const buttonNode = (
       <span
         data-hero-button
         data-hero-button-size={button?.size ?? "MD"}
@@ -670,6 +671,25 @@ function HeroElementContent({
       >
         {text}
         {button?.arrow === true ? <HeroButtonArrow /> : null}
+      </span>
+    );
+    if (edit?.selectedElementKey !== elementKey) return buttonNode;
+    // The selected CTA gets its own control frame hugging the real button box;
+    // the canvas attaches pointer resize logic to these handles.
+    return (
+      <span
+        data-hero-cta-frame
+        className="relative inline-flex outline-2 outline-offset-2 outline-cta"
+      >
+        {buttonNode}
+        {RESIZE_HANDLES.map(({ direction, className }) => (
+          <span
+            key={direction}
+            data-hero-resize-handle={direction}
+            aria-hidden="true"
+            className={`absolute z-10 rounded-[2px] border border-cta bg-white shadow-sm ${className}`}
+          />
+        ))}
       </span>
     );
   }
@@ -690,6 +710,17 @@ function readTextViewAlign(style: Record<string, unknown> | undefined): string {
   const align = style?.textAlign;
   return typeof align === "string" ? align : "";
 }
+
+const RESIZE_HANDLES = [
+  { direction: "nw", className: "-left-1 -top-1 h-2.5 w-2.5 cursor-nwse-resize" },
+  { direction: "n", className: "-top-1 left-1/2 h-2 w-4 -translate-x-1/2 cursor-ns-resize" },
+  { direction: "ne", className: "-right-1 -top-1 h-2.5 w-2.5 cursor-nesw-resize" },
+  { direction: "e", className: "-right-1 top-1/2 h-4 w-2 -translate-y-1/2 cursor-ew-resize" },
+  { direction: "se", className: "-bottom-1 -right-1 h-2.5 w-2.5 cursor-nwse-resize" },
+  { direction: "s", className: "-bottom-1 left-1/2 h-2 w-4 -translate-x-1/2 cursor-ns-resize" },
+  { direction: "sw", className: "-bottom-1 -left-1 h-2.5 w-2.5 cursor-nesw-resize" },
+  { direction: "w", className: "-left-1 top-1/2 h-4 w-2 -translate-y-1/2 cursor-ew-resize" },
+] as const;
 
 function responsiveButtonStyle(
   button: HomepageHeroButton | undefined,
@@ -859,7 +890,8 @@ function HeroButtonArrow(): ReactNode {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="ml-1.5 inline-block h-[0.9em] w-[0.9em] shrink-0"
+      className="inline-block h-[0.9em] w-[0.9em] shrink-0"
+      style={{ marginLeft: "0.43em" }}
     >
       <path d="M2 8h11.5" />
       <path d="m9.5 3.5 4.5 4.5-4.5 4.5" />

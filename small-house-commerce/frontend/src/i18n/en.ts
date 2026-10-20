@@ -2094,6 +2094,13 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_field_padding_y: "Padding Y (px)",
   homepage_builder_field_button_variant: "Button variant",
   homepage_builder_field_button_size: "Button size",
+  homepage_builder_field_button_width: "Button width (px)",
+  homepage_builder_field_button_height: "Button height (px)",
+  homepage_builder_button_size_auto: "Reset to auto size",
+  homepage_builder_button_size_hint:
+    "Or drag the button's edges and corners right on the canvas.",
+  homepage_builder_resize_min_hint:
+    "Minimum size reached — the label must stay fully visible.",
   homepage_builder_field_autoplay: "Autoplay",
   homepage_builder_field_duration_ms: "Duration per slide (ms)",
   homepage_builder_field_transition: "Transition",

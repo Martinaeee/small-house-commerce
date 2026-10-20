@@ -450,6 +450,9 @@ export interface HomepageHeroButton {
   borderRadius?: number;
   paddingX?: number;
   paddingY?: number;
+  /** Direct canvas resize (CSS px); absent = intrinsic auto size. */
+  widthPx?: number;
+  heightPx?: number;
   size?: "SM" | "MD" | "LG";
   /** Optional trailing arrow after the label (mirrors the editor HeroButton). */
   arrow?: boolean;

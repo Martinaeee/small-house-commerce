@@ -77,6 +77,86 @@ function typographyRules(css: string) {
 }
 
 describe("heroCss", () => {
+  it("emits direct-resize button box rules per simulated device", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.ctaPrimary.button.paddingX = 40;
+    slide.elements.ctaPrimary.button.paddingY = 20;
+    slide.elements.ctaPrimary.button.widthPx = 200;
+    slide.elements.ctaPrimary.button.heightPx = 56;
+    slide.elements.ctaSecondary.overrides.mobile = {
+      button: { widthPx: 150, heightPx: 46, paddingX: 18, paddingY: 9 },
+    };
+
+    const mobileRules = typographyRules(heroCss(SECTION_ID, payload, "mobile"));
+    const mobilePrimary = mobileRules.find(
+      ({ selector }) =>
+        selector.includes('[data-hero-element="ctaPrimary"]') &&
+        selector.includes("[data-hero-button]"),
+    );
+    expect(mobilePrimary?.declarations).toContain("box-sizing: border-box");
+    expect(mobilePrimary?.declarations).toContain("padding: 14px 28px");
+    expect(mobilePrimary?.declarations).toContain("width: 200px");
+    expect(mobilePrimary?.declarations).toContain("height: 56px");
+
+    const mobileSecondary = mobileRules.find(
+      ({ selector }) =>
+        selector.includes('[data-hero-element="ctaSecondary"]') &&
+        selector.includes("[data-hero-button]"),
+    );
+    expect(mobileSecondary?.declarations).toContain("padding: 9px 18px");
+    expect(mobileSecondary?.declarations).toContain("width: 150px");
+    expect(mobileSecondary?.declarations).toContain("height: 46px");
+
+    const desktopRules = typographyRules(
+      heroCss(SECTION_ID, payload, "desktop"),
+    );
+    const desktopPrimary = desktopRules.find(
+      ({ selector }) =>
+        selector.includes('[data-hero-element="ctaPrimary"]') &&
+        selector.includes("[data-hero-button]"),
+    );
+    expect(desktopPrimary?.declarations).toContain("padding: 20px 40px");
+    // The mobile override never leaks into the desktop preview.
+    const desktopSecondary = desktopRules.find(
+      ({ selector }) =>
+        selector.includes('[data-hero-element="ctaSecondary"]') &&
+        selector.includes("[data-hero-button]"),
+    );
+    expect(desktopSecondary?.declarations).toContain("padding: 14px 28px");
+    expect(desktopSecondary?.declarations).not.toContain("width: 150px");
+  });
+
+  it("scopes direct-resize rules to their media ranges in the storefront", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.ctaPrimary.overrides.tablet = {
+      button: { widthPx: 170, paddingX: 20, paddingY: 10 },
+    };
+
+    const rules = typographyRules(heroCss(SECTION_ID, payload));
+    const buttonRule = (media: string | null) =>
+      rules.find(
+        ({ selector, media: ruleMedia }) =>
+          ruleMedia === media &&
+          selector.includes('[data-hero-element="ctaPrimary"]') &&
+          selector.includes("[data-hero-button]"),
+      );
+
+    expect(
+      buttonRule("(max-width: 767.98px)")?.declarations,
+    ).toContain("padding: 9.8px 19.6px");
+    expect(
+      buttonRule("(min-width: 768px) and (max-width: 1023.98px)")
+        ?.declarations,
+    ).toContain("width: 170px");
+    expect(
+      buttonRule("(min-width: 768px) and (max-width: 1023.98px)")
+        ?.declarations,
+    ).toContain("padding: 10px 20px");
+    expect(buttonRule("(min-width: 1024px)")?.declarations).toContain(
+      "padding: 14px 28px",
+    );
+  });
+
   it("uses the simulated device's responsive button padding in previews", () => {
     const { payload } = heroFixture();
     const selector = `#hp-hero-${SECTION_ID} [data-hero-button]`;
@@ -390,6 +470,48 @@ describe("heroCss", () => {
     expect(desktop).not.toContain("font-size: var(--el-heading-size);");
   });
 
+  it("resets a mobile-only typography override before wider breakpoints inherit it", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.ctaSecondary.overrides.mobile = { style: { fontSize: 12 } };
+
+    const css = heroCss(SECTION_ID, payload);
+    const base = css.slice(0, css.indexOf("@media"));
+    const tabletVariables = cssBlock(
+      css,
+      "@media (min-width: 768px)",
+      "@media (max-width: 767.98px)",
+    );
+    const desktop = cssBlock(css, "@media (min-width: 1024px)");
+
+    expect(base).toContain("--el-ctaSecondary-size: 12px;");
+    // Wider devices never declared a size; the inherited mobile value must be
+    // cancelled so the element falls back to its class default (14px).
+    expect(tabletVariables).toContain("--el-ctaSecondary-size: initial;");
+    expect(desktop).toContain("--el-ctaSecondary-size: initial;");
+  });
+
+  it("keeps values the wider device declares instead of resetting them", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.ctaSecondary.style = { fontSize: 14 };
+    slide.elements.ctaSecondary.overrides.mobile = { style: { fontSize: 12 } };
+    slide.elements.ctaSecondary.overrides.tablet = { style: { letterSpacing: 1 } };
+
+    const css = heroCss(SECTION_ID, payload);
+    const tabletVariables = cssBlock(
+      css,
+      "@media (min-width: 768px)",
+      "@media (max-width: 767.98px)",
+    );
+    const desktop = cssBlock(css, "@media (min-width: 1024px)");
+
+    expect(tabletVariables).toContain("--el-ctaSecondary-size: 14px;");
+    expect(tabletVariables).not.toContain("--el-ctaSecondary-size: initial;");
+    expect(desktop).toContain("--el-ctaSecondary-size: 14px;");
+    expect(desktop).not.toContain("--el-ctaSecondary-size: initial;");
+    // The tablet-only letter spacing does not survive into desktop.
+    expect(desktop).toContain("--el-ctaSecondary-ls: initial;");
+  });
+
   it("applies a sparse tablet override only through 1023.98px and falls back on desktop", () => {
     const { payload, slide } = heroFixture();
     slide.elements.heading.style = { fontSize: 20 };
@@ -515,7 +637,13 @@ describe("heroCss", () => {
       };
 
       // Tablet values intentionally inherit into mobile via effectiveElementStyle.
-      expect(typographyRules(heroCss(SECTION_ID, payload))).toEqual(
+      // CTA button-box rules are asserted separately; this test pins the sparse
+      // element typography ranges.
+      expect(
+        typographyRules(heroCss(SECTION_ID, payload)).filter(
+          ({ selector }) => !selector.includes("[data-hero-button]"),
+        ),
+      ).toEqual(
         mediaRanges.map((media) => ({
           media,
           selector: `#hp-hero-${SECTION_ID} [data-slide="${SLIDE_ID}"] [data-hero-element="heading"]`,

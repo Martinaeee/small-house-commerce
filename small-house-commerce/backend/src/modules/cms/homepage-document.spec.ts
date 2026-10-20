@@ -649,6 +649,64 @@ describe('homepage document schema v1', () => {
     expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
   });
 
+  it('accepts explicit direct-resize button boxes and keeps them in the parse', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const elements = slide.elements as Record<string, Record<string, unknown>>;
+    const button = elements.ctaSecondary.button as Record<string, unknown>;
+    button.widthPx = 200;
+    button.heightPx = 56;
+    (elements.ctaSecondary.overrides as Record<string, unknown>).mobile = {
+      button: {
+        widthPx: 150,
+        heightPx: 46,
+        paddingX: 18,
+        paddingY: 9,
+      },
+      style: { fontSize: 12 },
+    };
+
+    const parsed = homepageDocumentSchema.safeParse(doc);
+    expect(parsed.success).toBe(true);
+    const parsedSlide = (parsed.data!.sections[0].payload as Record<string, unknown>)
+      .slides as Array<Record<string, unknown>>;
+    const parsedElement = (parsedSlide[0].elements as Record<string, unknown>)
+      .ctaSecondary as Record<string, unknown>;
+    expect(parsedElement.button).toMatchObject({
+      widthPx: 200,
+      heightPx: 56,
+    });
+    expect(parsedElement.overrides).toMatchObject({
+      mobile: {
+        button: { widthPx: 150, heightPx: 46, paddingX: 18, paddingY: 9 },
+        style: { fontSize: 12 },
+      },
+    });
+  });
+
+  it('rejects out-of-range direct-resize button boxes', () => {
+    const mutations: Array<(button: Record<string, unknown>) => void> = [
+      (button) => { button.widthPx = 10; },
+      (button) => { button.widthPx = 5000; },
+      (button) => { button.heightPx = 10; },
+      (button) => { button.heightPx = 900; },
+    ];
+    for (const mutate of mutations) {
+      const doc = emptyDocument();
+      const slide = heroSlidesOf(doc)[0];
+      const elements = slide.elements as Record<string, Record<string, unknown>>;
+      mutate(elements.ctaPrimary.button as Record<string, unknown>);
+      expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+    }
+
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const elements = slide.elements as Record<string, Record<string, unknown>>;
+    const overrides = elements.ctaPrimary.overrides as Record<string, unknown>;
+    overrides.tablet = { button: { paddingX: -4 } };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
   it('strictly validates V2 banner payloads while keeping schema version 1', () => {
     for (const ctaLink of [
       '/collections/sale',

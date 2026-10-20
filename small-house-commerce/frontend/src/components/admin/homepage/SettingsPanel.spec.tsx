@@ -503,6 +503,8 @@ describe("SettingsPanel", () => {
     renderPanel({ elementKey: "ctaPrimary" });
 
     const size = screen.getByRole("combobox", { name: "Button size" });
+    const width = screen.getByRole("textbox", { name: "Button width (px)" });
+    const height = screen.getByRole("textbox", { name: "Button height (px)" });
     const paddingX = screen.getByRole("textbox", { name: "Padding X (px)" });
     const paddingY = screen.getByRole("textbox", { name: "Padding Y (px)" });
     const background = screen.getByRole("textbox", { name: "Background" });
@@ -515,9 +517,59 @@ describe("SettingsPanel", () => {
 
     // Manual margins must sit directly under the size preset, ahead of the
     // colour pickers, or the only findable control is Small/Medium/Large.
-    expect(follows(size, paddingX)).toBe(true);
+    expect(follows(size, width)).toBe(true);
+    expect(follows(width, height)).toBe(true);
+    expect(follows(height, paddingX)).toBe(true);
     expect(follows(paddingX, paddingY)).toBe(true);
     expect(follows(paddingY, background)).toBe(true);
+  });
+
+  it("writes exact width and height to the device being edited", async () => {
+    vi.useFakeTimers();
+    renderPanel({ elementKey: "ctaPrimary", device: "mobile" });
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Button width (px)" }),
+      { target: { value: "150" } },
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Button height (px)" }),
+      { target: { value: "46" } },
+    );
+    await advance(800);
+
+    const cta = slideElement("ctaPrimary");
+    expect(cta.overrides.mobile?.button).toEqual({
+      widthPx: 150,
+      heightPx: 46,
+    });
+    // Desktop/base stays untouched.
+    expect(ctaButton().widthPx).toBeUndefined();
+    expect(ctaButton().heightPx).toBeUndefined();
+  });
+
+  it("restores the device's auto size without dropping its font override", () => {
+    const doc = panelDocument();
+    const hero = doc.sections[0];
+    if (hero.type !== "HERO") throw new Error("fixture expects a HERO section");
+    hero.payload.slides[0].elements.ctaPrimary.overrides.mobile = {
+      button: { widthPx: 150, heightPx: 46, paddingX: 18, paddingY: 9 },
+      style: { fontSize: 12 },
+    };
+    renderPanel({
+      elementKey: "ctaPrimary",
+      device: "mobile",
+      document: doc,
+    });
+
+    expect(
+      screen.getByRole("textbox", { name: "Button width (px)" }),
+    ).toHaveValue("150");
+    fireEvent.click(screen.getByRole("button", { name: "Reset to auto size" }));
+
+    const mobile = slideElement("ctaPrimary").overrides.mobile;
+    expect(mobile?.button).toEqual({ paddingX: 18, paddingY: 9 });
+    expect(mobile?.style?.fontSize).toBe(12);
   });
 
   it("commits the countdown endsAt as ISO and clears it back to null", () => {

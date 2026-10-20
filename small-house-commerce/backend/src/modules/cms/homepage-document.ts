@@ -136,6 +136,15 @@ const elementOverrideSchema = z
   .object({
     style: elementStyleSchema,
     layout: elementLayoutSchema.partial(),
+    // Direct canvas resize writes the button box of the edited device here.
+    button: z
+      .object({
+        widthPx: z.number().min(40).max(1200),
+        heightPx: z.number().min(24).max(400),
+        paddingX: z.number().min(0).max(120),
+        paddingY: z.number().min(0).max(120),
+      })
+      .partial(),
   })
   .partial();
 
@@ -173,9 +182,15 @@ const heroButtonSchema = z.object({
   hoverBackground: hexColor.nullable(),
   hoverTextColor: hexColor.nullable(),
   borderRadius: z.number().min(0).max(48),
-  paddingX: z.number().min(4).max(48),
-  paddingY: z.number().min(2).max(32),
+  // Corner drags scale paddings with the button; the upper bound leaves room
+  // for large buttons while manual inputs stay in the 4–48 range.
+  paddingX: z.number().min(0).max(120),
+  paddingY: z.number().min(0).max(120),
   size: z.enum(['SM', 'MD', 'LG']),
+  // Optional direct-manipulation size (CSS px). Absence keeps the rendered
+  // intrinsic button size, so every stored legacy document stays valid.
+  widthPx: z.number().min(40).max(1200).optional(),
+  heightPx: z.number().min(24).max(400).optional(),
   // Optional: the reference design trails the primary CTA with an arrow. Kept
   // optional so existing stored documents (the migrated v1 included) keep
   // validating; absence renders on the storefront as "no arrow".

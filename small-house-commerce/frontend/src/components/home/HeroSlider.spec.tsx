@@ -624,6 +624,82 @@ describe("HeroSlider", () => {
       expect(element("ctaPrimary").querySelector("span")).not.toBeNull();
     });
 
+    it("surrounds the selected CTA with eight resize handles", () => {
+      render(
+        <HeroSlider
+          section={section([slide(0)])}
+          edit={{
+            selectedElementKey: "ctaPrimary",
+            onSelectElement: () => undefined,
+          }}
+        />,
+      );
+
+      const cta = element("ctaPrimary");
+      const frame = cta.querySelector("[data-hero-cta-frame]");
+      expect(frame).not.toBeNull();
+      const directions = Array.from(
+        frame!.querySelectorAll("[data-hero-resize-handle]"),
+      ).map((node) => node.getAttribute("data-hero-resize-handle"));
+      expect(directions).toEqual([
+        "nw",
+        "n",
+        "ne",
+        "e",
+        "se",
+        "s",
+        "sw",
+        "w",
+      ]);
+      // The CTA uses its own button frame instead of the old dashed box.
+      expect(cta.querySelector("[data-hero-selection-box]")).toBeNull();
+    });
+
+    it("only shows resize handles for the selected CTA in edit mode", () => {
+      render(
+        <HeroSlider
+          section={section([slide(0)])}
+          edit={{
+            selectedElementKey: "heading",
+            onSelectElement: () => undefined,
+          }}
+        />,
+      );
+      expect(
+        element("ctaPrimary").querySelector("[data-hero-cta-frame]"),
+      ).toBeNull();
+      expect(
+        element("heading").querySelector("[data-hero-selection-box]"),
+      ).not.toBeNull();
+    });
+
+    it("keeps resize handles out of the live storefront", () => {
+      render(<HeroSlider section={section([slide(0)])} />);
+      expect(document.querySelector("[data-hero-cta-frame]")).toBeNull();
+      expect(document.querySelector("[data-hero-resize-handle]")).toBeNull();
+    });
+
+    it("scales the trailing arrow gap with the label font size", () => {
+      const arrowed = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          ctaPrimary: {
+            ...slide(0).elements!.ctaPrimary!,
+            button: {
+              ...(slide(0).elements!.ctaPrimary!.button ?? {}),
+              arrow: true,
+            },
+          },
+        },
+      });
+      render(<HeroSlider section={section([arrowed])} />);
+      const glyph = element("ctaPrimary").querySelector<SVGElement>(
+        "[data-hero-btn-arrow]",
+      );
+      expect(glyph).not.toBeNull();
+      expect(glyph?.style.marginLeft).toBe("0.43em");
+    });
+
     it("keeps saved desktop padding and derives tablet and mobile values", () => {
       const responsive = slide(0, {
         elements: {

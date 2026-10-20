@@ -20,17 +20,28 @@ import {
 } from "@/components/admin/homepage/HomepageEditor";
 import {
   clampPct,
+  effectiveButtonMetrics,
   effectiveElementStyle,
   emptyElement,
   resetElementLayout,
   setElementOverride,
+  setHeroButtonMetrics,
   updateHeroElement,
+  BUTTON_BOX_LIMITS,
   type ElementLayout,
+  type HeroButtonMetricsPatch,
+  type HeroCtaKey,
   type HeroElementKey,
   type HeroSlide,
   type HomepageDocument,
   type HomepageSection,
 } from "@/lib/homepage-document";
+import {
+  computeButtonResize,
+  type ButtonResizeLimits,
+  type ButtonResizeStart,
+  type ResizeDirection,
+} from "@/lib/hero-button-resize";
 import { safeHex } from "@/lib/homepage-styles";
 import { HeroSlider } from "@/components/home/HeroSlider";
 
@@ -68,6 +79,15 @@ const ELEMENT_KEYS: readonly HeroElementKey[] = [
   "ctaSecondary",
   "countdown",
 ];
+
+/**
+ * The canvas renders the same hero section as the live preview next to it.
+ * Both stylesheets are scoped by the hero id, so sharing the document's id
+ * would let the live preview's mobile-first variables (and vice versa) leak
+ * into the canvas. The canvas therefore renders its copy under this stable
+ * synthetic UUID; it exists only in the rendered DOM, never in the document.
+ */
+const CANVAS_SECTION_ID = "00000000-0000-4000-8000-00000000c0de";
 
 const SNAP_THRESHOLD_PCT = 1.5;
 const KEYBOARD_STEP_PCT = 0.5;
@@ -274,6 +294,89 @@ type DragState = {
 };
 
 type DragPreview = { key: HeroElementKey; xPct: number; yPct: number };
+
+type ResizeState = {
+  key: HeroCtaKey;
+  slideId: string;
+  direction: ResizeDirection;
+  device: BuilderDevice;
+  startClientX: number;
+  startClientY: number;
+  pointerId: number;
+  moved: boolean;
+  capture: HTMLElement;
+  /** Screen px per CSS px (DeviceFrame renders the stage scaled). */
+  scale: number;
+  start: ButtonResizeStart;
+  limits: ButtonResizeLimits;
+};
+
+type ResizePreview = ButtonResizeStart & {
+  key: HeroCtaKey;
+  direction: ResizeDirection;
+  scaledType: boolean;
+  clamped: boolean;
+};
+
+const RESIZE_DIRECTIONS: readonly ResizeDirection[] = [
+  "n",
+  "s",
+  "e",
+  "w",
+  "ne",
+  "nw",
+  "se",
+  "sw",
+];
+
+/** Hard floors for a corner drag (the font floor keeps text fitting). */
+const BUTTON_MIN_VISUAL_WIDTH = 40;
+const BUTTON_MIN_VISUAL_HEIGHT = 24;
+const BUTTON_MAX_WIDTH_PX = 1200;
+const BUTTON_MAX_HEIGHT_PX = 400;
+
+function isResizeDirection(value: string | null): value is ResizeDirection {
+  return value !== null && RESIZE_DIRECTIONS.includes(value as ResizeDirection);
+}
+
+function isCtaKey(value: string | null): value is HeroCtaKey {
+  return value === "ctaPrimary" || value === "ctaSecondary";
+}
+
+/** Visual scale of the simulated stage: screen px / CSS px. */
+function stageScaleOf(stageEl: HTMLElement): number {
+  const rect = stageEl.getBoundingClientRect();
+  const cssWidth = stageEl.offsetWidth > 0 ? stageEl.offsetWidth : rect.width;
+  if (!(rect.width > 0) || !(cssWidth > 0)) return 1;
+  return rect.width / cssWidth;
+}
+
+/**
+ * Intrinsic box of the button at its current font/paddings. The clone keeps
+ * the same computed styles but forces auto sizing, so edge drags can stop at
+ * the point where the label (and arrow) would clip.
+ */
+function measureAutoButtonBox(button: HTMLElement): {
+  width: number;
+  height: number;
+} {
+  const parent = button.parentElement;
+  if (!parent) return { width: 0, height: 0 };
+  const clone = button.cloneNode(true) as HTMLElement;
+  clone.style.position = "absolute";
+  clone.style.visibility = "hidden";
+  clone.style.pointerEvents = "none";
+  clone.style.width = "auto";
+  clone.style.height = "auto";
+  clone.style.minWidth = "0";
+  clone.style.minHeight = "0";
+  clone.style.maxWidth = "none";
+  clone.style.whiteSpace = "nowrap";
+  parent.appendChild(clone);
+  const box = { width: clone.offsetWidth, height: clone.offsetHeight };
+  clone.remove();
+  return box;
+}
 
 type DragGuides = { x: number | null; y: number | null };
 
@@ -487,8 +590,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const previewRef = useRef<DragPreview | null>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
+  const resizePreviewRef = useRef<ResizePreview | null>(null);
   const suppressClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null);
   const [dragGuides, setDragGuides] = useState<DragGuides>(NO_GUIDES);
   const [toolbarAnchor, setToolbarAnchor] = useState<{
     left: number;
@@ -513,7 +619,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
 
   const viewSection = useMemo<HomepageSection | null>(() => {
     if (!section || !slide || section.type !== "HERO") return null;
-    return { ...section, payload: { ...section.payload, slides: [slide] } };
+    return {
+      ...section,
+      id: CANVAS_SECTION_ID,
+      payload: { ...section.payload, slides: [slide] },
+    };
   }, [section, slide]);
 
   /**
@@ -559,8 +669,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       vars[`--el-${dragPreview.key}-x`] = `${dragPreview.xPct}%`;
       vars[`--el-${dragPreview.key}-y`] = `${dragPreview.yPct}%`;
     }
+    if (resizePreview?.scaledType) {
+      vars[`--el-${resizePreview.key}-size`] = `${resizePreview.fontSize}px`;
+    }
     return vars as CSSProperties;
-  }, [slide, device, dragPreview, responsiveHeight]);
+  }, [slide, device, dragPreview, resizePreview, responsiveHeight]);
 
   /**
    * The inline stage vars above read cleanly from tests, but a real browser
@@ -606,15 +719,28 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       rule.push(`--el-${dragPreview.key}-x: ${dragPreview.xPct}%;`);
       rule.push(`--el-${dragPreview.key}-y: ${dragPreview.yPct}%;`);
     }
+    if (resizePreview?.scaledType) {
+      rule.push(`--el-${resizePreview.key}-size: ${resizePreview.fontSize}px;`);
+    }
+    const resizeRule = resizePreview
+      ? `#hp-hero-${CANVAS_SECTION_ID} [data-slide="${slide.id}"] [data-hero-element="${resizePreview.key}"] [data-hero-button] { width: ${resizePreview.width}px; height: ${resizePreview.height}px;${
+          resizePreview.scaledType
+            ? ` padding: ${resizePreview.paddingY}px ${resizePreview.paddingX}px;`
+            : ""
+        } }`
+      : "";
     return [
-      !responsiveHeight ? `#hp-hero-${section.id} { --hp-hero-height: 100%; }` : "",
-      rule.length > 0
-        ? `#hp-hero-${section.id} [data-slide="${slide.id}"] { ${rule.join(" ")} }`
+      !responsiveHeight
+        ? `#hp-hero-${CANVAS_SECTION_ID} { --hp-hero-height: 100%; }`
         : "",
+      rule.length > 0
+        ? `#hp-hero-${CANVAS_SECTION_ID} [data-slide="${slide.id}"] { ${rule.join(" ")} }`
+        : "",
+      resizeRule,
     ]
       .filter(Boolean)
       .join("\n");
-  }, [section, slide, device, dragPreview, responsiveHeight]);
+  }, [section, slide, device, dragPreview, resizePreview, responsiveHeight]);
 
   const focusCanvas = useCallback((): void => {
     const canvas = canvasRef.current;
@@ -724,11 +850,145 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     setSelectedElementKey(null);
   };
 
+  /**
+   * Begin a direct-manipulation resize from one of the CTA frame handles.
+   * Captures the rendered box (CSS px), the device's effective font/padding and
+   * the canvas zoom, so every pointer delta converts to real CSS pixels.
+   */
+  const startResize = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    key: HeroCtaKey,
+    direction: ResizeDirection,
+    container: HTMLElement,
+    handleEl: HTMLElement,
+  ): void => {
+    if (!slide) return;
+    const stageEl = stageRef.current;
+    const buttonEl = container.querySelector<HTMLElement>("[data-hero-button]");
+    if (!stageEl || !buttonEl) return;
+
+    const metrics = effectiveButtonMetrics(slide, key, device);
+    const docFont = effectiveElementStyle(slide, key, device).style.fontSize;
+    // The authored font can be implicit (appearance/theme default): fall back
+    // to the rendered size before the hard 16px fallback.
+    const computedFont = Number.parseFloat(
+      window.getComputedStyle(buttonEl).fontSize,
+    );
+    const fontSize =
+      typeof docFont === "number" && Number.isFinite(docFont)
+        ? docFont
+        : Number.isFinite(computedFont) && computedFont > 0
+          ? computedFont
+          : 16;
+    const scale = stageScaleOf(stageEl);
+    const rect = buttonEl.getBoundingClientRect();
+    const width =
+      buttonEl.offsetWidth > 0
+        ? buttonEl.offsetWidth
+        : rect.width > 0
+          ? rect.width / scale
+          : metrics.widthPx ?? 0;
+    const height =
+      buttonEl.offsetHeight > 0
+        ? buttonEl.offsetHeight
+        : rect.height > 0
+          ? rect.height / scale
+          : metrics.heightPx ?? 0;
+    const auto = measureAutoButtonBox(buttonEl);
+    const horizontal = direction.includes("e") || direction.includes("w");
+    const vertical = direction.includes("n") || direction.includes("s");
+    const corner = horizontal && vertical;
+    // Corner drags scale the text with the frame, so the intrinsic label size
+    // scales too — only the font floor and an absolute visual floor apply.
+    // Edges keep the font, so the label's current intrinsic box is the floor.
+    const minWidth = corner
+      ? BUTTON_MIN_VISUAL_WIDTH
+      : Math.max(BUTTON_MIN_VISUAL_WIDTH, auto.width);
+    const minHeight = corner
+      ? BUTTON_MIN_VISUAL_HEIGHT
+      : Math.max(BUTTON_MIN_VISUAL_HEIGHT, auto.height);
+    const stageRect = stageEl.getBoundingClientRect();
+    const cssStageWidth =
+      stageEl.offsetWidth > 0
+        ? stageEl.offsetWidth
+        : stageRect.width > 0
+          ? stageRect.width / scale
+          : BUTTON_MAX_WIDTH_PX;
+
+    resizeRef.current = {
+      key,
+      slideId: slide.id,
+      direction,
+      device,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      pointerId: event.pointerId,
+      moved: false,
+      capture: handleEl,
+      scale,
+      start: {
+        width,
+        height,
+        fontSize,
+        paddingX: metrics.paddingX,
+        paddingY: metrics.paddingY,
+      },
+      limits: {
+        minWidth,
+        minHeight,
+        maxWidth: Math.max(
+          minWidth,
+          Math.min(BUTTON_MAX_WIDTH_PX, cssStageWidth),
+        ),
+        maxHeight: Math.max(minHeight, BUTTON_MAX_HEIGHT_PX),
+        minFontSize: BUTTON_BOX_LIMITS.fontSize.min,
+        maxFontSize: BUTTON_BOX_LIMITS.fontSize.max,
+        maxPadding: BUTTON_BOX_LIMITS.paddingX.max,
+      },
+    };
+    try {
+      handleEl.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is unavailable (jsdom) or the pointer is gone.
+    }
+    focusCanvas();
+  };
+
   const handlePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ): void => {
     if (event.button !== 0) return;
     const target = event.target;
+    const resizeHandle =
+      target instanceof Element
+        ? target.closest("[data-hero-resize-handle]")
+        : null;
+    if (resizeHandle instanceof HTMLElement) {
+      const direction = resizeHandle.getAttribute("data-hero-resize-handle");
+      const container = resizeHandle.closest("[data-hero-element]");
+      const key =
+        container instanceof Element
+          ? container.getAttribute("data-hero-element")
+          : null;
+      if (
+        !isResizeDirection(direction) ||
+        !(container instanceof HTMLElement) ||
+        !isCtaKey(key) ||
+        !slide ||
+        !canvasRef.current?.contains(container)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      suppressClickRef.current = false;
+      if (section) setSelectedSectionId(section.id);
+      setSelectedElementKey(key);
+      setDragGuides(NO_GUIDES);
+      focusCanvas();
+      if (slide.elements[key].locked) return;
+      startResize(event, key, direction, container, resizeHandle);
+      return;
+    }
     const container =
       target instanceof Element
         ? target.closest("[data-hero-element]")
@@ -773,6 +1033,28 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   const handlePointerMove = (
     event: ReactPointerEvent<HTMLDivElement>,
   ): void => {
+    const resize = resizeRef.current;
+    if (resize) {
+      if (event.pointerId !== resize.pointerId) return;
+      const dx = (event.clientX - resize.startClientX) / resize.scale;
+      const dy = (event.clientY - resize.startClientY) / resize.scale;
+      if (dx !== 0 || dy !== 0) resize.moved = true;
+      const result = computeButtonResize({
+        direction: resize.direction,
+        start: resize.start,
+        limits: resize.limits,
+        dx,
+        dy,
+      });
+      const preview: ResizePreview = {
+        key: resize.key,
+        direction: resize.direction,
+        ...result,
+      };
+      resizePreviewRef.current = preview;
+      setResizePreview(preview);
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || event.pointerId !== drag.pointerId || !slide) return;
     const rect = stageRef.current?.getBoundingClientRect();
@@ -812,6 +1094,51 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   };
 
   const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const resize = resizeRef.current;
+    if (resize) {
+      if (event.pointerId !== resize.pointerId) return;
+      resizeRef.current = null;
+      try {
+        resize.capture.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // Nothing to release without pointer capture.
+      }
+      const preview = resizePreviewRef.current;
+      resizePreviewRef.current = null;
+      setResizePreview(null);
+      setDragGuides(NO_GUIDES);
+      // A cancelled pointer (or Escape, which already cleared the ref) is not
+      // a committed gesture.
+      if (event.type === "pointercancel") return;
+      if (!resize.moved || !preview) return;
+      suppressClickRef.current = true;
+      // Edge handles change exactly one axis; writing the other axis here
+      // would freeze a value the operator never set.
+      const patch: HeroButtonMetricsPatch = {
+        widthPx: preview.width,
+        heightPx: preview.height,
+      };
+      if (preview.scaledType) {
+        patch.paddingX = preview.paddingX;
+        patch.paddingY = preview.paddingY;
+        patch.fontSize = preview.fontSize;
+      } else {
+        if (resize.direction !== "e" && resize.direction !== "w") {
+          delete patch.widthPx;
+        }
+        if (resize.direction !== "n" && resize.direction !== "s") {
+          delete patch.heightPx;
+        }
+      }
+      const { key, slideId, device: resizeDevice } = resize;
+      dispatch({
+        type: "mutate",
+        // One commit per gesture, applied to the latest document.
+        mutate: (doc) =>
+          setHeroButtonMetrics(doc, slideId, key, resizeDevice, patch),
+      });
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || event.pointerId !== drag.pointerId) return;
     dragRef.current = null;
@@ -853,6 +1180,14 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     }
 
     if (event.key === "Escape") {
+      if (resizeRef.current) {
+        event.preventDefault();
+        resizeRef.current = null;
+        resizePreviewRef.current = null;
+        setResizePreview(null);
+        setDragGuides(NO_GUIDES);
+        return;
+      }
       if (selectedElementKey !== null) {
         event.preventDefault();
         setSelectedElementKey(null);
@@ -945,6 +1280,26 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
                 ? t("homepage_builder_unlock")
                 : t("homepage_builder_lock")}
             </button>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  const resizeHint =
+    resizePreview?.clamped && toolbarAnchor
+      ? createPortal(
+          <div
+            data-hero-resize-hint
+            role="status"
+            className="fixed z-50 rounded-md bg-admin-warning px-2 py-1 text-xs font-semibold text-white shadow"
+            style={{
+              left: toolbarAnchor.left,
+              top: toolbarAnchor.below
+                ? toolbarAnchor.top + 48
+                : toolbarAnchor.top - 40,
+            }}
+          >
+            {t("homepage_builder_resize_min_hint")}
           </div>,
           document.body,
         )
@@ -1065,6 +1420,7 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       ) : null}
 
       {toolbar}
+      {resizeHint}
     </div>
   );
 }

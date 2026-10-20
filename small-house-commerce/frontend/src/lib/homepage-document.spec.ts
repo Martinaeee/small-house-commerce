@@ -8,6 +8,7 @@ import {
   emptyDocument,
   emptyElement,
   emptySlide,
+  effectiveButtonMetrics,
   effectiveElementStyle,
   isScheduleActive,
   moveAnnouncementItem,
@@ -17,7 +18,9 @@ import {
   removeHeroSlide,
   removeSection,
   resetElementLayout,
+  resetHeroButtonSize,
   setElementOverride,
+  setHeroButtonMetrics,
   setHomepageAppearance,
   updateAnnouncement,
   updateAnnouncementItem,
@@ -1170,5 +1173,161 @@ describe("updateDefaults", () => {
       paddingBottom: 12,
     });
     expect(next.defaults).toEqual({ paddingBottom: 12 });
+  });
+});
+
+describe("hero button direct-resize metrics", () => {
+  function ctaSlideOf(doc: HomepageDocument) {
+    return heroSectionAt(doc, 0).payload.slides[0];
+  }
+
+  it("resolves explicit sizes and responsive paddings per device", () => {
+    const doc = emptyDocument();
+    const slide = ctaSlideOf(doc);
+    slide.elements.ctaPrimary.button.paddingX = 40;
+    slide.elements.ctaPrimary.button.paddingY = 20;
+    slide.elements.ctaPrimary.button.widthPx = 200;
+    slide.elements.ctaPrimary.overrides.tablet = {
+      button: { widthPx: 170, heightPx: 50, paddingX: 20, paddingY: 10 },
+    };
+
+    expect(effectiveButtonMetrics(slide, "ctaPrimary", "desktop")).toEqual({
+      widthPx: 200,
+      heightPx: null,
+      paddingX: 40,
+      paddingY: 20,
+    });
+    expect(effectiveButtonMetrics(slide, "ctaPrimary", "tablet")).toEqual({
+      widthPx: 170,
+      heightPx: 50,
+      paddingX: 20,
+      paddingY: 10,
+    });
+    // Mobile keeps the base width and derives padding from the base values.
+    expect(effectiveButtonMetrics(slide, "ctaPrimary", "mobile")).toEqual({
+      widthPx: 200,
+      heightPx: null,
+      paddingX: 28,
+      paddingY: 14,
+    });
+  });
+
+  it("writes desktop metrics to the base button and font to the base style", () => {
+    const doc = emptyDocument();
+    const slideId = ctaSlideOf(doc).id;
+    const next = setHeroButtonMetrics(doc, slideId, "ctaPrimary", "desktop", {
+      widthPx: 180,
+      heightPx: 52,
+      paddingX: 30,
+      paddingY: 15,
+      fontSize: 15.5,
+    });
+
+    const element = ctaSlideOf(next).elements.ctaPrimary;
+    expect(element.button).toMatchObject({
+      widthPx: 180,
+      heightPx: 52,
+      paddingX: 30,
+      paddingY: 15,
+    });
+    expect(element.style.fontSize).toBe(15.5);
+    expect(element.overrides).toEqual({});
+    // The source document is untouched.
+    expect(ctaSlideOf(doc).elements.ctaPrimary.button.widthPx).toBeUndefined();
+  });
+
+  it("writes tablet metrics to that device's override only", () => {
+    const doc = emptyDocument();
+    const slideId = ctaSlideOf(doc).id;
+    const next = setHeroButtonMetrics(doc, slideId, "ctaSecondary", "tablet", {
+      widthPx: 150,
+      heightPx: 44,
+      paddingX: 18,
+      paddingY: 9,
+      fontSize: 12,
+    });
+
+    const element = ctaSlideOf(next).elements.ctaSecondary;
+    expect(element.button.widthPx).toBeUndefined();
+    expect(element.style.fontSize).toBeUndefined();
+    expect(element.overrides.tablet).toEqual({
+      button: { widthPx: 150, heightPx: 44, paddingX: 18, paddingY: 9 },
+      style: { fontSize: 12 },
+    });
+    expect(element.overrides.mobile).toBeUndefined();
+  });
+
+  it("keeps an existing device override when a resize writes another field", () => {
+    const doc = emptyDocument();
+    const slideId = ctaSlideOf(doc).id;
+    ctaSlideOf(doc).elements.ctaSecondary.overrides.mobile = {
+      style: { fontSize: 11 },
+      layout: { xPct: 20 },
+    };
+
+    const next = setHeroButtonMetrics(
+      doc,
+      slideId,
+      "ctaSecondary",
+      "mobile",
+      { widthPx: 140 },
+    );
+
+    const mobile = ctaSlideOf(next).elements.ctaSecondary.overrides.mobile;
+    expect(mobile?.style).toEqual({ fontSize: 11 });
+    expect(mobile?.layout).toEqual({ xPct: 20 });
+    expect(mobile?.button).toEqual({ widthPx: 140 });
+  });
+
+  it("removes only the explicit size when restoring a device's auto fit", () => {
+    const doc = emptyDocument();
+    const slideId = ctaSlideOf(doc).id;
+    const withSize = setHeroButtonMetrics(
+      doc,
+      slideId,
+      "ctaPrimary",
+      "mobile",
+      {
+        widthPx: 150,
+        heightPx: 46,
+        paddingX: 20,
+        paddingY: 10,
+        fontSize: 12,
+      },
+    );
+
+    const cleared = resetHeroButtonSize(
+      withSize,
+      slideId,
+      "ctaPrimary",
+      "mobile",
+    );
+    const mobile = ctaSlideOf(cleared).elements.ctaPrimary.overrides.mobile;
+    expect(mobile?.button).toEqual({ paddingX: 20, paddingY: 10 });
+    expect(mobile?.style?.fontSize).toBe(12);
+    expect(
+      ctaSlideOf(cleared).elements.ctaPrimary.overrides.mobile?.button
+        ?.widthPx,
+    ).toBeUndefined();
+  });
+
+  it("drops the desktop width and height without touching other button fields", () => {
+    const doc = emptyDocument();
+    const slideId = ctaSlideOf(doc).id;
+    const withSize = setHeroButtonMetrics(doc, slideId, "ctaPrimary", "desktop", {
+      widthPx: 200,
+      heightPx: 60,
+    });
+    const cleared = resetHeroButtonSize(
+      withSize,
+      slideId,
+      "ctaPrimary",
+      "desktop",
+    );
+    const button = ctaSlideOf(cleared).elements.ctaPrimary.button;
+    expect(button.widthPx).toBeUndefined();
+    expect(button.heightPx).toBeUndefined();
+    expect(button.paddingX).toBe(28);
+    expect(button.size).toBe("MD");
   });
 });

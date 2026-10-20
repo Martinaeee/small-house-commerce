@@ -91,12 +91,61 @@ export type ElementLayout = {
 export type ElementOverride = {
   style?: ElementStyle;
   layout?: Partial<ElementLayout>;
+  /**
+   * Button box override for this device (CTA elements only). Direct canvas
+   * resize writes here for tablet/mobile; desktop writes the base button.
+   */
+  button?: ButtonBoxOverride;
+};
+
+/**
+ * Explicit rendered button box, stored in CSS pixels for the device it
+ * belongs to. Corner drags also write padding here so the whole button scales.
+ */
+export type ButtonBoxOverride = {
+  widthPx?: number;
+  heightPx?: number;
+  paddingX?: number;
+  paddingY?: number;
 };
 
 export type ElementOverrides = {
   tablet?: ElementOverride;
   mobile?: ElementOverride;
 };
+
+export type HeroCtaKey = "ctaPrimary" | "ctaSecondary";
+
+export type ButtonMetrics = {
+  /** Explicit rendered width in CSS px, or null for the intrinsic size. */
+  widthPx: number | null;
+  heightPx: number | null;
+  /** Device-effective paddings (base paddings scale down by breakpoint). */
+  paddingX: number;
+  paddingY: number;
+};
+
+/**
+ * Legacy responsive button padding: tablet/mobile derive their padding from the
+ * desktop value. Explicit direct-resize paddings are stored per device and do
+ * not get scaled again.
+ */
+export const BUTTON_DEVICE_PADDING_SCALE: Record<HomepageDevice, number> = {
+  desktop: 1,
+  tablet: 0.85,
+  mobile: 0.7,
+};
+
+/** Hard bounds shared by the canvas, the panel and the renderer. */
+export const BUTTON_BOX_LIMITS = {
+  widthPx: { min: 40, max: 1200 },
+  heightPx: { min: 24, max: 400 },
+  paddingX: { min: 0, max: 120 },
+  paddingY: { min: 0, max: 120 },
+  fontSize: { min: 8, max: 200 },
+} as const;
+
+const BUTTON_METRIC_FALLBACK = { paddingX: 24, paddingY: 14 } as const;
 
 export type HeroChip = {
   background: string;
@@ -117,6 +166,13 @@ export type HeroButton = {
   paddingX: number;
   paddingY: number;
   size: "SM" | "MD" | "LG";
+  /**
+   * Explicit rendered button width/height in CSS px (desktop/base). Tablet and
+   * mobile inherit these unless their `overrides.<device>.button` sets its own.
+   * Optional so every stored legacy button stays valid; absence = auto size.
+   */
+  widthPx?: number;
+  heightPx?: number;
   /**
    * Trailing arrow after the label (reference design's primary CTA). Optional so
    * legacy stored buttons (without the field) stay readable; the renderer and
@@ -1341,4 +1397,167 @@ export function effectiveElementStyle(
     if (mobile?.layout) layout = { ...layout, ...mobile.layout };
   }
   return { style: structuredClone(style), layout: structuredClone(layout) };
+}
+
+function roundMetrics(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function clampMetric(
+  value: number,
+  bounds: { min: number; max: number },
+): number {
+  return Math.min(Math.max(value, bounds.min), bounds.max);
+}
+
+function finiteOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Resolve the CTA's rendered box for one device: explicit per-device override,
+ * then the base button value, then the legacy responsive padding rule.
+ */
+export function effectiveButtonMetrics(
+  slide: HeroSlide,
+  key: HeroCtaKey,
+  device: HomepageDevice,
+): ButtonMetrics {
+  const element = slide.elements[key];
+  const button = element.button;
+  const override = device === "desktop" ? undefined : element.overrides[device]?.button;
+  const scale = BUTTON_DEVICE_PADDING_SCALE[device];
+  return {
+    widthPx: override?.widthPx ?? button.widthPx ?? null,
+    heightPx: override?.heightPx ?? button.heightPx ?? null,
+    paddingX:
+      override?.paddingX ??
+      roundMetrics(
+        finiteOr(button.paddingX, BUTTON_METRIC_FALLBACK.paddingX) * scale,
+      ),
+    paddingY:
+      override?.paddingY ??
+      roundMetrics(
+        finiteOr(button.paddingY, BUTTON_METRIC_FALLBACK.paddingY) * scale,
+      ),
+  };
+}
+
+export type HeroButtonMetricsPatch = {
+  /** null removes the explicit size (back to auto) for the edited device. */
+  widthPx?: number | null;
+  heightPx?: number | null;
+  paddingX?: number;
+  paddingY?: number;
+  fontSize?: number | null;
+};
+
+/**
+ * Write direct-resize metrics to the device that owns them: desktop updates the
+ * base button/style, tablet/mobile update only their own override so the other
+ * devices (and the base values) stay untouched. A null size restores auto-fit;
+ * other override fields (layout, device font size scale…) are preserved.
+ */
+export function setHeroButtonMetrics(
+  doc: HomepageDocument,
+  slideId: string,
+  key: HeroCtaKey,
+  device: HomepageDevice,
+  patch: HeroButtonMetricsPatch,
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const element = target.slide.elements[key];
+  const applySize = (
+    holder: ButtonBoxOverride,
+    field: "widthPx" | "heightPx",
+  ): void => {
+    const value = patch[field];
+    if (value === undefined) return;
+    if (value === null) {
+      delete holder[field];
+      return;
+    }
+    if (Number.isFinite(value)) {
+      holder[field] = roundMetrics(clampMetric(value, BUTTON_BOX_LIMITS[field]));
+    }
+  };
+  const applyPadding = (
+    holder: ButtonBoxOverride,
+    field: "paddingX" | "paddingY",
+  ): void => {
+    const value = patch[field];
+    if (value === undefined || !Number.isFinite(value)) return;
+    holder[field] = roundMetrics(clampMetric(value, BUTTON_BOX_LIMITS[field]));
+  };
+
+  if (device === "desktop") {
+    applySize(element.button, "widthPx");
+    applySize(element.button, "heightPx");
+    applyPadding(element.button, "paddingX");
+    applyPadding(element.button, "paddingY");
+    if (patch.fontSize !== undefined) {
+      if (patch.fontSize === null) delete element.style.fontSize;
+      else if (Number.isFinite(patch.fontSize)) {
+        element.style.fontSize = roundMetrics(
+          clampMetric(patch.fontSize, BUTTON_BOX_LIMITS.fontSize),
+        );
+      }
+    }
+    return next;
+  }
+
+  const override = element.overrides[device] ?? {};
+  const button = override.button ?? {};
+  applySize(button, "widthPx");
+  applySize(button, "heightPx");
+  applyPadding(button, "paddingX");
+  applyPadding(button, "paddingY");
+  if (patch.fontSize !== undefined) {
+    const style = override.style ?? {};
+    if (patch.fontSize === null) delete style.fontSize;
+    else if (Number.isFinite(patch.fontSize)) {
+      style.fontSize = roundMetrics(
+        clampMetric(patch.fontSize, BUTTON_BOX_LIMITS.fontSize),
+      );
+    }
+    if (Object.keys(style).length > 0) override.style = style;
+    else delete override.style;
+  }
+  if (Object.keys(button).length > 0) override.button = button;
+  else delete override.button;
+  if (Object.keys(override).length > 0) element.overrides[device] = override;
+  else delete element.overrides[device];
+  return next;
+}
+
+/**
+ * Restore the device's auto width/height (the responsive padding and any
+ * device-typed font size stay exactly as they were).
+ */
+export function resetHeroButtonSize(
+  doc: HomepageDocument,
+  slideId: string,
+  key: HeroCtaKey,
+  device: HomepageDevice,
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const element = target.slide.elements[key];
+
+  if (device === "desktop") {
+    delete element.button.widthPx;
+    delete element.button.heightPx;
+    return next;
+  }
+
+  const override = element.overrides[device];
+  if (!override?.button) return next;
+  delete override.button.widthPx;
+  delete override.button.heightPx;
+  if (Object.keys(override.button).length === 0) delete override.button;
+  if (Object.keys(override).length === 0) delete element.overrides[device];
+  return next;
 }

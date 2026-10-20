@@ -11,11 +11,16 @@ import {
 } from "@/components/admin/homepage/AnnouncementSettings";
 import { isoToLocalInput, localInputToIso } from "@/lib/datetime-input";
 import {
+  BUTTON_BOX_LIMITS,
+  effectiveButtonMetrics,
   resetElementLayout,
+  resetHeroButtonSize,
   setElementOverride,
+  setHeroButtonMetrics,
   updateHeroElement,
   type ElementLayout,
   type ElementStyle,
+  type HeroButtonMetricsPatch,
   type HeroElement,
   type HeroElementKey,
   type HeroElementPatch,
@@ -484,6 +489,22 @@ function ElementSettings({
     doc: HomepageDocument,
     patch: HeroElementPatch,
   ): HomepageDocument => updateHeroElement(doc, slide.id, key, patch);
+  const ctaKey =
+    key === "ctaPrimary" || key === "ctaSecondary" ? key : null;
+  const ctaMetrics = ctaKey
+    ? effectiveButtonMetrics(slide, ctaKey, device)
+    : null;
+  /**
+   * Direct-resize metrics are device-scoped: desktop updates the base button,
+   * tablet/mobile only their own override (canvas and panel share this path).
+   */
+  const buttonMetricsDocument = (
+    doc: HomepageDocument,
+    patch: HeroButtonMetricsPatch,
+  ): HomepageDocument =>
+    ctaKey
+      ? setHeroButtonMetrics(doc, slide.id, ctaKey, device, patch)
+      : doc;
 
   const mutateStyle = (patch: Partial<ElementStyle>): void =>
     applyMutation((doc) => styleDocument(doc, patch));
@@ -815,7 +836,46 @@ function ElementSettings({
               }
             />
             {/* Manual margins sit directly under the size preset so the two
-                ways to size a button are found together. */}
+                ways to size a button are found together. The width/height
+                fields mirror the canvas result and accept exact numbers. */}
+            <NumberField
+              label={t("homepage_builder_field_button_width")}
+              value={ctaMetrics?.widthPx ?? null}
+              min={BUTTON_BOX_LIMITS.widthPx.min}
+              max={BUTTON_BOX_LIMITS.widthPx.max}
+              onCommit={(value) =>
+                applyMutation((doc) =>
+                  buttonMetricsDocument(doc, { widthPx: value }),
+                )
+              }
+              onClear={
+                ctaMetrics?.widthPx == null
+                  ? undefined
+                  : () =>
+                      commit(
+                        buttonMetricsDocument(document, { widthPx: null }),
+                      )
+              }
+            />
+            <NumberField
+              label={t("homepage_builder_field_button_height")}
+              value={ctaMetrics?.heightPx ?? null}
+              min={BUTTON_BOX_LIMITS.heightPx.min}
+              max={BUTTON_BOX_LIMITS.heightPx.max}
+              onCommit={(value) =>
+                applyMutation((doc) =>
+                  buttonMetricsDocument(doc, { heightPx: value }),
+                )
+              }
+              onClear={
+                ctaMetrics?.heightPx == null
+                  ? undefined
+                  : () =>
+                      commit(
+                        buttonMetricsDocument(document, { heightPx: null }),
+                      )
+              }
+            />
             <NumberField
               label={t("homepage_builder_field_padding_x")}
               value={slide.elements[key].button.paddingX}
@@ -864,6 +924,25 @@ function ElementSettings({
                 )
               }
             />
+            <button
+              type="button"
+              className="self-start rounded-lg border border-cta/40 px-3 py-1.5 text-xs font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={
+                ctaMetrics?.widthPx == null && ctaMetrics?.heightPx == null
+              }
+              onClick={() =>
+                commit(
+                  ctaKey
+                    ? resetHeroButtonSize(document, slide.id, ctaKey, device)
+                    : document,
+                )
+              }
+            >
+              {t("homepage_builder_button_size_auto")}
+            </button>
+            <p className="col-span-2 text-xs text-ink-muted">
+              {t("homepage_builder_button_size_hint")}
+            </p>
           </div>
           {/* Trailing arrow: a discrete toggle → one commit (Task 14 pattern). */}
           <label className="flex items-center gap-2 text-xs text-ink">

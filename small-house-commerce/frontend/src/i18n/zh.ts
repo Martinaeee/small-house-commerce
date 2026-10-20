@@ -2032,6 +2032,13 @@ export const zh = {
   homepage_builder_field_padding_y: "垂直内边距（px）",
   homepage_builder_field_button_variant: "按钮样式",
   homepage_builder_field_button_size: "按钮尺寸",
+  homepage_builder_field_button_width: "按钮宽度（px）",
+  homepage_builder_field_button_height: "按钮高度（px）",
+  homepage_builder_button_size_auto: "恢复自动尺寸",
+  homepage_builder_button_size_hint:
+    "也可直接在画布上拖动按钮的边缘和角点调整大小。",
+  homepage_builder_resize_min_hint:
+    "已达最小尺寸：文字需要完整显示。",
   homepage_builder_field_autoplay: "自动播放",
   homepage_builder_field_duration_ms: "每张时长（毫秒）",
   homepage_builder_field_transition: "过渡效果",

@@ -949,3 +949,229 @@ describe("HeroCanvas", () => {
     expect(within(headingFields).getByRole("textbox", { name: "Text" })).toBeVisible();
   });
 });
+
+describe("CTA direct manipulation resize", () => {
+  function ctaDocument(): HomepageDocument {
+    const doc = canvasDocument();
+    const slide = heroSectionOf(doc).payload.slides[0];
+    slide.elements.ctaSecondary.text = "SHOP THE SALE";
+    slide.elements.ctaSecondary.style = { fontSize: 14 };
+    slide.elements.ctaSecondary.button = {
+      ...slide.elements.ctaSecondary.button,
+      arrow: true,
+      paddingX: 28,
+      paddingY: 14,
+    };
+    return doc;
+  }
+
+  function ctaButton(key: HeroElementKey = "ctaSecondary"): HTMLElement {
+    const node = element(key).querySelector("[data-hero-button]");
+    if (!(node instanceof HTMLElement)) {
+      throw new Error(`missing button for ${key}`);
+    }
+    return node;
+  }
+
+  function mockButtonBox(
+    width: number,
+    height: number,
+    key: HeroElementKey = "ctaSecondary",
+  ): void {
+    const button = ctaButton(key);
+    Object.defineProperty(button, "offsetWidth", {
+      configurable: true,
+      value: width,
+    });
+    Object.defineProperty(button, "offsetHeight", {
+      configurable: true,
+      value: height,
+    });
+  }
+
+  function mockStageScale(screenWidth: number, cssWidth: number): void {
+    mockStageRect(screenWidth, STAGE_HEIGHT);
+    Object.defineProperty(stage(), "offsetWidth", {
+      configurable: true,
+      value: cssWidth,
+    });
+  }
+
+  function selectCta(key: HeroElementKey = "ctaSecondary"): void {
+    fireEvent.click(element(key));
+  }
+
+  function handle(
+    direction: string,
+    key: HeroElementKey = "ctaSecondary",
+  ): HTMLElement {
+    const node = element(key).querySelector(
+      `[data-hero-resize-handle="${direction}"]`,
+    );
+    if (!(node instanceof HTMLElement)) {
+      throw new Error(`missing ${direction} resize handle`);
+    }
+    return node;
+  }
+
+  function dragHandle(
+    direction: string,
+    dx: number,
+    dy: number,
+    options: { escape?: boolean } = {},
+  ): void {
+    const target = handle(direction);
+    fireEvent.pointerDown(target, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(target, {
+      clientX: 100 + dx,
+      clientY: 100 + dy,
+      pointerId: POINTER_ID,
+    });
+    if (options.escape) {
+      fireEvent.keyDown(canvasRoot(), { key: "Escape" });
+    }
+    fireEvent.pointerUp(target, {
+      clientX: 100 + dx,
+      clientY: 100 + dy,
+      pointerId: POINTER_ID,
+    });
+  }
+
+  function ctaElementFromProbe(
+    key: "ctaPrimary" | "ctaSecondary" = "ctaSecondary",
+  ) {
+    return heroSectionOf(documentFromProbe()).payload.slides[0].elements[key];
+  }
+
+  it("scopes canvas CSS to its own hero id so the live preview cannot leak", () => {
+    renderCanvas();
+    const slider = document.querySelector(
+      "[data-hero-canvas] [data-hero-slider]",
+    );
+    expect(slider).not.toBeNull();
+    const heroId = heroSectionOf(documentFromProbe()).id;
+    // The document's hero id belongs to the live preview's stylesheet.
+    expect(slider?.id).not.toBe(`hp-hero-${heroId}`);
+    const css =
+      document.querySelector("[data-hero-canvas-device-css]")?.textContent ?? "";
+    expect(css).toContain(`#${slider?.id} `);
+    expect(css).not.toContain(`#hp-hero-${heroId} `);
+  });
+
+  it("shows a minimum-size hint while a clamped drag is running", () => {
+    renderCanvas({ document: ctaDocument() });
+    selectCta();
+    mockButtonBox(160, 48);
+    mockStageScale(1000, 1000);
+    const target = handle("e");
+
+    fireEvent.pointerDown(target, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(target, {
+      clientX: -500,
+      clientY: 100,
+      pointerId: POINTER_ID,
+    });
+    expect(document.querySelector("[data-hero-resize-hint]")).not.toBeNull();
+
+    fireEvent.pointerUp(target, {
+      clientX: -500,
+      clientY: 100,
+      pointerId: POINTER_ID,
+    });
+    expect(document.querySelector("[data-hero-resize-hint]")).toBeNull();
+  });
+
+  it("converts screen-pixel drags to CSS pixels at the canvas zoom", () => {
+    renderCanvas({ document: ctaDocument() });
+    selectCta();
+    mockButtonBox(160, 48);
+    // The 1000px simulated stage is shown at 800px: 80 screen px = 100 CSS px.
+    mockStageScale(800, 1000);
+
+    dragHandle("e", 80, 0);
+
+    expect(ctaElementFromProbe().button.widthPx).toBe(260);
+    expect(ctaElementFromProbe().button.heightPx).toBeUndefined();
+  });
+
+  it("writes a mobile drag to the mobile override only", () => {
+    renderCanvas({ document: ctaDocument(), device: "mobile" });
+    selectCta();
+    mockButtonBox(160, 48);
+    mockStageScale(390, 390);
+
+    dragHandle("e", 20, 0);
+
+    expect(ctaElementFromProbe().overrides.mobile?.button).toEqual({
+      widthPx: 180,
+    });
+    expect(ctaElementFromProbe().button.widthPx).toBeUndefined();
+  });
+
+  it("scales font size and paddings together on a corner drag", () => {
+    renderCanvas({ document: ctaDocument() });
+    selectCta();
+    mockButtonBox(160, 48);
+    mockStageScale(1000, 1000);
+
+    dragHandle("se", 16, 0);
+
+    const element = ctaElementFromProbe();
+    expect(element.button.widthPx).toBe(176);
+    expect(element.button.heightPx).toBe(53);
+    expect(element.button.paddingX).toBe(30.8);
+    expect(element.button.paddingY).toBe(15.4);
+    expect(element.style.fontSize).toBe(15.4);
+  });
+
+  it("cancels an in-progress resize on Escape without committing", () => {
+    renderCanvas({ document: ctaDocument() });
+    selectCta();
+    mockButtonBox(160, 48);
+    mockStageScale(1000, 1000);
+
+    dragHandle("e", 60, 0, { escape: true });
+
+    expect(ctaElementFromProbe().button.widthPx).toBeUndefined();
+    expect(pastCount()).toBe(0);
+  });
+
+  it("records one undo step per resize gesture", () => {
+    renderCanvas({ document: ctaDocument() });
+    selectCta();
+    mockButtonBox(160, 48);
+    mockStageScale(1000, 1000);
+
+    dragHandle("s", 0, 12);
+    expect(ctaElementFromProbe().button.heightPx).toBe(60);
+    expect(pastCount()).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "undo-document" }));
+    expect(ctaElementFromProbe().button.heightPx).toBeUndefined();
+  });
+
+  it("still moves the CTA when dragging its body instead of a handle", () => {
+    const doc = ctaDocument();
+    renderCanvas({ document: doc });
+    mockStageRect();
+    selectCta();
+    const startX =
+      heroSectionOf(doc).payload.slides[0].elements.ctaSecondary.layout.xPct;
+
+    dragBy("ctaSecondary", 100, 0);
+
+    const element = ctaElementFromProbe();
+    expect(element.layout.xPct).toBeGreaterThan(startX);
+    expect(element.button.widthPx).toBeUndefined();
+  });
+});

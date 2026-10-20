@@ -1,7 +1,9 @@
 import type { CSSProperties } from "react";
 
 import {
+  effectiveButtonMetrics,
   effectiveElementStyle,
+  type HeroCtaKey,
   type HeroElementKey,
   type HeroPayload,
   type HeroSlide,
@@ -21,6 +23,10 @@ const ELEMENT_KEYS = [
   "ctaSecondary",
   "countdown",
 ] as const satisfies readonly HeroElementKey[];
+const CTA_KEYS = [
+  "ctaPrimary",
+  "ctaSecondary",
+] as const satisfies readonly HeroCtaKey[];
 const ALLOWED_WEIGHTS = [400, 500, 600, 700, 800] as const;
 const OPTIONAL_PROPERTIES = {
   size: "font-size",
@@ -105,12 +111,14 @@ function declarationsFor(
   slide: HeroSlide,
   key: HeroElementKey,
   device: Device,
-): { variables: Declaration[]; typography: string[] } {
+): { variables: Declaration[]; typography: string[]; declared: string[] } {
   const { style, layout } = effectiveElementStyle(slide, key, device);
   const variables: Declaration[] = [];
   const typography: string[] = [];
+  const declared: string[] = [];
 
   function optional(suffix: keyof typeof OPTIONAL_PROPERTIES, value: string) {
+    declared.push(`--el-${key}-${suffix}`);
     variables.push(`--el-${key}-${suffix}: ${value};`);
     typography.push(
       `${OPTIONAL_PROPERTIES[suffix]}: var(--el-${key}-${suffix});`,
@@ -150,7 +158,7 @@ function declarationsFor(
     optional("maxw", `${cssNumber(style.maxWidthPct)}%`);
   }
 
-  return { variables, typography };
+  return { variables, typography, declared };
 }
 
 function slideSelector(sectionId: string, slideId: string): string {
@@ -161,9 +169,10 @@ function renderSlideBlock(
   sectionId: string,
   slide: HeroSlide,
   device: Device,
-): { variables: string; typography: string } {
+): { variables: string; typography: string; declared: string[] } {
   const variables: string[] = [];
   const typography: string[] = [];
+  const declared = new Set<string>();
   const selector = slideSelector(sectionId, slide.id);
   const media = slide.media;
   const fit = (device === "desktop" ? undefined : media?.fitOverrides?.[device]) ?? media?.fit;
@@ -179,6 +188,7 @@ function renderSlideBlock(
   }
   for (const key of ELEMENT_KEYS) {
     const declarations = declarationsFor(slide, key, device);
+    for (const name of declarations.declared) declared.add(name);
     variables.push(...declarations.variables);
     if (declarations.typography.length > 0) {
       typography.push(
@@ -188,6 +198,32 @@ function renderSlideBlock(
       );
     }
   }
+  // Direct-manipulation CTA size: one device-scoped rule per button so the
+  // saved width/height/paddings reach both the live anchor and the edit span.
+  // `min-height: 0` only appears with an explicit height — buttons without a
+  // stored size keep the design's 44/48px tap defaults.
+  for (const key of CTA_KEYS) {
+    const metrics = effectiveButtonMetrics(slide, key, device);
+    const rules = [
+      "box-sizing: border-box",
+      `padding: ${cssNumber(metrics.paddingY)}px ${cssNumber(metrics.paddingX)}px`,
+    ];
+    if (
+      metrics.widthPx !== null &&
+      inRange(metrics.widthPx, 40, 1200)
+    ) {
+      rules.push(`width: ${cssNumber(metrics.widthPx)}px`);
+    }
+    if (
+      metrics.heightPx !== null &&
+      inRange(metrics.heightPx, 24, 400)
+    ) {
+      rules.push(`height: ${cssNumber(metrics.heightPx)}px`, "min-height: 0");
+    }
+    typography.push(
+      `${selector} [data-hero-element="${key}"] [data-hero-button] { ${rules.join("; ")}; }`,
+    );
+  }
   return {
     variables: [
       `${selector} {`,
@@ -195,6 +231,7 @@ function renderSlideBlock(
       "}",
     ].join("\n"),
     typography: typography.join("\n"),
+    declared: [...declared],
   };
 }
 
@@ -243,7 +280,11 @@ function readableHeroCss(scope: string, payload: HeroPayload, device: Device): s
     `${scope}[data-readable-ready] [data-hero-element^="cta"] { min-width: var(--hp-safe-min-w, fit-content); }`,
     `${scope} [data-hero-element] { overflow-wrap: break-word; }`,
     `${scope} [data-hero-element]:empty { display: none; }`,
-    `${scope} [data-hero-element^="cta"] > :is(a, span) { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }`,
+    // The pseudo-element keeps a 44x44 tap target even after a direct resize
+    // makes the visible button smaller (the frame itself stays hit-testable
+    // through the anchor's box, pseudo-elements are part of the anchor).
+    `${scope} [data-hero-element^="cta"] :is(a, span)[data-hero-button] { position: relative; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }`,
+    `${scope} [data-hero-element^="cta"] :is(a, span)[data-hero-button]::before { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }`,
   ].join("\n");
 }
 
@@ -266,6 +307,35 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
   );
   const desktop = slides.map((slide) =>
     renderSlideBlock(sectionId, slide, "desktop"),
+  );
+
+  // Custom properties cascade wider-device-ward, so a value only a narrower
+  // device declares would otherwise inherit upward (a mobile font-size showing
+  // on desktop). Reset those names at the breakpoint where the effective style
+  // stops declaring them; the element's `var(--el-…, fallback)` then falls
+  // back to its class default exactly as the per-device editor preview does.
+  const declaredSets = (blocks: typeof mobile) =>
+    blocks.map((block) => new Set(block.declared));
+  const mobileDeclared = declaredSets(mobile);
+  const tabletDeclared = declaredSets(tablet);
+  const resetBlocks = (
+    device: typeof mobile,
+    lower: Array<Set<string>>,
+  ): string[] =>
+    slides
+      .map((slide, index) => {
+        const own = new Set(device[index].declared);
+        const names = [...lower[index]].filter((name) => !own.has(name));
+        if (names.length === 0) return "";
+        return `${slideSelector(sectionId, slide.id)} {\n${names
+          .map((name) => `  ${name}: initial;`)
+          .join("\n")}\n}`;
+      })
+      .filter((block) => block !== "");
+  const tabletResets = resetBlocks(tablet, mobileDeclared);
+  const desktopResets = resetBlocks(
+    desktop,
+    mobileDeclared.map((set, index) => new Set([...set, ...tabletDeclared[index]])),
   );
 
   const heightScope = `#hp-hero-${sectionId}`;
@@ -291,7 +361,7 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     ...mobile.map((block) => block.variables),
     renderMediaBlock(
       "(min-width: 768px)",
-      tablet.map((block) => block.variables),
+      [...tabletResets, ...tablet.map((block) => block.variables)],
     ),
     renderMediaBlock(
       "(max-width: 767.98px)",
@@ -306,6 +376,7 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     ),
     renderMediaBlock("(min-width: 1024px)", [
       `${heightScope} {\n  --hp-hero-height: clamp(560px, 72vh, 720px);\n  height: var(--hp-hero-height);\n}`,
+      ...desktopResets,
       ...desktop.flatMap((block) => [block.variables, block.typography]),
       responsiveButtonCss(heightScope, "desktop"),
     ]),
