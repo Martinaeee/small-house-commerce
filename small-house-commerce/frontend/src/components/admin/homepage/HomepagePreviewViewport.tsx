@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { DeviceFrame } from "@/components/admin/PreviewPane";
 
 const VIEWPORTS = {
-  desktop: { width: "100%", title: "Desktop homepage draft preview", label: "电脑", stage: "电脑视口" },
-  tablet: { width: "min(768px, 100%)", title: "Tablet homepage draft preview", label: "平板", stage: "平板视口（最大 768px）" },
-  mobile: { width: "min(390px, 100%)", title: "Mobile homepage draft preview", label: "手机", stage: "手机视口（最大 390px）" },
+  desktop: { device: "desktop", title: "Desktop homepage draft preview", label: "电脑", stage: "电脑视口" },
+  tablet: { device: "tablet", title: "Tablet homepage draft preview", label: "平板", stage: "平板视口（最大 768px）" },
+  mobile: { device: "mobile", title: "Mobile homepage draft preview", label: "手机", stage: "手机视口（最大 390px）" },
 } as const;
 
 type PreviewView = keyof typeof VIEWPORTS;
@@ -41,14 +42,24 @@ export function HomepagePreviewViewport({ view: initialView, src }: {
         ))}
       </div>
     </div>
+    {/* The draft renders in the same device frame the builder canvas uses
+        (1440×900 / 768×1024 / 390×844), so the preview shows the same
+        geometry a shopper gets: a hero that fills the device viewport instead
+        of the browser window, which cropped the hero image differently. */}
     <div data-preview-stage className="flex min-h-0 min-w-0 flex-1 justify-center overflow-hidden">
-      <iframe
-        src={src}
-        title={viewport.title}
-        referrerPolicy="no-referrer"
-        className="block min-w-0 bg-white"
-        style={{ width: viewport.width, height: "100%", border: 0 }}
-      />
+      <DeviceFrame
+        device={viewport.device}
+        flat
+        scrollable
+        fitAvailable
+      >
+        <iframe
+          src={src}
+          title={viewport.title}
+          referrerPolicy="no-referrer"
+          className="block h-full w-full border-0 bg-white"
+        />
+      </DeviceFrame>
     </div>
   </div>;
 }
