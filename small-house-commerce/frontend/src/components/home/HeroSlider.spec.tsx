@@ -624,6 +624,33 @@ describe("HeroSlider", () => {
       expect(element("ctaPrimary").querySelector("span")).not.toBeNull();
     });
 
+    it("shows no placeholder watermark for elements without content", () => {
+      const empty = slide(0, {
+        elements: {
+          ...slide(0).elements,
+          heading: { ...(slide(0).elements?.heading ?? {}), text: "" },
+          subheading: { ...(slide(0).elements?.subheading ?? {}), text: "   " },
+          countdown: { ...(slide(0).elements?.countdown ?? {}), endsAt: null },
+        },
+      });
+      const onSelectElement = vi.fn();
+      render(
+        <HeroSlider
+          section={section([empty])}
+          edit={{ selectedElementKey: null, onSelectElement }}
+        />,
+      );
+
+      expect(document.querySelector("[data-hero-element-placeholder]")).toBeNull();
+      expect(element("heading").textContent).toBe("");
+      expect(element("subheading").textContent).toBe("");
+      expect(element("countdown").textContent).toBe("");
+
+      // The empty block stays clickable so the canvas can still select it.
+      fireEvent.click(element("heading"));
+      expect(onSelectElement).toHaveBeenCalledWith("heading");
+    });
+
     it("renders the arrow in edit mode so the canvas matches the storefront", () => {
       const arrowed = slide(0, {
         elements: {

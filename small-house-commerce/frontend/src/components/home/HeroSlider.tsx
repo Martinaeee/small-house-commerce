@@ -573,18 +573,13 @@ function HeroElementContent({
   };
 }): ReactNode {
   const text = (element?.text ?? "").trim();
-  const placeholder = (
-    <span data-hero-element-placeholder className="opacity-40">
-      {elementKey}
-    </span>
-  );
 
   if (elementKey === "countdown") {
     const endsAt = element?.endsAt ?? null;
     if (endsAt === null) {
-      // Read-only: nothing to show. Edit: keep the block selectable in the
-      // canvas by showing a placeholder (mirroring the legacy inline render).
-      return edit ? placeholder : null;
+      // Nothing to show; the empty block keeps its wrapper so the canvas can
+      // still select it without painting placeholder text over the image.
+      return null;
     }
     return (
       <HeroSlideCountdown
@@ -595,7 +590,7 @@ function HeroElementContent({
     );
   }
 
-  if (!text) return edit ? placeholder : null;
+  if (!text) return null;
 
   if (elementKey === "offer") {
     const chip = element?.chip;
