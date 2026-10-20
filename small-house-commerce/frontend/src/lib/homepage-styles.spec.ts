@@ -512,6 +512,22 @@ describe("heroCss", () => {
     expect(desktop).toContain("--el-ctaSecondary-ls: initial;");
   });
 
+  it("preserves non-CTA typography while isolating resized CTA overrides", () => {
+    const { payload, slide } = heroFixture();
+    slide.elements.heading.overrides.mobile = { style: { fontSize: 20 } };
+    slide.elements.heading.overrides.tablet = { style: { fontSize: 34 } };
+    slide.elements.subheading.overrides.mobile = {
+      style: { fontSize: 16, lineHeight: 1.6 },
+    };
+    slide.elements.ctaSecondary.overrides.mobile = { style: { fontSize: 12 } };
+
+    const css = heroCss(SECTION_ID, payload);
+    expect(css).not.toContain("--el-heading-size: initial;");
+    expect(css).not.toContain("--el-subheading-size: initial;");
+    expect(css).not.toContain("--el-subheading-lh: initial;");
+    expect(css).toContain("--el-ctaSecondary-size: initial;");
+  });
+
   it("applies a sparse tablet override only through 1023.98px and falls back on desktop", () => {
     const { payload, slide } = heroFixture();
     slide.elements.heading.style = { fontSize: 20 };

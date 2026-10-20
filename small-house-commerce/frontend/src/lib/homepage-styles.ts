@@ -309,11 +309,8 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     renderSlideBlock(sectionId, slide, "desktop"),
   );
 
-  // Custom properties cascade wider-device-ward, so a value only a narrower
-  // device declares would otherwise inherit upward (a mobile font-size showing
-  // on desktop). Reset those names at the breakpoint where the effective style
-  // stops declaring them; the element's `var(--el-…, fallback)` then falls
-  // back to its class default exactly as the per-device editor preview does.
+  // CTA-only resets prevent mobile resize typography from leaking to wider
+  // devices. Non-CTA variables retain their existing cascade and layout.
   const declaredSets = (blocks: typeof mobile) =>
     blocks.map((block) => new Set(block.declared));
   const mobileDeclared = declaredSets(mobile);
@@ -325,7 +322,11 @@ export function heroCss(sectionId: string, payload: HeroPayload, previewDevice?:
     slides
       .map((slide, index) => {
         const own = new Set(device[index].declared);
-        const names = [...lower[index]].filter((name) => !own.has(name));
+        const names = [...lower[index]].filter(
+          (name) =>
+            CTA_KEYS.some((key) => name.startsWith(`--el-${key}-`)) &&
+            !own.has(name),
+        );
         if (names.length === 0) return "";
         return `${slideSelector(sectionId, slide.id)} {\n${names
           .map((name) => `  ${name}: initial;`)
