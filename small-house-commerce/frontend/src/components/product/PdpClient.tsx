@@ -714,7 +714,7 @@ export function PdpClient({
             <p className="text-sm font-semibold text-sale" data-testid="stock-state">{stockLabel}</p>
           )}
 
-          <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" preview={preview} />
+          <ProductOptionSelector lineId={primaryLine.clientLineId} instanceId="pdp" preview={preview} sizeCards />
 
           {hasSizeGuide && (
             <div

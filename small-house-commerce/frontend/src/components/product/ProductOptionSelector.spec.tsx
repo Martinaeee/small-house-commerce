@@ -266,6 +266,36 @@ const product: Product = {
 
 const delivery = { metro: "2–3 days", provincial: "4–7 days" };
 
+/** A SIZE option whose values carry real thumbnails and SKU measurements. */
+function sizeCardProduct(): Product {
+  const item = structuredClone(product);
+  const size = item.options.find((option) => option.id === "size")!;
+  size.presentation = "IMAGE";
+  size.values = [
+    {
+      ...size.values[0],
+      label: "Standard · 93 cm",
+      thumbnailUrl: "/standard.jpg",
+      thumbnailAlt: "Standard cabinet",
+    },
+    {
+      ...size.values[1],
+      label: "Tall · 121.5 cm",
+      thumbnailUrl: "/tall.jpg",
+      thumbnailAlt: "Tall cabinet",
+    },
+  ];
+  for (const variant of item.variants) {
+    if (!variant.sku) continue;
+    variant.sku.productWidth = 24;
+    variant.sku.productDepth = 28;
+    variant.sku.productHeight = variant.optionValueIds.includes("large")
+      ? 121.5
+      : 93;
+  }
+  return item;
+}
+
 function jsonResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
     status: 200,
@@ -892,6 +922,224 @@ describe("ProductOptionSelector", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("renders SIZE image values as compact cards with the real SKU size and a visible check", async () => {
+    const item = sizeCardProduct();
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(group.className).toMatch(/\bgrid-cols-2\b/);
+
+    const standard = within(group).getByRole("button", { name: "Standard" });
+    const tall = within(group).getByRole("button", { name: "Tall" });
+    expect(within(standard).getByRole("img", { name: "Standard cabinet" })).toHaveAttribute(
+      "src",
+      "/standard.jpg",
+    );
+    expect(within(standard).getByText("Standard")).toBeVisible();
+    expect(within(standard).getByText("36.6 in")).toBeVisible();
+    expect(within(standard).queryByText("Standard · 93 cm")).not.toBeInTheDocument();
+    expect(within(tall).getByText("47.8 in")).toBeVisible();
+
+    expect(standard).toHaveAttribute("aria-pressed", "false");
+    expect(within(standard).queryByTestId("option-selected-check")).not.toBeInTheDocument();
+
+    await userEvent.setup().click(tall);
+    expect(tall).toHaveAttribute("aria-pressed", "true");
+    expect(within(tall).getByTestId("option-selected-check")).toBeVisible();
+  });
+
+  it("keeps the card selection on the same provider state as the purchase island", async () => {
+    const item = sizeCardProduct();
+    function Probe() {
+      const { primaryDerived } = usePdpPurchase();
+      return <output data-testid="resolved">{primaryDerived.resolvedVariant?.id ?? "none"}</output>;
+    }
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+        <Probe />
+      </PdpPurchaseProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Red" }));
+    await user.click(screen.getByRole("button", { name: "Tall" }));
+    expect(screen.getByTestId("resolved")).toHaveTextContent("red-large");
+    expect(screen.getByRole("button", { name: "Tall" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("reads each card's size from the variant matching the other current selections", async () => {
+    const item = sizeCardProduct();
+    Object.assign(
+      item.variants.find((variant) => variant.id === "blue-large")!.sku!,
+      { productHeight: 130 },
+    );
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(within(group).getByText("9.4W × 51.2H × 11D in")).toBeVisible();
+    expect(within(group).getByRole("button", { name: "Tall" })).toHaveAccessibleDescription("9.4W × 51.2H × 11D in");
+    expect(within(group).queryByText("47.8 in")).not.toBeInTheDocument();
+  });
+
+  it("uses a single full-width card for one value and falls back to inline buttons without thumbnails", () => {
+    const singleValue = sizeCardProduct();
+    singleValue.options = singleValue.options.map((option) =>
+      option.id === "size" ? { ...option, values: option.values.slice(0, 1) } : option,
+    );
+    const { unmount } = render(
+      <PdpPurchaseProvider product={singleValue}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+    expect(screen.getByRole("group", { name: "Size" }).className).toMatch(
+      /\bgrid-cols-1\b/,
+    );
+    unmount();
+
+    const noThumbs = sizeCardProduct();
+    noThumbs.options = noThumbs.options.map((option) =>
+      option.id === "size"
+        ? {
+            ...option,
+            values: option.values.map((value) => ({
+              ...value,
+              thumbnailUrl: null,
+              thumbnailAlt: null,
+            })),
+          }
+        : option,
+    );
+    render(
+      <PdpPurchaseProvider product={noThumbs}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(group.className).toMatch(/\bflex-wrap\b/);
+    expect(group.className).not.toMatch(/\bgrid\b/);
+  });
+
+  it("shows every differing axis and keeps labels without an embedded measurement", () => {
+    const item = sizeCardProduct();
+    const byId = new Map(item.variants.map((variant) => [variant.id, variant]));
+    Object.assign(byId.get("red-small")!.sku!, {
+      productWidth: 94,
+      productHeight: 93,
+      productDepth: 43,
+    });
+    Object.assign(byId.get("red-large")!.sku!, {
+      productWidth: 141,
+      productHeight: 120,
+      productDepth: 60,
+    });
+    // Both colours carry the same measurements for each size.
+    Object.assign(byId.get("blue-large")!.sku!, {
+      productWidth: 141,
+      productHeight: 120,
+      productDepth: 60,
+    });
+    const size = item.options.find((option) => option.id === "size")!;
+    size.values = [
+      { ...size.values[0], label: "Standard" },
+      { ...size.values[1], label: "Tall" },
+    ];
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(within(group).getByText("37W × 36.6H × 16.9D in")).toBeVisible();
+    expect(within(group).getByText("55.5W × 47.2H × 23.6D in")).toBeVisible();
+    expect(within(group).getByText("Standard")).toBeVisible();
+    expect(within(group).getByText("Tall")).toBeVisible();
+  });
+
+  it("does not guess a card measurement when its remaining SKU configurations disagree", async () => {
+    const item = sizeCardProduct();
+    item.variants.find((variant) => variant.id === "blue-large")!.sku!.productHeight = 130;
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+    const tall = screen.getByRole("button", { name: "Tall · 121.5 cm" });
+    expect(within(tall).queryByText("47.8 in")).not.toBeInTheDocument();
+    expect(within(tall).getByText("Tall · 121.5 cm")).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Red" }));
+    expect(within(tall).getByText("47.8 in")).toBeVisible();
+  });
+
+  it("does not quote a disabled SKU's measurement or borrow dimensions for a bundle", async () => {
+    const item = sizeCardProduct();
+    item.width = 999;
+    item.variants.find((variant) => variant.id === "blue-small-disabled")!.sku!.productHeight = 999;
+    item.variants.find((variant) => variant.id === "blue-large")!.sku!.specificationSource = "BUNDLE_COMPONENTS";
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "Blue" }));
+    const standard = screen.getByRole("button", { name: "Standard · 93 cm" });
+    const tall = screen.getByRole("button", { name: "Tall · 121.5 cm" });
+    expect(standard).toBeDisabled();
+    expect(within(standard).queryByText(/in$/)).not.toBeInTheDocument();
+    expect(within(tall).queryByText(/in$/)).not.toBeInTheDocument();
+    expect(within(tall).getByText("Tall · 121.5 cm")).toBeVisible();
+  });
+
+  it("adapts size cards to the container and prioritizes existing thumbnails on TEXT sizes", () => {
+    const item = sizeCardProduct();
+    item.options.find((option) => option.id === "size")!.presentation = "TEXT";
+    render(
+      <PdpPurchaseProvider product={item}>
+        <ProductOptionSelector lineId="primary" sizeCards />
+      </PdpPurchaseProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(group.parentElement).toHaveClass("@container");
+    expect(group).toHaveClass("grid-cols-1", "@min-[21rem]:grid-cols-2");
+    expect(within(group).getByRole("img", { name: "Standard cabinet" })).toBeVisible();
+  });
+
+  it("leaves the shared drawer selector's existing presentation unchanged", () => {
+    render(
+      <PdpPurchaseProvider product={sizeCardProduct()}>
+        <ProductOptionSelector lineId="primary" />
+      </PdpPurchaseProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Size" });
+    expect(group).toHaveClass("flex-wrap");
+    expect(within(group).queryByTestId("option-selected-check")).not.toBeInTheDocument();
+    expect(within(group).getByText("Standard · 93 cm")).toBeVisible();
+  });
+
+  it("uses the card layout on the PDP purchase island without changing other selectors", () => {
+    renderPdp({ item: sizeCardProduct(), variantId: "red-small" });
+    const hero = screen.getByTestId("pdp-purchase");
+    const group = within(hero).getByRole("group", { name: "Size" });
+    expect(group.className).toMatch(/\bgrid-cols-2\b/);
+    expect(
+      within(group).getByRole("img", { name: "Standard cabinet" }),
+    ).toHaveAttribute("src", "/standard.jpg");
   });
 });
 
