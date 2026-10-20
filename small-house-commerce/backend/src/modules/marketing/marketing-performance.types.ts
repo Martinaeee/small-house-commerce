@@ -142,7 +142,7 @@ export interface MarketingPerformanceReport {
 
 export interface MarketingPerformanceOptions {
   onlyOwn: boolean;
-  products: Array<{ id: string; name: string; productCode: string | null; status: string; pageCount: number }>;
+  products: Array<{ id: string; name: string; productCode: string | null; status: string; thumbnailUrl: string | null; pageCount: number }>;
   owners: Array<{ userId: string; name: string; aid: string | null; isActive: boolean; pageCount: number }>;
 }
 

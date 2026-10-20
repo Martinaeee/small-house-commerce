@@ -7,6 +7,7 @@ const own = { id: 'u1', permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OW
 function harness() {
   const prisma = { product: { findMany: vi.fn().mockResolvedValue([{
     id: 'product', name: 'Compact Chair', productCode: 'CHAIR', slug: 'compact-chair',
+    images: [{ url: '/uploads/chair.jpg' }],
     variants: [{ id: 'variant', name: 'Red / Small' }],
     landingPages: [{ id: 'page', slug: 'chair-red', name: 'My launch', ownerUserId: 'u1', status: 'ACTIVE', startAt: new Date('2026-10-01'), endAt: null, owner: { name: 'Operator', optimizerProfile: { aid: 'OP-1', displayName: 'Optimizer' } } }],
   }]) } };
@@ -18,6 +19,7 @@ describe('LinkBuilderContextService', () => {
     const { service } = harness();
     await expect(service.getContext(own, NOW)).resolves.toEqual({ products: [{
       id: 'product', name: 'Compact Chair', productCode: 'CHAIR', slug: 'compact-chair',
+      thumbnailUrl: '/uploads/chair.jpg',
       variants: [{ id: 'variant', name: 'Red / Small' }],
       landingPages: [{ id: 'page', slug: 'chair-red', title: 'My launch', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', effectiveStatus: 'SCHEDULED' }],
     }] });

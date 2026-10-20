@@ -89,11 +89,23 @@ describe('owner-scoped landing drafts and publishing', () => {
 
   it('provides a slim saved-product picker without requiring product management', async () => {
     const { service, prisma } = setup();
-    Object.assign(prisma.product, { findMany: vi.fn(async () => [{ id: 'product-1', name: 'Chair', productCode: 'LUW-001', slug: 'chair', status: 'ACTIVE' }]), count: vi.fn(async () => 1) });
+    Object.assign(prisma.product, { findMany: vi.fn(async () => [{ id: 'product-1', name: 'Chair', productCode: 'LUW-001', slug: 'chair', status: 'ACTIVE', images: [{ url: '/uploads/chair.jpg' }] }]), count: vi.fn(async () => 1) });
     const result = await service.productOptions({ search: 'LUW-001', page: 1, pageSize: 20 }, owner);
-    expect(result).toMatchObject({ total: 1, items: [{ id: 'product-1', name: 'Chair', productCode: 'LUW-001' }] });
-    expect((prisma.product as unknown as { findMany: ReturnType<typeof vi.fn> }).findMany).toHaveBeenCalledWith(expect.objectContaining({ select: { id: true, name: true, productCode: true, slug: true, status: true } }));
+    expect(result).toMatchObject({ total: 1, items: [{ id: 'product-1', name: 'Chair', productCode: 'LUW-001', thumbnailUrl: '/uploads/chair.jpg' }] });
+    expect((prisma.product as unknown as { findMany: ReturnType<typeof vi.fn> }).findMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ id: true, name: true, productCode: true, slug: true, status: true, images: expect.anything() }) }));
     await expect(service.productOptions({ page: 1, pageSize: 20 }, { id: 'no-access', permissions: [] })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('resolves one product by id so a preselected product can be shown with its photo', async () => {
+    const { service, prisma } = setup();
+    const productId = '11111111-1111-4111-a111-111111111111';
+    const findMany = vi.fn(async () => [{ id: productId, name: 'Chair', productCode: 'LUW-001', slug: 'chair', status: 'ACTIVE', images: [{ url: '/uploads/chair.jpg' }] }]);
+    Object.assign(prisma.product, { findMany, count: vi.fn(async () => 1) });
+    const result = await service.productOptions({ id: productId, page: 1, pageSize: 20 }, owner);
+    expect(result.items).toEqual([
+      { id: productId, name: 'Chair', productCode: 'LUW-001', slug: 'chair', status: 'ACTIVE', thumbnailUrl: '/uploads/chair.jpg' },
+    ]);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: productId } }));
   });
 
   it('limits optimizer choices to the own profile unless all-owner reads are granted', async () => {

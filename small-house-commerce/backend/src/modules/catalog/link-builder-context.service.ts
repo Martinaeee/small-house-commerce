@@ -10,6 +10,7 @@ export interface LinkBuilderContext {
     name: string;
     productCode: string | null;
     slug: string;
+    thumbnailUrl: string | null;
     variants: { id: string; name: string }[];
     landingPages: {
       id: string;
@@ -34,6 +35,11 @@ export class LinkBuilderContextService {
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       select: {
         id: true, name: true, productCode: true, slug: true,
+        images: {
+          where: { type: 'IMAGE', variantId: null, optionValueId: null },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          take: 1, select: { url: true },
+        },
         variants: {
           where: { sku: { is: { status: 'ACTIVE', price: { not: null } } } },
           orderBy: [{ position: 'asc' }, { id: 'asc' }],
@@ -57,7 +63,8 @@ export class LinkBuilderContextService {
     });
     return { products: products.map((product) => ({
       id: product.id, name: product.name, productCode: product.productCode,
-      slug: product.slug, variants: product.variants,
+      slug: product.slug, thumbnailUrl: product.images[0]?.url ?? null,
+      variants: product.variants,
       landingPages: product.landingPages.map((page) => ({
         id: page.id, slug: page.slug, title: page.name,
         ownerUserId: page.ownerUserId,

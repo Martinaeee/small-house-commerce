@@ -81,6 +81,9 @@ export type AdminLandingPageQuery = z.infer<typeof adminLandingPageQuerySchema>;
 
 export const marketingProductPickerQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
+  // Resolves one product by id, so a preselected product can be shown with
+  // its photo and name instead of a bare id.
+  id: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });

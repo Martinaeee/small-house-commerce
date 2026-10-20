@@ -151,6 +151,17 @@ describe('performance access guards', () => {
   const service = new MarketingPerformanceService(prisma as never);
   beforeEach(() => vi.clearAllMocks());
 
+  it('carries the product photo so the filter can show which product it is', async () => {
+    prisma.productLandingPage.findMany.mockResolvedValue([{
+      productId: 'p1', ownerUserId: 'u1',
+      product: { name: 'Oak Table', productCode: 'LUW-001', status: 'ACTIVE', images: [{ url: '/uploads/oak.jpg' }] },
+    }]);
+    const result = await service.options({}, { id: OWNER, permissions: ['MARKETING_VIEW_OWN'] });
+    expect(result.products).toEqual([
+      { id: 'p1', name: 'Oak Table', productCode: 'LUW-001', status: 'ACTIVE', thumbnailUrl: '/uploads/oak.jpg', pageCount: 1 },
+    ]);
+  });
+
   it('requires an explicitly chosen optimizer for the all-view optimizer scope before any read', async () => {
     await expect(service.performance(query({ view: 'OPTIMIZER', productId: undefined }), { id: OTHER, permissions: ['MARKETING_VIEW_ALL'] })).rejects.toMatchObject({ status: 400 });
     expect(prisma.$transaction).not.toHaveBeenCalled();

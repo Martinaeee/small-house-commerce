@@ -248,15 +248,22 @@ export class LandingPagesService {
   async productOptions(query: MarketingProductPickerQuery, account: MarketingAccount) {
     scopeFor(account);
     const search = query.search?.trim();
-    const where: Prisma.ProductWhereInput = search ? { OR: [
+    const where: Prisma.ProductWhereInput = query.id ? { id: query.id } : search ? { OR: [
       { name: { contains: search, mode: 'insensitive' } },
       { productCode: { contains: search, mode: 'insensitive' } },
     ] } : {};
     const [items, total] = await Promise.all([
-      this.prisma.product.findMany({ where, select: { id: true, name: true, productCode: true, slug: true, status: true }, orderBy: { updatedAt: 'desc' }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
+      this.prisma.product.findMany({ where, select: { id: true, name: true, productCode: true, slug: true, status: true, images: { where: { type: 'IMAGE', variantId: null, optionValueId: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], take: 1, select: { url: true } } }, orderBy: { updatedAt: 'desc' }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
       this.prisma.product.count({ where }),
     ]);
-    return { items, total, page: query.page, pageSize: query.pageSize };
+    return {
+      items: items.map((row) => ({
+        id: row.id, name: row.name, productCode: row.productCode,
+        slug: row.slug, status: row.status,
+        thumbnailUrl: row.images[0]?.url ?? null,
+      })),
+      total, page: query.page, pageSize: query.pageSize,
+    };
   }
 
   async ownerOptions(account: MarketingAccount) {

@@ -220,12 +220,12 @@ export class MarketingPerformanceService {
     const owner = scope.all ? (query.ownerUserId ?? null) : account.id;
     const pages = await this.prisma.productLandingPage.findMany({
       where: owner ? { ownerUserId: owner } : {},
-      select: { productId: true, ownerUserId: true, product: { select: { name: true, productCode: true, status: true } } },
+      select: { productId: true, ownerUserId: true, product: { select: { name: true, productCode: true, status: true, images: { where: { type: 'IMAGE', variantId: null, optionValueId: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], take: 1, select: { url: true } } } } },
     });
-    const productGroups = new Map<string, { id: string; name: string; productCode: string | null; status: string; pageCount: number }>();
+    const productGroups = new Map<string, { id: string; name: string; productCode: string | null; status: string; thumbnailUrl: string | null; pageCount: number }>();
     const ownerCounts = new Map<string, number>();
     for (const page of pages) {
-      const group = productGroups.get(page.productId) ?? { id: page.productId, name: page.product.name, productCode: page.product.productCode, status: page.product.status, pageCount: 0 };
+      const group = productGroups.get(page.productId) ?? { id: page.productId, name: page.product.name, productCode: page.product.productCode, status: page.product.status, thumbnailUrl: page.product.images[0]?.url ?? null, pageCount: 0 };
       group.pageCount += 1;
       productGroups.set(page.productId, group);
       if (page.ownerUserId) ownerCounts.set(page.ownerUserId, (ownerCounts.get(page.ownerUserId) ?? 0) + 1);
