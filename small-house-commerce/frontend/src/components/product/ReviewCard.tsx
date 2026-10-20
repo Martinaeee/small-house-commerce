@@ -123,7 +123,7 @@ export function ReviewCard({ review }: { review: Review }) {
         </p>
       )}
 
-      <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink-secondary">
+      <p className="mt-2 whitespace-pre-line text-base leading-relaxed text-ink-secondary">
         {review.comment}
       </p>
 

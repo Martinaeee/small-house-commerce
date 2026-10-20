@@ -198,6 +198,7 @@ describe("PdpSectionNavGate", () => {
       within(nav).queryByRole("link", { name: "Specifications" }),
     ).toBeNull();
     expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Delivery",
       "Reviews & Q&A",
       "Order Now",
     ]);

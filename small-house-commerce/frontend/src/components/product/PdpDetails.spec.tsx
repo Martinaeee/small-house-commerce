@@ -319,7 +319,7 @@ describe("PdpDetails", () => {
     for (const id of ["details", "specifications"]) {
       const target = container.querySelector(`#${id}`);
       expect(target).not.toBeNull();
-      expect(target).toHaveClass("scroll-mt-28");
+      expect(target).toHaveClass("scroll-mt-32");
     }
 
     for (const url of ["featured.jpg", "remaining-1.jpg"]) {

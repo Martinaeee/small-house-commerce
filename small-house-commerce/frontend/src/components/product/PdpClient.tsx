@@ -639,7 +639,7 @@ export function PdpClient({
 
       {!purchaseOnly && promoSlot}
 
-      <div className={purchaseOnly ? undefined : "grid grid-cols-1 gap-8 lg:grid-cols-2"}>
+      <div className={purchaseOnly ? undefined : "grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8"}>
         {!purchaseOnly && <div>
           <ProductGallery
             images={galleryImages}
@@ -666,32 +666,32 @@ export function PdpClient({
           ref={heroRef}
           id="pdp-purchase"
           data-testid="pdp-purchase"
-          className="flex scroll-mt-28 flex-col gap-4"
+          className="flex min-w-0 scroll-mt-32 flex-col gap-4"
         >
           {!purchaseOnly && <>
-          <h1 className="text-product-title font-semibold text-ink lg:text-product-title-desktop">
-            {product.name}
-          </h1>
-
-          {product.tagline?.trim() && (
-            // Hidden on phones to keep the first screen compact; the title and
-            // price carry the message there.
-            <p className="hidden text-product-subtitle text-ink-secondary sm:block lg:text-product-subtitle-desktop">
-              {product.tagline}
-            </p>
-          )}
+          <div className="flex min-w-0 flex-col gap-2">
+            <h1 className="break-words text-2xl font-semibold leading-snug text-ink lg:text-product-title lg:leading-snug">
+              {product.name}
+            </h1>
+            {product.tagline?.trim() && (
+              // Hidden on phones to keep the first screen compact.
+              <p className="hidden text-base leading-relaxed text-ink-secondary sm:block">
+                {product.tagline}
+              </p>
+            )}
+            {ratingRow}
+          </div>
 
           {sellingPoints.length > 0 && (
-            // One line on phones that slides when the tags do not fit; from sm
-            // up there is room to wrap again.
             <ul
               aria-label="Selling points"
-              className="flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain sm:flex-wrap"
+              tabIndex={0}
+              className="flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-cta"
             >
               {sellingPoints.map((point) => (
                 <li
                   key={point.value}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-ink"
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold text-ink"
                 >
                   <SolutionIcon value={point.value} />
                   {point.label}
@@ -699,16 +699,16 @@ export function PdpClient({
               ))}
             </ul>
           )}
-
-          {ratingRow}
           </>}
 
-          <div>
-            <PriceBox price={price} compareAtPrice={compareAt} />
-            {price !== null && compareAt !== null && compareAt > price && (
-              <p className="mt-1 text-sm font-medium text-sale">Save {formatPrice(compareAt - price)}</p>
-            )}
-          </div>
+          {purchaseOnly ? (
+            <div>
+              <PriceBox price={price} compareAtPrice={compareAt} />
+              {price !== null && compareAt !== null && compareAt > price && (
+                <p className="mt-1 text-sm font-medium text-sale">Save {formatPrice(compareAt - price)}</p>
+              )}
+            </div>
+          ) : <PriceBox price={price} compareAtPrice={compareAt} size="lg" showSavings />}
 
           {stockLabel && (
             <p className="text-sm font-semibold text-sale" data-testid="stock-state">{stockLabel}</p>
@@ -771,7 +771,7 @@ export function PdpClient({
                 disabled={purchaseBusy || selectableCount === 0}
                 // The shared md size pins min-w-[120px]; below sm the stepper
                 // shares the row, so the buttons shrink instead of overflowing.
-                className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
+                className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap lg:text-base"
                 data-testid="order-now"
               >
                 ORDER NOW
@@ -781,7 +781,7 @@ export function PdpClient({
               variant={resolvedOutOfStock ? "primary" : "secondary"}
               onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
               disabled={purchaseBusy || selectableCount === 0}
-              className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap"
+              className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap lg:text-base"
               data-testid="add-to-cart"
             >
               ADD TO CART
@@ -789,16 +789,17 @@ export function PdpClient({
           </div>
 
           <div
+            id="pdp-delivery"
             data-testid="pdp-delivery"
             // Estimate and assurances sit side by side at every width, like
             // the desktop layout; on a phone the card slides sideways instead
             // of stacking the assurances underneath.
-            className="flex items-start gap-3 overflow-x-auto overscroll-x-contain rounded-lg border border-border bg-background p-3 text-sm sm:justify-between sm:gap-6 sm:overflow-visible"
+            className="flex scroll-mt-32 items-start gap-3 overflow-x-auto overscroll-x-contain rounded-lg border border-border bg-background p-3 text-xs sm:justify-between sm:gap-6 sm:overflow-visible"
           >
             <div className="flex shrink-0 items-start gap-2.5">
               <TruckGlyph />
               <div>
-                <p className="font-semibold text-ink">Estimated delivery</p>
+                <p className="text-sm font-semibold text-ink">Estimated delivery</p>
                 <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
                 <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
               </div>

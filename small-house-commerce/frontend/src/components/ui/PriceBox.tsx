@@ -11,6 +11,8 @@ interface PriceBoxProps {
   compareAtPrice?: number | null;
   /** PHP formatting is the only formatting here; prices come from the API. */
   currency?: string;
+  size?: "md" | "lg";
+  showSavings?: boolean;
   /**
    * Drop the sale badge below the sm breakpoint. The sticky buy bar sets this
    * so its narrow phone layout keeps the price and strikethrough while making
@@ -27,6 +29,8 @@ export function PriceBox({
   price,
   compareAtPrice,
   currency = "₱",
+  size = "md",
+  showSavings = false,
   hideDiscountBadgeOnMobile = false,
 }: PriceBoxProps) {
   if (price === null) return null;
@@ -38,8 +42,8 @@ export function PriceBox({
     : null;
 
   return (
-    <div className="flex flex-wrap items-baseline gap-2">
-      <span className="text-lg font-bold text-ink" data-testid="price">
+    <div className={`flex flex-wrap items-baseline ${showSavings ? "gap-x-2 gap-y-1" : "gap-2"}`}>
+      <span className={`${size === "lg" ? "whitespace-nowrap text-2xl" : "text-lg"} font-bold text-ink`} data-testid="price">
         {formatPrice(price, currency)}
       </span>
       {hasDiscount && (
@@ -54,6 +58,11 @@ export function PriceBox({
           >
             {discountPct}% OFF
           </span>
+          {showSavings && (
+            <span className="whitespace-nowrap text-xs font-medium text-sale">
+              Save {formatPrice(compareAtPrice! - price, currency)}
+            </span>
+          )}
         </>
       )}
     </div>

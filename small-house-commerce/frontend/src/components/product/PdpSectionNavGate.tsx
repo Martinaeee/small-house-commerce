@@ -16,6 +16,7 @@ export function PdpSectionNavGate({
     <PdpSectionNav
       hasDetails={hasDetails}
       hasSpecifications={pdpInformationVisible(product)}
+      hasDelivery
     />
   );
 }

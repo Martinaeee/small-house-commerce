@@ -143,7 +143,7 @@ describe("ProductInformation", () => {
 
     const region = section();
     expect(region).toHaveAttribute("id", "specifications");
-    expect(region).toHaveClass("scroll-mt-28");
+    expect(region).toHaveClass("scroll-mt-32");
     expect(
       within(region).getByText("Shared details shown once. Differences are listed below."),
     ).toBeInTheDocument();

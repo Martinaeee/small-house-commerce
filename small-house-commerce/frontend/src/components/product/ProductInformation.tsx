@@ -14,9 +14,9 @@ import {
 } from "./pdp-specification-display";
 
 const FACT_LABEL_CLASS = "text-xs text-ink-muted";
-const FACT_VALUE_CLASS = "mt-1 whitespace-pre-line text-sm font-semibold text-ink";
+const FACT_VALUE_CLASS = "mt-1 whitespace-pre-line text-base font-semibold leading-relaxed text-ink";
 const CELL_CLASS =
-  "border-b border-border px-2.5 py-3 align-top text-sm leading-relaxed text-ink first:pl-0";
+  "border-b border-border px-2.5 py-3 align-top text-base leading-relaxed text-ink first:pl-0";
 const HEAD_CLASS =
   "border-b border-border px-2.5 py-3 text-left align-top text-sm font-semibold leading-relaxed text-ink first:pl-0";
 
@@ -177,7 +177,7 @@ export function ProductInformation({ product }: { product: Product }): ReactNode
     <section
       id="specifications"
       aria-labelledby="product-information-title"
-      className={`${styles.section} scroll-mt-28 overflow-hidden rounded-lg border border-border bg-card`}
+      className={`${styles.section} scroll-mt-32 overflow-hidden rounded-lg border border-border bg-card`}
     >
       <div className="border-b border-border px-5 py-4">
         <h2 id="product-information-title" className="text-2xl font-semibold text-ink">

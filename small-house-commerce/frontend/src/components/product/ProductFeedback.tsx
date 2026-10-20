@@ -110,7 +110,7 @@ export function ProductFeedback({
     }`;
 
   return (
-    <section id="reviews" className="scroll-mt-28 rounded-lg border border-border bg-card p-6">
+    <section id="reviews" className="scroll-mt-32 rounded-lg border border-border bg-card p-6">
       <div
         role="tablist"
         aria-label="Product feedback"
@@ -301,7 +301,7 @@ export function ProductFeedback({
                       {item.title}
                       <Chevron />
                     </summary>
-                    <div className="pb-5 text-sm leading-relaxed text-ink-secondary">
+                    <div className="pb-5 text-base leading-relaxed text-ink-secondary">
                       <ProductFaqAnswer
                         blocks={item.answer}
                         idPrefix={`qa:${item.id}`}

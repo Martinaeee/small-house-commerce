@@ -183,7 +183,7 @@ export function PdpStickyBuy({
             size="md"
             onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
             disabled={busy || unavailable}
-            className="shrink-0 whitespace-nowrap px-4 text-xs sm:px-5 sm:text-sm"
+            className="shrink-0 whitespace-nowrap px-4 text-sm sm:px-5 lg:text-base"
             data-testid="sticky-order-now"
           >
             ORDER NOW
@@ -194,7 +194,7 @@ export function PdpStickyBuy({
           variant={resolvedOutOfStock ? "primary" : "secondary"}
           onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
           disabled={busy || unavailable}
-          className="shrink-0 whitespace-nowrap px-4 text-xs sm:px-5 sm:text-sm"
+          className="shrink-0 whitespace-nowrap px-4 text-sm sm:px-5 lg:text-base"
           data-testid="sticky-add-to-cart"
         >
           ADD TO CART

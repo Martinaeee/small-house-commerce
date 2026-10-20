@@ -505,6 +505,20 @@ describe("isolated landing purchase presentation", () => {
 });
 
 describe("PDP conversion hero", () => {
+  it("keeps the complete product name with its review summary and all price facts in one group", () => {
+    const name = "A long narrow cabinet with adjustable shelves and clear doors for small homes";
+    renderPdp({ item: { ...product, name, ratingAverage: 4.8, reviewCount: 12, availableMediaScopes: { optionValueIds: [], variantIds: [] } }, variantId: "red-small" });
+    const hero = screen.getByTestId("pdp-purchase");
+    const title = within(hero).getByRole("heading", { level: 1, name });
+    expect(title).toHaveTextContent(name);
+    expect(title).not.toHaveClass("truncate");
+    expect(title.parentElement).toContainElement(within(hero).getByRole("link", { name: /12 reviews/ }));
+    const priceGroup = within(hero).getByTestId("price").parentElement!;
+    expect(priceGroup).toContainElement(within(hero).getByText("Save ₱30.00"));
+    expect(priceGroup).toContainElement(within(hero).getByText("23% OFF"));
+    expect(within(hero).getByTestId("pdp-delivery")).toHaveAttribute("id", "pdp-delivery");
+  });
+
   it.each([
     { materials: "Solid oak", weight: null, expected: "Solid oak" },
     { materials: null, weight: 2.4, expected: "2.4 kg · Net weight" },
@@ -667,8 +681,8 @@ describe("PDP conversion hero", () => {
     expectDocumentOrder([
       title,
       tagline,
-      sellingPoints,
       reviews,
+      sellingPoints,
       price,
       options,
       dimensions,
@@ -750,17 +764,18 @@ describe("PDP conversion hero", () => {
 
     const hero = screen.getByTestId("pdp-purchase");
 
-    // Phones keep both blocks on one line and let them slide sideways; from sm
-    // up the selling points wrap again and the card stops scrolling.
+    // Tags stay complete in one native horizontal row without extra controls.
     const sellingPoints = within(hero).getByRole("list", {
       name: "Selling points",
     });
     expect(sellingPoints.className).toMatch(/\bflex-nowrap\b/);
     expect(sellingPoints.className).toMatch(/\boverflow-x-auto\b/);
-    expect(sellingPoints.className).toMatch(/\bsm:flex-wrap\b/);
+    expect(sellingPoints.className).not.toMatch(/\bsm:flex-wrap\b/);
+    expect(sellingPoints).toHaveAttribute("tabindex", "0");
+    expect(within(sellingPoints).queryByRole("button")).toBeNull();
     within(sellingPoints)
       .getAllByRole("listitem")
-      .forEach((pill) => expect(pill.className).toMatch(/\bshrink-0\b/));
+      .forEach((pill) => expect(pill).toHaveClass("shrink-0", "whitespace-nowrap", "text-sm"));
 
     // Delivery estimate and the assurances share one row at every width, and
     // the card slides instead of stacking them vertically on a phone.

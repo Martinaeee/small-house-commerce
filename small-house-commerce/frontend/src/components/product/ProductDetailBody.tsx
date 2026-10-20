@@ -80,7 +80,7 @@ export function ProductDetailBody({
   if (!intro && highlights.length === 0 && leadMedia.length === 0) return null;
 
   return (
-    <section id="details" className="scroll-mt-28 space-y-4">
+    <section id="details" className="flex scroll-mt-32 flex-col gap-4">
       {intro ? (
         <div className="rounded-lg border border-border bg-card p-6">
           <h2 className="mb-3 text-2xl font-semibold text-ink">Description</h2>
@@ -99,7 +99,7 @@ export function ProductDetailBody({
             {highlights.map((highlight, index) => (
               <li
                 key={`${highlight}-${index}`}
-                className="flex items-start gap-2 text-sm leading-relaxed text-ink-secondary"
+                className="flex items-start gap-2 text-base leading-relaxed text-ink-secondary"
               >
                 <span aria-hidden className="mt-0.5 font-semibold text-cta">
                   ✓
