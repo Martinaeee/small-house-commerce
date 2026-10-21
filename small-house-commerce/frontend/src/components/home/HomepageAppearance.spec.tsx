@@ -15,7 +15,7 @@ describe("HomepageAppearance", () => {
     { type: "SOLUTIONS", payload: { items: [{ title: "Layout sample", blurb: "Sample body", link: "/collections" }] }, roles: ["card", "label", "body"] },
     { type: "PRODUCT_STORY", payload: { imageUrl: "/uploads/e2e/layout.jpg", body: "Sample body", ctaText: "See collections", ctaLink: "/collections" }, roles: ["story-heading", "body", "media", "action"] },
     { type: "ROOM_INSPIRATION", payload: { imageUrl: "/uploads/e2e/layout.jpg", body: "Sample body" }, roles: ["heading", "body", "media"] },
-    { type: "BRAND_STORY", payload: { body: "Sample body", bullets: ["Layout sample"] }, roles: ["story-heading", "body", "list"] },
+    { type: "BRAND_STORY", payload: { body: "Sample body", bullets: ["Layout sample"] }, roles: ["brand-story-heading", "brand-story-body", "brand-story-list"] },
     { type: "CONFIDENCE", payload: { body: "Sample body", bullets: ["Layout sample"] }, roles: ["heading", "body", "list"] },
     { type: "PROMO_BANNER", payload: { ctaText: "See collections", ctaLink: "/collections" }, roles: ["heading", "body", "action"] },
     { type: "COUNTDOWN_BANNER", payload: { ctaText: "See collections", ctaLink: "/collections", endsAt: new Date(Date.now() + 86_400_000).toISOString() }, roles: ["heading", "body", "action"] },

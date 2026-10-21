@@ -112,8 +112,24 @@ export type TextBlockPayload = {
   bullets?: string[];
 };
 
-/** BRAND_STORY and CONFIDENCE intentionally share the backend text schema. */
-export type BrandStoryPayload = TextBlockPayload;
+/**
+ * BRAND_STORY is a split section: one brand image beside the brand copy
+ * (eyebrow / heading / body / CTA). It has its own payload — the backend
+ * validates BRAND_STORY separately — so the image survives the round trip.
+ */
+export type BrandStoryPayload = {
+  imageUrl?: string;
+  imageAlt?: string;
+  eyebrow?: string;
+  heading?: string;
+  body?: string;
+  /** Legacy — the old shared text block exposed bullets here. */
+  bullets?: string[];
+  ctaText?: string;
+  ctaLink?: string;
+};
+
+/** CONFIDENCE keeps the plain text-block payload. */
 export type ConfidencePayload = TextBlockPayload;
 
 /** Non-Hero CTA links are stored strings: /path, #anchor, or https://… . */

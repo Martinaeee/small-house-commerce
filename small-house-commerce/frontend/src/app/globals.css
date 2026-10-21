@@ -65,6 +65,16 @@
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
 
+  /* Homepage brand-story block (mockup 2026-10-21, 1672×941 artboard). This
+     is the one section that speaks in its own voice instead of the beige
+     storefront palette, so its colours live in their own tokens rather than
+     being re-derived per component. Sampled from the approved mockup. */
+  --color-story-heading: #121110;
+  --color-story-body: #3b3532;
+  --color-story-kicker: #3b4626;
+  --color-story-link: #333d24;
+  --color-story-link-border: #a8ae9a;
+
   /* Admin design system. These tokens are consumed only inside AdminShell;
      storefront surfaces keep the warm brand palette above. */
   --color-admin-rail: #123e32;

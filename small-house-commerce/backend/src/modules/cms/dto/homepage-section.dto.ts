@@ -120,6 +120,28 @@ const textBlockPayloadSchema = z.object({
   bullets: z.array(z.string().min(1).max(200)).max(6).optional(),
 });
 
+/**
+ * BRAND_STORY is a split section: one brand image beside the brand copy
+ * (eyebrow / heading / body / CTA). It owns its own schema instead of
+ * sharing CONFIDENCE's text block, because zod strips unknown keys — a
+ * field missing from this schema is silently dropped when the operator
+ * saves the section.
+ */
+const brandStoryPayloadSchema = z.object({
+  imageUrl: mediaUrl().optional(),
+  imageAlt: z.string().max(120).optional(),
+  eyebrow: z.string().max(120).optional(),
+  heading: z.string().max(120).optional(),
+  body: z.string().max(3000).optional(),
+  /**
+   * Legacy: BRAND_STORY used to share CONFIDENCE's bullets. Still accepted
+   * so a published document is not silently emptied on the next save.
+   */
+  bullets: z.array(z.string().min(1).max(200)).max(6).optional(),
+  ctaText: z.string().max(120).optional(),
+  ctaLink: inAppOrHttps.optional(),
+});
+
 /** Per-type payload validation; service picks the schema by section.type. */
 export const homepagePayloadSchemas: Record<HomepageSectionType, z.ZodType> = {
   [HomepageSectionType.HERO]: heroPayloadSchema,
@@ -130,6 +152,6 @@ export const homepagePayloadSchemas: Record<HomepageSectionType, z.ZodType> = {
   [HomepageSectionType.PRODUCT_STORY]: productStoryPayloadSchema,
   [HomepageSectionType.ROOM_INSPIRATION]: roomPayloadSchema,
   [HomepageSectionType.UGC]: ugcPayloadPublishSchema,
-  [HomepageSectionType.BRAND_STORY]: textBlockPayloadSchema,
+  [HomepageSectionType.BRAND_STORY]: brandStoryPayloadSchema,
   [HomepageSectionType.CONFIDENCE]: textBlockPayloadSchema,
 };

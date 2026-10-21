@@ -1743,6 +1743,13 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_section_type_BRAND_STORY: "Brand Story",
   homepage_builder_section_description_BRAND_STORY:
     "Brand mission and values",
+  homepage_builder_brand_story_image: "Brand story image URL",
+  homepage_builder_brand_story_image_alt: "Brand story image alt text",
+  homepage_builder_brand_story_eyebrow: "Brand story eyebrow",
+  homepage_builder_brand_story_heading: "Brand story heading",
+  homepage_builder_brand_story_body: "Brand story body",
+  homepage_builder_brand_story_cta_text: "Brand story CTA text",
+  homepage_builder_brand_story_cta_link: "Brand story CTA link",
   homepage_builder_section_type_CONFIDENCE: "Confidence",
   homepage_builder_section_description_CONFIDENCE:
     "Delivery and purchase confidence",

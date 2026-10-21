@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import { HomepageLivePreview } from "./HomepageLivePreview";
 import { defaultSection } from "@/lib/homepage-section-factory";
 
-vi.mock("@/lib/fonts", () => ({ poppins: { className: "font-poppins", variable: "--font-poppins" } }));
+// The brand story renders the preview with the brand faces, and
+// next/font/local is unavailable under vitest.
+vi.mock("@/lib/fonts", () => ({
+  poppins: { className: "font-poppins", variable: "--font-poppins" },
+  poppinsMedium: { className: "font-poppins-medium", variable: "--font-poppins-medium" },
+  storySerif: { className: "font-story-serif", variable: "--font-story-serif" },
+}));
 vi.mock("./useHomepagePreviewShellData", async () => {
   const { FALLBACK_HOMEPAGE_PREVIEW_SHELL_DATA } = await import("@/lib/homepage-preview-shell-data");
   return { useHomepagePreviewShellData: () => ({ ...FALLBACK_HOMEPAGE_PREVIEW_SHELL_DATA, degraded: false, loading: false }) };

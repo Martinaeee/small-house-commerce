@@ -2,11 +2,18 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
+/**
+ * next/font/local only exists inside the Next build — under vitest the module
+ * resolves to an object whose default export is not callable, so importing
+ * `@/lib/fonts` throws. Mock the font loader itself (rather than every
+ * consumer of `@/lib/fonts`) so any component that reaches for a brand face
+ * stays importable in unit tests.
+ */
 vi.mock("next/font/local", () => ({
-  default: () => ({
-    className: "font-test",
-    variable: "--font-test",
-    style: { fontFamily: "test" },
+  default: (options: { variable?: string }) => ({
+    className: "font-face",
+    variable: options.variable ?? "font-face-variable",
+    style: {},
   }),
 }));
 

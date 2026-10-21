@@ -272,4 +272,43 @@ describe('homepage payload schemas', () => {
     expect(schema.safeParse(scene({ alt: 'x'.repeat(121) })).success).toBe(false);
   });
 
+  it('keeps the BRAND_STORY split fields through the round trip', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.BRAND_STORY];
+    const parsed = schema.safeParse({
+      imageUrl: '/uploads/catalog/2026/brand-story.jpg',
+      imageAlt: 'A half-assembled shelf in a small apartment',
+      eyebrow: 'SMALL SPACE. BIG POSSIBILITIES.',
+      heading: 'Made for real homes.',
+      body: 'Furniture that works a little harder.',
+      ctaText: 'A little more about luwag',
+      ctaLink: '/about',
+    });
+    expect(parsed.success).toBe(true);
+    // zod strips unknown keys, so every field the storefront reads must be
+    // declared here — otherwise the operator's image silently disappears.
+    expect(parsed.success && parsed.data.imageUrl).toBe(
+      '/uploads/catalog/2026/brand-story.jpg',
+    );
+    expect(parsed.success && parsed.data.eyebrow).toBe(
+      'SMALL SPACE. BIG POSSIBILITIES.',
+    );
+    expect(parsed.success && parsed.data.ctaLink).toBe('/about');
+  });
+
+  it('rejects a dangerous BRAND_STORY image or CTA link', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.BRAND_STORY];
+    expect(schema.safeParse({ imageUrl: 'javascript:alert(1)' }).success).toBe(false);
+    expect(schema.safeParse({ imageUrl: '//evil.example.com/a.jpg' }).success).toBe(false);
+    expect(schema.safeParse({ ctaLink: '//evil.com/x' }).success).toBe(false);
+    expect(schema.safeParse({ ctaLink: 'http://insecure.example.com' }).success).toBe(false);
+    expect(schema.safeParse({ ctaLink: '/about' }).success).toBe(true);
+  });
+
+  it('keeps the legacy BRAND_STORY bullets so a published section is not emptied', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.BRAND_STORY];
+    const parsed = schema.safeParse({ heading: 'Our Story', bullets: ['a', 'b'] });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.bullets).toEqual(['a', 'b']);
+  });
+
 });

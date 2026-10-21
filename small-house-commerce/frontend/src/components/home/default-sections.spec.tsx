@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SECTION_REGISTRY } from "./sectionRegistry";
 import {
   DEFAULT_HERO_SECTION_ID,
@@ -7,6 +7,15 @@ import {
   DEFAULT_SECTIONS,
 } from "./default-sections";
 import type { HomepageSection } from "@/lib/api";
+
+// The registry pulls in every section component, and the brand story sets
+// its display type in its own faces — next/font/local is unavailable under
+// vitest.
+vi.mock("@/lib/fonts", () => ({
+  poppins: { className: "font-poppins" },
+  poppinsMedium: { className: "font-poppins-medium" },
+  storySerif: { className: "font-story-serif" },
+}));
 
 /**
  * Fallback-hero regression (Task 19, confirmed finding): `DEFAULT_SECTIONS`
@@ -154,7 +163,11 @@ const NON_HERO_DEFAULTS: HomepageSection[] = [
     title: null,
     subtitle: null,
     payload: {
-      body: "LUWAG Living makes furniture for small Filipino homes — the condos, apartments and rentals where every square meter counts. Our name comes from maluwag: spacious, easy-going, and maluwag sa budget. Pieces that fit, prices that don’t hurt, cash on delivery. Because a small space should feel maluwag.",
+      eyebrow: "SMALL SPACE. BIG POSSIBILITIES.",
+      heading: "Room to breathe.\nRoom to live.",
+      body: "Thoughtful furniture for everyday spaces.\nDesigned around the way real homes work,\nmove, and grow.",
+      ctaText: "A little more about luwag",
+      ctaLink: "/about",
     },
   },
   {
