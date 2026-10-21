@@ -42,6 +42,7 @@ function order(overrides: Partial<GuestOrderView> = {}): GuestOrderView {
         quantity: 1,
         unitPrice: "2299",
         lineTotal: "2299",
+        thumbnailUrl: "/uploads/catalog/2026/cabinet.png",
         createdAt: "2026-10-21T05:58:00.000Z",
       },
     ],
@@ -135,6 +136,15 @@ describe("OrderList card layout", () => {
     );
     expect(screen.getByTestId("track-totals-PH100006")).toHaveTextContent(
       "Free",
+    );
+  });
+
+  it("shows the product photo for every line", () => {
+    renderList(result());
+
+    expect(screen.getByTestId("track-item-image-item-1")).toHaveAttribute(
+      "src",
+      "/uploads/catalog/2026/cabinet.png",
     );
   });
 

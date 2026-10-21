@@ -5,14 +5,16 @@ import { TrackOrderForm } from "./TrackOrderForm";
 import type { GuestOrderResult } from "@/lib/guestOrder";
 
 /**
- * The lookup now takes EITHER the order number OR the mobile number, and a
- * successful lookup replaces the form with the order details.
+ * The lookup takes ONE field: the order number or the mobile number, never
+ * both. A successful lookup replaces the form with the order details.
  */
 
 const lookupOrderMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/guestOrder", () => ({ lookupOrder: lookupOrderMock }));
 
-function orderView(overrides: Partial<GuestOrderResult["orders"][number]> = {}): GuestOrderResult["orders"][number] {
+function orderView(
+  overrides: Partial<GuestOrderResult["orders"][number]> = {},
+): GuestOrderResult["orders"][number] {
   return {
     id: "order-1",
     orderNumber: "PH100006",
@@ -54,95 +56,83 @@ beforeEach(() => {
 });
 
 describe("TrackOrderForm lookup conditions", () => {
-  it("looks the order up with the order number alone", async () => {
+  it("sends an order number when the value looks like one", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-order-number"), "PH100006");
+    await user.type(screen.getByTestId("track-query"), "PH100006");
     await user.click(screen.getByTestId("track-submit"));
 
     await waitFor(() =>
-      expect(lookupOrderMock).toHaveBeenCalledWith({
-        orderNumber: "PH100006",
-        phone: undefined,
-      }),
+      expect(lookupOrderMock).toHaveBeenCalledWith({ orderNumber: "PH100006" }),
     );
   });
 
-  it("looks the order up with the mobile number alone", async () => {
+  it("sends a mobile number when the value looks like one", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-phone"), "0917 123 4567");
+    await user.type(screen.getByTestId("track-query"), "0917 123 4567");
     await user.click(screen.getByTestId("track-submit"));
 
     await waitFor(() =>
-      expect(lookupOrderMock).toHaveBeenCalledWith({
-        orderNumber: undefined,
-        phone: "0917 123 4567",
-      }),
+      expect(lookupOrderMock).toHaveBeenCalledWith({ phone: "0917 123 4567" }),
     );
   });
 
-  it("refuses to search when neither field is filled", async () => {
+  it("refuses to search when the field is empty", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
     await user.click(screen.getByTestId("track-submit"));
 
     expect(lookupOrderMock).not.toHaveBeenCalled();
-    expect(
-      await screen.findByRole("alert"),
-    ).toHaveTextContent(/enter your order number or your mobile number/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /enter your order number or your mobile number/i,
+    );
   });
 
-  it("still rejects a malformed order number", async () => {
+  it("rejects a value that is neither an order number nor a phone", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-order-number"), "100006");
+    await user.type(screen.getByTestId("track-query"), "abc");
     await user.click(screen.getByTestId("track-submit"));
 
     expect(lookupOrderMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/PH followed by digits/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
-  it("sends both fields when the shopper filled both in", async () => {
-    const user = userEvent.setup();
+  it("has a single field, not one per identifier", () => {
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-order-number"), "PH100006");
-    await user.type(screen.getByTestId("track-phone"), "09171234567");
-    await user.click(screen.getByTestId("track-submit"));
-
-    await waitFor(() =>
-      expect(lookupOrderMock).toHaveBeenCalledWith({
-        orderNumber: "PH100006",
-        phone: "09171234567",
-      }),
-    );
+    expect(screen.getByTestId("track-query")).toBeInTheDocument();
+    expect(screen.queryByTestId("track-order-number")).toBeNull();
+    expect(screen.queryByTestId("track-phone")).toBeNull();
   });
 });
 
 describe("TrackOrderForm after a lookup", () => {
-  it("shows the order details instead of the form", async () => {
+  it("shows the order instead of the form", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-phone"), "09171234567");
+    await user.type(screen.getByTestId("track-query"), "09171234567");
     await user.click(screen.getByTestId("track-submit"));
 
     expect(await screen.findByTestId("track-result")).toBeInTheDocument();
     expect(screen.queryByTestId("track-submit")).toBeNull();
-    expect(screen.queryByTestId("track-order-number")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Track Your Order" })).toBeNull();
+    expect(screen.queryByTestId("track-query")).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Track Your Order" }),
+    ).toBeNull();
   });
 
   it("brings the form back for another order", async () => {
     const user = userEvent.setup();
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-phone"), "09171234567");
+    await user.type(screen.getByTestId("track-query"), "09171234567");
     await user.click(screen.getByTestId("track-submit"));
     await screen.findByTestId("track-result");
 
@@ -157,23 +147,43 @@ describe("TrackOrderForm after a lookup", () => {
     lookupOrderMock.mockRejectedValue(new Error("Order not found."));
     render(<TrackOrderForm />);
 
-    await user.type(screen.getByTestId("track-phone"), "09171234567");
+    await user.type(screen.getByTestId("track-query"), "09171234567");
     await user.click(screen.getByTestId("track-submit"));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Order not found.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Order not found.",
+    );
     expect(screen.getByTestId("track-submit")).toBeInTheDocument();
   });
 });
 
+describe("TrackOrderForm support entry", () => {
+  it("offers the customer support channel on the lookup page", () => {
+    render(<TrackOrderForm />);
+
+    expect(screen.getByTestId("track-support-link")).toHaveTextContent(
+      "Contact customer support",
+    );
+    expect(
+      screen.getByText(/order information stays private/i),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("TrackOrderForm prefill", () => {
-  it("prefills the order number from the link and the phone from this tab", async () => {
+  it("prefills the order number from the link", () => {
     sessionStorage.setItem("lastOrderPhone", "09171234567");
     render(<TrackOrderForm prefillOrder="PH100006" />);
 
-    expect(screen.getByTestId("track-order-number")).toHaveValue("PH100006");
-    // The phone comes from sessionStorage after mount, so wait for it.
+    expect(screen.getByTestId("track-query")).toHaveValue("PH100006");
+  });
+
+  it("prefills the phone from this tab when there is no order number", async () => {
+    sessionStorage.setItem("lastOrderPhone", "09171234567");
+    render(<TrackOrderForm />);
+
     await waitFor(() =>
-      expect(screen.getByTestId("track-phone")).toHaveValue("09171234567"),
+      expect(screen.getByTestId("track-query")).toHaveValue("09171234567"),
     );
   });
 });

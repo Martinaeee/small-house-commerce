@@ -82,6 +82,28 @@ const GUEST_ORDER_INCLUDE = {
       unitPrice: true,
       lineTotal: true,
       createdAt: true,
+      // The photo the shopper sees for this line. There is no image snapshot
+      // on the order line, so this is the product's current media, matched to
+      // the ordered option value first. The product is reached through the
+      // SKU: an order line points at a SKU, not at the product.
+      sku: {
+        select: {
+          product: {
+            select: {
+              images: {
+                where: { type: 'IMAGE' as const },
+                orderBy: { sortOrder: 'asc' as const },
+                select: {
+                  url: true,
+                  variantId: true,
+                  optionValueId: true,
+                  isScene: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
   shippingAddress: true,
@@ -114,6 +136,55 @@ type SkuWithBundleComponents = {
     };
   }[];
 };
+
+/**
+ * The photo for an ordered line: the image of the exact option value the
+ * shopper chose, else the variant's, else the product's own. Scene photos
+ * (the room-scene sets) are not product shots and never used here.
+ */
+function guestThumbnail(item: {
+  optionSnapshot: unknown;
+  variantId: string | null;
+  sku: {
+    product: {
+      images: Array<{
+        url: string;
+        variantId: string | null;
+        optionValueId: string | null;
+        isScene: boolean;
+      }>;
+    } | null;
+  } | null;
+}): string | null {
+  const images = (item.sku?.product?.images ?? []).filter(
+    (image) => !image.isScene,
+  );
+  if (images.length === 0) return null;
+
+  const snapshot = item.optionSnapshot as {
+    options?: Array<{ optionValueId?: string | null }>;
+  } | null;
+  const valueIds = new Set(
+    (snapshot?.options ?? [])
+      .map((option) => option.optionValueId)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const byOption = images.find(
+    (image) => image.optionValueId !== null && valueIds.has(image.optionValueId),
+  );
+  if (byOption) return byOption.url;
+
+  const byVariant = images.find(
+    (image) => image.variantId !== null && image.variantId === item.variantId,
+  );
+  if (byVariant) return byVariant.url;
+
+  const shared = images.find(
+    (image) => image.variantId === null && image.optionValueId === null,
+  );
+  return shared?.url ?? null;
+}
 
 @Injectable()
 export class OrdersService {
@@ -1599,7 +1670,7 @@ export class OrdersService {
           personalDetailsIncluded: false,
           orders: [
             {
-              ...order,
+              ...this.guestOrder(order),
               customer: {
                 id: order.customer.id,
                 name: null,
@@ -1617,7 +1688,7 @@ export class OrdersService {
       return {
         matchedBy: 'orderNumber' as const,
         personalDetailsIncluded: true,
-        orders: [order],
+        orders: [this.guestOrder(order)],
       };
     }
 
@@ -1638,7 +1709,36 @@ export class OrdersService {
     return {
       matchedBy: 'phone' as const,
       personalDetailsIncluded: true,
-      orders,
+      orders: orders.map((order) => this.guestOrder(order)),
+    };
+  }
+
+  /**
+   * The guest view of one order: every line carries the photo the shopper
+   * bought, and the product rows behind them are dropped from the response.
+   */
+  private guestOrder<T extends {
+    items: Array<{
+      optionSnapshot: unknown;
+      variantId: string | null;
+      sku: {
+        product: {
+          images: Array<{
+            url: string;
+            variantId: string | null;
+            optionValueId: string | null;
+            isScene: boolean;
+          }>;
+        } | null;
+      } | null;
+    }>;
+  }>(order: T) {
+    return {
+      ...order,
+      items: order.items.map((item) => {
+        const { sku, ...rest } = item;
+        return { ...rest, thumbnailUrl: guestThumbnail(item) };
+      }),
     };
   }
 

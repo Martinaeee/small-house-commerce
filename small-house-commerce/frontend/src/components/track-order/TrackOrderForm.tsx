@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { validatePhone } from "@/lib/checkoutValidation";
 import { lookupOrder, type GuestOrderResult } from "@/lib/guestOrder";
 import { OrderList } from "./OrderList";
@@ -9,29 +10,39 @@ import { OrderList } from "./OrderList";
 /**
  * Guest order tracking (guest-order-tracking spec §3.2, revised 2026-10-21).
  *
- * The shopper may enter EITHER the order number OR the mobile number — one
- * of them is enough. Until an order is open the page shows the lookup form;
- * once it is, the form is replaced by the order details (the page shows
- * nothing else while an order is open).
+ * ONE field: the shopper types EITHER the order number OR the mobile
+ * number. The shape of the value decides which one it is, so there is no
+ * second box to fill and no "which one do I need" question. Until an order is
+ * open the page shows the lookup form; after that it shows the order and
+ * nothing else.
  */
 
 const inputCls =
-  "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
+  "w-full rounded-lg border border-border bg-card px-3.5 py-3 text-[16px] text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
 
-const ORDER_NUMBER_PATTERN = /^PH\d+$/;
+const ORDER_NUMBER_PATTERN = /^PH\d+$/i;
 
-function FieldError({ id, message }: { id: string; message?: string }) {
-  if (!message) return null;
+function ShieldIcon() {
   return (
-    <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-sale">
-      {message}
-    </p>
+    <svg
+      viewBox="0 0 20 20"
+      className="h-4 w-4 shrink-0 text-ink-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden="true"
+    >
+      <path
+        d="M10 2.5 4 5v4.5c0 3.4 2.4 6.6 6 8 3.6-1.4 6-4.6 6-8V5l-6-2.5Z"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m7.6 9.8 1.8 1.8 3-3.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
-}
-
-interface FieldErrors {
-  orderNumber?: string;
-  phone?: string;
 }
 
 interface TrackOrderFormProps {
@@ -39,11 +50,11 @@ interface TrackOrderFormProps {
 }
 
 export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
-  const [orderNumber, setOrderNumber] = useState(
+  const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
+  const [query, setQuery] = useState(
     () => prefillOrder?.trim().toUpperCase() ?? "",
   );
-  const [phone, setPhone] = useState("");
-  const [errors, setErrors] = useState<FieldErrors>({});
+  const [errors, setErrors] = useState<{ query?: string }>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GuestOrderResult | null>(null);
@@ -60,7 +71,7 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
       if (!alive) return;
       try {
         const stored = sessionStorage.getItem("lastOrderPhone");
-        if (stored) setPhone((current) => current || stored);
+        if (stored) setQuery((current) => current || stored);
       } catch {
         // Storage unavailable: the field simply stays empty.
       }
@@ -69,32 +80,6 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
       alive = false;
     };
   }, []);
-
-  // Editing either field invalidates any previously shown result/outcome —
-  // the card below always reflects the latest successful submission.
-  function changeOrderNumber(value: string) {
-    setOrderNumber(value.trim().toUpperCase());
-    setErrors((current) => {
-      if (!current.orderNumber) return current;
-      const next = { ...current };
-      delete next.orderNumber;
-      return next;
-    });
-    setError(null);
-    setResult(null);
-  }
-
-  function changePhone(value: string) {
-    setPhone(value);
-    setErrors((current) => {
-      if (!current.phone) return current;
-      const next = { ...current };
-      delete next.phone;
-      return next;
-    });
-    setError(null);
-    setResult(null);
-  }
 
   async function runLookup(input: {
     orderNumber?: string;
@@ -120,33 +105,34 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
     event.preventDefault();
     if (submitting) return;
 
-    const nextErrors: FieldErrors = {};
-    const trimmedOrder = orderNumber.trim();
-    const trimmedPhone = phone.trim();
-    if (!trimmedOrder && !trimmedPhone) {
-      nextErrors.orderNumber =
-        "Enter your order number or your mobile number.";
-    } else if (trimmedOrder && !ORDER_NUMBER_PATTERN.test(trimmedOrder)) {
-      nextErrors.orderNumber =
-        "Enter your order number as PH followed by digits (e.g. PH100006).";
+    const value = query.trim();
+    if (value === "") {
+      setErrors({
+        query: "Enter your order number or your mobile number.",
+      });
+      return;
     }
-    if (trimmedPhone) {
-      const phoneError = validatePhone(trimmedPhone);
-      if (phoneError) nextErrors.phone = phoneError;
-    }
-    setErrors(nextErrors);
-    if (nextErrors.orderNumber || nextErrors.phone) return;
 
-    await runLookup({
-      orderNumber: trimmedOrder === "" ? undefined : trimmedOrder,
-      phone: trimmedPhone === "" ? undefined : trimmedPhone,
-    });
+    // The shape of the value decides what it is: PH + digits is an order
+    // number, anything else is treated as a mobile number.
+    if (ORDER_NUMBER_PATTERN.test(value)) {
+      setErrors({});
+      await runLookup({ orderNumber: value.toUpperCase() });
+      return;
+    }
+
+    const phoneError = validatePhone(value);
+    if (phoneError) {
+      setErrors({ query: phoneError });
+      return;
+    }
+    setErrors({});
+    await runLookup({ phone: value });
   }
 
   // The shopper added their mobile number to the withheld-details card.
   async function verifyPhone(value: string) {
     if (!result || result.orders.length === 0) return;
-    setPhone(value);
     await runLookup({
       orderNumber: result.orders[0].orderNumber,
       phone: value,
@@ -159,7 +145,7 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
         {error && (
           <p
             role="alert"
-            className="mb-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+            className="mb-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-[14px] text-sale"
           >
             {error}
           </p>
@@ -175,52 +161,50 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
 
   return (
     <div>
-      <h1 className="text-3xl font-semibold text-ink">Track Your Order</h1>
-      <p className="mt-2 text-ink-secondary">
+      <h1 className="text-[30px] font-semibold leading-tight text-ink">
+        Track Your Order
+      </h1>
+      <p className="mt-2 text-[15px] leading-6 text-ink-secondary">
         Enter your order number or your mobile number — either one is enough.
       </p>
 
-      <form onSubmit={handleSubmit} noValidate className="mt-8">
-        <div className="flex flex-col gap-4">
-          <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-            Order Number
-            <input
-              id="track-order-number"
-              data-testid="track-order-number"
-              className={`${inputCls}${errors.orderNumber ? " border-sale" : ""}`}
-              value={orderNumber}
-              onChange={(e) => changeOrderNumber(e.target.value)}
-              aria-invalid={Boolean(errors.orderNumber)}
-              aria-describedby={
-                errors.orderNumber ? "track-order-number-error" : undefined
-              }
-              placeholder="PH100006"
-              autoComplete="off"
-            />
-            <FieldError id="track-order-number" message={errors.orderNumber} />
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-            Mobile Number
-            <input
-              id="track-phone"
-              data-testid="track-phone"
-              className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
-              value={phone}
-              onChange={(e) => changePhone(e.target.value)}
-              aria-invalid={Boolean(errors.phone)}
-              aria-describedby={errors.phone ? "track-phone-error" : undefined}
-              placeholder="0917 123 4567"
-              inputMode="tel"
-              autoComplete="tel"
-            />
-            <FieldError id="track-phone" message={errors.phone} />
-          </label>
-        </div>
+      <form onSubmit={handleSubmit} noValidate className="mt-6">
+        <label
+          className="flex flex-col gap-1.5 text-[14px] font-medium text-ink"
+          htmlFor="track-query"
+        >
+          Order number or mobile number
+          <input
+            id="track-query"
+            data-testid="track-query"
+            className={`${inputCls}${errors.query ? " border-sale" : ""}`}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setErrors({});
+              setError(null);
+            }}
+            aria-invalid={Boolean(errors.query)}
+            aria-describedby={errors.query ? "track-query-error" : undefined}
+            placeholder="PH100006 or 0917 123 4567"
+            autoComplete="off"
+            inputMode="text"
+          />
+        </label>
+        {errors.query ? (
+          <p
+            id="track-query-error"
+            role="alert"
+            className="mt-1.5 text-[13px] text-sale"
+          >
+            {errors.query}
+          </p>
+        ) : null}
 
         {error && (
           <p
             role="alert"
-            className="mt-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+            className="mt-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-[14px] text-sale"
           >
             {error}
           </p>
@@ -229,20 +213,34 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
         <Button
           type="submit"
           disabled={submitting}
-          className="mt-6 w-full"
+          className="mt-5 h-12 w-full text-[15px] font-semibold"
           data-testid="track-submit"
         >
           {submitting ? "Tracking…" : "TRACK ORDER"}
         </Button>
       </form>
 
-      <p
-        data-testid="track-privacy-note"
-        className="mt-3 text-xs text-ink-secondary"
-      >
-        Your order details are shown to the person who knows the order number
-        or the mobile number used at checkout.
-      </p>
+      <div className="mt-8 border-t border-border pt-5">
+        <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
+          <ShieldIcon />
+          Your order information stays private.
+        </p>
+        <p className="mt-3 text-[14px] leading-6 text-ink">
+          Need help?{" "}
+          <a
+            href={messengerUrl ? messengerUrl : `mailto:${supportEmail}`}
+            target={messengerUrl ? "_blank" : undefined}
+            rel={messengerUrl ? "noopener noreferrer" : undefined}
+            data-testid="track-support-link"
+            className="font-medium text-cta underline underline-offset-2"
+          >
+            Contact customer support
+          </a>
+        </p>
+        <p className="mt-1 text-[13px] text-ink-muted">
+          {supportEmail} · {supportHours}
+        </p>
+      </div>
     </div>
   );
 }

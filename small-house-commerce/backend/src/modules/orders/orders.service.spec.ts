@@ -185,6 +185,7 @@ describe('OrdersService.lookup', () => {
       orderNumber: 'PH1001',
       customer: customerPhone === null ? null : { normalizedPhone: customerPhone },
       shippingAddress: snapshotPhone === null ? null : { phone: snapshotPhone },
+      items: [],
     };
   }
 

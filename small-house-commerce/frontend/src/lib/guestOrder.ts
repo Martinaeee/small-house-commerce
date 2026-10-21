@@ -73,6 +73,8 @@ export interface GuestOrderItem {
   quantity: number;
   unitPrice: string;
   lineTotal: string;
+  /** The product photo for this line; null when the product has no image. */
+  thumbnailUrl: string | null;
   createdAt: string;
 }
 

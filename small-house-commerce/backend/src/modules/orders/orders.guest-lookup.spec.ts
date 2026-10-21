@@ -43,11 +43,40 @@ function orderRecord(overrides: Record<string, unknown> = {}) {
         productNameSnapshot: 'Chair',
         skuCodeSnapshot: 'RED-SMALL',
         variantSnapshot: 'Red / Small',
-        optionSnapshot: null,
+        optionSnapshot: {
+          version: 1,
+          options: [
+            { optionId: 'color', optionValueId: 'red', label: 'Color', value: 'Red' },
+          ],
+        },
         quantity: 1,
         unitPrice: '210',
         lineTotal: '210',
         createdAt: '2026-10-21T00:00:00.000Z',
+        sku: {
+          product: {
+            images: [
+              {
+                url: '/uploads/catalog/2026/shared.png',
+                variantId: null,
+                optionValueId: null,
+                isScene: false,
+              },
+              {
+                url: '/uploads/catalog/2026/red.png',
+                variantId: null,
+                optionValueId: 'red',
+                isScene: false,
+              },
+              {
+                url: '/uploads/catalog/2026/scene.png',
+                variantId: null,
+                optionValueId: null,
+                isScene: true,
+              },
+            ],
+          },
+        },
       },
     ],
     shippingAddress: {
@@ -187,6 +216,21 @@ describe('OrdersService.lookup — both fields', () => {
     expect((err as Error).message).toBe(NOT_FOUND_MESSAGE);
     expect(prisma.order.findUnique).not.toHaveBeenCalled();
     expect(prisma.order.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.lookup — the line photo', () => {
+  it('resolves the photo of the option value the shopper chose', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord());
+
+    const result = await service.lookup('PH100001', '09171234567');
+
+    // The option-value photo wins over the shared product photo, and the
+    // scene photo is never used.
+    expect(result.orders[0]!.items[0]!.thumbnailUrl).toBe(
+      '/uploads/catalog/2026/red.png',
+    );
   });
 });
 
