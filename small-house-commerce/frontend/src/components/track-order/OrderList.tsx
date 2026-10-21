@@ -36,13 +36,6 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   AFTER_SALES: "After-sales",
 };
 
-const CONFIRMATION_LABELS: Record<string, string> = {
-  UNCONFIRMED: "Not yet confirmed",
-  NEEDS_REVIEW: "Needs review",
-  CONFIRMED: "Confirmed",
-  REJECTED: "Rejected",
-};
-
 const PAYMENT_LABELS: Record<string, string> = {
   COD_PENDING: "Cash on Delivery · Awaiting payment",
   COLLECTED: "Collected",
@@ -447,14 +440,10 @@ function OrderCard({
                 </dd>
               </div>
             </dl>
+            {/* The confirmation state is our own review queue, not something a
+                shopper can act on, so the card leaves it out; the payment
+                state below is theirs. */}
             <dl className="mt-3 flex flex-col gap-1.5 border-t border-border pt-3 text-[14px]">
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Confirmation</dt>
-                <dd className="font-medium text-ink">
-                  {CONFIRMATION_LABELS[order.confirmationStatus] ??
-                    order.confirmationStatus}
-                </dd>
-              </div>
               <div className="flex justify-between">
                 <dt className="text-ink-secondary">Payment</dt>
                 <dd className="font-medium text-ink">
