@@ -130,14 +130,37 @@ export function OrderList({
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
   return (
     <div>
-      <button
-        type="button"
-        data-testid="track-another"
-        onClick={onTrackAnother}
-        className="mb-4 inline-flex items-center gap-1.5 text-[14px] text-cta hover:underline"
-      >
-        ← Track another order
-      </button>
+      {/* The support entry rides along with the back link in a fixed bar, so
+          the shopper can always reach a human without scrolling back up. */}
+      <div className="sticky top-[65px] z-30 -mx-4 mb-4 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <button
+            type="button"
+            data-testid="track-another"
+            onClick={onTrackAnother}
+            className="shrink-0 text-left text-[14px] text-cta hover:underline"
+          >
+            ← Track another order
+          </button>
+          <div className="sm:text-right">
+            <p className="text-[14px] leading-5 text-ink">
+              Need help?{" "}
+              <a
+                href={messengerUrl ? messengerUrl : `mailto:${supportEmail}`}
+                target={messengerUrl ? "_blank" : undefined}
+                rel={messengerUrl ? "noopener noreferrer" : undefined}
+                data-testid="track-support-link"
+                className="font-medium text-cta underline underline-offset-2"
+              >
+                Contact customer support
+              </a>
+            </p>
+            <p className="mt-0.5 text-[13px] leading-5 text-ink-muted">
+              {supportEmail} · {supportHours}
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div data-testid="track-result" className="flex flex-col gap-3">
         {result.orders.map((order, index) => (
@@ -151,30 +174,10 @@ export function OrderList({
         ))}
       </div>
 
-      <div className="mt-6 border-t border-border pt-4">
-        <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
-          <ShieldIcon />
-          Your order information stays private.
-        </p>
-        <p
-          data-testid="checkout-need-help"
-          className="mt-3 text-[14px] leading-6 text-ink"
-        >
-          Need help?{" "}
-          <a
-            href={messengerUrl ? messengerUrl : `mailto:${supportEmail}`}
-            target={messengerUrl ? "_blank" : undefined}
-            rel={messengerUrl ? "noopener noreferrer" : undefined}
-            data-testid="track-support-link"
-            className="font-medium text-cta underline underline-offset-2"
-          >
-            Contact customer support
-          </a>
-        </p>
-        <p className="mt-1 text-[13px] text-ink-muted">
-          {supportEmail} · {supportHours}
-        </p>
-      </div>
+      <p className="mt-6 flex items-center gap-2 text-[13px] text-ink-secondary">
+        <ShieldIcon />
+        Your order information stays private.
+      </p>
     </div>
   );
 }
