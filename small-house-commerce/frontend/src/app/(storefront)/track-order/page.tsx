@@ -9,16 +9,11 @@ export default async function TrackOrderPage({
   searchParams: Promise<{ order?: string }>;
 }) {
   const { order } = await searchParams;
+  // The heading and the lookup form live inside the client component: once an
+  // order is open the page shows the order details and nothing else.
   return (
     <div className="mx-auto max-w-[600px] px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-semibold text-ink">Track Your Order</h1>
-      <p className="mt-2 text-ink-secondary">
-        Check the status of your order using the order number and the mobile
-        number you used at checkout.
-      </p>
-      <div className="mt-8">
-        <TrackOrderForm prefillOrder={order} />
-      </div>
+      <TrackOrderForm prefillOrder={order} />
     </div>
   );
 }

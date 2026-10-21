@@ -24,11 +24,12 @@ export class StorefrontOrdersController {
     return this.ordersService.checkout(body);
   }
 
-  // Guest order tracking (spec §3.1): no guard — order number + phone is
-  // the shared secret. Distinct static path, no conflict with @Post().
+  // Guest order tracking (spec §3.1): no guard — the order number OR the
+  // mobile number identifies the order. Distinct static path, no conflict
+  // with @Post().
   @Post('lookup')
   @HttpCode(200)
   lookup(@Body(new ZodValidationPipe(lookupSchema)) body: LookupInput) {
-    return this.ordersService.lookup(body.orderNumber, body.phone);
+    return this.ordersService.lookup(body.orderNumber ?? null, body.phone ?? null);
   }
 }

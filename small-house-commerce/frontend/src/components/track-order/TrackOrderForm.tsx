@@ -2,67 +2,23 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { formatPrice } from "@/components/ui/PriceBox";
-import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { validatePhone } from "@/lib/checkoutValidation";
-import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 import { lookupOrder, type GuestOrderResult } from "@/lib/guestOrder";
+import { OrderDetails } from "./OrderDetails";
 
 /**
- * Guest order tracking (guest-order-tracking spec §3.2). Order number +
- * mobile number exact match on the backend; every non-match surfaces one
- * uniform message (lib/guestOrder.ts), so this client never distinguishes
- * "not found" from "wrong phone".
+ * Guest order tracking (guest-order-tracking spec §3.2, revised 2026-10-21).
+ *
+ * The shopper may enter EITHER the order number OR the mobile number — one
+ * of them is enough. Until an order is open the page shows the lookup form;
+ * once it is, the form is replaced by the order details (the page shows
+ * nothing else while an order is open).
  */
 
 const inputCls =
   "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
 
 const ORDER_NUMBER_PATTERN = /^PH\d+$/;
-
-// Spec §3.2 verbatim status wording.
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  NEW: "Order Received",
-  PENDING: "Awaiting confirmation",
-  QUESTION: "Questioning",
-  CONFIRMED: "Confirmed",
-  ABNORMAL: "Delivery issue",
-  SHIPPING: "Out for delivery",
-  SIGNED: "Delivered",
-  CANCELLED: "Cancelled",
-  DENIED: "Denied",
-  AFTER_SALES: "After-sales",
-};
-
-const CONFIRMATION_LABELS: Record<string, string> = {
-  UNCONFIRMED: "Not yet confirmed",
-  NEEDS_REVIEW: "Needs review",
-  CONFIRMED: "Confirmed",
-  REJECTED: "Rejected",
-};
-
-const PAYMENT_LABELS: Record<string, string> = {
-  COD_PENDING: "Cash on Delivery · Awaiting payment",
-  COLLECTED: "Collected",
-  SETTLEMENT_PENDING: "Settling",
-  SETTLED: "Settled",
-  ONLINE_PENDING: "Online payment pending",
-  PAID: "Paid",
-  FAILED: "Payment failed",
-  REFUNDED: "Refunded",
-  PARTIALLY_REFUNDED: "Partially refunded",
-};
-
-const manilaDate = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Manila",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
-function formatDate(value: string): string {
-  return manilaDate.format(new Date(value));
-}
 
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
@@ -92,9 +48,9 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GuestOrderResult | null>(null);
 
-  // The shopper entered this number at checkout in this same tab, so prefill it
-  // and leave tracking one click away. Deferred to an effect (never read during
-  // render) so SSR and the first client render agree — same pattern as
+  // The shopper entered this number at checkout in this same tab, so prefill
+  // it and leave tracking one click away. Deferred to an effect (never read
+  // during render) so SSR and the first client render agree — same pattern as
   // PreferredDateLine. sessionStorage here is tab-scoped and holds nothing the
   // shopper did not just type themselves.
   useEffect(() => {
@@ -140,31 +96,14 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
     setResult(null);
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-
-    const nextErrors: FieldErrors = {};
-    if (!orderNumber) {
-      nextErrors.orderNumber = "Please enter your order number.";
-    } else if (!ORDER_NUMBER_PATTERN.test(orderNumber)) {
-      nextErrors.orderNumber =
-        "Enter your order number as PH followed by digits (e.g. PH100012).";
-    }
-    if (!phone.trim()) {
-      nextErrors.phone = "Please enter your mobile number.";
-    } else {
-      const phoneError = validatePhone(phone);
-      if (phoneError) nextErrors.phone = phoneError;
-    }
-    setErrors(nextErrors);
-    if (nextErrors.orderNumber || nextErrors.phone) return;
-
+  async function runLookup(input: {
+    orderNumber?: string;
+    phone?: string;
+  }): Promise<void> {
     setError(null);
-    setResult(null);
     setSubmitting(true);
     try {
-      const found = await lookupOrder(orderNumber, phone.trim());
+      const found = await lookupOrder(input);
       setResult(found);
     } catch (e) {
       setError(
@@ -177,9 +116,78 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
     }
   }
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+
+    const nextErrors: FieldErrors = {};
+    const trimmedOrder = orderNumber.trim();
+    const trimmedPhone = phone.trim();
+    if (!trimmedOrder && !trimmedPhone) {
+      nextErrors.orderNumber =
+        "Enter your order number or your mobile number.";
+    } else if (trimmedOrder && !ORDER_NUMBER_PATTERN.test(trimmedOrder)) {
+      nextErrors.orderNumber =
+        "Enter your order number as PH followed by digits (e.g. PH100006).";
+    }
+    if (trimmedPhone) {
+      const phoneError = validatePhone(trimmedPhone);
+      if (phoneError) nextErrors.phone = phoneError;
+    }
+    setErrors(nextErrors);
+    if (nextErrors.orderNumber || nextErrors.phone) return;
+
+    await runLookup({
+      orderNumber: trimmedOrder === "" ? undefined : trimmedOrder,
+      phone: trimmedPhone === "" ? undefined : trimmedPhone,
+    });
+  }
+
+  // The shopper added their mobile number to the withheld-details card.
+  async function verifyPhone(value: string) {
+    if (!result) return;
+    setPhone(value);
+    await runLookup({ orderNumber: result.orderNumber, phone: value });
+  }
+
+  // The shopper picked another order from the same mobile number.
+  async function selectOrder(picked: string) {
+    const trimmedPhone = phone.trim();
+    await runLookup({
+      orderNumber: picked,
+      phone: trimmedPhone === "" ? undefined : trimmedPhone,
+    });
+  }
+
+  if (result) {
+    return (
+      <div>
+        {error && (
+          <p
+            role="alert"
+            className="mb-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+          >
+            {error}
+          </p>
+        )}
+        <OrderDetails
+          result={result}
+          onTrackAnother={() => setResult(null)}
+          onVerifyPhone={(value) => void verifyPhone(value)}
+          onSelectOrder={(picked) => void selectOrder(picked)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <form onSubmit={handleSubmit} noValidate>
+      <h1 className="text-3xl font-semibold text-ink">Track Your Order</h1>
+      <p className="mt-2 text-ink-secondary">
+        Enter your order number or your mobile number — either one is enough.
+      </p>
+
+      <form onSubmit={handleSubmit} noValidate className="mt-8">
         <div className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">
             Order Number
@@ -193,7 +201,7 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
               aria-describedby={
                 errors.orderNumber ? "track-order-number-error" : undefined
               }
-              placeholder="PH100012"
+              placeholder="PH100006"
               autoComplete="off"
             />
             <FieldError id="track-order-number" message={errors.orderNumber} />
@@ -239,232 +247,9 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
         data-testid="track-privacy-note"
         className="mt-3 text-xs text-ink-secondary"
       >
-        Your order details are shown only to the person with the order number
-        and mobile number used at checkout.
+        Your order details are shown to the person who knows the order number
+        or the mobile number used at checkout.
       </p>
-
-      {result && (
-        <div className="mt-6">
-          <ResultCard result={result} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ResultCard({ result }: { result: GuestOrderResult }) {
-  const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
-
-  // The backend include orders statusHistory by createdAt asc
-  // (ORDER_DETAIL_INCLUDE) — render in the received order, no re-sort.
-  // statusDomain is a free String: orders.service writes "ORDER_STATUS" for
-  // order-status changes ("CONFIRMATION_STATUS" is the other domain).
-  const orderEntries = result.statusHistory.filter(
-    (entry) => entry.statusDomain === "ORDER_STATUS",
-  );
-  const timeline =
-    orderEntries.length > 0
-      ? orderEntries.map((entry) => ({
-          id: entry.id,
-          label: ORDER_STATUS_LABELS[entry.newStatus] ?? entry.newStatus,
-          date: formatDate(entry.createdAt),
-        }))
-      : [
-          {
-            id: "current",
-            label:
-              ORDER_STATUS_LABELS[result.orderStatus] ?? result.orderStatus,
-            date: formatDate(result.createdAt),
-          },
-        ];
-
-  const subtotal = Number(result.subtotal);
-  const discount = Number(result.discountTotal);
-  const shipping = Number(result.shippingTotal);
-  const grandTotal = Number(result.grandTotal);
-
-  const address = result.shippingAddress;
-  const addressLines = address
-    ? [
-        [address.fullName, address.phone].filter(Boolean).join(" · "),
-        address.streetAddress,
-        [address.barangay, address.city].filter(Boolean).join(", "),
-        [address.province, address.postalCode].filter(Boolean).join(" "),
-        address.landmark ? `Landmark: ${address.landmark}` : "",
-      ].filter((line) => line.trim().length > 0)
-    : [];
-
-  return (
-    <div
-      data-testid="track-result"
-      className="divide-y divide-border rounded-lg border border-border bg-card p-5"
-    >
-      <div className="pb-4">
-        <h2 className="text-lg font-semibold text-ink">
-          Order {result.orderNumber}
-        </h2>
-        <p className="mt-0.5 text-sm text-ink-secondary">
-          Placed on {formatDate(result.createdAt)}
-        </p>
-      </div>
-
-      <div className="py-4">
-        <ol data-testid="track-timeline">
-          {timeline.map((row, index) => {
-            const isCurrent = index === timeline.length - 1;
-            return (
-              <li
-                key={row.id}
-                className="flex items-baseline justify-between gap-3 py-1.5"
-              >
-                <span
-                  className={
-                    isCurrent
-                      ? "text-sm font-semibold text-ink"
-                      : "text-sm text-ink-secondary"
-                  }
-                >
-                  {row.label}
-                </span>
-                <span
-                  className={
-                    isCurrent
-                      ? "text-xs font-semibold text-ink"
-                      : "text-xs text-ink-secondary"
-                  }
-                >
-                  {row.date}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-        <dl className="mt-3 flex flex-col gap-1 border-t border-border pt-3 text-sm">
-          <div
-            className="flex justify-between"
-            data-testid="track-confirmation"
-          >
-            <dt className="text-ink-secondary">Confirmation</dt>
-            <dd className="font-medium text-ink">
-              {CONFIRMATION_LABELS[result.confirmationStatus] ??
-                result.confirmationStatus}
-            </dd>
-          </div>
-          <div className="flex justify-between" data-testid="track-payment">
-            <dt className="text-ink-secondary">Payment</dt>
-            <dd className="font-medium text-ink">
-              {PAYMENT_LABELS[result.paymentStatus] ?? result.paymentStatus}
-            </dd>
-          </div>
-        </dl>
-      </div>
-
-      <div className="py-4">
-        <h2 className="text-sm font-semibold text-ink">Items</h2>
-        <ul data-testid="track-items" className="mt-1 divide-y divide-border">
-          {result.items.map((item) => {
-            // Order-time snapshot first; the legacy variant text covers
-            // lines created before the typed option graph.
-            const optionsText = formatOrderOptionsFromSnapshot(
-              item.optionSnapshot,
-              item.variantSnapshot,
-            );
-            return (
-              <li key={item.id} className="flex gap-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-ink">
-                    {item.productNameSnapshot}
-                  </p>
-                  <p className="mt-0.5 text-xs text-ink-muted">
-                    {optionsText ? `${optionsText} · ` : ""}
-                    Qty {item.quantity}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-sm font-semibold text-ink">
-                    {formatPrice(Number(item.unitPrice) * item.quantity)}
-                  </p>
-                  {item.quantity > 1 && (
-                    <p className="text-xs text-ink-muted">
-                      {formatPrice(Number(item.unitPrice))} each
-                    </p>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      <div className="py-4">
-        <dl className="flex flex-col gap-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-ink-secondary">Subtotal</dt>
-            <dd className="font-medium text-ink">{formatPrice(subtotal)}</dd>
-          </div>
-          {discount > 0 && (
-            <div className="flex justify-between">
-              <dt className="text-ink-secondary">Discount</dt>
-              <dd className="font-medium text-sale">
-                −{formatPrice(discount)}
-              </dd>
-            </div>
-          )}
-          {shipping > 0 && (
-            <div className="flex justify-between">
-              <dt className="text-ink-secondary">Shipping</dt>
-              <dd className="font-medium text-ink">{formatPrice(shipping)}</dd>
-            </div>
-          )}
-          <div className="flex justify-between border-t border-border pt-3 text-base">
-            <dt className="font-semibold text-ink">Total (COD)</dt>
-            <dd className="font-bold text-ink">{formatPrice(grandTotal)}</dd>
-          </div>
-        </dl>
-      </div>
-
-      {addressLines.length > 0 && (
-        <div className="py-4">
-          <h2 className="text-sm font-semibold text-ink">Delivery Address</h2>
-          <div
-            data-testid="track-address"
-            className="mt-1 text-sm text-ink-secondary"
-          >
-            {addressLines.map((line, index) => (
-              <p key={index} className={index === 0 ? undefined : "mt-1"}>
-                {line}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="pt-4">
-        <p
-          data-testid="checkout-need-help"
-          className="text-xs leading-relaxed text-ink-secondary sm:max-w-[420px]"
-        >
-          <span className="font-semibold text-ink">Need help? </span>
-          {messengerUrl ? (
-            <>
-              <a
-                href={messengerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-cta hover:underline"
-              >
-                Chat on Messenger
-              </a>
-              {" · "}
-            </>
-          ) : null}
-          <a href={`mailto:${supportEmail}`} className="text-cta hover:underline">
-            {supportEmail}
-          </a>
-          {" · "}
-          {supportHours}
-        </p>
-      </div>
     </div>
   );
 }
