@@ -171,7 +171,7 @@ export function BackInStockDialog({
           <div className="mt-6" aria-live="polite">
             <p className="rounded-xl border border-primary bg-primary-light/40 px-4 py-3 text-sm font-medium text-ink">
               We&apos;ll email you when it&apos;s back in stock.
-              {onSubscribed ? " It&apos;s also in your cart." : ""}
+              {onSubscribed ? " It’s also in your cart." : ""}
             </p>
             <button
               type="button"
