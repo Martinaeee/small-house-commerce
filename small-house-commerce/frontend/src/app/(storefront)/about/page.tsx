@@ -19,6 +19,10 @@ export const metadata: Metadata = {
  * action on the brand green. The copy, photography and links live in
  * `about-content.ts`.
  *
+ * The composition never collapses: a phone keeps the same left-right
+ * arrangement as the desktop, and the type scales down with the screen
+ * (clamp) instead of the columns stacking. Nothing scrolls sideways.
+ *
  * Type: Prata (the brand's editorial serif) for the headings, the site's
  * sans-serif for the running copy and small labels. No shadows, no gradients
  * on the cards, no rounded containers — the design is flat.
@@ -93,9 +97,23 @@ function LineIcon({ name }: { name: AboutIcon }) {
   );
 }
 
-const eyebrow =
-  "text-[11px] font-medium uppercase tracking-[0.2em] text-[var(--color-about-green)]";
-const body = "text-[15px] leading-[1.75] text-[var(--color-about-ink)]";
+/**
+ * The type scale. The page is one design at two sizes: the clamp() middle
+ * term follows the screen, so a 390px phone gets a scaled-down version of the
+ * same layout rather than a different one.
+ */
+const type = {
+  eyebrow: "text-[10px] tracking-[0.16em] lg:text-[11px] lg:tracking-[0.2em]",
+  storyHeading: "text-[clamp(21px,5.4vw,60px)] lg:leading-[1.1]",
+  sectionHeading: "text-[clamp(15px,4vw,42px)] lg:leading-[1.16]",
+  promiseHeading: "text-[clamp(15px,4.2vw,38px)] lg:leading-[1.18]",
+  collectionHeading: "text-[clamp(19px,5vw,48px)] lg:leading-[1.14]",
+  body: "text-[clamp(12.5px,2.5vw,16px)] lg:text-[15px] lg:leading-[1.75]",
+  lead: "text-[clamp(12px,2.3vw,16px)] lg:text-[16px] lg:leading-[1.7]",
+  label: "text-[clamp(11px,1.9vw,15px)] lg:text-[15px]",
+  small: "text-[clamp(10.5px,1.8vw,14px)] lg:text-[14px]",
+  tiny: "text-[clamp(10px,1.6vw,13px)] lg:text-[13px]",
+};
 
 export default function AboutPage() {
   const { story, why, promise, confidence, collection } = ABOUT_CONTENT;
@@ -103,7 +121,7 @@ export default function AboutPage() {
   return (
     <div className="bg-[var(--color-about-bg)] text-[var(--color-about-ink)]">
       {/* 01 — Our Story: the promise, beside the room it is about. */}
-      <section className="grid lg:h-[600px] lg:grid-cols-[62%_38%]">
+      <section className="grid grid-cols-2 lg:h-[600px] lg:grid-cols-[62%_38%]">
         <div className="overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -113,10 +131,14 @@ export default function AboutPage() {
             style={{ aspectRatio: "3 / 2" }}
           />
         </div>
-        <div className="flex flex-col justify-center px-5 py-14 sm:px-10 lg:px-14 xl:px-[72px]">
-          <p className={eyebrow}>{story.eyebrow}</p>
+        <div className="flex flex-col justify-center px-4 py-5 sm:px-6 lg:px-14 lg:py-0 xl:px-[72px]">
+          <p
+            className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
+          >
+            {story.eyebrow}
+          </p>
           <h1
-            className={`${storySerif.className} mt-5 text-[40px] leading-[1.1] text-[var(--color-about-ink)] sm:text-[50px] lg:text-[60px]`}
+            className={`${storySerif.className} ${type.storyHeading} mt-3 leading-[1.14] text-[var(--color-about-ink)] lg:mt-5`}
           >
             {story.headingLines.map((line) => (
               <span key={line} className="block">
@@ -124,25 +146,29 @@ export default function AboutPage() {
               </span>
             ))}
           </h1>
-          <p className={`mt-6 max-w-[46ch] text-[16px] leading-[1.7] ${body}`}>
+          <p
+            className={`${type.lead} mt-3 max-w-[46ch] leading-[1.65] text-[var(--color-about-ink)] lg:mt-6`}
+          >
             {story.body}
           </p>
           <span
             aria-hidden="true"
-            className="mt-8 block h-px w-12 bg-[var(--color-about-brown)]"
+            className="mt-4 block h-px w-8 bg-[var(--color-about-brown)] lg:mt-8 lg:w-12"
           />
         </div>
       </section>
 
       {/* 02 — Why Luwag: the idea, the room, the three things it buys you. */}
-      <section className="mx-auto max-w-[1440px] px-5 py-16 sm:px-10 lg:px-16 lg:py-28">
-        {/* 32 / 40 / 28 of the row — in fr units so the gaps do not push the
-            last column past the content edge. */}
-        <div className="grid gap-10 lg:grid-cols-[1.15fr_1.45fr_1fr] lg:gap-12">
+      <section className="mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-28">
+        <div className="grid grid-cols-[1.2fr_1.3fr_1fr] gap-3 lg:grid-cols-[1.15fr_1.45fr_1fr] lg:gap-12">
           <div className="lg:pt-4">
-            <p className={eyebrow}>{why.eyebrow}</p>
+            <p
+              className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
+            >
+              {why.eyebrow}
+            </p>
             <h2
-              className={`${storySerif.className} mt-5 text-[32px] leading-[1.16] text-[var(--color-about-ink)] sm:text-[38px] lg:text-[42px]`}
+              className={`${storySerif.className} ${type.sectionHeading} mt-3 leading-[1.18] text-[var(--color-about-ink)] lg:mt-5`}
             >
               {why.headingLines.map((line) => (
                 <span key={line} className="block">
@@ -150,7 +176,11 @@ export default function AboutPage() {
                 </span>
               ))}
             </h2>
-            <p className={`mt-6 max-w-[42ch] ${body}`}>{why.body}</p>
+            <p
+              className={`${type.body} mt-3 max-w-[42ch] leading-[1.65] text-[var(--color-about-ink)] lg:mt-6`}
+            >
+              {why.body}
+            </p>
           </div>
           <div className="overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -161,17 +191,23 @@ export default function AboutPage() {
               style={{ aspectRatio: "4 / 5" }}
             />
           </div>
-          <ul className="flex flex-col justify-center gap-7">
+          <ul className="flex flex-col justify-center gap-4 lg:gap-7">
             {why.values.map((value) => (
-              <li key={value.title} className="flex items-start gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-about-disc)] text-[var(--color-about-brown)]">
-                  <LineIcon name={value.icon} />
+              <li key={value.title} className="flex items-start gap-2 lg:gap-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-about-disc)] text-[var(--color-about-brown)] lg:h-11 lg:w-11">
+                  <span className="[&>svg]:h-3.5 [&>svg]:w-3.5 lg:[&>svg]:h-5 lg:[&>svg]:w-5">
+                    <LineIcon name={value.icon} />
+                  </span>
                 </span>
-                <span>
-                  <span className="block text-[15px] font-semibold text-[var(--color-about-ink)]">
+                <span className="min-w-0">
+                  <span
+                    className={`${type.small} block font-semibold leading-[1.35] text-[var(--color-about-ink)]`}
+                  >
                     {value.title}
                   </span>
-                  <span className="mt-1 block text-[14px] leading-[1.6] text-[var(--color-about-muted)]">
+                  <span
+                    className={`${type.tiny} mt-0.5 block leading-[1.45] text-[var(--color-about-muted)]`}
+                  >
                     {value.body}
                   </span>
                 </span>
@@ -182,13 +218,18 @@ export default function AboutPage() {
       </section>
 
       {/* 03 — Our Promise: how a piece is made, in three numbered steps. */}
-      <section className="mx-auto max-w-[1440px] px-5 py-16 sm:px-10 lg:px-16 lg:py-24">
-        {/* 25 / 75 of the row, in fr units for the same reason. */}
-        <div className="grid gap-12 lg:grid-cols-[1fr_3fr] lg:gap-16">
+      <section className="mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-24">
+        {/* 45 / 55 in fr units so the gap does not push the right column past
+            the content edge. */}
+        <div className="grid grid-cols-[45fr_55fr] gap-4 lg:grid-cols-[1fr_3fr] lg:gap-16">
           <div>
-            <p className={eyebrow}>{promise.eyebrow}</p>
+            <p
+              className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
+            >
+              {promise.eyebrow}
+            </p>
             <h2
-              className={`${storySerif.className} mt-5 text-[30px] leading-[1.18] text-[var(--color-about-ink)] lg:text-[38px]`}
+              className={`${storySerif.className} ${type.promiseHeading} mt-3 leading-[1.2] text-[var(--color-about-ink)] lg:mt-5`}
             >
               {promise.headingLines.map((line) => (
                 <span key={line} className="block">
@@ -196,11 +237,15 @@ export default function AboutPage() {
                 </span>
               ))}
             </h2>
-            <p className={`mt-6 max-w-[42ch] ${body}`}>{promise.body}</p>
+            <p
+              className={`${type.body} mt-3 max-w-[42ch] leading-[1.65] text-[var(--color-about-ink)] lg:mt-6`}
+            >
+              {promise.body}
+            </p>
             {promise.cta.href ? (
               <Link
                 href={promise.cta.href}
-                className="mt-8 inline-flex w-fit items-center gap-2 bg-[var(--color-about-green)] px-6 py-3 text-[14px] font-medium text-[var(--color-about-bg)] transition-opacity hover:opacity-90"
+                className="mt-5 inline-flex w-fit items-center gap-2 bg-[var(--color-about-green)] px-3 py-2 text-[11px] font-medium text-[var(--color-about-bg)] transition-opacity hover:opacity-90 lg:mt-8 lg:px-6 lg:py-3 lg:text-[14px]"
               >
                 {promise.cta.label}
                 <span aria-hidden="true">→</span>
@@ -212,36 +257,44 @@ export default function AboutPage() {
                 data-pending-href="manufacturing"
                 aria-disabled="true"
                 title="Link pending — the manufacturing page is not published yet"
-                className="mt-8 inline-flex w-fit cursor-default items-center gap-2 bg-[var(--color-about-green)] px-6 py-3 text-[14px] font-medium text-[var(--color-about-bg)] opacity-90"
+                className="mt-5 inline-flex w-fit cursor-default items-center gap-2 bg-[var(--color-about-green)] px-3 py-2 text-[11px] font-medium text-[var(--color-about-bg)] opacity-90 lg:mt-8 lg:px-6 lg:py-3 lg:text-[14px]"
               >
                 {promise.cta.label}
                 <span aria-hidden="true">→</span>
               </span>
             )}
           </div>
-          <ol className="grid gap-6 sm:grid-cols-3">
+          {/* On a phone the three steps stack beside the copy, each with its
+              picture next to the words; on the desktop they are three equal
+              columns with the picture on top. */}
+          <ol className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-6">
             {promise.steps.map((step, index) => (
-              <li key={step.title}>
-                <div className="overflow-hidden">
+              <li key={step.title} className="flex gap-3 lg:block">
+                <div className="w-[38%] shrink-0 overflow-hidden lg:w-auto">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={step.image}
                     alt={step.imageAlt}
-                    className="h-full w-full object-cover"
-                    style={{ aspectRatio: "4 / 3" }}
+                    className="aspect-square h-auto w-full object-cover lg:aspect-[4/3] lg:h-full"
                   />
                 </div>
-                <p
-                  className={`${storySerif.className} mt-4 text-[22px] leading-none text-[var(--color-about-brown)]`}
-                >
-                  {String(index + 1).padStart(2, "0")}
-                </p>
-                <h3 className="mt-2 text-[15px] font-semibold text-[var(--color-about-ink)]">
-                  {step.title}
-                </h3>
-                <p className="mt-2 text-[14px] leading-[1.6] text-[var(--color-about-muted)]">
-                  {step.body}
-                </p>
+                <div className="min-w-0 lg:mt-4">
+                  <p
+                    className={`${storySerif.className} text-[clamp(15px,3.4vw,22px)] leading-none text-[var(--color-about-brown)] lg:mt-4`}
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </p>
+                  <h3
+                    className={`${type.label} mt-1 font-semibold leading-[1.35] text-[var(--color-about-ink)] lg:mt-2`}
+                  >
+                    {step.title}
+                  </h3>
+                  <p
+                    className={`${type.tiny} mt-1 leading-[1.5] text-[var(--color-about-muted)] lg:mt-2`}
+                  >
+                    {step.body}
+                  </p>
+                </div>
               </li>
             ))}
           </ol>
@@ -251,7 +304,7 @@ export default function AboutPage() {
       {/* 04 — Shopping With Confidence: the service band, fading into the
           packaging photograph on the right. */}
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[52%] lg:block">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[34%] lg:w-[52%]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={confidence.image}
@@ -263,10 +316,14 @@ export default function AboutPage() {
             className="absolute inset-0 bg-gradient-to-r from-[var(--color-about-bg)] via-[var(--color-about-bg)]/55 to-transparent"
           />
         </div>
-        <div className="relative mx-auto max-w-[1440px] px-5 py-16 sm:px-10 lg:px-16 lg:py-24">
-          <p className={eyebrow}>{confidence.eyebrow}</p>
+        <div className="relative mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-24">
+          <p
+            className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
+          >
+            {confidence.eyebrow}
+          </p>
           <h2
-            className={`${storySerif.className} mt-5 max-w-[18ch] text-[32px] leading-[1.16] text-[var(--color-about-ink)] lg:text-[44px]`}
+            className={`${storySerif.className} ${type.sectionHeading} mt-3 max-w-none leading-[1.18] text-[var(--color-about-ink)] lg:mt-5 lg:max-w-[18ch]`}
           >
             {confidence.headingLines.map((line) => (
               <span key={line} className="block">
@@ -274,18 +331,21 @@ export default function AboutPage() {
               </span>
             ))}
           </h2>
-          {/* Two columns on phones, four on the desktop row. */}
-          <ul className="mt-10 grid grid-cols-2 gap-x-6 gap-y-9 sm:gap-x-8 lg:max-w-[860px] lg:grid-cols-4">
+          <ul className="mt-6 grid max-w-[240px] grid-cols-1 gap-x-8 gap-y-4 sm:max-w-none sm:grid-cols-2 lg:mt-10 lg:max-w-[860px] lg:grid-cols-4 lg:gap-y-9">
             {confidence.services.map((service) => (
-              <li key={service.title} className="flex items-start gap-3">
-                <span className="mt-0.5 shrink-0 text-[var(--color-about-brown)]">
+              <li key={service.title} className="flex items-start gap-2 lg:gap-3">
+                <span className="mt-0.5 shrink-0 text-[var(--color-about-brown)] [&>svg]:h-4 [&>svg]:w-4 lg:[&>svg]:h-5 lg:[&>svg]:w-5">
                   <LineIcon name={service.icon} />
                 </span>
-                <span>
-                  <span className="block text-[14px] font-semibold text-[var(--color-about-ink)]">
+                <span className="min-w-0">
+                  <span
+                    className={`${type.small} block font-semibold leading-[1.35] text-[var(--color-about-ink)]`}
+                  >
                     {service.title}
                   </span>
-                  <span className="mt-1 block text-[13px] leading-[1.6] text-[var(--color-about-muted)]">
+                  <span
+                    className={`${type.tiny} mt-0.5 block leading-[1.5] text-[var(--color-about-muted)]`}
+                  >
                     {service.body}
                   </span>
                 </span>
@@ -296,7 +356,7 @@ export default function AboutPage() {
       </section>
 
       {/* 05 — Explore the Collection: the one clear call to action. */}
-      <section className="grid lg:grid-cols-[60%_40%]">
+      <section className="grid grid-cols-[55%_45%] lg:grid-cols-[60%_40%]">
         <div className="overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -306,12 +366,12 @@ export default function AboutPage() {
             style={{ aspectRatio: "16 / 9" }}
           />
         </div>
-        <div className="flex flex-col justify-center bg-[var(--color-about-green)] px-5 py-16 text-[var(--color-about-bg)] sm:px-12 lg:px-16 lg:py-24">
-          <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-[#c3cdb8]">
+        <div className="flex flex-col justify-center bg-[var(--color-about-green)] px-4 py-8 text-[var(--color-about-bg)] sm:px-12 lg:px-16 lg:py-24">
+          <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-[#c3cdb8] lg:text-[11px] lg:tracking-[0.2em]">
             {collection.eyebrow}
           </p>
           <h2
-            className={`${storySerif.className} mt-5 text-[36px] leading-[1.14] lg:text-[48px]`}
+            className={`${storySerif.className} ${type.collectionHeading} mt-3 leading-[1.16] lg:mt-5`}
           >
             {collection.headingLines.map((line) => (
               <span key={line} className="block">
@@ -322,7 +382,7 @@ export default function AboutPage() {
           {collection.cta.href ? (
             <Link
               href={collection.cta.href}
-              className="mt-9 inline-flex w-fit items-center gap-2 bg-[var(--color-about-bg)] px-7 py-3.5 text-[14px] font-medium text-[var(--color-about-green)] transition-opacity hover:opacity-90"
+              className="mt-5 inline-flex w-fit items-center gap-1.5 bg-[var(--color-about-bg)] px-4 py-2.5 text-[12px] font-medium text-[var(--color-about-green)] transition-opacity hover:opacity-90 lg:mt-9 lg:gap-2 lg:px-7 lg:py-3.5 lg:text-[14px]"
             >
               {collection.cta.label}
               <span aria-hidden="true">→</span>
