@@ -308,7 +308,7 @@ describe("ProductCard inline purchase", () => {
     expect(api.addToCart).toHaveBeenCalledWith(expect.objectContaining({ skuId: "blue-sku", quantity: 1 }));
   });
 
-  it("opens an alert for the exact out-of-stock SKU without emitting commerce events", async () => {
+  it("opens an alert for the exact out-of-stock SKU and keeps the item in the cart", async () => {
     const product = cardTestProduct({ defaultDisplayVariantId: "blue-variant", cardMedia: { displayVariantId: "blue-variant", unselected: { cover: null, scene: null }, variants: [] } });
     product.variants[1]!.sku!.availableInventory = 0;
     const submit = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -333,9 +333,7 @@ describe("ProductCard inline purchase", () => {
     );
     await user.click(screen.getByRole("button", { name: "Notify me" }));
 
-    expect(
-      await screen.findByText("We'll email you when it's back in stock."),
-    ).toBeVisible();
+    expect(await screen.findByText(/also in your cart/)).toBeVisible();
     expect(submit).toHaveBeenCalledWith(
       "/api/v1/storefront/back-in-stock",
       expect.objectContaining({
@@ -345,10 +343,69 @@ describe("ProductCard inline purchase", () => {
         }),
       }),
     );
-    expect(api.addToCart).not.toHaveBeenCalled();
-    expect(tracking.track).not.toHaveBeenCalled();
-    expect(tracking.trackCustom).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save for Later" })).toBeEnabled();
+    // One click covers both wishes: the alert is saved and the item is kept
+    // in the cart, so the shopper does not have to add it a second time.
+    expect(api.addToCart).toHaveBeenCalledTimes(1);
+    expect(api.addToCart).toHaveBeenCalledWith(
+      expect.objectContaining({ skuId: "blue-sku", quantity: 1 }),
+    );
+    // The card still offers the same action (its label flips to "Added"
+    // while the card shows the result).
+    expect(screen.getByRole("button", { name: /Save for Later|Added/ })).toBeEnabled();
+  });
+
+  it("does not add the item twice when a restock alert is requested again", async () => {
+    const product = cardTestProduct({ defaultDisplayVariantId: "blue-variant", cardMedia: { displayVariantId: "blue-variant", unselected: { cover: null, scene: null }, variants: [] } });
+    product.variants[1]!.sku!.availableInventory = 0;
+    vi.spyOn(api, "addToCart").mockResolvedValue({
+      ...cartSummary,
+      items: [
+        {
+          itemId: "line-blue",
+          skuId: "blue-sku",
+          skuCode: "BLUE",
+          productName: product.name,
+          productSlug: product.slug,
+          variantName: "Blue",
+          quantity: 1,
+          unitPrice: 120,
+          compareAtPrice: null,
+          lineTotal: 120,
+          availableInventory: 0,
+          unavailable: true,
+          optionValues: [],
+          thumbnail: null,
+        },
+      ],
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const user = userEvent.setup();
+    renderCard(
+      <SiteSettingsProvider settings={{ ...DEFAULT_SITE_SETTINGS, backInStockEnabled: true }}>
+        <ProductCard product={product} />
+      </SiteSettingsProvider>,
+    );
+
+    for (let round = 0; round < 2; round++) {
+      await user.click(
+        screen.getByRole("button", { name: "Notify me when back in stock" }),
+      );
+      await user.type(
+        screen.getByRole("textbox", { name: "Email address" }),
+        "shopper@example.com",
+      );
+      await user.click(screen.getByRole("button", { name: "Notify me" }));
+      await screen.findByText(/also in your cart/);
+      await user.click(screen.getByRole("button", { name: "Done" }));
+    }
+
+    // The second alert does not add a second copy of the same SKU.
+    expect(api.addToCart).toHaveBeenCalledTimes(1);
   });
 
   it("explains which selected combination is out of stock", async () => {

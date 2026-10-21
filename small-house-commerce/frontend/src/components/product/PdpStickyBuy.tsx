@@ -34,6 +34,11 @@ export interface PdpStickyBuyProps {
   variantLabel: string | null;
   onQuantityChange(quantity: number): void;
   onIntent(intent: StickyPurchaseIntent, trigger: HTMLElement): void;
+  /**
+   * Runs after a restock alert is saved from this bar, so the same click can
+   * also keep the item in the cart.
+   */
+  onNotifySubscribed?: () => void;
 }
 
 export function PdpStickyBuy({
@@ -46,6 +51,7 @@ export function PdpStickyBuy({
   variantLabel,
   onQuantityChange,
   onIntent,
+  onNotifySubscribed,
 }: PdpStickyBuyProps): ReactNode {
   const [visible, setVisible] = useState(false);
   const [codInView, setCodInView] = useState(false);
@@ -224,6 +230,7 @@ export function PdpStickyBuy({
           <BackInStockTrigger
             skuId={resolvedSku.id}
             productName={product.name}
+            onSubscribed={onNotifySubscribed}
             className="inline-flex h-9 min-w-0 shrink items-center justify-center rounded-lg border border-border bg-card px-2.5 text-center text-xs font-semibold leading-tight text-cta transition hover:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta sm:h-10 sm:min-w-[120px] sm:px-5 sm:text-sm"
           />
         ) : (

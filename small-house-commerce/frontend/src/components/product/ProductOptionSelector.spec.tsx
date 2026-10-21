@@ -1830,3 +1830,50 @@ describe("browser history navigation", () => {
     );
   });
 });
+
+describe("PDP restock alert", () => {
+  it("keeps the item in the cart when the shopper registers a restock alert", async () => {
+    const outOfStock: Product = {
+      ...product,
+      variants: product.variants.map((variant) =>
+        variant.id === "red-small" && variant.sku
+          ? { ...variant, sku: { ...variant.sku, availableInventory: 0 } }
+          : variant,
+      ),
+    };
+    const submit = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const user = userEvent.setup();
+    renderPdp({ item: outOfStock, variantId: "red-small" });
+
+    await user.click(
+      screen.getByRole("button", { name: "Notify me when back in stock" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "shopper@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+
+    expect(await screen.findByText(/also in your cart/)).toBeVisible();
+    expect(submit).toHaveBeenCalledWith(
+      "/api/v1/storefront/back-in-stock",
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: "shopper@example.com",
+          skuId: "sku-red-small",
+        }),
+      }),
+    );
+    // The alert and the saved cart line are one action.
+    expect(cart.addItem).toHaveBeenCalledTimes(1);
+    expect(cart.addItem).toHaveBeenCalledWith(
+      { skuId: "sku-red-small", quantity: 1 },
+      { openDrawer: false },
+    );
+  });
+});

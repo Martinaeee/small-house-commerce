@@ -10,6 +10,11 @@ export interface BackInStockTriggerProps {
   productName: string;
   className?: string;
   label?: string;
+  /**
+   * Called once the alert is saved, so the surface can also keep the item in
+   * the shopper's cart.
+   */
+  onSubscribed?: () => void;
 }
 
 export function BackInStockTrigger({
@@ -17,6 +22,7 @@ export function BackInStockTrigger({
   productName,
   className,
   label = "Notify me when back in stock",
+  onSubscribed,
 }: BackInStockTriggerProps) {
   const { backInStockEnabled } = useSiteSettings();
   const [openSkuId, setOpenSkuId] = useState<string | null>(null);
@@ -45,6 +51,7 @@ export function BackInStockTrigger({
               skuId={skuId}
               productName={productName}
               onClose={() => setOpenSkuId(null)}
+              onSubscribed={onSubscribed}
               returnFocusRef={triggerRef}
             />,
             document.body,

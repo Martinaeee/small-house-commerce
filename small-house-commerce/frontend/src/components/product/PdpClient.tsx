@@ -187,7 +187,7 @@ export function PdpClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { addItem, openPicker } = useCart();
+  const { addItem, openPicker, cart } = useCart();
   const { supportEmail, supportHours } = useSiteSettings();
   const {
     primaryLine,
@@ -444,43 +444,63 @@ export function PdpClient({
     restoreIntentFocus();
   }, [restoreIntentFocus]);
 
-  const executeAddToCart = useCallback(async () => {
-    if (!sku || !resolvedVariant) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      await addItem({ skuId: sku.id, quantity: primaryLine.quantity });
-      setNotice("Added to cart");
-      // The add succeeded: exactly one variant_confirm + AddToCart pair,
-      // both keyed by the final SKU. A failed add emits nothing.
-      // Out-of-stock save-for-later adds intentionally keep firing this
-      // pair (ACCEPT decision, final review): the cart mutation is real,
-      // and the add is strong purchase intent for retargeting. Purchase can
-      // never result (checkout blocks unavailable items), so no revenue is
-      // mis-attributed.
-      emitCommerceEvent(
-        variantConfirmEvent({
-          productId: product.id,
-          variantId: resolvedVariant.id,
-          skuId: sku.id,
-          source: "PDP",
-        }),
-      );
-      emitCommerceEvent(
-        addToCartEvent({
-          productId: product.id,
-          productName: product.name,
-          skuId: sku.id,
-          quantity: primaryLine.quantity,
-          price: sku.price,
-        }),
-      );
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not add to cart");
-    } finally {
-      setBusy(false);
-    }
-  }, [addItem, primaryLine.quantity, product.id, product.name, resolvedVariant, sku]);
+  const executeAddToCart = useCallback(
+    async (opts?: { openDrawer?: boolean }) => {
+      if (!sku || !resolvedVariant) return;
+      setBusy(true);
+      setNotice(null);
+      try {
+        const input = { skuId: sku.id, quantity: primaryLine.quantity };
+        // The drawer option is only passed when it matters, so the ordinary
+        // add keeps its original single-argument call.
+        await (opts ? addItem(input, opts) : addItem(input));
+        setNotice("Added to cart");
+        // The add succeeded: exactly one variant_confirm + AddToCart pair,
+        // both keyed by the final SKU. A failed add emits nothing.
+        // Out-of-stock save-for-later adds intentionally keep firing this
+        // pair (ACCEPT decision, final review): the cart mutation is real,
+        // and the add is strong purchase intent for retargeting. Purchase can
+        // never result (checkout blocks unavailable items), so no revenue is
+        // mis-attributed.
+        emitCommerceEvent(
+          variantConfirmEvent({
+            productId: product.id,
+            variantId: resolvedVariant.id,
+            skuId: sku.id,
+            source: "PDP",
+          }),
+        );
+        emitCommerceEvent(
+          addToCartEvent({
+            productId: product.id,
+            productName: product.name,
+            skuId: sku.id,
+            quantity: primaryLine.quantity,
+            price: sku.price,
+          }),
+        );
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not add to cart");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [addItem, primaryLine.quantity, product.id, product.name, resolvedVariant, sku],
+  );
+
+  /**
+   * A restock alert is how a shopper keeps an unavailable item: the alert and
+   * the saved cart line are one action. The line is only added when it is not
+   * already in the cart, so a shopper who added it first does not end up
+   * holding two of them. The drawer stays closed — the alert dialog is still
+   * open on top of it.
+   */
+  const keepOutOfStockItemInCart = useCallback(async () => {
+    if (!sku) return;
+    const alreadySaved = cart?.items.some((item) => item.skuId === sku.id) ?? false;
+    if (alreadySaved) return;
+    await executeAddToCart({ openDrawer: false });
+  }, [cart, executeAddToCart, sku]);
 
   const executeOrderNow = useCallback(() => {
     if (!sku || sku.availableInventory <= 0) {
@@ -832,6 +852,7 @@ export function PdpClient({
                   <BackInStockTrigger
                     skuId={sku.id}
                     productName={product.name}
+                    onSubscribed={() => void keepOutOfStockItemInCart()}
                   />
                 </div>
               ) : null}
@@ -883,6 +904,7 @@ export function PdpClient({
             setQuantity(primaryLine.clientLineId, quantity)
           }
           onIntent={requestIntent}
+          onNotifySubscribed={() => void keepOutOfStockItemInCart()}
         />
       ) : null}
     </>

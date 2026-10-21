@@ -138,8 +138,55 @@ describe("BackInStockDialog", () => {
     opener.remove();
   });
 
-  it("closes from the backdrop and the close button", async () => {
-    const onClose = vi.fn();
+  it("hands the saved alert to the caller so one click can also keep the item", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(response(true));
+    const onSubscribed = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <BackInStockDialog
+        skuId="sku-blue"
+        productName="Blue chair"
+        onClose={vi.fn()}
+        onSubscribed={onSubscribed}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "shopper@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+
+    expect(await screen.findByText(/also in your cart/)).toBeVisible();
+    expect(onSubscribed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hand over a failed alert", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(response(false));
+    const onSubscribed = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <BackInStockDialog
+        skuId="sku-blue"
+        productName="Blue chair"
+        onClose={vi.fn()}
+        onSubscribed={onSubscribed}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "shopper@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We couldn't save your alert. Please try again.",
+    );
+    expect(onSubscribed).not.toHaveBeenCalled();
+  });
+
+  it("closes from the backdrop and the close button", async () => {    const onClose = vi.fn();
     const user = userEvent.setup();
     const view = render(
       <BackInStockDialog

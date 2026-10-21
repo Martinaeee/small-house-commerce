@@ -28,7 +28,7 @@ type CardFeedback =
 function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "product"> & {
   selectorRoot: RefObject<HTMLDivElement | null>;
 }) {
-  const { addItem } = useCart();
+  const { addItem, cart } = useCart();
   const { primaryLine, primaryDerived, purchaseLocked, confirmLine, setPurchaseLocked } = usePdpPurchase();
   const requestLocked = useRef(false);
   const alive = useRef(true);
@@ -44,7 +44,7 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
   }, [primaryLine.selectionRevision]);
   const visibleFeedback = feedback?.revision === primaryLine.selectionRevision ? feedback : null;
 
-  async function addSelected() {
+  async function addSelected(opts?: { openDrawer?: boolean }) {
     if (requestLocked.current) return;
     const variant = primaryDerived.resolvedVariant;
     const sku = variant?.sku;
@@ -74,7 +74,10 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
       feedbackTimer.current = null;
     }
     try {
-      await addItem({ skuId: snapshot.skuId, quantity: 1 });
+      const input = { skuId: snapshot.skuId, quantity: 1 };
+      // The drawer option is only passed when it matters, so the ordinary
+      // add keeps its original single-argument call.
+      await (opts ? addItem(input, opts) : addItem(input));
       if (snapshot.multiple) emitCommerceEvent(variantConfirmEvent({
         productId: snapshot.productId, variantId: snapshot.variantId, skuId: snapshot.skuId, source: "QUICK_ADD",
       }));
@@ -128,6 +131,14 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
         <BackInStockTrigger
           skuId={primaryDerived.resolvedVariant.sku.id}
           productName={product.name}
+          onSubscribed={() => {
+            // The alert and the saved item are one action: keep the item in
+            // the cart too, but never twice.
+            const skuId = primaryDerived.resolvedVariant?.sku?.id;
+            if (!skuId) return;
+            if (cart?.items.some((item) => item.skuId === skuId)) return;
+            void addSelected({ openDrawer: false });
+          }}
         />
       </div>
     ) : null}

@@ -22,6 +22,12 @@ export interface BackInStockDialogProps {
   skuId: string;
   productName: string;
   onClose(): void;
+  /**
+   * Called once the alert is saved. The PDP passes its add-to-cart action so
+   * one click both registers the restock alert and keeps the item saved in
+   * the cart until it is back.
+   */
+  onSubscribed?: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
@@ -29,6 +35,7 @@ export function BackInStockDialog({
   skuId,
   productName,
   onClose,
+  onSubscribed,
   returnFocusRef,
 }: BackInStockDialogProps) {
   const [email, setEmail] = useState("");
@@ -94,7 +101,12 @@ export function BackInStockDialog({
         body: JSON.stringify({ email: value, skuId }),
       });
       if (!response.ok) throw new Error(String(response.status));
-      if (alive.current) setState({ status: "success" });
+      if (alive.current) {
+        setState({ status: "success" });
+        // The alert is saved: hand the item to the caller's cart action so
+        // one click covers both wishes.
+        onSubscribed?.();
+      }
     } catch {
       if (alive.current) {
         setState({
@@ -149,6 +161,9 @@ export function BackInStockDialog({
           >
             Enter your email and we&apos;ll let you know when {productName} is
             available again.
+            {onSubscribed
+              ? " We’ll also keep it in your cart so it’s ready to order the moment it returns."
+              : ""}
           </p>
         </div>
 
@@ -156,6 +171,7 @@ export function BackInStockDialog({
           <div className="mt-6" aria-live="polite">
             <p className="rounded-xl border border-primary bg-primary-light/40 px-4 py-3 text-sm font-medium text-ink">
               We&apos;ll email you when it&apos;s back in stock.
+              {onSubscribed ? " It&apos;s also in your cart." : ""}
             </p>
             <button
               type="button"
