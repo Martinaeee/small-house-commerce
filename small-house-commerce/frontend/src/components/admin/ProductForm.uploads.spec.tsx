@@ -5,6 +5,15 @@ import { ProductForm, emptyProductFormValue } from "@/components/admin/ProductFo
 import { adminApi } from "@/lib/admin-api";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}));
+
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 function deferredUpload() {
   let resolve!: (result: { url: string; key: string }) => void;
   let reject!: (error: Error) => void;
@@ -67,9 +76,9 @@ describe("ProductForm upload lifecycle", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0].images).toEqual([
-      { url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0" },
-      { url: "/uploads/demo.mp4", type: "VIDEO", altText: "", sortOrder: "1" },
-      { url: "/uploads/clip.mov", type: "VIDEO", altText: "", sortOrder: "2" },
+      { clientKey: "shared-media-1", url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0", isScene: false },
+      { clientKey: "shared-media-2", url: "/uploads/demo.mp4", type: "VIDEO", altText: "", sortOrder: "1", isScene: false },
+      { clientKey: "shared-media-3", url: "/uploads/clip.mov", type: "VIDEO", altText: "", sortOrder: "2", isScene: false },
     ]);
   });
 

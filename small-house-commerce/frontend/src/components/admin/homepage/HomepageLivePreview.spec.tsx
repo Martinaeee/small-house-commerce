@@ -1,4 +1,6 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { StrictMode } from "react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { api } from "@/lib/api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomepageLivePreview } from "@/components/admin/homepage/HomepageLivePreview";
 import type {
@@ -12,6 +14,8 @@ import {
 } from "@/lib/homepage-document";
 
 const getProduct = vi.hoisted(() => vi.fn());
+const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
+vi.mock("@/lib/tracking", () => tracking);
 const listCategories = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/admin-api", () => ({
@@ -156,8 +160,66 @@ async function flush(): Promise<void> {
 describe("HomepageLivePreview", () => {
   beforeEach(() => {
     getProduct.mockReset();
+    tracking.track.mockClear();
+    tracking.trackCustom.mockClear();
     listCategories.mockReset();
     listCategories.mockResolvedValue([]);
+  });
+
+  it("hydrates product joins through Strict Mode effect replay without a second request", async () => {
+    getProduct.mockResolvedValue(product());
+    render(<StrictMode><HomepageLivePreview document={documentWith(productGrid())} device="desktop" selectedSectionId={null} /></StrictMode>);
+    await flush();
+    expect(screen.getByRole("heading", { name: "Preview product" })).toBeVisible();
+    expect(screen.queryByText("Selected products are unavailable in this preview.")).toBeNull();
+    expect(getProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it("hydrates categories through Strict Mode effect replay without a second request", async () => {
+    listCategories.mockResolvedValue([category()]);
+    render(<StrictMode><HomepageLivePreview document={documentWith(categoryTiles())} device="desktop" selectedSectionId={null} /></StrictMode>);
+    await flush();
+    expect(screen.getByText("Preview category")).toBeVisible();
+    expect(screen.queryByText("Selected categories are unavailable in this preview.")).toBeNull();
+    expect(listCategories).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a hydrated multi-SKU grid inert without any cart provider", async () => {
+    const source = product();
+    const blueVariantId = "00000000-0000-7000-8000-000000000713";
+    const blueValueId = "00000000-0000-7000-8000-000000000716";
+    source.catalogGraphVersion = 1;
+    source.defaultDisplayVariantId = blueVariantId;
+    source.options = [{ id: OPTION_ID, kind: "COLOR", name: "Color", position: 0,
+      presentation: "TEXT", isMediaDriver: true, isActive: true, values: [
+        { id: VALUE_ID, label: "Red", position: 0, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true },
+        { id: blueValueId, label: "Blue", position: 1, swatchHex: null, thumbnailUrl: null, thumbnailAlt: null, isActive: true },
+      ] }];
+    source.variants = [
+      { ...source.variants[0]!, name: "Red", combinationKey: `${OPTION_ID}:${VALUE_ID}`,
+        optionValues: [{ optionId: OPTION_ID, optionValueId: VALUE_ID }], hasReferences: false },
+      { ...source.variants[0]!, id: blueVariantId, name: "Blue", position: 1,
+        combinationKey: `${OPTION_ID}:${blueValueId}`, optionValues: [{ optionId: OPTION_ID, optionValueId: blueValueId }], hasReferences: false,
+        sku: { ...source.variants[0]!.sku!, id: "00000000-0000-7000-8000-000000000714" } },
+    ];
+    getProduct.mockResolvedValue(source);
+    const add = vi.spyOn(api, "addToCart");
+    const { container } = render(<HomepageLivePreview document={documentWith(productGrid())} device="desktop" selectedSectionId={null} />);
+    await flush();
+    const article = container.querySelector("article")!;
+    expect(within(article).queryAllByRole("link")).toHaveLength(0);
+    expect(container.querySelector('[data-track-event="ProductClick"]')).toBeNull();
+    for (const button of within(article).getAllByRole("button")) {
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+    }
+    expect(within(article).getByRole("button", { name: "Blue" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(article).getByRole("button", { name: "Red" })).toHaveAttribute("aria-pressed", "false");
+    expect(add).not.toHaveBeenCalled();
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(getProduct).toHaveBeenCalledTimes(1);
+    add.mockRestore();
   });
 
   it("does not retry a failed product lookup until its id leaves and re-enters the document", async () => {
@@ -304,7 +366,7 @@ describe("HomepageLivePreview", () => {
     expect(screen.getByText("Selected categories are unavailable in this preview.")).toBeVisible();
   });
 
-  it("uses the default variant scoped image as the effective cover", async () => {
+  it("uses the saved independent variant card cover instead of scoped gallery media", async () => {
     getProduct.mockResolvedValue(
       product({
         catalogGraphVersion: 1,
@@ -345,6 +407,10 @@ describe("HomepageLivePreview", () => {
             id: VARIANT_ID,
             name: "Walnut",
             position: 0,
+            cardMedia: {
+              cover: { type: "IMAGE", url: "/independent-card.jpg", altText: "Independent card cover" },
+              hover: { type: "IMAGE", url: "/independent-hover.jpg", altText: "Independent hover" },
+            },
             combinationKey: VALUE_ID,
             optionValues: [{ optionId: OPTION_ID, optionValueId: VALUE_ID }],
             sku: {
@@ -385,10 +451,11 @@ describe("HomepageLivePreview", () => {
     );
     await flush();
 
-    expect(screen.getByRole("img", { name: "Variant cover" })).toHaveAttribute(
+    expect(screen.getByRole("img", { name: "Independent card cover" })).toHaveAttribute(
       "src",
-      "/variant.jpg",
+      "/independent-card.jpg",
     );
+    expect(screen.queryByRole("img", { name: "Variant cover" })).not.toBeInTheDocument();
   });
 
   it("normalizes malformed draft payloads before rendering", () => {

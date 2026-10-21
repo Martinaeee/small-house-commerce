@@ -51,7 +51,7 @@ function FilterLink({
       aria-pressed={active}
       className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
         active
-          ? "border-cta bg-cta text-white"
+          ? "border-cta bg-cta text-cta-foreground"
           : "border-border bg-card text-ink-secondary hover:border-primary hover:text-cta"
       }`}
     >

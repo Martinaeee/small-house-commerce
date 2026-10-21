@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrandWordmark } from "./BrandWordmark";
 
 /**
  * Branded hard-load splash (COSTWAY-style centered lockup on brand cream).
@@ -39,7 +38,7 @@ export function BootSplash() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "#faf8f5",
+        backgroundColor: "var(--color-background)",
       }}
     >
       <span
@@ -48,7 +47,14 @@ export function BootSplash() {
         aria-hidden
       />
       <span className="boot-splash-pulse inline-flex">
-        <BrandWordmark className="text-4xl" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand-mark"
+          alt=""
+          width="64"
+          height="64"
+          className="h-16 w-16 object-contain"
+        />
       </span>
     </div>
   );

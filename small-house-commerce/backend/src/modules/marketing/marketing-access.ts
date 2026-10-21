@@ -31,6 +31,8 @@ export interface MarketingScope {
   ownerUserId: string | null;
   /** True when the account may create, edit, publish or disable records. */
   canManage: boolean;
+  manageAll: boolean;
+  actorUserId: string;
 }
 
 function has(account: MarketingAccount, code: string): boolean {
@@ -50,6 +52,8 @@ export function scopeFor(account: MarketingAccount): MarketingScope {
     canManage:
       has(account, MARKETING_PERMISSIONS.MANAGE_ALL) ||
       has(account, MARKETING_PERMISSIONS.MANAGE_OWN),
+    manageAll: has(account, MARKETING_PERMISSIONS.MANAGE_ALL),
+    actorUserId: account.id,
   };
 }
 
@@ -71,7 +75,7 @@ export function assertManage(
   if (!scope.canManage) {
     throw new ForbiddenException('Missing required permission');
   }
-  if (scope.all) return;
-  if (recordOwnerId !== null && recordOwnerId === scope.ownerUserId) return;
+  if (scope.manageAll) return;
+  if (recordOwnerId !== null && recordOwnerId === scope.actorUserId) return;
   throw new NotFoundException('Marketing record not found.');
 }

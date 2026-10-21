@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { resolve } from "node:path";
+import { E2E_API as API, E2E_FRONTEND_ORIGIN } from "./e2e-origins";
 
 /**
  * Phase 2 — inline COD ordering on the PDP, against the REAL stack.
@@ -16,7 +17,6 @@ import { resolve } from "node:path";
  * shopper-facing truth, not the admin projection.
  */
 
-const API = "http://127.0.0.1:3210/api/v1";
 const SLUG = "e2e-color-size";
 const SCREENSHOTS = resolve(process.cwd(), "screenshots");
 
@@ -98,7 +98,7 @@ function screenshotPath(name: string): string {
 }
 
 async function gotoPdp(page: Page, query = ""): Promise<void> {
-  await page.goto(`http://localhost:3211/products/${SLUG}${query}`);
+  await page.goto(`${E2E_FRONTEND_ORIGIN}/products/${SLUG}${query}`);
   await expect(
     page.getByRole("main").getByTestId("pdp-purchase"),
   ).toBeVisible();

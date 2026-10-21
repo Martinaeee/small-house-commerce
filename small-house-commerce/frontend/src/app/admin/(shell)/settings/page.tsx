@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Field, TextInput } from "@/components/admin/Field";
 import { Button } from "@/components/ui/Button";
@@ -10,7 +11,17 @@ import { errorStatus } from "@/lib/admin-auth";
 
 interface SettingsForm {
   messengerUrl: string;
+  newsletterBandEnabled: boolean;
+  newsletterPopupEnabled: boolean;
+  newsletterPopupDelaySeconds: string;
+  newsletterOfferTitle: string;
+  newsletterOfferBody: string;
+}
+
+/** Published contact values, shown read-only; the footer owns their edits. */
+interface PublishedContact {
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
 }
 
@@ -36,13 +47,20 @@ function validateSettings(values: SettingsForm): SettingsErrors {
     errors.messengerUrl =
       "Messenger 链接需留空，或以 https:// 开头的有效网址（不超过 500 个字符）。";
   }
-  const email = values.supportEmail.trim();
-  if (email.length === 0 || email.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.supportEmail = "请输入有效的客服邮箱（不超过 200 个字符）。";
+  const delay = Number(values.newsletterPopupDelaySeconds);
+  if (
+    values.newsletterPopupDelaySeconds.trim() === "" ||
+    !Number.isInteger(delay) ||
+    delay < 0 ||
+    delay > 120
+  ) {
+    errors.newsletterPopupDelaySeconds = "弹窗延迟需为 0–120 秒的整数。";
   }
-  const hours = values.supportHours.trim();
-  if (hours.length < 1 || hours.length > 100) {
-    errors.supportHours = "服务时间需为 1–100 个字符。";
+  if (values.newsletterOfferTitle.trim().length > 120) {
+    errors.newsletterOfferTitle = "优惠标题不能超过 120 个字符。";
+  }
+  if (values.newsletterOfferBody.trim().length > 500) {
+    errors.newsletterOfferBody = "优惠正文不能超过 500 个字符。";
   }
   return errors;
 }
@@ -50,14 +68,18 @@ function validateSettings(values: SettingsForm): SettingsErrors {
 function toForm(row: AdminSiteSettings): SettingsForm {
   return {
     messengerUrl: row.messengerUrl,
-    supportEmail: row.supportEmail,
-    supportHours: row.supportHours,
+    newsletterBandEnabled: row.newsletterBandEnabled,
+    newsletterPopupEnabled: row.newsletterPopupEnabled,
+    newsletterPopupDelaySeconds: String(row.newsletterPopupDelaySeconds),
+    newsletterOfferTitle: row.newsletterOfferTitle,
+    newsletterOfferBody: row.newsletterOfferBody,
   };
 }
 
 export default function SiteSettingsPage(): ReactNode {
   const { t } = useAdminI18n();
   const [data, setData] = useState<SettingsForm | null>(null);
+  const [contact, setContact] = useState<PublishedContact | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const [errors, setErrors] = useState<SettingsErrors>({});
@@ -72,6 +94,11 @@ export default function SiteSettingsPage(): ReactNode {
       .then((row) => {
         if (!active) return;
         setData(toForm(row));
+        setContact({
+          supportEmail: row.supportEmail,
+          supportPhone: row.supportPhone,
+          supportHours: row.supportHours,
+        });
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -89,11 +116,14 @@ export default function SiteSettingsPage(): ReactNode {
     };
   }, [nonce]);
 
-  const updateField = (key: keyof SettingsForm, value: string): void => {
+  function updateField<K extends keyof SettingsForm>(
+    key: K,
+    value: SettingsForm[K],
+  ): void {
     setData((current) => (current ? { ...current, [key]: value } : current));
     setSaved(false);
     setErrors((current) => ({ ...current, [key]: undefined }));
-  };
+  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -107,11 +137,19 @@ export default function SiteSettingsPage(): ReactNode {
     adminApi
       .updateSettings({
         messengerUrl: data.messengerUrl.trim(),
-        supportEmail: data.supportEmail.trim(),
-        supportHours: data.supportHours.trim(),
+        newsletterBandEnabled: data.newsletterBandEnabled,
+        newsletterPopupEnabled: data.newsletterPopupEnabled,
+        newsletterPopupDelaySeconds: Number(data.newsletterPopupDelaySeconds),
+        newsletterOfferTitle: data.newsletterOfferTitle.trim(),
+        newsletterOfferBody: data.newsletterOfferBody.trim(),
       })
       .then((row) => {
         setData(toForm(row));
+        setContact({
+          supportEmail: row.supportEmail,
+          supportPhone: row.supportPhone,
+          supportHours: row.supportHours,
+        });
         setSaved(true);
         setPending(false);
       })
@@ -178,32 +216,140 @@ export default function SiteSettingsPage(): ReactNode {
               />
             </Field>
 
+            <div className="border-t border-border pt-5">
+              <h2 className="text-lg font-semibold text-ink">
+                {t("settings_contact_title")}
+              </h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                {t("settings_footer_handoff_hint")}
+              </p>
+              {contact ? (
+                <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_email")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportEmail}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_phone")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportPhone}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-ink-muted">
+                      {t("settings_contact_hours")}
+                    </dt>
+                    <dd className="mt-1 text-sm text-ink">
+                      {contact.supportHours}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+              <Link
+                href="/admin/storefront-shell?tab=footer"
+                className="mt-3 inline-block text-sm font-semibold text-cta underline"
+              >
+                {t("settings_footer_handoff_link")}
+              </Link>
+            </div>
+
+            <div className="border-t border-border pt-5">
+              <h2 className="text-lg font-semibold text-ink">Newsletter 展示</h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                这里只控制前台展示。真实优惠码、金额与次数在「邮件订阅」页面管理；没有有效活动时前台不会承诺优惠。
+              </p>
+            </div>
+
+            <label className="flex items-start gap-3 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={data.newsletterBandEnabled}
+                onChange={(event) =>
+                  updateField("newsletterBandEnabled", event.target.checked)
+                }
+                className="mt-0.5 h-4 w-4 rounded border-border text-cta"
+              />
+              <span>
+                <span className="font-medium">启用页脚上方订阅通栏</span>
+                <span className="mt-1 block text-ink-muted">
+                  默认开启；关闭后全站隐藏 footer 上方的 Newsletter 通栏。
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={data.newsletterPopupEnabled}
+                onChange={(event) =>
+                  updateField("newsletterPopupEnabled", event.target.checked)
+                }
+                className="mt-0.5 h-4 w-4 rounded border-border text-cta"
+              />
+              <span>
+                <span className="font-medium">启用首访优惠弹窗</span>
+                <span className="mt-1 block text-ink-muted">
+                  只有当前存在生效中的优惠活动时才会弹出；同一浏览器只显示一次。
+                </span>
+              </span>
+            </label>
+
             <Field
-              label="客服邮箱"
-              htmlFor="settings-support-email"
-              error={errors.supportEmail}
-              hint="显示在结账页、页脚与产品详情页。"
+              label="弹窗延迟（秒）"
+              htmlFor="settings-newsletter-delay"
+              error={errors.newsletterPopupDelaySeconds}
+              hint="访客进入页面后等待 0–120 秒再显示。"
             >
               <TextInput
-                id="settings-support-email"
-                type="email"
-                value={data.supportEmail}
-                onChange={(e) => updateField("supportEmail", e.target.value)}
-                autoComplete="off"
+                id="settings-newsletter-delay"
+                type="number"
+                min="0"
+                max="120"
+                step="1"
+                value={data.newsletterPopupDelaySeconds}
+                onChange={(event) =>
+                  updateField("newsletterPopupDelaySeconds", event.target.value)
+                }
               />
             </Field>
 
             <Field
-              label="服务时间"
-              htmlFor="settings-support-hours"
-              error={errors.supportHours}
-              hint="显示在结账页与页脚，例如 Mon–Sat, 9am–6pm (PHT)。"
+              label="优惠标题"
+              htmlFor="settings-newsletter-title"
+              error={errors.newsletterOfferTitle}
+              hint="最多 120 个字符；没有有效活动时不会作为优惠承诺展示。"
             >
               <TextInput
-                id="settings-support-hours"
-                value={data.supportHours}
-                onChange={(e) => updateField("supportHours", e.target.value)}
-                autoComplete="off"
+                id="settings-newsletter-title"
+                value={data.newsletterOfferTitle}
+                onChange={(event) =>
+                  updateField("newsletterOfferTitle", event.target.value)
+                }
+                maxLength={120}
+              />
+            </Field>
+
+            <Field
+              label="优惠正文"
+              htmlFor="settings-newsletter-body"
+              error={errors.newsletterOfferBody}
+              hint="最多 500 个字符。"
+            >
+              <textarea
+                id="settings-newsletter-body"
+                value={data.newsletterOfferBody}
+                onChange={(event) =>
+                  updateField("newsletterOfferBody", event.target.value)
+                }
+                maxLength={500}
+                rows={4}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink focus:border-cta focus:outline-none"
               />
             </Field>
           </div>

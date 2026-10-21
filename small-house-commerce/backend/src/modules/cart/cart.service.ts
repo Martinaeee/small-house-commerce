@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Cart } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { aggregateRequirements, getBundleAvailabilityForSkus } from '../inventory/bundle-inventory.js';
 import type { AddItemInput, ReplaceItemInput } from './dto/cart.dto.js';
 
 /** 30 days, decided: COD customers get a long reconsideration window. */
@@ -20,6 +21,8 @@ const CART_WITH_ITEMS = {
         select: {
           id: true,
           skuCode: true,
+          isBundle: true,
+          bundleComponents: { select: { componentSkuId: true, quantity: true } },
           price: true,
           compareAtPrice: true,
           variant: {
@@ -327,8 +330,27 @@ export class CartService {
     });
 
     // available = on_hand - reserved, computed per SKU (§29).
+    const requirementsByItem = new Map(
+      cart.items.map((item) => [
+        item.id,
+        item.sku.isBundle
+          ? item.sku.bundleComponents.map((component) => ({
+              skuId: component.componentSkuId,
+              quantity: component.quantity * item.quantity,
+            }))
+          : [{ skuId: item.sku.id, quantity: item.quantity }],
+      ]),
+    );
+    const requirements = aggregateRequirements(
+      [...requirementsByItem.values()].flat(),
+    );
     const availableBySku = new Map<string, number>();
-    const skuIds = [...new Set(cart.items.map((item) => item.sku.id))];
+    const skuIds = [
+      ...new Set([
+        ...cart.items.map((item) => item.sku.id),
+        ...requirements.map((item) => item.skuId),
+      ]),
+    ];
 
     if (skuIds.length > 0) {
       const grouped = await this.prisma.inventory.groupBy({
@@ -344,6 +366,22 @@ export class CartService {
         );
       }
     }
+
+    const shortSkus = new Set(
+      requirements
+        .filter(
+          (item) =>
+            (availableBySku.get(item.skuId) ?? 0) < item.quantity,
+        )
+        .map((item) => item.skuId),
+    );
+    const bundleStock = await getBundleAvailabilityForSkus(
+      this.prisma,
+      cart.items
+        .filter((item) => item.sku.isBundle)
+        .map((item) => item.sku.id),
+    );
+    for (const [skuId, available] of bundleStock) availableBySku.set(skuId, available);
 
     // Scoped media for thumbnail resolution, grouped per product. The query
     // order (sortOrder, id) is the resolver's gallery order.
@@ -417,7 +455,7 @@ export class CartService {
         compareAtPrice: item.sku.compareAtPrice === null ? null : Number(item.sku.compareAtPrice),
         lineTotal,
         availableInventory,
-        unavailable: availableInventory < item.quantity,
+        unavailable: availableInventory < item.quantity || requirementsByItem.get(item.id)!.some(requirement => shortSkus.has(requirement.skuId)),
       };
     });
 

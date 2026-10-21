@@ -112,13 +112,11 @@ function installIntersectionObserver(): ObserverHarness {
 function Harness({
   value = product,
   coverMedia = value.effectiveCoverMedia,
-  restockHref = "mailto:support@example.test?subject=Restock",
   onQuantityChange = vi.fn(),
   onIntent = vi.fn(),
 }: {
   value?: Product;
   coverMedia?: ProductImage | null;
-  restockHref?: string;
   onQuantityChange?: (quantity: number) => void;
   onIntent?: (
     intent: "ADD_TO_CART" | "ORDER_NOW",
@@ -135,7 +133,6 @@ function Harness({
       <PdpStickyBuy
         product={value}
         coverMedia={coverMedia}
-        restockHref={restockHref}
         heroRef={heroRef}
         line={line}
         derived={derived}
@@ -249,7 +246,7 @@ describe("PdpStickyBuy", () => {
     ).toBeNull();
   });
 
-  it("keeps the existing restock contact action in the out-of-stock sticky state", () => {
+  it("subscribes the currently resolved out-of-stock SKU from the sticky bar", async () => {
     const observer = installIntersectionObserver();
     const outOfStock = {
       ...product,
@@ -260,16 +257,35 @@ describe("PdpStickyBuy", () => {
           : null,
       })),
     } as Product;
-    const restockHref =
-      "mailto:support@example.test?subject=Restock%20Blue%20chair";
-    render(<Harness value={outOfStock} restockHref={restockHref} />);
+    const submit = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<Harness value={outOfStock} />);
 
     observer.leave();
+    await user.click(
+      screen.getByRole("button", { name: "Notify me when back in stock" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "sticky@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
 
+    expect(submit).toHaveBeenCalledWith(
+      "/api/v1/storefront/back-in-stock",
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: "sticky@example.com",
+          skuId: "chair-sku",
+        }),
+      }),
+    );
     expect(screen.queryByTestId("sticky-order-now")).toBeNull();
-    expect(
-      screen.getByRole("link", { name: "Contact us to order" }),
-    ).toHaveAttribute("href", restockHref);
   });
 
   it("forwards quantity and both purchase intents without owning purchase state", async () => {

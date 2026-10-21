@@ -2,6 +2,40 @@ import { describe, expect, it } from 'vitest';
 import { PermissionCode, RoleCode } from '../src/generated/prisma/client.js';
 import { RBAC_GRANTS, RBAC_PERMISSIONS } from './rbac.js';
 
+describe('RBAC newsletter permissions', () => {
+  it('declares newsletter read/write and grants both to ADMIN and SUPER_ADMIN', () => {
+    expect(RBAC_PERMISSIONS).toEqual(
+      expect.arrayContaining([
+        {
+          code: PermissionCode.NEWSLETTER_READ,
+          description: 'View newsletter subscribers.',
+        },
+        {
+          code: PermissionCode.NEWSLETTER_WRITE,
+          description: 'Manage newsletter subscribers.',
+        },
+      ]),
+    );
+
+    for (const role of [RoleCode.ADMIN, RoleCode.SUPER_ADMIN]) {
+      expect(RBAC_GRANTS[role]).toContain(PermissionCode.NEWSLETTER_READ);
+      expect(RBAC_GRANTS[role]).toContain(PermissionCode.NEWSLETTER_WRITE);
+    }
+  });
+
+  it('does not grant newsletter access to operational roles', () => {
+    for (const role of [
+      RoleCode.OPTIMIZER,
+      RoleCode.CONFIRMOR,
+      RoleCode.WAREHOUSE,
+      RoleCode.FINANCE,
+    ]) {
+      expect(RBAC_GRANTS[role]).not.toContain(PermissionCode.NEWSLETTER_READ);
+      expect(RBAC_GRANTS[role]).not.toContain(PermissionCode.NEWSLETTER_WRITE);
+    }
+  });
+});
+
 describe('RBAC campaign link builder permission', () => {
   it('declares CAMPAIGN_LINK_BUILD as seeded reference data', () => {
     expect(RBAC_PERMISSIONS).toContainEqual({

@@ -23,6 +23,7 @@ const CHECK_LABEL_KEYS: Record<ReadinessCheckKey, TKey> = {
   basic: "rail_check_basic",
   priced_sku: "rail_check_priced_sku",
   shared_media: "rail_check_shared_media",
+  card_media: "product_card_ready_label",
   shipping: "rail_check_shipping",
   default_variant: "rail_check_default_variant",
 };

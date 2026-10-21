@@ -7,5 +7,8 @@ pnpm exec prisma migrate deploy
 echo "[entrypoint] Reconciling CAMPAIGN_LINK_BUILD role grants…"
 pnpm run rbac:reconcile-campaign-link
 
+echo "[entrypoint] Reconciling STOREFRONT_SHELL_MANAGE role grants…"
+pnpm run rbac:reconcile-storefront-shell
+
 echo "[entrypoint] Starting API server…"
 exec node dist/main

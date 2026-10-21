@@ -89,6 +89,20 @@ export function testDatabaseGuard(
   return { ok: true, database };
 }
 
+/**
+ * Keeps generated fixture media inside the runtime's configured upload root.
+ * The fallback preserves the historical CLI behavior; Playwright always sets
+ * UPLOAD_DIR to a disposable path so it never writes into backend/uploads.
+ */
+export function e2eUploadDirectory(
+  env: { UPLOAD_DIR?: string } = process.env,
+): string {
+  const configuredRoot = env.UPLOAD_DIR?.trim();
+  return configuredRoot
+    ? join(configuredRoot, 'e2e')
+    : join(import.meta.dirname, '..', 'uploads', 'e2e');
+}
+
 // --- scenario data -----------------------------------------------------------
 
 const CATEGORY_SLUG = 'e2e-catalog';
@@ -389,6 +403,38 @@ function productSpecs(): ProductSpec[] {
       sharedMedia: [{ name: 'exact-override-shared-1', label: 'Shared', fill: '#8d6e63' }],
     },
   ];
+}
+
+export function writeE2EFixtureMedia(uploadDir: string): void {
+  mkdirSync(uploadDir, { recursive: true });
+  const write = (name: string, label: string, fill: string) => {
+    writeFileSync(join(uploadDir, `${name}.svg`), svg(label, fill), 'utf8');
+  };
+
+  for (const spec of productSpecs()) {
+    for (const media of spec.sharedMedia) {
+      write(media.name, media.label, media.fill);
+    }
+    for (const option of spec.options ?? []) {
+      if (!option.isMediaDriver) continue;
+      for (const value of option.values) {
+        write(
+          `${spec.slug}-${value.label.toLowerCase()}`,
+          value.label,
+          VALUE_FILL[value.label] ?? '#5d6d7e',
+        );
+      }
+    }
+    for (const variant of spec.variants) {
+      if (variant.exactMedia) {
+        write(
+          variant.exactMedia.name,
+          variant.exactMedia.label,
+          variant.exactMedia.fill,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -859,10 +905,7 @@ async function main(): Promise<void> {
 
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL as string });
   const prisma = new PrismaClient({ adapter });
-  // Resolved from this file's location, so the upload directory lands in the
-  // backend tree no matter which cwd the runner uses (main.ts serves
-  // process.cwd()/uploads, so run the backend from backend/ in E2E).
-  const uploadDir = join(import.meta.dirname, '..', 'uploads', 'e2e');
+  const uploadDir = e2eUploadDirectory();
   mkdirSync(uploadDir, { recursive: true });
   const ctx: SeedContext = { prisma, uploadDir };
 
@@ -889,6 +932,11 @@ async function main(): Promise<void> {
     const presentSlugs = present.map((row) => row.slug);
     const missingSlugs = missingBaseScenarioSlugs(presentSlugs);
     if (missingSlugs.length === 0) {
+      // The scenario rows already exist (reused disposable database): always
+      // materialize the referenced fixture media into the CURRENT upload
+      // root. A fresh uploads location would otherwise 404 every image the
+      // storefront renders from a persisted URL.
+      writeE2EFixtureMedia(ctx.uploadDir);
       await ensurePdpUxFixtures(ctx, categoryId, warehouseId);
       await ensureNotificationFixtures(ctx, categoryId);
       console.log(

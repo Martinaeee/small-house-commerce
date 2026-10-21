@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { bulkProductStatusSchema, updateProductSchema } from './product.dto.js';
+import { bulkProductStatusSchema, createProductSchema, updateProductSchema } from './product.dto.js';
+
+describe.each([
+  ['create', createProductSchema, { name: 'Card table', slug: 'card-table', categoryId: '00000000-0000-4000-8000-000000000001' }],
+  ['update', updateProductSchema, {}],
+] as const)('legacy variant card media in %s', (_name, schema, basics) => {
+  const cover = { type: 'IMAGE', url: '/uploads/legacy-card.webp', altText: null };
+  const hover = { type: 'IMAGE', url: '/uploads/legacy-hover.webp', altText: 'Own hover' };
+
+  it.each([
+    ['configured', { cover, hover }],
+    ['cleared', null],
+    ['hover cleared', { cover, hover: null }],
+  ])('preserves %s card snapshots', (_label, cardMedia) => {
+    const parsed = schema.parse({ ...basics, variants: [{ name: 'A', position: 0, cardMedia }] });
+    expect(parsed.variants?.[0]).toHaveProperty('cardMedia', cardMedia);
+  });
+
+  it('keeps omitted card metadata absent', () => {
+    const parsed = schema.parse({ ...basics, variants: [{ name: 'A', position: 0 }] });
+    expect(Object.hasOwn(parsed.variants![0]!, 'cardMedia')).toBe(false);
+  });
+
+  it.each([
+    ['video', { cover: { ...cover, type: 'VIDEO' }, hover }],
+    ['unsafe URL', { cover: { ...cover, url: '//cdn.example/card.webp' }, hover }],
+    ['oversized Alt', { cover, hover: { ...hover, altText: 'x'.repeat(256) } }],
+    ['gallery reference', { cover: { ...cover, id: '00000000-0000-4000-8000-000000000001' }, hover }],
+  ])('rejects %s card snapshots', (_label, cardMedia) => {
+    expect(schema.safeParse({ ...basics, variants: [{ name: 'A', position: 0, cardMedia }] }).success).toBe(false);
+  });
+});
 
 describe('product SEO fields', () => {
   it('keeps independently persisted SEO title and meta description', () => {

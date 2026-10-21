@@ -46,6 +46,16 @@ beforeEach(() => {
 });
 
 describe("DetailMediaWorkspace", () => {
+  it("keeps scene controls out of PDP-only detail media", async () => {
+    renderWorkspace();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
+    expect(screen.getByLabelText("Detail block 1 URL")).toHaveValue("/uploads/detail-1.jpg");
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Scene image")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+  });
+
   it("does not carry a replacement error into another selected block", async () => {
     renderWorkspace();
     await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));

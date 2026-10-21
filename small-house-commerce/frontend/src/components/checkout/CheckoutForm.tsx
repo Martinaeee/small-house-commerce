@@ -25,7 +25,9 @@ import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutInputCls } from "./checkoutFieldStyles";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
+import { SearchableSelect } from "./SearchableSelect";
 import { checkoutQueryString } from "./checkoutItems";
+import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import {
   fetchBarangays,
   listMunicipalities,
@@ -99,6 +101,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     postalCode: "",
     streetAddress: "",
     landmark: "",
+    customerNote: "",
     preferredDeliveryDate: defaultPreferredDeliveryDate(),
   });
 
@@ -121,9 +124,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [locationError, setLocationError] = useState<string | null>(null);
   // Informational (not an error): province filled, city left for the user.
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [initialPromoCode, setInitialPromoCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   const {
     isBuyNow,
@@ -155,8 +158,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         setForm((f) => ({
           ...f,
           ...d.customer,
+          customerNote: d.customerNote ?? "",
           preferredDeliveryDate: d.preferredDeliveryDate ?? "",
         }));
+        setInitialPromoCode(d.promoCode ?? "");
       }
     })();
     return () => {
@@ -356,6 +361,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   };
 
   function goToReview() {
+    if (promoChecking) return;
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(form.preferredDeliveryDate);
     if (preferredDateError) validation.preferredDeliveryDate = preferredDateError;
@@ -376,7 +382,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    }, form.preferredDeliveryDate.trim() || null);
+    }, form.preferredDeliveryDate.trim() || null, undefined, form.customerNote.trim() || null, appliedPromo?.code ?? null);
     router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
@@ -394,7 +400,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         </p>
         <Link
           href="/cart"
-          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
         >
           Back to Cart
         </Link>
@@ -424,7 +430,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           {slug && (
             <Link
               href={`/products/${slug}`}
-              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-white hover:bg-cta-hover"
+              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
             >
               Back to product
             </Link>
@@ -613,30 +619,32 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                     area); when the barangay didn't pin one down, let the
                     shopper choose instead of guessing. */}
                 {postalLookup.options.length > 1 ? (
-                  <select
-                    data-testid="checkout-postal-code-pick"
-                    aria-label="Pick a postal code"
-                    className={inputCls}
+                  <SearchableSelect
+                    id="checkout-postal-code-pick"
+                    testId="checkout-postal-code-pick"
                     value={
                       postalLookup.options.some((o) => o.zip === form.postalCode)
                         ? form.postalCode
                         : ""
                     }
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, postalCode: e.target.value }))
+                    options={postalLookup.options.map((o) => o.zip)}
+                    onChange={(zip) =>
+                      setForm((f) => ({ ...f, postalCode: zip }))
                     }
-                  >
-                    <option value="">
-                      {postalLookup.auto
+                    placeholder={
+                      postalLookup.auto
                         ? "Change postal code"
-                        : `This city has ${postalLookup.options.length} ZIPs — pick one`}
-                    </option>
-                    {postalLookup.options.map((o) => (
-                      <option key={o.zip} value={o.zip}>
-                        {`${o.zip} — ${o.label}`}
-                      </option>
-                    ))}
-                  </select>
+                        : "Pick a postal code"
+                    }
+                    searchPlaceholder="Search a ZIP code"
+                    ariaLabel="Pick a postal code"
+                    optionLabel={(zip) => {
+                      const match = postalLookup.options.find(
+                        (o) => o.zip === zip,
+                      );
+                      return match ? `${match.zip} — ${match.label}` : zip;
+                    }}
+                  />
                 ) : null}
                 {postalLookup.auto && form.postalCode === postalLookup.auto ? (
                   <span
@@ -666,6 +674,21 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
                 Landmark
                 <input className={inputCls} value={form.landmark} onChange={set("landmark")} placeholder="Near…" />
+              </label>
+              <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
+                Order Notes (Optional)
+                <textarea
+                  id="checkout-order-notes"
+                  data-testid="checkout-order-notes"
+                  className={`${inputCls} min-h-[3.5rem] resize-y`}
+                  rows={2}
+                  maxLength={200}
+                  value={form.customerNote}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, customerNote: e.target.value }))
+                  }
+                  placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+                />
               </label>
               <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
                 Preferred delivery date (optional)
@@ -749,48 +772,12 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               </div>
             </dl>
 
-            {/* CHECKOUT_SPEC §14 promo code — collapsed by default, the same
-                honest entry the cart, the COD form and the confirm step use. */}
-            <div className="mt-3 border-t border-border pt-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setPromoOpen((open) => !open);
-                  setPromoMessage(null);
-                }}
-                className="text-sm text-cta hover:underline"
-                aria-expanded={promoOpen}
-              >
-                {promoOpen ? "Hide promo code" : "Have a promo code?"}
-              </button>
-              {promoOpen && (
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    placeholder="Enter code"
-                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                    aria-label="Promo code"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPromoMessage(
-                        promoCode.trim()
-                          ? "Promo codes are coming soon."
-                          : "Enter a code to apply it.",
-                      )
-                    }
-                    className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                  >
-                    Apply
-                  </button>
-                </div>
-              )}
-              {promoMessage && (
-                <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>
-              )}
-            </div>
+            <PromoCodeField
+              subtotal={totals.subtotal}
+              initialCode={initialPromoCode}
+              onApplied={setAppliedPromo}
+              onCheckingChange={setPromoChecking}
+            />
           </div>
 
           <CheckoutTrustStrip
@@ -818,6 +805,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             onClick={goToReview}
             className="w-full"
             data-testid="review-order"
+            disabled={promoChecking}
           >
             REVIEW ORDER
           </Button>

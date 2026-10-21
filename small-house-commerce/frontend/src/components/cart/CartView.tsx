@@ -103,7 +103,7 @@ function CheckBox({
       onClick={onToggle}
       className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active
-          ? "border-cta bg-cta text-white"
+          ? "border-cta bg-cta text-cta-foreground"
           : "border-ink-muted bg-card text-transparent hover:border-cta"
       }`}
     >
@@ -217,9 +217,6 @@ export function CartView() {
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
 
   const loadedCartRef = useRef<string | null>(null);
   const seenItemsRef = useRef<Set<string>>(new Set());
@@ -364,12 +361,6 @@ export function CartView() {
   function proceedToCheckout() {
     if (selectedCount === 0) return;
     router.push(`/checkout?items=${encodeURIComponent(selectedIds.join(","))}`);
-  }
-
-  function applyPromo() {
-    // CHECKOUT_SPEC §14: the backend promo engine is not built yet; the UI
-    // entry exists so the collapsed pattern is in place.
-    setPromoMessage(promoCode.trim() ? "Promo codes are coming soon." : "Enter a code to apply it.");
   }
 
   return (
@@ -532,40 +523,6 @@ export function CartView() {
               but can&apos;t be checked out.
             </p>
           )}
-
-          {/* CHECKOUT_SPEC §14 promo code — collapsed by default */}
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setPromoOpen((open) => !open);
-                setPromoMessage(null);
-              }}
-              className="text-sm text-cta hover:underline"
-              aria-expanded={promoOpen}
-            >
-              {promoOpen ? "Hide promo code" : "Have a promo code?"}
-            </button>
-            {promoOpen && (
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  placeholder="Enter code"
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                  aria-label="Promo code"
-                />
-                <button
-                  type="button"
-                  onClick={applyPromo}
-                  className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-            {promoMessage && <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>}
-          </div>
 
           <Button
             onClick={proceedToCheckout}

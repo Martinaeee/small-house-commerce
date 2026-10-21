@@ -166,50 +166,64 @@ model InventoryMovement {
 /// §38 orders. Status is split into three domains (§39): order, confirmation
 /// and payment each get their own column instead of one overloaded field.
 model Order {
-  id            String   @id @default(uuid(7)) @db.Uuid
-  orderNumber   String   @unique @map("order_number")
-  customerId    String   @map("customer_id") @db.Uuid
-  orderStatus   OrderStatus @default(NEW) @map("order_status")
-  confirmationStatus ConfirmationStatus @default(UNCONFIRMED) @map("confirmation_status")
-  paymentStatus PaymentStatus @default(COD_PENDING) @map("payment_status")
-  currency      String   @default("PHP")
-  subtotal      Decimal  @db.Decimal(10, 2)
-  discountTotal Decimal  @map("discount_total") @db.Decimal(10, 2)
-  shippingTotal Decimal  @map("shipping_total") @db.Decimal(10, 2)
-  grandTotal    Decimal  @map("grand_total") @db.Decimal(10, 2)
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  orderNumber            String             @unique @map("order_number")
+  customerId             String             @map("customer_id") @db.Uuid
+  orderStatus            OrderStatus        @default(NEW) @map("order_status")
+  confirmationStatus     ConfirmationStatus @default(UNCONFIRMED) @map("confirmation_status")
+  paymentStatus          PaymentStatus      @default(COD_PENDING) @map("payment_status")
+  currency               String             @default("PHP")
+  subtotal               Decimal            @db.Decimal(10, 2)
+  discountTotal          Decimal            @map("discount_total") @db.Decimal(10, 2)
+  shippingTotal          Decimal            @map("shipping_total") @db.Decimal(10, 2)
+  grandTotal             Decimal            @map("grand_total") @db.Decimal(10, 2)
   // AID snapshot (§53): copied at order creation, never recomputed.
-  optimizerId         String? @map("optimizer_id") @db.Uuid
-  optimizerAidSnapshot String? @map("optimizer_aid_snapshot")
-  optimizerNameSnapshot String? @map("optimizer_name_snapshot")
-  customerClassification String? @map("customer_classification")
-  confirmedBy   String?  @map("confirmed_by") @db.Uuid
-  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(3)
-  confirmationNote String? @map("confirmation_note")
+  optimizerId            String?            @map("optimizer_id") @db.Uuid
+  optimizerAidSnapshot   String?            @map("optimizer_aid_snapshot")
+  optimizerNameSnapshot  String?            @map("optimizer_name_snapshot")
+  customerClassification String?            @map("customer_classification")
+  confirmedBy            String?            @map("confirmed_by") @db.Uuid
+  confirmedAt            DateTime?          @map("confirmed_at") @db.Timestamptz(3)
+  confirmationNote       String?            @map("confirmation_note")
   // Customer-service assignment (order workbench): who is handling this order.
-  assignedToId String?  @map("assigned_to_id") @db.Uuid
-  assignedBy   String?  @map("assigned_by") @db.Uuid
-  assignedAt   DateTime? @map("assigned_at") @db.Timestamptz(3)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
+  assignedToId           String?            @map("assigned_to_id") @db.Uuid
+  assignedBy             String?            @map("assigned_by") @db.Uuid
+  assignedAt             DateTime?          @map("assigned_at") @db.Timestamptz(3)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  preferredDeliveryDate  DateTime?          @map("preferred_delivery_date") @db.Date
+  /// Shopper-supplied delivery note at checkout (<=200 chars). Distinct from
+  /// `confirmationNote` (service confirmation log) and from `OrderNote`
+  /// (internal append-only service notes, §46).
+  customerNote           String?            @map("customer_note")
+  /// The single subscribe-exclusive promo code applied to this order, if any.
+  /// The discount AMOUNT lives in `discountTotal`; this records WHICH code.
+  promoCode              String?            @map("promo_code")
+  /// Browser session that placed this order (analytics_events.session_id).
+  /// The dashboard's conversion rate divides ordering sessions by all
+  /// sessions; the order row — not the PURCHASE pixel event — is the fact.
+  trackingSessionId      String?            @map("tracking_session_id") @db.VarChar(100)
 
-  customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  items           OrderItem[]
-  shippingAddress OrderShippingAddress?
-  statusHistory   OrderStatusHistory[]
-  notes           OrderNote[]
-  riskFlags       OrderRiskFlag[]
-  mergeRecordsPrimary  OrderMergeRecord[] @relation("PrimaryOrder")
-  mergeRecordsMerged   OrderMergeRecord[] @relation("MergedOrder")
-  attribution     OrderAttribution?
-  payments        Payment[]
-  reservations    InventoryReservation[]
-  shipments       Shipment[]
+  customer            Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items               OrderItem[]
+  shippingAddress     OrderShippingAddress?
+  statusHistory       OrderStatusHistory[]
+  notes               OrderNote[]
+  riskFlags           OrderRiskFlag[]
+  mergeRecordsPrimary OrderMergeRecord[]     @relation("PrimaryOrder")
+  mergeRecordsMerged  OrderMergeRecord[]     @relation("MergedOrder")
+  attribution         OrderAttribution?
+  payments            Payment[]
+  reservations        InventoryReservation[]
+  shipments           Shipment[]
+  promoRedemption     PromoCodeRedemption?
 
   @@index([customerId])
   @@index([orderStatus])
+  @@index([paymentStatus])
   @@index([assignedToId])
   @@index([createdAt])
+  @@index([trackingSessionId])
   @@map("orders")
 }
 
@@ -230,13 +244,13 @@ model OrderNote {
 
 /// §47 order risk flags — detection marks, never auto-delete the order.
 model OrderRiskFlag {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  orderId    String   @map("order_id") @db.Uuid
-  flagType   String   @map("flag_type") // POSSIBLE_DUPLICATE / CUSTOMER_RECHECK / CUSTOMER_BLOCKED
+  id         String    @id @default(uuid(7)) @db.Uuid
+  orderId    String    @map("order_id") @db.Uuid
+  flagType   String    @map("flag_type") // POSSIBLE_DUPLICATE / CUSTOMER_RECHECK / CUSTOMER_BLOCKED
   reason     String?
-  resolved   Boolean  @default(false)
-  createdBy  String?  @map("created_by") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolved   Boolean   @default(false)
+  createdBy  String?   @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -290,9 +304,9 @@ model Shipment {
 
 /// §63 shipment items — which order lines (and how much) went in each box.
 model ShipmentItem {
-  id          String    @id @default(uuid(7)) @db.Uuid
-  shipmentId  String    @map("shipment_id") @db.Uuid
-  orderItemId String    @map("order_item_id") @db.Uuid
+  id          String @id @default(uuid(7)) @db.Uuid
+  shipmentId  String @map("shipment_id") @db.Uuid
+  orderItemId String @map("order_item_id") @db.Uuid
   quantity    Int
 
   shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
@@ -305,20 +319,21 @@ model ShipmentItem {
 /// §43 order items with historical snapshots (DB-003): catalog changes never
 /// alter past orders.
 model OrderItem {
-  id                  String  @id @default(uuid(7)) @db.Uuid
-  orderId             String  @map("order_id") @db.Uuid
-  productId           String? @map("product_id") @db.Uuid
-  variantId           String? @map("variant_id") @db.Uuid
-  skuId               String  @map("sku_id") @db.Uuid
-  productNameSnapshot String  @map("product_name_snapshot")
-  skuCodeSnapshot     String  @map("sku_code_snapshot")
-  variantSnapshot     String  @map("variant_snapshot")
-  optionSnapshot      Json?   @map("option_snapshot")
+  id                  String   @id @default(uuid(7)) @db.Uuid
+  orderId             String   @map("order_id") @db.Uuid
+  productId           String?  @map("product_id") @db.Uuid
+  variantId           String?  @map("variant_id") @db.Uuid
+  skuId               String   @map("sku_id") @db.Uuid
+  productNameSnapshot String   @map("product_name_snapshot")
+  skuCodeSnapshot     String   @map("sku_code_snapshot")
+  variantSnapshot     String   @map("variant_snapshot")
+  optionSnapshot      Json?    @map("option_snapshot")
+  bundleSnapshot      Json?    @map("bundle_snapshot")
   quantity            Int
-  unitPrice           Decimal @map("unit_price") @db.Decimal(10, 2)
-  unitDiscount        Decimal @map("unit_discount") @db.Decimal(10, 2)
+  unitPrice           Decimal  @map("unit_price") @db.Decimal(10, 2)
+  unitDiscount        Decimal  @map("unit_discount") @db.Decimal(10, 2)
   unitCostSnapshot    Decimal? @map("unit_cost_snapshot") @db.Decimal(10, 2)
-  lineTotal           Decimal @map("line_total") @db.Decimal(10, 2)
+  lineTotal           Decimal  @map("line_total") @db.Decimal(10, 2)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -327,39 +342,42 @@ model OrderItem {
   shipmentItems ShipmentItem[]
 
   @@index([orderId])
+  @@index([productId])
+  @@index([skuId])
   @@map("order_items")
 }
 
 /// §44 address snapshot, independent from the customer's current addresses.
 model OrderShippingAddress {
-  id            String  @id @default(uuid(7)) @db.Uuid
-  orderId       String  @unique @map("order_id") @db.Uuid
-  fullName      String  @map("full_name")
+  id            String   @id @default(uuid(7)) @db.Uuid
+  orderId       String   @unique @map("order_id") @db.Uuid
+  fullName      String   @map("full_name")
   phone         String
   province      String
   city          String
   barangay      String?
-  postalCode    String? @map("postal_code")
-  streetAddress String  @map("street_address")
+  postalCode    String?  @map("postal_code")
+  streetAddress String   @map("street_address")
   landmark      String?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@index([province])
   @@map("order_shipping_address")
 }
 
 /// §45 every important state change is recorded.
 model OrderStatusHistory {
-  id          String  @id @default(uuid(7)) @db.Uuid
-  orderId     String  @map("order_id") @db.Uuid
-  statusDomain String @map("status_domain")
-  oldStatus   String? @map("old_status")
-  newStatus   String  @map("new_status")
-  source      String
-  operatorId  String? @map("operator_id") @db.Uuid
-  comment     String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id           String   @id @default(uuid(7)) @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  statusDomain String   @map("status_domain")
+  oldStatus    String?  @map("old_status")
+  newStatus    String   @map("new_status")
+  source       String
+  operatorId   String?  @map("operator_id") @db.Uuid
+  comment      String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -371,28 +389,40 @@ model OrderStatusHistory {
 /// the AID is frozen at order creation (§53). Facebook/landing fields stay
 /// plain columns until those modules land (Phase 4), then FKs can be added.
 model OrderAttribution {
-  id                     String     @id @default(uuid(7)) @db.Uuid
-  orderId                String     @unique @map("order_id") @db.Uuid
-  sourceType             SourceType @map("source_type")
-  optimizerId            String?    @map("optimizer_id") @db.Uuid
-  aidSnapshot            String?    @map("aid_snapshot")
-  facebookPageId         String?    @map("facebook_page_id")
-  facebookPostId         String?    @map("facebook_post_id")
-  facebookPostTrackingCode String?  @map("facebook_post_tracking_code")
-  campaignId             String?    @map("campaign_id")
-  adsetId                String?    @map("adset_id")
-  adId                   String?    @map("ad_id")
-  landingPageId          String?    @map("landing_page_id")
-  utmSource              String?    @map("utm_source")
-  utmMedium              String?    @map("utm_medium")
-  utmCampaign            String?    @map("utm_campaign")
-  utmContent             String?    @map("utm_content")
-  utmTerm                String?    @map("utm_term")
-  fbclid                 String?
-  attributedAt           DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
+  id                       String     @id @default(uuid(7)) @db.Uuid
+  orderId                  String     @unique @map("order_id") @db.Uuid
+  sourceType               SourceType @map("source_type")
+  optimizerId              String?    @map("optimizer_id") @db.Uuid
+  aidSnapshot              String?    @map("aid_snapshot")
+  ownerNameSnapshot        String?    @map("owner_name_snapshot")
+  linkId                   String?    @map("link_id") @db.Uuid
+  productId                String?    @map("product_id") @db.Uuid
+  productNameSnapshot      String?    @map("product_name_snapshot")
+  productCodeSnapshot      String?    @map("product_code_snapshot")
+  publishedRevision        Int?       @map("published_revision")
+  touchedAt                DateTime?  @map("touched_at") @db.Timestamptz(3)
+  legacy                   Boolean?
+  facebookPageId           String?    @map("facebook_page_id")
+  facebookPostId           String?    @map("facebook_post_id")
+  facebookPostTrackingCode String?    @map("facebook_post_tracking_code")
+  campaignId               String?    @map("campaign_id")
+  adsetId                  String?    @map("adset_id")
+  adId                     String?    @map("ad_id")
+  landingPageId            String?    @map("landing_page_id")
+  utmSource                String?    @map("utm_source")
+  utmMedium                String?    @map("utm_medium")
+  utmCampaign              String?    @map("utm_campaign")
+  utmContent               String?    @map("utm_content")
+  utmTerm                  String?    @map("utm_term")
+  fbclid                   String?
+  attributedAt             DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  link  CampaignLink? @relation(fields: [linkId], references: [id], onDelete: Restrict)
 
+  @@index([linkId, touchedAt])
+  @@index([landingPageId, touchedAt])
+  @@index([optimizerId, touchedAt])
   @@map("order_attributions")
 }
 

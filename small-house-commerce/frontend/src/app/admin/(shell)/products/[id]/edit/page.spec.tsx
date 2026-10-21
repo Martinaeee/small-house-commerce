@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
@@ -26,6 +26,11 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "p1" }),
   useRouter: () => ({ refresh: refreshMock, push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(navigationState.searchParams),
+}));
+
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
 }));
 
 vi.mock("@/components/admin/ProductForm", async (importOriginal) => {
@@ -63,10 +68,8 @@ vi.mock("@/lib/admin-api", () => ({
     value === null || value === undefined ? "—" : `₱${value}`,
 }));
 
-import EditProductPage, {
-  buildSavedPreview,
-  deserializeProduct,
-} from "@/app/admin/(shell)/products/[id]/edit/page";
+import EditProductPage from "@/app/admin/(shell)/products/[id]/edit/page";
+import { buildSavedPreview, deserializeProduct } from "@/lib/admin-product-graph";
 import type { AdminCategoryNode, AdminProduct } from "@/lib/admin-api";
 
 const CATEGORY = {
@@ -147,6 +150,21 @@ function legacyProduct(overrides: Partial<AdminProduct> = {}): AdminProduct {
     ...overrides,
   } as AdminProduct;
 }
+
+import { serializeFormValue } from "@/components/admin/ProductForm";
+
+function legacyProductWithDimensions(): AdminProduct {
+  const value = legacyProduct();
+  Object.assign(value.variants[0]!.sku!, { productWidth: 48, productHeight: null, productDepth: 52 });
+  return value;
+}
+
+it("preserves legacy SKU dimension overrides through hydration and save serialization", () => {
+  const form = deserializeProduct(legacyProductWithDimensions());
+  const result = serializeFormValue(form);
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.value.variants[0]?.sku).toMatchObject({ productWidth: 48, productHeight: null, productDepth: 52 });
+});
 
 const COLOR_OPTION = {
   id: "option-1",
@@ -250,6 +268,27 @@ async function setInput(
   await user.type(element, text);
 }
 
+describe("deserializeProduct — scene identity", () => {
+  it("keeps image ids, scene flags and unique stored sort orders on hydration", () => {
+    const product = legacyProduct({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: null, sortOrder: 2 },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: null, sortOrder: 5, isScene: true },
+    ] });
+    expect(deserializeProduct(product).images).toEqual([
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: "", sortOrder: "2", isScene: false },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: "", sortOrder: "5", isScene: true },
+    ]);
+  });
+
+  it("retains the existing repair of duplicate stored sort orders", () => {
+    const product = legacyProduct({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: null, sortOrder: 4 },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: null, sortOrder: 4 },
+    ] });
+    expect(deserializeProduct(product).images.map(row => row.sortOrder)).toEqual(["0", "1"]);
+  });
+});
+
 describe("deserializeProduct — stock", () => {
   it("maps the inventory figures into the editable stock box", () => {
     const value = deserializeProduct(legacyProduct());
@@ -306,6 +345,172 @@ describe("EditProductPage save orchestration", () => {
   });
 
   afterEach(cleanup);
+
+  it.each(["DRAFT", "ACTIVE"] as const)("submits a newly assigned legacy-v0 cover when saving as %s", async (status) => {
+    const user = userEvent.setup();
+    const images = [{ id: "photo-a", url: "/uploads/desk.webp", type: "IMAGE" as const, altText: "Desk cover", sortOrder: 0, isScene: true }];
+    const product = legacyProduct({ images, variants: [{ id: "variant-1", name: "Walnut & Black", position: 0, cardMedia: null, sku: skuOf("sku-1", "TB006", 4) }] });
+    const cover = { cover: { type: "IMAGE" as const, url: "/uploads/desk.webp", altText: "Desk cover" }, hover: null };
+    const saved = typedProduct({
+      status, catalogGraphVersion: 1, images,
+      options: [{ ...COLOR_OPTION, values: [{ ...COLOR_OPTION.values[0], label: "Walnut & Black" }] }],
+      variants: [{ ...graphVariant("variant-1", "Walnut & Black", "value-1", skuOf("sku-1", "TB006", 4)), cardMedia: cover }],
+      media: images.map(image => ({ ...image, optionValueId: null, variantId: null })),
+    });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(saved);
+    renderEditPage();
+    await waitForForm();
+    await user.selectOptions(screen.getByRole("combobox", { name: "商品状态" }), status);
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Walnut & Black 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await clickSave(user);
+
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const body = updateProduct.mock.calls[0]![1];
+    expect(body.catalogGraphVersion).toBe(0);
+    expect(body.catalogGraph.options).toHaveLength(1);
+    expect(body.catalogGraph.options[0]).toHaveProperty("clientKey");
+    expect(body.catalogGraph.options[0]).not.toHaveProperty("id");
+    expect(body.catalogGraph.options[0].values[0]).toMatchObject({ label: "Walnut & Black", clientKey: expect.any(String) });
+    expect(body.catalogGraph.options[0].values[0]).not.toHaveProperty("id");
+    expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+      id: "variant-1", cardMedia: cover,
+      sku: expect.objectContaining({ skuCode: "TB006", price: 1299 }),
+      optionValueRefs: [{ clientKey: body.catalogGraph.options[0].values[0].clientKey }],
+    })]);
+    expect(body.catalogGraph.media).toEqual([]);
+    expect(body.catalogGraph.retirements.variantIds).toEqual([]);
+    expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    expect(body).not.toHaveProperty("variants");
+    expect(body).not.toHaveProperty("images");
+    expect(setStockBatch).not.toHaveBeenCalled();
+    expect(setStock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^保存/ })).toBeEnabled());
+    await clickSave(user);
+    expect(updateProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps every legacy sibling by its saved identity during cover materialization", async () => {
+    const user = userEvent.setup();
+    const images = [{ id: "photo-a", url: "/uploads/desk.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true }];
+    const siblingCard = { cover: { type: "IMAGE" as const, url: "/uploads/black.webp", altText: "Black" }, hover: null };
+    const siblingSku = { ...skuOf("sku-2", "TB007", 8), packageWidth: 90, packageWeight: 14, supplierCost: "50", costCurrency: "CNY" };
+    const product = legacyProduct({ images, variants: [
+      { id: "variant-1", name: "Walnut & Black", position: 0, sku: skuOf("sku-1", "TB006", 4) },
+      { id: "variant-2", name: "Black", position: 1, sku: siblingSku, cardMedia: siblingCard },
+    ] });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(product);
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Walnut & Black 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const graph = updateProduct.mock.calls[0]![1].catalogGraph;
+    expect(graph.variants.map((row: { id: string }) => row.id)).toEqual(["variant-1", "variant-2"]);
+    expect(graph.variants[1]).toMatchObject({ id: "variant-2", cardMedia: siblingCard, sku: { skuCode: "TB007", packageWidth: 90, packageWeight: 14, supplierCost: 50, costCurrency: "CNY" } });
+    expect(graph.media).toEqual([]);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("writes changed legacy stock only after the cover graph has saved", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const product = legacyProduct({ images: [{ id: "photo", url: "/uploads/desk.webp", type: "IMAGE", altText: null, sortOrder: 0 }] });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockImplementation(async () => { order.push("graph"); return product; });
+    setStockBatch.mockImplementation(async () => { order.push("stock"); return [{ skuId: "sku-1", ok: true, onHand: 6, reserved: 1, available: 5 }]; });
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await openVariantsTab(user);
+    await setInput(user, screen.getByLabelText("Default 的库存"), "6");
+    await clickSave(user);
+    await waitFor(() => expect(setStockBatch).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["graph", "stock"]);
+    expect(setStockBatch).toHaveBeenCalledWith([{ skuId: "sku-1", onHand: 6, reason: "Product form" }]);
+    expect(setStock).not.toHaveBeenCalled();
+  });
+
+  it("saves a card-only snapshot without rewriting gallery scene flags or real SKU identity", async () => {
+    const user = userEvent.setup();
+    const media = [
+      { id: "photo-a", url: "/uploads/same.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true, optionValueId: null, variantId: null },
+      { id: "photo-b", url: "/uploads/same.webp", type: "IMAGE" as const, altText: "Second photo", sortOrder: 1, isScene: false, optionValueId: null, variantId: null },
+    ];
+    const product = typedProduct({ images: media, media });
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockResolvedValue(typedProduct({ catalogGraphVersion: 4, images: media, media }));
+    renderEditPage();
+    await waitForForm();
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 2" }));
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    const body = updateProduct.mock.calls[0]![1];
+    expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+      id: "variant-1",
+      cardMedia: { cover: { type: "IMAGE", url: "/uploads/same.webp", altText: "Second photo" }, hover: null },
+    })]);
+    expect(body.catalogGraph.variants[0]).not.toHaveProperty("sku");
+    expect(body.catalogGraph.media).toEqual([]);
+    expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    expect(body).not.toHaveProperty("images");
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps card, SKU, packaging and stock drafts after a graph version conflict", async () => {
+    const user = userEvent.setup();
+    const media = [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE" as const, altText: null, sortOrder: 0, isScene: true, optionValueId: null, variantId: null },
+      { id: "photo-b", url: "/uploads/b.webp", type: "IMAGE" as const, altText: null, sortOrder: 1, isScene: false, optionValueId: null, variantId: null },
+    ];
+    const product = typedProduct({ images: media, media });
+    product.variants[0]!.sku!.packageWidth = 55;
+    getProduct.mockResolvedValue(product);
+    updateProduct.mockRejectedValue(Object.assign(new Error("Catalog graph version conflict"), { status: 409 }));
+    renderEditPage();
+    await waitForForm();
+    await openVariantsTab(user);
+    await setInput(user, screen.getByLabelText("Default 的售价"), "1499");
+    await setInput(user, screen.getByLabelText("Default 的库存"), "7");
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    await user.click(screen.getByRole("button", { name: "Default 卡片封面：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 1" }));
+    await user.click(screen.getByRole("button", { name: "Default 悬停图片：从图库选择" }));
+    await user.click(screen.getByRole("button", { name: "选择图片 2" }));
+    await clickSave(user);
+    expect(await screen.findByText("Catalog graph version conflict")).toBeInTheDocument();
+    await openVariantsTab(user);
+    expect(screen.getByLabelText("Default 的售价")).toHaveValue("1499");
+    expect(screen.getByLabelText("Default 的库存")).toHaveValue("7");
+    await user.click(screen.getByRole("tab", { name: "商品媒体" }));
+    expect(screen.getByLabelText("Default 卡片封面：替代文字")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default 悬停图片：替代文字")).toBeInTheDocument();
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(2));
+    for (const [, body] of updateProduct.mock.calls) {
+      expect(body.catalogGraph.variants).toEqual([expect.objectContaining({
+        id: "variant-1",
+        cardMedia: {
+          cover: { type: "IMAGE", url: "/uploads/a.webp", altText: null },
+          hover: { type: "IMAGE", url: "/uploads/b.webp", altText: null },
+        },
+        sku: expect.objectContaining({ price: 1499, packageWidth: 55 }),
+      })]);
+      expect(body.catalogGraph.media).toEqual([]);
+      expect(body.catalogGraph.retirements.mediaIds).toEqual([]);
+    }
+    expect(getProduct).toHaveBeenCalledTimes(1);
+    expect(setStockBatch).not.toHaveBeenCalled();
+  });
 
   it("forwards only canonical variants and SKU search context across same-page query changes", async () => {
     navigationState.searchParams = "section=variants&sku=E2E-CS-BLUE-M";

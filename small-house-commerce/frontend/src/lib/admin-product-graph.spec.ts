@@ -8,12 +8,17 @@ import type {
 } from "@/lib/admin-api";
 import {
   buildCatalogGraphPatch,
+  buildSavedPreview,
+  deserializeProduct,
+  cardGraphFromLegacyForm,
+  setVariantCardImage,
   buildVariantCandidates,
   canonicalCombinationKey,
   collectStockBatch,
   deserializeAdminProduct,
   graphFromAdminProduct,
   resolveStockBatchWrites,
+  removeSupersededDefaultVariant,
   stripUnsavableMedia,
   syncSharedMediaDraft,
   toWireCatalogGraphPatch,
@@ -200,7 +205,332 @@ function draftFor(graph: AdminCatalogGraph = serverGraph()): AdminCatalogGraphDr
   return structuredClone(deserializeAdminProduct(productFor(graph)));
 }
 
+describe("independent variant card codecs", () => {
+  const pair = () => ({
+    cover: { type: "IMAGE" as const, url: "/uploads/red-card.webp", altText: "Red cover" },
+    hover: { type: "IMAGE" as const, url: "/uploads/red-hover.webp", altText: null },
+  });
+  function configured() {
+    const graph = serverGraph();
+    Object.assign(graph.variants[0]!, { cardMedia: pair() });
+    return graph;
+  }
+
+  it("hydrates independent copies in graph, legacy form, baseline and saved preview", () => {
+    const product = productFor(configured());
+    const graph = deserializeAdminProduct(product);
+    const form = deserializeProduct(product);
+    expect(graph.variants[0]).toHaveProperty("cardMedia", pair());
+    expect(form.variants[0]).toHaveProperty("id", VARIANT_RED_ID);
+    expect(form.variants[0]).toHaveProperty("cardMedia", pair());
+    expect(graphFromAdminProduct(product).variants[0]).toHaveProperty("cardMedia", pair());
+    expect(buildSavedPreview(product).variants[0]).toHaveProperty("cardMedia", pair());
+    graph.variants[0]!.cardMedia!.cover!.url = "/changed.webp";
+    expect(form.variants[0]).toHaveProperty("cardMedia.cover.url", "/uploads/red-card.webp");
+    expect(product.variants[0]).toHaveProperty("cardMedia.cover.url", "/uploads/red-card.webp");
+  });
+
+  it("emits a card-only change without touching SKU identity or the PDP gallery", () => {
+    const original = serverGraph();
+    const draft = draftFor(original);
+    draft.variants[0]!.cardMedia = pair();
+    const patch = buildCatalogGraphPatch(original, draft);
+    const wire = toWireCatalogGraphPatch(patch, original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toEqual([{
+      id: VARIANT_RED_ID, position: 0, optionValueRefs: [{ id: RED_VALUE_ID }], cardMedia: pair(),
+    }]);
+    expect(patch.mediaUpserts).toEqual([]);
+    expect(patch.retirements.variantIds).toEqual([]);
+    expect(draft.variants[0]!.sku?.id).toBe(SKU_RED_ID);
+  });
+
+  it("does not resend card snapshots for a SKU-only edit", () => {
+    const original = configured();
+    const draft = draftFor(original);
+    draft.variants[0]!.sku!.price = 1800;
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(original, draft), original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants[0]).not.toHaveProperty("cardMedia");
+    expect(wire.catalogGraph.variants[0]!.sku).toMatchObject({ skuCode: "CHAIR-RED", price: 1800 });
+    expect(draft.variants[0]).toHaveProperty("cardMedia", pair());
+  });
+
+  it.each([
+    ["whole configuration", null],
+    ["cover slot", { cover: null, hover: pair().hover }],
+    ["hover slot", { cover: pair().cover, hover: null }],
+  ] as const)("preserves explicit clearing of %s in the wire", (_label, cardMedia) => {
+    const original = configured();
+    const draft = draftFor(original);
+    draft.variants[0]!.cardMedia = cardMedia;
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(original, draft), original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toHaveLength(1);
+    expect(wire.catalogGraph.variants[0]).toHaveProperty("cardMedia", cardMedia);
+    expect(wire.catalogGraph.variants[0]).not.toHaveProperty("sku");
+  });
+
+  it("compares image fields rather than JSON property insertion order", () => {
+    const original = configured();
+    const draft = draftFor(original);
+    draft.variants[0]!.cardMedia = {
+      hover: { altText: null, url: "/uploads/red-hover.webp", type: "IMAGE" },
+      cover: { altText: "Red cover", url: "/uploads/red-card.webp", type: "IMAGE" },
+    };
+    expect(buildCatalogGraphPatch(original, draft).variantUpserts).toEqual([]);
+  });
+
+  it("treats omitted card metadata as unchanged rather than a clear", () => {
+    const original = configured();
+    const draft = draftFor(original);
+    delete draft.variants[0]!.cardMedia;
+    draft.variants[0]!.position = 4;
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(original, draft), original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants[0]).not.toHaveProperty("cardMedia");
+  });
+
+  it("keeps explicit snapshots on a new client-keyed variant without copying another row", () => {
+    const original = configured();
+    const draft = draftFor(original);
+    draft.variants.push({ clientKey: "new-v", name: "Red", position: 2, combinationKey: "new-combo",
+      optionValueRefs: [], sku: null, cardMedia: { cover: pair().hover, hover: null } });
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(original, draft), original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants).toEqual([{
+      clientKey: "new-v", position: 2, optionValueRefs: [], cardMedia: { cover: pair().hover, hover: null },
+    }]);
+    expect(draft.variants[0]).toHaveProperty("cardMedia", pair());
+  });
+
+  it("preserves snapshots and identities in legacy deserialization", () => {
+    const product = productFor(configured());
+    delete product.options;
+    delete product.media;
+    const form = deserializeProduct(product);
+    expect(form.graphTyped).toBe(false);
+    expect(form.variants[0]).toHaveProperty("id", VARIANT_RED_ID);
+    expect(form.variants[0]).toHaveProperty("cardMedia", pair());
+    expect(form.graph!.variants[0]).toHaveProperty("cardMedia", pair());
+  });
+});
+
+describe("card draft identities", () => {
+  it("normalizes duplicate legacy value positions without changing real variant identity or position", () => {
+    const product = productFor(serverGraph());
+    delete product.options;
+    delete product.media;
+    const value = deserializeProduct(product);
+    value.variants.forEach((row, index) => {
+      row.position = "0";
+      row.cardMedia = { cover: { type: "IMAGE", url: `/uploads/own-${index}.webp`, altText: null }, hover: null };
+    });
+    const graph = cardGraphFromLegacyForm(value);
+    expect(graph.options[0]!.values.map(row => row.position)).toEqual([0, 1]);
+    expect(graph.variants.map(row => [row.id, row.position, row.cardMedia?.cover?.url])).toEqual([
+      [VARIANT_RED_ID, 0, "/uploads/own-0.webp"], [VARIANT_BLUE_ID, 0, "/uploads/own-1.webp"],
+    ]);
+    expect(validateAdminCatalogGraph(graph).issues).not.toContainEqual(expect.objectContaining({ code: "duplicate_value_position" }));
+  });
+
+  it("preserves reserved inventory as read-only draft context", () => {
+    const original = serverGraph();
+    original.variants[0]!.sku!.reserved = 3;
+    const draft = draftFor(original);
+    expect(draft.variants[0]!.sku).toMatchObject({ onHand: 4, reserved: 3 });
+    draft.variants[0]!.sku!.price = 1500;
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(original, draft), original.catalogGraphVersion);
+    expect(wire.catalogGraph.variants[0]!.sku).not.toHaveProperty("reserved");
+    expect(wire.catalogGraph.variants[0]!.sku).not.toHaveProperty("onHand");
+  });
+
+  it("converts the latest reordered legacy fields while preserving real identities and unsaved stock", () => {
+    const product = productFor(serverGraph());
+    delete product.options;
+    delete product.media;
+    const value = deserializeProduct(product);
+    value.variants.reverse();
+    const row = value.variants.find(row => row.id === VARIANT_RED_ID)!;
+    row.name = "Renamed red";
+    row.position = "7";
+    row.sku!.packageWidth = "55";
+    row.sku!.stock = "9";
+    row.sku!.reserved = "2";
+    row.cardMedia = { cover: { type: "IMAGE", url: "/uploads/own.webp", altText: null }, hover: null };
+    value.images[0]!.url = "/uploads/latest-pdp.webp";
+    value.variants.push({ clientKey: "new-red", name: "Renamed red", position: "9", sku: null });
+    const before = structuredClone(value);
+    const graph = cardGraphFromLegacyForm(value);
+    const converted = graph.variants.find(row => row.id === VARIANT_RED_ID)!;
+    expect(converted).toMatchObject({ id: VARIANT_RED_ID, name: "Renamed red", position: 7,
+      cardMedia: row.cardMedia, sku: { id: SKU_RED_ID, packageWidth: 55, onHand: 9, reserved: 2 } });
+    expect(graph.variants.find(row => row.clientKey === "new-red")?.cardMedia ?? null).toBeNull();
+    expect(graph.variants.map(row => row.id ?? row.clientKey)).toEqual([VARIANT_BLUE_ID, VARIANT_RED_ID, "new-red"]);
+    expect(graph.options).toHaveLength(1);
+    expect(graph.options[0]!.kind).toBe("STYLE");
+    expect(graph.options[0]!.values.map(row => row.label)).toEqual(["Blue", "Renamed red", "Renamed red"]);
+    expect(graph.defaultDisplayVariantRef).toEqual({ id: VARIANT_RED_ID });
+    expect(graph.media[0]).toMatchObject({ id: MEDIA_1_ID, url: "/uploads/latest-pdp.webp" });
+    expect(value).toEqual(before);
+  });
+
+  it("updates only the addressed slot and copies the selected image", () => {
+    const graph = draftFor();
+    const image = { type: "IMAGE" as const, url: "/uploads/cover.webp", altText: "Own cover" };
+    setVariantCardImage(graph, { id: VARIANT_RED_ID }, "cover", image);
+    setVariantCardImage(graph, { id: VARIANT_RED_ID }, "hover", { ...image, url: "/uploads/hover.webp" });
+    image.url = "/changed.webp";
+    expect(graph.variants[0]).toHaveProperty("cardMedia", {
+      cover: { type: "IMAGE", url: "/uploads/cover.webp", altText: "Own cover" },
+      hover: { type: "IMAGE", url: "/uploads/hover.webp", altText: "Own cover" },
+    });
+    setVariantCardImage(graph, { id: VARIANT_RED_ID }, "hover", null);
+    expect(graph.variants[0]).toHaveProperty("cardMedia.hover", null);
+    expect(graph.variants[0]).toHaveProperty("cardMedia.cover.url", "/uploads/cover.webp");
+    expect(graph.variants[1]!.cardMedia ?? null).toBeNull();
+  });
+
+  it("keeps same-named client-keyed rows separate", () => {
+    const graph = draftFor();
+    graph.variants.push({ clientKey: "other-red", name: "Red", position: 2, combinationKey: "other", optionValueRefs: [], sku: null });
+    setVariantCardImage(graph, { clientKey: "other-red" }, "cover", { type: "IMAGE", url: "/uploads/new.webp", altText: null });
+    expect(graph.variants.find(row => row.clientKey === "other-red")).toHaveProperty("cardMedia.cover.url", "/uploads/new.webp");
+    expect(graph.variants[0]!.cardMedia ?? null).toBeNull();
+  });
+});
+
+describe("scene media drafts", () => {
+  it("hydrates scene metadata and defaults older unmarked responses to false", () => {
+    const graph = serverGraph();
+    Object.assign(graph.media[0]!, { isScene: true });
+    const draft = draftFor(graph);
+    expect(draft.media.map(row => row.isScene)).toEqual([true, false]);
+    expect(graphFromAdminProduct(productFor(graph)).media.map(row => row.isScene)).toEqual([true, false]);
+  });
+
+  it("preserves scene metadata in the legacy projection", () => {
+    const product = productFor(serverGraph());
+    delete product.options;
+    delete product.media;
+    Object.assign(product.images[0]!, { isScene: true });
+    expect(deserializeAdminProduct(product).media[0]?.isScene).toBe(true);
+  });
+
+  it("emits only the scene-only changed row with an explicit boolean through the wire", () => {
+    const graph = serverGraph();
+    const draft = draftFor(graph);
+    Object.assign(draft.media[1]!, { isScene: true });
+    const patch = buildCatalogGraphPatch(graph, draft);
+    expect(patch.mediaUpserts).toHaveLength(1);
+    expect(patch.mediaUpserts[0]).toMatchObject({ id: MEDIA_2_ID, isScene: true });
+    const wire = toWireCatalogGraphPatch(patch, graph.catalogGraphVersion);
+    expect(wire.catalogGraph.media[0]).toMatchObject({ id: MEDIA_2_ID, isScene: true });
+    expect(wire.catalogGraph.retirements.mediaIds).toEqual([]);
+  });
+
+  it("does not dirty an untouched draft when old responses omit the flag", () => {
+    const graph = serverGraph();
+    const draft = draftFor(graph);
+    Object.assign(draft.media[0]!, { isScene: false });
+    expect(buildCatalogGraphPatch(graph, draft).mediaUpserts).toEqual([]);
+  });
+
+  it("retains scene identity across shared reorder and URL edits", () => {
+    const draft = draftFor();
+    Object.assign(draft.media[0]!, { isScene: true });
+    Object.assign(draft.media[1]!, { isScene: false });
+    syncSharedMediaDraft(draft, [
+      { id: MEDIA_2_ID, url: draft.media[1]!.url, type: "IMAGE", isScene: false },
+      { id: MEDIA_1_ID, url: "/uploads/edited.webp", type: "IMAGE", isScene: true },
+    ]);
+    expect(draft.media.map(row => [row.id, row.url, row.isScene, row.sortOrder])).toEqual([
+      [MEDIA_2_ID, "/uploads/catalog/2026/blue.jpg", false, 0],
+      [MEDIA_1_ID, "/uploads/edited.webp", true, 1],
+    ]);
+  });
+
+  it("uses stable ids even when two images have the same URL", () => {
+    const draft = draftFor();
+    draft.media.forEach((row, index) => Object.assign(row, { url: "/uploads/same.webp", isScene: index === 0 }));
+    syncSharedMediaDraft(draft, [
+      { id: MEDIA_2_ID, url: "/uploads/same.webp", type: "IMAGE", isScene: false },
+      { id: MEDIA_1_ID, url: "/uploads/same.webp", type: "IMAGE", isScene: true },
+    ]);
+    expect(draft.media.map(row => [row.id, row.isScene])).toEqual([[MEDIA_2_ID, false], [MEDIA_1_ID, true]]);
+  });
+
+  it("keeps a new media client key and scene flag across edits", () => {
+    const draft = draftFor();
+    syncSharedMediaDraft(draft, [{ clientKey: "new-scene", url: "/uploads/new.webp", type: "IMAGE", isScene: true }]);
+    syncSharedMediaDraft(draft, [{ clientKey: "new-scene", url: "/uploads/edited.webp", type: "IMAGE", isScene: true }]);
+    expect(draft.media).toEqual([expect.objectContaining({ clientKey: "new-scene", url: "/uploads/edited.webp", isScene: true })]);
+  });
+
+  it("matches identity-free legacy inputs by unique URL/type rather than index", () => {
+    const draft = draftFor();
+    Object.assign(draft.media[0]!, { isScene: true });
+    syncSharedMediaDraft(draft, [
+      { url: draft.media[1]!.url, type: "IMAGE" },
+      { url: draft.media[0]!.url, type: "IMAGE" },
+    ]);
+    expect(draft.media.map(row => [row.id, !!row.isScene])).toEqual([[MEDIA_2_ID, false], [MEDIA_1_ID, true]]);
+  });
+
+  it("refuses ambiguous legacy scene inheritance without modifying the draft", () => {
+    const draft = draftFor();
+    Object.assign(draft.media[0]!, { isScene: true });
+    const before = structuredClone(draft);
+    expect(() => syncSharedMediaDraft(draft, [
+      { url: draft.media[0]!.url, type: "IMAGE" },
+      { url: draft.media[0]!.url, type: "IMAGE" },
+    ])).toThrow(/uniquely|ambiguous/i);
+    expect(draft).toEqual(before);
+  });
+
+  it("does not transfer a removed scene to a new image in the same slot", () => {
+    const draft = draftFor();
+    Object.assign(draft.media[0]!, { isScene: true });
+    syncSharedMediaDraft(draft, [{ url: "/uploads/replacement.webp", type: "IMAGE" }]);
+    expect(draft.media[0]?.isScene).toBe(false);
+    expect(draft.media[0]?.id).toBeUndefined();
+    expect(buildCatalogGraphPatch(serverGraph(), draft).retirements.mediaIds).toEqual([MEDIA_1_ID, MEDIA_2_ID]);
+  });
+
+  it("clears scene metadata when the same identity becomes video", () => {
+    const draft = draftFor();
+    Object.assign(draft.media[0]!, { isScene: true });
+    syncSharedMediaDraft(draft, [{ id: MEDIA_1_ID, url: draft.media[0]!.url, type: "VIDEO" }]);
+    expect(draft.media[0]).toMatchObject({ id: MEDIA_1_ID, type: "VIDEO", isScene: false });
+  });
+
+  it("changes a shared scene without touching its order or scoped rows", () => {
+    const draft = draftFor();
+    draft.media[0]!.sortOrder = 2;
+    draft.media[1]!.sortOrder = 5;
+    const scoped = { id: "scoped", url: "/uploads/scoped.webp", type: "IMAGE" as const, altText: null, sortOrder: 0,
+      optionValueRef: { id: RED_VALUE_ID }, variantRef: null, isScene: true };
+    draft.media.push(scoped);
+    syncSharedMediaDraft(draft, [
+      { id: MEDIA_1_ID, url: draft.media[0]!.url, type: "IMAGE", sortOrder: "2", isScene: false },
+      { id: MEDIA_2_ID, url: draft.media[1]!.url, type: "IMAGE", sortOrder: "5", isScene: true },
+    ]);
+    expect(draft.media.filter(row => !row.optionValueRef).map(row => [row.id, row.sortOrder, row.isScene]))
+      .toEqual([[MEDIA_1_ID, 2, false], [MEDIA_2_ID, 5, true]]);
+    expect(draft.media.find(row => row.id === "scoped")).toEqual(scoped);
+  });
+});
+
 describe("deserializeAdminProduct", () => {
+  it("preserves a virtual SKU through hydration and wire serialization without editor metadata", () => {
+    const graph = serverGraph();
+    graph.variants[0].sku!.isBundle = true;
+    graph.variants[0].sku!.bundleVersion = 2;
+    const draft = draftFor(graph);
+    expect(draft.variants[0].sku).toMatchObject({ isBundle: true, bundleVersion: 2 });
+    draft.variants[0].sku!.price = 1400;
+    Object.assign(draft.variants[0].sku!, { bundleDraft: { version: 1, components: [] } });
+    const wire = toWireCatalogGraphPatch(buildCatalogGraphPatch(graph, draft), graph.catalogGraphVersion).catalogGraph;
+    expect(wire.variants[0]?.sku).toMatchObject({ isBundle: true });
+    expect(wire.variants[0]?.sku).not.toHaveProperty("bundleDraft");
+    expect(wire.variants[0]?.sku).not.toHaveProperty("bundleVersion");
+    expect(wire.variants[0]?.sku).not.toHaveProperty("bundleDefinition");
+  });
   it("keeps stable server ids and never fabricates client keys for persisted rows", () => {
     const draft = draftFor();
 
@@ -369,6 +699,137 @@ describe("buildVariantCandidates", () => {
     expect(candidates[0].name).toBe("Default");
     expect(candidates[0].exists).toBe(false);
     expect(candidates[0].pairs).toEqual([]);
+  });
+});
+
+describe("removeSupersededDefaultVariant", () => {
+  function withDefault(): AdminCatalogGraphDraft {
+    const draft = draftFor();
+    draft.variants.unshift({
+      clientKey: "variant-",
+      name: "Default",
+      position: 2,
+      combinationKey: "",
+      optionValueRefs: [],
+      sku: null,
+    });
+    return draft;
+  }
+
+  it("removes only the generated placeholder and clears its selected default", () => {
+    const draft = withDefault();
+    draft.defaultDisplayVariantRef = { clientKey: "variant-" };
+    draft.variants[1].cardMedia = {
+      cover: { type: "IMAGE", url: "/uploads/red-cover.webp", altText: "Red" },
+      hover: { type: "IMAGE", url: "/uploads/red-hover.webp", altText: null },
+    };
+    const expected = structuredClone(draft);
+    expected.variants.shift();
+    expected.defaultDisplayVariantRef = null;
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
+  });
+
+  it("keeps the selected real variant and leaves the original row positions intact", () => {
+    const draft = withDefault();
+    const expected = structuredClone(draft);
+    expected.variants.shift();
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
+    removeSupersededDefaultVariant(draft);
+    expect(draft).toEqual(expected);
+  });
+
+  it.each(["no-options", "disabled-options", "no-active-values"])("keeps Default for %s", mode => {
+    const draft = withDefault();
+    if (mode === "no-options") draft.options = [];
+    if (mode === "disabled-options") draft.options[0].isActive = false;
+    if (mode === "no-active-values") draft.options[0].values.forEach(value => { value.isActive = false; });
+    const expected = structuredClone(draft);
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
+  });
+
+  it.each([
+    { onHand: 6 },
+    { reserved: 2 },
+    { status: "DISABLED" as const },
+    { supplierSku: "SUPPLIER-001" },
+    { supplierCost: 500 },
+    { landedCost: 600 },
+    { costCurrency: "PHP" },
+    { productWidth: 85 },
+    { productHeight: 90 },
+    { productDepth: 55 },
+    { productWeight: 12 },
+    { packageWidth: 85 },
+    { packageHeight: 90 },
+    { packageDepth: 55 },
+    { packageWeight: 12 },
+    { volumetricWeight: 8 },
+    { isBundle: true },
+  ])("preserves meaningful SKU data without a SKU code: %j", patch => {
+    const draft = withDefault();
+    draft.variants[0].sku = {
+      ...draft.variants[1].sku!,
+      id: undefined,
+      skuCode: "",
+      onHand: 0,
+      reserved: 0,
+      ...patch,
+    };
+    const expected = structuredClone(draft);
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
+  });
+
+  it("can discard a price-only SKU that has no other configuration", () => {
+    const draft = withDefault();
+    draft.variants[0].sku = {
+      ...draft.variants[1].sku!,
+      id: undefined,
+      skuCode: "",
+      onHand: 0,
+      reserved: 0,
+      price: 4499,
+      compareAtPrice: 4999,
+    };
+    const expected = structuredClone(draft);
+    expected.variants.shift();
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
+  });
+
+  it.each(["persisted", "referenced", "sku-identity", "configured-sku", "card-cover", "card-hover", "scoped-media", "different-key", "selected-value"])("does not discard a %s row", guard => {
+    const draft = withDefault();
+    const row = draft.variants[0];
+    if (guard === "persisted") row.id = "persisted-default";
+    if (guard === "referenced") row.hasReferences = true;
+    if (guard === "sku-identity" || guard === "configured-sku") {
+      row.sku = { ...draft.variants[1].sku! };
+      row.sku.id = guard === "sku-identity" ? "saved-sku" : undefined;
+      row.sku.skuCode = guard === "configured-sku" ? "REAL-SKU" : "";
+    }
+    if (guard === "card-cover") row.cardMedia = { cover: { type: "IMAGE", url: "/uploads/cover.webp", altText: null }, hover: null };
+    if (guard === "card-hover") row.cardMedia = { cover: null, hover: { type: "IMAGE", url: "/uploads/hover.webp", altText: null } };
+    if (guard === "scoped-media") draft.media[0].variantRef = { clientKey: "variant-" };
+    if (guard === "different-key") row.clientKey = "manual-default";
+    if (guard === "selected-value") row.optionValueRefs = [{ id: RED_VALUE_ID }];
+    const expected = structuredClone(draft);
+
+    removeSupersededDefaultVariant(draft);
+
+    expect(draft).toEqual(expected);
   });
 });
 
@@ -867,10 +1328,13 @@ describe("syncSharedMediaDraft", () => {
         (row) => row.optionValueRef === null && row.variantRef === null,
       )
       .map((row, index) => ({
+        id: row.id,
+        clientKey: row.clientKey,
         url: row.url,
         type: row.type,
         altText: row.altText ?? "",
         sortOrder: String(index),
+        isScene: row.isScene ?? false,
       }));
   }
 
@@ -883,7 +1347,7 @@ describe("syncSharedMediaDraft", () => {
     expect(draft).toEqual(before);
   });
 
-  it("overlays edits positionally, keeps persisted ids and mints client keys for net-new rows", () => {
+  it("overlays edits by stable identity, keeps persisted ids and mints client keys for net-new rows", () => {
     const draft = draftFor();
     const images = [
       ...sharedForm(draft).map((row) => ({ ...row })),

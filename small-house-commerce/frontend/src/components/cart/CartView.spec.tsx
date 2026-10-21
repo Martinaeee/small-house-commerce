@@ -253,6 +253,15 @@ describe("CartView structured lines", () => {
     );
   });
 
+  it("defers promo application to checkout where the approved code is persisted", async () => {
+    renderCart();
+
+    expect(await screen.findByText("Chair")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Have a promo code?" }),
+    ).toBeNull();
+  });
+
   it("falls back to variantName for legacy lines without option values", async () => {
     apiMock.getCart.mockResolvedValue(
       summary([item({ optionValues: [] })]),

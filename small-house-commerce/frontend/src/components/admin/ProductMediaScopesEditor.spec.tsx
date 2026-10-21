@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GraphDraftHarness, draftJson } from "@/test/harness";
 import type {
@@ -127,6 +127,75 @@ function Harness({ initial }: { initial: AdminCatalogGraphDraft }) {
 
 beforeEach(() => {
   setAdminLang("en");
+});
+
+describe("ProductMediaScopesEditor scenes", () => {
+  it("preserves stored option-value scene metadata without offering scene assignment", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={draft({
+      options: [optionDraft({ isMediaDriver: true, values: [valueDraft(), valueDraft({ id: "value-2", label: "Blue", position: 1 })] })],
+      media: [
+        mediaDraft({ id: "shared", isScene: true }),
+        mediaDraft({ id: "red-a", optionValueRef: { id: "value-1" }, isScene: true }),
+        mediaDraft({ id: "red-b", optionValueRef: { id: "value-1" }, sortOrder: 1, isScene: false }),
+        mediaDraft({ id: "blue", optionValueRef: { id: "value-2" }, isScene: true }),
+        mediaDraft({ id: "exact", variantRef: { id: "variant-1" }, isScene: true }),
+      ],
+    })} />);
+    await user.click(screen.getByLabelText("Color / Red media summary"));
+    await user.click(screen.getByRole("button", { name: "Edit Red media 2" }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    const editor = document.querySelector("[data-media-editor]") as HTMLElement;
+    fireEvent.change(within(editor).getByLabelText("Media URL for Red 2"), { target: { value: "/uploads/red-edited.webp" } });
+    const rows = (draftJson() as AdminCatalogGraphDraft).media;
+    expect(rows.map(row => [row.id, row.isScene, row.sortOrder])).toEqual([
+      ["shared", true, 0], ["red-a", true, 0], ["red-b", false, 1], ["blue", true, 0], ["exact", true, 0],
+    ]);
+    expect(rows.find(row => row.id === "red-b")?.url).toBe("/uploads/red-edited.webp");
+  });
+
+  it("keeps exact-variant scene metadata on an ordinary URL edit without scene controls", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={draft({ media: [
+      mediaDraft({ id: "shared", isScene: true }),
+      mediaDraft({ id: "exact-a", variantRef: { id: "variant-1" }, isScene: true }),
+      mediaDraft({ id: "exact-b", variantRef: { id: "variant-1" }, sortOrder: 1, isScene: false }),
+    ] })} />);
+    await user.click(screen.getByLabelText("Red / M media resolution"));
+    await user.click(screen.getByRole("button", { name: "Edit Red / M media 2" }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    const editor = document.querySelector("[data-media-editor]") as HTMLElement;
+    fireEvent.change(within(editor).getByLabelText("Media URL for Red / M 2"), { target: { value: "/uploads/exact-edited.webp" } });
+    expect((draftJson() as AdminCatalogGraphDraft).media.map(row => [row.id, row.isScene]))
+      .toEqual([["shared", true], ["exact-a", true], ["exact-b", false]]);
+    expect((draftJson() as AdminCatalogGraphDraft).media[2]?.url).toBe("/uploads/exact-edited.webp");
+  });
+
+  it("clears an option-value scene when its real editor converts it to VIDEO", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={draft({ options: [optionDraft({ isMediaDriver: true })], media: [
+      mediaDraft({ id: "photo", optionValueRef: { id: "value-1" }, isScene: true }),
+    ] })} />);
+    await user.click(screen.getByLabelText("Color / Red media summary"));
+    await user.click(screen.getByRole("button", { name: "Edit Red media 1" }));
+    const editor = document.querySelector("[data-media-editor]") as HTMLElement;
+    await user.selectOptions(within(editor).getByRole("combobox"), "VIDEO");
+    expect((draftJson() as AdminCatalogGraphDraft).media[0]).toMatchObject({ id: "photo", type: "VIDEO", isScene: false });
+  });
+
+  it.each(["pending", "uploading"])("locks scoped scene actions while %s", state => {
+    const initial = draft({ options: [optionDraft({ isMediaDriver: true })], media: [
+      mediaDraft({ id: "photo", optionValueRef: { id: "value-1" }, isScene: false }),
+    ] });
+    render(<AdminI18nProvider><GraphDraftHarness initial={initial} render={(current, onChange) => (
+      <ProductMediaScopesEditor draft={current} onChange={onChange} highlightKey="photo" pending={state === "pending"}
+        batchUpload={{ uploading: state === "uploading", targetKey: "value:value-1", results: {}, upload: async () => undefined, dismiss: () => undefined }} />
+    )} /></AdminI18nProvider>);
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    const editor = document.querySelector("[data-media-editor]") as HTMLElement;
+    expect(within(editor).getByRole("combobox")).toBeDisabled();
+    expect((draftJson() as AdminCatalogGraphDraft).media[0].isScene).toBe(false);
+  });
 });
 
 describe("ProductMediaScopesEditor", () => {

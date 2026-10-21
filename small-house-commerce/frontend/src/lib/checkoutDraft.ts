@@ -13,6 +13,10 @@ export interface CheckoutDraft {
   savedAt: string;
   /** ISO yyyy-MM-dd（UTC 零点约定，spec §3.2 D-1）；null/缺省 = 未选。订单级数据，故在顶层。 */
   preferredDeliveryDate?: string | null;
+  /** 客户填写的订单备注（≤200 字符）；null/缺省 = 未填。订单级数据，故在顶层。 */
+  customerNote?: string | null;
+  /** 优惠码（大写归一化，≤32 字符）；null/缺省 = 未填。订单级数据，故在顶层。 */
+  promoCode?: string | null;
   selection?: CheckoutDraftSelection;
 }
 const DRAFT_KEY = "luwag_checkout_draft";
@@ -63,13 +67,38 @@ export function readCheckoutDraft(): CheckoutDraft | null {
     ) {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      customerNote: normalizeNote(parsed.customerNote),
+      promoCode: normalizePromoCode(parsed.promoCode),
+    };
   } catch { return null; }
 }
+
+/**
+ * The note is optional free text a shopper may also have edited by hand in
+ * sessionStorage, so a malformed value degrades to "unfilled" (or is cut to the
+ * form's own limit) rather than discarding the whole draft.
+ */
+function normalizeNote(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim().slice(0, 200)
+    : null;
+}
+
+/** Promo codes are matched uppercase server-side; the draft stores that form. */
+function normalizePromoCode(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim().toUpperCase().slice(0, 32)
+    : null;
+}
+
 export function writeCheckoutDraft(
   customer: CheckoutDraftCustomer,
   preferredDeliveryDate: string | null = null,
   selection?: CheckoutDraftSelection,
+  customerNote: string | null = null,
+  promoCode: string | null = null,
 ): void {
   try {
     sessionStorage.setItem(
@@ -77,6 +106,8 @@ export function writeCheckoutDraft(
       JSON.stringify({
         customer,
         preferredDeliveryDate,
+        customerNote: normalizeNote(customerNote),
+        promoCode: normalizePromoCode(promoCode),
         selection,
         savedAt: new Date().toISOString(),
       }),

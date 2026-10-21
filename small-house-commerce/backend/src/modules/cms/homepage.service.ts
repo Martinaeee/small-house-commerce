@@ -465,7 +465,9 @@ export class HomepageService {
       LINK_ENTITY_TYPES.map((type) => [type, new Set<string>()]),
     );
     for (const link of links) {
-      if (link && link.type !== 'EXTERNAL') ids.get(link.type)?.add(link.id);
+      if (link && link.type !== 'EXTERNAL' && link.type !== 'INTERNAL') {
+        ids.get(link.type)?.add(link.id);
+      }
     }
 
     const slugMaps = new Map<LinkEntityType, Map<string, string>>();
@@ -490,6 +492,10 @@ export class HomepageService {
         hrefs.set(key, link.url);
         continue;
       }
+      if (link.type === 'INTERNAL') {
+        hrefs.set(key, link.path);
+        continue;
+      }
       const slug = slugMaps.get(link.type)?.get(link.id);
       hrefs.set(key, slug ? this.internalHref(link.type, slug) : null);
     }
@@ -499,13 +505,14 @@ export class HomepageService {
   private hrefForLink(link: LinkValue | null, hrefs: LinkHrefs): string | null {
     if (!link) return null;
     if (link.type === 'EXTERNAL') return link.url;
+    if (link.type === 'INTERNAL') return link.path;
     return hrefs.get(this.linkKey(link)) ?? null;
   }
 
   private linkKey(link: LinkValue): string {
-    return link.type === 'EXTERNAL'
-      ? `${link.type}:${link.url}`
-      : `${link.type}:${link.id}`;
+    if (link.type === 'EXTERNAL') return `${link.type}:${link.url}`;
+    if (link.type === 'INTERNAL') return `${link.type}:${link.path}`;
+    return `${link.type}:${link.id}`;
   }
 
   private internalHref(type: LinkEntityType, slug: string): string {
@@ -524,6 +531,9 @@ export class HomepageService {
     if (!this.isRecord(value) || typeof value.type !== 'string') return null;
     if (value.type === 'EXTERNAL' && typeof value.url === 'string') {
       return { type: 'EXTERNAL', url: value.url };
+    }
+    if (value.type === 'INTERNAL' && typeof value.path === 'string') {
+      return { type: 'INTERNAL', path: value.path };
     }
     if (
       (value.type === 'PRODUCT' ||

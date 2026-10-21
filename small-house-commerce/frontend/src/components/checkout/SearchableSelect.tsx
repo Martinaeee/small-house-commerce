@@ -27,6 +27,8 @@ interface SearchableSelectProps {
   describedBy?: string;
   loading?: boolean;
   ariaLabel: string;
+  /** Display/filter text for an option; the committed value stays `options[i]`. */
+  optionLabel?: (value: string) => string;
 }
 
 const comboCls =
@@ -61,22 +63,26 @@ export function SearchableSelect({
   describedBy,
   loading,
   ariaLabel,
+  optionLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = `${id}-listbox`;
+  const label = useMemo(() => optionLabel ?? ((value: string) => value), [optionLabel]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+    const base = q
+      ? options.filter((o) => label(o).toLowerCase().includes(q))
+      : options;
     // Keep the current selection leading even when the query hides it.
     if (value && options.includes(value) && !base.includes(value)) {
       return [value, ...base];
     }
     return base;
-  }, [options, query, value]);
+  }, [options, query, value, label]);
 
   // Close (and drop any uncommitted query) on an outside pointer-down.
   useEffect(() => {
@@ -204,7 +210,7 @@ export function SearchableSelect({
               >
                 <path d="M5 10l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span className="truncate">{name}</span>
+              <span className="truncate">{label(name)}</span>
             </li>
           ))}
         </ul>

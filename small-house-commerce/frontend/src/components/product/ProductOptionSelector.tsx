@@ -3,75 +3,19 @@
 import type {
   StorefrontProductOption,
   StorefrontOptionValue,
-  StorefrontProductVariant,
 } from "@/lib/api";
+import { isCompatibleValue, isOutOfStockOnly, isSelectableVariant } from "@/lib/product-selection";
 import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-
-function isSelectable(variant: StorefrontProductVariant): boolean {
-  return variant.sku?.status === "ACTIVE" && variant.sku.price !== null;
-}
-
-function isCompatibleValue(
-  productOptions: readonly StorefrontProductOption[],
-  variants: readonly StorefrontProductVariant[],
-  selectedValueIds: Readonly<Record<string, string>>,
-  optionId: string,
-  valueId: string,
-): boolean {
-  const selectedOption = productOptions.find(({ id }) => id === optionId);
-  return variants.some((variant) => {
-    const values = new Set(variant.optionValueIds);
-    if (!values.has(valueId)) return false;
-    return productOptions.every((option) => {
-      if (
-        option.id === optionId ||
-        !selectedOption ||
-        option.position >= selectedOption.position
-      ) {
-        return true;
-      }
-      const selected = selectedValueIds[option.id];
-      return selected === undefined || values.has(selected);
-    });
-  });
-}
-
-function isOutOfStockOnly(
-  productOptions: readonly StorefrontProductOption[],
-  variants: readonly StorefrontProductVariant[],
-  selectedValueIds: Readonly<Record<string, string>>,
-  optionId: string,
-  valueId: string,
-): boolean {
-  const selectedOption = productOptions.find(({ id }) => id === optionId);
-  const matches = variants.filter((variant) => {
-    const values = new Set(variant.optionValueIds);
-    if (!values.has(valueId)) return false;
-    return productOptions.every((option) => {
-      if (
-        option.id === optionId ||
-        !selectedOption ||
-        option.position >= selectedOption.position
-      ) {
-        return true;
-      }
-      const selected = selectedValueIds[option.id];
-      return selected === undefined || values.has(selected);
-    });
-  });
-  return (
-    matches.length > 0 &&
-    matches.every((variant) => (variant.sku?.availableInventory ?? 0) <= 0)
-  );
-}
 
 function ValueVisual({
   option,
   value,
+  compact,
 }: {
   option: StorefrontProductOption;
   value: StorefrontOptionValue;
+  compact: boolean;
 }) {
   if (option.presentation === "IMAGE" && value.thumbnailUrl) {
     return (
@@ -80,9 +24,9 @@ function ValueVisual({
         <img
           src={value.thumbnailUrl}
           alt={value.thumbnailAlt ?? value.label}
-          className="h-12 w-12 rounded-md object-cover"
+          className={compact ? "h-8 w-8 shrink-0 rounded-md object-cover" : "h-12 w-12 rounded-md object-cover"}
         />
-        <span>{value.label}</span>
+        <span className={compact ? "min-w-0 break-words" : undefined}>{value.label}</span>
       </>
     );
   }
@@ -94,19 +38,25 @@ function ValueVisual({
           className="h-5 w-5 rounded-full border border-black/15"
           style={{ backgroundColor: value.swatchHex ?? "transparent" }}
         />
-        <span>{value.label}</span>
+        <span className={compact ? "min-w-0 break-words" : undefined}>{value.label}</span>
       </>
     );
   }
-  return <span>{value.label}</span>;
+  return <span className={compact ? "min-w-0 break-words" : undefined}>{value.label}</span>;
 }
 
 export function ProductOptionSelector({
   lineId,
   instanceId,
+  preview = false,
+  density = "regular",
+  disabled = false,
 }: {
   lineId: string;
   instanceId?: string;
+  preview?: boolean;
+  density?: "regular" | "compact";
+  disabled?: boolean;
 }) {
   const {
     product,
@@ -119,15 +69,16 @@ export function ProductOptionSelector({
   const line = orderLines.find((candidate) => candidate.clientLineId === lineId);
   if (!line) return null;
 
-  const variants = product.variants.filter(isSelectable);
-  if (variants.length <= 1) return null;
+  const variants = product.variants.filter(isSelectableVariant);
+  if (variants.length === 0 || (variants.length === 1 && primaryDerived.resolvedVariant !== null)) return null;
 
   const options = [...product.options].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
   );
 
+  const compact = density === "compact";
   return (
-    <div className="flex flex-col gap-4" data-selector-instance={instanceId}>
+    <div className={`flex min-w-0 flex-col ${compact ? "gap-2" : "gap-4"}`} data-selector-instance={instanceId}>
       {options.map((option) => {
         const selectedValueId = line.selectedValueIds[option.id];
         const selectedLabel = option.values.find(
@@ -135,8 +86,8 @@ export function ProductOptionSelector({
         )?.label;
         const missing = primaryDerived.missingOptionIds.includes(option.id);
         return (
-          <fieldset key={option.id} className="flex flex-col gap-2">
-            <legend className="text-sm font-medium text-ink-secondary">
+          <fieldset key={option.id} data-option-id={option.id} className="flex min-w-0 flex-col gap-2">
+            <legend className={`${compact ? "text-xs" : "text-sm"} font-medium text-ink-secondary`}>
               {option.name}: {selectedLabel ?? `Choose ${option.name}`}
             </legend>
             <div
@@ -172,10 +123,11 @@ export function ProductOptionSelector({
                       key={value.id}
                       type="button"
                       onClick={() => {
+                        if (disabled || purchaseLocked || !compatible) return;
                         // option_select is the engagement event for an actual
                         // option change on the shared purchase island (PDP,
                         // Quick Add, cart Change Options) — never a conversion.
-                        if (selectedValueId !== value.id) {
+                        if (!preview && selectedValueId !== value.id) {
                           emitCommerceEvent(
                             optionSelectEvent({
                               productId: product.id,
@@ -194,7 +146,7 @@ export function ProductOptionSelector({
                           changeLineVariant(lineId);
                         }
                       }}
-                      disabled={purchaseLocked || !compatible}
+                      disabled={disabled || purchaseLocked || !compatible}
                       aria-pressed={selected}
                       aria-label={value.label}
                       title={
@@ -204,13 +156,13 @@ export function ProductOptionSelector({
                             ? `${value.label} is out of stock`
                             : undefined
                       }
-                      className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      className={`inline-flex min-h-11 items-center gap-2 rounded-lg border ${compact ? "max-w-full px-2 py-1.5 text-xs" : "px-3 py-2 text-sm"} font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                         selected
                           ? "border-cta bg-primary-light/40 text-cta"
                           : "border-border bg-card text-ink hover:border-primary"
                       }`}
                     >
-                      <ValueVisual option={option} value={value} />
+                      <ValueVisual option={option} value={value} compact={compact} />
                       {outOfStock && (
                         <span className="text-xs text-sale">Out of stock</span>
                       )}

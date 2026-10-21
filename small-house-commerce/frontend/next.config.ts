@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/admin/marketing/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+      {
         source: "/preview/:path*",
         headers: [
           { key: "Cache-Control", value: "private, no-store" },

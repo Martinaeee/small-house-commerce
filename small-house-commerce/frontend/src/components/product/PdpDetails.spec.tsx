@@ -100,6 +100,16 @@ const product: Product = {
       },
     },
   ],
+  effectiveFaq: [
+    {
+      id: "faq-delivery",
+      title: "Delivery & Cash on Delivery",
+      answer: [{ kind: "paragraph", text: "Delivery details." }],
+      enabled: true,
+      position: 0,
+      defaultOpen: true,
+    },
+  ],
   detailBlocks: [
     {
       id: "blank-first",
@@ -206,6 +216,33 @@ describe("PdpDetails", () => {
     expect(detailVideo).toHaveAttribute("playsinline");
     expect(screen.getAllByText("Folds flat")).toHaveLength(1);
     expect(screen.getAllByText("Locking frame")).toHaveLength(1);
+  });
+
+  it("keeps both dimension sections aligned with the selected SKU", async () => {
+    const user = userEvent.setup();
+    const dimensionProduct: Product = {
+      ...product,
+      variants: product.variants.map((variant, index) => ({
+        ...variant,
+        sku: variant.sku ? { ...variant.sku, productWidth: index === 0 ? 140 : 160, productHeight: null, productDepth: 80 } : null,
+      })),
+    };
+    render(
+      <PdpPurchaseProvider product={dimensionProduct}>
+        <ProductOptionSelector lineId="primary" instanceId="dimension-test" />
+        <PdpDetails product={dimensionProduct} supportEmail="help@luwag.ph" supportHours="Daily" />
+      </PdpPurchaseProvider>,
+    );
+    for (const title of ["Product Specifications", "Material & Dimensions"]) {
+      const section = within(screen.getByRole("region", { name: title }));
+      expect(section.getByText("140 cm")).toBeVisible();
+      expect(section.getByText("75 cm")).toBeVisible();
+      expect(section.getByText("80 cm")).toBeVisible();
+    }
+    await user.click(screen.getByRole("button", { name: "White" }));
+    for (const title of ["Product Specifications", "Material & Dimensions"]) {
+      expect(within(screen.getByRole("region", { name: title })).getByText("160 cm")).toBeVisible();
+    }
   });
 
   it("shows only real public specification fields and follows the current display SKU weight", async () => {

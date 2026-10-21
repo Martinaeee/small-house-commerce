@@ -1,0 +1,4 @@
+ALTER TABLE "skus"
+  ADD COLUMN "product_width" DOUBLE PRECISION,
+  ADD COLUMN "product_height" DOUBLE PRECISION,
+  ADD COLUMN "product_depth" DOUBLE PRECISION;

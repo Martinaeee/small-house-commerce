@@ -30,6 +30,7 @@ function fakePrisma(
   state: RbacState,
   availableRoles = roles,
 ) {
+  const allowedRoles = new Set<RoleCode>([RoleCode.SUPER_ADMIN, RoleCode.ADMIN, RoleCode.OPTIMIZER]);
   const transaction = {
     permission: {
       upsert: vi.fn(async ({ create, update }: {
@@ -54,11 +55,7 @@ function fakePrisma(
     },
     role: {
       findMany: vi.fn(async () =>
-        availableRoles.filter((role) =>
-          [RoleCode.SUPER_ADMIN, RoleCode.ADMIN, RoleCode.OPTIMIZER].includes(
-            role.code,
-          ),
-        ),
+        availableRoles.filter((role) => allowedRoles.has(role.code)),
       ),
     },
     rolePermission: {

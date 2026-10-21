@@ -33,10 +33,10 @@ model HomepageSection {
 }
 
 model HomepageSectionProduct {
-  id        String @id @default(uuid(7)) @db.Uuid
-  sectionId String @map("section_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
-  sortOrder Int    @default(0) @map("sort_order")
+  id        String   @id @default(uuid(7)) @db.Uuid
+  sectionId String   @map("section_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  sortOrder Int      @default(0) @map("sort_order")
   badge     String?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

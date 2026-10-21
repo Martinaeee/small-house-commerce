@@ -13,7 +13,7 @@ type Size = "md" | "lg";
 
 const variants: Record<Variant, string> = {
   primary:
-    "inline-flex items-center justify-center rounded-lg bg-cta text-white hover:bg-cta-hover active:bg-cta-hover disabled:bg-ink-muted disabled:cursor-not-allowed",
+    "inline-flex items-center justify-center rounded-lg bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-hover disabled:bg-ink-muted disabled:cursor-not-allowed",
   secondary:
     "inline-flex items-center justify-center rounded-lg border border-cta/40 bg-transparent text-cta hover:bg-primary-light/40 disabled:text-ink-muted disabled:border-border disabled:cursor-not-allowed",
   text: "inline-flex items-center justify-center text-cta underline-offset-4 hover:underline disabled:text-ink-muted disabled:cursor-not-allowed",

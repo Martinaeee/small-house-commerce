@@ -42,7 +42,20 @@ export function prepareE2EDatabase(): void {
 export function startE2EBackend(): void {
   prepareE2EDatabase();
 
-  const child = spawn("pnpm", ["exec", "nest", "start"], {
+  // Optional project override. A different work line keeps half-finished,
+  // untracked modules under backend/src (e.g. `storefront-shell/`), and those
+  // files are NOT imported by app.module yet still make `tsc` fail for the
+  // whole backend, so Nest never boots. Pointing Nest at a tsconfig that
+  // excludes that module keeps THIS gate runnable without editing anyone
+  // else's files. Unset = the project's own tsconfig, exactly as before.
+  const tsconfigPath = process.env.E2E_BACKEND_TSCONFIG;
+  const nestArgs = [
+    "exec",
+    "nest",
+    "start",
+    ...(tsconfigPath ? ["-p", tsconfigPath] : []),
+  ];
+  const child = spawn("pnpm", nestArgs, {
     cwd: backendDir,
     env: backendEnv,
     stdio: "inherit",

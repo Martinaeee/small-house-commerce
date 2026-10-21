@@ -120,12 +120,19 @@ export function clearAdminSession(): void {
 export class AdminApiError extends Error {
   readonly status: number;
   readonly details?: unknown;
+  readonly body?: unknown;
 
-  constructor(message: string, status: number, details?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    details?: unknown,
+    body?: unknown,
+  ) {
     super(message);
     this.name = "AdminApiError";
     this.status = status;
     this.details = details;
+    this.body = body;
   }
 }
 
@@ -187,10 +194,11 @@ export async function refreshAdminAccess(): Promise<string | null> {
  * the single-flight refresh and retries once. Throws AdminApiError with the
  * backend message (readError) and the final response status on failure.
  */
-export async function adminAuthedFetch<T>(
+async function adminAuthedResponse(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+  retryOnUnauthorized = true,
+): Promise<Response> {
   const run = (token: string | null) =>
     fetch(path, {
       ...init,
@@ -203,8 +211,12 @@ export async function adminAuthedFetch<T>(
       },
     });
 
-  let res = await run(accessToken);
-  if (res.status === 401) {
+  let token = accessToken;
+  if (!retryOnUnauthorized && !token) {
+    token = await refreshAdminAccess();
+  }
+  let res = await run(token);
+  if (retryOnUnauthorized && res.status === 401) {
     const refreshed = await refreshAdminAccess();
     if (refreshed) res = await run(refreshed);
   }
@@ -216,12 +228,47 @@ export async function adminAuthedFetch<T>(
       typeof error.body === "object" && error.body !== null && "errors" in error.body
         ? (error.body as { errors: unknown }).errors
         : undefined,
+      error.body,
     );
   }
-  // Some endpoints (e.g. DELETE /admin/reviews/:id) return 2xx with no body.
+  return res;
+}
+
+/**
+ * Admin-authenticated JSON request. Empty 204/response bodies resolve to
+ * undefined for endpoints whose success contract has no payload.
+ */
+export async function adminAuthedFetch<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await adminAuthedResponse(path, init);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text === "" ? undefined : (JSON.parse(text) as T)) as T;
+}
+
+/**
+ * Authenticated JSON mutation that is sent at most once. When no access token
+ * is in memory it refreshes proactively, then never replays a 401 response.
+ */
+export async function adminAuthedFetchOnce<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await adminAuthedResponse(path, init, false);
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text === "" ? undefined : (JSON.parse(text) as T)) as T;
+}
+
+/** Admin-authenticated text request for CSV and other non-JSON downloads. */
+export async function adminAuthedText(
+  path: string,
+  init?: RequestInit,
+): Promise<string> {
+  const res = await adminAuthedResponse(path, init);
+  return res.text();
 }
 
 /** Pure RBAC helper: the backend remains the enforcement authority. */
@@ -248,7 +295,8 @@ function hasUnsafeChar(value: string): boolean {
  */
 export function safeAdminNext(
   next: string | null | undefined,
-  fallback = "/admin/orders",
+  // The dashboard is the landing surface after sign-in.
+  fallback = "/admin",
 ): string {
   if (
     next &&

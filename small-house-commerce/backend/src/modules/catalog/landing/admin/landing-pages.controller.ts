@@ -1,88 +1,118 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
+import { assertManage, scopeFor } from '../../../marketing/marketing-access.js';
+import { maxBytesFor, UploadsService } from '../../../uploads/uploads.service.js';
+import { readRawBody } from '../../../uploads/raw-upload.js';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard.js';
-import { Permissions } from '../../../auth/permissions.decorator.js';
-import { PermissionsGuard } from '../../../auth/permissions.guard.js';
+import { CurrentMarketingAccount, MarketingGuard } from '../../../marketing/marketing.guard.js';
+import type { MarketingAccount } from '../../../marketing/marketing-access.js';
 import { ZodValidationPipe } from '../../../../common/pipes/zod-validation.pipe.js';
 import {
-  adminLandingPageQuerySchema,
-  bulkTitleLandingPagesSchema,
-  createLandingPageSchema,
-  updateLandingPageSchema,
-  type AdminLandingPageQuery,
-  type BulkTitleLandingPagesInput,
-  type CreateLandingPageInput,
-  type UpdateLandingPageInput,
+  adminLandingPageQuerySchema, createLandingPageSchema, marketingProductPickerQuerySchema,
+  landingDraftCreateSchema, landingDraftWriteSchema, landingVersionSchema, landingSyncSchema, landingAssignOwnerSchema,
+  type AdminLandingPageQuery, type CreateLandingPageInput, type MarketingProductPickerQuery,
+  type LandingDraftCreateInput, type LandingDraftWriteInput, type LandingVersionInput, type LandingSyncInput, type LandingAssignOwnerInput,
 } from '../dto/landing-page.dto.js';
 import { LandingPagesService } from '../landing-pages.service.js';
 
-/**
- * Global "Single Pages" screen: every landing page across products with
- * visit/order metrics, plus the bulk retitle action used for A/B themes.
- */
 @Controller('admin/landing-pages')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Permissions('PRODUCT_MANAGE')
+@UseGuards(JwtAuthGuard, MarketingGuard)
 export class AdminLandingPagesController {
-  constructor(private readonly landingPages: LandingPagesService) {}
+  constructor(private readonly landingPages: LandingPagesService, private readonly uploads: UploadsService) {}
 
-  @Get()
-  list(
-    @Query(new ZodValidationPipe(adminLandingPageQuerySchema)) query: AdminLandingPageQuery,
-  ) {
-    return this.landingPages.adminList(query);
+  @Post(':id/uploads')
+  @Header('Cache-Control', 'private, no-store')
+  async uploadMedia(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: Request, @CurrentMarketingAccount() account: MarketingAccount) {
+    const page = await this.landingPages.getDraft(id, account);
+    assertManage(scopeFor(account), page.ownerUserId);
+    const contentType = req.headers['content-type']?.split(';')[0]?.trim() ?? '';
+    const body = await readRawBody(req, maxBytesFor(contentType));
+    if (body.length === 0) throw new BadRequestException('Upload body missing — send the file bytes directly');
+    return this.uploads.saveLocal(body, contentType);
   }
 
-  @Post('bulk-title')
-  @HttpCode(200)
-  bulkTitle(
-    @Body(new ZodValidationPipe(bulkTitleLandingPagesSchema)) input: BulkTitleLandingPagesInput,
-  ) {
-    return this.landingPages.bulkRetitle(input.ids, input.titleOverride);
+  @Get()
+  list(@Query(new ZodValidationPipe(adminLandingPageQuerySchema)) query: AdminLandingPageQuery, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.adminList(query, account);
+  }
+
+  @Post()
+  create(@Body(new ZodValidationPipe(landingDraftCreateSchema)) input: LandingDraftCreateInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.createDraft(input.productId, input, account);
+  }
+
+  @Get('product-options')
+  productOptions(@Query(new ZodValidationPipe(marketingProductPickerQuerySchema)) query: MarketingProductPickerQuery, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.productOptions(query, account);
+  }
+
+  @Get('owner-options')
+  ownerOptions(@CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.ownerOptions(account);
+  }
+
+  @Get(':id')
+  get(@Param('id', new ParseUUIDPipe()) id: string, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.getDraft(id, account);
   }
 
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateLandingPageSchema)) input: UpdateLandingPageInput,
-  ) {
-    return this.landingPages.adminUpdate(id, input);
+  update(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingDraftWriteSchema)) input: LandingDraftWriteInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.saveDraft(id, input.content, input.expectedVersion, account, input.name);
   }
 
-  @Delete(':id')
-  @HttpCode(200)
-  remove(@Param('id') id: string) {
-    return this.landingPages.adminRemove(id);
+  @Get(':id/preview')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('Referrer-Policy', 'no-referrer')
+  preview(@Param('id', new ParseUUIDPipe()) id: string, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.getPreview(id, account);
+  }
+
+  @Post(':id/validate')
+  @Header('Cache-Control', 'private, no-store')
+  validate(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingDraftWriteSchema.pick({ content: true }))) input: Pick<LandingDraftWriteInput, 'content'>, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.validateDraft(id, input.content, account);
+  }
+
+  @Get(':id/source')
+  source(@Param('id', new ParseUUIDPipe()) id: string, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.sourceComparison(id, account);
+  }
+
+  @Post(':id/sync')
+  sync(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingSyncSchema)) input: LandingSyncInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.resync(id, input.sourceKeys, input.expectedVersion, account, input.insertBeforeId);
+  }
+
+  @Post(':id/publish')
+  publish(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingVersionSchema)) input: LandingVersionInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.publish(id, input.expectedVersion, account);
+  }
+
+  @Post(':id/assign-owner')
+  @Header('Cache-Control', 'private, no-store')
+  assignOwner(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingAssignOwnerSchema)) input: LandingAssignOwnerInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.assignOwner(id, input.ownerUserId, input.expectedVersion, account);
+  }
+
+  @Post(':id/disable')
+  disable(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(landingVersionSchema)) input: LandingVersionInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.disable(id, input.expectedVersion, account);
   }
 }
 
-/** Per-product landing page management, mounted under the product resource. */
 @Controller('admin/products')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Permissions('PRODUCT_MANAGE')
+@UseGuards(JwtAuthGuard, MarketingGuard)
 export class AdminProductLandingPagesController {
   constructor(private readonly landingPages: LandingPagesService) {}
 
   @Get(':productId/landing-pages')
-  listForProduct(@Param('productId') productId: string) {
-    return this.landingPages.adminListForProduct(productId);
+  listForProduct(@Param('productId', new ParseUUIDPipe()) productId: string, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.adminListForProduct(productId, account);
   }
 
   @Post(':productId/landing-pages')
-  create(
-    @Param('productId') productId: string,
-    @Body(new ZodValidationPipe(createLandingPageSchema)) input: CreateLandingPageInput,
-  ) {
-    return this.landingPages.adminCreate(productId, input);
+  create(@Param('productId', new ParseUUIDPipe()) productId: string, @Body(new ZodValidationPipe(createLandingPageSchema)) input: CreateLandingPageInput, @CurrentMarketingAccount() account: MarketingAccount) {
+    return this.landingPages.createDraft(productId, { name: input.name, slug: input.slug }, account);
   }
 }

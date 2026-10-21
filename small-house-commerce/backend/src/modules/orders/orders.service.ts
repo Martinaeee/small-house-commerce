@@ -5,11 +5,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
+import {
+  CACHE_TAGS,
+  revalidateCache,
+} from '../../common/revalidation.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
+import { aggregateRequirements, bundleSnapshotSchema, expandBundleRequirements, requirementsFromBundleSnapshot, type BundleSnapshot, type InventoryRequirement } from '../inventory/bundle-inventory.js';
 import { buildOrderItemSnapshot, type OrderItemSnapshotWrite } from './order-item-snapshot.js';
+import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import { PromotionService } from '../newsletter/promotion.service.js';
+import { BackInStockService } from '../newsletter/back-in-stock.service.js';
+import { computeDiscount } from '../newsletter/promotion-pricing.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 
 const ORDER_DETAIL_INCLUDE = {
@@ -41,6 +50,9 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
     private readonly customerRisk: CustomerRiskService,
+    private readonly marketingTouch: MarketingTouchService,
+    private readonly promotions: PromotionService,
+    private readonly backInStock: BackInStockService,
   ) {}
 
   /**
@@ -71,6 +83,8 @@ export class OrdersService {
       snapshot: OrderItemSnapshotWrite;
       unitPrice: Prisma.Decimal;
       unitCost: Prisma.Decimal | null;
+      isBundle: boolean;
+      bundleSnapshot?: BundleSnapshot;
     }[] = [];
 
     for (const item of input.items) {
@@ -103,6 +117,7 @@ export class OrdersService {
         snapshot: buildOrderItemSnapshot(sku),
         unitPrice: sku.price,
         unitCost: sku.landedCost,
+        isBundle: sku.isBundle === true,
       });
     }
 
@@ -122,16 +137,15 @@ export class OrdersService {
     // Totals at the actual selling price: order lines already snapshot
     // unitPrice/lineTotal at the selling price, so subtotal = sum of lines.
     // compareAtPrice is a merchandising strikethrough, not an order discount —
-    // subtracting it again undercharged every marked-down SKU; discountTotal is
-    // reserved for order-level promotions (coupons), which don't exist yet.
-    // Shipping is 0 until the shipping-rate-rules module lands.
+    // subtracting it again undercharged every marked-down SKU. The order-level
+    // promo discount is resolved INSIDE the transaction below, because claiming
+    // a usage slot needs an advisory lock plus a count. Shipping is 0 until the
+    // shipping-rate-rules module lands.
     let subtotal = 0;
     for (const line of lines) {
       subtotal += Number(line.unitPrice) * line.quantity;
     }
-    const discount = 0;
     const shippingTotal = 0;
-    const grandTotal = subtotal - discount + shippingTotal;
 
     const orderNumber = await this.nextOrderNumber();
     const warehouse = await this.inventory.defaultWarehouse();
@@ -140,12 +154,38 @@ export class OrdersService {
     // the new order from prior history; stored on the order, never recomputed.
     const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
-    const order = await this.prisma.$transaction(async (tx) => {
+    const { order, offerAvailabilityChanged } = await this.prisma.$transaction(
+      async (tx) => {
+      const touch = await this.marketingTouch.resolve(input.marketingCredential);
+      // Resolve the promo inside the transaction: the advisory lock it takes
+      // only protects the count-and-claim while the surrounding transaction is
+      // open, so it must be held here, not before.
+      const promo = input.promoCode
+        ? await this.promotions.resolveForCheckout(
+            tx,
+            input.promoCode,
+            subtotal,
+            normalizedPhone,
+          )
+        : null;
+      const discount = promo ? computeDiscount(promo.rule, subtotal) : 0;
+      const grandTotal = subtotal - discount + shippingTotal;
+      const requirements: InventoryRequirement[] = [];
+      for (const line of [...lines].sort((a, b) => a.skuId.localeCompare(b.skuId))) {
+        if (line.isBundle) {
+          const expanded = await expandBundleRequirements(line.skuId, line.quantity, tx);
+          requirements.push(...expanded.requirements);
+          if (expanded.snapshot) line.bundleSnapshot = expanded.snapshot;
+        } else requirements.push({ skuId: line.skuId, quantity: line.quantity });
+      }
       const created = await tx.order.create({
         data: {
           orderNumber,
           customerId: customer.id,
           customerClassification: classification.classification,
+          optimizerId: touch?.ownerUserId ?? null,
+          optimizerAidSnapshot: touch?.aid ?? null,
+          optimizerNameSnapshot: touch?.ownerName ?? null,
           subtotal: new Prisma.Decimal(subtotal),
           discountTotal: new Prisma.Decimal(discount),
           shippingTotal: new Prisma.Decimal(shippingTotal),
@@ -153,6 +193,9 @@ export class OrdersService {
           preferredDeliveryDate: input.preferredDeliveryDate
             ? new Date(`${input.preferredDeliveryDate}T00:00:00Z`)
             : null,
+          customerNote: input.customerNote ?? null,
+          promoCode: promo?.code ?? null,
+          trackingSessionId: input.trackingSessionId ?? null,
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,
@@ -167,6 +210,7 @@ export class OrdersService {
               ...(line.snapshot.optionSnapshot
                 ? { optionSnapshot: line.snapshot.optionSnapshot }
                 : {}),
+              ...(line.bundleSnapshot ? { bundleSnapshot: line.bundleSnapshot } : {}),
               quantity: line.quantity,
               unitPrice: line.unitPrice,
               unitDiscount: new Prisma.Decimal(0),
@@ -188,17 +232,27 @@ export class OrdersService {
           },
           attribution: {
             create: {
-              sourceType: input.attribution.sourceType,
-              aidSnapshot: input.attribution.aid ?? null,
-              optimizerId: input.attribution.optimizerId ?? null,
-              facebookPostId: input.attribution.facebookPostId ?? null,
-              campaignId: input.attribution.campaignId ?? null,
-              adsetId: input.attribution.adsetId ?? null,
-              adId: input.attribution.adId ?? null,
-              landingPageId: input.attribution.landingPageId ?? null,
-              utmSource: input.attribution.utmSource ?? null,
-              utmMedium: input.attribution.utmMedium ?? null,
-              utmCampaign: input.attribution.utmCampaign ?? null,
+              sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
+              aidSnapshot: touch?.aid ?? null,
+              optimizerId: touch?.ownerUserId ?? null,
+              ownerNameSnapshot: touch?.ownerName ?? null,
+              linkId: touch?.linkId ?? null,
+              productId: touch?.productId ?? null,
+              productNameSnapshot: touch?.productName ?? null,
+              productCodeSnapshot: touch?.productCode ?? null,
+              publishedRevision: touch?.publishedRevision ?? null,
+              touchedAt: touch ? new Date(touch.touchedAt) : null,
+              legacy: touch?.legacy ?? null,
+              facebookPostId: touch?.facebookPostId ?? null,
+              campaignId: touch?.campaignId ?? null,
+              adsetId: touch?.adsetId ?? null,
+              adId: touch?.adId ?? null,
+              landingPageId: touch?.landingPageId ?? null,
+              utmSource: touch?.utmSource ?? null,
+              utmMedium: touch?.utmMedium ?? null,
+              utmCampaign: touch?.utmCampaign ?? null,
+              utmContent: touch?.utmContent ?? null,
+              utmTerm: touch?.utmTerm ?? null,
             },
           },
           payments: {
@@ -211,9 +265,24 @@ export class OrdersService {
         },
       });
 
+      // Claim the promo usage slot in the SAME transaction as the order, so a
+      // failed order (stock shortfall, etc.) rolls the claim back with it and
+      // never leaves a phantom redemption behind.
+      if (promo) {
+        await tx.promoCodeRedemption.create({
+          data: {
+            promotionId: promo.id,
+            orderId: created.id,
+            codeSnapshot: promo.code,
+            normalizedPhone,
+            discountAmount: new Prisma.Decimal(discount),
+          },
+        });
+      }
+
       // Reserve stock per line (§30); any failure rolls back the order.
-      for (const line of lines) {
-        await this.inventory.reserveWithin(tx, line.skuId, warehouse.id, line.quantity, created.id);
+      for (const requirement of aggregateRequirements(requirements)) {
+        await this.inventory.reserveWithin(tx, requirement.skuId, warehouse.id, requirement.quantity, created.id);
       }
 
       await tx.orderStatusHistory.create({
@@ -225,8 +294,16 @@ export class OrdersService {
         },
       });
 
-      return created;
-    });
+        return {
+          order: created,
+          offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
+        };
+      },
+    );
+
+    if (offerAvailabilityChanged) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
 
     // Risk records (§10): the classification decision is logged. RPT/RECHECK
     // flip the confirmation status so the admin workbench review queue sees
@@ -264,7 +341,9 @@ export class OrdersService {
     operatorId: string,
     decision?: { decision: 'CONFIRM' | 'CANCEL' | 'REQUEST_INFO'; note?: string },
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    return this.prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DENIED') {
       throw new BadRequestException('Cancelled or denied orders cannot be confirmed');
@@ -286,7 +365,6 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -342,35 +420,56 @@ export class OrdersService {
 
   /** §22.2 cancel: allowed until shipping; releases reservations (§31). */
   async cancel(orderId: string, operatorId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
-
-    const terminal = new Set<OrderStatus>(['CANCELLED', 'DENIED', 'SIGNED', 'AFTER_SALES']);
-    if (terminal.has(order.orderStatus)) {
-      throw new BadRequestException(`Order cannot be cancelled from status ${order.orderStatus}`);
-    }
-    if (order.orderStatus === 'SHIPPING') {
-      throw new BadRequestException('Shipped orders cannot be cancelled');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: { orderStatus: 'CANCELLED' },
-      });
-      await this.inventory.releaseForOrder(tx, orderId);
-      await tx.orderStatusHistory.create({
-        data: {
+    const { updated, promoReleased, backInStockClaims } =
+      await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+        const order = await tx.order.findUnique({ where: { id: orderId } });
+        if (!order) throw new NotFoundException('Order not found');
+        const terminal = new Set<OrderStatus>([
+          'CANCELLED',
+          'DENIED',
+          'SIGNED',
+          'AFTER_SALES',
+        ]);
+        if (terminal.has(order.orderStatus)) {
+          throw new BadRequestException(
+            `Order cannot be cancelled from status ${order.orderStatus}`,
+          );
+        }
+        if (order.orderStatus === 'SHIPPING') {
+          throw new BadRequestException('Shipped orders cannot be cancelled');
+        }
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: 'CANCELLED' },
+        });
+        const backInStockClaims = await this.inventory.releaseForOrder(
+          tx,
           orderId,
-          statusDomain: 'ORDER_STATUS',
-          oldStatus: order.orderStatus,
-          newStatus: 'CANCELLED',
-          source: 'ADMIN',
-          operatorId,
-        },
-      });
-      return updated;
-    });
+          { claimBackInStock: true },
+        );
+        const promoReleased = await this.releasePromoSlot(tx, orderId);
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'CANCELLED',
+            source: 'ADMIN',
+            operatorId,
+          },
+        });
+        return { updated, promoReleased, backInStockClaims };
+      },
+    );
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    if (backInStockClaims.length > 0) {
+      await this.backInStock.deliverClaims(backInStockClaims);
+    }
+    return updated;
   }
 
   // --- Order workbench operations (2026-09-18 spec) ------------------------
@@ -460,53 +559,89 @@ export class OrdersService {
   }
 
   /** Status transition with the §6.2 legality table. */
-  async updateStatus(orderId: string, status: OrderStatus, comment: string | undefined, operatorId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
+  async updateStatus(
+    orderId: string,
+    status: OrderStatus,
+    comment: string | undefined,
+    operatorId: string,
+  ) {
+    const { updated, promoReleased, backInStockClaims } =
+      await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+        const order = await tx.order.findUnique({ where: { id: orderId } });
+        if (!order) throw new NotFoundException('Order not found');
 
-    const legal: Record<string, OrderStatus[]> = {
-      NEW: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-      PENDING: ['QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'ABNORMAL'],
-      QUESTION: ['PENDING', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-      CONFIRMED: ['SHIPPING', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-      ABNORMAL: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-      SHIPPING: ['SIGNED', 'CANCELLED', 'AFTER_SALES'],
-      SIGNED: ['AFTER_SALES'],
-      CANCELLED: [],
-      DENIED: [],
-      AFTER_SALES: [],
-    };
-    const targets = legal[order.orderStatus];
-    if (!targets?.includes(status)) {
-      throw new BadRequestException(
-        `Invalid status transition ${order.orderStatus} -> ${status}`,
-      );
+        const legal: Record<string, OrderStatus[]> = {
+          NEW: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED'],
+          PENDING: [
+            'QUESTION',
+            'CONFIRMED',
+            'CANCELLED',
+            'DENIED',
+            'ABNORMAL',
+          ],
+          QUESTION: ['PENDING', 'CONFIRMED', 'CANCELLED', 'DENIED'],
+          CONFIRMED: ['SHIPPING', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
+          ABNORMAL: [
+            'PENDING',
+            'QUESTION',
+            'CONFIRMED',
+            'CANCELLED',
+            'DENIED',
+            'AFTER_SALES',
+          ],
+          SHIPPING: ['SIGNED', 'CANCELLED', 'AFTER_SALES'],
+          SIGNED: ['AFTER_SALES'],
+          CANCELLED: [],
+          DENIED: [],
+          AFTER_SALES: [],
+        };
+        const targets = legal[order.orderStatus];
+        if (!targets?.includes(status)) {
+          throw new BadRequestException(
+            `Invalid status transition ${order.orderStatus} -> ${status}`,
+          );
+        }
+
+        const releasesStock = status === 'CANCELLED' || status === 'DENIED';
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: status },
+        });
+        const backInStockClaims =
+          releasesStock && order.orderStatus !== status
+            ? await this.inventory.releaseForOrder(tx, orderId, {
+                claimBackInStock: true,
+              })
+            : [];
+        // A normal pre-shipment cancellation releases the offer. SHIPPING,
+        // DENIED (including COD refusal), and later terminal paths keep usage.
+        const promoReleased =
+          status === 'CANCELLED' && order.orderStatus !== 'SHIPPING'
+            ? await this.releasePromoSlot(tx, orderId)
+            : false;
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: status,
+            source: 'ADMIN',
+            operatorId,
+            comment: comment ?? null,
+          },
+        });
+        return { updated, promoReleased, backInStockClaims };
+      },
+    );
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
-
-    // Status changes that release or re-check inventory.
-    const releasesStock = status === 'CANCELLED' || status === 'DENIED';
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: { orderStatus: status },
-      });
-      if (releasesStock && order.orderStatus !== status) {
-        await this.inventory.releaseForOrder(tx, orderId);
-      }
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId,
-          statusDomain: 'ORDER_STATUS',
-          oldStatus: order.orderStatus,
-          newStatus: status,
-          source: 'ADMIN',
-          operatorId,
-          comment: comment ?? null,
-        },
-      });
-      return updated;
-    });
+    if (backInStockClaims.length > 0) {
+      await this.backInStock.deliverClaims(backInStockClaims);
+    }
+    return updated;
   }
 
   /**
@@ -514,7 +649,10 @@ export class OrdersService {
    * reservations per-line (§30–§32) and recompute totals server-side.
    */
   async edit(orderId: string, input: EditOrderInput, operatorId: string) {
-    const order = await this.prisma.order.findUnique({
+    const warehouse = await this.inventory.defaultWarehouse();
+    await this.prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await tx.order.findUnique({
       where: { id: orderId },
       include: { items: true, shippingAddress: true },
     });
@@ -524,9 +662,8 @@ export class OrdersService {
       throw new BadRequestException(`Order ${order.orderStatus} cannot be edited`);
     }
 
-    const warehouse = await this.inventory.defaultWarehouse();
+    if (input.items && order.orderStatus === 'SHIPPING') throw new BadRequestException('Shipped order items cannot be edited');
 
-    return this.prisma.$transaction(async (tx) => {
       // --- Shipping address snapshot ---
       if (input.shippingAddress) {
         const a = input.shippingAddress;
@@ -563,81 +700,49 @@ export class OrdersService {
 
       // --- Items: diff against current lines, adjust reservations ---
       if (input.items) {
-        const current = new Map(order.items.map((i) => [i.skuId, i]));
-        const next = new Map(input.items.map((i) => [i.skuId, i.quantity]));
-        const skuIds = [...new Set([...current.keys(), ...next.keys()])];
-        const skus = await tx.sku.findMany({
-          where: { id: { in: skuIds } },
-          include: {
-            variant: {
-              include: {
-                product: true,
-                optionValues: { include: { option: true, optionValue: true } },
-              },
-            },
-          },
-        });
-        const skuById = new Map(skus.map((s) => [s.id, s]));
-
-        // Removed lines: delete + release reservation.
-        for (const [skuId, item] of current) {
-          if (next.has(skuId)) continue;
-          await tx.orderItem.delete({ where: { id: item.id } });
-          await this.inventory.releaseForOrder(tx, orderId);
-        }
-        // Quantity changes: diff reservation.
-        for (const [skuId, qty] of next) {
-          const existing = current.get(skuId);
-          if (!existing) {
-            // New line: validate and reserve.
-            const sku = skuById.get(skuId);
-            if (!sku || sku.status !== 'ACTIVE' || sku.variant.product.status !== 'ACTIVE') {
-              throw new BadRequestException(`SKU ${skuId} is not available`);
-            }
-            if (sku.price === null) {
-              throw new BadRequestException(`SKU ${sku.skuCode} is not priced`);
-            }
-            const snapshot = buildOrderItemSnapshot(sku);
-            await tx.orderItem.create({
-              data: {
-                orderId,
-                skuId,
-                productId: sku.variant.productId,
-                variantId: sku.variant.id,
-                productNameSnapshot: sku.variant.product.name,
-                skuCodeSnapshot: sku.skuCode,
-                variantSnapshot: snapshot.variantSnapshot,
-                ...(snapshot.optionSnapshot
-                  ? { optionSnapshot: snapshot.optionSnapshot }
-                  : {}),
-                quantity: qty,
-                unitPrice: sku.price,
-                unitDiscount: new Prisma.Decimal(0),
-                unitCostSnapshot: sku.landedCost,
-                lineTotal: new Prisma.Decimal(Number(sku.price) * qty),
-              },
-            });
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, qty, orderId);
-            continue;
-          }
-          if (existing.quantity === qty) continue;
-          await tx.orderItem.update({
-            where: { id: existing.id },
-            data: {
-              quantity: qty,
-              lineTotal: new Prisma.Decimal(Number(existing.unitPrice) * qty),
-            },
-          });
-          const delta = qty - existing.quantity;
-          if (delta > 0) {
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, delta, orderId);
+        const current = new Map(order.items.map(item => [item.id, item]));
+        const retained = new Set<string>();
+        const added = new Set<string>();
+        const requirements: InventoryRequirement[] = [];
+        for (const requested of [...input.items].sort((a, b) => a.skuId.localeCompare(b.skuId))) {
+          const matches = order.items.filter(item => item.skuId === requested.skuId);
+          if (!requested.orderItemId && matches.length > 1) throw new BadRequestException('Use orderItemId to edit separate historical Bundle lines');
+          const existing = requested.orderItemId ? current.get(requested.orderItemId) : matches[0];
+          if (requested.orderItemId && (!existing || existing.skuId !== requested.skuId)) throw new BadRequestException('Order item does not belong to this order or SKU');
+          if (existing) {
+            if (retained.has(existing.id)) throw new BadRequestException('Order item appears more than once');
+            retained.add(existing.id);
+            const snapshot = existing.bundleSnapshot ? bundleSnapshotSchema.parse(existing.bundleSnapshot) : null;
+            if (snapshot) for (const component of snapshot.components) component.totalQuantity = component.quantityPerBundle * requested.quantity;
+            requirements.push(...requirementsFromBundleSnapshot(existing.skuId, requested.quantity, snapshot));
+            await tx.orderItem.update({ where: { id: existing.id }, data: {
+              quantity: requested.quantity,
+              lineTotal: new Prisma.Decimal(Number(existing.unitPrice) * requested.quantity),
+              ...(snapshot ? { bundleSnapshot: snapshot } : {}),
+            } });
           } else {
-            // Release the surplus back; releaseForOrder releases everything,
-            // so manually re-reserve what should stay.
-            await this.inventory.releaseForOrder(tx, orderId);
-            await this.inventory.reserveWithin(tx, skuId, warehouse.id, qty, orderId);
+            if (added.has(requested.skuId)) throw new BadRequestException('New SKU appears more than once');
+            added.add(requested.skuId);
+            const sku = await tx.sku.findUnique({ where: { id: requested.skuId }, include: { variant: { include: { product: true, optionValues: { include: { option: true, optionValue: true } } } } } });
+            if (!sku || sku.status !== 'ACTIVE' || sku.variant.product.status !== 'ACTIVE') throw new BadRequestException(`SKU ${requested.skuId} is not available`);
+            if (sku.price === null) throw new BadRequestException(`SKU ${sku.skuCode} is not priced`);
+            const snapshot = buildOrderItemSnapshot(sku);
+            const expanded = sku.isBundle ? await expandBundleRequirements(sku.id, requested.quantity, tx) : { requirements: [{ skuId: sku.id, quantity: requested.quantity }], snapshot: null };
+            requirements.push(...expanded.requirements);
+            await tx.orderItem.create({ data: {
+              orderId, skuId: sku.id, productId: sku.variant.productId, variantId: sku.variant.id,
+              productNameSnapshot: sku.variant.product.name, skuCodeSnapshot: sku.skuCode,
+              variantSnapshot: snapshot.variantSnapshot,
+              ...(snapshot.optionSnapshot ? { optionSnapshot: snapshot.optionSnapshot } : {}),
+              ...(expanded.snapshot ? { bundleSnapshot: expanded.snapshot } : {}),
+              quantity: requested.quantity, unitPrice: sku.price, unitDiscount: new Prisma.Decimal(0),
+              unitCostSnapshot: sku.landedCost, lineTotal: new Prisma.Decimal(Number(sku.price) * requested.quantity),
+            } });
           }
         }
+        for (const item of order.items) if (!retained.has(item.id)) await tx.orderItem.delete({ where: { id: item.id } });
+        await this.inventory.releaseForOrder(tx, orderId);
+        for (const requirement of aggregateRequirements(requirements)) await this.inventory.reserveWithin(tx, requirement.skuId, warehouse.id, requirement.quantity, orderId);
 
         // Recompute totals from the resulting lines.
         const items = await tx.orderItem.findMany({ where: { orderId } });
@@ -666,8 +771,8 @@ export class OrdersService {
           comment: input.note ?? 'Order edited',
         },
       });
-      return this.get(orderId);
     });
+    return this.get(orderId);
   }
 
   /** Append an internal order note (§46). */
@@ -734,12 +839,15 @@ export class OrdersService {
    * CONFIRMED orders, same customer+phone+address, keep the oldest order.
    */
   async merge(input: MergeOrdersInput, operatorId: string) {
+    const { keptId, promoReleased } = await this.prisma.$transaction(
+      async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id IN (${input.primaryOrderId}::uuid, ${input.mergedOrderId}::uuid) ORDER BY id FOR UPDATE`;
     const [primary, merged] = await Promise.all([
-      this.prisma.order.findUnique({
+      tx.order.findUnique({
         where: { id: input.primaryOrderId },
         include: { shippingAddress: true, items: true },
       }),
-      this.prisma.order.findUnique({
+      tx.order.findUnique({
         where: { id: input.mergedOrderId },
         include: { shippingAddress: true, items: true },
       }),
@@ -769,11 +877,10 @@ export class OrdersService {
         ? [primary, merged]
         : [merged, primary];
 
-    return this.prisma.$transaction(async (tx) => {
       // Move merged items into the kept order.
       for (const item of dropped.items) {
         const existing = kept.items.find(
-          (k) => k.skuId === item.skuId && k.unitPrice.equals(item.unitPrice),
+          (k) => k.skuId === item.skuId && k.unitPrice.equals(item.unitPrice) && !k.bundleSnapshot && !item.bundleSnapshot,
         );
         if (existing) {
           await tx.orderItem.update({
@@ -801,11 +908,12 @@ export class OrdersService {
       });
 
       // Cancel the dropped order: release its reservation, mark CANCELLED.
-      await this.inventory.releaseForOrder(tx, dropped.id);
+      await tx.inventoryReservation.updateMany({ where: { orderId: dropped.id, status: 'ACTIVE' }, data: { orderId: kept.id } });
       await tx.order.update({
         where: { id: dropped.id },
         data: { orderStatus: 'CANCELLED' },
       });
+      const promoReleased = await this.releasePromoSlot(tx, dropped.id);
 
       // Audit both sides (§48: merged history is never deleted).
       await tx.orderMergeRecord.create({
@@ -839,8 +947,13 @@ export class OrdersService {
         },
       });
 
-      return this.get(kept.id);
-    });
+        return { keptId: kept.id, promoReleased };
+      },
+    );
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    return this.get(keptId);
   }
 
   async list(query: OrderQuery) {
@@ -911,7 +1024,10 @@ export class OrdersService {
    * quantity minus what earlier shipments already covered) is rejected.
    */
   async ship(orderId: string, input: ShipOrderInput, operatorId: string) {
-    const order = await this.prisma.order.findUnique({
+    const warehouse = await this.inventory.defaultWarehouse();
+    return this.prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    const order = await tx.order.findUnique({
       where: { id: orderId },
       include: {
         items: true,
@@ -972,11 +1088,11 @@ export class OrdersService {
     const bySku = new Map<string, number>();
     for (const item of input.items) {
       const line = lineById.get(item.orderItemId)!;
-      bySku.set(line.skuId, (bySku.get(line.skuId) ?? 0) + item.quantity);
+      for (const requirement of requirementsFromBundleSnapshot(line.skuId, item.quantity, line.bundleSnapshot)) {
+        bySku.set(requirement.skuId, (bySku.get(requirement.skuId) ?? 0) + requirement.quantity);
+      }
     }
 
-    const warehouse = await this.inventory.defaultWarehouse();
-    return this.prisma.$transaction(async (tx) => {
       const shipment = await tx.shipment.create({
         data: {
           orderId,
@@ -1193,6 +1309,17 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  private async releasePromoSlot(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<boolean> {
+    const changed = await tx.$executeRaw`
+      UPDATE promo_code_redemptions SET released_at = now()
+      WHERE order_id = ${orderId}::uuid AND released_at IS NULL
+    `;
+    return changed > 0;
   }
 
   private normalizePhone(phone: string): string {

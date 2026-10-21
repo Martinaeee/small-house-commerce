@@ -43,7 +43,12 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { Button } from "@/components/ui/Button";
 import { PsgcAddressSelects } from "@/components/checkout/PsgcAddressSelects";
+import { SearchableSelect } from "@/components/checkout/SearchableSelect";
 import { checkoutInputCls as inputCls } from "@/components/checkout/checkoutFieldStyles";
+import {
+  PromoCodeField,
+  type AppliedPromo,
+} from "@/components/checkout/PromoCodeField";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 /**
@@ -184,6 +189,7 @@ export function PdpQuickCodOrder(): ReactNode {
     postalCode: "",
     streetAddress: "",
     landmark: "",
+    customerNote: "",
     preferredDeliveryDate: defaultPreferredDeliveryDate(),
   });
   const [dateBounds] = useState(() => {
@@ -202,9 +208,9 @@ export function PdpQuickCodOrder(): ReactNode {
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [initialPromoCode, setInitialPromoCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -222,8 +228,10 @@ export function PdpQuickCodOrder(): ReactNode {
       }
       setForm({
         ...draft.customer,
+        customerNote: draft.customerNote ?? "",
         preferredDeliveryDate: draft.preferredDeliveryDate ?? "",
       });
+      setInitialPromoCode(draft.promoCode ?? "");
       const bySku = new Map(
         selection.items.map((item) => [item.skuId, item.quantity]),
       );
@@ -317,7 +325,9 @@ export function PdpQuickCodOrder(): ReactNode {
   };
 
   const set =
-    (field: keyof typeof form) =>
+    // The note is unvalidated and edited through its own handler, so it is
+    // excluded from the typed-field helper that also clears per-field errors.
+    (field: Exclude<keyof typeof form, "customerNote">) =>
     (event: ChangeEvent<HTMLInputElement>): void => {
       const value = event.target.value;
       setFormTouched(true);
@@ -519,19 +529,8 @@ export function PdpQuickCodOrder(): ReactNode {
             );
       });
 
-  const applyPromo = (): void => {
-    // CHECKOUT_SPEC §14: the backend promo engine is not built yet; the UI
-    // entry exists so the collapsed pattern is in place, exactly like the
-    // cart's.
-    setPromoMessage(
-      promoCode.trim()
-        ? "Promo codes are coming soon."
-        : "Enter a code to apply it.",
-    );
-  };
-
   function goToReview(): void {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || promoChecking) return;
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(
       form.preferredDeliveryDate,
@@ -576,6 +575,8 @@ export function PdpQuickCodOrder(): ReactNode {
         productQuery: query,
         items,
       },
+      form.customerNote.trim() || null,
+      appliedPromo?.code ?? null,
     );
     router.push(`/checkout/confirm${query}`);
   }
@@ -746,42 +747,12 @@ export function PdpQuickCodOrder(): ReactNode {
             </div>
           </dl>
 
-          {/* CHECKOUT_SPEC §14 promo code — collapsed by default, same
-              honest entry the cart uses. */}
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setPromoOpen((open) => !open);
-                setPromoMessage(null);
-              }}
-              className="text-sm text-cta hover:underline"
-              aria-expanded={promoOpen}
-            >
-              {promoOpen ? "Hide promo code" : "Have a promo code?"}
-            </button>
-            {promoOpen && (
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  placeholder="Enter code"
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
-                  aria-label="Promo code"
-                />
-                <button
-                  type="button"
-                  onClick={applyPromo}
-                  className="shrink-0 rounded-lg border border-cta/40 px-4 text-sm font-medium text-cta hover:bg-primary-light/40"
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-            {promoMessage && (
-              <p className="mt-2 text-xs text-ink-muted">{promoMessage}</p>
-            )}
-          </div>
+          <PromoCodeField
+            subtotal={totals.subtotal}
+            initialCode={initialPromoCode}
+            onApplied={setAppliedPromo}
+            onCheckingChange={setPromoChecking}
+          />
         </div>
 
         {/* Delivery form */}
@@ -793,8 +764,12 @@ export function PdpQuickCodOrder(): ReactNode {
           }}
           noValidate
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <h3 className="col-span-full text-base font-semibold text-ink">
+              Contact Information
+            </h3>
+
+            <div>
               <label
                 htmlFor="quick-cod-name"
                 className="text-sm font-medium text-ink"
@@ -819,7 +794,7 @@ export function PdpQuickCodOrder(): ReactNode {
               <FieldError id="quick-cod-name" message={errors.name} />
             </div>
 
-            <div className="sm:col-span-2">
+            <div>
               <label
                 htmlFor="quick-cod-phone"
                 className="text-sm font-medium text-ink"
@@ -850,7 +825,8 @@ export function PdpQuickCodOrder(): ReactNode {
               We use your mobile number for delivery updates.
             </p>
 
-            <div className="sm:col-span-2">
+            <div className="col-span-full mt-2 flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-ink">Delivery Address</h3>
               <button
                 type="button"
                 onClick={handleUseMyLocation}
@@ -859,17 +835,17 @@ export function PdpQuickCodOrder(): ReactNode {
               >
                 {locating ? "Locating…" : "Use my location"}
               </button>
-              {locationError ? (
-                <p role="alert" className="mt-1 text-xs text-sale">
-                  {locationError}
-                </p>
-              ) : null}
-              {locationNotice ? (
-                <p role="status" className="mt-1 text-xs text-ink-muted">
-                  {locationNotice}
-                </p>
-              ) : null}
             </div>
+            {locationError ? (
+              <p role="alert" className="-mt-2 text-xs text-sale">
+                {locationError}
+              </p>
+            ) : null}
+            {locationNotice ? (
+              <p role="status" className="-mt-2 text-xs text-ink-muted">
+                {locationNotice}
+              </p>
+            ) : null}
 
             <PsgcAddressSelects
               province={form.province}
@@ -902,9 +878,9 @@ export function PdpQuickCodOrder(): ReactNode {
                 disabled={submitting}
               />
               {postalLookup.options.length > 1 ? (
-                <select
-                  aria-label="Pick a postal code"
-                  className={inputCls}
+                <SearchableSelect
+                  id="quick-cod-postal-pick"
+                  testId="quick-cod-postal-pick"
                   value={
                     postalLookup.options.some(
                       (option) => option.zip === form.postalCode,
@@ -912,25 +888,25 @@ export function PdpQuickCodOrder(): ReactNode {
                       ? form.postalCode
                       : ""
                   }
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      postalCode: event.target.value,
-                    }))
+                  options={postalLookup.options.map((option) => option.zip)}
+                  onChange={(zip) =>
+                    setForm((current) => ({ ...current, postalCode: zip }))
                   }
-                  disabled={submitting}
-                >
-                  <option value="">
-                    {postalLookup.auto
+                  placeholder={
+                    postalLookup.auto
                       ? "Change postal code"
-                      : `This city has ${postalLookup.options.length} ZIPs — pick one`}
-                  </option>
-                  {postalLookup.options.map((option) => (
-                    <option key={option.zip} value={option.zip}>
-                      {`${option.zip} — ${option.label}`}
-                    </option>
-                  ))}
-                </select>
+                      : "Pick a postal code"
+                  }
+                  searchPlaceholder="Search a ZIP code"
+                  ariaLabel="Pick a postal code"
+                  disabled={submitting}
+                  optionLabel={(zip) => {
+                    const match = postalLookup.options.find(
+                      (option) => option.zip === zip,
+                    );
+                    return match ? `${match.zip} — ${match.label}` : zip;
+                  }}
+                />
               ) : null}
               {postalLookup.auto && form.postalCode === postalLookup.auto ? (
                 <span className="text-xs font-normal text-ink-muted">
@@ -986,6 +962,32 @@ export function PdpQuickCodOrder(): ReactNode {
               />
             </div>
 
+            <div className="col-span-full">
+              <label
+                htmlFor="quick-cod-order-notes"
+                className="text-sm font-medium text-ink"
+              >
+                Order Notes (Optional)
+              </label>
+              <textarea
+                id="quick-cod-order-notes"
+                name="customerNote"
+                data-testid="quick-cod-order-notes"
+                className={`mt-1 ${inputCls} min-h-[3.5rem] resize-y`}
+                rows={2}
+                maxLength={200}
+                value={form.customerNote}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    customerNote: event.target.value,
+                  }))
+                }
+                placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+                disabled={submitting}
+              />
+            </div>
+
             <div className="sm:col-span-2">
               <label
                 htmlFor="quick-cod-preferred-date"
@@ -1037,7 +1039,7 @@ export function PdpQuickCodOrder(): ReactNode {
             type="submit"
             size="lg"
             className="w-full"
-            disabled={!orderable}
+            disabled={!orderable || promoChecking}
             data-testid="quick-cod-submit"
           >
             {submitting ? "Opening review…" : "REVIEW ORDER"}

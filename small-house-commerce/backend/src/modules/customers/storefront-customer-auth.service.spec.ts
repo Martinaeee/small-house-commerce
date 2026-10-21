@@ -51,9 +51,11 @@ type CustomerTokenRow = Record<string, unknown> & {
   revokedAt: Date | null;
 };
 
+type CustomerTokenData = Pick<CustomerTokenRow, 'accountId' | 'familyId' | 'tokenHash' | 'expiresAt'>;
+
 type CustomerStagedOp =
   | { type: 'revoke'; id: string; revokedAt: Date }
-  | { type: 'create'; data: Record<string, unknown> }
+  | { type: 'create'; data: CustomerTokenData }
   | { type: 'delete'; where: Record<string, unknown> };
 
 interface CustomerTxn {
@@ -196,7 +198,7 @@ function makeCustomerRefreshTokenDb(
       }),
     create: vi
       .fn()
-      .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      .mockImplementation(async ({ data }: { data: CustomerTokenData }) => {
         const txn = txnStore.getStore();
         if (txn) {
           txn.stages.push({ type: 'create', data });
@@ -726,10 +728,11 @@ describe('StorefrontCustomerAuthService', () => {
 
     const [outcomeA, outcomeB] = await Promise.allSettled([first, second]);
     expect([outcomeA.status, outcomeB.status].sort()).toEqual(['fulfilled', 'rejected']);
-    const winner = outcomeA.status === 'fulfilled' ? outcomeA.value : outcomeB.value;
-    expect(winner.accessToken).toBeTruthy();
-    const loser = outcomeA.status === 'rejected' ? outcomeA.reason : outcomeB.reason;
-    expect(loser).toBeInstanceOf(UnauthorizedException);
+    const winner = [outcomeA, outcomeB].find((outcome) => outcome.status === 'fulfilled');
+    const loser = [outcomeA, outcomeB].find((outcome) => outcome.status === 'rejected');
+    if (!winner || !loser) throw new Error('Expected one successful refresh and one rejected refresh');
+    expect(winner.value.accessToken).toBeTruthy();
+    expect(loser.reason).toBeInstanceOf(UnauthorizedException);
 
     // Exactly one sibling minted, and the loser wipes it as part of the family.
     expect(db.customerRefreshToken.create).toHaveBeenCalledTimes(1);

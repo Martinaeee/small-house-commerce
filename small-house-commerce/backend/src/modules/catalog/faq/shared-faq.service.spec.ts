@@ -49,12 +49,22 @@ function createPrismaMock() {
         },
       ),
     },
+    product: {
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async (query: { where?: { id?: { in: string[] } } }) =>
+        (query.where?.id?.in ?? []).map((id) => ({ id })),
+      ),
+    },
+    productFaq: {
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => []),
+    },
   };
 }
 
-function createService() {
+function createService(now: () => Date = () => new Date()) {
   const prisma = createPrismaMock();
-  return { prisma, service: new SharedFaqService(prisma as never) };
+  return { prisma, service: new SharedFaqService(prisma as never, now) };
 }
 
 describe('SharedFaqService', () => {
@@ -75,7 +85,7 @@ describe('SharedFaqService', () => {
   it('returns the stored library on later reads without re-creating it', async () => {
     await ctx.service.update([ITEM], 0, 'u1');
     const set = await ctx.service.get();
-    expect(set.items).toEqual([ITEM]);
+    expect(set.items).toMatchObject([{ id: ITEM.id, title: ITEM.title }]);
     expect(set.version).toBe(1);
     expect(ctx.prisma.sharedFaqSet.upsert).toHaveBeenCalledOnce();
   });
@@ -113,5 +123,187 @@ describe('SharedFaqService', () => {
 
   it('accepts an empty library so every shared question can be switched off', async () => {
     await expect(ctx.service.update([], 0, 'u1')).resolves.toEqual({ version: 1 });
+  });
+
+  it('stamps only new or changed questions and ignores client-supplied timestamps', async () => {
+    let clock = new Date('2026-10-01T00:00:00.000Z');
+    const service = new SharedFaqService(ctx.prisma as never, () => clock);
+    const SECOND_ID = '22222222-2222-7222-8222-222222222222';
+
+    await service.update(
+      [ITEM, { ...ITEM, id: SECOND_ID, title: 'Unchanged?', position: 1 }],
+      0,
+      'u1',
+    );
+    const first = await service.get();
+    expect(first.items[0]!.updatedAt).toBe(clock.toISOString());
+    expect(first.items[1]!.updatedAt).toBe(clock.toISOString());
+
+    clock = new Date('2026-10-10T00:00:00.000Z');
+    await service.update(
+      [
+        { ...ITEM, title: 'Changed?' },
+        { ...ITEM, id: SECOND_ID, title: 'Unchanged?', position: 1, updatedAt: '1999-01-01T00:00:00.000Z' },
+      ],
+      1,
+      'u1',
+    );
+
+    const second = await service.get();
+    expect(second.items[0]!.updatedAt).toBe(clock.toISOString());
+    expect(second.items[1]!.updatedAt).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  it('reports inheriting products (active minus CUSTOM) when an all-product question exists', async () => {
+    await ctx.service.update([ITEM], 0, 'u1');
+    ctx.prisma.product.findMany = vi.fn(async () =>
+      ['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => ({ id })),
+    ) as never;
+    ctx.prisma.productFaq.findMany = vi.fn(async () =>
+      ['a1', 'a2', 'a3'].map((productId) => ({ productId })),
+    ) as never;
+    const set = await ctx.service.get();
+    expect(set.usage).toEqual({ productCount: 2 });
+  });
+
+  it('counts only products a targeted question actually applies to', async () => {
+    await ctx.service.update(
+      [
+        {
+          ...ITEM,
+          audience: {
+            scope: 'PRODUCTS',
+            productIds: [
+              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            ],
+          },
+        },
+      ],
+      0,
+      'u1',
+    );
+    ctx.prisma.productFaq.findMany = vi.fn(async () =>
+      [{ productId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }],
+    ) as never;
+    ctx.prisma.product.findMany = vi.fn(async () =>
+      [{ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }],
+    ) as never;
+    const set = await ctx.service.get();
+    expect(set.usage).toEqual({ productCount: 0 });
+    expect(ctx.prisma.productFaq.findMany).toHaveBeenCalledWith({
+      where: { mode: 'CUSTOM', product: { status: 'ACTIVE' } },
+      select: { productId: true },
+    });
+  });
+
+  it('counts the intersection of a targeted audience with inheriting products', async () => {
+    await ctx.service.update(
+      [
+        {
+          ...ITEM,
+          audience: {
+            scope: 'PRODUCTS',
+            productIds: [
+              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            ],
+          },
+        },
+      ],
+      0,
+      'u1',
+    );
+    ctx.prisma.product.findMany = vi.fn(async () =>
+      [
+        { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+        { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      ],
+    ) as never;
+    ctx.prisma.productFaq.findMany = vi.fn(async () =>
+      [{ productId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }],
+    ) as never;
+    const set = await ctx.service.get();
+    expect(set.usage).toEqual({ productCount: 1 });
+  });
+
+  it('rejects an audience with missing products before replacing the library', async () => {
+    const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    ctx.prisma.product.findMany.mockResolvedValue([{ id: A }]);
+    await expect(ctx.service.update([
+      { ...ITEM, audience: { scope: 'PRODUCTS', productIds: [A, B] } },
+    ], 0, 'u1')).rejects.toMatchObject({
+      response: { code: 'FAQ_AUDIENCE_PRODUCT_MISSING', productIds: [B] },
+    });
+    expect(ctx.prisma.current()?.items ?? []).toEqual([]);
+    expect(ctx.prisma.sharedFaqSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('lists only FAQ-relevant product identity, thumbnail and inheritance mode', async () => {
+    ctx.prisma.product.findMany.mockResolvedValue([
+      {
+        id: 'p1', name: 'Cart', slug: 'cart', status: 'ACTIVE', productCode: 'P-000021',
+        images: [{ url: '/uploads/cart.png' }], faq: { mode: 'CUSTOM' },
+        description: 'Private admin data', variants: [{ sku: { cost: 100 } }],
+      },
+      {
+        id: 'p2', name: 'Desk', slug: 'desk', status: 'DRAFT', productCode: null,
+        images: [], faq: null,
+      },
+    ] as never);
+    ctx.prisma.product.count.mockResolvedValue(12);
+    const result = await ctx.service.listProducts({ search: 'cart', page: 2, pageSize: 10 });
+    expect(result).toEqual({
+      items: [
+        { id: 'p1', name: 'Cart', slug: 'cart', status: 'ACTIVE', productCode: 'P-000021', thumbnailUrl: '/uploads/cart.png', faqMode: 'CUSTOM' },
+        { id: 'p2', name: 'Desk', slug: 'desk', status: 'DRAFT', productCode: null, thumbnailUrl: null, faqMode: 'SHARED' },
+      ], total: 12, page: 2, pageSize: 10,
+    });
+    expect(ctx.prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      skip: 10, take: 10,
+      where: { OR: [
+        { name: { contains: 'cart', mode: 'insensitive' } },
+        { slug: { contains: 'cart', mode: 'insensitive' } },
+        { productCode: { contains: 'cart', mode: 'insensitive' } },
+      ] },
+    }));
+    const query = ctx.prisma.product.findMany.mock.calls[0]?.[0];
+    expect(query).toHaveProperty('select.id', true);
+    expect(query).not.toHaveProperty('include');
+    expect(query).not.toHaveProperty('select.variants');
+  });
+
+  it('resolves existing selected IDs without returning the rest of the catalogue', async () => {
+    ctx.prisma.product.findMany.mockResolvedValue([]);
+    await ctx.service.listProducts({ ids: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'], page: 1, pageSize: 50 });
+    expect(ctx.prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } },
+    }));
+  });
+
+  it('counts disabled targeted items as applying to nothing', async () => {
+    await ctx.service.update(
+      [
+        {
+          ...ITEM,
+          enabled: false,
+          audience: {
+            scope: 'PRODUCTS',
+            productIds: [
+              'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            ],
+          },
+        },
+      ],
+      0,
+      'u1',
+    );
+    ctx.prisma.product.findMany = vi.fn(async () =>
+      [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+    ) as never;
+    expect((await ctx.service.get()).usage).toEqual({ productCount: 0 });
   });
 });

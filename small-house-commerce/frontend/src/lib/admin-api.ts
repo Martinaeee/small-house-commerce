@@ -12,7 +12,7 @@
  * available) are JSON numbers.
  */
 
-import { adminAuthedFetch } from "./admin-auth";
+import { adminAuthedFetch, adminAuthedText } from "./admin-auth";
 import type { CampaignLinkContext } from "./campaign-link-builder";
 import type { HomepageDocument } from "@/lib/homepage-document";
 import { formatPrice } from "@/components/ui/PriceBox";
@@ -206,6 +206,7 @@ export interface AdminOrderRow {
   currency: string;
   subtotal: string;
   discountTotal: string;
+  promoCode?: string | null;
   shippingTotal: string;
   grandTotal: string;
   optimizerId: string | null;
@@ -218,6 +219,8 @@ export interface AdminOrderRow {
   createdAt: string;
   updatedAt: string;
   preferredDeliveryDate: string | null;
+  /** Shopper-supplied delivery note at checkout (optional). */
+  customerNote: string | null;
 }
 
 export interface AdminOrderCustomer {
@@ -408,8 +411,42 @@ export interface AdminOrderDetail extends AdminOrderListRow {
 
 // --- catalog -----------------------------------------------------------------
 
+export interface AdminBundleComponentInput {
+  componentSkuId: string;
+  quantity: number;
+  position: number;
+}
+
+export interface AdminBundleComponentView extends AdminBundleComponentInput {
+  id: string;
+  componentSkuCode: string;
+  componentProductName: string;
+  componentVariantName: string;
+  availableInventory: number;
+  status: string;
+  productStatus: string;
+  isBundle: boolean;
+}
+
+export interface AdminBundleDefinition {
+  version: number;
+  components: AdminBundleComponentView[];
+  availableInventory: number;
+}
+
+export interface AdminBundleSkuCandidate {
+  id: string;
+  skuCode: string;
+  productId: string;
+  productName: string;
+  variantName: string;
+  availableInventory: number;
+}
+
 export interface AdminSku {
   id: string;
+  isBundle?: boolean;
+  bundleVersion?: number;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
   // Present on graph-aware payloads (the SKU write contract sends it); the
@@ -417,6 +454,9 @@ export interface AdminSku {
   supplierId?: string | null;
   price: string | null;
   compareAtPrice: string | null;
+  productWidth?: number | null;
+  productHeight?: number | null;
+  productDepth?: number | null;
   supplierSku: string | null;
   supplierCost: string | null;
   costCurrency: string | null;
@@ -433,10 +473,22 @@ export interface AdminSku {
   availableInventory: number;
 }
 
+export interface VariantCardImage {
+  type: "IMAGE";
+  url: string;
+  altText: string | null;
+}
+
+export interface VariantCardMedia {
+  cover: VariantCardImage | null;
+  hover: VariantCardImage | null;
+}
+
 export interface AdminVariant {
   id: string;
   name: string;
   position: number;
+  cardMedia?: VariantCardMedia | null;
   sku: AdminSku | null;
 }
 
@@ -446,6 +498,7 @@ export interface AdminProductImage {
   type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
 }
 
 /** Description-body block (image or video) shown below the PDP gallery. */
@@ -457,6 +510,93 @@ export interface AdminDetailBlock {
   sortOrder: number;
 }
 
+export type AdminFaqMode = "SHARED" | "EXTEND" | "CUSTOM";
+
+/** Controlled shared-library categories; the label is translated in the UI. */
+export const ADMIN_FAQ_CATEGORIES = [
+  "DELIVERY",
+  "PAYMENT_COD",
+  "RETURNS",
+  "INSTALLATION",
+  "UNCATEGORIZED",
+] as const;
+export type AdminFaqCategory = (typeof ADMIN_FAQ_CATEGORIES)[number];
+
+export type AdminFaqAnswerBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "bullets"; items: string[] };
+
+/**
+ * Which products a shared-library question reaches. Absent on legacy
+ * questions, which the server treats as `{ scope: "ALL" }`; a targeted
+ * question carries at least two distinct product ids.
+ */
+export type AdminFaqAudience =
+  | { scope: "ALL" }
+  | { scope: "PRODUCTS"; productIds: string[] };
+
+export interface AdminFaqItem {
+  id: string;
+  title: string;
+  answer: AdminFaqAnswerBlock[];
+  enabled: boolean;
+  position: number;
+  defaultOpen: boolean;
+  category?: AdminFaqCategory;
+  /** Shared-library scope; product questions never carry one. */
+  audience?: AdminFaqAudience;
+  /** Server-maintained per-question time; absent on questions never edited since tracking began. */
+  updatedAt?: string;
+}
+
+export interface AdminProductFaq {
+  mode: AdminFaqMode;
+  items: AdminFaqItem[];
+  version: number;
+}
+
+export interface AdminSharedFaq {
+  id: string;
+  items: AdminFaqItem[];
+  version: number;
+  /** Active products that render the shared library (SHARED or EXTEND). */
+  usage?: { productCount: number };
+}
+
+export interface AdminFaqProductCandidate {
+  id: string;
+  name: string;
+  slug: string;
+  status: ProductStatus;
+  productCode: string | null;
+  thumbnailUrl: string | null;
+  faqMode: AdminFaqMode;
+}
+
+export interface AdminFaqProductGroup {
+  product: Pick<AdminProduct, "id" | "name" | "slug" | "status"> & {
+    productCode: string | null;
+    thumbnailUrl: string | null;
+    thumbnailAlt: string | null;
+  };
+  faq: AdminProductFaq;
+}
+
+export interface AdminFaqProductPage {
+  items: AdminFaqProductGroup[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AdminFaqProductQuery {
+  search?: string;
+  mode?: AdminFaqMode;
+  productId?: string;
+  updatedSince?: string;
+  page?: number;
+  pageSize?: number;
+}
 /** "Needs attention" presets: the value filters the list AND names its counter. */
 export const ADMIN_PRODUCT_ATTENTION = [
   "missing_media",
@@ -510,6 +650,7 @@ export interface AdminProduct {
   defaultDisplayVariantId: string | null;
   images: AdminProductImage[];
   detailBlocks: AdminDetailBlock[];
+  faq?: AdminProductFaq;
   // Legacy rows use the free-form AdminVariant; graph-aware payloads carry
   // AdminGraphVariant (combinationKey + option-value assignments).
   variants: (AdminVariant | AdminGraphVariant)[];
@@ -559,6 +700,7 @@ export interface AdminGraphVariant {
   name: string;
   position: number;
   combinationKey: string | null;
+  cardMedia?: VariantCardMedia | null;
   optionValues: AdminVariantAssignment[];
   sku: AdminGraphSku | null;
   /** True when carts/orders/reservations/scoped media reference the variant. */
@@ -571,6 +713,7 @@ export interface AdminGraphMedia {
   type: "IMAGE" | "VIDEO";
   altText: string | null;
   sortOrder: number;
+  isScene?: boolean;
   optionValueId: string | null;
   variantId: string | null;
 }
@@ -581,6 +724,33 @@ export interface AdminGraphMedia {
  */
 export type AdminStockBatchResult =
   | { skuId: string; ok: true; onHand: number; reserved: number; available: number }
+  | { skuId: string; ok: false; error: string };
+
+/** One row of the cost-backfill grid. */
+export interface AdminSkuCostRow {
+  skuId: string;
+  skuCode: string;
+  productId: string;
+  productName: string;
+  variantName: string;
+  supplierCost: number | null;
+  landedCost: number | null;
+  costCurrency: string | null;
+  onHand: number;
+  reserved: number;
+  available: number;
+  unitsSold30d: number;
+}
+
+/** One settled entry of PATCH /admin/inventory/costs (input order). */
+export type AdminCostResult =
+  | {
+      skuId: string;
+      ok: true;
+      landedCost: number | null;
+      supplierCost: number | null;
+      costCurrency: string | null;
+    }
   | { skuId: string; ok: false; error: string };
 
 /**
@@ -730,19 +900,104 @@ export interface BatchLineError {
   message: string;
 }
 
+export type NewsletterSubscriberStatus = "SUBSCRIBED" | "UNSUBSCRIBED";
+export type NewsletterSubscribeSource = "POPUP" | "FOOTER";
+
+export interface AdminNewsletterSubscriber {
+  id: string;
+  email: string;
+  status: NewsletterSubscriberStatus;
+  source: NewsletterSubscribeSource;
+  createdAt: string;
+  updatedAt: string;
+  unsubscribedAt: string | null;
+}
+
+export type BackInStockStatus = "PENDING" | "SENT" | "CANCELLED";
+
+export interface AdminBackInStockSubscription {
+  id: string;
+  email: string;
+  skuId: string;
+  status: BackInStockStatus;
+  productName: string;
+  productSlug: string;
+  skuCode: string;
+  variantName: string;
+  lastError: string | null;
+  notifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewsletterDiscountType = "PERCENT" | "FIXED";
+export type NewsletterPromotionStatus = "ACTIVE" | "ARCHIVED";
+
+export interface AdminNewsletterPromotion {
+  id: string;
+  code: string;
+  discountType: NewsletterDiscountType;
+  discountValue: string;
+  minSpend: string;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  validFrom: string | null;
+  validUntil: string | null;
+  status: NewsletterPromotionStatus;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewsletterPromotionInput {
+  code: string;
+  discountType: NewsletterDiscountType;
+  discountValue: number;
+  minSpend: number;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
+export interface NewsletterPromotionUsage {
+  promotionId: string;
+  effective: number;
+  released: number;
+  maxUses: number | null;
+  perCustomerLimit: number | null;
+  availability: "LIVE" | "SCHEDULED" | "EXPIRED" | "EXHAUSTED" | "ARCHIVED";
+}
+
 export interface AdminSiteSettings {
   id: string;
   messengerUrl: string;
   supportEmail: string;
+  supportPhone: string;
   supportHours: string;
+  newsletterBandEnabled: boolean;
+  newsletterPopupEnabled: boolean;
+  newsletterPopupDelaySeconds: number;
+  newsletterOfferTitle: string;
+  newsletterOfferBody: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface UpdateSiteSettingsInput {
   messengerUrl: string;
-  supportEmail: string;
-  supportHours: string;
+  /**
+   * Compatibility-only. The backend allowlist no longer writes
+   * supportEmail/supportHours from Site Settings (they belong to the
+   * storefront shell footer) and supportPhone is optional, so the settings
+   * page submits none of them.
+   */
+  supportPhone?: string;
+  newsletterBandEnabled?: boolean;
+  newsletterPopupEnabled?: boolean;
+  newsletterPopupDelaySeconds?: number;
+  newsletterOfferTitle?: string;
+  newsletterOfferBody?: string;
 }
 
 /** Hero appearance payload (see the backend heroStyle input contract).
@@ -920,7 +1175,7 @@ export interface CreateProductInput {
   foldedDepth: number | null;
   materials?: string | null;
   features?: string | null;
-  images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number }[];
+  images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number; isScene?: boolean }[];
   detailBlocks: {
     type: "IMAGE" | "VIDEO";
     url: string;
@@ -930,6 +1185,7 @@ export interface CreateProductInput {
   variants: {
     name: string;
     position?: number;
+    cardMedia?: VariantCardMedia | null;
     sku?: {
       skuCode: string;
       status?: "ACTIVE" | "DISABLED";
@@ -939,6 +1195,9 @@ export interface CreateProductInput {
       supplierCost?: number;
       costCurrency?: string;
       landedCost?: number;
+      productWidth?: number | null;
+      productHeight?: number | null;
+      productDepth?: number | null;
       productWeight?: number;
       packageWidth?: number;
       packageHeight?: number;
@@ -947,6 +1206,11 @@ export interface CreateProductInput {
       volumetricWeight?: number;
     };
   }[];
+  faq?: {
+    mode: AdminFaqMode;
+    items: AdminFaqItem[];
+    expectedVersion: number;
+  };
 }
 
 export interface CreateCategoryInput {
@@ -973,6 +1237,7 @@ export interface WireEntityRef {
 
 export interface WireSkuWrite {
   skuCode: string;
+  isBundle?: boolean;
   status: "ACTIVE" | "DISABLED";
   supplierId?: string | null;
   supplierSku?: string | null;
@@ -982,6 +1247,9 @@ export interface WireSkuWrite {
   price?: number | null;
   compareAtPrice?: number | null;
   productWeight?: number | null;
+  productWidth?: number | null;
+  productHeight?: number | null;
+  productDepth?: number | null;
   packageWidth?: number | null;
   packageHeight?: number | null;
   packageDepth?: number | null;
@@ -1012,6 +1280,7 @@ export interface WireOptionWrite extends WireEntityRef {
 export interface WireVariantWrite extends WireEntityRef {
   position: number;
   optionValueRefs: WireEntityRef[];
+  cardMedia?: VariantCardMedia | null;
   sku?: WireSkuWrite | null;
 }
 
@@ -1020,6 +1289,7 @@ export interface WireMediaWrite extends WireEntityRef {
   type: "IMAGE" | "VIDEO";
   altText?: string | null;
   sortOrder: number;
+  isScene?: boolean;
   optionValueId?: string;
   optionValueClientKey?: string;
   variantId?: string;
@@ -1194,7 +1464,7 @@ export const adminApi = {
       { method: "POST", body: JSON.stringify({ status, comment }) },
     ),
 
-  editOrder: (id: string, input: { shippingAddress?: Record<string, unknown>; items?: { skuId: string; quantity: number }[]; note?: string }): Promise<AdminOrderDetail> =>
+  editOrder: (id: string, input: { shippingAddress?: Record<string, unknown>; items?: { orderItemId?: string; skuId: string; quantity: number }[]; note?: string }): Promise<AdminOrderDetail> =>
     adminAuthedFetch<AdminOrderDetail>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify(input) },
@@ -1273,11 +1543,27 @@ export const adminApi = {
       }),
     }),
 
+  listFaqProducts: (
+    p: AdminFaqProductQuery = {},
+  ): Promise<AdminFaqProductPage> =>
+    adminAuthedFetch<AdminFaqProductPage>(
+      `/api/v1/admin/faq/products${buildQuery({
+        search: p.search,
+        mode: p.mode,
+        productId: p.productId,
+        updatedSince: p.updatedSince,
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
   listProducts: (p: {
     search?: string;
     status?: ProductStatus;
     categoryId?: string;
     attention?: AdminProductAttention;
+    /** Dashboard drill-down: low stock or out of stock. */
+    stock?: "low" | "out";
     page?: number;
     pageSize?: number;
   }): Promise<Paged<AdminProduct>> =>
@@ -1287,6 +1573,7 @@ export const adminApi = {
         status: p.status,
         categoryId: p.categoryId,
         attention: p.attention,
+        stock: p.stock,
         page: p.page,
         pageSize: p.pageSize,
       })}`,
@@ -1303,6 +1590,57 @@ export const adminApi = {
     adminAuthedFetch<AdminProduct>(
       `/api/v1/admin/products/${encodeURIComponent(id)}`,
     ),
+
+  getSharedFaq: (): Promise<AdminSharedFaq> =>
+    adminAuthedFetch<AdminSharedFaq>("/api/v1/admin/faq/shared"),
+
+  /**
+   * Read-only shared-library preview for the product editor. Separate from the
+   * management endpoint so PRODUCT_MANAGE operators can see what a product
+   * renders without holding PRODUCT_FAQ_SHARED_MANAGE.
+   */
+  getSharedFaqPreview: (): Promise<{ items: AdminFaqItem[] }> =>
+    adminAuthedFetch<{ items: AdminFaqItem[] }>(
+      "/api/v1/admin/faq/shared/preview",
+    ),
+
+  /**
+   * Read-only product list for choosing a targeted shared-FAQ audience. It is
+   * served under the shared-FAQ permission so an FAQ operator never needs (and
+   * never gains) PRODUCT_MANAGE. `ids` re-labels an existing selection.
+   */
+  listFaqPickProducts: (p: {
+    search?: string;
+    ids?: string[];
+    page?: number;
+    pageSize?: number;
+  }): Promise<Paged<AdminFaqProductCandidate>> =>
+    adminAuthedFetch<Paged<AdminFaqProductCandidate>>(
+      `/api/v1/admin/faq/shared/products${buildQuery({
+        search: p.search,
+        ids: p.ids?.join(","),
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
+  updateSharedFaq: (input: {
+    items: AdminFaqItem[];
+    expectedVersion: number;
+  }): Promise<{ version: number }> =>
+    adminAuthedFetch<{ version: number }>("/api/v1/admin/faq/shared", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+
+  getBundleComponents: (productId: string, skuId: string): Promise<AdminBundleDefinition> =>
+    adminAuthedFetch(`/api/v1/admin/products/${encodeURIComponent(productId)}/skus/${encodeURIComponent(skuId)}/bundle-components`),
+
+  setBundleComponents: (productId: string, skuId: string, input: { expectedVersion: number; components: AdminBundleComponentInput[] }): Promise<AdminBundleDefinition> =>
+    adminAuthedFetch(`/api/v1/admin/products/${encodeURIComponent(productId)}/skus/${encodeURIComponent(skuId)}/bundle-components`, { method: "PUT", body: JSON.stringify(input) }),
+
+  searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
+    adminAuthedFetch(`/api/v1/admin/products/bundle/sku-search?q=${encodeURIComponent(q)}`),
 
   createProduct: (input: CreateProductInput): Promise<AdminProduct> =>
     adminAuthedFetch<AdminProduct>("/api/v1/admin/products", {
@@ -1443,6 +1781,31 @@ export const adminApi = {
       { method: "PUT", body: JSON.stringify(input) },
     ),
 
+  /**
+   * Cost backfill grid: every active SKU with its cost, its stock and its
+   * last 30 days of sales. Unlike the raw-Prisma admin endpoints, this one
+   * answers with numbers (it is a purpose-built endpoint for the grid).
+   */
+  inventoryCosts: (): Promise<AdminSkuCostRow[]> =>
+    adminAuthedFetch<AdminSkuCostRow[]>("/api/v1/admin/inventory/costs"),
+
+  /**
+   * Writes landed/supplier costs in one batch. Results come back per SKU: a
+   * failing row carries its message and never aborts the others.
+   */
+  setInventoryCosts: (input: {
+    items: {
+      skuId: string;
+      landedCost?: number | null;
+      supplierCost?: number | null;
+      costCurrency?: string | null;
+    }[];
+  }): Promise<AdminCostResult[]> =>
+    adminAuthedFetch<AdminCostResult[]>("/api/v1/admin/inventory/costs", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
   // --- collections (membership management) --------------------------------
   // PATCH /admin/collections/:id { productIds } REPLACES the full membership
   // (service deleteMany + createMany, sortOrder = array index), so callers
@@ -1546,6 +1909,89 @@ export const adminApi = {
     adminAuthedFetch<{ created: number }>(
       `/api/v1/admin/products/${encodeURIComponent(productId)}/reviews/batch`,
       { method: "POST", body: JSON.stringify({ items }) },
+    ),
+
+  // --- newsletter subscribers and promotions -------------------------------
+
+  listNewsletterSubscribers: (params: {
+    page: number;
+    pageSize: number;
+    status?: NewsletterSubscriberStatus;
+    source?: NewsletterSubscribeSource;
+  }): Promise<Paged<AdminNewsletterSubscriber>> => {
+    const query = new URLSearchParams({
+      page: String(params.page),
+      pageSize: String(params.pageSize),
+    });
+    if (params.status) query.set("status", params.status);
+    if (params.source) query.set("source", params.source);
+    return adminAuthedFetch<Paged<AdminNewsletterSubscriber>>(
+      `/api/v1/admin/newsletter/subscribers?${query.toString()}`,
+    );
+  },
+
+  listBackInStockSubscriptions: (params: {
+    page: number;
+    pageSize: number;
+    status?: BackInStockStatus;
+  }): Promise<Paged<AdminBackInStockSubscription>> => {
+    const query = new URLSearchParams({
+      page: String(params.page),
+      pageSize: String(params.pageSize),
+    });
+    if (params.status) query.set("status", params.status);
+    return adminAuthedFetch<Paged<AdminBackInStockSubscription>>(
+      `/api/v1/admin/newsletter/back-in-stock?${query.toString()}`,
+    );
+  },
+
+  resendBackInStockSubscription: (
+    id: string,
+  ): Promise<AdminBackInStockSubscription> =>
+    adminAuthedFetch<AdminBackInStockSubscription>(
+      `/api/v1/admin/newsletter/back-in-stock/${encodeURIComponent(id)}/resend`,
+      { method: "POST" },
+    ),
+
+  exportNewsletterSubscribers: (): Promise<string> =>
+    adminAuthedText("/api/v1/admin/newsletter/subscribers/export"),
+
+  updateNewsletterSubscriber: (
+    id: string,
+    status: NewsletterSubscriberStatus,
+  ): Promise<AdminNewsletterSubscriber> =>
+    adminAuthedFetch<AdminNewsletterSubscriber>(
+      `/api/v1/admin/newsletter/subscribers/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ status }) },
+    ),
+
+  listNewsletterPromotions: (): Promise<AdminNewsletterPromotion[]> =>
+    adminAuthedFetch<AdminNewsletterPromotion[]>(
+      "/api/v1/admin/newsletter/promotions",
+    ),
+
+  createNewsletterPromotion: (
+    input: NewsletterPromotionInput,
+  ): Promise<AdminNewsletterPromotion> =>
+    adminAuthedFetch<AdminNewsletterPromotion>(
+      "/api/v1/admin/newsletter/promotions",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  updateNewsletterPromotion: (
+    id: string,
+    input: Partial<NewsletterPromotionInput>,
+  ): Promise<AdminNewsletterPromotion> =>
+    adminAuthedFetch<AdminNewsletterPromotion>(
+      `/api/v1/admin/newsletter/promotions/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  getNewsletterPromotionUsage: (
+    id: string,
+  ): Promise<NewsletterPromotionUsage> =>
+    adminAuthedFetch<NewsletterPromotionUsage>(
+      `/api/v1/admin/newsletter/promotions/${encodeURIComponent(id)}/usage`,
     ),
 
   // --- site settings (singleton, SYSTEM_SETTINGS_EDIT = SUPER_ADMIN) ------

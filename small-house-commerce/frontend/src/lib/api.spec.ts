@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getAnnouncement } from "./api";
+import { api, getAnnouncement } from "./api";
 
 // Task 20: GET /storefront/announcement contract. The storefront layout
 // consumes this helper, so the URL, the storefront ISR options and the
@@ -33,6 +33,95 @@ function jsonResponse(value: unknown, status = 200): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("signed marketing credential transport", () => {
+  it("posts public touches without caching or forwarding a referrer", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ credential: "server.credential", expiresAt: "2099-01-01T00:00:00Z" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.marketingTouch({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: "tab-1" });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v1/storefront/marketing-touch"), expect.objectContaining({ method: "POST", cache: "no-store", referrerPolicy: "no-referrer" }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: "tab-1" });
+  });
+
+
+  it("sends the credential at the order request root, not as a raw owner attribution", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ orderNumber: "PH1", orderStatus: "NEW" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createOrder({ customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" }, items: [{ skuId: "sku-1", quantity: 1 }], marketingCredential: "server.credential" } as Parameters<typeof api.createOrder>[0]);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.marketingCredential).toBe("server.credential");
+    expect(body.attribution).toEqual({ sourceType: "ORGANIC" });
+  });
+
+  it("sends the order note at the request root and defaults it to null", async () => {
+    // mockImplementation so each call gets a fresh, unread Response body.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ orderNumber: "PH1", orderStatus: "NEW" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+      customerNote: "Call before delivery",
+    } as Parameters<typeof api.createOrder>[0]);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.customerNote).toBe("Call before delivery");
+
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+    } as Parameters<typeof api.createOrder>[0]);
+    const second = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(second.customerNote).toBeNull();
+  });
+});
+
+describe("promo code transport", () => {
+  it("sends the promo code at the order request root and defaults it to null", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ orderNumber: "PH1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+      promoCode: "WELCOME10",
+    } as Parameters<typeof api.createOrder>[0]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).promoCode).toBe(
+      "WELCOME10",
+    );
+
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+    } as Parameters<typeof api.createOrder>[0]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).promoCode).toBeNull();
+  });
+
+  it("previews a promo code against the checkout preview endpoint", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse({ valid: true, discountAmount: 25, message: "" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.previewPromoCode("welcome10", 250)).resolves.toEqual({
+      valid: true,
+      discountAmount: 25,
+      message: "",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/storefront/checkout/promo-code/preview"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      code: "welcome10",
+      subtotal: 250,
+    });
+  });
 });
 
 describe("getAnnouncement", () => {

@@ -4,7 +4,9 @@ import type { ReactNode } from "react";
 import type { Product } from "@/lib/api";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { pdpSpecsVisible } from "./pdp-facts";
+import { resolveProductDimensions } from "./ProductSpecs";
 import { PdpSectionNav } from "./PdpSectionNav";
+import { hasFaqContent } from "./ProductFaqSection";
 
 /**
  * Decides which section links are real for the CURRENT selection.
@@ -23,7 +25,7 @@ export function PdpSectionNavGate({
 }): ReactNode {
   const { primaryDerived } = usePdpPurchase();
   const hasSpecifications = pdpSpecsVisible(
-    product,
+    resolveProductDimensions(product, primaryDerived.displayVariant?.sku),
     primaryDerived.displayVariant?.sku?.productWeight ?? null,
   );
 
@@ -31,6 +33,7 @@ export function PdpSectionNavGate({
     <PdpSectionNav
       hasDetails={hasDetails}
       hasSpecifications={hasSpecifications}
+      hasFaq={hasFaqContent(product.effectiveFaq ?? [])}
     />
   );
 }

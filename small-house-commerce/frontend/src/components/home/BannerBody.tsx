@@ -60,7 +60,7 @@ export function BannerCta({ payload }: { payload: BannerCtaPayload }): ReactNode
   return (
     <SmartLink
       href={payload.ctaLink}
-      className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-cta px-5 text-sm font-semibold text-white hover:bg-cta-hover"
+      className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-cta px-5 text-sm font-semibold text-cta-foreground hover:bg-cta-hover"
     >
       {payload.ctaText}
     </SmartLink>

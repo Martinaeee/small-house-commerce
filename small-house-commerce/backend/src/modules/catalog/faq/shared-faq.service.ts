@@ -1,8 +1,18 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { CACHE_TAGS, revalidateCache } from '../../../common/revalidation.js';
-import { faqItemsSchema, type FaqItem } from './faq-content.js';
+import {
+  faqItemsSchema,
+  stampItemTimestamps,
+  type FaqItem,
+} from './faq-content.js';
+import type { SharedFaqProductQuery } from './dto/shared-faq.dto.js';
 
 /**
  * The one site-wide FAQ library every product may borrow from.
@@ -14,25 +24,77 @@ import { faqItemsSchema, type FaqItem } from './faq-content.js';
  */
 export const SHARED_FAQ_SET_ID = '00000000-0000-0000-0000-0000000000fa';
 
+/**
+ * How many of the given inheriting products a library's enabled questions
+ * apply to. An all-product question (legacy or `scope:'ALL'`) reaches every
+ * inheriting product; with only targeted questions the count is the number of
+ * inheriting products inside their combined selections. Disabled questions
+ * apply to nothing.
+ */
+function applyingProductCount(
+  items: readonly FaqItem[],
+  inheritingIds: Set<string>,
+): number {
+  const enabled = items.filter((item) => item.enabled);
+  if (enabled.some((item) => !item.audience || item.audience.scope === 'ALL')) {
+    return inheritingIds.size;
+  }
+  const targeted = new Set<string>();
+  for (const item of enabled) {
+    if (item.audience?.scope === 'PRODUCTS') {
+      for (const id of item.audience.productIds) targeted.add(id);
+    }
+  }
+  let count = 0;
+  for (const id of targeted) if (inheritingIds.has(id)) count += 1;
+  return count;
+}
+
 export interface SharedFaqSetView {
   id: string;
   items: FaqItem[];
   version: number;
+  /** Active products that will render this library (SHARED or EXTEND). */
+  usage: { productCount: number };
 }
 
 @Injectable()
 export class SharedFaqService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async get(): Promise<SharedFaqSetView> {
-    const existing = await this.prisma.sharedFaqSet.findUnique({
-      where: { id: SHARED_FAQ_SET_ID },
-    });
+    const [existing, activeIds, customFaqs] = await Promise.all([
+      this.prisma.sharedFaqSet.findUnique({ where: { id: SHARED_FAQ_SET_ID } }),
+      this.prisma.product.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true },
+      }),
+      this.prisma.productFaq.findMany({
+        where: { mode: 'CUSTOM', product: { status: 'ACTIVE' } },
+        select: { productId: true },
+      }),
+    ]);
+
+    // Products that render this library: every active product except those
+    // whose mode is CUSTOM (targeted sharing never rewrites a product's mode).
+    const inheritingIds = new Set(activeIds.map((product) => product.id));
+    for (const custom of customFaqs) inheritingIds.delete(custom.productId);
+
+    const items = (existing?.items ?? []) as FaqItem[];
+    const usage = {
+      productCount: applyingProductCount(items, inheritingIds),
+    };
+
     if (existing) {
       return {
         id: existing.id,
-        items: (existing.items ?? []) as FaqItem[],
+        items,
         version: existing.version,
+        usage,
       };
     }
 
@@ -45,6 +107,45 @@ export class SharedFaqService {
       id: created.id,
       items: (created.items ?? []) as FaqItem[],
       version: created.version,
+      usage,
+    };
+  }
+
+  async listProducts(query: SharedFaqProductQuery) {
+    const where: Prisma.ProductWhereInput = {
+      ...(query.ids ? { id: { in: query.ids } } : {}),
+      ...(query.search ? { OR: [
+        { name: { contains: query.search, mode: 'insensitive' as const } },
+        { slug: { contains: query.search, mode: 'insensitive' as const } },
+        { productCode: { contains: query.search, mode: 'insensitive' as const } },
+      ] } : {}),
+    };
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        select: {
+          id: true, name: true, slug: true, status: true, productCode: true,
+          images: {
+            where: { type: 'IMAGE', variantId: null, optionValueId: null },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            take: 1, select: { url: true },
+          },
+          faq: { select: { mode: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+    return {
+      items: products.map((product) => ({
+        id: product.id, name: product.name, slug: product.slug,
+        status: product.status, productCode: product.productCode,
+        thumbnailUrl: product.images[0]?.url ?? null,
+        faqMode: product.faq?.mode ?? 'SHARED',
+      })),
+      total, page: query.page, pageSize: query.pageSize,
     };
   }
 
@@ -76,10 +177,32 @@ export class SharedFaqService {
       });
     }
 
+    const selectedIds = [...new Set(parsed.data.flatMap((item) =>
+      item.audience?.scope === 'PRODUCTS' ? item.audience.productIds : [],
+    ))];
+    if (selectedIds.length > 0) {
+      const found = await this.prisma.product.findMany({
+        where: { id: { in: selectedIds } }, select: { id: true },
+      });
+      const existingIds = new Set(found.map((product) => product.id));
+      const missing = selectedIds.filter((id) => !existingIds.has(id));
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          code: 'FAQ_AUDIENCE_PRODUCT_MISSING',
+          message: 'Some selected products no longer exist. Remove them from the question audience and retry.',
+          productIds: missing,
+        });
+      }
+    }
+
     const { count } = await this.prisma.sharedFaqSet.updateMany({
       where: { id: SHARED_FAQ_SET_ID, version: expectedVersion },
       data: {
-        items: parsed.data as Prisma.InputJsonValue,
+        items: stampItemTimestamps(
+          (current.items ?? []) as FaqItem[],
+          parsed.data,
+          this.now(),
+        ) as unknown as Prisma.InputJsonValue,
         version: expectedVersion + 1,
         updatedByUserId: userId,
       },

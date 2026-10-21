@@ -15,6 +15,11 @@ import { PsgcModule } from './modules/psgc/psgc.module.js';
 import { SearchModule } from './modules/search/search.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { StorefrontShellModule } from './modules/storefront-shell/storefront-shell.module.js';
+import { EmailModule } from './modules/email/email.module.js';
+import { NewsletterModule } from './modules/newsletter/newsletter.module.js';
+import { AnalyticsModule } from './modules/analytics/analytics.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -44,6 +49,11 @@ import { UsersModule } from './modules/users/users.module.js';
     CollectionsModule,
     UploadsModule,
     SettingsModule,
+    StorefrontShellModule,
+    EmailModule,
+    NewsletterModule,
+    AnalyticsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,147 +1,73 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { LandingViewTracker } from "@/components/product/LandingViewTracker";
-import { PdpView } from "@/components/product/PdpView";
+import { LandingContentView } from "@/components/product/LandingContentView";
 import { deliveryWindows } from "@/lib/deliveryWindow";
 import { absoluteUrl, buildProductJsonLd } from "@/lib/product-jsonld";
-import {
-  serverApiUrl,
-  type LandingPageComposite,
-  type Product,
-  type ProductImage,
-} from "@/lib/api";
+import { serverApiUrl, type LandingPageComposite } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
-import { fetchRelatedProducts } from "@/lib/pdp-products";
-// One directory up from the lp route tree: reuse the PDP data helpers.
-import { fetchCategoryInfo } from "../../products/[slug]/page";
+import { fetchCategoryInfo, fetchRelatedProducts } from "@/lib/pdp-products";
 
 export const revalidate = 120;
 
-async function fetchLandingPage(
-  slug: string,
-  variantId?: string | null,
-): Promise<LandingPageComposite | null> {
+async function fetchLandingPage(slug: string, variantId?: string | null): Promise<LandingPageComposite | null> {
   try {
-    const query = variantId
-      ? `?variantId=${encodeURIComponent(variantId)}`
-      : "";
-    const res = await fetch(serverApiUrl(`/api/v1/storefront/lp/${slug}${query}`), {
+    const query = variantId ? `?variantId=${encodeURIComponent(variantId)}` : "";
+    const res = await fetch(serverApiUrl(`/api/v1/storefront/lp/${encodeURIComponent(slug)}${query}`), {
       next: { revalidate, tags: STOREFRONT_TAGS },
     });
     if (!res.ok) return null;
-    return (await res.json()) as LandingPageComposite;
+    return await res.json() as LandingPageComposite;
   } catch {
     return null;
   }
 }
 
-// Only visible H1/name and gallery are overridden; every shared field
-// (reviews, SKUs, price, stock, specs) stays sourced from the real product.
-function applyLandingOverrides(data: LandingPageComposite): Product {
-  const { landingPage: lp, product } = data;
-  const images: ProductImage[] =
-    lp.imagesOverride && lp.imagesOverride.length > 0
-      ? lp.imagesOverride.map((image, index) => ({
-          id: `lp-${lp.id}-img-${index}`,
-          url: image.url,
-          type: "IMAGE" as const,
-          altText: image.altText ?? null,
-          sortOrder: index,
-        }))
-      : product.images;
-  const name = lp.titleOverride?.trim() ? lp.titleOverride.trim() : product.name;
-  return { ...product, name, images };
-}
-
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const data = await fetchLandingPage(slug);
   if (!data) return { title: "Product not found" };
-
-  const merged = applyLandingOverrides(data);
-  const description = data.landingPage.seoDescription ?? merged.description ?? undefined;
-  const images = [...merged.images]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((image) => absoluteUrl(image.url));
-  const title = data.landingPage.seoTitle ?? merged.name;
-
+  const content = data.landingPage.content;
+  const hero = content.blocks.find((block) => block.type === "hero");
+  const gallery = content.blocks.find((block) => block.type === "gallery");
+  const title = content.seoTitle ?? hero?.props.title ?? data.product.name;
+  const description = content.seoDescription ?? undefined;
+  const images = gallery?.props.media.filter((media) => media.type === "IMAGE").map((media) => absoluteUrl(media.url)) ?? [];
   return {
-    title,
-    description,
-    // LPs are marketing duplicates: canonical always points at the real PDP.
+    title, description,
     alternates: { canonical: `/products/${data.product.slug}` },
-    openGraph: {
-      title,
-      description,
-      url: `/products/${data.product.slug}`,
-      type: "website",
-      images: images.length > 0 ? images : undefined,
-    },
-    twitter: {
-      card: images.length > 0 ? "summary_large_image" : "summary",
-      title,
-      description,
-      images: images.length > 0 ? images : undefined,
-    },
+    openGraph: { title, description, url: `/products/${data.product.slug}`, type: "website", images: images.length ? images : undefined },
+    twitter: { card: images.length ? "summary_large_image" : "summary", title, description, images: images.length ? images : undefined },
   };
 }
 
-export default async function LandingPageRoute({
-  params,
-  searchParams,
-}: {
+export default async function LandingPageRoute({ params, searchParams }: {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ variant?: string | string[] }>;
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
-  const initialVariantId =
-    typeof query.variant === "string" ? query.variant : null;
-  const baseData = await fetchLandingPage(slug);
-  if (!baseData) notFound();
-  const initialVariantIsSelectable = baseData.product.variants.some(
-    (variant) =>
-      variant.id === initialVariantId &&
-      variant.sku?.status === "ACTIVE" &&
-      variant.sku.price !== null,
-  );
-  const data = initialVariantIsSelectable
-    ? ((await fetchLandingPage(slug, initialVariantId)) ?? baseData)
-    : baseData;
-
-  const product = applyLandingOverrides(data);
-  const lp = data.landingPage;
-
+  const initialVariantId = typeof query.variant === "string" ? query.variant : null;
+  const base = await fetchLandingPage(slug);
+  if (!base) notFound();
+  const selectable = base.product.variants.some((variant) => variant.id === initialVariantId && variant.sku?.status === "ACTIVE" && variant.sku.price !== null);
+  const data = selectable ? (await fetchLandingPage(slug, initialVariantId)) ?? base : base;
+  const { product, landingPage } = data;
   const [category, related] = await Promise.all([
     fetchCategoryInfo(product.categoryId),
     fetchRelatedProducts(product.categoryId, product.id, { revalidate }),
   ]);
-
-  const promoSlot =
-    lp.promoEnabled && lp.promoHeadline ? (
-      <div className="rounded-lg bg-sale px-4 py-3 text-white">
-        <p className="text-base font-bold">{lp.promoHeadline}</p>
-        {lp.promoSubtext ? <p className="mt-0.5 text-sm opacity-90">{lp.promoSubtext}</p> : null}
-      </div>
-    ) : null;
-
-  return (
-    <>
-      <LandingViewTracker landingPageId={lp.id} slug={lp.slug} />
-      {/* Real name/slug/images for structured data: LP is a marketing duplicate. */}
-      <PdpView
-        product={product}
-        category={category}
-        delivery={deliveryWindows()}
-        related={related}
-        jsonLd={buildProductJsonLd(data.product, category)}
-        promoSlot={promoSlot}
-        productPath={`/lp/${lp.slug}`}
-        initialVariantId={initialVariantId}
-      />
-    </>
-  );
+  return <>
+    <Suspense fallback={null}><LandingViewTracker landingPageId={landingPage.id} slug={landingPage.slug} /></Suspense>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildProductJsonLd(product, category)).replace(/</g, "\\u003c") }} />
+    <LandingContentView
+      content={landingPage.content}
+      approvedContent={landingPage.content}
+      product={product}
+      delivery={deliveryWindows()}
+      related={related}
+      productPath={`/lp/${landingPage.slug}`}
+      initialVariantId={initialVariantId}
+    />
+  </>;
 }

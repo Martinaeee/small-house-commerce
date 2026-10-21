@@ -105,10 +105,12 @@ function landingRow(id: string, name: string): AdminLandingPageRow {
 function PickHarness({
   initial,
   allowExternal,
+  allowInternal = false,
   onChange,
 }: {
   initial: LinkValue | null;
   allowExternal: boolean;
+  allowInternal?: boolean;
   onChange: (value: LinkValue | null) => void;
 }) {
   // The real consumers write `value` from the editor document; this harness
@@ -122,6 +124,7 @@ function PickHarness({
         setValue(next);
       }}
       allowExternal={allowExternal}
+      allowInternal={allowInternal}
     />
   );
 }
@@ -129,6 +132,7 @@ function PickHarness({
 function renderPicker(props: {
   value?: LinkValue | null;
   allowExternal?: boolean;
+  allowInternal?: boolean;
   onChange?: (value: LinkValue | null) => void;
 } = {}) {
   const onChange = props.onChange ?? vi.fn();
@@ -137,6 +141,7 @@ function renderPicker(props: {
       <PickHarness
         initial={props.value ?? null}
         allowExternal={props.allowExternal ?? true}
+        allowInternal={props.allowInternal ?? false}
         onChange={onChange}
       />
     </AdminI18nProvider>,
@@ -416,6 +421,92 @@ describe("LinkPicker i18n parity (Task 11 rename)", () => {
       "homepage_builder_link_search_placeholder" as const,
       "homepage_builder_link_pick_title" as const,
       "homepage_builder_link_empty_results" as const,
+    ];
+    for (const key of keys) {
+      expect(zh[key]).toBeTruthy();
+      expect(en[key]).toBeTruthy();
+    }
+  });
+});
+
+describe("LinkPicker internal path (storefront shell)", () => {
+  it("hides the Internal path option unless allowInternal is set", () => {
+    const first = renderPicker({ allowInternal: false });
+    const select = screen.getByRole("combobox", { name: "Link type" });
+    expect(within(select).queryByText("Internal path")).toBeNull();
+    first.unmount();
+
+    renderPicker({ allowInternal: true });
+    expect(
+      within(screen.getByRole("combobox", { name: "Link type" })).getByText(
+        "Internal path",
+      ),
+    ).toBeVisible();
+  });
+
+  it("commits a safe internal path", async () => {
+    vi.useFakeTimers();
+    const { onChange } = renderPicker({ allowInternal: true });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Link type" }), {
+      target: { value: "INTERNAL" },
+    });
+    const field = screen.getByRole("textbox", { name: "Internal path" });
+    fireEvent.change(field, { target: { value: "/track-order" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "INTERNAL",
+      path: "/track-order",
+    });
+  });
+
+  it("keeps the typed text and shows an inline error for a protocol-relative path", async () => {
+    vi.useFakeTimers();
+    const { onChange } = renderPicker({ allowInternal: true });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Link type" }), {
+      target: { value: "INTERNAL" },
+    });
+    const field = screen.getByRole("textbox", { name: "Internal path" });
+    fireEvent.change(field, { target: { value: "//evil.test/x" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "INTERNAL" }),
+    );
+    expect(field).toHaveValue("//evil.test/x");
+    expect(screen.getByText("Enter a site path starting with /.")).toBeVisible();
+  });
+
+  it("preserves the typed path when the admin language changes", async () => {
+    vi.useFakeTimers();
+    renderPicker({ allowInternal: true });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Link type" }), {
+      target: { value: "INTERNAL" },
+    });
+    const field = screen.getByRole("textbox", { name: "Internal path" });
+    fireEvent.change(field, { target: { value: "/track-order" } });
+
+    await act(async () => {
+      setAdminLang("zh");
+    });
+
+    expect(
+      screen.getByRole("textbox", { name: "站内路径" }),
+    ).toHaveValue("/track-order");
+  });
+
+  it("declares the internal-path keys in both dictionaries with parity", () => {
+    const keys = [
+      "homepage_builder_link_type_INTERNAL" as const,
+      "homepage_builder_link_internal_path" as const,
+      "homepage_builder_link_internal_invalid" as const,
     ];
     for (const key of keys) {
       expect(zh[key]).toBeTruthy();

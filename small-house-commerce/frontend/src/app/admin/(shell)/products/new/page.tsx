@@ -104,6 +104,7 @@ export default function NewProductPage(): ReactNode {
   const [stockFailures, setStockFailures] = useState<StockFailureRow[]>([]);
   // Created-product id held so the retry panel can refetch/navigate.
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [createdForGraph, setCreatedForGraph] = useState<AdminProduct | null>(null);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -215,10 +216,7 @@ export default function NewProductPage(): ReactNode {
   }, [stockFailures, createdId, router, t]);
 
   const handleSubmit = (v: ProductFormValue): void => {
-    // Once POST succeeds, this page is recovery-only. Re-submitting would either
-    // 409 on the same slug or create a duplicate after the operator edits it;
-    // the persisted row must be continued from its edit-page link instead.
-    if (createdId !== null) return;
+    if (createdId !== null && createdForGraph === null) return;
     const stockError = validateStockEntry(v, t);
     if (stockError) {
       setError(stockError);
@@ -238,7 +236,9 @@ export default function NewProductPage(): ReactNode {
     if (v.graphTyped && v.graph) {
       const draft = structuredClone(v.graph);
       stripUnsavableMedia(draft);
-      syncSharedMediaDraft(draft, result.value.images);
+      syncSharedMediaDraft(draft, v.images.filter(image => image.url.trim()).map((image, index) => ({
+        ...result.value.images[index]!, id: image.id, clientKey: image.clientKey,
+      })));
       const hasTypedRows =
         draft.options.length > 0 ||
         draft.variants.length > 0 ||
@@ -249,36 +249,39 @@ export default function NewProductPage(): ReactNode {
         phaseDraft = draft;
         // The graph patch owns shared media and variants for this save;
         // sending them through the legacy create as well would duplicate rows.
-        createPayload = { ...result.value, images: [], variants: [] };
+        createPayload = { ...result.value, status: "DRAFT", images: [], variants: [] };
       }
     }
 
     setPending(true);
     setError(null);
     setStockFailures([]);
-    setCreatedId(null);
     void (async () => {
-      // Null until createProduct resolves: the catch uses it to tell a
-      // create-time slug conflict apart from a post-create phase failure.
-      let created: AdminProduct | null = null;
+      let created: AdminProduct | null = createdForGraph;
       try {
-        created = await adminApi.createProduct(createPayload);
+        if (!created) created = await adminApi.createProduct(createPayload);
         if (!mounted.current) return;
         // The product row EXISTS from here on (with empty images/variants
         // when the typed flow runs). Point at it immediately so ANY later
         // failure — Phase A graph PATCH included — leaves the operator a
         // continue-on-edit escape instead of a re-submit that 409s on slug.
         setCreatedId(created.id);
+        if (phaseDraft) setCreatedForGraph(created);
         let stockWrites: StockBatchWrite[] = [];
         let saved = created;
         if (phaseDraft) {
           // Phase A — the created product's graph is empty; diff the draft
           // against that baseline and adopt the graph snapshot response.
           const graphPatch = buildCatalogGraphPatch(EMPTY_GRAPH_BASELINE, phaseDraft);
+          const scalars: Partial<typeof result.value> = { ...result.value };
+          delete scalars.images;
+          delete scalars.variants;
           saved = await adminApi.updateProduct(created.id, {
+            ...scalars,
             ...toWireCatalogGraphPatch(graphPatch, created.catalogGraphVersion),
           });
           if (!mounted.current) return;
+          setCreatedForGraph(null);
           stockWrites = collectStockBatch(phaseDraft, EMPTY_DRAFT_BASELINE);
         }
 

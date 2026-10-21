@@ -4,6 +4,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import {
+  BackInStockService,
+  type BackInStockClaim,
+} from '../newsletter/back-in-stock.service.js';
+import { getBundleAvailabilityForSkus } from './bundle-inventory.js';
 
 /**
  * Inventory operations shared by orders (reserve/release) and the admin
@@ -33,9 +38,47 @@ export type SetOnHandBatchResult =
 /** Ledger writes per chunk; chunks run sequentially. */
 const BATCH_CHUNK_SIZE = 10;
 
+/** One SKU in the cost-backfill grid. */
+export interface SkuCostRow {
+  skuId: string;
+  skuCode: string;
+  productId: string;
+  productName: string;
+  variantName: string;
+  supplierCost: number | null;
+  landedCost: number | null;
+  costCurrency: string | null;
+  onHand: number;
+  reserved: number;
+  available: number;
+  /** Units sold in the last 30 days — what tells the operator where to start. */
+  unitsSold30d: number;
+}
+
+/** Settled outcome for one cost row. A failure never aborts the batch. */
+export type SetCostResult =
+  | {
+      skuId: string;
+      ok: true;
+      landedCost: number | null;
+      supplierCost: number | null;
+      costCurrency: string | null;
+    }
+  | { skuId: string; ok: false; error: string };
+
+export interface SetCostItemInput {
+  skuId: string;
+  landedCost?: number | null;
+  supplierCost?: number | null;
+  costCurrency?: string | null;
+}
+
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly backInStock: BackInStockService,
+  ) {}
 
   /**
    * on_hand / reserved / available per SKU, across all warehouses. SKUs with no
@@ -58,6 +101,8 @@ export class InventoryService {
       result.set(row.skuId, { onHand, reserved, available: onHand - reserved });
     }
 
+    const bundles = await getBundleAvailabilityForSkus(this.prisma, skuIds);
+    for (const [skuId, available] of bundles) result.set(skuId, { onHand: 0, reserved: 0, available });
     return result;
   }
 
@@ -91,10 +136,12 @@ export class InventoryService {
       throw new BadRequestException(`Insufficient stock: available ${available}, requested ${quantity}`);
     }
 
-    await tx.inventory.update({
-      where: { id: inventory.id },
-      data: { reserved: { increment: quantity } },
-    });
+    const changed = await tx.$executeRaw`
+      UPDATE inventory SET reserved = reserved + ${quantity}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${inventory.id}::uuid AND on_hand - reserved >= ${quantity}
+        AND EXISTS (SELECT 1 FROM skus WHERE id = ${skuId}::uuid AND is_bundle = false)
+    `;
+    if (changed !== 1) throw new BadRequestException('Insufficient stock or virtual Bundle inventory');
     await tx.inventoryReservation.create({
       data: { orderId, skuId, warehouseId, quantity },
     });
@@ -114,10 +161,21 @@ export class InventoryService {
    * Releases every active reservation of an order (DATABASE.md §31: cancel /
    * deny release remaining reservations).
    */
-  async releaseForOrder(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+  async releaseForOrder(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    { claimBackInStock = false }: { claimBackInStock?: boolean } = {},
+  ): Promise<BackInStockClaim[]> {
     const reservations = await tx.inventoryReservation.findMany({
       where: { orderId, status: 'ACTIVE' },
+      orderBy: [{ skuId: 'asc' }, { id: 'asc' }],
     });
+    if (reservations.length === 0) return [];
+
+    const changedSkuIds = [...new Set(reservations.map(({ skuId }) => skuId))];
+    const before = claimBackInStock
+      ? await this.backInStock.snapshotForChangedSkusWithin(tx, changedSkuIds)
+      : null;
 
     for (const reservation of reservations) {
       await tx.inventory.update({
@@ -139,6 +197,13 @@ export class InventoryService {
         },
       });
     }
+
+    if (!before) return [];
+    const after = await this.backInStock.snapshotForChangedSkusWithin(
+      tx,
+      changedSkuIds,
+    );
+    return this.backInStock.claimTransitionsWithin(tx, before, after);
   }
 
   /**
@@ -225,62 +290,12 @@ export class InventoryService {
     if (quantity === 0) {
       throw new BadRequestException('Adjustment quantity must not be zero');
     }
-
-    const warehouse = await this.defaultWarehouse();
-    let inventory = await this.prisma.inventory.findUnique({
-      where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
-    });
-
-    // First adjustment for a SKU creates the record (stock arrives at the
-    // warehouse), so a bare on-hand row never needs manual pre-seeding.
-    if (!inventory) {
-      if (quantity < 0) {
-        throw new BadRequestException('Cannot open a negative inventory record');
-      }
-      await this.prisma.inventory.create({
-        data: { skuId, warehouseId: warehouse.id, onHand: quantity, reserved: 0 },
-      });
-      await this.prisma.inventoryMovement.create({
-        data: {
-          skuId,
-          warehouseId: warehouse.id,
-          movementType: 'MANUAL_ADJUSTMENT',
-          quantity,
-          operatorId,
-          reason: reason ?? 'initial stock',
-        },
-      });
-      inventory = await this.prisma.inventory.findUniqueOrThrow({
-        where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
-      });
-      return { onHand: inventory.onHand, reserved: inventory.reserved, available: inventory.onHand - inventory.reserved };
-    }
-
-    if (quantity < 0 && inventory.onHand + quantity < 0) {
-      throw new BadRequestException('Adjustment would make on-hand negative');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.inventory.update({
-        where: { id: inventory.id },
-        data: { onHand: { increment: quantity } },
-      });
-      await tx.inventoryMovement.create({
-        data: {
-          skuId,
-          warehouseId: warehouse.id,
-          movementType: 'MANUAL_ADJUSTMENT',
-          quantity,
-          operatorId,
-          reason,
-        },
-      });
-    });
-
-    const updated = await this.prisma.inventory.findUniqueOrThrow({
-      where: { id: inventory.id },
-    });
-    return { onHand: updated.onHand, reserved: updated.reserved, available: updated.onHand - updated.reserved };
+    return this.mutateManualStock(
+      skuId,
+      { kind: 'DELTA', value: quantity },
+      reason,
+      operatorId,
+    );
   }
 
   /**
@@ -298,27 +313,127 @@ export class InventoryService {
     if (!Number.isInteger(onHand) || onHand < 0) {
       throw new BadRequestException('Stock must be a whole number of 0 or more');
     }
+    return this.mutateManualStock(
+      skuId,
+      { kind: 'ABSOLUTE', value: onHand },
+      reason ?? 'Stock set from product form',
+      operatorId,
+    );
+  }
 
-    const warehouse = await this.defaultWarehouse();
-    const inventory = await this.prisma.inventory.findUnique({
-      where: { skuId_warehouseId: { skuId, warehouseId: warehouse.id } },
-    });
-
-    const current = inventory?.onHand ?? 0;
-    const reserved = inventory?.reserved ?? 0;
-    // On-hand may never fall below what open orders already hold, or available
-    // (on_hand - reserved) would go negative and the storefront would sell air.
-    if (onHand < reserved) {
+  private async mutateManualStock(
+    skuId: string,
+    mutation:
+      | { kind: 'DELTA'; value: number }
+      | { kind: 'ABSOLUTE'; value: number },
+    reason: string | undefined,
+    operatorId: string | undefined,
+  ) {
+    if (
+      (
+        await this.prisma.sku.findUnique({
+          where: { id: skuId },
+          select: { isBundle: true },
+        })
+      )?.isBundle
+    ) {
       throw new BadRequestException(
-        `Stock cannot go below the ${reserved} unit(s) reserved by open orders`,
+        'Virtual Bundle stock comes from its components',
       );
     }
+    const warehouse = await this.defaultWarehouse();
+    const { stock, claims } = await this.prisma.$transaction(async (tx) => {
+      const before = await this.backInStock.snapshotForChangedSkusWithin(tx, [
+        skuId,
+      ]);
+      let current = await tx.inventory.findUnique({
+        where: {
+          skuId_warehouseId: { skuId, warehouseId: warehouse.id },
+        },
+      });
+      if (current) {
+        await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${current.id}::uuid FOR UPDATE`;
+        current = await tx.inventory.findUniqueOrThrow({
+          where: { id: current.id },
+        });
+      }
 
-    const delta = onHand - current;
-    if (delta === 0) {
-      return { onHand: current, reserved, available: current - reserved };
+      if (!current && mutation.kind === 'DELTA' && mutation.value < 0) {
+        throw new BadRequestException('Cannot open a negative inventory record');
+      }
+      const currentOnHand = current?.onHand ?? 0;
+      const reserved = current?.reserved ?? 0;
+      const target =
+        mutation.kind === 'ABSOLUTE'
+          ? mutation.value
+          : currentOnHand + mutation.value;
+      if (target < 0) {
+        throw new BadRequestException('Adjustment would make on-hand negative');
+      }
+      if (target < reserved) {
+        throw new BadRequestException(
+          `Stock cannot go below the ${reserved} unit(s) reserved by open orders`,
+        );
+      }
+
+      const delta = target - currentOnHand;
+      if (delta === 0) {
+        return {
+          stock: {
+            onHand: currentOnHand,
+            reserved,
+            available: currentOnHand - reserved,
+          },
+          claims: [] as BackInStockClaim[],
+        };
+      }
+
+      const updated = current
+        ? await tx.inventory.update({
+            where: { id: current.id },
+            data: { onHand: { increment: delta } },
+          })
+        : await tx.inventory.create({
+            data: {
+              skuId,
+              warehouseId: warehouse.id,
+              onHand: target,
+              reserved: 0,
+            },
+          });
+      await tx.inventoryMovement.create({
+        data: {
+          skuId,
+          warehouseId: warehouse.id,
+          movementType: 'MANUAL_ADJUSTMENT',
+          quantity: delta,
+          operatorId,
+          reason: reason ?? (current ? undefined : 'initial stock'),
+        },
+      });
+
+      const after = await this.backInStock.snapshotForChangedSkusWithin(tx, [
+        skuId,
+      ]);
+      const claims = await this.backInStock.claimTransitionsWithin(
+        tx,
+        before,
+        after,
+      );
+      return {
+        stock: {
+          onHand: updated.onHand,
+          reserved: updated.reserved,
+          available: updated.onHand - updated.reserved,
+        },
+        claims,
+      };
+    });
+
+    if (claims.length > 0) {
+      await this.backInStock.deliverClaims(claims);
     }
-    return this.adjust(skuId, delta, reason ?? 'Stock set from product form', operatorId);
+    return stock;
   }
 
   /**
@@ -372,6 +487,130 @@ export class InventoryService {
         operatorId,
       );
       results.push(...chunkResults);
+    }
+    return results;
+  }
+
+  /**
+   * Every active SKU with its cost, its stock and its recent sales.
+   *
+   * This is the backfill grid: an operator fills the landed cost of a SKU
+   * here instead of opening each product one by one. Numbers (not Decimal
+   * strings) come back, because the grid is a purpose-built endpoint.
+   */
+  async costRows(): Promise<SkuCostRow[]> {
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    const [skus, stock, sales] = await Promise.all([
+      this.prisma.sku.findMany({
+        where: { status: 'ACTIVE' },
+        select: {
+          id: true,
+          skuCode: true,
+          supplierCost: true,
+          landedCost: true,
+          costCurrency: true,
+          productId: true,
+          product: { select: { name: true } },
+          variant: { select: { name: true } },
+        },
+        orderBy: { skuCode: 'asc' },
+      }),
+      this.prisma.inventory.groupBy({
+        by: ['skuId'],
+        _sum: { onHand: true, reserved: true },
+      }),
+      this.prisma.orderItem.groupBy({
+        by: ['skuId'],
+        _sum: { quantity: true },
+        where: {
+          order: {
+            createdAt: { gte: since },
+            orderStatus: { notIn: ['CANCELLED', 'DENIED'] },
+          },
+        },
+      }),
+    ]);
+
+    const stockBySku = new Map(stock.map((row) => [row.skuId, row._sum]));
+    const salesBySku = new Map(
+      sales.map((row) => [row.skuId, Number(row._sum.quantity ?? 0)]),
+    );
+
+    return skus.map((sku) => {
+      const sums = stockBySku.get(sku.id);
+      const onHand = sums?.onHand ?? 0;
+      const reserved = sums?.reserved ?? 0;
+      return {
+        skuId: sku.id,
+        skuCode: sku.skuCode,
+        productId: sku.productId,
+        productName: sku.product.name,
+        variantName: sku.variant.name,
+        supplierCost:
+          sku.supplierCost === null ? null : Number(sku.supplierCost.toFixed(2)),
+        landedCost: sku.landedCost === null ? null : Number(sku.landedCost.toFixed(2)),
+        costCurrency: sku.costCurrency,
+        onHand,
+        reserved,
+        available: onHand - reserved,
+        unitsSold30d: salesBySku.get(sku.id) ?? 0,
+      };
+    });
+  }
+
+  /**
+   * Writes the costs of a backfill batch.
+   *
+   * Per-row settled results: a row that fails (unknown SKU, value the
+   * database rejects) never rolls back the rows that already went through.
+   */
+  async setCosts(items: readonly SetCostItemInput[]): Promise<SetCostResult[]> {
+    const results: SetCostResult[] = [];
+    for (const item of items) {
+      const data: Prisma.SkuUpdateInput = {};
+      if (item.landedCost !== undefined) {
+        data.landedCost =
+          item.landedCost === null ? null : new Prisma.Decimal(item.landedCost);
+      }
+      if (item.supplierCost !== undefined) {
+        data.supplierCost =
+          item.supplierCost === null ? null : new Prisma.Decimal(item.supplierCost);
+      }
+      if (item.costCurrency !== undefined) {
+        data.costCurrency = item.costCurrency;
+      }
+      try {
+        if (Object.keys(data).length === 0) {
+          results.push({
+            skuId: item.skuId,
+            ok: true,
+            landedCost: null,
+            supplierCost: null,
+            costCurrency: null,
+          });
+          continue;
+        }
+        const updated = await this.prisma.sku.update({
+          where: { id: item.skuId },
+          data,
+          select: { landedCost: true, supplierCost: true, costCurrency: true },
+        });
+        results.push({
+          skuId: item.skuId,
+          ok: true,
+          landedCost:
+            updated.landedCost === null ? null : Number(updated.landedCost.toFixed(2)),
+          supplierCost:
+            updated.supplierCost === null ? null : Number(updated.supplierCost.toFixed(2)),
+          costCurrency: updated.costCurrency,
+        });
+      } catch (error) {
+        results.push({
+          skuId: item.skuId,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Update failed',
+        });
+      }
     }
     return results;
   }

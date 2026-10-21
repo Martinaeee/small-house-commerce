@@ -39,7 +39,14 @@ import { homepagePayloadSchemas } from './dto/homepage-section.dto.js';
 export type LinkEntityType = 'PRODUCT' | 'COLLECTION' | 'CATEGORY' | 'LANDING';
 
 /** A `LinkValue` that points at a stored entity row (needs a lookup). */
-type EntityLink = Exclude<LinkValue, { type: 'EXTERNAL' }>;
+type EntityLink = Exclude<LinkValue, { type: 'EXTERNAL' } | { type: 'INTERNAL' }>;
+
+/** Links that carry their own href and need no entity lookup. */
+function isSelfResolvingLink(
+  link: LinkValue | null,
+): link is Extract<LinkValue, { type: 'EXTERNAL' | 'INTERNAL' }> {
+  return link !== null && (link.type === 'EXTERNAL' || link.type === 'INTERNAL');
+}
 
 type ProductStatus = 'ACTIVE' | 'DRAFT' | 'DISABLED';
 
@@ -146,7 +153,7 @@ function collectLookupIds(doc: HomepageDocument): LookupIds {
     landingIds: new Set(),
   };
   const addLink = (link: LinkValue | null): void => {
-    if (link === null || link.type === 'EXTERNAL') return;
+    if (link === null || isSelfResolvingLink(link)) return;
     switch (link.type) {
       case 'PRODUCT':
         ids.productIds.add(link.id);
@@ -256,7 +263,7 @@ function checkHeroSection(
     for (const key of HERO_ELEMENT_KEYS) {
       if (!isHeroElementEnabled(slide, key)) continue;
       const link = slide.elements[key].link;
-      if (link === null || link.type === 'EXTERNAL') continue;
+      if (link === null || isSelfResolvingLink(link)) continue;
       if (linkExists(link, results)) continue;
       errors.push(
         issue(
@@ -533,7 +540,7 @@ function checkAnnouncement(
   for (const item of announcement.items) {
     if (!item.enabled) continue;
     const { link } = item;
-    if (link === null || link.type === 'EXTERNAL') continue;
+    if (link === null || isSelfResolvingLink(link)) continue;
     if (linkExists(link, results)) continue;
     errors.push(
       issue(

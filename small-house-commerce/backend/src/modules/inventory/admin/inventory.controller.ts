@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { Permissions } from '../../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
@@ -8,9 +8,11 @@ import { InventoryService } from '../inventory.service.js';
 import {
   inventoryAdjustSchema,
   inventoryBatchSetStockSchema,
+  inventoryCostBatchSchema,
   inventorySetStockSchema,
   type InventoryAdjustInput,
   type InventoryBatchSetStockInput,
+  type InventoryCostBatchInput,
   type InventorySetStockInput,
 } from '../dto/inventory.dto.js';
 
@@ -53,5 +55,25 @@ export class AdminInventoryController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.inventoryService.setOnHandBatch(body, user.userId);
+  }
+
+  /**
+   * Cost backfill grid: every active SKU with its cost, stock and recent
+   * sales. Reading and writing costs is catalog work, so it asks for
+   * PRODUCT_MANAGE rather than inventory rights.
+   */
+  @Get('costs')
+  @Permissions('PRODUCT_MANAGE')
+  costs() {
+    return this.inventoryService.costRows();
+  }
+
+  /** Bulk cost write; per-row settled results, no all-or-nothing rollback. */
+  @Patch('costs')
+  @Permissions('PRODUCT_MANAGE')
+  setCosts(
+    @Body(new ZodValidationPipe(inventoryCostBatchSchema)) body: InventoryCostBatchInput,
+  ) {
+    return this.inventoryService.setCosts(body.items);
   }
 }

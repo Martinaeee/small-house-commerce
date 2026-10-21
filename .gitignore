@@ -36,6 +36,12 @@ build/
 
 # linked git worktrees for parallel feature work
 .claude/worktrees/
-# uploaded images (local-disk upload volume) — anchored so the rule cannot
-# match the backend's src/modules/uploads SOURCE directory again
-backend/uploads/
+# uploaded images (local-disk upload volume) — anchored on the full path so
+# the rule cannot match the backend's src/modules/uploads SOURCE directory
+**/backend/uploads/
+
+# local agent scratch workspace (release snapshots, evidence, prototypes)
+.superpowers/
+
+# one-off screenshots captured at the repository root
+/*.png

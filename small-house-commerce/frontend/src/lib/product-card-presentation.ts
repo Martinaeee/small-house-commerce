@@ -1,4 +1,24 @@
-import type { ProductSelectionDerived } from "./product-selection";
+import type { Product, ProductCardMediaPair } from "./api";
+import { isSelectableVariant, type ProductSelectionDerived } from "./product-selection";
+
+export function cardInitialVariantId(product: Product): string | null {
+  return product.variants.find(variant => variant.id === product.cardMedia?.displayVariantId && isSelectableVariant(variant))?.id ?? null;
+}
+
+export function cardMediaForSelection(
+  product: Product,
+  resolvedVariantId: string | null,
+  selectedValueIds: Readonly<Record<string, string>>,
+): ProductCardMediaPair {
+  if (resolvedVariantId !== null) {
+    const projected = product.cardMedia?.variants.find(row => row.variantId === resolvedVariantId);
+    return projected ? { cover: projected.cover, scene: projected.scene } : { cover: null, scene: null };
+  }
+  return Object.keys(selectedValueIds).length === 0
+    ? product.cardMedia?.unselected ?? { cover: null, scene: null }
+    : { cover: null, scene: null };
+}
+
 
 /**
  * Price presentation for surfaces where the visitor has not chosen options

@@ -30,14 +30,23 @@ import { ProductSpecs } from "@/components/product/ProductSpecs";
 import {
   formatAmount,
   type AdminCategoryNode,
+  type AdminProductFaq,
   type CreateProductInput,
   type ProductStatus,
+  type VariantCardMedia,
 } from "@/lib/admin-api";
 import {
   buildVariantCandidates,
+  cardGraphFromLegacyForm,
   entityRowKey,
+  freshClientKey,
+  removeSupersededDefaultVariant,
+  syncSharedMediaDraft,
   type AdminCatalogGraphDraft,
+  type EntityRef,
 } from "@/lib/admin-product-graph";
+import { buildProductCardPreview } from "@/lib/admin-product-card-preview";
+import { ProductCard } from "@/components/product/ProductCard";
 import {
   collectGraphIssues,
   serverIssuesFromError,
@@ -50,7 +59,10 @@ import {
   type ReadinessWarningKey,
 } from "@/lib/admin-product-readiness";
 import { ProductOptionsEditor } from "./ProductOptionsEditor";
+import { ProductFaqPanel } from "./ProductFaqPanel";
 import { VariantMatrix } from "./VariantMatrix";
+import { ProductDimensionsAssist } from "./ProductDimensionsAssist";
+import { SkuPackagingAssist } from "./SkuPackagingAssist";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
 import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
@@ -88,7 +100,7 @@ export interface ProductFormValue {
   materials: string;
   /** One feature per array slot (each becomes one line). */
   features: string[];
-  images: { url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string }[];
+  images: { id?: string; clientKey?: string; url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string; isScene?: boolean }[];
   /** PDP description body. Media-only: the supplier detail decks are images
    *  and videos, and `description` already carries the short text intro. */
   detailBlocks: {
@@ -97,7 +109,11 @@ export interface ProductFormValue {
     altText: string;
     sortOrder: string;
   }[];
+  faq?: AdminProductFaq;
   variants: {
+    id?: string;
+    clientKey?: string;
+    cardMedia?: VariantCardMedia | null;
     name: string;
     position: string;
     sku: {
@@ -109,6 +125,9 @@ export interface ProductFormValue {
       supplierCost: string;
       costCurrency: string;
       landedCost: string;
+      productWidth?: string;
+      productHeight?: string;
+      productDepth?: string;
       productWeight: string;
       packageWidth: string;
       packageHeight: string;
@@ -160,22 +179,26 @@ function nextImageSortOrder(images: readonly ImageFormValue[]): string {
 export function appendImage(
   images: ImageFormValue[],
   type: ImageFormValue["type"],
+  url = "",
 ): ImageFormValue[] {
+  const clientKey = freshClientKey("shared-media", {
+    catalogGraphVersion: 0, options: [], variants: [],
+    media: images.map((image, index) => ({
+      ...image, altText: image.altText || null, sortOrder: index,
+      optionValueRef: null, variantRef: null,
+    })),
+  });
   return [
     ...images,
-    { url: "", type, altText: "", sortOrder: nextImageSortOrder(images) },
+    { clientKey, url, type, altText: "", sortOrder: nextImageSortOrder(images), isScene: false },
   ];
 }
 
-/** Appends an image row that already carries its uploaded/pasted URL. */
 export function appendImageUrl(
   images: ImageFormValue[],
   url: string,
 ): ImageFormValue[] {
-  return [
-    ...images,
-    { url, type: "IMAGE", altText: "", sortOrder: nextImageSortOrder(images) },
-  ];
+  return appendImage(images, "IMAGE", url);
 }
 
 /**
@@ -273,15 +296,23 @@ const DIMENSION_FIELDS: {
   labelKey: TKey;
   hintKey: TKey;
 }[] = [
+  // Read as 长 × 宽 × 高 (length × width × height), the operator's convention:
+  // the `depth` column is the front-to-back width, `height` stays last.
   { key: "width", labelKey: "product_dim_width", hintKey: "product_dim_width_hint" },
-  { key: "height", labelKey: "product_dim_height", hintKey: "product_dim_height_hint" },
   { key: "depth", labelKey: "product_dim_depth", hintKey: "product_dim_depth_hint" },
+  { key: "height", labelKey: "product_dim_height", hintKey: "product_dim_height_hint" },
   { key: "foldedWidth", labelKey: "product_dim_folded_width", hintKey: "product_dim_folded_width_hint" },
-  { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
   { key: "foldedDepth", labelKey: "product_dim_folded_depth", hintKey: "product_dim_folded_depth_hint" },
+  { key: "foldedHeight", labelKey: "product_dim_folded_height", hintKey: "product_dim_folded_height_hint" },
 ];
 
-const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
+const SKU_PRODUCT_DIM_FIELDS = [
+  { key: "productWidth", base: "width", label: "product_matrix_col_product_width", aria: "product_matrix_product_width_aria", clear: "product_matrix_clear_product_width" },
+  { key: "productDepth", base: "depth", label: "product_matrix_col_product_depth", aria: "product_matrix_product_depth_aria", clear: "product_matrix_clear_product_depth" },
+  { key: "productHeight", base: "height", label: "product_matrix_col_product_height", aria: "product_matrix_product_height_aria", clear: "product_matrix_clear_product_height" },
+] as const;
+
+const SKU_NUM_FIELDS = [
   { key: "price", labelKey: "product_sku_price" },
   { key: "compareAtPrice", labelKey: "product_sku_compare_at" },
   { key: "supplierCost", labelKey: "product_sku_supplier_cost" },
@@ -292,7 +323,7 @@ const SKU_NUM_FIELDS: { key: keyof SkuFormValue; labelKey: TKey }[] = [
   { key: "packageDepth", labelKey: "product_sku_package_depth" },
   { key: "packageWeight", labelKey: "product_sku_package_weight" },
   { key: "volumetricWeight", labelKey: "product_sku_volumetric_weight" },
-];
+] as const satisfies readonly { key: keyof SkuFormValue; labelKey: TKey }[];
 
 const SKU_LABEL_KEYS: Partial<Record<keyof SkuFormValue, TKey>> = Object.fromEntries(
   SKU_NUM_FIELDS.map((f) => [f.key, f.labelKey]),
@@ -333,6 +364,9 @@ export function emptySkuFormValue(): SkuFormValue {
     supplierCost: "",
     costCurrency: "",
     landedCost: "",
+    productWidth: "",
+    productHeight: "",
+    productDepth: "",
     productWeight: "",
     packageWidth: "",
     packageHeight: "",
@@ -587,6 +621,7 @@ export function serializeFormValue(
     images.push({
       url,
       type: img.type,
+      isScene: img.isScene ?? false,
       ...(altText ? { altText } : {}),
       sortOrder,
     });
@@ -656,7 +691,7 @@ export function serializeFormValue(
       if (costCurrency.length > 8)
         addError(errors, `variants.${i}.sku.costCurrency`, translate("product_err_currency_max"));
 
-      const skuRecord: Record<string, string | number> = {
+      const skuRecord: Record<string, string | number | null> = {
         skuCode,
         status: SKU_STATUSES.includes(formSku.status)
           ? formSku.status
@@ -676,12 +711,23 @@ export function serializeFormValue(
         // Empty -> omit (optional server field); parse errors are recorded.
         if (raw !== "" && n !== null) skuRecord[key] = n;
       }
+      for (const [key, labelKey] of [
+        ["productWidth", "product_matrix_col_product_width"],
+        ["productHeight", "product_matrix_col_product_height"],
+        ["productDepth", "product_matrix_col_product_depth"],
+      ] as const) {
+        const raw = formSku[key];
+        if (raw !== undefined) {
+          skuRecord[key] = parseNonNegative(raw, `variants.${i}.sku.${key}`, translate(labelKey), errors, translate);
+        }
+      }
       sku = skuRecord as CreateSkuInput;
     }
 
     variants.push({
       name: variantName,
       position,
+      ...(vr.cardMedia !== undefined ? { cardMedia: vr.cardMedia } : {}),
       ...(sku ? { sku } : {}),
     });
   });
@@ -714,6 +760,15 @@ export function serializeFormValue(
     images,
     detailBlocks,
     variants,
+    ...(v.faq
+      ? {
+          faq: {
+            mode: v.faq.mode,
+            items: v.faq.items,
+            expectedVersion: v.faq.version,
+          },
+        }
+      : {}),
   };
   return { ok: true, value };
 }
@@ -785,6 +840,7 @@ const READINESS_CHECK_TABS: Record<ReadinessCheckKey, TabKey> = {
   basic: "basic",
   priced_sku: "variants",
   shared_media: "media",
+  card_media: "media",
   shipping: "shipping",
   default_variant: "variants",
 };
@@ -797,8 +853,8 @@ const READINESS_WARNING_TABS: Record<ReadinessWarningKey, TabKey> = {
 const SHIPPING_SKU_KEYS = [
   "productWeight",
   "packageWidth",
-  "packageHeight",
   "packageDepth",
+  "packageHeight",
   "packageWeight",
   "volumetricWeight",
 ] as const;
@@ -906,8 +962,18 @@ export function ProductForm({
   // writes for graph products, so the UI pauses those editors explicitly
   // instead of letting a doomed PATCH surface as a raw 409.
   const typed = value.graphTyped === true && value.graph !== undefined;
+  const [bundleSaving, setBundleSaving] = useState(false);
   const graphLocked = !typed && (value.graph?.catalogGraphVersion ?? 0) > 0;
   const graphDraft = typed && value.graph ? value.graph : null;
+  const cardDraft = useMemo(() => {
+    if (!graphDraft) return cardGraphFromLegacyForm(value);
+    const draft = structuredClone(graphDraft);
+    syncSharedMediaDraft(draft, value.images);
+    return draft;
+  }, [graphDraft, value]);
+  const [cardPreviewVariantRef, setCardPreviewVariantRef] = useState<EntityRef | null>(null);
+  const cardPreview = useMemo(() => buildProductCardPreview(value, cardDraft, cardPreviewVariantRef), [value, cardDraft, cardPreviewVariantRef]);
+  const hasBundleDraft = graphDraft?.variants.some(variant => variant.sku?.bundleDraft !== undefined) ?? false;
 
   useLayoutEffect(() => {
     if (
@@ -937,7 +1003,18 @@ export function ProductForm({
       if (!prev.graph) return prev;
       const draft = structuredClone(prev.graph);
       mutate(draft);
+      removeSupersededDefaultVariant(draft);
       return { ...prev, graph: draft };
+    });
+    clearValidation();
+  };
+
+  const updateCardGraph = (mutate: (draft: AdminCatalogGraphDraft) => void): void => {
+    setValue(prev => {
+      const draft = prev.graphTyped && prev.graph ? structuredClone(prev.graph) : cardGraphFromLegacyForm(prev);
+      mutate(draft);
+      removeSupersededDefaultVariant(draft);
+      return { ...prev, graph: draft, graphTyped: true };
     });
     clearValidation();
   };
@@ -1017,9 +1094,10 @@ export function ProductForm({
         description: value.description,
         images: value.images,
         graph: graphDraft,
+        cardGraph: cardDraft,
         legacyVariants: value.variants,
       }),
-    [value, graphDraft],
+    [value, graphDraft, cardDraft],
   );
 
   // The rail's blocking list is the SAME issue list the save path builds, so
@@ -1069,7 +1147,9 @@ export function ProductForm({
   const setImage = (i: number, p: Partial<ImageFormValue>): void => {
     setValue((prev) => ({
       ...prev,
-      images: prev.images.map((img, j) => (j === i ? { ...img, ...p } : img)),
+      images: prev.images.map((img, j) => (j === i ? {
+        ...img, ...p, ...(p.type === "VIDEO" ? { isScene: false } : {}),
+      } : img)),
     }));
     clearValidation();
   };
@@ -1080,14 +1160,18 @@ export function ProductForm({
   const addMediaWithUrl = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
     setValue((prev) => ({
       ...prev,
-      images: [...prev.images, { ...media, altText: "", sortOrder: nextImageSortOrder(prev.images) }],
+      images: appendImage(prev.images, media.type, media.url),
     }));
     clearValidation();
   };
   const uploadTargets = new Set([
-    "shared", "detail",
-    ...(value.graph?.options.flatMap((option) => option.values.map((row) => `value:${entityRowKey(row)}`)) ?? []),
-    ...(value.graph?.variants.map((row) => `variant:${entityRowKey(row)}`) ?? []),
+    "detail",
+    ...(graphLocked ? [] : [
+      "shared",
+      ...(value.graph?.options.flatMap((option) => option.values.map((row) => `value:${entityRowKey(row)}`)) ?? []),
+      ...(value.graph?.variants.map((row) => `variant:${entityRowKey(row)}`) ?? []),
+      ...cardDraft.variants.flatMap(row => (["cover", "hover"] as const).map(slot => `card:${entityRowKey(row)}:${slot}`)),
+    ]),
   ]);
   const batchUpload = useMediaBatchUpload({ disabled: pending, isTargetAvailable: (key) => uploadTargets.has(key) });
   // Scoped receipts live inside their option-value/variant details, which can be
@@ -1235,10 +1319,15 @@ export function ProductForm({
     clearValidation();
   };
   const addVariant = (): void => {
-    setValue((prev) => ({
-      ...prev,
-      variants: [...prev.variants, { name: "", position: "", sku: null }],
-    }));
+    setValue((prev) => {
+      const clientKey = freshClientKey("legacy-variant", {
+        catalogGraphVersion: 0, options: [], media: [],
+        variants: prev.variants.map(row => ({
+          ...row, position: 0, combinationKey: "", optionValueRefs: [], sku: null,
+        })),
+      });
+      return { ...prev, variants: [...prev.variants, { clientKey, name: "", position: "", sku: null }] };
+    });
     clearValidation();
   };
   const removeVariant = (i: number): void => {
@@ -1304,7 +1393,7 @@ export function ProductForm({
 
   /** Serializes + submits the one form value using its selected wire status. */
   const submitForm = (): void => {
-    if (pending || batchUpload.uploading) return;
+    if (pending || batchUpload.uploading || bundleSaving || hasBundleDraft) return;
     const target = value;
     // Task 11: typed-graph validation runs BEFORE the legacy serializer so a
     // graph problem jumps straight to the editors even when basics are fine.
@@ -1464,7 +1553,7 @@ export function ProductForm({
         currentStatus={value.status}
         savedStatus={savedPreview?.status ?? null}
         pending={pending}
-        saveDisabledReason={batchUpload.uploading ? t("product_media_batch_wait") : null}
+        saveDisabledReason={batchUpload.uploading ? t("product_media_batch_wait") : bundleSaving ? t("bundle_saving") : hasBundleDraft ? t("bundle_unsaved") : null}
         currentTab={activeTab}
         tabIndicators={tabIndicators}
         labels={{
@@ -1482,6 +1571,7 @@ export function ProductForm({
             specs: t("product_form_tab_specs"),
             shipping: t("product_form_tab_shipping"),
             seo: t("product_form_tab_seo"),
+            faq: t("product_form_tab_faq"),
             preview: t("product_form_tab_preview"),
           },
           tabsAria: t("product_form_tabs_aria"),
@@ -1734,6 +1824,8 @@ export function ProductForm({
             pending={pending}
             graphDraft={graphDraft}
             onGraphChange={typed && graphDraft ? updateGraph : null}
+            cardMediaEditor={{ draft: cardDraft, onChange: updateCardGraph, batchUpload, onPreviewVariant: setCardPreviewVariantRef }}
+            cardPreview={<ProductCard product={cardPreview} interactionMode="preview" />}
             highlightKey={highlight?.key ?? null}
             highlightNonce={highlight?.nonce ?? 0}
             sharedMedia={{
@@ -1771,17 +1863,34 @@ export function ProductForm({
                 title={t("product_specs_dimensions_title")}
                 hint={t("product_specs_dimensions_hint")}
               >
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <ProductDimensionsAssist
+                  value={{
+                    width: value.width,
+                    height: value.height,
+                    depth: value.depth,
+                    foldedWidth: value.foldedWidth,
+                    foldedHeight: value.foldedHeight,
+                    foldedDepth: value.foldedDepth,
+                  }}
+                  onApply={(dimensionPatch) => patch(dimensionPatch)}
+                  disabled={pending}
+                />
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {DIMENSION_FIELDS.map(({ key, labelKey, hintKey }) => (
                     <Field
                       key={key}
-                      label={t(labelKey)}
+                      label={t("product_dimension_label_with_unit", {
+                        label: t(labelKey),
+                      })}
                       htmlFor={`pf-${key}`}
                       error={err(key)}
                       hint={t(hintKey)}
                     >
                       <TextInput
                         id={`pf-${key}`}
+                        aria-label={t("product_dimension_label_with_unit", {
+                          label: t(labelKey),
+                        })}
                         inputMode="decimal"
                         placeholder={t("product_specs_optional_placeholder")}
                         value={value[key]}
@@ -1898,9 +2007,16 @@ export function ProductForm({
                 candidates={candidates}
                 draft={graphDraft}
                 onChange={updateGraph}
-                pending={pending || batchUpload.uploading}
+                pending={pending || batchUpload.uploading || bundleSaving}
+                productId={productId}
+                onBundleSavingChange={setBundleSaving}
                 highlightKey={highlight?.key ?? null}
                 requestedSkuCode={requestedSkuCode}
+                productDimensions={{
+                  width: previewNumber(value.width),
+                  height: previewNumber(value.height),
+                  depth: previewNumber(value.depth),
+                }}
               />
             </div>
           </Section>
@@ -1942,7 +2058,7 @@ export function ProductForm({
                         type="button"
                         className="text-sm font-semibold text-red-700 hover:underline disabled:text-ink-muted disabled:no-underline"
                         onClick={() => removeVariant(i)}
-                        disabled={pending}
+                        disabled={pending || batchUpload.uploading}
                       >
                         {t("product_variant_remove")}
                       </button>
@@ -2041,6 +2157,44 @@ export function ProductForm({
                               ))}
                             </Select>
                           </Field>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                          {SKU_PRODUCT_DIM_FIELDS.map(
+                            ({ key, base, label, aria, clear }) => (
+                              <Field
+                                key={key}
+                                label={t(label)}
+                                htmlFor={`pf-variants-${i}-sku-${key}`}
+                                error={err(`variants.${i}.sku.${key}`)}
+                              >
+                                <TextInput
+                                  id={`pf-variants-${i}-sku-${key}`}
+                                  aria-label={t(aria, { name: vr.name })}
+                                  inputMode="decimal"
+                                  value={vr.sku?.[key] ?? ""}
+                                  placeholder={value[base] || undefined}
+                                  onChange={(event) =>
+                                    setSku(i, { [key]: event.target.value })
+                                  }
+                                  autoComplete="off"
+                                />
+                                {vr.sku?.[key]?.trim() ? (
+                                  <button
+                                    type="button"
+                                    className="text-xs text-ink-muted underline"
+                                    onClick={() => setSku(i, { [key]: "" })}
+                                  >
+                                    {t(clear, { name: vr.name })}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-ink-muted">
+                                    {t("product_matrix_dimension_inherited")}
+                                  </span>
+                                )}
+                              </Field>
+                            ),
+                          )}
                         </div>
 
                         {/* Stock lives in its own table, which is why the product
@@ -2149,7 +2303,7 @@ export function ProductForm({
               size="md"
               className="mt-4"
               onClick={addVariant}
-              disabled={pending}
+              disabled={pending || batchUpload.uploading}
             >
               {t("product_variant_add")}
             </Button>
@@ -2184,13 +2338,22 @@ export function ProductForm({
                       ) : null}
                     </p>
                     {variant.sku ? (
+                      <>
+                      <SkuPackagingAssist
+                        value={variant.sku}
+                        onApply={(patch) => updateGraph((draft) => {
+                          const target = draft.variants.find((item) => item.combinationKey === variant.combinationKey);
+                          if (target?.sku) Object.assign(target.sku, patch);
+                        })}
+                        disabled={pending}
+                      />
                       <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {SHIPPING_SKU_KEYS.map((key) => {
                           const labelKey = SKU_LABEL_KEYS[key];
                           return (
                             <Field
                               key={key}
-                              label={labelKey ? t(labelKey) : String(key)}
+                              label={`${labelKey ? t(labelKey) : String(key)} (${key.endsWith("Weight") ? "kg" : "cm"})`}
                             >
                               <DecimalInput
                                 aria-label={t("product_shipping_field_aria", {
@@ -2213,6 +2376,7 @@ export function ProductForm({
                           );
                         })}
                       </div>
+                      </>
                     ) : (
                       <p className="mt-2 text-xs text-ink-muted">
                         {t("product_shipping_typed_no_sku")}
@@ -2351,6 +2515,15 @@ export function ProductForm({
               </p>
             )}
           </Section>
+        )}
+
+        {activeTab === "faq" && (
+          <ProductFaqPanel
+            value={value.faq}
+            onChange={(faq) => patch({ faq })}
+            savedValue={initial.faq}
+            productId={productId}
+          />
         )}
 
         {activeTab === "preview" && (

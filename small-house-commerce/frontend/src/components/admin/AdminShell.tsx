@@ -35,12 +35,19 @@ import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
  * No storefront layout code is imported — only the pattern is mirrored.
  */
 
+type NavPermission = string | readonly string[];
+
 interface NavItem {
   kind: "item";
   href: string;
   /** i18n dictionary key (see src/i18n/zh.ts nav_*). */
   labelKey: TKey;
-  permission: string;
+  permission: NavPermission;
+  /**
+   * Match only the exact path. `/admin` is the dashboard, and a prefix match
+   * there would mark it active on every admin route.
+   */
+  exact?: boolean;
 }
 
 /**
@@ -51,13 +58,32 @@ interface NavItem {
 interface NavGroup {
   kind: "group";
   labelKey: TKey;
-  permission: string;
+  permission: NavPermission;
   items: NavItem[];
 }
 
 type NavEntry = NavItem | NavGroup;
 
 const NAV_ITEMS: NavEntry[] = [
+  {
+    kind: "item",
+    href: "/admin",
+    labelKey: "nav_dashboard",
+    // Any module permission earns a seat at the workbench; the groups inside
+    // the page are gated individually. ORDER_VIEW_OWN is not enough: the
+    // dashboard aggregates every order, so an owner-scoped account must not
+    // get a seat that shows it site-wide numbers.
+    permission: [
+      "ORDER_VIEW_ALL",
+      "INVENTORY_VIEW",
+      "PRODUCT_MANAGE",
+      "MARKETING_VIEW_OWN",
+      "MARKETING_VIEW_ALL",
+      "REPORT_PROFIT_VIEW",
+      "CUSTOMER_MANAGE",
+    ],
+    exact: true,
+  },
   {
     kind: "item",
     href: "/admin/orders",
@@ -78,40 +104,63 @@ const NAV_ITEMS: NavEntry[] = [
   },
   {
     kind: "item",
+    href: "/admin/faq",
+    labelKey: "nav_faq",
+    permission: ["PRODUCT_FAQ_SHARED_MANAGE", "PRODUCT_MANAGE"],
+  },
+  {
+    kind: "item",
     href: "/admin/groupings",
     labelKey: "nav_groupings",
     permission: "PRODUCT_MANAGE",
   },
   {
-    kind: "item",
-    href: "/admin/homepage",
-    labelKey: "nav_homepage",
-    permission: "PRODUCT_MANAGE",
+    kind: "group",
+    labelKey: "nav_group_website",
+    permission: [
+      "PRODUCT_MANAGE",
+      "STOREFRONT_SHELL_MANAGE",
+      "SYSTEM_SETTINGS_EDIT",
+    ],
+    items: [
+      {
+        kind: "item",
+        href: "/admin/homepage",
+        labelKey: "nav_homepage",
+        permission: "PRODUCT_MANAGE",
+      },
+      {
+        kind: "item",
+        href: "/admin/storefront-shell",
+        labelKey: "nav_storefront_shell",
+        permission: "STOREFRONT_SHELL_MANAGE",
+      },
+      {
+        kind: "item",
+        href: "/admin/settings",
+        labelKey: "nav_settings",
+        permission: "SYSTEM_SETTINGS_EDIT",
+      },
+    ],
   },
   {
     kind: "item",
-    href: "/admin/single-pages",
-    labelKey: "nav_single_pages",
-    permission: "PRODUCT_MANAGE",
+    href: "/admin/marketing",
+    labelKey: "marketing_title",
+    permission: ["MARKETING_VIEW_OWN", "MARKETING_VIEW_ALL"],
   },
   {
     kind: "item",
-    href: "/admin/link-builder",
-    labelKey: "nav_link_builder",
-    permission: "CAMPAIGN_LINK_BUILD",
-  },
-  {
-    kind: "item",
-    href: "/admin/settings",
-    labelKey: "nav_settings",
-    permission: "SYSTEM_SETTINGS_EDIT",
+    href: "/admin/newsletter",
+    labelKey: "nav_newsletter",
+    permission: "NEWSLETTER_READ",
   },
 ];
 
 /** Permission-filtered render model: flat items plus titled groups. */
 type NavRenderEntry =
-  | { kind: "item"; href: string; label: string }
-  | { kind: "group"; label: string; items: { href: string; label: string }[] };
+  | { kind: "item"; href: string; label: string; exact?: boolean }
+  | { kind: "group"; label: string; items: { href: string; label: string; exact?: boolean }[] };
 
 const SEARCH_PERMISSIONS = [
   "PRODUCT_MANAGE",
@@ -120,6 +169,15 @@ const SEARCH_PERMISSIONS = [
 ] as const;
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
+
+function hasNavPermission(
+  hasPermission: (permission: string) => boolean,
+  required: NavPermission,
+): boolean {
+  return typeof required === "string"
+    ? hasPermission(required)
+    : required.some((permission) => hasPermission(permission));
+}
 
 function navLinkClass(active: boolean): string {
   return [
@@ -176,12 +234,13 @@ function NavLink({
   pathname,
   onNavigate,
 }: {
-  item: { href: string; label: string };
+  item: { href: string; label: string; exact?: boolean };
   pathname: string;
   onNavigate?: () => void;
 }) {
-  const active =
-    pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const active = item.exact
+    ? pathname === item.href
+    : pathname === item.href || pathname.startsWith(`${item.href}/`);
   return (
     <Link
       href={item.href}
@@ -289,17 +348,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   const navEntries: NavRenderEntry[] = [];
   for (const entry of NAV_ITEMS) {
-    if (!hasPermission(entry.permission)) continue;
+    if (!hasNavPermission(hasPermission, entry.permission)) continue;
     if (entry.kind === "item") {
       navEntries.push({
         kind: "item",
         href: entry.href,
         label: t(entry.labelKey),
+        ...(entry.exact ? { exact: true } : {}),
       });
       continue;
     }
     const items = entry.items
-      .filter((item) => hasPermission(item.permission))
+      .filter((item) => hasNavPermission(hasPermission, item.permission))
       .map((item) => ({ href: item.href, label: t(item.labelKey) }));
     if (items.length > 0) {
       navEntries.push({ kind: "group", label: t(entry.labelKey), items });
@@ -308,8 +368,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const navItems = navEntries.flatMap((entry) =>
     entry.kind === "item" ? [entry] : entry.items,
   );
-  const current = navItems.find(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
+  const current = navItems.find((item) =>
+    item.exact
+      ? pathname === item.href
+      : pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
   // One source of truth for the notifications page: the route guard below and

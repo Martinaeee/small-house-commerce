@@ -1,4 +1,5 @@
 import { request as playwrightRequest, expect, test, type Page } from "@playwright/test";
+import { E2E_API as API } from "./e2e-origins";
 
 /**
  * Task 20 — Phase 1 browser acceptance gate.
@@ -22,7 +23,6 @@ import { request as playwrightRequest, expect, test, type Page } from "@playwrig
  * Next 16 dev the rewrite proxy can serve a stale cached response, and the
  * gate must read committed truth.
  */
-const API = "http://127.0.0.1:3210/api/v1";
 
 const SLUGS = {
   legacy: "e2e-legacy-style",

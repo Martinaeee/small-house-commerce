@@ -33,7 +33,9 @@ import { errorStatus } from "@/lib/admin-auth";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   buildCatalogGraphPatch,
+  buildSavedPreview,
   collectStockBatch,
+  deserializeProduct,
   deserializeAdminProduct,
   graphFromAdminProduct,
   resolveStockBatchWrites,
@@ -93,113 +95,6 @@ const DIMENSION_KEYS = [
   "foldedHeight",
   "foldedDepth",
 ] as const;
-
-/**
- * Wire numbers arrive as JSON numbers (ints/Floats) and Decimal fields arrive
- * as STRINGS (Prisma Decimal.toJSON()) — both stringify straight through;
- * null/undefined become "".
- */
-function toFormNumber(value: number | string | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  return String(value);
-}
-
-/**
- * Maps an admin product row into the all-strings form value. Exported for
- * tests and future reuse. variant.sku becomes a full sku block or null.
- */
-export function deserializeProduct(p: AdminProduct): ProductFormValue {
-  return {
-    name: p.name,
-    slug: p.slug,
-    description: p.description ?? "",
-    tagline: p.tagline ?? "",
-    seoTitle: p.seoTitle ?? "",
-    metaDescription: p.metaDescription ?? "",
-    categoryId: p.categoryId,
-    status: p.status,
-    room: p.room ?? "",
-    internalRole: p.internalRole ?? "",
-    // Copy: ProductForm mutates this array and must never touch the API row.
-    solutions: [...p.solutions],
-    width: toFormNumber(p.width),
-    height: toFormNumber(p.height),
-    depth: toFormNumber(p.depth),
-    foldedWidth: toFormNumber(p.foldedWidth),
-    foldedHeight: toFormNumber(p.foldedHeight),
-    foldedDepth: toFormNumber(p.foldedDepth),
-    materials: p.materials ?? "",
-    features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
-    // The backend returns these ordered by sortOrder asc, so the list order is
-    // the truth. Renumbering repairs rows that were stored sharing a
-    // sortOrder — every one of them would otherwise read as the cover.
-    images: p.images.map((image, index) => ({
-      url: image.url,
-      type: image.type ?? "IMAGE",
-      altText: image.altText ?? "",
-      sortOrder: String(index),
-    })),
-    detailBlocks: p.detailBlocks.map((block, index) => ({
-      type: block.type,
-      url: block.url,
-      altText: block.altText ?? "",
-      sortOrder: String(index),
-    })),
-    variants: p.variants.map((variant) => ({
-      name: variant.name,
-      position: String(variant.position),
-      sku: variant.sku
-        ? {
-            skuCode: variant.sku.skuCode,
-            status: variant.sku.status,
-            price: toFormNumber(variant.sku.price),
-            compareAtPrice: toFormNumber(variant.sku.compareAtPrice),
-            supplierSku: variant.sku.supplierSku ?? "",
-            supplierCost: toFormNumber(variant.sku.supplierCost),
-            costCurrency: variant.sku.costCurrency ?? "",
-            landedCost: toFormNumber(variant.sku.landedCost),
-            productWeight: toFormNumber(variant.sku.productWeight),
-            packageWidth: toFormNumber(variant.sku.packageWidth),
-            packageHeight: toFormNumber(variant.sku.packageHeight),
-            packageDepth: toFormNumber(variant.sku.packageDepth),
-            packageWeight: toFormNumber(variant.sku.packageWeight),
-            volumetricWeight: toFormNumber(variant.sku.volumetricWeight),
-            // Stock round-trips separately from the product payload (it lives
-            // in the inventory table); see applyStockChanges below. Read it
-            // through toFormNumber so a response without the enrichment
-            // degrades to an empty box instead of the string "undefined".
-            id: variant.sku.id,
-            stock: toFormNumber(variant.sku.onHand),
-            reserved: toFormNumber(variant.sku.reserved),
-          }
-        : null,
-    })),
-    // Typed option graph draft (Task 10). Legacy payloads project to the
-    // synthetic STYLE bridge; graph-aware payloads keep the server rows.
-    // graphTyped gates the Task 11 editors: only payloads that actually
-    // carried the typed graph may render it (and write it back).
-    graph: deserializeAdminProduct(p),
-    graphTyped: p.options !== undefined || p.media !== undefined,
-  };
-}
-
-export function buildSavedPreview(
-  product: Pick<AdminProduct, "slug" | "status" | "variants">,
-): {
-  path: string;
-  status: AdminProduct["status"];
-  variants: { id: string; name: string; skuStatus: "ACTIVE" | "DISABLED" | null }[];
-} {
-  return {
-    path: `/products/${product.slug}`,
-    status: product.status,
-    variants: product.variants.map((variant) => ({
-      id: variant.id,
-      name: variant.name,
-      skuStatus: variant.sku?.status ?? null,
-    })),
-  };
-}
 
 /**
  * SKUs whose on-hand figure the admin changed, matched by SKU id (not by
@@ -279,6 +174,9 @@ function buildProductPatch(
   }
   if (JSON.stringify(current.variants) !== JSON.stringify(initial.variants)) {
     patch.variants = current.variants;
+  }
+  if (JSON.stringify(current.faq) !== JSON.stringify(initial.faq)) {
+    patch.faq = current.faq;
   }
 
   return patch as Partial<CreateProductInput>;
@@ -469,26 +367,26 @@ export default function EditProductPage(): ReactNode {
       const patch = buildProductPatch(result.value, initialResult.value);
       const stockChanges = collectStockChanges(value, initial);
 
-      // Typed catalog graph write (Task 10/11): diff the hydrated draft
-      // against server truth and, when rows changed, attach the patch plus
-      // the optimistic revision. Only payloads that actually carried the
-      // typed graph may write it — a synthesized legacy projection references
-      // server rows by nothing, so sending one would fabricate a second
-      // option graph server-side.
       let graphBody: ReturnType<typeof toWireCatalogGraphPatch> | Record<string, never> = {};
       const hasTypedGraph =
         product.options !== undefined || product.media !== undefined;
+      const materializeLegacyGraph = !hasTypedGraph &&
+        product.catalogGraphVersion === 0 && value.graphTyped;
       let phaseDraft: AdminCatalogGraphDraft | null = null;
       let stockWrites: StockBatchWrite[] = [];
-      if (hasTypedGraph && value.graph) {
+      if ((hasTypedGraph || materializeLegacyGraph) && value.graph) {
         const draft = structuredClone(value.graph);
         // URL-less scoped rows are intent-less (blank new rows vanish; a
         // blanked persisted row becomes a retirement), and client-key scopes
         // whose draft row is gone this same save would 400 the patch.
         stripUnsavableMedia(draft);
-        syncSharedMediaDraft(draft, result.value.images);
+        syncSharedMediaDraft(draft, value.images.filter(image => image.url.trim()).map((image, index) => ({
+          ...result.value.images[index]!, id: image.id, clientKey: image.clientKey,
+        })));
+        const baseline = graphFromAdminProduct(product);
+        // Materialization needs every saved variant ID, but must not recreate shared media.
         const graphPatch = buildCatalogGraphPatch(
-          graphFromAdminProduct(product),
+          materializeLegacyGraph ? { ...baseline, options: [], variants: [] } : baseline,
           draft,
         );
         if (hasGraphRows(graphPatch)) {

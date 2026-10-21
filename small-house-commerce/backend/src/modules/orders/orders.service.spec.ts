@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { checkoutSchema } from './dto/order.dto.js';
+import { ConfigService } from '@nestjs/config';
+import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import { CampaignLinksService } from '../marketing/campaign-links.service.js';
+import { OptimizersService } from '../marketing/optimizers.service.js';
 import { OrdersService } from './orders.service.js';
 
 // Valid v4 UUIDs: zod 4 enforces version/variant, and skuId/landingPageId pass
@@ -67,7 +71,7 @@ function createHarness() {
       create: vi.fn(async () => ({})),
     },
     orderMergeRecord: { create: vi.fn(async () => ({})) },
-    sku: { findMany: vi.fn(async () => []) },
+    sku: { findMany: vi.fn(async () => []), findUnique: vi.fn() },
   };
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
@@ -76,7 +80,11 @@ function createHarness() {
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
+  tx.$queryRaw = vi.fn(async () => []);
+  tx.order.findUnique = prisma.order.findUnique;
   const inventory = {
+    consumeForOrder: vi.fn(async () => {}),
+    releaseForOrder: vi.fn(async () => []),
     availableBySku: vi.fn(async () => new Map([[SKU_ID, 5]])),
     defaultWarehouse: vi.fn(async () => ({ id: 'wh-1' })),
     reserveWithin: vi.fn(async () => ({})),
@@ -90,22 +98,28 @@ function createHarness() {
     markDuplicates: vi.fn(async () => {}),
     logRisk: vi.fn(async () => {}),
   };
+  const optimizers = new OptimizersService(prisma as never);
+  const marketingTouch = new MarketingTouchService(prisma as never, new CampaignLinksService(prisma as never, optimizers), optimizers, new ConfigService({ jwt: { secret: 'orders-unit-only-no-production-secret' } }));
   const service = new OrdersService(
     prisma as never,
     inventory as unknown as InventoryService,
     customerRisk as never,
+    marketingTouch,
+    // No promoCode in these checkout inputs, so the resolver is never reached.
+    { resolveForCheckout: vi.fn() } as never,
+    { deliverClaims: vi.fn(async () => undefined) } as never,
   );
   return { service, prisma, tx, inventory, customerRisk };
 }
 
 describe('OrdersService.checkout attribution', () => {
-  it('persists landingPageId into OrderAttribution when provided', async () => {
+  it('ignores an uncredentialed client landingPageId', async () => {
     const { service, tx } = createHarness();
     await service.checkout(checkoutOverrides({ attribution: { landingPageId: LP_ID } }));
     const data = tx.order.create.mock.calls[0]![0].data as {
       attribution: { create: Record<string, unknown> };
     };
-    expect(data.attribution.create.landingPageId).toBe(LP_ID);
+    expect(data.attribution.create.landingPageId).toBeNull();
   });
 
   it('persists null landingPageId when attribution omits it', async () => {
@@ -557,7 +571,7 @@ describe('OrdersService order-item option snapshots (Task 17)', () => {
         shippingTotal: new Prisma.Decimal('0'),
       })
       .mockResolvedValueOnce(orderDetailRow());
-    tx.sku.findMany.mockResolvedValue([skuWithOptionsRecord()]);
+    tx.sku.findUnique.mockResolvedValue(skuWithOptionsRecord());
 
     await service.edit('order-1', { items: [{ skuId: SKU_ID, quantity: 1 }] }, 'op-1');
 

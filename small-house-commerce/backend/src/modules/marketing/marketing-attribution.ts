@@ -7,6 +7,10 @@
  * campaign IDs are separate identifiers and are not interchangeable with it.
  */
 
+export function manilaVisitDay(instant: Date): Date {
+  return new Date(`${new Date(instant.getTime() + 8 * 3600_000).toISOString().slice(0, 10)}T00:00:00.000Z`);
+}
+
 export const AID_MAX_LENGTH = 64;
 
 const AID_PATTERN = /^[A-Z0-9][A-Z0-9._-]*$/;

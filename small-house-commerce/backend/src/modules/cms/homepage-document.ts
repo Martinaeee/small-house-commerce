@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../common/site-media-url.js';
+import { internalPathSchema } from '../../common/internal-path.js';
 
 /**
  * Homepage V2 versioned document contract (spec
@@ -50,13 +51,18 @@ const scheduleSchema = z.object({
 
 /**
  * A section/announcement link. Entity links carry the target row id (the
- * storefront resolves it to an href); external links must be https — internal
- * paths are never stored, the Link Picker resolves them server-side.
+ * storefront resolves it to an href); external links must be https; internal
+ * links carry a validated site-relative path so a CTA can point at an in-app
+ * route (for example `/track-order`) without a lookup.
  */
 const linkSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.enum(['PRODUCT', 'COLLECTION', 'CATEGORY', 'LANDING']),
     id: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal('INTERNAL'),
+    path: internalPathSchema,
   }),
   z.object({
     type: z.literal('EXTERNAL'),

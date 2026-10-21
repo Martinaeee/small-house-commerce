@@ -4,9 +4,12 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import { clearProductMediaCacheForTests } from "@/lib/product-media";
+import { recordProductView } from "@/lib/recently-viewed";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpClient } from "./PdpClient";
+import { LandingBlocksProvider, MarketingBlocks } from "./LandingContentView";
+import type { LandingContent } from "@/lib/marketing-content";
 
 /**
  * Minimal Next navigation stand-in. Like Next's shallow History integration,
@@ -50,7 +53,8 @@ vi.mock("next/navigation", async () => {
       useSyncExternalStore(navigation.subscribe, () => navigation.search),
   };
 });
-vi.mock("@/components/cart/CartContext", () => ({
+vi.mock("@/components/cart/CartContext", async (load) => ({
+  ...await load(),
   useCart: () => ({ addItem: cart.addItem, openPicker: cart.openPicker }),
 }));
 vi.mock("@/components/site/SiteSettingsProvider", () => ({
@@ -284,10 +288,14 @@ function renderPdp({
   item = product,
   variantId = null,
   path = "/products/chair",
+  purchaseOnly = false,
+  preview = false,
 }: {
   item?: Product;
   variantId?: string | null;
   path?: string;
+  purchaseOnly?: boolean;
+  preview?: boolean;
 } = {}) {
   return render(
     <PdpPurchaseProvider product={item} initialVariantId={variantId}>
@@ -296,6 +304,8 @@ function renderPdp({
         category={null}
         delivery={delivery}
         productPath={path}
+        purchaseOnly={purchaseOnly}
+        preview={preview}
       />
     </PdpPurchaseProvider>,
   );
@@ -385,6 +395,86 @@ function expectDocumentOrder(nodes: readonly HTMLElement[]): void {
     ).toBeTruthy();
   }
 }
+
+describe("isolated landing purchase presentation", () => {
+  it("keeps an unavailable campaign target in the URL and requires an explicit alternative before adding", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign?cl=paid-link&variant=deleted-variant");
+    const user = userEvent.setup();
+    renderPdp({ item: single, variantId: "deleted-variant", path: "/lp/campaign", purchaseOnly: true });
+    expect(new URLSearchParams(window.location.search).get("variant")).toBe("deleted-variant");
+    await user.click(screen.getByTestId("add-to-cart"));
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeInTheDocument();
+  });
+
+  it("lets the shopper select and confirm the remaining campaign alternative instead of getting stuck in an empty dialog", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign?variant=deleted-variant");
+    const user = userEvent.setup();
+    renderPdp({ item: single, variantId: "deleted-variant", path: "/lp/campaign", purchaseOnly: true });
+    await user.click(screen.getByTestId("add-to-cart"));
+    const dialog = within(screen.getByRole("dialog", { name: "Confirm your options" }));
+    expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await user.click(dialog.getByRole("button", { name: "Blue" }));
+    await user.click(dialog.getByRole("button", { name: "Large" }));
+    expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    expect(cart.addItem).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledWith({ skuId: single.variants[0].sku!.id, quantity: 1 }));
+    expect(cart.addItem).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unavailable target unconfirmed when browser history returns to its campaign URL", async () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    window.history.replaceState({}, "", "/lp/campaign");
+    const user = userEvent.setup();
+    renderPdp({ item: single, path: "/lp/campaign", purchaseOnly: true });
+    act(() => {
+      History.prototype.pushState.call(window.history, {}, "", "/lp/campaign?variant=deleted-variant");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(new URLSearchParams(window.location.search).get("variant")).toBe("deleted-variant");
+    await user.click(screen.getByTestId("add-to-cart"));
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm your options" })).toBeInTheDocument();
+  });
+
+  it("tells the shopper that the linked option is unavailable instead of presenting a silent replacement", () => {
+    const single = { ...product, variants: [product.variants[2]], defaultDisplayVariantId: product.variants[2].id, availableMediaScopes: { optionValueIds: [], variantIds: [] } };
+    const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null, blocks: [{ id: "buy", type: "buy", sourceKey: null, props: {} }] };
+    render(<LandingBlocksProvider product={single} approvedContent={content} preview delivery={delivery} productPath="/lp/campaign" initialVariantId="deleted-variant"><MarketingBlocks block={content.blocks[0]} /></LandingBlocksProvider>);
+    expect(screen.getByRole("alert")).toHaveTextContent("The linked option is unavailable. Please choose another option to continue.");
+  });
+
+  it("reuses live purchase controls without repeating the marketing hero or gallery", () => {
+    renderPdp({ purchaseOnly: true });
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Chair" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open image gallery" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("pdp-purchase")).toHaveTextContent("₱100");
+    expect(screen.getByTestId("add-to-cart")).toBeEnabled();
+  });
+
+  it("makes private preview non-transactional and suppresses product tracking", () => {
+    renderPdp({ purchaseOnly: true, preview: true });
+    expect(screen.getByTestId("add-to-cart")).toBeDisabled();
+    expect(screen.getByTestId("order-now")).toBeDisabled();
+    expect(recordProductView).not.toHaveBeenCalled();
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+  });
+
+  it("lets preview select a real option without emitting marketing events", async () => {
+    const user = userEvent.setup();
+    renderPdp({ purchaseOnly: true, preview: true });
+    await user.click(within(screen.getByRole("group", { name: "Color" })).getByRole("button", { name: "Blue" }));
+    expect(within(screen.getByRole("group", { name: "Color" })).getByRole("button", { name: "Blue" })).toHaveAttribute("aria-pressed", "true");
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(cart.addItem).not.toHaveBeenCalled();
+  });
+});
 
 describe("PDP conversion hero", () => {
   it("orders real product facts, purchase actions, then truthful service assurances", () => {
@@ -476,6 +566,41 @@ describe("PDP conversion hero", () => {
 
     expect(orderNow).toHaveClass("bg-cta");
     expect(addToCart).not.toHaveClass("bg-cta");
+  });
+
+  it("keeps hero and size-guide dimensions aligned with the displayed SKU", async () => {
+    installMediaFetch();
+    const user = userEvent.setup();
+    const item = structuredClone(product);
+    Object.assign(item, { width: 40, height: 60, depth: 30, foldedWidth: 40, foldedHeight: 8, foldedDepth: 30 });
+    Object.assign(item.variants[0].sku!, { productWidth: 49, productHeight: null, productDepth: null });
+    Object.assign(item.variants[2].sku!, { productWidth: 64, productHeight: null, productDepth: 31 });
+    renderPdp({ item, variantId: "red-small" });
+
+    expect(screen.getByTestId("pdp-dimensions-line")).toHaveTextContent("49 × 60 × 30 cm");
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const smallGuide = screen.getByRole("dialog", { name: "Product details" });
+    expect(within(smallGuide).getByText("49 cm")).toBeVisible();
+    expect(within(smallGuide).getByText("60 cm")).toBeVisible();
+    expect(within(smallGuide).getByText("8 cm")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Close product details" }));
+
+    await user.click(screen.getByRole("button", { name: "Large" }));
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    expect(screen.getByTestId("pdp-dimensions-line")).toHaveTextContent("64 × 60 × 31 cm");
+    await user.click(screen.getByRole("button", { name: "Size guide" }));
+    const largeGuide = screen.getByRole("dialog", { name: "Product details" });
+    expect(within(largeGuide).getByText("64 cm")).toBeVisible();
+    expect(within(largeGuide).getByText("31 cm")).toBeVisible();
+    expect(within(largeGuide).queryByText("49 cm")).not.toBeInTheDocument();
+  });
+
+  it("shows the hero size guide when dimensions exist only on the displayed SKU", () => {
+    const item = structuredClone(product);
+    Object.assign(item.variants[0].sku!, { productWidth: 49 });
+    renderPdp({ item, variantId: "red-small" });
+    expect(screen.getByTestId("pdp-dimensions-line")).toHaveTextContent("49 × — × — cm");
+    expect(screen.getByRole("button", { name: "Size guide" })).toBeVisible();
   });
 
   it("hides the selling-point row when the product carries no solution tags", () => {
@@ -766,6 +891,92 @@ describe("PDP option confirmation and deep links", () => {
       expect.stringContaining("/checkout"),
       expect.anything(),
     );
+  });
+
+  it("binds the PDP alert to the current out-of-stock SKU and closes stale success on a variant change", async () => {
+    const allOutOfStock: Product = {
+      ...product,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        sku: variant.sku
+          ? { ...variant.sku, availableInventory: 0 }
+          : null,
+      })),
+    };
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        const url = String(input);
+        if (url === "/api/v1/storefront/back-in-stock") {
+          return jsonResponse({ ok: true });
+        }
+        if (url.includes("variantId=blue-large")) return jsonResponse(blueMedia);
+        if (url.includes("variantId=red")) return jsonResponse(redMedia);
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+    const user = userEvent.setup();
+    renderPdp({ item: allOutOfStock, variantId: "red-large" });
+
+    await user.click(
+      screen.getByRole("button", { name: "Notify me when back in stock" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "pdp@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+    expect(
+      await screen.findByText("We'll email you when it's back in stock."),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    expect(screen.queryByRole("dialog", { name: "Back in stock alert" })).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Notify me when back in stock" }),
+    );
+    expect(screen.getByRole("textbox", { name: "Email address" })).toHaveValue("");
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "pdp@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Notify me" }));
+
+    const alertBodies = request.mock.calls
+      .filter(([input]) => String(input) === "/api/v1/storefront/back-in-stock")
+      .map(([, init]) => init?.body);
+    expect(alertBodies).toEqual([
+      JSON.stringify({ email: "pdp@example.com", skuId: "sku-red-large" }),
+      JSON.stringify({ email: "pdp@example.com", skuId: "sku-blue-large" }),
+    ]);
+  });
+
+  it("does not offer an alert until the PDP selection resolves to a SKU", () => {
+    renderPdp();
+
+    expect(
+      screen.queryByRole("button", { name: "Notify me when back in stock" }),
+    ).toBeNull();
+  });
+
+  it("does not mount a live restock trigger in PDP preview mode", () => {
+    const outOfStock: Product = {
+      ...product,
+      variants: product.variants.map((variant) =>
+        variant.id === "red-large"
+          ? {
+              ...variant,
+              sku: variant.sku
+                ? { ...variant.sku, availableInventory: 0 }
+                : null,
+            }
+          : variant,
+      ),
+    };
+    renderPdp({ item: outOfStock, variantId: "red-large", preview: true });
+
+    expect(
+      screen.queryByRole("button", { name: "Notify me when back in stock" }),
+    ).toBeNull();
   });
 
   it("executes a confirmed Order Now only once even on repeated confirm clicks", async () => {

@@ -1,0 +1,63 @@
+// First-party storefront analytics (dashboard §18).
+//
+// The dashboard needs traffic-side facts the order tables cannot supply:
+// how many sessions visited, which homepage sections were actually seen, and
+// which ones earned a click. Nothing here is a copy of business data — orders
+// stay the single source of truth for purchases; an event only records that
+// something happened in a browser.
+//
+// Dedupe: an impression is once per session per section per Manila day. The
+// partial unique index lives in the migration because Prisma cannot express a
+// filtered index; `eventDay` is written by the service (Asia/Manila calendar
+// day) so the index stays IMMUTABLE.
+//
+// Sources:
+//   docs/DATABASE.md §91-92 (product and dashboard data), §94 (time)
+//   docs/ADMIN_SPEC.md §6 (dashboard)
+
+enum AnalyticsEventName {
+  PAGE_VIEW
+  PRODUCT_VIEW
+  ADD_TO_CART
+  BEGIN_CHECKOUT
+  PURCHASE
+  HOMEPAGE_SECTION_IMPRESSION
+  HOMEPAGE_SECTION_CLICK
+  SEARCH
+}
+
+model AnalyticsEvent {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  eventName   AnalyticsEventName @map("event_name")
+  /// Per-tab browser session id (crypto.randomUUID, sessionStorage). Never a
+  /// customer identity; a returning shopper gets a new session per tab.
+  sessionId   String             @map("session_id") @db.VarChar(100)
+  customerId  String?            @map("customer_id") @db.Uuid
+  pageUrl     String             @map("page_url") @db.VarChar(1024)
+  pagePath    String             @map("page_path") @db.VarChar(512)
+  deviceType  String             @map("device_type") @db.VarChar(16)
+  referrer    String?            @db.VarChar(1024)
+  utmSource   String?            @map("utm_source") @db.VarChar(120)
+  utmMedium   String?            @map("utm_medium") @db.VarChar(120)
+  utmCampaign String?            @map("utm_campaign") @db.VarChar(120)
+  /// Free-form subject: product slug, search term, order number…
+  entityId    String?            @map("entity_id") @db.VarChar(120)
+  /// Homepage section the event belongs to (document section id).
+  sectionId   String?            @map("section_id") @db.VarChar(120)
+  sectionType String?            @map("section_type") @db.VarChar(40)
+  destination String?            @db.VarChar(1024)
+  productId   String?            @map("product_id") @db.Uuid
+  campaignId  String?            @map("campaign_id") @db.VarChar(120)
+  metadata    Json?
+  /// Asia/Manila calendar day. Indexed and used for impression dedupe.
+  eventDay    DateTime           @map("event_day") @db.Date
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([eventName, createdAt])
+  @@index([eventName, eventDay])
+  @@index([sessionId, createdAt])
+  @@index([sectionId, eventName, eventDay])
+  @@index([productId, eventName, eventDay])
+  @@index([createdAt])
+  @@map("analytics_events")
+}

@@ -11,6 +11,7 @@ export interface MediaGalleryItem {
   url: string;
   type: "IMAGE" | "VIDEO";
   altText: string;
+  isScene?: boolean;
 }
 interface MediaGalleryLabels {
   type(number: number): string;
@@ -91,6 +92,7 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
                   : <span className="flex h-full items-center justify-center px-2 text-xs text-ink-muted">{t(item.type === "VIDEO" ? "product_media_empty_video" : "product_media_empty_image")}</span>}
                 <span className="absolute left-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink-secondary">{index + 1}</span>
                 {item.type === "VIDEO" ? <span className="absolute right-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink">{t("product_media_type_video")}</span> : null}
+                {item.isScene ? <span className="absolute left-1 top-7 rounded bg-cta px-1 text-[10px] font-semibold text-white">{t("product_media_scene_badge")}</span> : null}
               </button>
               <div data-media-actions className={`absolute inset-x-0 bottom-0 flex gap-px bg-gradient-to-t from-black/45 px-px pb-1 pt-5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}>
                 <button type="button" className={actionClass} aria-label={labels.previous(index + 1)} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
@@ -111,7 +113,7 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
         <div id={editorId} className="mt-3 rounded-xl border border-border bg-background p-3" data-media-editor>
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className="text-sm font-semibold text-ink">{scope} {number}</span>
-            <div className="flex gap-3 text-xs font-semibold">
+            <div className="flex flex-wrap gap-3 text-xs font-semibold">
               <button type="button" disabled={pending} onClick={() => remove(activeIndex)} className="text-red-700 disabled:text-ink-muted">{labels.remove}</button>
               <button type="button" aria-label={t("product_media_edit_close")} onClick={() => setSelected(null)} className="text-ink-secondary">×</button>
             </div>
@@ -126,7 +128,9 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
           <div className="grid min-w-0 gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
             <div id={fieldProblemId("type")}>
               <Field label={t("product_media_type_label")} htmlFor={`${editorId}-type`} error={errors[`${active.key}.type`]}>
-                <Select id={`${editorId}-type`} aria-label={labels.type(number)} value={active.type} disabled={pending} onChange={(event) => onPatch(active.key, { type: event.target.value as MediaGalleryItem["type"] })}>
+                <Select id={`${editorId}-type`} aria-label={labels.type(number)} value={active.type} disabled={pending} onChange={(event) => onPatch(active.key, {
+                  type: event.target.value as MediaGalleryItem["type"],
+                })}>
                   <option value="IMAGE">{t("product_media_type_image")}</option><option value="VIDEO">{t("product_media_type_video")}</option>
                 </Select>
               </Field>

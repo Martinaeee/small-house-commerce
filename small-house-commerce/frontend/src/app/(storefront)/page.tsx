@@ -54,7 +54,13 @@ export default async function HomePage() {
         const SectionComponent = SECTION_REGISTRY[section.type];
         if (!SectionComponent) return null;
         return (
-          <div key={section.id}>
+          <div
+            key={section.id}
+            // Analytics identity for the section: the homepage tracker uses
+            // these attributes to record impressions and clicks per module.
+            data-homepage-section-id={section.id}
+            data-homepage-section-type={section.type}
+          >
             {index === rvIndex ? <RecentlyViewed /> : null}
             <SectionComponent section={section} />
           </div>

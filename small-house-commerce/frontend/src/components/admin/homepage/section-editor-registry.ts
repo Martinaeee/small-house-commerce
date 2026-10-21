@@ -16,6 +16,7 @@ import { SolutionsSectionEditor } from "@/components/admin/homepage/sections/Sol
 import { ProductStorySectionEditor } from "@/components/admin/homepage/sections/ProductStorySectionEditor";
 import { RoomInspirationSectionEditor } from "@/components/admin/homepage/sections/RoomInspirationSectionEditor";
 import { UgcSectionEditor } from "@/components/admin/homepage/sections/UgcSectionEditor";
+import { BrandStorySectionEditor } from "@/components/admin/homepage/sections/BrandStorySectionEditor";
 import { TextBlockSectionEditor } from "@/components/admin/homepage/sections/TextBlockSectionEditor";
 import { PromoBannerSectionEditor } from "@/components/admin/homepage/sections/PromoBannerSectionEditor";
 import { CountdownBannerSectionEditor } from "@/components/admin/homepage/sections/CountdownBannerSectionEditor";
@@ -66,8 +67,10 @@ const solutionsEditor = SolutionsSectionEditor;
 const productStoryEditor = ProductStorySectionEditor;
 const roomInspirationEditor = RoomInspirationSectionEditor;
 const ugcEditor = UgcSectionEditor;
-const brandStoryEditor: SectionEditorComponent<"BRAND_STORY"> = (props): ReactNode =>
-  createElement(TextBlockSectionEditor, props);
+// BRAND_STORY owns the split layout (image + copy), so it has its own editor.
+// CONFIDENCE stays on the plain text block.
+const brandStoryEditor: SectionEditorComponent<"BRAND_STORY"> =
+  BrandStorySectionEditor;
 const confidenceEditor: SectionEditorComponent<"CONFIDENCE"> = (props): ReactNode =>
   createElement(TextBlockSectionEditor, props);
 const promoBannerEditor = PromoBannerSectionEditor;

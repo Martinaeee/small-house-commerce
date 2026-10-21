@@ -203,7 +203,7 @@ export function ReviewCard({ review }: { review: Review }) {
               type="button"
               onClick={submitReport}
               disabled={reportState === "sending"}
-              className="rounded-md bg-cta px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              className="rounded-md bg-cta px-3 py-1.5 text-sm font-medium text-cta-foreground hover:opacity-90 disabled:opacity-60"
             >
               {reportState === "sending" ? "Submitting…" : "Submit report"}
             </button>

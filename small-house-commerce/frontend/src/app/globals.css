@@ -24,6 +24,31 @@
   /* §5.5 CTA (deep brown) */
   --color-cta: #6b4f3a;
   --color-cta-hover: #5a4130;
+  --color-cta-foreground: #ffffff;
+
+  /* Shell component tokens preserve the existing LUWAG palette by default;
+     the published Storefront Shell style derives and overrides them from the
+     five operator-owned source colors. */
+  --color-footer-background: #704632;
+  --color-footer-foreground: #fff8f1;
+  --color-footer-secondary: #ead7ca;
+  --color-footer-muted: #d9c2b5;
+  --color-footer-border: #9b7460;
+  --color-footer-logo-tile: #faf8f5;
+  --color-footer-logo-square: #c9a77b;
+  --color-footer-logo-stroke: #6b4f3a;
+  --color-newsletter-overlay: #2f211b;
+  --color-newsletter-surface: #fff4ed;
+  --color-newsletter-surface-alt: #fffaf6;
+  --color-newsletter-card: #ffffff;
+  --color-newsletter-text: #2f241f;
+  --color-newsletter-secondary: #735f54;
+  --color-newsletter-muted: #8d786d;
+  --color-newsletter-accent: #a85238;
+  --color-newsletter-accent-hover: #93462f;
+  --color-newsletter-border: #edcdbf;
+  --color-newsletter-ticket: #c35439;
+  --color-newsletter-foreground: #ffffff;
 
   /* §5.6 promotion (sale only) */
   --color-sale: #d9534f;
@@ -38,6 +63,28 @@
 
   /* borders derived from the beige palette */
   --color-border: #e8e2d9;
+
+  /* Homepage brand-story block (mockup 2026-10-21, 1672×941 artboard). This
+     is the one section that speaks in its own voice instead of the beige
+     storefront palette, so its colours live in their own tokens rather than
+     being re-derived per component. Sampled from the approved mockup. */
+  --color-story-heading: #121110;
+  --color-story-body: #3b3532;
+  --color-story-kicker: #3b4626;
+  --color-story-link: #333d24;
+  --color-story-link-border: #a8ae9a;
+  /* The deep green panel the brand story page closes on (mockup 2026-10-21). */
+  --color-story-panel: #2f4034;
+
+  /* About Us page (design reference 2026-10-21, 1920px artboard, 1440px
+     content). The page carries its own warm palette so the rest of the
+     storefront keeps its existing colours. */
+  --color-about-bg: #f7f3ed;
+  --color-about-ink: #292724;
+  --color-about-green: #294638;
+  --color-about-brown: #b99b81;
+  --color-about-muted: #6f6961;
+  --color-about-disc: #ece3d6;
 
   /* Admin design system. These tokens are consumed only inside AdminShell;
      storefront surfaces keep the warm brand palette above. */
@@ -95,6 +142,14 @@
   --color-success: var(--color-admin-success);
 }
 
+.storefront-app {
+  min-width: 0;
+  background-color: var(--color-background);
+  color: var(--color-ink);
+}
+
+/* Homepage Builder's existing isolated current-brand preview. Storefront Shell
+   previews supply their own validated variables in the preview canvas. */
 .storefront-theme {
   --color-background: #faf8f5;
   --color-card: #ffffff;
@@ -171,5 +226,43 @@
     /* §6 body text */
     font-size: 16px;
     line-height: 1.6;
+  }
+}
+
+/* Puck wraps every editable block in its own drag container. Mirror the public
+   landing-page product lead when gallery and purchase remain adjacent. */
+@media (min-width: 64rem) {
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 2rem;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component] {
+    grid-column: 1 / -1;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component="hero"]:has(+ [data-puck-component="gallery"] + [data-puck-component="buy"]) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component="hero"] + [data-puck-component="gallery"]:has(+ [data-puck-component="buy"]) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component="hero"] + [data-puck-component="gallery"] + [data-puck-component="buy"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component="gallery"]:has(+ [data-puck-component="buy"]) {
+    grid-column: 1;
+  }
+
+  .landing-blocks-layout > [data-puck-dropzone="root:default-zone"] > [data-puck-component="gallery"] + [data-puck-component="buy"] {
+    grid-column: 2;
   }
 }

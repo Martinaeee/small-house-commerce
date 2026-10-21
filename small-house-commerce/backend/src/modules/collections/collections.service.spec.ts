@@ -35,6 +35,11 @@ describe('CollectionsService.storefrontProducts', () => {
         images: [],
         reviewCount: 2,
         ratingAverage: 4.5,
+        cardMedia: {
+          unselected: { cover: { id: 'cover', url: '/cover.webp', type: 'IMAGE', altText: null, sortOrder: 0 }, scene: null },
+          variants: [{ variantId: 'variant-2', cover: { id: 'cover', url: '/cover.webp', type: 'IMAGE', altText: null, sortOrder: 0 },
+            scene: { id: 'scene', url: '/scene.webp', type: 'IMAGE', altText: 'Room', sortOrder: 1 } }],
+        },
       },
       {
         id: 'product-1',

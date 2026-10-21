@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { NewsletterModule } from '../newsletter/newsletter.module.js';
 import { InventoryService } from './inventory.service.js';
 import { AdminInventoryController } from './admin/inventory.controller.js';
 
@@ -11,7 +12,7 @@ import { AdminInventoryController } from './admin/inventory.controller.js';
  */
 @Global()
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, NewsletterModule],
   controllers: [AdminInventoryController],
   providers: [InventoryService],
   exports: [InventoryService],

@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { PermissionCode, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { getBundleAvailabilityForSkus } from '../inventory/bundle-inventory.js';
 import type {
   AdminSearchQuery,
   AdminSearchResponse,
@@ -33,6 +34,7 @@ interface ProductSearchRow {
   sku_id: string | null;
   sku_code: string | null;
   sku_status: SkuStatusValue | null;
+  is_bundle: boolean;
   variant_id: string | null;
   variant_name: string | null;
   price: Prisma.Decimal | string | number | null;
@@ -235,7 +237,24 @@ export class SearchService {
     const rows = await this.prisma.$queryRaw<ProductSearchRow[]>(
       buildProductSearchQuery(terms, take),
     );
-    return toGroup(rows.map(mapProduct), limit);
+    const bundleStock = await getBundleAvailabilityForSkus(
+      this.prisma,
+      rows
+        .filter((row) => row.is_bundle && row.sku_id !== null)
+        .map((row) => row.sku_id!),
+    );
+    return toGroup(
+      rows.map((row) =>
+        mapProduct({
+          ...row,
+          available_inventory:
+            row.sku_id === null
+              ? row.available_inventory
+              : (bundleStock.get(row.sku_id) ?? row.available_inventory),
+        }),
+      ),
+      limit,
+    );
   }
 
   private async orderGroup(

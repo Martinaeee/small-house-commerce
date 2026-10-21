@@ -340,6 +340,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
+function rejectPreviewAction(): never {
+  throw new Error("Preview does not allow cart changes.");
+}
+
+const previewCart: CartContextValue = {
+  cart: null, loading: false, isOpen: false, view: "cart",
+  pickerProduct: null, pickerInitialVariantId: null, pickerInitialQuantity: null,
+  changeTarget: null, itemKindCount: 0,
+  openPicker: rejectPreviewAction, openChangeOptions: rejectPreviewAction,
+  goToCartView: rejectPreviewAction, openCart: rejectPreviewAction, closeCart: rejectPreviewAction,
+  takeDrawerOpener: () => null, applySummary: rejectPreviewAction,
+  reload: rejectPreviewAction, addItem: rejectPreviewAction, updateItem: rejectPreviewAction,
+  replaceItem: rejectPreviewAction, removeItem: rejectPreviewAction, removeItems: rejectPreviewAction,
+};
+
+export function CartPreviewProvider({ children }: { children: ReactNode }) {
+  return <CartContext.Provider value={previewCart}>{children}</CartContext.Provider>;
+}
+
 export function useCart(): CartContextValue {
   const ctx = useContext(CartContext);
   if (!ctx) throw new Error("useCart must be used within a CartProvider");

@@ -59,7 +59,7 @@ function makeRefreshTokenDb(initial: TokenRow[], hooks: DbHooks = {}) {
   let reads = 0;
 
   const matches = (row: TokenRow, where: Record<string, unknown>) =>
-    Object.entries(where).every(([key, value]) => (row as Record<string, unknown>)[key] === value);
+    Object.entries(where).every(([key, value]) => Reflect.get(row, key) === value);
 
   const deleteRows = (where: Record<string, unknown>): number => {
     const before = rows.length;
@@ -440,10 +440,11 @@ describe('AuthService.refresh — rotation families', () => {
     const [outcomeA, outcomeB] = await Promise.allSettled([first, second]);
     const statuses = [outcomeA.status, outcomeB.status].sort();
     expect(statuses).toEqual(['fulfilled', 'rejected']);
-    const winner = outcomeA.status === 'fulfilled' ? outcomeA.value : outcomeB.value;
-    expect(winner.accessToken).toBeTruthy();
-    const loser = outcomeA.status === 'rejected' ? outcomeA.reason : outcomeB.reason;
-    expect(loser).toBeInstanceOf(UnauthorizedException);
+    const winner = [outcomeA, outcomeB].find((outcome) => outcome.status === 'fulfilled');
+    const loser = [outcomeA, outcomeB].find((outcome) => outcome.status === 'rejected');
+    if (!winner || !loser) throw new Error('Expected one successful refresh and one rejected refresh');
+    expect(winner.value.accessToken).toBeTruthy();
+    expect(loser.reason).toBeInstanceOf(UnauthorizedException);
 
     // Exactly one sibling was minted...
     expect(db.refreshToken.create).toHaveBeenCalledTimes(1);

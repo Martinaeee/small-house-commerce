@@ -16,31 +16,7 @@ import type { PresignUploadInput } from '../dto/upload.dto.js';
 import { presignUploadSchema } from '../dto/upload.dto.js';
 import { UploadsService } from '../uploads.service.js';
 
-/**
- * Collects the raw request body as a Buffer with a hard size cap. Hand-rolled
- * instead of express.raw/multer: express is not a direct dependency (pnpm
- * strict layout) and multer would be a new package — plain Node streams need
- * neither. The default express.json/urlEncoded parsers never touch image/*
- * content types, so the stream is still unconsumed when this runs.
- */
-function readRawBody(req: Request, maxBytes: number): Promise<Buffer> {
-  const cap = maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))}MB` : `${maxBytes}B`;
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        req.destroy();
-        reject(new BadRequestException(`文件超过 ${cap} 限制`));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', (err: Error) => reject(new BadRequestException(err.message)));
-  });
-}
+import { readRawBody } from '../raw-upload.js';
 
 @Controller('admin/uploads')
 @UseGuards(JwtAuthGuard, PermissionsGuard)

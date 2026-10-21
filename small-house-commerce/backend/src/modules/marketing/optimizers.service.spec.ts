@@ -18,6 +18,7 @@ function createPrismaMock() {
   };
   return {
     rows,
+    user: { findUnique: vi.fn(async () => ({ id: 'u1', name: 'Operator', status: 'ACTIVE' })) },
     optimizerProfile: {
       findMany: vi.fn(async () => rows),
       findUnique: vi.fn(
@@ -60,6 +61,30 @@ describe('OptimizersService', () => {
 
   beforeEach(() => {
     ctx = createService();
+  });
+
+  it('creates a stable server-generated profile once for an active operator', async () => {
+    const first = await ctx.service.ensureProfileForUser('u1');
+    ctx.prisma.user.findUnique.mockResolvedValue({ id: 'u1', name: 'Renamed', status: 'ACTIVE' });
+    const again = await ctx.service.ensureProfileForUser('u1');
+    expect(first.aid).toMatch(/^OP-[A-F0-9]{12}$/);
+    expect(again.aid).toBe(first.aid);
+    expect(ctx.prisma.rows).toHaveLength(1);
+  });
+
+  it('concurrent first-time profile requests reuse the same user identity', async () => {
+    const [a, b] = await Promise.all([ctx.service.ensureProfileForUser('u1'), ctx.service.ensureProfileForUser('u1')]);
+    expect(a.aid).toBe(b.aid);
+    expect(ctx.prisma.rows).toHaveLength(1);
+  });
+
+  it('does not revive a disabled optimizer profile or enroll a disabled user', async () => {
+    await ctx.service.create({ userId: 'u1', aid: 'OLD', displayName: 'Old' });
+    ctx.prisma.rows[0]!.status = 'DISABLED';
+    await expect(ctx.service.ensureProfileForUser('u1')).rejects.toMatchObject({ status: 403 });
+    ctx.prisma.user.findUnique.mockResolvedValue({ id: 'u1', name: 'Old', status: 'DISABLED' });
+    await expect(ctx.service.ensureProfileForUser('u2')).rejects.toMatchObject({ status: 404 });
+    expect(ctx.prisma.rows).toHaveLength(1);
   });
 
   it('stores the canonical AID form', async () => {

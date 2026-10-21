@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { siteMediaUrl } from '../../../common/site-media-url.js';
+import { variantCardMediaSchema } from '../variant-card-media.js';
 import {
   DetailBlockType,
   InternalProductRole,
@@ -11,6 +12,7 @@ import {
 import { slugSchema } from './category.dto.js';
 import { catalogGraphPatchSchema } from './catalog-graph.dto.js';
 import { ATTENTION_FILTERS } from '../admin-product-attention.js';
+import { FAQ_MODES, MAX_FAQ_ITEMS, faqItemSchema } from '../faq/faq-content.js';
 
 const skuSchema = z.object({
   skuCode: z.string().min(1).max(64),
@@ -22,6 +24,9 @@ const skuSchema = z.object({
   // Retail pricing in PHP; compareAtPrice is the strikethrough original price.
   price: z.number().nonnegative().optional(),
   compareAtPrice: z.number().nonnegative().optional(),
+  productWidth: z.number().nonnegative().nullable().optional(),
+  productHeight: z.number().nonnegative().nullable().optional(),
+  productDepth: z.number().nonnegative().nullable().optional(),
   productWeight: z.number().nonnegative().optional(),
   packageWidth: z.number().nonnegative().optional(),
   packageHeight: z.number().nonnegative().optional(),
@@ -35,6 +40,7 @@ const variantSchema = z.object({
   position: z.number().int().default(0),
   // A variant may exist without a SKU yet; the SKU is what makes it sellable.
   sku: skuSchema.optional(),
+  cardMedia: variantCardMediaSchema.nullable().optional(),
 });
 
 const imageSchema = z.object({
@@ -43,6 +49,11 @@ const imageSchema = z.object({
   type: z.nativeEnum(DetailBlockType).default('IMAGE'),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
+  isScene: z.boolean().optional(),
+}).superRefine((image, ctx) => {
+  if (image.isScene && image.type !== 'IMAGE') {
+    ctx.addIssue({ code: 'custom', message: 'Scene media must be an image.', path: ['isScene'] });
+  }
 });
 
 /**
@@ -55,6 +66,18 @@ const detailBlockSchema = z.object({
   url: siteMediaUrl(),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
+});
+
+/**
+ * The product's own FAQ configuration. `expectedVersion` is the version the
+ * editor loaded; a mismatch means another tab saved in the meantime and the
+ * write is rejected rather than silently clobbering it. Omitted entirely =
+ * leave the stored configuration alone.
+ */
+const productFaqSchema = z.object({
+  mode: z.enum(FAQ_MODES),
+  items: z.array(faqItemSchema).max(MAX_FAQ_ITEMS),
+  expectedVersion: z.number().int().min(0),
 });
 
 /**
@@ -88,6 +111,7 @@ const productBaseSchema = z.object({
   images: z.array(imageSchema).default([]),
   detailBlocks: z.array(detailBlockSchema).default([]),
   variants: z.array(variantSchema).default([]),
+  faq: productFaqSchema.optional(),
 });
 
 export const createProductSchema = productBaseSchema;
@@ -120,6 +144,9 @@ export const adminProductQuerySchema = z.object({
   categoryId: z.string().uuid().optional(),
   // "Needs attention" preset; the same predicate backs its global count.
   attention: z.enum(ATTENTION_FILTERS).optional(),
+  // Stock drill-down used by the dashboard: `low` is 0 < available <= the
+  // shared low-stock threshold, `out` is available <= 0.
+  stock: z.enum(['low', 'out']).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

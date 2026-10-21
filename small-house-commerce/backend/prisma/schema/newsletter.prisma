@@ -1,0 +1,108 @@
+// Newsletter subscriptions and the single subscribe-exclusive discount
+// promotion. Counts and redemptions hang off the promotion's STABLE id, so
+// editing the code never resets usage limits (spec §3.2 / §3.3).
+
+enum SubscriberStatus {
+  SUBSCRIBED
+  UNSUBSCRIBED
+}
+
+enum SubscribeSource {
+  POPUP
+  FOOTER
+}
+
+enum BackInStockStatus {
+  PENDING
+  SENT
+  CANCELLED
+}
+
+enum NewsletterDiscountType {
+  PERCENT
+  FIXED
+}
+
+enum PromotionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// One row per normalized email; re-subscribing upserts (spec §3.1).
+model NewsletterSubscriber {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  email          String           @unique
+  status         SubscriberStatus @default(SUBSCRIBED)
+  source         SubscribeSource
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  unsubscribedAt DateTime?        @map("unsubscribed_at") @db.Timestamptz(3)
+
+  @@map("newsletter_subscribers")
+}
+
+/// One row per normalized email + concrete SKU. It is intentionally separate
+/// from NewsletterSubscriber: asking for one stock alert never opts shoppers
+/// into marketing email.
+model BackInStockSubscription {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  email       String
+  skuId       String            @map("sku_id") @db.Uuid
+  status      BackInStockStatus @default(PENDING)
+  productName String            @map("product_name")
+  productSlug String            @map("product_slug")
+  lastError   String?           @map("last_error")
+  notifiedAt  DateTime?         @map("notified_at") @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sku Sku @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([email, skuId])
+  @@index([status, createdAt])
+  @@index([skuId, status])
+  @@map("back_in_stock_subscriptions")
+}
+
+/// At most one ACTIVE row is enforced by a partial unique index in the
+/// migration. Editing a row keeps its id, so usage counts never reset; a new
+/// round is a NEW row (spec §3.2).
+model NewsletterPromotion {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  code             String                 @unique
+  discountType     NewsletterDiscountType @map("discount_type")
+  discountValue    Decimal                @map("discount_value") @db.Decimal(10, 2)
+  minSpend         Decimal                @default(0) @map("min_spend") @db.Decimal(10, 2)
+  maxUses          Int?                   @map("max_uses")
+  perCustomerLimit Int?                   @map("per_customer_limit")
+  validFrom        DateTime?              @map("valid_from") @db.Timestamptz(3)
+  validUntil       DateTime?              @map("valid_until") @db.Timestamptz(3)
+  status           PromotionStatus        @default(ACTIVE)
+  archivedAt       DateTime?              @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  redemptions PromoCodeRedemption[]
+
+  @@map("newsletter_promotions")
+}
+
+/// One row per successful redemption. Counts are derived from rows where
+/// released_at IS NULL (spec §3.3).
+model PromoCodeRedemption {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  promotionId     String    @map("promotion_id") @db.Uuid
+  orderId         String    @unique @map("order_id") @db.Uuid
+  codeSnapshot    String    @map("code_snapshot")
+  normalizedPhone String    @map("normalized_phone")
+  discountAmount  Decimal   @map("discount_amount") @db.Decimal(10, 2)
+  releasedAt      DateTime? @map("released_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  promotion NewsletterPromotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  order     Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([promotionId, releasedAt])
+  @@index([promotionId, normalizedPhone, releasedAt])
+  @@map("promo_code_redemptions")
+}

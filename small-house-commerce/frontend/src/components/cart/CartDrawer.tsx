@@ -440,10 +440,10 @@ export function CartDrawer() {
                             disabled={busy}
                             aria-label={`Add ${product.name} to cart`}
                             data-testid={`drawer-rec-add-${product.slug}`}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cta text-white transition-colors hover:bg-cta-hover disabled:opacity-60"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cta text-cta-foreground transition-colors hover:bg-cta-hover disabled:opacity-60"
                           >
                             {busy ? (
-                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-cta-foreground/40 border-t-cta-foreground" />
                             ) : added ? (
                               <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
                                 <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

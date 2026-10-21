@@ -88,8 +88,8 @@ describe('AdminHomepageController routes', () => {
     const homepage = { adminList: vi.fn().mockResolvedValue({ sections: [] }) };
     const controller = new AdminHomepageController(homepage as never, {} as never, {} as never, {} as never);
 
-    expect((AdminHomepageController.prototype as Record<string, unknown>).save).toBeUndefined();
-    expect((AdminHomepageController.prototype as Record<string, unknown>).setProducts).toBeUndefined();
+    expect(Reflect.get(AdminHomepageController.prototype, 'save')).toBeUndefined();
+    expect(Reflect.get(AdminHomepageController.prototype, 'setProducts')).toBeUndefined();
     expect(Reflect.getMetadata(PATH_METADATA, AdminHomepageController.prototype.list)).toBe(
       'sections',
     );
@@ -196,8 +196,9 @@ describe('AdminHomepageController delegation', () => {
       expect(idPipe).toBeInstanceOf(ParseUUIDPipe);
       if (!idPipe) throw new Error(`missing UUID pipe for ${methodName}`);
       expect((idPipe as unknown as { version: string }).version).toBe('7');
-      await expect(idPipe.transform('not-a-version-id')).rejects.toThrow();
-      await expect(idPipe.transform(VERSION_ID)).resolves.toBe(VERSION_ID);
+      const argument = { type: 'param' as const, metatype: String, data: 'id' };
+      await expect(idPipe.transform('not-a-version-id', argument)).rejects.toThrow();
+      await expect(idPipe.transform(VERSION_ID, argument)).resolves.toBe(VERSION_ID);
     }
 
     expect(docs.getVersion).not.toHaveBeenCalled();

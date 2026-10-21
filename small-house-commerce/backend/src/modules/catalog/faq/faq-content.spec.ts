@@ -5,6 +5,7 @@ import {
   MAX_FAQ_TITLE,
   blocksFromPlainText,
   faqItemsSchema,
+  stampItemTimestamps,
   type FaqItem,
 } from './faq-content.js';
 
@@ -88,5 +89,90 @@ describe('faqItemsSchema', () => {
   it('rejects an unknown block kind inside a bullet list position', () => {
     const bad = [{ ...VALID_ITEM, answer: [{ kind: 'bullets', items: 'not-an-array' }] }];
     expect(faqItemsSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('faq item management metadata', () => {
+  it('accepts a controlled category code and rejects a free-text category', () => {
+    expect(faqItemsSchema.safeParse([{ ...VALID_ITEM, category: 'DELIVERY' }]).success).toBe(true);
+    expect(faqItemsSchema.safeParse([{ ...VALID_ITEM, category: 'Shipping stuff' }]).success).toBe(
+      false,
+    );
+  });
+
+  it('strips a client-supplied updatedAt so the server stays the only timestamp source', () => {
+    const parsed = faqItemsSchema.safeParse([
+      { ...VALID_ITEM, updatedAt: '2001-01-01T00:00:00.000Z' },
+    ]);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && Object.hasOwn(parsed.data[0]!, 'updatedAt')).toBe(false);
+  });
+});
+
+describe('stampItemTimestamps', () => {
+  const NOW = new Date('2026-10-10T08:00:00.000Z');
+  const OLD = '2026-10-01T00:00:00.000Z';
+  const SECOND_ID = '22222222-2222-7222-8222-222222222222';
+
+  const stored: FaqItem[] = [
+    { ...VALID_ITEM, updatedAt: OLD },
+    { ...VALID_ITEM, id: SECOND_ID, title: 'Second?', position: 1, updatedAt: OLD },
+  ];
+
+  it('stamps a newly added question with the server time', () => {
+    const next = [...stored, { ...VALID_ITEM, id: '33333333-3333-7333-8333-333333333333', title: 'Third?', position: 2 }];
+    const stamped = stampItemTimestamps(stored, next, NOW);
+    expect(stamped[2]!.updatedAt).toBe(NOW.toISOString());
+  });
+
+  it('keeps the stored timestamp for an unchanged question', () => {
+    const stamped = stampItemTimestamps(stored, stored, NOW);
+    expect(stamped[0]!.updatedAt).toBe(OLD);
+    expect(stamped[1]!.updatedAt).toBe(OLD);
+  });
+
+  it('re-stamps only the question whose title changed', () => {
+    const next = [{ ...stored[0]!, title: 'Changed?' }, stored[1]!];
+    const stamped = stampItemTimestamps(stored, next, NOW);
+    expect(stamped[0]!.updatedAt).toBe(NOW.toISOString());
+    expect(stamped[1]!.updatedAt).toBe(OLD);
+  });
+
+  it('re-stamps on a status change and on a reorder', () => {
+    const disabled = [{ ...stored[0]!, enabled: false }, stored[1]!];
+    expect(stampItemTimestamps(stored, disabled, NOW)[0]!.updatedAt).toBe(NOW.toISOString());
+
+    const reordered = [stored[1]!, { ...stored[0]!, position: 1 }, { ...stored[1]!, position: 0 }];
+    const stamped = stampItemTimestamps(stored, [reordered[1]!, reordered[2]!], NOW);
+    expect(stamped[0]!.updatedAt).toBe(NOW.toISOString());
+    expect(stamped[1]!.updatedAt).toBe(NOW.toISOString());
+  });
+
+  it('treats a legacy item with no category as UNCATEGORIZED when comparing', () => {
+    const stamped = stampItemTimestamps(stored, [
+      { ...stored[0]!, category: 'UNCATEGORIZED' },
+      stored[1]!,
+    ], NOW);
+    expect(stamped[0]!.updatedAt).toBe(OLD);
+  });
+
+  it('re-stamps when the category actually changes', () => {
+    const stamped = stampItemTimestamps(stored, [
+      { ...stored[0]!, category: 'DELIVERY' },
+      stored[1]!,
+    ], NOW);
+    expect(stamped[0]!.updatedAt).toBe(NOW.toISOString());
+  });
+
+  it('does not stamp an unchanged legacy question that has no stored timestamp', () => {
+    const legacy: FaqItem[] = [{ ...VALID_ITEM }];
+    const stamped = stampItemTimestamps(legacy, legacy, NOW);
+    expect(stamped[0]!.updatedAt).toBeUndefined();
+  });
+
+  it('drops a question that was removed from the library', () => {
+    const stamped = stampItemTimestamps(stored, [stored[1]!], NOW);
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0]!.id).toBe(SECOND_ID);
   });
 });

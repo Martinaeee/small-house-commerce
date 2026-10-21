@@ -2,6 +2,7 @@ import {
   entityRowKey,
   type AdminCatalogGraphDraft,
 } from "@/lib/admin-product-graph";
+import type { VariantCardMedia } from "@/lib/admin-api";
 
 /**
  * Publish readiness for the editor's side rail.
@@ -16,6 +17,7 @@ export type ReadinessCheckKey =
   | "basic"
   | "priced_sku"
   | "shared_media"
+  | "card_media"
   | "shipping"
   | "default_variant";
 
@@ -83,8 +85,9 @@ export interface ProductReadinessInput {
   images: readonly { url: string }[];
   /** Typed catalog graph; null for legacy graph-v0 products. */
   graph: AdminCatalogGraphDraft | null;
+  cardGraph?: AdminCatalogGraphDraft;
   /** Legacy variants, used when there is no typed graph. */
-  legacyVariants: readonly { sku: SkuLike | null }[];
+  legacyVariants: readonly { id?: string; clientKey?: string; cardMedia?: VariantCardMedia | null; sku: SkuLike | null }[];
 }
 
 export interface ProductReadiness {
@@ -108,6 +111,15 @@ export function productReadiness(
         .filter((sku): sku is NonNullable<typeof sku> => sku !== null)
         .map((sku) => skuFacts(sku));
 
+  const cardGraph = input.cardGraph ?? input.graph;
+  const cardVariants = (cardGraph?.variants ?? input.legacyVariants).filter(variant => {
+    if (!variant.sku) return false;
+    const facts = skuFacts(variant.sku);
+    return facts.active && facts.priced;
+  });
+  const defaultRef = cardGraph?.defaultDisplayVariantRef;
+  const defaultReady = cardVariants.length < 2 || Boolean(defaultRef &&
+    cardVariants.some(variant => entityRowKey(variant) === entityRowKey(defaultRef)));
   const checks: ReadinessCheck[] = [
     {
       key: "basic",
@@ -124,14 +136,16 @@ export function productReadiness(
       ok: input.images.some((image) => image.url.trim() !== ""),
     },
     {
+      key: "card_media",
+      ok: cardVariants.every(variant => variant.cardMedia?.cover?.type === "IMAGE" && variant.cardMedia.cover.url.trim() !== ""),
+    },
+    {
       key: "shipping",
       ok: skus.length > 0 && skus.every((sku) => sku.shippingComplete),
     },
     {
       key: "default_variant",
-      ok: input.graph
-        ? input.graph.defaultDisplayVariantRef !== null
-        : input.legacyVariants.length > 0,
+      ok: defaultReady,
     },
   ];
 

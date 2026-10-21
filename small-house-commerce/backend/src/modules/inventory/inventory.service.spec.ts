@@ -18,6 +18,34 @@ interface InvRow {
  */
 function createHarness() {
   const rows = new Map<string, InvRow>();
+  const events: string[] = [];
+  const backInStock = {
+    snapshotForChangedSkusWithin: vi.fn(
+      async (_tx: unknown, skuIds: readonly string[]) =>
+        new Map(
+          skuIds.map((skuId) => {
+            const row = rows.get(skuId);
+            return [skuId, row ? row.onHand - row.reserved : 0] as const;
+          }),
+        ),
+    ),
+    claimTransitionsWithin: vi.fn(
+      async (
+        _tx: unknown,
+        before: ReadonlyMap<string, number>,
+        after: ReadonlyMap<string, number>,
+      ) =>
+        [...before].some(
+          ([skuId, available]) =>
+            available <= 0 && (after.get(skuId) ?? available) > 0,
+        )
+          ? [{ id: 'claim-1' }]
+          : [],
+    ),
+    deliverClaims: vi.fn(async () => {
+      events.push('delivery');
+    }),
+  };
   const tx = {
     inventory: {
       update: vi.fn(
@@ -37,6 +65,7 @@ function createHarness() {
     inventoryMovement: { create: vi.fn(async () => ({})) },
   };
   const prisma = {
+    sku: { findUnique: vi.fn(async (): Promise<{ isBundle: boolean }> => ({ isBundle: false })), findMany: vi.fn(async (): Promise<unknown[]> => []) },
     warehouse: {
       findFirst: vi.fn(async () => ({ id: WH_ID, status: 'ACTIVE' })),
     },
@@ -73,13 +102,145 @@ function createHarness() {
       ),
     },
     inventoryMovement: { create: vi.fn(async () => ({})) },
-    $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
+    $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => {
+      events.push('transaction:start');
+      const result = await cb(tx);
+      events.push('transaction:commit');
+      return result;
+    }),
   };
-  const service = new InventoryService(prisma as never);
-  return { prisma, tx, rows, service };
+  const txInventoryCreate = vi.fn(
+    async (args: { data: { skuId: string; onHand: number } }) => {
+      const row: InvRow = {
+        id: `tx-inv-${rows.size + 1}`,
+        skuId: args.data.skuId,
+        onHand: args.data.onHand,
+        reserved: 0,
+      };
+      rows.set(args.data.skuId, row);
+      return row;
+    },
+  );
+  Object.assign(tx.inventory, {
+    findUnique: vi.fn(
+      async (args: { where: { skuId_warehouseId: { skuId: string } } }) =>
+        rows.get(args.where.skuId_warehouseId.skuId) ?? null,
+    ),
+    findUniqueOrThrow: vi.fn(
+      async (args: {
+        where: { id?: string; skuId_warehouseId?: { skuId: string } };
+      }) => {
+        const row = args.where.id
+          ? [...rows.values()].find((item) => item.id === args.where.id)
+          : rows.get(args.where.skuId_warehouseId!.skuId);
+        if (!row) throw new Error('missing inventory row');
+        return row;
+      },
+    ),
+    create: txInventoryCreate,
+  });
+  Object.assign(tx, { $queryRaw: vi.fn(async () => []) });
+  const service = new InventoryService(prisma as never, backInStock as never);
+  return {
+    prisma,
+    tx,
+    txInventoryCreate,
+    rows,
+    service,
+    backInStock,
+    events,
+  };
 }
 
 describe('InventoryService.setOnHandBatch', () => {
+  it('refuses manual and absolute stock for a virtual Bundle', async () => {
+    const { service, prisma, rows } = createHarness();
+    prisma.sku.findUnique.mockResolvedValue({ isBundle: true });
+    await expect(service.setOnHand('bundle', 0, undefined, undefined)).rejects.toThrow(/Bundle/);
+    await expect(service.adjust('bundle', 5, undefined, undefined)).rejects.toThrow(/Bundle/);
+    expect(rows.size).toBe(0);
+  });
+  it('returns derived availability without on-hand stock for a Bundle', async () => {
+    const { service, prisma } = createHarness();
+    Object.assign(prisma.inventory, { groupBy: vi.fn(async () => []) });
+    prisma.sku.findMany.mockResolvedValue([{ id: 'bundle', status: 'ACTIVE', bundleComponents: [{ quantity: 2, componentSku: {
+      isBundle: false, status: 'ACTIVE', variant: { product: { status: 'ACTIVE' } }, inventory: [{ onHand: 9, reserved: 1 }],
+    } }] }]);
+    expect(await service.stockBySku(['bundle'])).toEqual(new Map([['bundle', { onHand: 0, reserved: 0, available: 4 }]]));
+  });
+  it('claims a zero-to-positive adjustment in the stock transaction and delivers after commit', async () => {
+    const { service, rows, backInStock, events } = createHarness();
+    rows.set('restocked', {
+      id: 'inv-restocked',
+      skuId: 'restocked',
+      onHand: 0,
+      reserved: 0,
+    });
+    backInStock.deliverClaims.mockImplementationOnce(async () => {
+      expect(events.at(-1)).toBe('transaction:commit');
+      events.push('delivery');
+    });
+
+    await expect(
+      service.adjust('restocked', 2, 'restock', 'op-1'),
+    ).resolves.toMatchObject({ onHand: 2, available: 2 });
+
+    expect(backInStock.snapshotForChangedSkusWithin).toHaveBeenCalledTimes(2);
+    expect(backInStock.claimTransitionsWithin).toHaveBeenCalledTimes(1);
+    expect(backInStock.deliverClaims).toHaveBeenCalledWith([
+      { id: 'claim-1' },
+    ]);
+    expect(events).toEqual([
+      'transaction:start',
+      'transaction:commit',
+      'delivery',
+    ]);
+  });
+
+  it('creates first stock and its movement in the same transaction before delivery', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      txInventoryCreate,
+      backInStock,
+      events,
+    } = createHarness();
+
+    await expect(
+      service.setOnHand('new-sku', 3, 'initial stock', 'op-1'),
+    ).resolves.toMatchObject({ onHand: 3, available: 3 });
+
+    expect(prisma.inventory.create).not.toHaveBeenCalled();
+    expect(txInventoryCreate).toHaveBeenCalled();
+    expect(tx.inventoryMovement.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        skuId: 'new-sku',
+        quantity: 3,
+        movementType: 'MANUAL_ADJUSTMENT',
+      }),
+    });
+    expect(backInStock.deliverClaims).toHaveBeenCalledTimes(1);
+    expect(events.indexOf('transaction:commit')).toBeLessThan(
+      events.indexOf('delivery'),
+    );
+  });
+
+  it('does not deliver for a positive-to-positive adjustment', async () => {
+    const { service, rows, backInStock } = createHarness();
+    rows.set('available', {
+      id: 'inv-available',
+      skuId: 'available',
+      onHand: 3,
+      reserved: 0,
+    });
+
+    await service.adjust('available', 2, undefined, undefined);
+
+    expect(backInStock.claimTransitionsWithin).toHaveBeenCalledTimes(1);
+    expect(backInStock.deliverClaims).not.toHaveBeenCalled();
+  });
+
   it('settles a single entry in one chunk', async () => {
     const { service } = createHarness();
     const chunkSpy = vi.spyOn(service, 'settleChunk');
@@ -114,7 +275,7 @@ describe('InventoryService.setOnHandBatch', () => {
   });
 
   it('keeps successful ledger writes when another SKU fails', async () => {
-    const { service, rows, prisma } = createHarness();
+    const { service, rows, tx } = createHarness();
     rows.set('reserved', {
       id: 'inv-reserved',
       skuId: 'reserved',
@@ -136,7 +297,7 @@ describe('InventoryService.setOnHandBatch', () => {
     ]);
     // The failure must not roll back the successful SKU's ledger write.
     expect(rows.get('ok')?.onHand).toBe(10);
-    expect(prisma.inventoryMovement.create).toHaveBeenCalledWith(
+    expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           movementType: 'MANUAL_ADJUSTMENT',
@@ -182,9 +343,9 @@ describe('InventoryService.setOnHandBatch', () => {
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ skuId: 'dup', ok: true, onHand: 10 });
     expect(result[1]).toMatchObject({ skuId: 'dup', ok: true, onHand: 7 });
-    // First entry opens the row (+10); second adjusts the existing row (-3).
-    expect(prisma.inventoryMovement.create).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(1);
+    // Both writes use their own transaction; the first creates and the second adjusts.
+    expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(2);
     expect(tx.inventory.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { onHand: { increment: -3 } } }),
     );

@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { normaliseAid } from './marketing-attribution.js';
 
@@ -28,6 +30,27 @@ function prismaErrorCode(error: unknown): string | null {
 @Injectable()
 export class OptimizersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async ensureProfileForUser(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, status: true } });
+    if (!user || user.status !== 'ACTIVE') throw new NotFoundException('Active operator not found.');
+    const existing = await this.prisma.optimizerProfile.findUnique({ where: { userId } });
+    if (existing) {
+      if (existing.status !== 'ACTIVE') throw new ForbiddenException('Optimizer profile is disabled.');
+      return existing;
+    }
+    try {
+      return await this.prisma.optimizerProfile.create({
+        data: { userId, aid: `OP-${randomBytes(6).toString('hex').toUpperCase()}`, displayName: user.name },
+      });
+    } catch (error) {
+      if (prismaErrorCode(error) !== 'P2002') throw error;
+      const winner = await this.prisma.optimizerProfile.findUnique({ where: { userId } });
+      if (!winner) throw new ConflictException('Could not allocate a unique AID. Retry creating the profile.');
+      if (winner.status !== 'ACTIVE') throw new ForbiddenException('Optimizer profile is disabled.');
+      return winner;
+    }
+  }
 
   list() {
     return this.prisma.optimizerProfile.findMany({

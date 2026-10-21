@@ -1,56 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
-import AdminLinkBuilderPage from "./page";
-
-const getLinkBuilderContext = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/admin-api", () => ({
-  adminApi: { getLinkBuilderContext },
-}));
-
-function renderPage() {
-  return render(
-    <AdminI18nProvider>
-      <AdminLinkBuilderPage />
-    </AdminI18nProvider>,
-  );
-}
-
-describe("AdminLinkBuilderPage", () => {
-  beforeEach(() => {
-    setAdminLang("en");
-    getLinkBuilderContext.mockReset();
+import { describe, expect, it, vi } from "vitest";
+import LegacyCampaignLinks from "./page";
+const redirect = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ redirect }));
+describe("legacy campaign link entry", () => {
+  it("redirects to persisted links rather than the free-form AID builder", async () => {
+    await LegacyCampaignLinks({ searchParams: Promise.resolve({}) });
+    expect(redirect).toHaveBeenLastCalledWith("/admin/marketing/links");
   });
-
-  it("loads the permission-filtered context and renders the builder", async () => {
-    getLinkBuilderContext.mockResolvedValue({
-      products: [
-        {
-          id: "product-1",
-          name: "Compact Chair",
-          slug: "compact-chair",
-          variants: [],
-          landingPages: [],
-        },
-      ],
-    });
-
-    renderPage();
-
-    expect(screen.getByText("Loading link builder…")).toBeVisible();
-    await waitFor(() => expect(getLinkBuilderContext).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "Optimizer Link Builder" })).toBeVisible();
-    expect(screen.getByRole("option", { name: "Compact Chair" })).toBeVisible();
-  });
-
-  it("shows a retryable error without leaking a failed response", async () => {
-    getLinkBuilderContext.mockRejectedValue(new Error("Forbidden"));
-
-    renderPage();
-
-    expect(await screen.findByText("Link-builder data could not be loaded.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
-    expect(screen.queryByLabelText("Product")).not.toBeInTheDocument();
+  it("preserves safely encoded product and page association", async () => {
+    await LegacyCampaignLinks({ searchParams: Promise.resolve({ productId: "product/1", landingPageId: "page/1" }) });
+    expect(redirect).toHaveBeenLastCalledWith("/admin/marketing/links?productId=product%2F1&landingPageId=page%2F1");
   });
 });

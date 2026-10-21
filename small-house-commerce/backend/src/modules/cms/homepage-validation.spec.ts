@@ -33,6 +33,7 @@ const externalLink: LinkValue = {
   type: 'EXTERNAL',
   url: 'https://example.com/sale',
 };
+const internalLink = (path: string): LinkValue => ({ type: 'INTERNAL', path });
 const productLink = (id: string): LinkValue => ({ type: 'PRODUCT', id });
 const collectionLink = (id: string): LinkValue => ({ type: 'COLLECTION', id });
 const categoryLink = (id: string): LinkValue => ({ type: 'CATEGORY', id });
@@ -408,6 +409,21 @@ describe('HomepageValidator link targets', () => {
     const { errors } = await makeValidator(lookup).validate(doc);
 
     expect(errors).toEqual([]);
+  });
+
+  it('accepts an internal path without any entity lookup', async () => {
+    const doc = validDoc();
+    const slide = slidesOf(doc)[0];
+    slide.elements.ctaPrimary.link = internalLink('/track-order');
+
+    const lookup = createLookup();
+    const { errors } = await makeValidator(lookup).validate(doc);
+
+    expect(errors).toEqual([]);
+    expect(lookup.productStatuses).not.toHaveBeenCalled();
+    expect(lookup.collectionExists).not.toHaveBeenCalled();
+    expect(lookup.categoryExists).not.toHaveBeenCalled();
+    expect(lookup.landingExists).not.toHaveBeenCalled();
   });
 
   it('checks enabled announcement items and leaves disabled ones alone', async () => {

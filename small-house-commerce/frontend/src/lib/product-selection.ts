@@ -72,8 +72,62 @@ function orderedOptions(
   return [...options].sort(comparePositionThenId);
 }
 
-function isSelectableVariant(variant: StorefrontProductVariant): boolean {
+export function isSelectableVariant(variant: StorefrontProductVariant): boolean {
   return variant.sku?.status === "ACTIVE" && variant.sku.price !== null;
+}
+
+export function isCompatibleValue(
+  productOptions: readonly StorefrontProductOption[],
+  variants: readonly StorefrontProductVariant[],
+  selectedValueIds: Readonly<Record<string, string>>,
+  optionId: string,
+  valueId: string,
+): boolean {
+  const selectedOption = productOptions.find(({ id }) => id === optionId);
+  return variants.some((variant) => {
+    const values = new Set(variant.optionValueIds);
+    if (!values.has(valueId)) return false;
+    return productOptions.every((option) => {
+      if (
+        option.id === optionId ||
+        !selectedOption ||
+        option.position >= selectedOption.position
+      ) {
+        return true;
+      }
+      const selected = selectedValueIds[option.id];
+      return selected === undefined || values.has(selected);
+    });
+  });
+}
+
+export function isOutOfStockOnly(
+  productOptions: readonly StorefrontProductOption[],
+  variants: readonly StorefrontProductVariant[],
+  selectedValueIds: Readonly<Record<string, string>>,
+  optionId: string,
+  valueId: string,
+): boolean {
+  const selectedOption = productOptions.find(({ id }) => id === optionId);
+  const matches = variants.filter((variant) => {
+    const values = new Set(variant.optionValueIds);
+    if (!values.has(valueId)) return false;
+    return productOptions.every((option) => {
+      if (
+        option.id === optionId ||
+        !selectedOption ||
+        option.position >= selectedOption.position
+      ) {
+        return true;
+      }
+      const selected = selectedValueIds[option.id];
+      return selected === undefined || values.has(selected);
+    });
+  });
+  return (
+    matches.length > 0 &&
+    matches.every((variant) => (variant.sku?.availableInventory ?? 0) <= 0)
+  );
 }
 
 function selectableVariants(product: Product): StorefrontProductVariant[] {
@@ -200,6 +254,7 @@ export function createInitialSelection(
         };
       }
     }
+    return { ...initial, selectionSource: "DEEP_LINK" };
   }
 
   if (candidates.length === 1) {
@@ -405,12 +460,6 @@ export function reduceProductSelection(
         confirmedRevision: null,
       };
 
-    /*
-     * Reconciles canonical selection to a URL delivered by browser
-     * Back/Forward. A named selectable variant becomes an unconfirmed
-     * DEEP_LINK-style selection; an absent or invalid variant resets to
-     * exactly what a fresh load of the clean URL would initialize.
-     */
     case "SYNC_FROM_URL": {
       let nextValueIds: SelectedValueIds | null = null;
       if (action.variantId !== null) {
@@ -423,7 +472,7 @@ export function reduceProductSelection(
       }
 
       if (nextValueIds === null) {
-        const canonical = createInitialSelection(product, null);
+        const canonical = createInitialSelection(product, action.variantId);
         if (
           state.selectionSource === canonical.selectionSource &&
           sameSelection(state.selectedValueIds, canonical.selectedValueIds) &&

@@ -1,9 +1,41 @@
 import {
   serverApiUrl,
+  type Category,
   type Paged,
   type Product,
 } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
+
+export interface CategoryCrumb {
+  name: string;
+  slug: string;
+}
+
+export async function fetchCategoryInfo(
+  categoryId: string,
+): Promise<CategoryCrumb[] | null> {
+  try {
+    const res = await fetch(serverApiUrl("/api/v1/storefront/categories"), {
+      next: { revalidate: 300, tags: STOREFRONT_TAGS },
+    });
+    if (!res.ok) return null;
+    const tree = (await res.json()) as Category[];
+    const path: CategoryCrumb[] = [];
+    const dfs = (nodes: Category[]): CategoryCrumb[] | null => {
+      for (const node of nodes) {
+        path.push({ name: node.name, slug: node.slug });
+        if (node.id === categoryId) return [...path];
+        const found = dfs(node.children);
+        if (found) return found;
+        path.pop();
+      }
+      return null;
+    };
+    return dfs(tree);
+  } catch {
+    return null;
+  }
+}
 
 export function selectableAvailableInventory(product: Product): number {
   return product.variants.reduce((total, variant) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -60,6 +61,7 @@ interface SkuRow {
   skuId: string;
   skuCode: string;
   skuStatus: "ACTIVE" | "DISABLED";
+  isBundle: boolean;
   price: string | null;
   // Live stock, served with the product payload (available = on_hand −
   // reserved). Absent rows are 0 in the database, so 0 renders as 0.
@@ -95,6 +97,7 @@ function flattenProducts(products: AdminProduct[]): SkuRow[] {
         skuId: variant.sku.id,
         skuCode: variant.sku.skuCode,
         skuStatus: variant.sku.status,
+        isBundle: variant.sku.isBundle ?? false,
         price: variant.sku.price,
         onHand: variant.sku.onHand,
         reserved: variant.sku.reserved,
@@ -129,6 +132,11 @@ function InventoryPageContent() {
   const status = PRODUCT_STATUSES.includes(rawStatus as ProductStatus)
     ? (rawStatus as ProductStatus)
     : "";
+  // Dashboard drill-down: `stock=low` / `stock=out` narrows the list to the
+  // exact SKUs behind the alert count (server-side, across the whole catalog).
+  const rawStock = searchParams.get("stock");
+  const stockFilter: "" | "low" | "out" =
+    rawStock === "low" || rawStock === "out" ? rawStock : "";
   const page =
     Math.max(1, Number.parseInt(searchParams.get("page") ?? "", 10)) || 1;
 
@@ -136,7 +144,7 @@ function InventoryPageContent() {
   // SKU-code terms are NOT sent to the server (name/slug match only); they
   // filter the loaded page-set client-side below.
   const serverSearch = skuQuery ? "" : search;
-  const filtersActive = Boolean(search || status);
+  const filtersActive = Boolean(search || status || stockFilter);
 
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -185,6 +193,7 @@ function InventoryPageContent() {
 
   const queryKey = [
     status,
+    stockFilter,
     serverSearch,
     String(page),
     String(nonce),
@@ -199,6 +208,7 @@ function InventoryPageContent() {
     adminApi
       .listProducts({
         status: status || undefined,
+        stock: stockFilter || undefined,
         search: serverSearch || undefined,
         page,
       })
@@ -218,7 +228,7 @@ function InventoryPageContent() {
     return () => {
       active = false;
     };
-  }, [queryKey, status, serverSearch, page]);
+  }, [queryKey, status, stockFilter, serverSearch, page]);
 
   // --- session stock (spec §8.5: adjusted rows only) ------------------------
 
@@ -369,6 +379,18 @@ function InventoryPageContent() {
       <PageHeader
         title={t("inventory_title")}
         subtitle={t("inventory_subtitle")}
+        actions={
+          // The cost backfill grid is catalog work; only an account that may
+          // edit products gets the shortcut.
+          hasPermission("PRODUCT_MANAGE") ? (
+            <Link
+              href="/admin/inventory/cost"
+              className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-ink-secondary transition-colors hover:border-primary hover:text-cta"
+            >
+              {t("cost_page_title")} →
+            </Link>
+          ) : null
+        }
       />
 
       {/* Chinese operator guide for stock-in/out workflow. */}
@@ -428,6 +450,21 @@ function InventoryPageContent() {
                     {value}
                   </option>
                 ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="md:w-44">
+            <Field label="Stock level" htmlFor="inventory-stock">
+              <Select
+                id="inventory-stock"
+                value={stockFilter}
+                onChange={(e) =>
+                  patchParams({ stock: e.target.value || null, page: null })
+                }
+              >
+                <option value="">All stock levels</option>
+                <option value="low">Low stock</option>
+                <option value="out">Out of stock</option>
               </Select>
             </Field>
           </div>
@@ -539,20 +576,30 @@ function InventoryPageContent() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <div className="text-xs text-ink-secondary">
-                          <div>
-                            On hand{" "}
-                            <span className="font-semibold text-ink">
-                              {stock.onHand}
-                            </span>
-                          </div>
-                          <div className="text-ink-muted">
-                            Reserved {stock.reserved} · Available{" "}
-                            {stock.available}
-                          </div>
+                          {row.isBundle ? (
+                            <>
+                              <div className="font-semibold">
+                                {t("bundle_virtual")}
+                              </div>
+                              <div>Available {stock.available}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                On hand{" "}
+                                <span className="font-semibold text-ink">
+                                  {stock.onHand}
+                                </span>
+                              </div>
+                              <div className="text-ink-muted">
+                                Reserved {stock.reserved} · Available {stock.available}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {canAdjust ? (
+                        {canAdjust && !row.isBundle ? (
                           <button
                             type="button"
                             onClick={() => openAdjust(row)}

@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Product, StorefrontSku } from "@/lib/api";
 import {
+  fetchCategoryInfo,
   selectRelatedProducts,
   selectableAvailableInventory,
 } from "./pdp-products";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function candidate(
   id: string,
@@ -89,5 +92,36 @@ describe("selectRelatedProducts", () => {
 
     expect(selectRelatedProducts(products, "other", 1)).toEqual([products[0]]);
     expect(selectRelatedProducts(products, "other", 4)).toEqual(products);
+  });
+});
+
+describe("fetchCategoryInfo", () => {
+  const tree = [
+    { id: "unrelated", name: "Other", slug: "other", children: [] },
+    { id: "root", name: "Furniture", slug: "furniture", children: [
+      { id: "sibling", name: "Tables", slug: "tables", children: [] },
+      { id: "leaf", name: "Chairs", slug: "chairs", children: [] },
+    ] },
+  ];
+
+  it("returns the root-to-leaf chain without unrelated sibling crumbs", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(tree))));
+    expect(await fetchCategoryInfo("leaf")).toEqual([
+      { name: "Furniture", slug: "furniture" },
+      { name: "Chairs", slug: "chairs" },
+    ]);
+  });
+
+  it("returns null when the category is absent", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(tree))));
+    expect(await fetchCategoryInfo("missing")).toBeNull();
+  });
+
+  it.each(["http", "network"])("returns null on %s failure", async (failure) => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (failure === "network") throw new Error("Network unavailable");
+      return new Response("Unavailable", { status: 503 });
+    }));
+    expect(await fetchCategoryInfo("leaf")).toBeNull();
   });
 });

@@ -9,6 +9,24 @@ export interface ProductSpecSource extends SpecDimensions {
   features?: string | null;
 }
 
+export interface ProductDimensionOverride {
+  productWidth?: number | null;
+  productHeight?: number | null;
+  productDepth?: number | null;
+}
+
+export function resolveProductDimensions(
+  product: ProductSpecSource,
+  sku: ProductDimensionOverride | null | undefined,
+): ProductSpecSource {
+  return {
+    ...product,
+    width: sku?.productWidth ?? product.width,
+    height: sku?.productHeight ?? product.height,
+    depth: sku?.productDepth ?? product.depth,
+  };
+}
+
 function featureLines(features: string | null | undefined): string[] {
   return (features ?? "")
     .split("\n")
@@ -30,20 +48,23 @@ function hasDimensions(product: SpecDimensions): boolean {
 export function ProductSpecs({
   product,
   productWeight = null,
+  variantDimensions,
   includeFeatures = true,
 }: {
   product: ProductSpecSource;
   productWeight?: number | null;
+  variantDimensions?: ProductDimensionOverride | null;
   /** Admin live preview compatibility; the real PDP moves features above media. */
   includeFeatures?: boolean;
 }): ReactNode {
-  const materials = product.materials?.trim() ?? "";
-  const features = includeFeatures ? featureLines(product.features) : [];
-  const dimensions = hasDimensions(product);
+  const resolvedProduct = resolveProductDimensions(product, variantDimensions);
+  const materials = resolvedProduct.materials?.trim() ?? "";
+  const features = includeFeatures ? featureLines(resolvedProduct.features) : [];
+  const dimensions = hasDimensions(resolvedProduct);
 
   // The PDP passes includeFeatures={false}, so this is exactly the predicate
   // the sticky nav uses — one rule, no drift between link and anchor.
-  if (!pdpSpecsVisible(product, productWeight) && features.length === 0) {
+  if (!pdpSpecsVisible(resolvedProduct, productWeight) && features.length === 0) {
     return null;
   }
 
@@ -60,7 +81,7 @@ export function ProductSpecs({
         Product Specifications
       </h2>
       <div className="flex flex-col gap-5">
-        {dimensions ? <DimensionRows product={product} /> : null}
+        {dimensions ? <DimensionRows product={resolvedProduct} /> : null}
         {materials !== "" ? (
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
@@ -104,11 +125,14 @@ export function ProductSpecs({
 
 export function MaterialDimensions({
   product,
+  variantDimensions,
 }: {
   product: ProductSpecSource;
+  variantDimensions?: ProductDimensionOverride | null;
 }): ReactNode {
-  const materials = product.materials?.trim() ?? "";
-  const dimensions = hasDimensions(product);
+  const resolvedProduct = resolveProductDimensions(product, variantDimensions);
+  const materials = resolvedProduct.materials?.trim() ?? "";
+  const dimensions = hasDimensions(resolvedProduct);
   if (materials === "" && !dimensions) return null;
 
   return (
@@ -133,7 +157,7 @@ export function MaterialDimensions({
             </p>
           </div>
         ) : null}
-        {dimensions ? <DimensionRows product={product} /> : null}
+        {dimensions ? <DimensionRows product={resolvedProduct} /> : null}
       </div>
     </section>
   );

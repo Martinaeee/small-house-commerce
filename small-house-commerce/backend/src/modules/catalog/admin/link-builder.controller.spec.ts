@@ -3,9 +3,8 @@ import {
   HEADERS_METADATA,
 } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
-import { PERMISSIONS_KEY } from '../../auth/permissions.decorator.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
-import { PermissionsGuard } from '../../auth/permissions.guard.js';
+import { MarketingGuard } from '../../marketing/marketing.guard.js';
 import { AdminLinkBuilderController } from './link-builder.controller.js';
 
 describe('AdminLinkBuilderController', () => {
@@ -15,17 +14,15 @@ describe('AdminLinkBuilderController', () => {
     };
     const controller = new AdminLinkBuilderController(context as never);
 
-    await expect(controller.getContext()).resolves.toEqual({ products: [] });
-    expect(context.getContext).toHaveBeenCalledOnce();
+    const account = { id: 'u1', permissions: ['MARKETING_VIEW_OWN'] };
+    await expect(controller.getContext(account)).resolves.toEqual({ products: [] });
+    expect(context.getContext).toHaveBeenCalledWith(account);
   });
 
-  it('requires the dedicated campaign link permission', () => {
+  it('uses the owner-aware marketing guard, not a legacy permission bypass', () => {
     expect(
       Reflect.getMetadata(GUARDS_METADATA, AdminLinkBuilderController),
-    ).toEqual(expect.arrayContaining([JwtAuthGuard, PermissionsGuard]));
-    expect(
-      Reflect.getMetadata(PERMISSIONS_KEY, AdminLinkBuilderController),
-    ).toEqual(['CAMPAIGN_LINK_BUILD']);
+    ).toEqual(expect.arrayContaining([JwtAuthGuard, MarketingGuard]));
   });
 
   it('marks the response private and non-cacheable', () => {

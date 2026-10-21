@@ -4,9 +4,78 @@ model SiteSetting {
   id           String   @id @map("id") @db.Uuid
   messengerUrl String   @default("") @map("messenger_url")
   supportEmail String   @default("support@luwag.ph") @map("support_email")
+  supportPhone String   @default("") @map("support_phone")
   supportHours String   @default("Mon–Sat, 9am–6pm (PHT)") @map("support_hours")
+  // Newsletter DISPLAY configuration only; the discount mechanics live on
+  // NewsletterPromotion (stable id), never here.
+  newsletterBandEnabled       Boolean @default(true)  @map("newsletter_band_enabled")
+  newsletterPopupEnabled      Boolean @default(false) @map("newsletter_popup_enabled")
+  newsletterPopupDelaySeconds Int     @default(5)     @map("newsletter_popup_delay_seconds")
+  newsletterOfferTitle        String  @default("")    @map("newsletter_offer_title")
+  newsletterOfferBody         String  @default("")    @map("newsletter_offer_body")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("site_settings")
+}
+
+/// Storefront shell (spec 2026-10-12-storefront-shell-brand-editor-design §12).
+///
+/// One singleton row owns the global Header, Footer, brand marks and base
+/// brand theme. `draftDocument` is the single writable source; publishing
+/// copies it to `publishedDocument` in one transaction and bumps both `version`
+/// (the CAS token every write must match) and `publishedRevision` (the public
+/// cache validator). The fixed id below is the singleton guard.
+model StorefrontShell {
+  id                   String    @id @db.Uuid
+  schemaVersion        Int       @default(1) @map("schema_version")
+  draftDocument        Json      @map("draft_document")
+  publishedDocument    Json?     @map("published_document")
+  version              Int       @default(1)
+  publishedRevision    Int       @default(1) @map("published_revision")
+  draftUpdatedByUserId String?   @map("draft_updated_by_user_id") @db.Uuid
+  publishedByUserId    String?   @map("published_by_user_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  publishedAt          DateTime? @map("published_at") @db.Timestamptz(3)
+
+  draftUpdatedBy User? @relation("StorefrontShellDraftUpdater", fields: [draftUpdatedByUserId], references: [id], onDelete: SetNull)
+  publishedBy    User? @relation("StorefrontShellPublisher", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("storefront_shells")
+}
+
+/// Server-owned brand asset registry (spec §9, §12).
+///
+/// The document stores only an asset id; detected MIME type, dimensions,
+/// storage key, public URL and durability live here so a client can never
+/// forge presentation state. Rows are append-only in this phase: removing a
+/// draft reference never deletes a row an older published revision may need.
+model StorefrontShellAsset {
+  id              String                      @id @default(uuid(7)) @db.Uuid
+  kind            StorefrontShellAssetKind
+  storage         StorefrontShellAssetStorage
+  storageKey      String                      @unique @map("storage_key")
+  publicUrl       String                      @map("public_url")
+  mimeType        String                      @map("mime_type")
+  width           Int
+  height          Int
+  durable         Boolean
+  createdByUserId String?                     @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy User? @relation("StorefrontShellAssetCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([kind, createdAt])
+  @@map("storefront_shell_assets")
+}
+
+enum StorefrontShellAssetKind {
+  HORIZONTAL
+  SQUARE
+}
+
+enum StorefrontShellAssetStorage {
+  LOCAL
+  R2
 }

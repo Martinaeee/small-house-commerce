@@ -88,6 +88,7 @@ function harness(permissions: string[]) {
     user: {
       findUnique: vi.fn().mockResolvedValue(userWith(permissions)),
     },
+    sku: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRaw: vi.fn(),
   };
   return {
@@ -119,6 +120,23 @@ describe('SearchService', () => {
       },
     });
     expect(result.groups.products?.items[0]).not.toHaveProperty('supplierCost');
+  });
+
+  it('reports component-derived availability for virtual Bundle search hits', async () => {
+    const { service, prisma } = harness(['PRODUCT_MANAGE']);
+    const row = productRow({ is_bundle: true, available_inventory: 0 });
+    prisma.$queryRaw.mockResolvedValue([row]);
+    prisma.sku.findMany.mockResolvedValue([{
+      id: row.sku_id,
+      status: 'ACTIVE',
+      bundleComponents: [{ quantity: 2, componentSku: {
+        status: 'ACTIVE', isBundle: false,
+        variant: { product: { status: 'ACTIVE' } },
+        inventory: [{ onHand: 10, reserved: 2 }],
+      } }],
+    }]);
+    const result = await service.search(USER_ID, { q: 'CHAIR-L', limit: 5 });
+    expect(result.groups.products?.items[0]?.matchedSku?.availableInventory).toBe(4);
   });
 
   it('returns no groups and performs no raw query for ORDER_VIEW_OWN only', async () => {

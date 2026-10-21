@@ -8,5 +8,6 @@ import { AdminSettingsController } from './admin/settings.controller.js';
   imports: [AuthModule],
   controllers: [StorefrontSettingsController, AdminSettingsController],
   providers: [SettingsService],
+  exports: [SettingsService],
 })
 export class SettingsModule {}

@@ -255,6 +255,15 @@ function OrdersPageContent() {
 
   // --- manual order entry (phone orders) -------------------------------------
   const [showCreate, setShowCreate] = useState(false);
+  // `?create=1` opens the manual-order dialog (the dashboard's "Create
+  // order" shortcut). The parameter is applied while rendering — the same
+  // pattern the search box uses — so later filter changes never reopen it.
+  const createParam = searchParams.get("create");
+  const [appliedCreateParam, setAppliedCreateParam] = useState<string | null>(null);
+  if (createParam === "1" && appliedCreateParam !== createParam) {
+    setAppliedCreateParam(createParam);
+    setShowCreate(true);
+  }
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState({

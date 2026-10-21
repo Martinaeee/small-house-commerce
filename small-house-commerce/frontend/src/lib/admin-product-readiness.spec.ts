@@ -17,6 +17,7 @@ function completeGraph(): AdminCatalogGraphDraft {
         position: 0,
         combinationKey: "red",
         optionValueRefs: [],
+        cardMedia: { cover: { type: "IMAGE", url: "/uploads/red-card.webp", altText: null }, hover: null },
         sku: {
           id: "sku-red",
           skuCode: "CHAIR-RED",
@@ -57,12 +58,46 @@ function completeInput(
   };
 }
 
+describe("independent card publish readiness", () => {
+  it("requires each priced active variant's independent cover, not a shared gallery", () => {
+    const input = completeInput();
+    input.graph!.variants[0]!.cardMedia = null;
+    const result = productReadiness(input);
+    expect(result.checks).toContainEqual({ key: "card_media", ok: false });
+    input.graph!.variants[0]!.cardMedia = {
+      cover: { type: "IMAGE", url: "/uploads/card.webp", altText: null }, hover: null,
+    };
+    expect(productReadiness(input).checks).toContainEqual({ key: "card_media", ok: true });
+  });
+
+  it("requires a valid default only for multiple active priced variants", () => {
+    const input = completeInput();
+    input.graph!.defaultDisplayVariantRef = null;
+    expect(productReadiness(input).checks).toContainEqual({ key: "default_variant", ok: true });
+    input.graph!.variants.push({ ...structuredClone(input.graph!.variants[0]!), id: "second", name: "Blue" });
+    expect(productReadiness(input).checks).toContainEqual({ key: "default_variant", ok: false });
+    input.graph!.defaultDisplayVariantRef = { id: "foreign" };
+    expect(productReadiness(input).checks).toContainEqual({ key: "default_variant", ok: false });
+    input.graph!.defaultDisplayVariantRef = { id: "second" };
+    expect(productReadiness(input).checks).toContainEqual({ key: "default_variant", ok: true });
+  });
+
+  it("checks the latest read-only legacy card graph without requiring materialization", () => {
+    const graph = completeGraph();
+    graph.variants[0]!.cardMedia = { cover: { type: "IMAGE", url: "/uploads/card.webp", altText: null }, hover: null };
+    const input = { ...completeInput({ graph: null }), cardGraph: graph };
+    expect(productReadiness(input).checks).toContainEqual({ key: "card_media", ok: true });
+    graph.variants[0]!.cardMedia.cover = null;
+    expect(productReadiness(input).checks).toContainEqual({ key: "card_media", ok: false });
+  });
+});
+
 describe("productReadiness", () => {
   it("treats zero-valued price and shipping measurements as filled values", () => {
     const readiness = productReadiness(completeInput());
 
-    expect(readiness.complete).toBe(5);
-    expect(readiness.total).toBe(5);
+    expect(readiness.complete).toBe(6);
+    expect(readiness.total).toBe(6);
     expect(readiness.checks.every((check) => check.ok)).toBe(true);
     expect(readiness.warnings).toEqual([]);
   });

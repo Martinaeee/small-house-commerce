@@ -164,6 +164,29 @@ function createContext(sections: SectionFixture[]) {
 }
 
 describe('HomepageService.storefrontGet', () => {
+  it('preserves lightweight card media and badges through its single product hydration', async () => {
+    const ctx = createContext([section({
+      id: 'grid', type: T.PRODUCT_GRID, products: [join('grid', 'p1', 0, 'New')],
+    })]);
+    ctx.products.storefrontByIds = vi.fn(async () => [{
+      ...skuProduct('p1', 3, 100),
+      cardMedia: {
+        unselected: { cover: { id: 'cover', url: '/cover.webp', type: 'IMAGE', altText: null, sortOrder: 0 }, scene: null },
+        variants: [{ variantId: 'v1', cover: { id: 'cover', url: '/cover.webp', type: 'IMAGE', altText: null, sortOrder: 0 },
+          scene: { id: 'scene', url: '/scene.webp', type: 'IMAGE', altText: 'Room', sortOrder: 1 } }],
+      },
+    }]) as never;
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    expect(result.sections[0]).toMatchObject({ products: [{
+      id: 'p1', badge: 'New', cardMedia: {
+        unselected: { cover: { id: 'cover', url: '/cover.webp' }, scene: null },
+        variants: [{ variantId: 'v1', scene: { id: 'scene', url: '/scene.webp' } }],
+      },
+    }] });
+    expect(ctx.products.storefrontByIds).toHaveBeenCalledTimes(1);
+    expect(ctx.products.storefrontByIds).toHaveBeenCalledWith(['p1']);
+  });
+
   it('returns enabled sections in order, hides disabled, filters grids to sellable products with badges', async () => {
     const sections = [
       section({

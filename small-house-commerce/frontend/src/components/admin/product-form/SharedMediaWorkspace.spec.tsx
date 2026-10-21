@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +52,71 @@ function renderWorkspace(
 
 beforeEach(() => {
   setAdminLang("en");
+});
+
+function SharedSceneHarness({ pending = false, uploading = false, blank = false }: { pending?: boolean; uploading?: boolean; blank?: boolean }) {
+  const [rows, setRows] = useState<ImageFormValue[]>([
+    { id: "a", url: blank ? "" : "/uploads/a.webp", type: "IMAGE", altText: "A", sortOrder: "0", isScene: false },
+    { id: "b", url: "/uploads/b.webp", type: "IMAGE", altText: "B", sortOrder: "1", isScene: true },
+    { id: "v", url: "/uploads/video.mp4", type: "VIDEO", altText: "Video", sortOrder: "2", isScene: false },
+  ]);
+  return <AdminI18nProvider><SharedMediaWorkspace
+    images={rows} pending={pending} highlightKey={pending || uploading || blank ? "images.0.url" : null}
+    batchUpload={{ uploading, targetKey: uploading ? "shared" : null, results: {}, upload: async () => undefined, dismiss: () => undefined }}
+    onPatch={(index, patch) => setRows(old => old.map((row, i) => i === index ? { ...row, ...patch } : row))}
+    onMove={() => undefined} onReorder={() => undefined} onSetCover={() => undefined}
+    onRemove={index => setRows(old => old.filter((_, i) => i !== index))}
+    onAdd={() => undefined} onAddMedia={() => undefined}
+  /><pre data-testid="shared-scene-state">{JSON.stringify(rows)}</pre></AdminI18nProvider>;
+}
+function sharedSceneState(): ImageFormValue[] {
+  return JSON.parse(screen.getByTestId("shared-scene-state").textContent!);
+}
+
+describe("SharedMediaWorkspace scenes", () => {
+  it("retains stored scene metadata and order without scene assignment controls", async () => {
+    render(<SharedSceneHarness />);
+    await userEvent.click(screen.getByRole("button", { name: "Media 2" }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    expect(sharedSceneState().map(row => [row.id, row.sortOrder, row.isScene]))
+      .toEqual([["a", "0", false], ["b", "1", true], ["v", "2", false]]);
+  });
+
+  it("keeps the scene on a URL edit and clears it on a VIDEO conversion", async () => {
+    const user = userEvent.setup();
+    render(<SharedSceneHarness />);
+    await user.click(screen.getByRole("button", { name: "Media 2" }));
+    fireEvent.change(screen.getByLabelText("Media 2 URL"), { target: { value: "/uploads/b-edited.webp" } });
+    expect(sharedSceneState()[1]).toMatchObject({ id: "b", url: "/uploads/b-edited.webp", isScene: true });
+    await user.selectOptions(screen.getByLabelText("Media 2 type"), "VIDEO");
+    expect(sharedSceneState()[1]).toMatchObject({ id: "b", type: "VIDEO", isScene: false });
+  });
+
+  it("does not transfer a deleted scene to the next image", async () => {
+    const user = userEvent.setup();
+    render(<SharedSceneHarness />);
+    await user.click(screen.getByRole("button", { name: "Media 2" }));
+    const editor = document.querySelector("#shared-media-editor") as HTMLElement;
+    await user.click(within(editor).getByRole("button", { name: "Remove media" }));
+    expect(sharedSceneState().map(row => [row.id, row.isScene])).toEqual([["a", false], ["v", false]]);
+  });
+
+  it.each([
+    ["pending", { pending: true }],
+    ["uploading", { uploading: true }],
+    ["blank URL", { blank: true }],
+  ])("disables scene assignment for %s", (_label, props) => {
+    render(<SharedSceneHarness {...props} />);
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    expect(sharedSceneState()[1]?.isScene).toBe(true);
+  });
+
+  it("does not permit marking a VIDEO", async () => {
+    const user = userEvent.setup();
+    render(<SharedSceneHarness />);
+    await user.click(screen.getByRole("button", { name: "Media 3" }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("SharedMediaWorkspace", () => {
@@ -188,7 +254,7 @@ describe("SharedMediaWorkspace", () => {
     });
 
     await user.selectOptions(screen.getByLabelText("Media 1 type"), "VIDEO");
-    expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO" });
+    expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO", isScene: false });
 
     await user.click(screen.getByText("Advanced (sort order)"));
     fireEvent.change(screen.getByLabelText("Media 1 sort order"), {

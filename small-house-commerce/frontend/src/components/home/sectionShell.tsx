@@ -64,11 +64,18 @@ export function SectionShell({
   className = "",
   bleed = false,
   style,
+  previewDevice,
 }: {
   children: ReactNode;
   className?: string;
   bleed?: boolean;
   style?: unknown;
+  /**
+   * Preview device of the admin canvas ("desktop" | "tablet" | "mobile").
+   * The live site has no preview frame, so this only annotates the markup —
+   * a section that needs device-specific spacing applies it itself.
+   */
+  previewDevice?: "desktop" | "tablet" | "mobile";
 }) {
   const presentation = sectionStylePresentation(style);
 
@@ -77,6 +84,7 @@ export function SectionShell({
       <section
         className={`${presentation.textColorClass} ${className}`.trim()}
         style={presentation.style}
+        data-preview-device={previewDevice}
       >
         {children}
       </section>
@@ -86,6 +94,7 @@ export function SectionShell({
     <section
       className={`mx-auto ${presentation.widthClass} px-4 py-10 sm:px-6 ${presentation.textColorClass} ${className}`.trim()}
       style={presentation.style}
+      data-preview-device={previewDevice}
     >
       {children}
     </section>

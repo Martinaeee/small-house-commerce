@@ -21,6 +21,11 @@ export const checkoutSchema = z.object({
       }),
     )
     .min(1),
+  marketingCredential: z.string().max(8192).nullable().optional(),
+  // The storefront browser session that placed this order. Analytics-only:
+  // it links the order to its visit so the dashboard can divide ordering
+  // sessions by all sessions. Never rendered to the shopper.
+  trackingSessionId: z.string().min(8).max(100).nullable().optional(),
   attribution: z.object({
     sourceType: z.nativeEnum(SourceType).default('ORGANIC'),
     aid: z.string().max(64).nullable().optional(),
@@ -34,6 +39,20 @@ export const checkoutSchema = z.object({
     utmMedium: z.string().max(120).nullable().optional(),
     utmCampaign: z.string().max(120).nullable().optional(),
   }),
+  // Shopper-supplied delivery note. Trimmed, empty -> null, <=200 UTF-16 units
+  // (the same unit the browser textarea maxLength counts). Zod's own `.max()`
+  // counts code points, which would let the API accept a note the form can
+  // never produce; the explicit refine keeps both sides on one unit. Never
+  // sent to pixels.
+  customerNote: z
+    .string()
+    .trim()
+    .refine((v) => v.length <= 200, {
+      message: 'Order notes are limited to 200 characters.',
+    })
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .default(null),
   preferredDeliveryDate: z
     .string()
     .date()
@@ -65,6 +84,15 @@ export const checkoutSchema = z.object({
     }, { message: 'Preferred delivery date must be within the next 30 days.' })
     .nullable()
     .optional(),
+  // Subscribe-exclusive promo code. Only the CODE travels from the client; the
+  // discount amount is always computed server-side (spec §4.3).
+  promoCode: z
+    .string()
+    .trim()
+    .max(32)
+    .transform((v) => (v === '' ? null : v.toUpperCase()))
+    .nullable()
+    .default(null),
 });
 
 export const orderQuerySchema = z.object({
@@ -133,6 +161,7 @@ export const editOrderSchema = z.object({
   items: z
     .array(
       z.object({
+        orderItemId: z.string().uuid().optional(),
         skuId: z.string().uuid(),
         quantity: z.number().int().min(1).max(99),
       }),

@@ -263,6 +263,11 @@ export function SharedMediaWorkspace({
                         {t("product_media_cover")}
                       </span>
                     ) : null}
+                    {image.isScene ? (
+                      <span className="absolute left-1 top-7 rounded-full bg-cta px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {t("product_media_scene_badge")}
+                      </span>
+                    ) : null}
                   </button>
 
                   <div
@@ -384,6 +389,7 @@ export function SharedMediaWorkspace({
                 onChange={(event) =>
                   onPatch(editorIndex, {
                     type: event.target.value as ImageFormValue["type"],
+                    ...(event.target.value === "VIDEO" ? { isScene: false } : {}),
                   })
                 }
                 disabled={pending}

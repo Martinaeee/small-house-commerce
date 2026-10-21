@@ -87,7 +87,7 @@ export function AnnouncementBar({
   return (
     <div
       data-announcement-bar
-      className="bg-cta px-4 py-2 text-center text-xs font-medium text-white sm:text-sm"
+      className="bg-cta px-4 py-2 text-center text-xs font-medium text-cta-foreground sm:text-sm"
       style={{
         backgroundColor: safeHex(item.backgroundColor, DEFAULT_BACKGROUND),
         color: safeHex(item.textColor, DEFAULT_TEXT_COLOR),

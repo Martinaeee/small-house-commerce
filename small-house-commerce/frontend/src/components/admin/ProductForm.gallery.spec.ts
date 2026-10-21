@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deserializeProduct } from "@/app/admin/(shell)/products/[id]/edit/page";
+import { deserializeProduct } from "@/lib/admin-product-graph";
 import { appendImage, serializeFormValue, type ProductFormValue } from "@/components/admin/ProductForm";
 import { syncSharedMediaDraft } from "@/lib/admin-product-graph";
 import type { AdminProduct } from "@/lib/admin-api";

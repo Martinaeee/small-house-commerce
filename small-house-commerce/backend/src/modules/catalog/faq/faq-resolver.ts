@@ -1,3 +1,4 @@
+import { audienceAppliesTo } from './faq-content.js';
 import type { FaqItem, FaqMode } from './faq-content.js';
 
 /**
@@ -17,6 +18,8 @@ export interface ResolveFaqInput {
   mode: FaqMode | undefined;
   productItems: FaqItem[];
   sharedItems: FaqItem[];
+  /** Current product id; targeted shared questions only apply to their selection. */
+  productId?: string | null;
 }
 
 export function resolveEffectiveFaq(input: ResolveFaqInput): EffectiveFaqItem[] {
@@ -26,9 +29,18 @@ export function resolveEffectiveFaq(input: ResolveFaqInput): EffectiveFaqItem[] 
     [...items]
       .sort((left, right) => left.position - right.position)
       .filter((item) => item.enabled)
-      .map((item) => ({ ...item, origin }));
+      .map((item) => {
+        const clean = { ...item };
+        delete clean.audience;
+        return { ...clean, origin };
+      });
 
-  const shared = select(input.sharedItems, 'shared');
+  const shared = select(
+    input.sharedItems.filter((item) =>
+      audienceAppliesTo(item, input.productId ?? null),
+    ),
+    'shared',
+  );
   const own = select(input.productItems, 'product');
 
   if (mode === 'SHARED') return shared;

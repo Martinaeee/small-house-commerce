@@ -20,15 +20,15 @@ const unrelated: MarketingAccount = { id: 'u7', permissions: ['ORDER_VIEW_ALL'] 
 
 describe('marketing scope', () => {
   it('limits an optimizer to their own records', () => {
-    expect(scopeFor(optimizer)).toEqual({ all: false, ownerUserId: 'u1', canManage: true });
+    expect(scopeFor(optimizer)).toMatchObject({ all: false, ownerUserId: 'u1', canManage: true });
   });
 
   it('lets an all-scope account see everything', () => {
-    expect(scopeFor(admin)).toEqual({ all: true, ownerUserId: null, canManage: true });
+    expect(scopeFor(admin)).toMatchObject({ all: true, ownerUserId: null, canManage: true });
   });
 
   it('gives a read-only finance account no manage right', () => {
-    expect(scopeFor(finance)).toEqual({ all: true, ownerUserId: null, canManage: false });
+    expect(scopeFor(finance)).toMatchObject({ all: true, ownerUserId: null, canManage: false });
   });
 
   it('refuses an account with no marketing permission', () => {
@@ -58,6 +58,17 @@ describe('assertVisible', () => {
 });
 
 describe('manage rights', () => {
+  it('does not turn all-owner read permission into all-owner write permission', () => {
+    const scope = scopeFor({
+      id: 'u1',
+      permissions: ['MARKETING_VIEW_ALL', 'MARKETING_MANAGE_OWN'],
+    });
+    expect(() => assertVisible(scope, 'u2')).not.toThrow();
+    expect(() => assertManage(scope, 'u1')).not.toThrow();
+    expect(() => assertManage(scope, 'u2')).toThrow(NotFoundException);
+    expect(() => assertManage(scope, null)).toThrow(NotFoundException);
+  });
+
   it('lets an owner manage their own record only', () => {
     const scope = scopeFor(optimizer);
     expect(scope.canManage).toBe(true);

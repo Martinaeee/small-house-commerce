@@ -47,6 +47,10 @@ export type LinkValue =
       id: string;
     }
   | {
+      type: "INTERNAL";
+      path: string;
+    }
+  | {
       type: "EXTERNAL";
       url: string;
     };

@@ -13,12 +13,23 @@
  */
 
 import { track, trackCustom } from "./tracking";
+import { trackFirstParty, type FirstPartyEventName } from "./analytics";
 
 export interface CommerceEvent {
   name: string;
   data: Record<string, unknown>;
   /** true → Meta custom event (trackCustom); false → standard event (track). */
   custom: boolean;
+  /**
+   * Optional first-party counterpart. The dashboard's funnel is built from
+   * these, not from the pixel: orders stay the source of truth, and the
+   * events only explain the session that produced them.
+   */
+  analytics?: {
+    eventName: FirstPartyEventName;
+    productId?: string;
+    entityId?: string;
+  };
 }
 
 export interface CommerceCheckoutItem {
@@ -48,6 +59,7 @@ export function viewContentEvent(input: {
   return {
     name: "ViewContent",
     custom: false,
+    analytics: { eventName: "PRODUCT_VIEW", productId: input.productId },
     data: {
       content_ids: [input.skuId ?? input.productId],
       content_name: input.productName,
@@ -70,6 +82,7 @@ export function addToCartEvent(input: {
   return {
     name: "AddToCart",
     custom: false,
+    analytics: { eventName: "ADD_TO_CART", productId: input.productId },
     data: {
       content_ids: [input.skuId],
       content_name: input.productName,
@@ -91,6 +104,7 @@ export function initiateCheckoutEvent(input: {
   return {
     name: "InitiateCheckout",
     custom: false,
+    analytics: { eventName: "BEGIN_CHECKOUT" },
     data: {
       content_ids: input.items.map((item) => item.skuId),
       content_type: "product",
@@ -117,6 +131,7 @@ export function purchaseEvent(input: {
   return {
     name: "Purchase",
     custom: false,
+    analytics: { eventName: "PURCHASE", entityId: input.orderId },
     data: {
       content_type: "product",
       order_id: input.orderId,
@@ -193,6 +208,12 @@ export function emitCommerceEvent(event: CommerceEvent | null): void {
   if (event === null) return;
   if (event.custom) trackCustom(event.name, event.data);
   else track(event.name, event.data);
+  if (event.analytics) {
+    trackFirstParty(event.analytics.eventName, {
+      ...(event.analytics.productId ? { productId: event.analytics.productId } : {}),
+      ...(event.analytics.entityId ? { entityId: event.analytics.entityId } : {}),
+    });
+  }
 }
 
 /**
@@ -206,7 +227,13 @@ export function storePurchasePayload(event: CommerceEvent): boolean {
   try {
     window.sessionStorage.setItem(
       PURCHASE_PAYLOAD_STORAGE_KEY,
-      JSON.stringify({ name: event.name, data: event.data }),
+      JSON.stringify({
+        name: event.name,
+        data: event.data,
+        // The first-party counterpart survives the navigation to the success
+        // page, so the purchase is still counted in the dashboard funnel.
+        ...(event.analytics ? { analytics: event.analytics } : {}),
+      }),
     );
     return true;
   } catch {
@@ -235,12 +262,23 @@ export function consumePurchasePayload(orderId: string): CommerceEvent | null {
     // Consume-once is best effort; a leftover payload is refused by order id.
   }
   try {
-    const parsed = JSON.parse(raw) as { name?: unknown; data?: unknown };
+    const parsed = JSON.parse(raw) as {
+      name?: unknown;
+      data?: unknown;
+      analytics?: unknown;
+    };
     if (parsed.name !== "Purchase") return null;
     if (typeof parsed.data !== "object" || parsed.data === null) return null;
     const data = parsed.data as Record<string, unknown>;
     if (data.order_id !== orderId) return null;
-    return { name: "Purchase", custom: false, data };
+    return {
+      name: "Purchase",
+      custom: false,
+      data,
+      ...(parsed.analytics
+        ? { analytics: parsed.analytics as CommerceEvent["analytics"] }
+        : {}),
+    };
   } catch {
     return null;
   }

@@ -4,7 +4,7 @@ import { SectionHeading, SectionShell } from "./sectionShell";
 import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 
-export function ProductGridSection({ section, previewDevice }: SectionProps) {
+export function ProductGridSection({ section, previewDevice, interactionMode }: SectionProps) {
   const products = section.products ?? [];
   const twoColumns = section.payload?.columns === 2;
   const gridClass = twoColumns
@@ -28,13 +28,13 @@ export function ProductGridSection({ section, previewDevice }: SectionProps) {
       ) : (
         <div className={gridClass}>
           {products.map((product, index) => (
-            <div
+            <ProductCard
               key={product.id}
-              className="contents"
-              {...trackAttrs("ProductClick", section, index + 1)}
-            >
-              <ProductCard product={product} badge={product.badge ?? undefined} />
-            </div>
+              product={product}
+              badge={product.badge ?? undefined}
+              interactionMode={interactionMode}
+              navigationTrackAttrs={interactionMode === "preview" ? undefined : trackAttrs("ProductClick", section, index + 1)}
+            />
           ))}
         </div>
       )}

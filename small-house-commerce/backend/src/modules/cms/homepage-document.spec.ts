@@ -164,6 +164,36 @@ describe('homepage document schema v1', () => {
     expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
   });
 
+  it('accepts a safe internal path and rejects paths that leave the origin', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const cta = (slide.elements as Record<string, Record<string, unknown>>)
+      .ctaPrimary;
+
+    cta.link = { type: 'INTERNAL', path: '/track-order' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+
+    for (const path of ['//evil.test/x', '/\\evil', '/with space', 'javascript:alert(1)', 'relative']) {
+      cta.link = { type: 'INTERNAL', path };
+      expect(homepageDocumentSchema.safeParse(doc).success, path).toBe(false);
+    }
+  });
+
+  it('keeps every pre-INTERNAL document valid', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const cta = (slide.elements as Record<string, Record<string, unknown>>)
+      .ctaPrimary;
+
+    // The legacy shapes the document has always accepted must keep parsing.
+    cta.link = null;
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+    cta.link = { type: 'COLLECTION', id: '00000000-0000-7000-8000-000000000901' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+    cta.link = { type: 'EXTERNAL', url: 'https://luwag.ph/help' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
   it('rejects injected colour strings and out-of-range typography values', () => {
     const doc = emptyDocument();
     const slide = heroSlidesOf(doc)[0];

@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  within,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import {
@@ -9,7 +16,10 @@ import {
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 
-const api = vi.hoisted(() => ({ createOrder: vi.fn() }));
+const api = vi.hoisted(() => ({
+  createOrder: vi.fn(),
+  previewPromoCode: vi.fn(),
+}));
 const tracking = vi.hoisted(() => ({ readAttribution: vi.fn() }));
 const events = vi.hoisted(() => ({ emitCommerceEvent: vi.fn() }));
 const router = vi.hoisted(() => ({ push: vi.fn() }));
@@ -20,7 +30,14 @@ const checkoutDraft = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, api: { ...actual.api, createOrder: api.createOrder } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      createOrder: api.createOrder,
+      previewPromoCode: api.previewPromoCode,
+    },
+  };
 });
 vi.mock("@/lib/tracking", () => ({
   readAttribution: tracking.readAttribution,
@@ -210,6 +227,7 @@ async function fillRequiredFields(
 
 beforeEach(() => {
   api.createOrder.mockReset();
+  api.previewPromoCode.mockReset();
   tracking.readAttribution.mockReset();
   events.emitCommerceEvent.mockReset();
   router.push.mockReset();
@@ -260,10 +278,68 @@ describe("PdpQuickCodOrder", () => {
         productQuery: "?aid=aid-123&utm_source=facebook",
         items: [{ skuId: "sku-red", quantity: 1 }],
       },
+      null,
+      null,
     );
     expect(router.push).toHaveBeenCalledWith(
       "/checkout/confirm?aid=aid-123&utm_source=facebook",
     );
+  });
+
+  it("applies a live promo code and carries it into checkout review", async () => {
+    const user = userEvent.setup();
+    api.previewPromoCode.mockResolvedValue({
+      valid: true,
+      discountAmount: 10,
+      message: "",
+    });
+    renderQuickOrder();
+
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), " save10 ");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(api.previewPromoCode).toHaveBeenCalledWith("save10", 100),
+    );
+
+    await fillRequiredFields(user);
+    await user.click(screen.getByTestId("quick-cod-submit"));
+
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      expect.objectContaining({ kind: "PDP_INLINE" }),
+      null,
+      "SAVE10",
+    );
+  });
+
+  it("blocks review while a promo preview is still pending", async () => {
+    let resolve!: (value: {
+      valid: boolean;
+      discountAmount: number;
+      message: string;
+    }) => void;
+    api.previewPromoCode.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const user = userEvent.setup();
+    renderQuickOrder();
+
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "SAVE10");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    const review = screen.getByTestId("quick-cod-submit");
+    expect(review).toBeDisabled();
+    await act(async () => {
+      resolve({ valid: true, discountAmount: 10, message: "" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(review).toBeEnabled());
   });
 
   it("shows the same delivery fields as the normal checkout", () => {
@@ -321,6 +397,8 @@ describe("PdpQuickCodOrder", () => {
           { skuId: "sku-blue", quantity: 2 },
         ],
       },
+      null,
+      null,
     );
     expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
@@ -516,6 +594,8 @@ describe("PdpQuickCodOrder", () => {
       expect.objectContaining({
         items: [{ skuId: "sku-red", quantity: 1 }],
       }),
+      null,
+      null,
     );
   });
 
@@ -600,5 +680,58 @@ describe("PdpQuickCodOrder", () => {
     expect(api.createOrder).not.toHaveBeenCalled();
     // Nothing to initiate: there is no item yet.
     expect(events.emitCommerceEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("PdpQuickCodOrder order notes", () => {
+  it("renders the optional note field with the 200-char cap", async () => {
+    renderQuickOrder();
+    const notes = screen.getByTestId("quick-cod-order-notes");
+    expect(notes).toBeInTheDocument();
+    expect(notes).toHaveAttribute("maxlength", "200");
+    expect(screen.getByLabelText("Order Notes (Optional)")).toBe(notes);
+  });
+
+  it("passes the typed note into the checkout draft", async () => {
+    const user = userEvent.setup();
+    renderQuickOrder();
+    await fillRequiredFields(user);
+    await user.type(
+      screen.getByTestId("quick-cod-order-notes"),
+      "Call before delivery",
+    );
+    await user.click(screen.getByTestId("quick-cod-submit"));
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      expect.objectContaining({ kind: "PDP_INLINE" }),
+      "Call before delivery",
+      null,
+    );
+  });
+
+  it("restores a previously saved note from the draft", async () => {
+    checkoutDraft.readCheckoutDraft.mockReturnValue({
+      customer: {
+        name: "",
+        phone: "",
+        province: "",
+        city: "",
+        barangay: "",
+        postalCode: "",
+        streetAddress: "",
+        landmark: "",
+      },
+      savedAt: "2026-10-12T00:00:00.000Z",
+      preferredDeliveryDate: null,
+      customerNote: "Call after 5pm",
+      selection: {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        items: [{ skuId: "sku-red", quantity: 1 }],
+      },
+    });
+    renderQuickOrder();
+    expect(await screen.findByDisplayValue("Call after 5pm")).toBeInTheDocument();
   });
 });

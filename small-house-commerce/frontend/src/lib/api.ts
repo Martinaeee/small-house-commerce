@@ -7,6 +7,7 @@
  */
 
 import type { Attribution } from "./tracking";
+import type { LandingContent } from "./marketing-content";
 import { STOREFRONT_TAGS } from "./cache-tags";
 
 export const serverApiUrl = (path: string): string => {
@@ -59,12 +60,28 @@ export interface ProductMedia {
   sortOrder: number;
 }
 
+export type ProductCardImage = ProductMedia & { type: "IMAGE" };
+
+export interface ProductCardMediaPair {
+  cover: ProductCardImage | null;
+  scene: ProductCardImage | null;
+}
+
+export interface ProductCardMedia {
+  displayVariantId: string | null;
+  unselected: ProductCardMediaPair;
+  variants: Array<ProductCardMediaPair & { variantId: string }>;
+}
+
 export interface StorefrontSku {
   id: string;
   skuCode: string;
   status: "ACTIVE" | "DISABLED";
   price: number | null;
   compareAtPrice: number | null;
+  productWidth?: number | null;
+  productHeight?: number | null;
+  productDepth?: number | null;
   availableInventory: number;
   productWeight?: number | null;
   packageWidth?: number | null;
@@ -131,6 +148,19 @@ export interface ProductDetailBlock {
   sortOrder: number;
 }
 
+export type ProductFaqAnswerBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "bullets"; items: string[] };
+
+export interface ProductFaqItem {
+  id: string;
+  title: string;
+  answer: ProductFaqAnswerBlock[];
+  enabled: boolean;
+  position: number;
+  defaultOpen: boolean;
+}
+
 export type Room = "BEDROOM" | "STORAGE" | "DINING_LIVING" | "HOME_OFFICE";
 export type Solution =
   | "FOLDABLE"
@@ -189,6 +219,7 @@ export interface Product {
   options: StorefrontProductOption[];
   defaultDisplayVariantId: string | null;
   effectiveCoverMedia: ProductMedia | null;
+  cardMedia?: ProductCardMedia;
   images: ProductImage[];
   /** Present only on the single-product detail response. */
   initialMediaSet?: ProductMediaSet;
@@ -199,6 +230,8 @@ export interface Product {
    * skip the media deck), so they are absent everywhere else.
    */
   detailBlocks?: ProductDetailBlock[];
+  /** Effective FAQ entries are present only on the PDP response. */
+  effectiveFaq?: ProductFaqItem[];
   variants: StorefrontProductVariant[];
 }
 
@@ -538,15 +571,9 @@ export interface LandingImageOverride {
 
 export interface LandingPageInfo {
   id: string;
-  name: string;
   slug: string;
-  titleOverride: string | null;
-  imagesOverride: LandingImageOverride[] | null;
-  seoTitle: string | null;
-  seoDescription: string | null;
-  promoEnabled: boolean;
-  promoHeadline: string | null;
-  promoSubtext: string | null;
+  content: LandingContent;
+  publishedRevision: number;
 }
 
 export interface LandingPageComposite {
@@ -662,6 +689,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ visitKey }),
     }),
+  marketingTouch: (input: { code?: string; path: string; visitKey: string; landingPageId?: string; aid?: string; sourceType?: string; adId?: string | null; campaignId?: string | null; adsetId?: string | null; utmSource?: string | null; utmMedium?: string | null; utmCampaign?: string | null; utmContent?: string | null; utmTerm?: string | null }) =>
+    request<{ credential: string | null; expiresAt: string | null }>("/api/v1/storefront/marketing-touch", { method: "POST", cache: "no-store", referrerPolicy: "no-referrer", body: JSON.stringify(input) }),
   getCollections: (type?: string) =>
     request<{ items: Collection[]; total: number }>(
       `/api/v1/storefront/collections${type ? `?type=${type}` : ""}`,
@@ -714,7 +743,12 @@ export const api = {
     };
     items: { skuId: string; quantity: number }[];
     attribution?: Attribution;
+    marketingCredential?: string | null;
     preferredDeliveryDate?: string | null;
+    customerNote?: string | null;
+    promoCode?: string | null;
+    /** Browser session id; links the order to its visit for conversion rate. */
+    trackingSessionId?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
@@ -722,10 +756,30 @@ export const api = {
         method: "POST",
         body: JSON.stringify({
           attribution: input.attribution ?? { sourceType: "ORGANIC" },
+          marketingCredential: input.marketingCredential,
           customer: input.customer,
           items: input.items,
           preferredDeliveryDate: input.preferredDeliveryDate ?? null,
+          customerNote: input.customerNote ?? null,
+          promoCode: input.promoCode ?? null,
+          trackingSessionId: input.trackingSessionId ?? null,
         }),
+      },
+    ),
+
+  /**
+   * Display-only promo preview. The server recomputes the discount when the
+   * order is created, so this result is never authoritative.
+   */
+  previewPromoCode: (
+    code: string,
+    subtotal: number,
+  ): Promise<{ valid: boolean; discountAmount: number; message: string }> =>
+    request<{ valid: boolean; discountAmount: number; message: string }>(
+      "/api/v1/storefront/checkout/promo-code/preview",
+      {
+        method: "POST",
+        body: JSON.stringify({ code, subtotal }),
       },
     ),
 };

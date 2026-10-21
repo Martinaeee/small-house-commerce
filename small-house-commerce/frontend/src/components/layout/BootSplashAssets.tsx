@@ -20,7 +20,7 @@ html[data-splash-done] #boot-splash{animation:none;opacity:0;pointer-events:none
 @keyframes bootSplashIn{to{opacity:1}}
 .boot-splash-pulse{transform-origin:center;animation:bootPulse 1.6s ease-in-out infinite}
 @keyframes bootPulse{0%,100%{opacity:.6;transform:scale(.96)}50%{opacity:1;transform:scale(1)}}
-.boot-splash-bar{background:#6b4f3a;animation:bootBar 1.1s ease-in-out infinite}
+.boot-splash-bar{background:var(--color-cta);animation:bootBar 1.1s ease-in-out infinite}
 @keyframes bootBar{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .boot-nav-loader{opacity:0;animation:bootSplashIn .18s ease-out .2s forwards}
 @media (prefers-reduced-motion:reduce){

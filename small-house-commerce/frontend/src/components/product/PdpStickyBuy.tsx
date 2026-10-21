@@ -9,7 +9,8 @@ import {
 } from "react";
 import type { Product, ProductImage } from "@/lib/api";
 import type { ProductSelectionDerived } from "@/lib/product-selection";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
+import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
 import { PriceBox } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
 
@@ -18,7 +19,6 @@ export type StickyPurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
 export interface PdpStickyBuyProps {
   product: Product;
   coverMedia: ProductImage | null;
-  restockHref: string;
   heroRef: RefObject<HTMLElement | null>;
   line: PurchaseLineState;
   derived: ProductSelectionDerived;
@@ -31,7 +31,6 @@ export interface PdpStickyBuyProps {
 export function PdpStickyBuy({
   product,
   coverMedia,
-  restockHref,
   heroRef,
   line,
   derived,
@@ -101,8 +100,9 @@ export function PdpStickyBuy({
 
   if (!shown) return null;
 
+  const resolvedSku = derived.resolvedVariant?.sku ?? null;
   const resolvedOutOfStock =
-    derived.resolvedVariant !== null && derived.availableInventory <= 0;
+    resolvedSku !== null && derived.availableInventory <= 0;
   const unavailable = derived.selectableVariants.length === 0;
 
   return (
@@ -168,16 +168,12 @@ export function PdpStickyBuy({
           </button>
         </div>
 
-        {resolvedOutOfStock ? (
-          <ButtonLink
-            href={restockHref}
-            size="md"
-            variant="secondary"
-            className="min-w-0 shrink px-3 text-xs sm:min-w-[120px] sm:px-5 sm:text-sm"
-            data-testid="sticky-contact-restock"
-          >
-            Contact us to order
-          </ButtonLink>
+        {resolvedOutOfStock && resolvedSku ? (
+          <BackInStockTrigger
+            skuId={resolvedSku.id}
+            productName={product.name}
+            className="inline-flex h-10 min-w-0 shrink items-center justify-center rounded-lg border border-border bg-card px-3 text-center text-xs font-semibold leading-tight text-cta transition hover:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta sm:min-w-[120px] sm:px-5 sm:text-sm"
+          />
         ) : (
           <Button
             size="md"

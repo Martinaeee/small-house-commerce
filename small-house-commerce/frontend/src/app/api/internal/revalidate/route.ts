@@ -1,4 +1,4 @@
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { CACHE_TAGS } from "@/lib/cache-tags";
@@ -55,6 +55,11 @@ export async function POST(request: Request) {
   for (const tag of tags) {
     // Block the NEXT request until fresh data is rendered (no stale serving).
     revalidateTag(tag, { expire: 0 });
+    if (tag === CACHE_TAGS.STOREFRONT) {
+      revalidatePath("/lp/[slug]", "page");
+      revalidatePath("/(storefront)", "layout");
+      revalidatePath("/brand-mark");
+    }
   }
 
   return NextResponse.json({ revalidated: true, tags });

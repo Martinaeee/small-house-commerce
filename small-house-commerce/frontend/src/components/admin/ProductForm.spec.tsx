@@ -1,16 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import {
   ProductForm,
   appendImage,
   appendImageUrl,
   emptyProductFormValue,
+  emptySkuFormValue,
   serializeFormValue,
   type ProductFormValue,
 } from "@/components/admin/ProductForm";
-import type { AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import { cardGraphFromLegacyForm, type AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
+import { adminApi } from "@/lib/admin-api";
+import { en } from "@/i18n/en";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}));
+
+// The FAQ tab previews the shared library; this suite is about the product
+// form, so the preview resolves empty instead of hitting the network. A plain
+// function (not vi.fn) survives the suite's mock resets.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
 
 /**
  * Task 11 — the 409-trap guard. A product whose catalogGraphVersion > 0 must
@@ -40,6 +55,238 @@ function baseValue(overrides: Partial<ProductFormValue> = {}): ProductFormValue 
     ...overrides,
   };
 }
+
+describe("ProductForm card snapshot serialization", () => {
+  it.each([null, {
+    cover: { type: "IMAGE" as const, url: "/uploads/card.webp", altText: null }, hover: null,
+  }])("keeps an explicit legacy snapshot %j without leaking client identities", cardMedia => {
+    const row = { id: "real-variant", clientKey: "new-key", name: "Red", position: "0", sku: null, cardMedia };
+    const result = serializeFormValue(baseValue({ variants: [row] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants).toEqual([{ name: "Red", position: 0, cardMedia }]);
+  });
+
+  it("assigns different stable keys to newly added same-named legacy rows", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const view = renderForm(baseValue(), onSubmit);
+    await openVariantsTab();
+    await user.click(screen.getByRole("button", { name: "添加款式" }));
+    await user.click(screen.getByRole("button", { name: "添加款式" }));
+    for (const input of screen.getAllByPlaceholderText("Default")) await user.type(input, "Red");
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const rows = (onSubmit.mock.calls[0]![0] as ProductFormValue).variants;
+    expect(rows[0]!.clientKey).toBeTruthy();
+    expect(rows[1]!.clientKey).toBeTruthy();
+    expect(rows[0]!.clientKey).not.toBe(rows[1]!.clientKey);
+    expect(rows.every(row => row.cardMedia == null)).toBe(true);
+  });
+
+  it("leaves omitted metadata omitted on ordinary legacy saves", () => {
+    const result = serializeFormValue(baseValue({ variants: [{ name: "Red", position: "0", sku: null }] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.variants[0]).not.toHaveProperty("cardMedia");
+  });
+});
+
+describe("ProductForm independent card media", () => {
+  function legacyValue(): ProductFormValue {
+    return baseValue({
+      images: [{ id: "photo", url: "/uploads/shared.webp", type: "IMAGE", altText: "Shared", sortOrder: "0", isScene: true }],
+      variants: ["Red", "Blue"].map(name => ({ id: name.toLowerCase(), name, position: "0", sku: {
+        ...emptySkuFormValue(), id: `${name}-sku`, skuCode: name, price: "0", stock: "9", reserved: "2", packageWidth: "55",
+      } })),
+    });
+  }
+
+  it("does not materialize legacy rows just by opening the card settings", async () => {
+    setAdminLang("en");
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    expect(screen.queryByRole("button", { name: "Red Card cover: Choose from gallery" })).toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graphTyped", false);
+  });
+
+  it("materializes the latest legacy draft on the first card edit without copying to another variant", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    const choose = screen.queryByRole("button", { name: "Red Card cover: Choose from gallery" });
+    expect(choose).toBeInTheDocument();
+    await userEvent.click(choose!);
+    await userEvent.click(screen.getByRole("button", { name: "Choose image 1" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graphTyped).toBe(true);
+    expect(saved.graph!.variants.find(row => row.id === "red")).toMatchObject({
+      cardMedia: { cover: { type: "IMAGE", url: "/uploads/shared.webp", altText: "Shared" }, hover: null },
+      sku: { id: "Red-sku", packageWidth: 55, onHand: 9, reserved: 2, price: 0 },
+    });
+    expect(saved.graph!.variants.find(row => row.id === "blue")?.cardMedia ?? null).toBeNull();
+    expect(saved.images).toEqual(initial.images);
+    expect(saved.graph!.defaultDisplayVariantRef).toBeNull();
+  });
+
+  it("copies the latest unsaved shared gallery image on an explicit typed card edit", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph = cardGraphFromLegacyForm(initial);
+    initial.graphTyped = true;
+    initial.images[0] = { ...initial.images[0]!, url: "/uploads/unsaved-shared.webp", altText: "Latest" };
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: "Red Card cover: Choose from gallery" }));
+    await userEvent.click(screen.getByRole("button", { name: "Choose image 1" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants.find(row => row.id === "red")?.cardMedia?.cover)
+      .toEqual({ type: "IMAGE", url: "/uploads/unsaved-shared.webp", altText: "Latest" });
+    expect(saved.graph!.variants.find(row => row.id === "blue")?.cardMedia ?? null).toBeNull();
+    expect(saved.images).toEqual(initial.images);
+  });
+
+  it("uses current legacy identities for card upload targets and locks row creation during upload", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    const input = screen.queryByLabelText("Red Card cover: Upload image");
+    expect(input).toBeInTheDocument();
+    await userEvent.upload(input!, new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole("tab", { name: "Options, Pricing & Inventory" }));
+    expect(screen.getByRole("button", { name: "Add variant" })).toBeDisabled();
+    for (const remove of screen.getAllByRole("button", { name: "Remove variant" })) expect(remove).toBeDisabled();
+    resolveUpload({ url: "/uploads/uploaded-card.webp", key: "uploaded-card.webp" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add variant" })).not.toBeInTheDocument());
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants.find(row => row.id === "red")).toHaveProperty("cardMedia.cover.url", "/uploads/uploaded-card.webp");
+    expect(saved.images).toHaveLength(1);
+  });
+
+  it.each(["priced", "unpriced", "no-sku"] as const)("previews the %s draft variant without changing the saved default or requiring cart context", async availability => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph = cardGraphFromLegacyForm(initial);
+    initial.graphTyped = true;
+    initial.graph.defaultDisplayVariantRef = { id: "red" };
+    initial.graph.variants[1]!.cardMedia = { cover: { type: "IMAGE", url: "/uploads/blue-card.webp", altText: "Blue card" }, hover: null };
+    if (availability === "unpriced") initial.graph.variants[1]!.sku!.price = null;
+    if (availability === "no-sku") initial.graph.variants[1]!.sku = null;
+    const onSubmit = vi.fn();
+    const view = renderForm(initial, onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: "Blue Preview this variant" }));
+    const card = within(view.container.querySelector("article")!);
+    expect(card.getByRole("img", { name: "Blue card" })).toHaveAttribute("src", "/uploads/blue-card.webp");
+    if (availability !== "priced") expect(card.queryByTestId("price")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to Cart" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Chair" })).not.toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graph.defaultDisplayVariantRef", { id: "red" });
+  });
+
+  it("locks card edits when the graph payload is unavailable", async () => {
+    setAdminLang("en");
+    const initial = legacyValue();
+    initial.graph!.catalogGraphVersion = 3;
+    renderForm(initial);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    expect(screen.getByRole("button", { name: "Red Card cover: Choose from gallery" })).toBeDisabled();
+    expect(screen.getByLabelText("Red Card cover: Upload image")).toBeDisabled();
+  });
+
+  it("ignores a card upload result after switching to a different product's real identities", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.upload(screen.getByLabelText("Red Card cover: Upload image"), new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    const next = legacyValue();
+    next.variants = next.variants.map(row => ({ ...row, id: `other-${row.id}` }));
+    view.rerender(<AdminI18nProvider><ProductForm initial={next} categories={[]} onSubmit={onSubmit} submitLabel="Save changes" pending={false} error={null} savedPreview={null} /></AdminI18nProvider>);
+    await act(async () => resolveUpload({ url: "/uploads/late-card.webp", key: "late-card.webp" }));
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graphTyped).toBe(false);
+    expect(saved.variants.map(row => [row.id, row.cardMedia ?? null])).toEqual([["other-red", null], ["other-blue", null]]);
+    expect(saved.images).toEqual(next.images);
+  });
+
+  it("ignores a card upload result after the form is unmounted", async () => {
+    setAdminLang("en");
+    let resolveUpload!: (result: { url: string; key: string }) => void;
+    const upload = vi.spyOn(adminApi, "uploadImage").mockImplementation(() => new Promise(resolve => { resolveUpload = resolve; }));
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.upload(screen.getByLabelText("Red Card cover: Upload image"), new File(["image"], "cover.webp", { type: "image/webp" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => resolveUpload({ url: "/uploads/late-card.webp", key: "late-card.webp" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    const next = renderForm(legacyValue(), onSubmit);
+    fireEvent.submit(next.container.querySelector("form")!);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("graphTyped", false);
+    expect((onSubmit.mock.calls[0]![0] as ProductFormValue).variants.every(row => row.cardMedia == null)).toBe(true);
+  });
+
+  it("removes gallery scene assignment controls while preserving the old flag on ordinary saves", async () => {
+    setAdminLang("en");
+    const onSubmit = vi.fn();
+    const view = renderForm(legacyValue(), onSubmit);
+    await userEvent.click(screen.getByRole("tab", { name: "Media" }));
+    await userEvent.click(screen.getByRole("button", { name: en.product_media_card_cover_aria.replace("{number}", "1") }));
+    expect(screen.queryByRole("button", { name: /scene image/i })).not.toBeInTheDocument();
+    fireEvent.submit(view.container.querySelector("form")!);
+    expect(onSubmit.mock.calls[0]![0]).toHaveProperty("images.0.isScene", true);
+  });
+});
+
+describe("ProductForm scene serialization", () => {
+  it("serializes explicit scene metadata without leaking draft identities", () => {
+    const result = serializeFormValue(baseValue({ images: [
+      { id: "photo-a", url: "/uploads/a.webp", type: "IMAGE", altText: "", sortOrder: "2", isScene: true },
+      { clientKey: "photo-b", url: "/uploads/b.webp", type: "IMAGE", altText: "", sortOrder: "5" },
+    ] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.images).toEqual([
+      { url: "/uploads/a.webp", type: "IMAGE", sortOrder: 2, isScene: true },
+      { url: "/uploads/b.webp", type: "IMAGE", sortOrder: 5, isScene: false },
+    ]);
+  });
+
+  it("gives each newly added shared row a stable unique key and false scene flag", () => {
+    const first = appendImageUrl([], "/uploads/a.webp");
+    const second = appendImage(first, "VIDEO");
+    expect(first[0]?.clientKey).toBeTruthy();
+    expect(second[1]?.clientKey).toBeTruthy();
+    expect(second[1]?.clientKey).not.toBe(first[0]?.clientKey);
+    expect(second.map(row => row.isScene)).toEqual([false, false]);
+    expect(second[0]).toEqual(first[0]);
+  });
+});
 
 const typedGraph: AdminCatalogGraphDraft = {
   catalogGraphVersion: 3,
@@ -90,6 +337,55 @@ async function openVariantsTab(): Promise<void> {
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "选项、价格与库存" }));
 }
+
+describe("ProductForm default candidate transition", () => {
+  it("saves only the three colors after editing the no-options Default price", async () => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const initial = baseValue({ graphTyped: true });
+    initial.images = ["Gray", "Green", "Orange"].map((name, index) => ({
+      url: `/uploads/${name.toLowerCase()}.webp`,
+      type: "IMAGE",
+      altText: name,
+      sortOrder: String(index),
+    }));
+    const view = renderForm(initial, onSubmit);
+    await user.click(screen.getByRole("tab", { name: "Options, Pricing & Inventory" }));
+    fireEvent.change(screen.getByLabelText("Price for Default"), { target: { value: "4499" } });
+    await user.click(screen.getByRole("button", { name: "Add option group" }));
+    fireEvent.change(screen.getByLabelText("Option 1 name"), { target: { value: "Color" } });
+
+    for (const [index, name] of ["Gray", "Green", "Orange"].entries()) {
+      await user.click(screen.getByRole("button", { name: "Add option value" }));
+      fireEvent.change(screen.getByLabelText(`Value ${index + 1} label`), { target: { value: name } });
+      fireEvent.change(screen.getByLabelText(`SKU code for ${name}`), { target: { value: `CH002-${name}` } });
+      fireEvent.change(screen.getByLabelText(`Price for ${name}`), { target: { value: "4499" } });
+      fireEvent.change(screen.getByLabelText(`Compare-at for ${name}`), { target: { value: "4999" } });
+      fireEvent.change(screen.getByLabelText(`Stock for ${name}`), { target: { value: "6" } });
+    }
+
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+    for (const [index, name] of ["Gray", "Green", "Orange"].entries()) {
+      await user.click(screen.getByRole("button", { name: `${name} Card cover: Choose from gallery` }));
+      await user.click(screen.getByRole("button", { name: `Choose image ${index + 1}` }));
+    }
+    fireEvent.submit(view.container.querySelector("form")!);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const saved = onSubmit.mock.calls[0]![0] as ProductFormValue;
+    expect(saved.graph!.variants.map(variant => variant.name)).toEqual(["Gray", "Green", "Orange"]);
+    for (const [index, name] of ["Gray", "Green", "Orange"].entries()) {
+      expect(saved.graph!.variants[index]).toMatchObject({
+        name,
+        sku: { skuCode: `CH002-${name}`, price: 4499, compareAtPrice: 4999, onHand: 6 },
+        cardMedia: { cover: { url: `/uploads/${name.toLowerCase()}.webp` } },
+      });
+    }
+    expect(saved.images).toEqual(initial.images);
+    expect(screen.queryByRole("button", { name: "Default Card cover: Choose from gallery" })).not.toBeInTheDocument();
+  });
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -471,6 +767,7 @@ describe("ProductForm variants tab modes", () => {
       "pf-tab-specs",
       "pf-tab-shipping",
       "pf-tab-seo",
+      "pf-tab-faq",
       "pf-tab-preview",
     ]);
     expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual([
@@ -480,6 +777,7 @@ describe("ProductForm variants tab modes", () => {
       "商品规格",
       "包装与物流",
       "搜索与链接",
+      "FAQ",
       "预览",
     ]);
     expect(tabs[0]).toHaveAttribute("tabindex", "0");
@@ -498,7 +796,7 @@ describe("ProductForm variants tab modes", () => {
       "aria-labelledby",
       "pf-tab-preview",
     );
-    expect(document.activeElement).toBe(tabs[6]);
+    expect(document.activeElement).toBe(tabs[7]);
   });
 
   it("activates an unselected focused tab with Enter and Space", () => {
@@ -518,13 +816,32 @@ describe("ProductForm variants tab modes", () => {
       "pf-tab-seo",
     );
 
-    tabs[6].focus();
-    expect(tabs[6]).toHaveAttribute("aria-selected", "false");
-    fireEvent.keyDown(tabs[6], { key: " " });
+    tabs[7].focus();
+    expect(tabs[7]).toHaveAttribute("aria-selected", "false");
+    fireEvent.keyDown(tabs[7], { key: " " });
     expect(screen.getByRole("tabpanel")).toHaveAttribute(
       "aria-labelledby",
       "pf-tab-preview",
     );
+  });
+
+  it("gives the product FAQ its own tab instead of the bottom of Basic Info", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue());
+
+    // Basic Info no longer buries the FAQ editor at its end.
+    expect(
+      screen.queryByRole("heading", { name: "FAQ 与购买说明" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "FAQ" }));
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "pf-tab-faq",
+    );
+    expect(
+      screen.getByRole("heading", { name: "FAQ 与购买说明" }),
+    ).toBeInTheDocument();
   });
 
   it("serializes blank and filled SEO fields independently from storefront copy", () => {
@@ -699,6 +1016,7 @@ describe("ProductForm variants tab modes", () => {
     expect(screen.getByRole("tab", { name: "Specifications" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Shipping" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "SEO & Links" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "FAQ" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Preview" })).toBeInTheDocument();
   });
 
@@ -801,6 +1119,206 @@ describe("ProductForm variants tab modes", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Red 1 的媒体 URL")).toHaveFocus();
     });
+  });
+
+  it("edits legacy SKU dimensions and clears an override back to product inheritance", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderForm(baseValue({ width: "40", height: "60", depth: "30", variants: [
+      { name: "Legacy", position: "0", sku: { ...emptySkuFormValue(), skuCode: "LEGACY", price: "100" } },
+    ] }), onSubmit);
+    await openVariantsTab();
+    const width = screen.getByLabelText("Legacy 的长");
+    expect(width).toHaveValue("");
+    expect(width).toHaveAttribute("placeholder", "40");
+    await user.type(width, "49");
+    await user.type(screen.getByLabelText("Legacy 的高"), "71.5");
+    await user.type(screen.getByLabelText("Legacy 的宽"), "31");
+    await user.click(screen.getByRole("button", { name: "清除 Legacy 的长" }));
+    expect(width).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(serializeFormValue(onSubmit.mock.calls[0]![0])).toMatchObject({ ok: true, value: { variants: [
+      { sku: { productWidth: null, productHeight: 71.5, productDepth: 31 } },
+    ] } });
+  });
+
+  it("shows cm units and previews product dimensions before filling only empty fields", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderForm(baseValue({ width: "99", height: "", depth: "" }), onSubmit);
+
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    expect(screen.getByLabelText("长 (cm)")).toHaveValue("99");
+    expect(screen.getByLabelText("宽 (cm)")).toHaveValue("");
+    expect(screen.getByLabelText("高 (cm)")).toHaveValue("");
+    expect(screen.getByLabelText("折叠后长 (cm)")).toBeVisible();
+    expect(screen.getByLabelText("折叠后宽 (cm)")).toBeVisible();
+    expect(screen.getByLabelText("折叠后高 (cm)")).toBeVisible();
+
+    await user.type(
+      screen.getByLabelText("粘贴商品尺寸"),
+      "30 x 20 x 10 in",
+    );
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+
+    expect(screen.getByLabelText("长 (cm)")).toHaveValue("99");
+    expect(screen.getByLabelText("宽 (cm)")).toHaveValue("");
+    expect(screen.getByText("76.2 cm")).toBeVisible();
+    expect(screen.getByText("50.8 cm")).toBeVisible();
+    expect(screen.getByText("25.4 cm")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    expect(screen.getByLabelText("长 (cm)")).toHaveValue("99");
+    expect(screen.getByLabelText("宽 (cm)")).toHaveValue("50.8");
+    expect(screen.getByLabelText("高 (cm)")).toHaveValue("25.4");
+
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      width: "99",
+      depth: "50.8",
+      height: "25.4",
+    });
+  });
+
+  it("targets folded dimensions and replaces existing values only after Apply", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue({
+      width: "40",
+      height: "70",
+      depth: "45",
+      foldedWidth: "9",
+      foldedHeight: "8",
+      foldedDepth: "7",
+    }));
+
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.selectOptions(screen.getByLabelText("填写目标"), "folded");
+    await user.type(
+      screen.getByLabelText("粘贴商品尺寸"),
+      "1 m x 50 cm x 2 ft",
+    );
+    await user.click(screen.getByRole("button", { name: "解析尺寸" }));
+    await user.selectOptions(screen.getByLabelText("应用方式"), "replace");
+
+    expect(screen.getByLabelText("折叠后长 (cm)")).toHaveValue("9");
+    expect(screen.getByLabelText("折叠后宽 (cm)")).toHaveValue("7");
+    expect(screen.getByLabelText("折叠后高 (cm)")).toHaveValue("8");
+
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    expect(screen.getByLabelText("折叠后长 (cm)")).toHaveValue("100");
+    expect(screen.getByLabelText("折叠后宽 (cm)")).toHaveValue("50");
+    expect(screen.getByLabelText("折叠后高 (cm)")).toHaveValue("60.96");
+    expect(screen.getByLabelText("长 (cm)")).toHaveValue("40");
+    expect(screen.getByLabelText("宽 (cm)")).toHaveValue("45");
+    expect(screen.getByLabelText("高 (cm)")).toHaveValue("70");
+  });
+
+  it("keeps Bundle drafts across tabs and blocks product Save until component Save finishes", async () => {
+    const user = userEvent.setup();
+    const component = { id: "binding", componentSkuId: "chair", quantity: 2, position: 0, componentSkuCode: "CHAIR", componentProductName: "Chair", componentVariantName: "Black", availableInventory: 9, status: "ACTIVE", productStatus: "ACTIVE", isBundle: false };
+    let committed = false;
+    const updatedDefinition = { version: 2, components: [{ ...component, quantity: 3 }], availableInventory: 3 };
+    vi.spyOn(adminApi, "getBundleComponents").mockImplementation(async () => committed ? updatedDefinition : { version: 1, components: [component], availableInventory: 4 });
+    let finish!: (value: Awaited<ReturnType<typeof adminApi.setBundleComponents>>) => void;
+    vi.spyOn(adminApi, "setBundleComponents").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const graph = structuredClone(typedGraph);
+    graph.variants = [{ id: "variant-1", name: "Red", position: 0, combinationKey: "option-1:value-1", optionValueRefs: [{ id: "value-1" }], sku: {
+      id: "sku-1", skuCode: "RED", isBundle: true, status: "ACTIVE", supplierSku: null, supplierCost: null, costCurrency: null, landedCost: null, price: 100,
+      compareAtPrice: null, productWeight: null, packageWidth: null, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: null, onHand: 0,
+    } }];
+    const onSubmit = vi.fn();
+    function Harness() {
+      const [initial, setInitial] = useState(() => baseValue({ graphTyped: true, graph }));
+      return <AdminI18nProvider><ProductForm initial={initial} productId="product-1" categories={[]} onSubmit={(value) => {
+        onSubmit(value);
+        const savedGraph = structuredClone(graph);
+        Object.assign(savedGraph.variants[0].sku!, { bundleVersion: 2 });
+        setInitial(baseValue({ graphTyped: true, graph: savedGraph }));
+      }} pending={false} error={null} savedPreview={null} /></AdminI18nProvider>;
+    }
+    render(<Harness />);
+    await openVariantsTab();
+    const quantity = await screen.findByLabelText("CHAIR 的组件数量");
+    await user.clear(quantity);
+    await user.type(quantity, "3");
+    expect(screen.getByRole("button", { name: "请先保存或重新载入 Bundle 组件，再保存商品。" })).toBeDisabled();
+    await user.click(screen.getByRole("tab", { name: "基本信息" }));
+    await openVariantsTab();
+    expect(await screen.findByLabelText("CHAIR 的组件数量")).toHaveValue("3");
+    await user.click(screen.getByRole("button", { name: "保存 Bundle 组件" }));
+    expect(screen.getByRole("button", { name: "请等待 Bundle 组件保存完成。" })).toBeDisabled();
+    await user.click(screen.getByRole("tab", { name: "基本信息" }));
+    await openVariantsTab();
+    committed = true;
+    finish(updatedDefinition);
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled());
+    expect(await screen.findByLabelText("CHAIR 的组件数量")).toHaveValue("3");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByLabelText("CHAIR 的组件数量")).toHaveValue("3"));
+  });
+
+  it("previews and confirms packaging paste in the shipping tab before saving", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const graph: AdminCatalogGraphDraft = {
+      ...typedGraph,
+      variants: [{
+        id: "variant-1", name: "Red", position: 0, combinationKey: "k1", optionValueRefs: [{ id: "value-1" }],
+        sku: {
+          id: "sku-1", skuCode: "RED-1", status: "ACTIVE", supplierSku: null, supplierCost: null,
+          costCurrency: null, landedCost: null, price: 1299, compareAtPrice: null, productWeight: null,
+          packageWidth: 99, packageHeight: null, packageDepth: null, packageWeight: null, volumetricWeight: 5, onHand: 0,
+        },
+      }],
+    };
+    renderForm(baseValue({ graphTyped: true, graph }), onSubmit);
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    expect(screen.getByText("外包装长 (cm)")).toBeVisible();
+    expect(screen.getByText("外包装宽 (cm)")).toBeVisible();
+    expect(screen.getByText("外包装高 (cm)")).toBeVisible();
+    expect(screen.getByText("包装毛重 (kg)")).toBeVisible();
+    const packageDimensions = [
+      screen.getByLabelText("Red 的外包装长"),
+      screen.getByLabelText("Red 的外包装宽"),
+      screen.getByLabelText("Red 的外包装高"),
+    ];
+    expect(packageDimensions[0].compareDocumentPosition(packageDimensions[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(packageDimensions[1].compareDocumentPosition(packageDimensions[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.type(screen.getByLabelText("粘贴包装信息"), "30 x 20 x 10 cm; 2 kg");
+    await user.click(screen.getByRole("button", { name: "解析包装信息" }));
+    expect(screen.getByLabelText("Red 的外包装高")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "应用解析值" }));
+    expect(screen.getByLabelText("Red 的外包装长")).toHaveValue("99");
+    expect(screen.getByLabelText("Red 的外包装宽")).toHaveValue("20");
+    expect(screen.getByLabelText("Red 的外包装高")).toHaveValue("10");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(onSubmit.mock.calls[0]?.[0].graph?.variants[0].sku).toMatchObject({
+      packageWidth: 99, packageHeight: 10, packageDepth: 20, packageWeight: 2, volumetricWeight: 5,
+    });
+  });
+
+  it("orders legacy package dimensions as length-width-height without changing stored values", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue({ variants: [
+      { name: "Legacy", position: "0", sku: {
+        ...emptySkuFormValue(), skuCode: "LEGACY", price: "100",
+        packageWidth: "120", packageDepth: "60", packageHeight: "75",
+      } },
+    ] }));
+    await user.click(screen.getByRole("tab", { name: "包装与物流" }));
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('[id^="pf-variants-0-sku-package"]'));
+    expect(inputs.map((input) => [input.id, input.value])).toEqual([
+      ["pf-variants-0-sku-packageWidth", "120"],
+      ["pf-variants-0-sku-packageDepth", "60"],
+      ["pf-variants-0-sku-packageHeight", "75"],
+      ["pf-variants-0-sku-packageWeight", ""],
+    ]);
+    expect(screen.getByText("外包装长")).toBeVisible();
+    expect(screen.getByText("外包装宽")).toBeVisible();
+    expect(screen.getByText("外包装高")).toBeVisible();
   });
 
   it("preserves character-by-character typed shipping decimals", async () => {
@@ -987,10 +1505,10 @@ describe("ProductForm Task 3 localization and structure", () => {
     renderForm(baseValue({ width: "abc" }));
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
-    // The per-field error under the width input (its own role=alert) is the
+    // The per-field error under the length input (its own role=alert) is the
     // translated zh sentence — serializeFormValue must receive the active
     // translator, not fall back to the English dictionary.
-    expect(screen.getByText("宽度 必须是数字。")).toBeInTheDocument();
+    expect(screen.getByText("长 必须是数字。")).toBeInTheDocument();
   });
 
   it("renders one stock input and one primary submit per form (no duplicate ids)", async () => {
@@ -1257,16 +1775,18 @@ describe("ProductForm media add helpers", () => {
   it("appends an uploaded image row with the next sort order", () => {
     const rows = appendImageUrl([], "/uploads/a.jpg");
     expect(rows).toEqual([
-      { url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0" },
+      { clientKey: "shared-media-1", url: "/uploads/a.jpg", type: "IMAGE", altText: "", sortOrder: "0", isScene: false },
     ]);
 
     const next = appendImageUrl(rows, "/uploads/b.jpg");
     expect(next).toHaveLength(2);
     expect(next[1]).toEqual({
+      clientKey: "shared-media-2",
       url: "/uploads/b.jpg",
       type: "IMAGE",
       altText: "",
       sortOrder: "1",
+      isScene: false,
     });
   });
 });

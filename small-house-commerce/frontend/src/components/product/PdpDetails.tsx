@@ -37,11 +37,16 @@ export function PdpDetails({
       <ProductSpecs
         product={product}
         productWeight={productWeight}
+        variantDimensions={primaryDerived.displayVariant?.sku ?? null}
         includeFeatures={false}
       />
       <ProductDetailMedia blocks={remaining} />
-      <MaterialDimensions product={product} />
+      <MaterialDimensions
+        product={product}
+        variantDimensions={primaryDerived.displayVariant?.sku ?? null}
+      />
       <PdpInfoSections
+        items={product.effectiveFaq ?? []}
         supportEmail={supportEmail}
         supportHours={supportHours}
       />

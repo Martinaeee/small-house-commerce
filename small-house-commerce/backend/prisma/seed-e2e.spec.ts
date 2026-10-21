@@ -1,8 +1,13 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   E2E_ROLE_ACCOUNTS,
+  e2eUploadDirectory,
   missingBaseScenarioSlugs,
   testDatabaseGuard,
+  writeE2EFixtureMedia,
 } from './seed-e2e.js';
 
 /**
@@ -74,6 +79,27 @@ describe('seed-e2e test database guard', () => {
     expect(testDatabaseGuard(undefined).ok).toBe(false);
     expect(testDatabaseGuard('').ok).toBe(false);
     expect(testDatabaseGuard('not-a-postgres-url').ok).toBe(false);
+  });
+});
+
+describe('seed-e2e upload isolation', () => {
+  it('writes generated fixture media under the configured upload root', () => {
+    expect(
+      e2eUploadDirectory({ UPLOAD_DIR: '/tmp/luwag-stock-alert-e2e' }),
+    ).toBe('/tmp/luwag-stock-alert-e2e/e2e');
+  });
+
+  it('materializes referenced base media when database fixtures already exist', () => {
+    const root = mkdtempSync(join(tmpdir(), 'luwag-seed-media-'));
+    const uploadDir = join(root, 'e2e');
+    try {
+      writeE2EFixtureMedia(uploadDir);
+      expect(existsSync(join(uploadDir, 'e2e-color-size-red.svg'))).toBe(true);
+      expect(existsSync(join(uploadDir, 'e2e-color-size-blue.svg'))).toBe(true);
+      expect(existsSync(join(uploadDir, 'color-size-shared-1.svg'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

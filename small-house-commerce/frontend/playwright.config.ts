@@ -1,4 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { assertE2EDatabaseUrl } from "./src/lib/e2e-guard";
 
 /**
@@ -25,13 +27,17 @@ import { assertE2EDatabaseUrl } from "./src/lib/e2e-guard";
  *      CREATE DATABASE small_house_variant_test OWNER postgres"
  */
 
-const FRONTEND_PORT = 3211;
-const BACKEND_PORT = 3210;
+// Defaults keep the historical gate ports. Override when another worktree's
+// runtime already holds them: E2E_BACKEND_PORT / E2E_FRONTEND_PORT.
+const FRONTEND_PORT = Number(process.env.E2E_FRONTEND_PORT ?? 3211);
+const BACKEND_PORT = Number(process.env.E2E_BACKEND_PORT ?? 3210);
 // The storefront must be reached through `localhost` (never 127.0.0.1):
 // Next 16 dev treats non-localhost origins as cross-origin, blocks /_next/hmr
 // for them, and the HMR client then full-reloads in a loop — hydration never
 // completes and every click lands on an un-hydrated tree.
 const FRONTEND_ORIGIN = `http://localhost:${FRONTEND_PORT}`;
+const REVALIDATE_SECRET =
+  "e2e-revalidate-secret-0123456789abcdef0123456789";
 
 const TEST_DB = process.env.E2E_TEST_DB ?? "small_house_variant_test";
 const PG_USER = process.env.E2E_PG_USER ?? "postgres";
@@ -41,10 +47,15 @@ export const E2E_DATABASE_URL =
   `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:5432/${TEST_DB}?schema=public`;
 assertE2EDatabaseUrl(E2E_DATABASE_URL);
 
+const E2E_UPLOAD_DIR =
+  process.env.E2E_UPLOAD_DIR ??
+  path.join(tmpdir(), `luwag-playwright-uploads-${process.pid}`);
+
 const BACKEND_ENV = {
   PORT: String(BACKEND_PORT),
   HOST: "127.0.0.1",
   DATABASE_URL: E2E_DATABASE_URL,
+  UPLOAD_DIR: E2E_UPLOAD_DIR,
   // Validated at boot (>= 32 chars); the gate never stores real secrets.
   JWT_SECRET: "e2e-gate-jwt-secret-0123456789abcdef0123456789",
   NODE_ENV: "test",
@@ -52,6 +63,8 @@ const BACKEND_ENV = {
   // preview-token scenarios can mint and verify tokens; production uses
   // `openssl rand -hex 32` written to .env.deploy (Task 22 release prep).
   HOMEPAGE_PREVIEW_SECRET: "e2e-homepage-preview-secret-0123456789abcdef",
+  REVALIDATE_URL: FRONTEND_ORIGIN,
+  REVALIDATE_SECRET,
 };
 
 export default defineConfig({
@@ -89,6 +102,7 @@ export default defineConfig({
       env: {
         API_TARGET: `http://127.0.0.1:${BACKEND_PORT}`,
         NEXT_TELEMETRY_DISABLED: "1",
+        REVALIDATE_SECRET,
       },
     },
   ],

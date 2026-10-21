@@ -17,6 +17,8 @@ import {
   type AdminCategoryNode,
   type AdminProduct,
 } from "@/lib/admin-api";
+import { deserializeAdminProduct, deserializeProduct } from "@/lib/admin-product-graph";
+import { buildProductCardPreview } from "@/lib/admin-product-card-preview";
 import type { HomepageDocument, HomepageSection } from "@/lib/homepage-document";
 import { normalizeSectionForEditor } from "@/lib/homepage-section-normalize";
 import { HeroCanvas } from "./HeroCanvas";
@@ -219,6 +221,8 @@ function toPreviewProduct(
   source: AdminProduct,
   badge: string | null = null,
 ): HomepageSectionProduct {
+  const cardDraft = deserializeAdminProduct(source);
+  const cardPreview = buildProductCardPreview(deserializeProduct(source), cardDraft, cardDraft.defaultDisplayVariantRef ?? null);
   const images = source.images.map((image) => ({ ...image }));
   const options = (source.options ?? []).map((option) => ({
     id: option.id,
@@ -277,6 +281,7 @@ function toPreviewProduct(
     catalogGraphVersion: source.catalogGraphVersion,
     options,
     defaultDisplayVariantId: source.defaultDisplayVariantId,
+    cardMedia: cardPreview.cardMedia,
     effectiveCoverMedia: effectivePreviewCover(source),
     images,
     variants,
@@ -313,27 +318,25 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
   const [categoriesById, setCategoriesById] = useState<
     Record<string, HomepageCategoryTile>
   >({});
-  const requestedProductIds = useRef(new Set<string>());
-  const categoryLoadStarted = useRef(false);
+  const productRequests = useRef(new Map<string, Promise<AdminProduct | null>>());
+  const categoryRequest = useRef<Promise<AdminCategoryNode[]> | null>(null);
 
   useEffect(() => {
     const currentIds = new Set(productIds);
-    for (const id of requestedProductIds.current) {
-      if (!currentIds.has(id)) requestedProductIds.current.delete(id);
+    for (const id of productRequests.current.keys()) {
+      if (!currentIds.has(id)) productRequests.current.delete(id);
     }
-    const missing = productIds.filter(
-      (id) => !productsById[id] && !requestedProductIds.current.has(id),
-    );
+    const missing = productIds.filter((id) => !productsById[id]);
     if (missing.length === 0) return;
-    missing.forEach((id) => requestedProductIds.current.add(id));
     let active = true;
     void Promise.all(
-      missing.map(async (id) => {
-        try {
-          return await adminApi.getProduct(id);
-        } catch {
-          return null;
+      missing.map((id) => {
+        let request = productRequests.current.get(id);
+        if (!request) {
+          request = adminApi.getProduct(id).catch(() => null);
+          productRequests.current.set(id, request);
         }
+        return request;
       }),
     ).then((products) => {
       if (!active) return;
@@ -355,16 +358,16 @@ function usePreviewCatalog(sections: HomepageSection[]): PreviewCatalog {
   }, [productIds, productsById]);
 
   useEffect(() => {
-    if (categoryIds.length === 0 || categoryLoadStarted.current) return;
-    categoryLoadStarted.current = true;
+    if (categoryIds.length === 0) return;
+    const request = categoryRequest.current ?? adminApi.listCategories();
+    categoryRequest.current = request;
     let active = true;
-    void adminApi
-      .listCategories()
+    void request
       .then((categories) => {
         if (active) setCategoriesById(flattenCategories(categories));
       })
       .catch(() => {
-        if (active) categoryLoadStarted.current = false;
+        if (active) categoryRequest.current = null;
       });
     return () => {
       active = false;
@@ -539,7 +542,7 @@ function renderSection(
       ) : null}
       {unresolved ? <PreviewJoinNotice {...unresolved} /> : null}
       {!hideEmptyJoinRenderer ? (
-        <Renderer section={storefrontSection} previewDevice={device} />
+        <Renderer section={storefrontSection} previewDevice={device} interactionMode="preview" />
       ) : null}
     </div>
   );

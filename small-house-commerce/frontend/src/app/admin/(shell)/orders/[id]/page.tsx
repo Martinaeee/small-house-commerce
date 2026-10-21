@@ -17,6 +17,7 @@ import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { Field } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { OrderPromotionSummary } from "@/components/admin/OrderPromotionSummary";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Button } from "@/components/ui/Button";
@@ -734,6 +735,14 @@ function OrderDetailPage(): ReactNode {
           label: "Landmark",
           value: textOrDash(order.shippingAddress.landmark),
         },
+        {
+          label: "订单备注",
+          value: (
+            <span className="whitespace-pre-wrap break-words">
+              {textOrDash(order.customerNote)}
+            </span>
+          ),
+        },
       ]
     : [];
 
@@ -896,6 +905,11 @@ function OrderDetailPage(): ReactNode {
                 : []),
             ]}
           />
+          {order.promoCode ? (
+            <div className="mt-4 max-w-md border-t border-border pt-4 text-sm">
+              <OrderPromotionSummary promoCode={order.promoCode} />
+            </div>
+          ) : null}
         </Card>
 
         {/* Customer & address */}

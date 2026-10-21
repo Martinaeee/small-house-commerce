@@ -44,11 +44,28 @@ export const envSchema = z.object({
   // Local-disk image upload (default when R2 is not configured). Files land
   // here and are served by the backend itself at /uploads/*.
   UPLOAD_DIR: z.string().optional(),
+  // Production-local brand assets are publishable only when this path is a
+  // persistent mounted volume. R2 is considered durable automatically.
+  UPLOAD_STORAGE_DURABLE: z.enum(['true', 'false']).optional(),
 
   // On-demand storefront revalidation. Both must be set for the best-effort
   // bridge to run; unset either and admin writes simply fall back to ISR.
   REVALIDATE_URL: z.string().url().optional(),
   REVALIDATE_SECRET: z.string().optional(),
+
+  // Optional email delivery. Unset uses the log gateway; when a provider key
+  // is supplied, a validated sender address is required for Resend.
+  EMAIL_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().email().optional(),
+  STOREFRONT_BASE_URL: z.string().url().optional(),
+}).superRefine((env, ctx) => {
+  if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['EMAIL_FROM'],
+      message: 'EMAIL_FROM is required when EMAIL_API_KEY is set',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

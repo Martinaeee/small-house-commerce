@@ -315,11 +315,11 @@ function CartOptionPickerForm({
           data-testid="cart-picker-confirm"
           onClick={confirmChange}
           disabled={busy || !resolved}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cta py-2.5 text-sm font-semibold text-white transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cta py-2.5 text-sm font-semibold text-cta-foreground transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-ink-muted"
         >
           {busy ? (
             <>
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-cta-foreground/40 border-t-cta-foreground" />
               Saving…
             </>
           ) : (

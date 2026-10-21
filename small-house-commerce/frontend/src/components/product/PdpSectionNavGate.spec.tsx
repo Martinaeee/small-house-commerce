@@ -114,6 +114,16 @@ const product: Product = {
   images: sharedMedia.media,
   initialMediaSet: sharedMedia,
   availableMediaScopes: { optionValueIds: [], variantIds: [] },
+  effectiveFaq: [
+    {
+      id: "faq-delivery",
+      title: "Delivery & Cash on Delivery",
+      answer: [{ kind: "paragraph", text: "Delivery details." }],
+      enabled: true,
+      position: 0,
+      defaultOpen: true,
+    },
+  ],
   detailBlocks: [],
 };
 
@@ -141,6 +151,26 @@ function renderGate() {
 }
 
 describe("PdpSectionNavGate", () => {
+  it("shows Specifications for SKU-only dimensions and hides it after switching to an empty SKU", async () => {
+    const user = userEvent.setup();
+    const dimensionProduct: Product = {
+      ...product,
+      variants: product.variants.map((variant, index) => ({
+        ...variant,
+        sku: variant.sku ? { ...variant.sku, productWeight: null, productWidth: index === 0 ? 48 : null } : null,
+      })),
+    };
+    render(
+      <PdpPurchaseProvider product={dimensionProduct}>
+        <PdpSectionNavGate product={dimensionProduct} hasDetails={false} />
+        <SelectColor valueId="blue" />
+      </PdpPurchaseProvider>,
+    );
+    expect(screen.getByRole("link", { name: "Specifications" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "pick blue" }));
+    expect(screen.queryByRole("link", { name: "Specifications" })).not.toBeInTheDocument();
+  });
+
   it("shows the Specifications link only while the displayed variant has specs", async () => {
     const user = userEvent.setup();
     renderGate();

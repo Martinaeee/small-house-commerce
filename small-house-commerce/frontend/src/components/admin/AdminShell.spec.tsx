@@ -131,21 +131,13 @@ describe("AdminShell hidden permission-backed destinations", () => {
     },
   );
 
-  it("renders the dedicated link builder as the optimizer's only module", () => {
-    shellState.pathname = "/admin/link-builder";
-    shellState.permissions = ["ORDER_VIEW_OWN", "CAMPAIGN_LINK_BUILD"];
-
+  it.each(["MARKETING_VIEW_OWN", "MARKETING_VIEW_ALL"])("shows one unified marketing entry to %s without granting product or order access", (permission) => {
+    shellState.pathname = "/admin/marketing";
+    shellState.permissions = [permission];
     renderShell();
-
-    expect(
-      screen.getByRole("link", { name: "nav_link_builder" }),
-    ).toHaveAttribute("href", "/admin/link-builder");
+    expect(screen.getByRole("link", { name: "marketing_title" })).toHaveAttribute("href", "/admin/marketing");
     expect(screen.getByText("Protected route content")).toBeVisible();
-    expect(
-      screen.queryByText("No modules available for your account."),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "nav_orders" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "nav_products" })).not.toBeInTheDocument();
+    for (const name of ["nav_link_builder", "nav_single_pages", "nav_products", "nav_orders"]) expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
   });
 
   it("keeps the no-modules boundary for accounts without a supported route", () => {
@@ -170,27 +162,99 @@ describe("AdminShell website navigation group", () => {
     return screen.getByRole("navigation", { name: "Admin navigation" });
   }
 
-  it("renders Homepage as a top-level nav item for PRODUCT_MANAGE accounts", () => {
+  it.each([
+    ['PRODUCT_FAQ_SHARED_MANAGE'],
+    ['PRODUCT_MANAGE'],
+  ])('shows the FAQ nav item for %s', (permission) => {
+    shellState.permissions = [permission];
     renderShell();
 
     expect(
-      within(desktopNav()).getByRole("link", { name: "nav_homepage" }),
-    ).toHaveAttribute("href", "/admin/homepage");
-    expect(
-      within(desktopNav()).queryByText("nav_group_website"),
-    ).not.toBeInTheDocument();
+      within(desktopNav()).getByRole('link', { name: 'nav_faq' }),
+    ).toHaveAttribute('href', '/admin/faq');
   });
 
-  it("hides Homepage without PRODUCT_MANAGE", () => {
+  it("renders the Website group with its three independently filtered entries", () => {
+    shellState.permissions = [
+      "PRODUCT_MANAGE",
+      "STOREFRONT_SHELL_MANAGE",
+      "SYSTEM_SETTINGS_EDIT",
+    ];
+    renderShell();
+
+    const nav = desktopNav();
+    expect(within(nav).getByText("nav_group_website")).toBeVisible();
+    expect(
+      within(nav).getByRole("link", { name: "nav_homepage" }),
+    ).toHaveAttribute("href", "/admin/homepage");
+    expect(
+      within(nav).getByRole("link", { name: "nav_storefront_shell" }),
+    ).toHaveAttribute("href", "/admin/storefront-shell");
+    expect(
+      within(nav).getByRole("link", { name: "nav_settings" }),
+    ).toHaveAttribute("href", "/admin/settings");
+  });
+
+  it("shows only Header & Footer to an account holding only shell permission", () => {
+    shellState.pathname = "/admin/storefront-shell";
+    shellState.permissions = ["STOREFRONT_SHELL_MANAGE"];
+    renderShell();
+
+    const nav = desktopNav();
+    expect(within(nav).getByText("nav_group_website")).toBeVisible();
+    expect(
+      within(nav).getByRole("link", { name: "nav_storefront_shell" }),
+    ).toBeVisible();
+    expect(
+      within(nav).queryByRole("link", { name: "nav_homepage" }),
+    ).toBeNull();
+    expect(
+      within(nav).queryByRole("link", { name: "nav_settings" }),
+    ).toBeNull();
+    expect(screen.getByText("Protected route content")).toBeVisible();
+  });
+
+  it("does not let PRODUCT_MANAGE inherit Header & Footer access", () => {
+    renderShell();
+
+    const nav = desktopNav();
+    expect(
+      within(nav).getByRole("link", { name: "nav_homepage" }),
+    ).toBeVisible();
+    expect(
+      within(nav).queryByRole("link", { name: "nav_storefront_shell" }),
+    ).toBeNull();
+    expect(
+      within(nav).queryByRole("link", { name: "nav_settings" }),
+    ).toBeNull();
+  });
+
+  it("hides the Website group when none of its child permissions survive", () => {
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
+    expect(within(desktopNav()).queryByText("nav_group_website")).toBeNull();
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_orders" }),
+    ).toBeVisible();
+  });
+
+  it("shows Newsletter only with NEWSLETTER_READ", () => {
+    shellState.permissions = ["NEWSLETTER_READ"];
+    renderShell();
+
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_newsletter" }),
+    ).toHaveAttribute("href", "/admin/newsletter");
+  });
+
+  it("hides Newsletter when NEWSLETTER_READ is absent", () => {
     shellState.permissions = ["ORDER_VIEW_ALL"];
     renderShell();
 
     expect(
-      within(desktopNav()).queryByRole("link", { name: "nav_homepage" }),
+      within(desktopNav()).queryByRole("link", { name: "nav_newsletter" }),
     ).not.toBeInTheDocument();
-    expect(
-      within(desktopNav()).getByRole("link", { name: "nav_orders" }),
-    ).toBeVisible();
   });
 
   it("keeps the existing navigation items and their order", () => {
@@ -198,7 +262,9 @@ describe("AdminShell website navigation group", () => {
       "ORDER_VIEW_ALL",
       "INVENTORY_VIEW",
       "PRODUCT_MANAGE",
-      "CAMPAIGN_LINK_BUILD",
+      "STOREFRONT_SHELL_MANAGE",
+      "MARKETING_VIEW_ALL",
+      "NEWSLETTER_READ",
       "SYSTEM_SETTINGS_EDIT",
     ];
     renderShell();
@@ -207,14 +273,17 @@ describe("AdminShell website navigation group", () => {
       .getAllByRole("link")
       .map((link) => link.textContent);
     expect(labels).toEqual([
+      "nav_dashboard",
       "nav_orders",
       "nav_inventory",
       "nav_products",
+      "nav_faq",
       "nav_groupings",
       "nav_homepage",
-      "nav_single_pages",
-      "nav_link_builder",
+      "nav_storefront_shell",
       "nav_settings",
+      "marketing_title",
+      "nav_newsletter",
     ]);
   });
 });

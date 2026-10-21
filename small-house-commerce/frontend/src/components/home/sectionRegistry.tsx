@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { ProductCardInteractionMode } from "@/components/product/ProductCard";
 import type { HomepageSection, HomepageSectionType } from "@/lib/api";
 import { BrandStorySection } from "./BrandStorySection";
 import { CategoryTilesSection } from "./CategoryTilesSection";
@@ -18,6 +19,7 @@ export type SectionPreviewDevice = "desktop" | "tablet" | "mobile";
 export interface SectionProps {
   section: HomepageSection;
   previewDevice?: SectionPreviewDevice;
+  interactionMode?: ProductCardInteractionMode;
 }
 
 export const SECTION_REGISTRY: Record<HomepageSectionType, ComponentType<SectionProps>> = {

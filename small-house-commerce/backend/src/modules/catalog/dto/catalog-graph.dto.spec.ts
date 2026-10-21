@@ -92,6 +92,60 @@ function expectIssuePath(
 }
 
 describe('catalog graph write DTO', () => {
+  describe('variant card media', () => {
+    const cover = { type: 'IMAGE', url: '/uploads/card-cover.webp', altText: 'Own cover' };
+    const hover = { type: 'IMAGE', url: '/uploads/card-hover.webp', altText: null };
+    const variant = {
+      clientKey: 'variant-default', position: 0,
+      optionValueRefs: [{ clientKey: 'option-style-value' }],
+    };
+
+    it('preserves the independent cover and hover snapshot', () => {
+      const result = catalogGraphPatchSchema.parse(patch({
+        variants: [{ ...variant, cardMedia: { cover, hover } }],
+      }));
+      expect(result.variants[0]).toHaveProperty('cardMedia', { cover, hover });
+    });
+
+    it('does not turn omission into a card media write', () => {
+      const result = catalogGraphPatchSchema.parse(patch({ variants: [variant] }));
+      expect(Object.hasOwn(result.variants[0]!, 'cardMedia')).toBe(false);
+    });
+
+    it('preserves explicit clearing of the whole card pair', () => {
+      const result = catalogGraphPatchSchema.parse(patch({
+        variants: [{ ...variant, cardMedia: null }],
+      }));
+      expect(result.variants[0]).toHaveProperty('cardMedia', null);
+    });
+
+    it.each([
+      ['cover', { cover: null, hover }],
+      ['hover', { cover, hover: null }],
+    ])('preserves clearing only the %s slot', (_slot, cardMedia) => {
+      const result = catalogGraphPatchSchema.parse(patch({ variants: [{ ...variant, cardMedia }] }));
+      expect(result.variants[0]).toHaveProperty('cardMedia', cardMedia);
+    });
+
+    it.each([
+      ['video cover', { cover: { ...cover, type: 'VIDEO' }, hover }],
+      ['video hover', { cover, hover: { ...hover, type: 'VIDEO' } }],
+      ['unsafe URL', { cover: { ...cover, url: 'javascript:alert(1)' }, hover }],
+      ['protocol-relative URL', { cover, hover: { ...hover, url: '//cdn.example/hover.webp' } }],
+      ['oversized Alt', { cover: { ...cover, altText: 'x'.repeat(256) }, hover }],
+      ['non-string Alt', { cover, hover: { ...hover, altText: 3 } }],
+      ['missing hover slot', { cover }],
+      ['string configuration', '/uploads/card.webp'],
+      ['gallery image identity', { cover: { ...cover, id: IDS.variant }, hover }],
+      ['gallery scope', { cover, hover: { ...hover, variantId: IDS.variant } }],
+      ['unknown pair key', { cover, hover, isScene: true }],
+    ])('rejects %s in independent card configuration', (_reason, cardMedia) => {
+      expect(catalogGraphPatchSchema.safeParse(patch({
+        variants: [{ ...variant, cardMedia }],
+      })).success).toBe(false);
+    });
+  });
+
   it('requires exactly one stable reference form', () => {
     const both = entityRefSchema.safeParse({
       id: IDS.option,

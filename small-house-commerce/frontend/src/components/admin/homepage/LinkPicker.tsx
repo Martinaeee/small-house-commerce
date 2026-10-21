@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { useBufferedValue } from "@/components/admin/homepage/AnnouncementSettings";
+import { isSafeInternalPath } from "@/lib/internal-path";
 import type { LinkValue } from "@/lib/homepage-document";
 import {
   adminApi,
@@ -20,22 +21,26 @@ import {
 /**
  * Full link picker (plan Task 18, design spec §5.6). Replaces the minimal
  * inline control Dr11/Dr14 shipped (ledger Ruling 27): a type dropdown
- * (Product / Collection / Category / Landing Page / External) plus a
- * searchable single-select entity list and an https-only buffered external URL
- * field, a resolved-form preview line and a clear button.
+ * (Product / Collection / Category / Landing Page / External / Internal) plus
+ * a searchable single-select entity list, an https-only buffered external URL
+ * field, a site-path buffered internal field, a resolved-form preview line and
+ * a clear button.
  *
  * Write-path contract with the consumers: entity selects, type switches and
  * clear are discrete choices that go straight to `onChange` (the owning panel
  * routes them to a `commit`/`mutate` dispatch on its latest document). The
- * external URL text is buffered like every other free-text field (Task 14
- * `useBufferedValue`, 300 ms + blur) and only ever fires complete parseable
- * https URLs; a buffered path therefore never builds a document from a
+ * external URL and internal path text are buffered like every other free-text
+ * field (Task 14 `useBufferedValue`, 300 ms + blur) and only ever fire complete
+ * parseable values; a buffered path therefore never builds a document from a
  * render-captured snapshot (Task 14 R32).
+ *
+ * `allowInternal` is opt-in: the storefront shell editor enables it, existing
+ * homepage panels keep their current option set.
  */
 
 const ENTITY_TYPES = ["PRODUCT", "COLLECTION", "CATEGORY", "LANDING"] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
-type LinkType = EntityType | "EXTERNAL";
+type LinkType = EntityType | "EXTERNAL" | "INTERNAL";
 
 /** Static mapping: `LANDING` stores as `homepage_builder_link_type_LANDING`. */
 const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
@@ -44,6 +49,7 @@ const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
   CATEGORY: "homepage_builder_link_type_CATEGORY",
   LANDING: "homepage_builder_link_type_LANDING",
   EXTERNAL: "homepage_builder_link_type_EXTERNAL",
+  INTERNAL: "homepage_builder_link_type_INTERNAL",
 };
 
 const SERVER_SEARCH_DEBOUNCE_MS = 250;
@@ -97,7 +103,7 @@ function useEntityOptions(
   const productSearchKey = type === "PRODUCT" || type === "LANDING" ? search : "";
 
   useEffect(() => {
-    if (type === "" || type === "EXTERNAL") {
+    if (type === "" || type === "EXTERNAL" || type === "INTERNAL") {
       // Fold any in-flight request so it can never resolve into current
       // state. Stale options keep their freshness tag until a fetch for the
       // active type lands, so the renderer never mistakes them for fresh.
@@ -175,10 +181,12 @@ export function LinkPicker({
   value,
   onChange,
   allowExternal,
+  allowInternal = false,
 }: {
   value: LinkValue | null;
   onChange(value: LinkValue | null): void;
   allowExternal: boolean;
+  allowInternal?: boolean;
 }): ReactNode {
   const { t } = useAdminI18n();
   const [type, setType] = useState<LinkType | "">(value?.type ?? "");
@@ -197,7 +205,10 @@ export function LinkPicker({
     setType(committedType);
   }
 
-  const valueId = value !== null && value.type !== "EXTERNAL" ? value.id : null;
+  const valueId =
+    value !== null && value.type !== "EXTERNAL" && value.type !== "INTERNAL"
+      ? value.id
+      : null;
 
   // Cleared/selected-away ids invalidate a stale targeted lookup (derived
   // state pattern: no effect needed).
@@ -234,6 +245,26 @@ export function LinkPicker({
     },
   );
 
+  // Buffered internal path: same contract as the external URL — only a safe
+  // site-relative path ever commits, and invalid text stays in the field with
+  // an inline error instead of reaching the document.
+  const internalText =
+    value !== null && value.type === "INTERNAL" ? value.path : "";
+  const internal = useBufferedValue(
+    internalText,
+    (next) => {
+      if (type !== "INTERNAL") return;
+      const candidate = next.trim();
+      if (candidate === "") {
+        commitChange(null);
+        return;
+      }
+      if (isSafeInternalPath(candidate)) {
+        commitChange({ type: "INTERNAL", path: candidate });
+      }
+    },
+  );
+
   const switchType = (nextType: LinkType | ""): void => {
     setType(nextType);
     setSearchInput("");
@@ -242,16 +273,18 @@ export function LinkPicker({
       return;
     }
     external.reset("");
+    internal.reset("");
     commitChange(null);
   };
 
   const selectEntity = (option: EntityOption): void => {
-    if (type === "" || type === "EXTERNAL") return;
+    if (type === "" || type === "EXTERNAL" || type === "INTERNAL") return;
     commitChange({ type, id: option.id });
   };
 
   const clear = (): void => {
     external.reset("");
+    internal.reset("");
     setType("");
     setLastSeenType("");
     setSearchInput("");
@@ -263,7 +296,7 @@ export function LinkPicker({
   const valueType = value !== null ? value.type : null;
   const productSearchKey =
     type === "PRODUCT" || type === "LANDING" ? searchInput : "";
-  const isEntityType = type !== "" && type !== "EXTERNAL";
+  const isEntityType = type !== "" && type !== "EXTERNAL" && type !== "INTERNAL";
   const fresh = result.type === type && isEntityType;
   const settled = result.type === type && result.search === productSearchKey;
 
@@ -271,7 +304,7 @@ export function LinkPicker({
   // PRODUCT lookup (the one entity endpoint that supports it), and the id as
   // the honest fallback when neither knows the entity — never a wrong name.
   useEffect(() => {
-    if (valueId === null || valueType === "EXTERNAL") return;
+    if (valueId === null || valueType === "EXTERNAL" || valueType === "INTERNAL") return;
     if (!fresh || !settled) return;
     if (options.some((option) => option.id === valueId)) return;
     if (valueType !== "PRODUCT") return;
@@ -310,6 +343,10 @@ export function LinkPicker({
   const invalidExternal =
     type === "EXTERNAL" && trimmed !== "" && !isHttpsUrl(trimmed);
 
+  const trimmedInternal = internal.value.trim();
+  const invalidInternal =
+    type === "INTERNAL" && trimmedInternal !== "" && !isSafeInternalPath(trimmedInternal);
+
   const pickTitle =
     type !== "" ? t("homepage_builder_link_pick_title", { type: t(LINK_TYPE_LABEL_KEYS[type as LinkType]) }) : "";
   const searchLabel = t("homepage_builder_link_search_placeholder");
@@ -331,6 +368,9 @@ export function LinkPicker({
           ))}
           {allowExternal ? (
             <option value="EXTERNAL">{t(LINK_TYPE_LABEL_KEYS.EXTERNAL)}</option>
+          ) : null}
+          {allowInternal ? (
+            <option value="INTERNAL">{t(LINK_TYPE_LABEL_KEYS.INTERNAL)}</option>
           ) : null}
         </select>
         {value !== null ? (
@@ -412,11 +452,34 @@ export function LinkPicker({
         </div>
       ) : null}
 
+      {type === "INTERNAL" ? (
+        <div className="flex flex-col gap-1">
+          <input
+            type="text"
+            className="min-w-0 rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-xs text-ink"
+            aria-label={t("homepage_builder_link_internal_path")}
+            placeholder="/track-order"
+            value={internal.value}
+            onChange={(event) => internal.change(event.target.value)}
+            onBlur={internal.blur}
+          />
+          {invalidInternal ? (
+            <p className="text-xs text-sale">
+              {t("homepage_builder_link_internal_invalid")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {value !== null ? (
         <div className="flex min-w-0 items-center gap-2">
           {value.type === "EXTERNAL" ? (
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">
               {value.url}
+            </span>
+          ) : value.type === "INTERNAL" ? (
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">
+              {value.path}
             </span>
           ) : (
             <span

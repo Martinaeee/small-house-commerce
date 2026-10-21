@@ -6,6 +6,15 @@ import type { AdminCatalogGraphDraft, AdminSkuDraft } from "@/lib/admin-product-
 import { adminApi } from "@/lib/admin-api";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}));
+
+// The FAQ tab previews the shared library; keep this suite off the network.
+vi.mock("@/lib/faq-api", () => ({
+  faqApi: { getSharedPreview: () => Promise.resolve({ items: [] }) },
+}));
+
 const ids = {
   option: "018f0000-0000-7000-8000-000000000010",
   red: "018f0000-0000-7000-8000-000000000011",

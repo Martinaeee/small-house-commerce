@@ -24,6 +24,14 @@ export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
+export type ProcessedImageType = 'image/png' | 'image/webp';
+export type ProcessedUploadResult = {
+  url: string;
+  key: string;
+  storage: 'LOCAL' | 'R2';
+  durable: boolean;
+};
+
 export function maxBytesFor(contentType: string): number {
   return VIDEO_TYPES.has(contentType) ? VIDEO_MAX_BYTES : UPLOAD_MAX_BYTES;
 }
@@ -50,6 +58,56 @@ export class UploadsService {
     const year = new Date().getUTCFullYear();
     const key = `catalog/${year}/${randomUUID()}.${EXTENSION_BY_TYPE[contentType]}`;
     return buildR2PresignedPutUrl(r2 as R2Settings, key, contentType, 600);
+  }
+
+  async saveProcessed(
+    buffer: Buffer,
+    contentType: ProcessedImageType,
+    namespace: 'brand',
+  ): Promise<ProcessedUploadResult> {
+    if (buffer.length === 0) {
+      throw new BadRequestException('Empty processed upload body');
+    }
+    if (buffer.length > UPLOAD_MAX_BYTES) {
+      throw new BadRequestException('Processed image exceeds the 5 MB limit');
+    }
+
+    const extension = contentType === 'image/png' ? 'png' : 'webp';
+    const year = new Date().getUTCFullYear();
+    const key = `${namespace}/${year}/${randomUUID()}.${extension}`;
+    const r2 = this.config.get<Partial<R2Settings> | null>('r2');
+
+    if (isCompleteR2(r2)) {
+      const signed = buildR2PresignedPutUrl(r2, key, contentType, 600);
+      const response = await fetch(signed.uploadUrl, {
+        method: 'PUT',
+        headers: { 'content-type': contentType },
+        body: new Uint8Array(buffer),
+      });
+      if (!response.ok) {
+        throw new ServiceUnavailableException({
+          code: 'UPLOAD_STORAGE_FAILED',
+          message: `Brand asset storage returned HTTP ${response.status}`,
+        });
+      }
+      return {
+        url: signed.publicUrl,
+        key,
+        storage: 'R2',
+        durable: true,
+      };
+    }
+
+    const dir = this.config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
+    const abs = join(dir, key);
+    await mkdir(join(dir, namespace, String(year)), { recursive: true });
+    await writeFile(abs, buffer);
+    return {
+      url: `/uploads/${key}`,
+      key,
+      storage: 'LOCAL',
+      durable: this.config.get<boolean>('upload.durable') ?? false,
+    };
   }
 
   /**
@@ -84,4 +142,16 @@ export class UploadsService {
     await writeFile(abs, buffer);
     return { url: `/uploads/${key}`, key };
   }
+}
+
+function isCompleteR2(
+  value: Partial<R2Settings> | null | undefined,
+): value is R2Settings {
+  return Boolean(
+    value?.accountId &&
+      value.accessKeyId &&
+      value.secretAccessKey &&
+      value.bucket &&
+      value.publicBaseUrl,
+  );
 }
