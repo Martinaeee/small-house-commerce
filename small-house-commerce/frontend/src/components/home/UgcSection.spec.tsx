@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HomepageSection } from "@/lib/api";
 import { UgcSection } from "./UgcSection";
 
@@ -59,6 +59,7 @@ afterEach(() => {
   delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
   delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollWidth;
   delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollTo;
 });
 
 describe("UgcSection collage", () => {
@@ -99,19 +100,23 @@ describe("UgcSection collage", () => {
     }
   });
 
-  it("updates panning controls when photos change without a quote or viewport resize", () => {
+  it("offers no swipe button bar and leaves the photos to be dragged by hand", () => {
     Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 350 });
     Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
       configurable: true,
       get(this: HTMLElement) { return this.querySelectorAll("[data-ugc-entry-id]").length > 1 ? 500 : 350; },
     });
-    const rows = photos(2);
-    const { rerender } = render(<UgcSection section={collage(rows.slice(0, 1), "photo-0", false)} previewDevice="mobile" />);
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: scrollTo });
+
+    const { container } = render(<UgcSection section={collage(photos(4), "photo-0", false)} previewDevice="mobile" />);
     expect(screen.queryByRole("button", { name: "Next photos" })).toBeNull();
-    rerender(<UgcSection section={collage(rows, "photo-0", false)} previewDevice="mobile" />);
-    expect(screen.getByRole("button", { name: "Next photos" })).toBeEnabled();
-    rerender(<UgcSection section={collage(rows.slice(0, 1), "photo-0", false)} previewDevice="mobile" />);
-    expect(screen.queryByRole("button", { name: "Next photos" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous photos" })).toBeNull();
+    expect(screen.queryByText(/Swipe to explore/i)).toBeNull();
+    expect(container.querySelector("[data-ugc-viewport]")).not.toBeNull();
+
+    fireEvent.keyDown(container.querySelector("[data-ugc-viewport]")!, { key: "ArrowRight" });
+    expect(scrollTo).toHaveBeenCalled();
   });
 
   it("points each photo at its own product and leaves unlinked photos inert", () => {

@@ -174,11 +174,6 @@ function UgcCollage({ rows, featured, presentation, section, previewDevice, inte
         </div>
         {readingPanel}
       </div>
-      {pan.max > 1 ? <div className={styles.panControls}>
-        <span>Swipe to explore</span>
-        <button type="button" aria-label="Previous photos" disabled={pan.left <= 1} onClick={() => scrollTo(pan.left - 200)}>←</button>
-        <button type="button" aria-label="Next photos" disabled={pan.left >= pan.max - 1} onClick={() => scrollTo(pan.left + 200)}>→</button>
-      </div> : null}
       {mobile && name ? <div data-ugc-meta>{name}</div> : null}
     </div>
   </SectionShell>;
