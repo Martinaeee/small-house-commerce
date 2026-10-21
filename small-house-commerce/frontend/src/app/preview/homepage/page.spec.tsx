@@ -378,8 +378,12 @@ describe("HomepagePreviewPage rendering", () => {
       "md:hidden",
     );
     expect(screen.queryByRole("link")).toBeNull();
-    expect(shell?.querySelector("[data-hero-arrows]")).toBeNull();
-    expect(shell?.querySelector("[data-pag-dots]")).toBeNull();
+    // The preview stays inert for navigation: nothing in it is a link, so a
+    // draft can never open a shopper destination. The hero slider is the one
+    // live control - it shows its pagination and rotates when the draft
+    // enables autoplay, so the owner sees the real hero before publishing.
+    expect(shell?.querySelector("[data-hero-arrows]")).toBeNull(); // arrows are off in this draft
+    expect(shell?.querySelector("[data-pag-dots]")).not.toBeNull();
     expect(shell?.querySelector("[data-pag-counter]")).toBeNull();
     expect(shell?.querySelector("[data-pag-progress]")).toBeNull();
 
