@@ -77,6 +77,16 @@
   /* The deep green panel the brand story page closes on (mockup 2026-10-21). */
   --color-story-panel: #2f4034;
 
+  /* About Us page (design reference 2026-10-21, 1920px artboard, 1440px
+     content). The page carries its own warm palette so the rest of the
+     storefront keeps its existing colours. */
+  --color-about-bg: #f7f3ed;
+  --color-about-ink: #292724;
+  --color-about-green: #294638;
+  --color-about-brown: #b99b81;
+  --color-about-muted: #6f6961;
+  --color-about-disc: #ece3d6;
+
   /* Admin design system. These tokens are consumed only inside AdminShell;
      storefront surfaces keep the warm brand palette above. */
   --color-admin-rail: #123e32;
