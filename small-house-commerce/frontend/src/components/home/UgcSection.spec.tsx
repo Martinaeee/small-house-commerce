@@ -299,6 +299,14 @@ describe("UgcSection stylesheet wiring", () => {
     }
     expect([...selected].filter((name) => !rendered.has(name))).toEqual([]);
   });
+
+  it("keeps the small photo grid at two rows so extra photos extend sideways", () => {
+    const css = readFileSync(join(process.cwd(), "src/components/home/UgcSection.module.css"), "utf8");
+    const start = css.indexOf(".supporting {");
+    const rule = css.slice(start, css.indexOf("}", start));
+    expect(rule).toMatch(/grid-template-rows:\s*repeat\(2/);
+    expect(rule).toMatch(/grid-auto-flow:\s*column/);
+  });
 });
 
 describe("UgcSection photo framing", () => {

@@ -28,8 +28,8 @@ const LAYOUT_CHOICES: { value: UgcLayoutChoice; labelKey: TKey }[] = [
 function focalAspect(layout: "CARDS" | "COLLAGE", variant: UgcCollageVariant, featured: boolean): string {
   if (layout === "CARDS") return "1 / 1";
   if (variant === "STRIP") return featured ? "3 / 2" : "1 / 1";
-  if (variant === "PORTRAIT") return featured ? "4 / 5" : "7 / 4";
-  return "3 / 2";
+  if (variant === "PORTRAIT") return featured ? "4 / 5" : "7 / 6";
+  return featured ? "3 / 2" : "4 / 3";
 }
 
 function newRowId(): string {

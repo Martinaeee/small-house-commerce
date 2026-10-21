@@ -53,8 +53,19 @@
   .photoBadge { left: 8px; right: auto; top: 8px; padding: 7px; }
   .photoBadge > span { display: none; }
 }
-.supporting { display: grid; min-width: 0; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: var(--ugc-gap); }
+/* The small photos never grow past two rows: every extra photo opens another
+   two-row column to the right, which the photo viewport scrolls to. */
+.supporting {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-auto-columns: calc(50% - var(--ugc-gap) / 2);
+  gap: var(--ugc-gap);
+}
 .supporting[data-count="1"], .supporting[data-count="2"] { grid-template-columns: minmax(0, 1fr); }
+.supporting[data-count="1"] { grid-template-rows: minmax(0, 1fr); }
 .collage[data-single="true"] { --ugc-primary: 1; --ugc-columns: minmax(0, 1fr); --ugc-min-width: 100%; }
 
 .quote {
