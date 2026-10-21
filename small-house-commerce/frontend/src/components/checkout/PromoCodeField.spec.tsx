@@ -336,6 +336,56 @@ describe("PromoCodeField", () => {
     );
   });
 
+  it("shows the stored subscribe code and rechecks it when the subtotal loads", async () => {
+    grantNewsletterCode("WELCOME59");
+    vi.mocked(api.previewPromoCode).mockImplementation(async (_code, subtotal) => ({
+      valid: true,
+      discountAmount: Math.min(59, subtotal),
+      message: "",
+    }));
+    const onApplied = vi.fn();
+    const { rerender } = render(<PromoCodeField subtotal={0} onApplied={onApplied} />);
+    await waitFor(() => expect(onApplied).toHaveBeenLastCalledWith({
+      code: "WELCOME59", discountAmount: 0,
+    }));
+
+    rerender(<PromoCodeField subtotal={2500} onApplied={onApplied} />);
+
+    await waitFor(() => expect(onApplied).toHaveBeenLastCalledWith({
+      code: "WELCOME59", discountAmount: 59,
+    }));
+    expect(screen.getByLabelText("Promo code")).toHaveValue("WELCOME59");
+  });
+
+  it("restores the subscribe code under StrictMode", async () => {
+    grantNewsletterCode("WELCOME59");
+    vi.mocked(api.previewPromoCode).mockResolvedValue({
+      valid: true, discountAmount: 59, message: "",
+    });
+    const onApplied = vi.fn();
+    render(<StrictMode><PromoCodeField subtotal={2500} onApplied={onApplied} /></StrictMode>);
+
+    await waitFor(() => expect(onApplied).toHaveBeenLastCalledWith({
+      code: "WELCOME59", discountAmount: 59,
+    }));
+    expect(screen.getByLabelText("Promo code")).toHaveValue("WELCOME59");
+  });
+
+  it("does not replace a shopper's code while its preview is pending", async () => {
+    let resolve!: (value: { valid: boolean; discountAmount: number; message: string }) => void;
+    vi.mocked(api.previewPromoCode).mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const onApplied = vi.fn();
+    render(<PromoCodeField subtotal={2500} onApplied={onApplied} />);
+    open();
+    fireEvent.change(screen.getByLabelText("Promo code"), { target: { value: "SAVE10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    act(() => grantNewsletterCode("WELCOME59"));
+
+    expect(screen.getByLabelText("Promo code")).toHaveValue("SAVE10");
+    await act(async () => resolve({ valid: true, discountAmount: 20, message: "" }));
+    expect(onApplied).toHaveBeenLastCalledWith({ code: "SAVE10", discountAmount: 20 });
+  });
+
   it("keeps a code the shopper typed themselves", async () => {
     vi.mocked(api.previewPromoCode).mockResolvedValue({
       valid: true,
