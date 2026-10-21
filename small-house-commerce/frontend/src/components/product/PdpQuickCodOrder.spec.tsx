@@ -9,7 +9,10 @@ import {
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 
-const api = vi.hoisted(() => ({ createOrder: vi.fn() }));
+const api = vi.hoisted(() => ({
+  createOrder: vi.fn(),
+  previewPromoCode: vi.fn(),
+}));
 const tracking = vi.hoisted(() => ({ readAttribution: vi.fn() }));
 const events = vi.hoisted(() => ({ emitCommerceEvent: vi.fn() }));
 const router = vi.hoisted(() => ({ push: vi.fn() }));
@@ -20,7 +23,7 @@ const checkoutDraft = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, api: { ...actual.api, createOrder: api.createOrder } };
+  return { ...actual, api: { ...actual.api, createOrder: api.createOrder, previewPromoCode: api.previewPromoCode } };
 });
 vi.mock("@/lib/tracking", () => ({
   readAttribution: tracking.readAttribution,
@@ -210,6 +213,7 @@ async function fillRequiredFields(
 
 beforeEach(() => {
   api.createOrder.mockReset();
+  api.previewPromoCode.mockReset();
   tracking.readAttribution.mockReset();
   events.emitCommerceEvent.mockReset();
   router.push.mockReset();
@@ -603,5 +607,26 @@ describe("PdpQuickCodOrder", () => {
     expect(api.createOrder).not.toHaveBeenCalled();
     // Nothing to initiate: there is no item yet.
     expect(events.emitCommerceEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("PdpQuickCodOrder promo code", () => {
+  it("shows the applied discount in the summary and lowers the total", async () => {
+    const user = userEvent.setup();
+    api.previewPromoCode.mockResolvedValue({
+      valid: true,
+      discountAmount: 10,
+      message: "",
+    });
+    renderQuickOrder();
+
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "save10");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(
+      await screen.findByTestId("quick-cod-promo-discount"),
+    ).toHaveTextContent("−₱10.00");
+    expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱90.00");
   });
 });

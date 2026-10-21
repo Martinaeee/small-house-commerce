@@ -19,6 +19,7 @@ import {
 } from "@/lib/checkoutDraft";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
+import { NewsletterOfferNote } from "./NewsletterOfferNote";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
@@ -307,7 +308,7 @@ export function CheckoutConfirmView({
                 )}
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Shipping</dt>
-                  <dd className="font-medium text-ink">COD — calculated at checkout</dd>
+                  <dd className="font-semibold text-ink">Free</dd>
                 </div>
                 <div className="flex justify-between border-t border-border pt-3 text-base">
                   <dt className="font-semibold text-ink">Total (COD)</dt>
@@ -325,6 +326,7 @@ export function CheckoutConfirmView({
                 onApplied={setAppliedPromo}
                 onCheckingChange={setPromoChecking}
               />
+              <NewsletterOfferNote />
             </div>
 
             <p

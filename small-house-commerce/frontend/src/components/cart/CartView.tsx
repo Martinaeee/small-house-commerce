@@ -503,7 +503,7 @@ export function CartView() {
             )}
             <div className="flex justify-between">
               <dt className="text-ink-secondary">Shipping</dt>
-              <dd className="font-medium text-ink">Calculated at checkout</dd>
+              <dd className="font-semibold text-ink">Free</dd>
             </div>
             <div className="flex justify-between border-t border-border pt-3 text-base">
               <dt className="font-semibold text-ink">Total</dt>

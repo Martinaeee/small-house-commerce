@@ -3,6 +3,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CartItem, Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
+import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
+import { DEFAULT_SITE_SETTINGS } from "@/lib/site-settings";
 
 /**
  * Confirmation-step contract tests (plan Task 18): checkout lines render
@@ -339,6 +341,38 @@ describe("CheckoutConfirmView", () => {
     );
     expect(screen.getByText("Total (COD)").nextElementSibling).toHaveTextContent(
       "₱141.00",
+    );
+  });
+});
+
+describe("CheckoutConfirmView summary details", () => {
+  it("prices shipping as free", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+    await screen.findByText("Confirm your order");
+
+    expect(screen.getByText("Shipping").nextElementSibling).toHaveTextContent(
+      "Free",
+    );
+  });
+
+  it("shows the configured subscribe offer beneath the promo field", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    render(
+      <SiteSettingsProvider
+        settings={{
+          ...DEFAULT_SITE_SETTINGS,
+          newsletterOfferAvailable: true,
+          newsletterOfferTitle: "Subscribe and get ₱99 off your first order",
+        }}
+      >
+        <CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />
+      </SiteSettingsProvider>,
+    );
+    await screen.findByText("Confirm your order");
+
+    expect(screen.getByTestId("newsletter-offer-note")).toHaveTextContent(
+      "₱99",
     );
   });
 });

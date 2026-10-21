@@ -479,3 +479,14 @@ describe("CartView change options flow", () => {
     ).toHaveTextContent("Color: Red · Size: Small · SKU: RED-SMALL");
   });
 });
+
+describe("CartView summary", () => {
+  it("prices shipping as free, matching the checkout summary", async () => {
+    renderCart();
+
+    await screen.findByText("Chair");
+    expect(screen.getByText("Shipping").nextElementSibling).toHaveTextContent(
+      "Free",
+    );
+  });
+});

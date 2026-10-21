@@ -48,6 +48,7 @@ import {
   PromoCodeField,
   type AppliedPromo,
 } from "@/components/checkout/PromoCodeField";
+import { NewsletterOfferNote } from "@/components/checkout/NewsletterOfferNote";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 /**
@@ -269,6 +270,12 @@ export function PdpQuickCodOrder(): ReactNode {
       compareAtPrice: row.compareAt,
       quantity,
     })),
+  );
+  // Display-only preview of the promo discount; the order endpoint recomputes
+  // the authoritative amount when the order is created.
+  const discountedTotal = Math.max(
+    0,
+    totals.total - (appliedPromo?.discountAmount ?? 0),
   );
   const needsItems = items.length === 0;
   const orderable = !needsItems && !submitting;
@@ -730,13 +737,24 @@ export function PdpQuickCodOrder(): ReactNode {
                 </dd>
               </div>
             )}
+            {appliedPromo && appliedPromo.discountAmount > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-ink-secondary">Promo discount</dt>
+                <dd
+                  data-testid="quick-cod-promo-discount"
+                  className="font-medium text-sale"
+                >
+                  −{formatPrice(appliedPromo.discountAmount)}
+                </dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-border pt-2 text-base">
               <dt className="font-semibold text-ink">Total (COD)</dt>
               <dd
                 data-testid="quick-cod-total"
                 className="font-bold text-ink"
               >
-                {formatPrice(totals.total)}
+                {formatPrice(discountedTotal)}
               </dd>
             </div>
           </dl>
@@ -747,6 +765,7 @@ export function PdpQuickCodOrder(): ReactNode {
             onApplied={setAppliedPromo}
             onCheckingChange={setPromoChecking}
           />
+          <NewsletterOfferNote />
         </div>
 
         {/* Delivery form */}

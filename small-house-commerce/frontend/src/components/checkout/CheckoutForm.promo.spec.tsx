@@ -39,12 +39,17 @@ vi.mock("@/lib/checkoutValidation", async () => {
     validatePreferredDate: validationMock.validatePreferredDate,
   };
 });
-vi.mock("@/components/site/SiteSettingsProvider", () => ({
-  useSiteSettings: () => ({
-    messengerUrl: null,
+const siteSettingsMock = vi.hoisted(() => ({
+  current: {
+    messengerUrl: null as string | null,
     supportEmail: "help@example.com",
     supportHours: "Mon-Fri",
-  }),
+    newsletterOfferAvailable: false,
+    newsletterOfferTitle: "",
+  },
+}));
+vi.mock("@/components/site/SiteSettingsProvider", () => ({
+  useSiteSettings: () => siteSettingsMock.current,
 }));
 vi.mock("./PsgcAddressSelects", () => ({
   PsgcAddressSelects: () => null,
@@ -57,6 +62,13 @@ vi.mock("@/lib/commerce-events", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  siteSettingsMock.current = {
+    messengerUrl: null,
+    supportEmail: "help@example.com",
+    supportHours: "Mon-Fri",
+    newsletterOfferAvailable: false,
+    newsletterOfferTitle: "",
+  };
   sessionStorage.clear();
   draftMock.readCheckoutDraft.mockReturnValue(null);
   validationMock.validateCheckoutForm.mockReturnValue({});
@@ -140,5 +152,87 @@ describe("CheckoutForm promo code", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(review).toBeEnabled());
+  });
+});
+
+describe("CheckoutForm totals summary", () => {
+  it("prices shipping as free", () => {
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    expect(screen.getByText("Shipping").nextElementSibling).toHaveTextContent(
+      "Free",
+    );
+  });
+
+  it("shows the promo discount in the summary and lowers the total", async () => {
+    const user = userEvent.setup();
+    apiMock.previewPromoCode.mockResolvedValue({
+      valid: true,
+      discountAmount: 10,
+      message: "",
+    });
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "save10");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(await screen.findByTestId("checkout-promo-discount")).toHaveTextContent(
+      "−₱10.00",
+    );
+    expect(
+      screen.getByText("Total (COD)").nextElementSibling,
+    ).toHaveTextContent("₱90.00");
+  });
+
+  it("drops the promo discount again when the code is cleared", async () => {
+    const user = userEvent.setup();
+    apiMock.previewPromoCode.mockResolvedValue({
+      valid: true,
+      discountAmount: 10,
+      message: "",
+    });
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "save10");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(await screen.findByTestId("checkout-promo-discount")).toBeTruthy();
+
+    await user.clear(screen.getByLabelText("Promo code"));
+    await user.type(screen.getByLabelText("Promo code"), "x");
+
+    expect(screen.queryByTestId("checkout-promo-discount")).toBeNull();
+    expect(
+      screen.getByText("Total (COD)").nextElementSibling,
+    ).toHaveTextContent("₱100.00");
+  });
+
+  it("shows the configured subscribe offer beneath the promo field", () => {
+    siteSettingsMock.current = {
+      messengerUrl: null,
+      supportEmail: "help@example.com",
+      supportHours: "Mon-Fri",
+      newsletterOfferAvailable: true,
+      newsletterOfferTitle: "Subscribe and get ₱99 off your first order",
+    };
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    expect(screen.getByTestId("newsletter-offer-note")).toHaveTextContent(
+      "Subscribe and get ₱99 off your first order",
+    );
+  });
+
+  it("hides the subscribe offer when the backend has no live promo code", () => {
+    siteSettingsMock.current = {
+      messengerUrl: null,
+      supportEmail: "help@example.com",
+      supportHours: "Mon-Fri",
+      newsletterOfferAvailable: false,
+      newsletterOfferTitle: "Subscribe and get ₱99 off your first order",
+    };
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    expect(screen.queryByTestId("newsletter-offer-note")).toBeNull();
   });
 });

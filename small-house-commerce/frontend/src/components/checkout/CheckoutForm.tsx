@@ -27,6 +27,7 @@ import { checkoutInputCls } from "./checkoutFieldStyles";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
+import { NewsletterOfferNote } from "./NewsletterOfferNote";
 import {
   fetchBarangays,
   listMunicipalities,
@@ -139,6 +140,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     totals,
     total,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
+  // Display-only preview of the promo discount; the order endpoint recomputes
+  // the authoritative amount when the order is created.
+  const discountedTotal =
+    total === null ? null : Math.max(0, total - (appliedPromo?.discountAmount ?? 0));
   // Checkout lines carry their own enriched thumbnails (cart summary data /
   // Buy Now product cover), so no product-by-slug image recovery is needed.
 
@@ -740,14 +745,20 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
                 </div>
               )}
+              {appliedPromo && appliedPromo.discountAmount > 0 && (
+                <div className="flex justify-between" data-testid="checkout-promo-discount">
+                  <dt className="text-ink-secondary">Promo discount</dt>
+                  <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-ink-secondary">Shipping</dt>
-                <dd className="font-medium text-ink">COD — calculated at checkout</dd>
+                <dd className="font-semibold text-ink">Free</dd>
               </div>
               <div className="flex justify-between border-t border-border pt-3 text-base">
                 <dt className="font-semibold text-ink">Total (COD)</dt>
                 <dd className="font-bold text-ink">
-                  {total !== null ? formatPrice(total) : "Calculated at checkout"}
+                  {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
                 </dd>
               </div>
             </dl>
@@ -758,6 +769,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
             />
+            <NewsletterOfferNote />
           </div>
 
           <CheckoutTrustStrip
