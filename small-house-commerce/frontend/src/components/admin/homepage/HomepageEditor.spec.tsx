@@ -645,7 +645,7 @@ describe("HomepageEditor", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("button", {
-        name: "Keep mine (re-save on the latest revision)",
+        name: "Keep mine (replaces the whole draft)",
       }),
     ).toBeVisible();
     expect(screen.queryByText("Save failed")).not.toBeInTheDocument();
@@ -700,7 +700,7 @@ describe("HomepageEditor", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Keep mine (re-save on the latest revision)",
+        name: "Keep mine (replaces the whole draft)",
       }),
     );
     await flush();

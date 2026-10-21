@@ -1711,9 +1711,9 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_versions: "Versions",
   homepage_builder_conflict_title: "The draft was updated elsewhere",
   homepage_builder_conflict_body:
-    "A revision conflict was detected while saving. Choose how to proceed.",
+    "A revision conflict was detected while saving. “Keep mine” replaces the whole draft with what this page holds, including blocks you did not touch; “Load latest” discards your changes and reads the server’s draft. Reload the page first if it has been open a while.",
   homepage_builder_conflict_load_latest: "Load latest (discard my changes)",
-  homepage_builder_conflict_keep_mine: "Keep mine (re-save on the latest revision)",
+  homepage_builder_conflict_keep_mine: "Keep mine (replaces the whole draft)",
   homepage_builder_error_generic: "Action failed: {message}",
 
   // --- Homepage builder: module tree & slides ---

@@ -1664,9 +1664,10 @@ export const zh = {
   homepage_builder_publish: "发布",
   homepage_builder_versions: "版本历史",
   homepage_builder_conflict_title: "草稿已在别处更新",
-  homepage_builder_conflict_body: "保存时检测到修订号冲突，请选择处理方式。",
+  homepage_builder_conflict_body:
+    "保存时检测到修订号冲突。「保留我的」会用这个页面的内容整体覆盖草稿（包括你没动过的区块）；「载入最新」会丢弃本页改动并读取服务器上的最新草稿。页面开了很久的话，先刷新再改。",
   homepage_builder_conflict_load_latest: "载入最新（丢弃我的改动）",
-  homepage_builder_conflict_keep_mine: "保留我的（以最新修订重新保存）",
+  homepage_builder_conflict_keep_mine: "保留我的（整体覆盖草稿）",
   homepage_builder_error_generic: "操作失败：{message}",
 
   // --- Homepage builder: module tree & slides ---
