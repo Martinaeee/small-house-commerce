@@ -223,10 +223,16 @@ export function ProductOptionSelector({
               line.selectedValueIds,
             )
           : null;
+        // The legend repeats the size card's display name, so an operator
+        // label that carries its own measurement suffix ("Tall · 121.5 cm")
+        // cannot contradict the inch-rendered dimension printed on the card.
+        const selectedDisplayName = selectedValueId
+          ? measurements?.get(selectedValueId)?.name ?? selectedLabel
+          : selectedLabel;
         return (
           <fieldset key={option.id} className={asSizeCards ? "@container flex min-w-0 flex-col gap-2" : "flex flex-col gap-2"}>
             <legend className="text-sm font-medium text-ink-secondary">
-              {option.name}: {selectedLabel ?? `Choose ${option.name}`}
+              {option.name}: {selectedDisplayName ?? `Choose ${option.name}`}
             </legend>
             <div
               role="group"
@@ -301,7 +307,7 @@ export function ProductOptionSelector({
                     }
                     className={
                       asSizeCards
-                        ? `relative flex min-h-[72px] min-w-0 items-center gap-2.5 rounded-xl border-2 p-2 pr-7 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        ? `relative flex min-h-[64px] min-w-0 items-center gap-2.5 rounded-xl border-2 p-2 pr-7 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                             selected
                               ? "border-cta bg-primary-light/40"
                               : "border-border bg-card hover:border-primary"
@@ -320,14 +326,14 @@ export function ProductOptionSelector({
                           src={value.thumbnailUrl!}
                           alt={value.thumbnailAlt ?? value.label}
                           loading="lazy"
-                          className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                          className="h-10 w-10 shrink-0 rounded-lg object-cover"
                         />
                         <span className="flex min-w-0 flex-col gap-0.5">
                           <span className="break-words text-sm font-semibold leading-tight text-ink">
                             {measurement.name}
                           </span>
                           {measurement.dimension ? (
-                            <span id={dimensionId} className="text-sm text-ink-secondary">
+                            <span id={dimensionId} className="text-[13px] text-ink-secondary">
                               {measurement.dimension}
                             </span>
                           ) : null}

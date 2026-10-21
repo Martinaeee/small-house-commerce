@@ -152,6 +152,7 @@ function Harness({
 afterEach(() => {
   vi.unstubAllGlobals();
   document.body.style.paddingBottom = "";
+  document.documentElement.style.removeProperty("--sticky-bar-offset");
 });
 
 describe("PdpStickyBuy", () => {
@@ -224,9 +225,17 @@ describe("PdpStickyBuy", () => {
     window.dispatchEvent(new Event("resize"));
 
     expect(document.body.style.paddingBottom).toBe("72px");
+    // The floating support bubble rides above the bar instead of covering the
+    // actions, so the bar publishes its height while it is on screen.
+    expect(
+      document.documentElement.style.getPropertyValue("--sticky-bar-offset"),
+    ).toBe("72px");
 
     observer.enter();
     expect(document.body.style.paddingBottom).toBe("");
+    expect(
+      document.documentElement.style.getPropertyValue("--sticky-bar-offset"),
+    ).toBe("");
   });
 
   it("uses the currently resolved gallery image instead of the product's initial cover", () => {
@@ -291,35 +300,70 @@ describe("PdpStickyBuy", () => {
     );
   });
 
-  it("keeps both sticky actions at full width inside a horizontally scrollable bar", () => {
-    // Squeezing two 120px actions into a 390px bar wrapped their labels onto
-    // two lines. The bar scrolls horizontally instead, so each action keeps
-    // its own width and label; the shopper swipes to reach the second one.
+  it("keeps the summary and both actions on one row that never scrolls sideways on phones", () => {
+    // Two 120px actions plus a price block used to overflow a 375px bar, so
+    // the row scrolled and ADD TO CART sat off-screen. The phone layout now
+    // has three compact zones; only wider layouts keep the overflow escape.
     const observer = installIntersectionObserver();
     render(<Harness />);
     observer.leave();
 
     const row = screen.getByTestId("sticky-buy").firstElementChild as HTMLElement;
-    expect(row.className).toMatch(/overflow-x-auto/);
+    expect(row.className).toMatch(/\bsm:overflow-x-auto\b/);
+    expect(row.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
+
+    const summary = row.firstElementChild as HTMLElement;
+    expect(summary.className).toMatch(/\bsm:hidden\b/);
+    expect(summary.className).toMatch(/\bflex-1\b/);
+    expect(summary.textContent).toContain("Folding Chair");
+    expect(summary.textContent).toContain("₱899.00");
+
     for (const testId of ["sticky-order-now", "sticky-add-to-cart"]) {
       const className = screen.getByTestId(testId).className;
       expect(className).toMatch(/\bshrink-0\b/);
       expect(className).toMatch(/\bwhitespace-nowrap\b/);
+      // Compact phone size; the full 120px minimum returns from sm up.
+      expect(className).toContain("sm:min-w-[120px]");
     }
   });
 
-  it("hides the discount badge on phones so both actions fit the bar", () => {
-    // The badge is the widest part of the price block. On a 375px bar it
-    // pushed ORDER NOW past the edge and left ADD TO CART entirely off-screen,
-    // so the sticky bar drops the badge below sm and keeps the strikethrough.
+  it("shortens the phone summary to the first three words of the name", () => {
+    const observer = installIntersectionObserver();
+    const longName = {
+      ...product,
+      name: "Narrow Gap Cabinet with Adjustable Shelves & Clear Door",
+    } as Product;
+    render(<Harness value={longName} />);
+    observer.leave();
+
+    const row = screen.getByTestId("sticky-buy").firstElementChild as HTMLElement;
+    const summary = row.firstElementChild as HTMLElement;
+    expect(summary.textContent).toContain("Narrow Gap Cabinet");
+    expect(summary.textContent).not.toContain("Adjustable");
+  });
+
+  it("keeps the phone summary to one price and moves the badge to wider layouts", () => {
+    // The compare-at price and the OFF badge are the widest parts of the price
+    // block; on a phone the compact summary shows the price alone.
     const observer = installIntersectionObserver();
     render(<Harness />);
     observer.leave();
 
+    const summary = screen.getByTestId("sticky-buy").firstElementChild
+      ?.firstElementChild as HTMLElement;
+    expect(summary.textContent).toContain("₱899.00");
+    expect(summary.textContent).not.toContain("₱999.00");
+
+    const strike = screen.getByText("₱999.00");
+    expect(strike.className).toMatch(/line-through/);
+    // PriceBox root -> the responsive price block.
+    const priceBlock = strike.parentElement?.parentElement as HTMLElement;
+    expect(priceBlock.className).toMatch(/\bhidden\b/);
+    expect(priceBlock.className).toMatch(/\bsm:block\b/);
+
     const badge = screen.getByText(/OFF$/);
     expect(badge.className).toMatch(/\bhidden\b/);
     expect(badge.className).toMatch(/\bsm:inline\b/);
-    expect(screen.getByText("₱999.00").className).toMatch(/line-through/);
   });
 
   it("forwards quantity and both purchase intents without owning purchase state", async () => {

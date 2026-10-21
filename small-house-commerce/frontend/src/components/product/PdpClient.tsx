@@ -666,11 +666,11 @@ export function PdpClient({
           ref={heroRef}
           id="pdp-purchase"
           data-testid="pdp-purchase"
-          className="flex min-w-0 scroll-mt-32 flex-col gap-4"
+          className="flex min-w-0 scroll-mt-32 flex-col gap-3 lg:gap-4"
         >
           {!purchaseOnly && <>
           <div className="flex min-w-0 flex-col gap-2">
-            <h1 className="break-words text-2xl font-semibold leading-snug text-ink lg:text-product-title lg:leading-snug">
+            <h1 className="break-words text-xl font-semibold leading-snug text-ink lg:text-product-title lg:leading-snug">
               {product.name}
             </h1>
             {product.tagline?.trim() && (
@@ -723,7 +723,7 @@ export function PdpClient({
             >
               {dimensionLine && <p
                 data-testid="pdp-dimensions-line"
-                className="text-ink-secondary"
+                className="text-ink"
               >
                 <span className="font-semibold text-ink">{dimensionLine.label}</span>{" "}
                 {dimensionLine.value}
@@ -753,15 +753,15 @@ export function PdpClient({
                 aria-label="Decrease quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity - 1)}
                 disabled={purchaseLocked}
-                className="h-11 w-9 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
+                className="h-11 w-8 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
               >−</button>
-              <span className="w-7 text-center text-base font-semibold" data-testid="qty">{primaryLine.quantity}</span>
+              <span className="w-6 text-center text-base font-semibold sm:w-7" data-testid="qty">{primaryLine.quantity}</span>
               <button
                 type="button"
                 aria-label="Increase quantity"
                 onClick={() => setQuantity(primaryLine.clientLineId, primaryLine.quantity + 1)}
                 disabled={purchaseLocked}
-                className="h-11 w-9 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
+                className="h-11 w-8 text-lg text-ink hover:text-cta disabled:cursor-not-allowed disabled:opacity-50 sm:w-11"
               >+</button>
             </div>
 
@@ -771,7 +771,7 @@ export function PdpClient({
                 disabled={purchaseBusy || selectableCount === 0}
                 // The shared md size pins min-w-[120px]; below sm the stepper
                 // shares the row, so the buttons shrink instead of overflowing.
-                className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap lg:text-base"
+                className="min-w-0! flex-1 whitespace-nowrap px-2 text-[13px] leading-tight sm:min-w-[120px]! sm:px-5 sm:text-sm lg:text-base"
                 data-testid="order-now"
               >
                 ORDER NOW
@@ -781,7 +781,9 @@ export function PdpClient({
               variant={resolvedOutOfStock ? "primary" : "secondary"}
               onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
               disabled={purchaseBusy || selectableCount === 0}
-              className="min-w-0! flex-1 px-2 text-sm leading-tight sm:min-w-[120px]! sm:px-5 sm:whitespace-nowrap lg:text-base"
+              // The secondary label is the longer of the two, so it takes a
+              // slightly larger share of the phone row and stays on one line.
+              className="min-w-0! flex-[1.2] whitespace-nowrap px-2 text-[13px] leading-tight sm:min-w-[120px]! sm:flex-1 sm:px-5 sm:text-sm lg:text-base"
               data-testid="add-to-cart"
             >
               ADD TO CART
@@ -792,9 +794,10 @@ export function PdpClient({
             id="pdp-delivery"
             data-testid="pdp-delivery"
             // Estimate and assurances sit side by side at every width, like
-            // the desktop layout; on a phone the card slides sideways instead
-            // of stacking the assurances underneath.
-            className="flex scroll-mt-32 items-start gap-3 overflow-x-auto overscroll-x-contain rounded-lg border border-border bg-background p-3 text-xs sm:justify-between sm:gap-6 sm:overflow-visible"
+            // the desktop layout. On a phone the assurance list is allowed to
+            // shrink and wrap so every guarantee stays readable instead of
+            // sliding out of the card.
+            className="flex scroll-mt-32 items-start gap-3 rounded-lg border border-border bg-background p-3 text-xs sm:justify-between sm:gap-6"
           >
             <div className="flex shrink-0 items-start gap-2.5">
               <TruckGlyph />
@@ -806,7 +809,7 @@ export function PdpClient({
             </div>
             <ul
               aria-label="Service assurances"
-              className="flex shrink-0 flex-col gap-1.5 text-ink-secondary"
+              className="flex min-w-0 flex-col gap-1.5 text-ink-secondary"
             >
               {SERVICE_ASSURANCES.map((line) => (
                 <li key={line} className="flex items-center gap-2">

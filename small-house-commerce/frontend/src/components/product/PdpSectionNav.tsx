@@ -91,7 +91,7 @@ export function PdpSectionNav({
     <nav
       ref={navRef}
       aria-label="Product sections"
-      className="sticky top-16 z-20 mt-8 flex overflow-x-auto border-b border-border bg-background/95 py-1 text-sm font-semibold backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="sticky top-16 z-20 mt-6 flex overflow-x-auto border-b border-border bg-background/95 py-1 text-sm font-semibold backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <div className="flex min-w-max items-center gap-6 px-1">
         {links.map(link => (

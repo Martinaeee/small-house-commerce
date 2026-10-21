@@ -9,7 +9,7 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes } from "react";
  */
 
 type Variant = "primary" | "secondary" | "text";
-type Size = "md" | "lg";
+type Size = "sm" | "md" | "lg";
 
 const variants: Record<Variant, string> = {
   primary:
@@ -22,6 +22,10 @@ const variants: Record<Variant, string> = {
 const sizes: Record<Size, string> = {
   lg: "h-[52px] min-w-[160px] px-8 text-base font-bold",
   md: "h-12 min-w-[120px] px-6 text-base font-semibold",
+  // Compact action for the phone sticky bar: no width floor, because the bar
+  // has to fit the product summary and both actions side by side on a 375px
+  // screen without scrolling.
+  sm: "h-9 min-w-0 px-2 text-[13px] font-semibold",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

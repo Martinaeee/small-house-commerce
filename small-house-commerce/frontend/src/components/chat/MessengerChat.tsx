@@ -369,7 +369,9 @@ export function MessengerChat() {
         left: pos ? pos.x : undefined,
         top: pos ? pos.y : undefined,
         right: pos ? undefined : 16,
-        bottom: pos ? undefined : 16,
+        // Pages with a fixed purchase bar publish its height (PdpStickyBuy);
+        // the bubble rides above it instead of covering the buy actions.
+        bottom: pos ? undefined : "calc(16px + var(--sticky-bar-offset, 0px))",
         width: SIZE,
         height: SIZE,
       }}

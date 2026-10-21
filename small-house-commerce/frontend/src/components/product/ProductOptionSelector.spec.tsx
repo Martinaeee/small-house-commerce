@@ -754,7 +754,7 @@ describe("PDP conversion hero", () => {
     expect(tagline.classList.contains("sm:block")).toBe(true);
   });
 
-  it("keeps the selling points and the delivery card on one slidable row on phones", () => {
+  it("keeps the selling points slidable and lets the delivery card wrap on phones", () => {
     const item: Product = {
       ...product,
       solutions: ["FOLDABLE", "MOBILE"],
@@ -777,17 +777,17 @@ describe("PDP conversion hero", () => {
       .getAllByRole("listitem")
       .forEach((pill) => expect(pill).toHaveClass("shrink-0", "whitespace-nowrap", "text-sm"));
 
-    // Delivery estimate and the assurances share one row at every width, and
-    // the card slides instead of stacking them vertically on a phone.
+    // Delivery estimate and the assurances share one row at every width. The
+    // card no longer scrolls sideways on a phone: the estimate keeps its width
+    // and the assurances list wraps, so every guarantee stays readable.
     const delivery = within(hero).getByTestId("pdp-delivery");
-    expect(delivery.className).toMatch(/\boverflow-x-auto\b/);
+    expect(delivery.className).not.toMatch(/\boverflow-x-auto\b/);
     expect(delivery.className).not.toMatch(/\bflex-col\b/);
-    expect(delivery.className).toMatch(/\bsm:overflow-visible\b/);
     expect(delivery.firstElementChild?.className).toMatch(/\bshrink-0\b/);
     const assurances = within(delivery).getByRole("list", {
       name: "Service assurances",
     });
-    expect(assurances.className).toMatch(/\bshrink-0\b/);
+    expect(assurances.className).toMatch(/\bmin-w-0\b/);
     expect(
       within(delivery).getByText("Estimated delivery").compareDocumentPosition(
         within(delivery).getByText("COD & Free Shipping"),
@@ -806,13 +806,16 @@ describe("shared-state sticky buy", () => {
     observer.leave();
     const sticky = screen.getByTestId("sticky-buy");
     expect(within(sticky).getAllByText("Blue / Large")).toHaveLength(2);
-    expect(within(sticky).getByText("₱120.00")).toBeVisible();
+    // The phone summary and the sm+ price block both carry the live price.
+    expect(within(sticky).getByTestId("sticky-summary-price")).toHaveTextContent("₱120.00");
+    expect(within(sticky).getAllByText("₱120.00")).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByRole("button", { name: "Small" }));
 
     expect(within(sticky).getAllByText("Red / Small")).toHaveLength(2);
-    expect(within(sticky).getByText("₱100.00")).toBeVisible();
+    expect(within(sticky).getByTestId("sticky-summary-price")).toHaveTextContent("₱100.00");
+    expect(within(sticky).getAllByText("₱100.00")).toHaveLength(2);
 
     await user.click(
       within(sticky).getByRole("button", {

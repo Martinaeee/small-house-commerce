@@ -11,10 +11,18 @@ import type { Product, ProductImage } from "@/lib/api";
 import type { ProductSelectionDerived } from "@/lib/product-selection";
 import { Button } from "@/components/ui/Button";
 import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
-import { PriceBox } from "@/components/ui/PriceBox";
+import { PriceBox, formatPrice } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
 
 export type StickyPurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
+
+/**
+ * The first few words of a product name. The phone sticky bar has room for
+ * this much and no more; the rest of the name stays on the page.
+ */
+function firstWords(text: string, count: number): string {
+  return text.trim().split(/\s+/).slice(0, count).join(" ");
+}
 
 export interface PdpStickyBuyProps {
   product: Product;
@@ -82,9 +90,15 @@ export function PdpStickyBuy({
     if (!bar) return;
     const previous = document.body.style.paddingBottom;
     const apply = () => {
-      document.body.style.paddingBottom = `${Math.ceil(
-        bar.getBoundingClientRect().height,
-      )}px`;
+      const height = Math.ceil(bar.getBoundingClientRect().height);
+      document.body.style.paddingBottom = `${height}px`;
+      // Teaches the floating support bubble how tall the bar is, so the bubble
+      // sits above it instead of covering ADD TO CART. Scoped to this page
+      // while the bar is on screen.
+      document.documentElement.style.setProperty(
+        "--sticky-bar-offset",
+        `${height}px`,
+      );
     };
     apply();
     const observer =
@@ -95,6 +109,7 @@ export function PdpStickyBuy({
       observer?.disconnect();
       window.removeEventListener("resize", apply);
       document.body.style.paddingBottom = previous;
+      document.documentElement.style.removeProperty("--sticky-bar-offset");
     };
   }, [shown]);
 
@@ -105,17 +120,50 @@ export function PdpStickyBuy({
     resolvedSku !== null && derived.availableInventory <= 0;
   const unavailable = derived.selectableVariants.length === 0;
 
+  // The phone bar shows what the shopper is buying: a small cover, the first
+  // words of the name and the price of the selected variant.
+  const summaryName = firstWords(product.name, 3);
+  const summaryPrice =
+    derived.price !== null
+      ? formatPrice(derived.price)
+      : (variantLabel ?? "Choose options");
+
   return (
     <aside
       ref={barRef}
       data-testid="sticky-buy"
       aria-label="Sticky purchase controls"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(0,0,0,0.08)] backdrop-blur motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-reduce:transition-none sm:px-4 md:py-3"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_28px_rgba(0,0,0,0.08)] backdrop-blur motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-reduce:transition-none sm:px-4 md:py-3"
     >
-      {/* One row that scrolls sideways when it does not fit: squeezing two
-          120px actions into a 390px bar wrapped their labels onto two lines,
-          so the actions keep their width and the bar scrolls instead. */}
-      <div className="mx-auto flex max-w-[1200px] items-center gap-2 overflow-x-auto overscroll-x-contain sm:gap-3">
+      {/* Phones get three zones in one row: what the shopper is buying,
+          ORDER NOW, ADD TO CART. Nothing wraps and nothing scrolls sideways,
+          so both actions stay reachable on a 375px screen. From sm up the row
+          keeps the wider layout and may scroll if it ever has to. */}
+      <div className="mx-auto flex max-w-[1200px] items-center gap-1.5 sm:gap-3 sm:overflow-x-auto sm:overscroll-x-contain">
+        {/* ① Phone: the product being bought. */}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:hidden">
+          {coverMedia ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={coverMedia.url}
+              alt=""
+              aria-hidden="true"
+              className="h-7 w-7 shrink-0 rounded-md border border-border object-cover"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] leading-tight tracking-tight text-ink">
+              {summaryName}
+            </p>
+            <p
+              data-testid="sticky-summary-price"
+              className="truncate text-[13px] font-semibold leading-tight text-ink"
+            >
+              {summaryPrice}
+            </p>
+          </div>
+        </div>
+
         {coverMedia ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -134,7 +182,7 @@ export function PdpStickyBuy({
           </p>
         </div>
 
-        <div className="min-w-0 shrink-0">
+        <div className="hidden min-w-0 shrink-0 sm:block">
           <PriceBox
             price={derived.price}
             compareAtPrice={derived.compareAtPrice}
@@ -176,25 +224,25 @@ export function PdpStickyBuy({
           <BackInStockTrigger
             skuId={resolvedSku.id}
             productName={product.name}
-            className="inline-flex h-10 min-w-0 shrink items-center justify-center rounded-lg border border-border bg-card px-3 text-center text-xs font-semibold leading-tight text-cta transition hover:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta sm:min-w-[120px] sm:px-5 sm:text-sm"
+            className="inline-flex h-9 min-w-0 shrink items-center justify-center rounded-lg border border-border bg-card px-2.5 text-center text-xs font-semibold leading-tight text-cta transition hover:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta sm:h-10 sm:min-w-[120px] sm:px-5 sm:text-sm"
           />
         ) : (
           <Button
-            size="md"
+            size="sm"
             onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
             disabled={busy || unavailable}
-            className="shrink-0 whitespace-nowrap px-4 text-sm sm:px-5 lg:text-base"
+            className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
             data-testid="sticky-order-now"
           >
             ORDER NOW
           </Button>
         )}
         <Button
-          size="md"
+          size="sm"
           variant={resolvedOutOfStock ? "primary" : "secondary"}
           onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
           disabled={busy || unavailable}
-          className="shrink-0 whitespace-nowrap px-4 text-sm sm:px-5 lg:text-base"
+          className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
           data-testid="sticky-add-to-cart"
         >
           ADD TO CART
