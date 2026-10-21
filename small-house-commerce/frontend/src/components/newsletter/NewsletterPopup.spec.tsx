@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "@/lib/site-settings";
 import { NewsletterPopup } from "./NewsletterPopup";
+import { requestNewsletterOffer } from "./newsletterOfferChannel";
 
 vi.mock("@/components/layout/BrandWordmark", () => ({
   BrandWordmark: () => <span aria-label="LUWAG">luwag</span>,
@@ -147,5 +148,26 @@ describe("NewsletterPopup", () => {
     );
     expect(successDialog).toHaveTextContent("WELCOME10");
     expect(screen.queryByTestId("newsletter-offer-ticket")).toBeNull();
+  });
+
+  it("opens on demand when the shopper asks for it, even after the first visit", () => {
+    window.localStorage.setItem(SEEN_KEY, "1");
+    renderPopup(live);
+
+    act(() => {
+      requestNewsletterOffer();
+    });
+
+    expect(screen.getByTestId("newsletter-popup")).not.toBeNull();
+  });
+
+  it("stays closed on demand when no promotion is live", () => {
+    renderPopup({ ...live, newsletterOfferAvailable: false });
+
+    act(() => {
+      requestNewsletterOffer();
+    });
+
+    expect(screen.queryByTestId("newsletter-popup")).toBeNull();
   });
 });

@@ -27,7 +27,8 @@ import { checkoutInputCls } from "./checkoutFieldStyles";
 import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
-import { NewsletterOfferNote } from "./NewsletterOfferNote";
+import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
+
 import {
   fetchBarangays,
   listMunicipalities,
@@ -769,7 +770,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
             />
-            <NewsletterOfferNote />
+            <NewsletterOfferPrompt />
           </div>
 
           <CheckoutTrustStrip

@@ -218,7 +218,7 @@ describe("CheckoutForm totals summary", () => {
     };
     render(<CheckoutForm itemsParam="item-1" />);
 
-    expect(screen.getByTestId("newsletter-offer-note")).toHaveTextContent(
+    expect(screen.getByTestId("newsletter-offer-prompt")).toHaveTextContent(
       "Subscribe and get ₱99 off your first order",
     );
   });
@@ -233,6 +233,6 @@ describe("CheckoutForm totals summary", () => {
     };
     render(<CheckoutForm itemsParam="item-1" />);
 
-    expect(screen.queryByTestId("newsletter-offer-note")).toBeNull();
+    expect(screen.queryByTestId("newsletter-offer-prompt")).toBeNull();
   });
 });

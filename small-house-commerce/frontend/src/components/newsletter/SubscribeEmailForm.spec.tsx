@@ -2,6 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { SubscribeEmailForm } from "./SubscribeEmailForm";
+import {
+  onNewsletterCodeGranted,
+  readStoredNewsletterCode,
+} from "./newsletterOfferChannel";
 
 const clipboardMock = vi.hoisted(() => ({ copyText: vi.fn() }));
 vi.mock("@/lib/clipboard", () => ({ copyText: clipboardMock.copyText }));
@@ -125,5 +129,23 @@ describe("SubscribeEmailForm", () => {
     expect(screen.getByTestId("newsletter-subscribe-email")).toHaveValue(
       "shopper@example.com",
     );
+  });
+
+  it("grants the revealed code so an open checkout can apply it", async () => {
+    const granted = vi.fn();
+    const stop = onNewsletterCodeGranted(granted);
+    vi.mocked(fetch).mockResolvedValue(
+      okResponse({ ok: true, promoCode: "WELCOME59" }),
+    );
+
+    render(
+      <SubscribeEmailForm source="POPUP" placeholder="you@example.com" />,
+    );
+    submit("shopper@example.com");
+
+    await waitFor(() => expect(granted).toHaveBeenCalledWith("WELCOME59"));
+    expect(readStoredNewsletterCode()).toBe("WELCOME59");
+    window.localStorage.clear();
+    stop();
   });
 });

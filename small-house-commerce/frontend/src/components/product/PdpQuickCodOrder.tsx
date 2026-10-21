@@ -48,7 +48,8 @@ import {
   PromoCodeField,
   type AppliedPromo,
 } from "@/components/checkout/PromoCodeField";
-import { NewsletterOfferNote } from "@/components/checkout/NewsletterOfferNote";
+import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
+
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 /**
@@ -765,7 +766,7 @@ export function PdpQuickCodOrder(): ReactNode {
             onApplied={setAppliedPromo}
             onCheckingChange={setPromoChecking}
           />
-          <NewsletterOfferNote />
+          <NewsletterOfferPrompt />
         </div>
 
         {/* Delivery form */}

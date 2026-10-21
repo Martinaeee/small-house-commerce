@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { formatPrice } from "@/components/ui/PriceBox";
+import {
+  onNewsletterCodeGranted,
+  readStoredNewsletterCode,
+} from "@/components/newsletter/newsletterOfferChannel";
 
 export interface AppliedPromo {
   code: string;
@@ -41,6 +45,10 @@ export function PromoCodeField({
   const requestIdRef = useRef(0);
   const lastAttemptedCodeRef = useRef<string | null>(null);
   const seededInitialCodeRef = useRef<string | null>(null);
+  const appliedRef = useRef(false);
+  const applyCodeRef = useRef<(candidate: string) => Promise<void>>(
+    async () => {},
+  );
 
   useEffect(() => {
     onAppliedRef.current = onApplied;
@@ -68,10 +76,12 @@ export function PromoCodeField({
       setMessage(null);
       onCheckingRef.current?.(true);
       onAppliedRef.current?.(null);
+      appliedRef.current = false;
       try {
         const result = await api.previewPromoCode(trimmed, subtotal);
         if (requestId !== requestIdRef.current) return;
         if (result.valid) {
+          appliedRef.current = true;
           setMessage(
             `Promo code applied — you save ${formatPrice(result.discountAmount)}.`,
           );
@@ -133,6 +143,31 @@ export function PromoCodeField({
       requestIdRef.current += 1;
     };
   }, [applyCode, initialCode]);
+
+  useEffect(() => {
+    applyCodeRef.current = applyCode;
+  }, [applyCode]);
+
+  // A code revealed by a subscription is put on the running total without the
+  // shopper typing it in: one revealed on an earlier page load, or one that
+  // arrives while this field is open.
+  useEffect(() => {
+    const stored = readStoredNewsletterCode();
+    if (!stored) return;
+    if (initialCode.trim() !== "") return; // a code seeded by the flow wins
+    void applyCodeRef.current(stored);
+    // Mount only: a later subtotal change rechecks the applied code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    return onNewsletterCodeGranted((granted) => {
+      if (appliedRef.current) return; // the shopper's own code wins
+      setCode(granted);
+      setOpen(true);
+      void applyCodeRef.current(granted);
+    });
+  }, []);
 
   function handleCodeChange(value: string): void {
     // A shopper edit wins over a deferred initial seed. Mark the current prop as

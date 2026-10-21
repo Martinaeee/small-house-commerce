@@ -5,6 +5,7 @@ import { BrandWordmark } from "@/components/layout/BrandWordmark";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { SubscribeEmailForm } from "./SubscribeEmailForm";
 import { NewsletterSuccessDialog } from "./NewsletterSuccessDialog";
+import { onNewsletterOfferRequest } from "./newsletterOfferChannel";
 
 const SEEN_KEY = "luwag_newsletter_popup_seen";
 const FOCUSABLE =
@@ -69,6 +70,20 @@ export function NewsletterPopup() {
       timerRef.current = null;
     };
   }, [eligible, settings.newsletterPopupDelaySeconds]);
+
+  // On-demand open: the shopper tapped the offer line somewhere on the page
+  // (the checkout totals), so the popup opens right away — the first-visit
+  // timer and the seen key do not apply to a deliberate request.
+  useEffect(() => {
+    if (!settings.newsletterOfferAvailable) return;
+    return onNewsletterOfferRequest(() => {
+      openerRef.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      setOpen(true);
+    });
+  }, [settings.newsletterOfferAvailable]);
 
   // Scroll lock, initial focus, focus trap, Escape, focus restoration.
   useEffect(() => {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { copyText } from "@/lib/clipboard";
+import { grantNewsletterCode } from "./newsletterOfferChannel";
 
 export interface SubscribeEmailFormProps {
   source: "POPUP" | "FOOTER";
@@ -54,6 +55,9 @@ export function SubscribeEmailForm({
 
       const data = (await response.json()) as { promoCode?: string | null };
       const promoCode = data.promoCode ?? null;
+      // The revealed code belongs to this shopper now: an open promo field
+      // puts it on the running total instead of making them type it in.
+      grantNewsletterCode(promoCode);
       if (onSuccess) {
         setEmail("");
         setCopied(false);

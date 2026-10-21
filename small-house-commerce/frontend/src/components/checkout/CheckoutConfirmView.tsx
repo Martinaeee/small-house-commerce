@@ -19,7 +19,9 @@ import {
 } from "@/lib/checkoutDraft";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
-import { NewsletterOfferNote } from "./NewsletterOfferNote";
+import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
+import { clearStoredNewsletterCode } from "@/components/newsletter/newsletterOfferChannel";
+
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
@@ -207,6 +209,9 @@ export function CheckoutConfirmView({
         // Storage unavailable: skip the success-page stashes; the order stands.
       }
       clearCheckoutDraft();
+      // The revealed code is spent with this order — a later order in the same
+      // browser must not inherit it.
+      clearStoredNewsletterCode();
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
       inFlightRef.current = false;
@@ -326,7 +331,7 @@ export function CheckoutConfirmView({
                 onApplied={setAppliedPromo}
                 onCheckingChange={setPromoChecking}
               />
-              <NewsletterOfferNote />
+              <NewsletterOfferPrompt />
             </div>
 
             <p

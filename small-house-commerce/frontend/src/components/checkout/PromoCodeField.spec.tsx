@@ -1,16 +1,21 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
 import { PromoCodeField } from "./PromoCodeField";
+import {
+  grantNewsletterCode,
+} from "@/components/newsletter/newsletterOfferChannel";
 
 describe("PromoCodeField", () => {
   beforeEach(() => {
     vi.spyOn(api, "previewPromoCode");
+    window.localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   function open() {
@@ -287,5 +292,81 @@ describe("PromoCodeField", () => {
     await waitFor(() =>
       expect(onCheckingChange).toHaveBeenLastCalledWith(false),
     );
+  });
+
+  it("applies a code granted by a subscription while the field is open", async () => {
+    vi.mocked(api.previewPromoCode).mockResolvedValue({
+      valid: true,
+      discountAmount: 59,
+      message: "",
+    });
+    const onApplied = vi.fn();
+
+    render(<PromoCodeField subtotal={2500} onApplied={onApplied} />);
+    act(() => {
+      grantNewsletterCode("WELCOME59");
+    });
+
+    await waitFor(() =>
+      expect(api.previewPromoCode).toHaveBeenCalledWith("WELCOME59", 2500),
+    );
+    expect(onApplied).toHaveBeenCalledWith({
+      code: "WELCOME59",
+      discountAmount: 59,
+    });
+    expect(screen.getByLabelText("Promo code")).toHaveValue("WELCOME59");
+  });
+
+  it("applies a code granted on an earlier page load", async () => {
+    grantNewsletterCode("WELCOME59");
+    vi.mocked(api.previewPromoCode).mockResolvedValue({
+      valid: true,
+      discountAmount: 59,
+      message: "",
+    });
+    const onApplied = vi.fn();
+
+    render(<PromoCodeField subtotal={2500} onApplied={onApplied} />);
+
+    await waitFor(() =>
+      expect(onApplied).toHaveBeenCalledWith({
+        code: "WELCOME59",
+        discountAmount: 59,
+      }),
+    );
+  });
+
+  it("keeps a code the shopper typed themselves", async () => {
+    vi.mocked(api.previewPromoCode).mockResolvedValue({
+      valid: true,
+      discountAmount: 20,
+      message: "",
+    });
+    const onApplied = vi.fn();
+
+    render(<PromoCodeField subtotal={250} onApplied={onApplied} />);
+    open();
+    fireEvent.change(screen.getByLabelText("Promo code"), {
+      target: { value: "SAVE10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(onApplied).toHaveBeenCalledWith({
+        code: "SAVE10",
+        discountAmount: 20,
+      }),
+    );
+
+    act(() => {
+      grantNewsletterCode("WELCOME59");
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Promo code")).toHaveValue("SAVE10"),
+    );
+    expect(onApplied).toHaveBeenLastCalledWith({
+      code: "SAVE10",
+      discountAmount: 20,
+    });
   });
 });

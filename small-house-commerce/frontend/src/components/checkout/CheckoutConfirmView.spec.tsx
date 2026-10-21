@@ -186,6 +186,20 @@ describe("CheckoutConfirmView", () => {
       }),
     ));
   });
+  it("clears the revealed subscribe code once the order is placed", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    localStorage.setItem("luwag_newsletter_promo_code", "WELCOME59");
+
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+    await screen.findByText("Confirm your order");
+    await userEvent.setup().click(screen.getByTestId("confirm-place-order"));
+
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    // The code is spent with this order; a later order must not inherit it.
+    expect(localStorage.getItem("luwag_newsletter_promo_code")).toBeNull();
+  });
+
   it("blocks confirmation when the Buy Now skuId matches no variant of its product", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     render(<CheckoutConfirmView skuId="sku-unknown" qty="1" slug="chair" />);
@@ -371,7 +385,7 @@ describe("CheckoutConfirmView summary details", () => {
     );
     await screen.findByText("Confirm your order");
 
-    expect(screen.getByTestId("newsletter-offer-note")).toHaveTextContent(
+    expect(screen.getByTestId("newsletter-offer-prompt")).toHaveTextContent(
       "₱99",
     );
   });
