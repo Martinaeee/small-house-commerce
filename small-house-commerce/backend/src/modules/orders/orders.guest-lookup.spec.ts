@@ -92,12 +92,13 @@ describe('OrdersService.lookup — order number alone', () => {
 
     const result = await service.lookup('PH100001', null);
 
-    expect(result.orderNumber).toBe('PH100001');
     expect(result.matchedBy).toBe('orderNumber');
     expect(result.personalDetailsIncluded).toBe(false);
-    expect(result.shippingAddress).toBeNull();
-    expect(result.customer?.name).toBeNull();
-    expect(result.customer?.normalizedPhone).toBeNull();
+    expect(result.orders).toHaveLength(1);
+    expect(result.orders[0]!.orderNumber).toBe('PH100001');
+    expect(result.orders[0]!.shippingAddress).toBeNull();
+    expect(result.orders[0]!.customer?.name).toBeNull();
+    expect(result.orders[0]!.customer?.normalizedPhone).toBeNull();
   });
 
   it('throws the uniform 404 when the order number does not exist', async () => {
@@ -118,12 +119,12 @@ describe('OrdersService.lookup — mobile number alone', () => {
 
     const result = await service.lookup(null, '0917 123 4567');
 
-    expect(result.orderNumber).toBe('PH100001');
     expect(result.matchedBy).toBe('phone');
     expect(result.personalDetailsIncluded).toBe(true);
-    expect(result.shippingAddress?.streetAddress).toBe('1 Main St');
-    expect(result.customer?.name).toBe('Juan Dela Cruz');
-    expect(result.otherOrders).toEqual([]);
+    expect(result.orders).toHaveLength(1);
+    expect(result.orders[0]!.orderNumber).toBe('PH100001');
+    expect(result.orders[0]!.shippingAddress?.streetAddress).toBe('1 Main St');
+    expect(result.orders[0]!.customer?.name).toBe('Juan Dela Cruz');
   });
 
   it('lists the other orders on that number so the shopper can pick one', async () => {
@@ -136,10 +137,10 @@ describe('OrdersService.lookup — mobile number alone', () => {
 
     const result = await service.lookup(null, '09171234567');
 
-    expect(result.orderNumber).toBe('PH100003');
-    expect(result.otherOrders).toEqual([
-      expect.objectContaining({ orderNumber: 'PH100002' }),
-      expect.objectContaining({ orderNumber: 'PH100001' }),
+    expect(result.orders.map((order) => order.orderNumber)).toEqual([
+      'PH100003',
+      'PH100002',
+      'PH100001',
     ]);
   });
 
@@ -173,7 +174,8 @@ describe('OrdersService.lookup — both fields', () => {
 
     expect(result.matchedBy).toBe('orderNumber');
     expect(result.personalDetailsIncluded).toBe(true);
-    expect(result.shippingAddress?.streetAddress).toBe('1 Main St');
+    expect(result.orders).toHaveLength(1);
+    expect(result.orders[0]!.shippingAddress?.streetAddress).toBe('1 Main St');
   });
 
   it('throws the uniform 404 when neither field is given', async () => {

@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { validatePhone } from "@/lib/checkoutValidation";
 import { lookupOrder, type GuestOrderResult } from "@/lib/guestOrder";
-import { OrderDetails } from "./OrderDetails";
+import { OrderList } from "./OrderList";
 
 /**
  * Guest order tracking (guest-order-tracking spec §3.2, revised 2026-10-21).
@@ -145,17 +145,11 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
 
   // The shopper added their mobile number to the withheld-details card.
   async function verifyPhone(value: string) {
-    if (!result) return;
+    if (!result || result.orders.length === 0) return;
     setPhone(value);
-    await runLookup({ orderNumber: result.orderNumber, phone: value });
-  }
-
-  // The shopper picked another order from the same mobile number.
-  async function selectOrder(picked: string) {
-    const trimmedPhone = phone.trim();
     await runLookup({
-      orderNumber: picked,
-      phone: trimmedPhone === "" ? undefined : trimmedPhone,
+      orderNumber: result.orders[0].orderNumber,
+      phone: value,
     });
   }
 
@@ -170,11 +164,10 @@ export function TrackOrderForm({ prefillOrder }: TrackOrderFormProps) {
             {error}
           </p>
         )}
-        <OrderDetails
+        <OrderList
           result={result}
           onTrackAnother={() => setResult(null)}
           onVerifyPhone={(value) => void verifyPhone(value)}
-          onSelectOrder={(picked) => void selectOrder(picked)}
         />
       </div>
     );

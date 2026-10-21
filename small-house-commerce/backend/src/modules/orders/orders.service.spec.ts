@@ -229,14 +229,12 @@ describe('OrdersService.lookup', () => {
     const order = orderRecord({ customerPhone: '+639171234567' });
     prisma.order.findUnique.mockResolvedValue(order);
 
-    // The response carries the order plus the three lookup facts (how it was
-    // matched, whether the personal details are included, the other orders on
-    // this number) — the order fields themselves are unchanged.
+    // The response carries the lookup facts (how it was matched and whether
+    // the personal details are included) beside the order itself in 'orders'.
     await expect(service.lookup('PH1001', '09171234567')).resolves.toMatchObject({
-      ...order,
       matchedBy: 'orderNumber',
       personalDetailsIncluded: true,
-      otherOrders: [],
+      orders: [order],
     });
   });
 
@@ -249,10 +247,9 @@ describe('OrdersService.lookup', () => {
     prisma.order.findUnique.mockResolvedValue(order);
 
     await expect(service.lookup('PH1001', '09171234567')).resolves.toMatchObject({
-      ...order,
       matchedBy: 'orderNumber',
       personalDetailsIncluded: true,
-      otherOrders: [],
+      orders: [order],
     });
   });
 });

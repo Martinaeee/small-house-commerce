@@ -1561,6 +1561,20 @@ export class OrdersService {
    * Every failure path resolves to one uniform 404 so the response can never
    * reveal whether an order exists.
    */
+  /**
+   * Guest order lookup. The shopper may give EITHER the order number OR the
+   * mobile number — one of them is enough:
+   *
+   * - mobile number only → the phone IS the identity proof: every order on
+   *   that number comes back (latest first) so the shopper can open any of
+   *   them without searching again.
+   * - order number (+ phone) → the matching order. Without the phone the
+   *   personal fields (name, phone, delivery address) are withheld: a
+   *   6-digit sequential number is guessable, so it must not hand them out.
+   *
+   * Every failure path resolves to one uniform 404 so the response can never
+   * reveal whether an order exists.
+   */
   async lookup(orderNumber?: string | null, phone?: string | null) {
     const notFound = () =>
       new NotFoundException(
@@ -1578,30 +1592,32 @@ export class OrdersService {
       });
       if (!order) throw notFound();
 
-      // Both given: the phone has to match this very order.
-      if (wantedPhone) {
-        if (!this.guestPhoneMatches(order, wantedPhone)) throw notFound();
+      if (!wantedPhone) {
+        // Order number alone: personal fields withheld.
         return {
-          ...order,
           matchedBy: 'orderNumber' as const,
-          personalDetailsIncluded: true,
-          otherOrders: [],
+          personalDetailsIncluded: false,
+          orders: [
+            {
+              ...order,
+              customer: {
+                id: order.customer.id,
+                name: null,
+                normalizedPhone: null,
+                email: null,
+              },
+              shippingAddress: null,
+            },
+          ],
         };
       }
 
-      // Order number alone: personal fields withheld.
+      // Both given: the phone has to match this very order.
+      if (!this.guestPhoneMatches(order, wantedPhone)) throw notFound();
       return {
-        ...order,
-        customer: {
-          id: order.customer.id,
-          name: null,
-          normalizedPhone: null,
-          email: null,
-        },
-        shippingAddress: null,
         matchedBy: 'orderNumber' as const,
-        personalDetailsIncluded: false,
-        otherOrders: [],
+        personalDetailsIncluded: true,
+        orders: [order],
       };
     }
 
@@ -1615,21 +1631,14 @@ export class OrdersService {
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
-    const matching = candidates.filter((order) =>
-      this.guestPhoneMatches(order, wantedPhone),
-    );
-    const [latest, ...rest] = matching;
-    if (!latest) throw notFound();
+    const orders = candidates
+      .filter((order) => this.guestPhoneMatches(order, wantedPhone))
+      .slice(0, 5);
+    if (orders.length === 0) throw notFound();
     return {
-      ...latest,
       matchedBy: 'phone' as const,
       personalDetailsIncluded: true,
-      otherOrders: rest.map((order) => ({
-        orderNumber: order.orderNumber,
-        createdAt: order.createdAt,
-        orderStatus: order.orderStatus,
-        grandTotal: order.grandTotal,
-      })),
+      orders,
     };
   }
 

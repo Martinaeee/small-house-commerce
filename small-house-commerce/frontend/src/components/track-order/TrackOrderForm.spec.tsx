@@ -12,7 +12,7 @@ import type { GuestOrderResult } from "@/lib/guestOrder";
 const lookupOrderMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/guestOrder", () => ({ lookupOrder: lookupOrderMock }));
 
-function result(overrides: Partial<GuestOrderResult> = {}): GuestOrderResult {
+function orderView(overrides: Partial<GuestOrderResult["orders"][number]> = {}): GuestOrderResult["orders"][number] {
   return {
     id: "order-1",
     orderNumber: "PH100006",
@@ -34,9 +34,15 @@ function result(overrides: Partial<GuestOrderResult> = {}): GuestOrderResult {
     items: [],
     shippingAddress: null,
     statusHistory: [],
+    ...overrides,
+  };
+}
+
+function result(overrides: Partial<GuestOrderResult> = {}): GuestOrderResult {
+  return {
     matchedBy: "phone",
     personalDetailsIncluded: true,
-    otherOrders: [],
+    orders: [orderView()],
     ...overrides,
   };
 }

@@ -98,15 +98,8 @@ export interface GuestOrderStatusHistoryEntry {
   createdAt: string;
 }
 
-/** One of the other orders on the same mobile number. */
-export interface GuestOrderSummary {
-  orderNumber: string;
-  createdAt: string;
-  orderStatus: OrderStatus;
-  grandTotal: string;
-}
-
-export interface GuestOrderResult {
+/** One order as the storefront may show it (no staff fields, no costs). */
+export interface GuestOrderView {
   id: string;
   orderNumber: string;
   orderStatus: OrderStatus;
@@ -122,12 +115,20 @@ export interface GuestOrderResult {
   items: GuestOrderItem[];
   shippingAddress: GuestOrderShippingAddress | null;
   statusHistory: GuestOrderStatusHistoryEntry[];
-  /** How the order was found: by its number or by the mobile number. */
+}
+
+/** The guest lookup response: one or more orders and how they were found. */
+export interface GuestOrderResult {
+  /** How the orders were found: by the order number or by the mobile number. */
   matchedBy: "orderNumber" | "phone";
   /** False while only the (guessable) order number was given. */
   personalDetailsIncluded: boolean;
-  /** The other orders on the same mobile number; empty for order-number lookups. */
-  otherOrders: GuestOrderSummary[];
+  /**
+   * One order for order-number lookups; every order on the mobile number
+   * (latest first) for phone lookups — the shopper opens any of them without
+   * searching again.
+   */
+  orders: GuestOrderView[];
 }
 
 // --- request -----------------------------------------------------------------
