@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { Select, TextInput } from "@/components/admin/Field";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
+import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import {
   adminApi,
   type AdminCollectionRow,
@@ -42,6 +43,25 @@ interface MemberItem {
   id: string;
   name: string;
   slug: string;
+  /** Cover image for the membership row; null when the product has none. */
+  imageUrl: string | null;
+}
+
+/** Cover thumbnail for a membership or candidate row. */
+function ProductThumb({ url, name }: { url: string | null; name: string }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
+    <img
+      src={url}
+      alt=""
+      className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
+    />
+  ) : (
+    <PlaceholderImage
+      label={name}
+      className="h-10 w-10 shrink-0 overflow-hidden rounded-lg"
+    />
+  );
 }
 
 /** Basic-info form shared by the unified page editor. */
@@ -64,7 +84,12 @@ async function fetchAllMembers(slug: string): Promise<MemberItem[]> {
   for (;;) {
     const res: Paged<Product> = await api.getCollectionProducts(slug, page);
     for (const p of res.items) {
-      out.push({ id: p.id, name: p.name, slug: p.slug });
+      out.push({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        imageUrl: p.effectiveCoverMedia?.url ?? p.images?.[0]?.url ?? null,
+      });
     }
     if (out.length >= res.total || res.items.length === 0) break;
     page += 1;
@@ -226,7 +251,12 @@ function CollectionsPageContent() {
     setMembers((prev) =>
       prev.some((m) => m.id === product.id)
         ? prev
-        : [...prev, { id: product.id, name: product.name, slug: product.slug }],
+        : [...prev, {
+            id: product.id,
+            name: product.name,
+            slug: product.slug,
+            imageUrl: product.images?.[0]?.url ?? null,
+          }],
     );
   }, []);
 
@@ -674,6 +704,7 @@ function CollectionsPageContent() {
                             <span className="w-6 shrink-0 text-xs text-ink-muted">
                               {index + 1}
                             </span>
+                            <ProductThumb url={m.imageUrl} name={m.name} />
                             <span className="flex-1 truncate text-ink">{m.name}</span>
                             <button
                               type="button"
@@ -756,6 +787,10 @@ function CollectionsPageContent() {
                               key={p.id}
                               className="flex items-center gap-2 px-3 py-2"
                             >
+                              <ProductThumb
+                                url={p.images?.[0]?.url ?? null}
+                                name={p.name}
+                              />
                               <span className="flex-1 truncate text-ink">
                                 {p.name}
                               </span>
