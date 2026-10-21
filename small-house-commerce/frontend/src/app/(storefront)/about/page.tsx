@@ -19,9 +19,11 @@ export const metadata: Metadata = {
  * action on the brand green. The copy, photography and links live in
  * `about-content.ts`.
  *
- * The composition never collapses: a phone keeps the same left-right
- * arrangement as the desktop, and the type scales down with the screen
- * (clamp) instead of the columns stacking. Nothing scrolls sideways.
+ * A phone keeps the same side-by-side composition, but a row that would be
+ * too cramped becomes a swipeable rail instead of a stack: every picture
+ * keeps its own proportions (nothing is cropped) and the type scales with
+ * the screen. The rails scroll with no visible scrollbar, and the text comes
+ * first so the message never hides behind a swipe.
  *
  * Type: Prata (the brand's editorial serif) for the headings, the site's
  * sans-serif for the running copy and small labels. No shadows, no gradients
@@ -115,23 +117,18 @@ const type = {
   tiny: "text-[clamp(10px,1.6vw,13px)] lg:text-[13px]",
 };
 
+/** A row that is too tight on a phone: swipeable, no visible scrollbar. */
+const rail =
+  "flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:grid lg:overflow-visible lg:gap-0";
+
 export default function AboutPage() {
   const { story, why, promise, confidence, collection } = ABOUT_CONTENT;
 
   return (
     <div className="bg-[var(--color-about-bg)] text-[var(--color-about-ink)]">
       {/* 01 — Our Story: the promise, beside the room it is about. */}
-      <section className="grid grid-cols-2 lg:h-[600px] lg:grid-cols-[62%_38%]">
-        <div className="overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={story.image}
-            alt={story.imageAlt}
-            className="h-full w-full object-cover"
-            style={{ aspectRatio: "3 / 2" }}
-          />
-        </div>
-        <div className="flex flex-col justify-center px-4 py-5 sm:px-6 lg:px-14 lg:py-0 xl:px-[72px]">
+      <section className={`${rail} lg:h-[600px] lg:grid-cols-[62%_38%]`}>
+        <div className="order-1 flex w-[260px] shrink-0 snap-start flex-col justify-center px-5 py-10 lg:order-2 lg:w-auto lg:px-14 lg:py-0 xl:px-[72px]">
           <p
             className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
           >
@@ -156,12 +153,20 @@ export default function AboutPage() {
             className="mt-4 block h-px w-8 bg-[var(--color-about-brown)] lg:mt-8 lg:w-12"
           />
         </div>
+        <div className="order-2 w-[330px] shrink-0 snap-start lg:order-1 lg:h-[600px] lg:w-auto">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={story.image}
+            alt={story.imageAlt}
+            className="aspect-[3/2] h-auto w-full object-cover lg:h-full lg:aspect-auto"
+          />
+        </div>
       </section>
 
       {/* 02 — Why Luwag: the idea, the room, the three things it buys you. */}
-      <section className="mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-28">
-        <div className="grid grid-cols-[1.2fr_1.3fr_1fr] gap-3 lg:grid-cols-[1.15fr_1.45fr_1fr] lg:gap-12">
-          <div className="lg:pt-4">
+      <section className="mx-auto max-w-[1440px] px-5 py-10 sm:px-10 lg:px-16 lg:py-28">
+        <div className={`${rail} lg:grid-cols-[1.15fr_1.45fr_1fr] lg:gap-12`}>
+          <div className="w-[220px] shrink-0 snap-start lg:w-auto lg:pt-4">
             <p
               className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
             >
@@ -182,16 +187,15 @@ export default function AboutPage() {
               {why.body}
             </p>
           </div>
-          <div className="overflow-hidden">
+          <div className="w-[320px] shrink-0 snap-start lg:w-auto">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={why.image}
               alt={why.imageAlt}
-              className="h-full w-full object-cover"
-              style={{ aspectRatio: "4 / 5" }}
+              className="aspect-[3/2] h-auto w-full object-cover lg:h-full lg:aspect-[4/5]"
             />
           </div>
-          <ul className="flex flex-col justify-center gap-4 lg:gap-7">
+          <ul className="flex w-[230px] shrink-0 snap-start flex-col justify-center gap-4 lg:w-auto lg:gap-7">
             {why.values.map((value) => (
               <li key={value.title} className="flex items-start gap-2 lg:gap-4">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-about-disc)] text-[var(--color-about-brown)] lg:h-11 lg:w-11">
@@ -218,11 +222,9 @@ export default function AboutPage() {
       </section>
 
       {/* 03 — Our Promise: how a piece is made, in three numbered steps. */}
-      <section className="mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-24">
-        {/* 45 / 55 in fr units so the gap does not push the right column past
-            the content edge. */}
-        <div className="grid grid-cols-[45fr_55fr] gap-4 lg:grid-cols-[1fr_3fr] lg:gap-16">
-          <div>
+      <section className="mx-auto max-w-[1440px] px-5 py-10 sm:px-10 lg:px-16 lg:py-24">
+        <div className={`${rail} lg:grid-cols-[1fr_3fr] lg:gap-16`}>
+          <div className="w-[220px] shrink-0 snap-start lg:w-auto">
             <p
               className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
             >
@@ -264,37 +266,37 @@ export default function AboutPage() {
               </span>
             )}
           </div>
-          {/* On a phone the three steps stack beside the copy, each with its
-              picture next to the words; on the desktop they are three equal
-              columns with the picture on top. */}
-          <ol className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-6">
+          {/* The three steps are the rail items on a phone and three equal
+              columns on the desktop. Their pictures keep their 4:3 shape. */}
+          <ol className="contents lg:grid lg:grid-cols-3 lg:gap-6">
             {promise.steps.map((step, index) => (
-              <li key={step.title} className="flex gap-3 lg:block">
-                <div className="w-[38%] shrink-0 overflow-hidden lg:w-auto">
+              <li
+                key={step.title}
+                className="w-[240px] shrink-0 snap-start lg:w-auto"
+              >
+                <div className="overflow-hidden">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={step.image}
                     alt={step.imageAlt}
-                    className="aspect-square h-auto w-full object-cover lg:aspect-[4/3] lg:h-full"
+                    className="aspect-[4/3] h-auto w-full object-cover lg:aspect-[4/3]"
                   />
                 </div>
-                <div className="min-w-0 lg:mt-4">
-                  <p
-                    className={`${storySerif.className} text-[clamp(15px,3.4vw,22px)] leading-none text-[var(--color-about-brown)] lg:mt-4`}
-                  >
-                    {String(index + 1).padStart(2, "0")}
-                  </p>
-                  <h3
-                    className={`${type.label} mt-1 font-semibold leading-[1.35] text-[var(--color-about-ink)] lg:mt-2`}
-                  >
-                    {step.title}
-                  </h3>
-                  <p
-                    className={`${type.tiny} mt-1 leading-[1.5] text-[var(--color-about-muted)] lg:mt-2`}
-                  >
-                    {step.body}
-                  </p>
-                </div>
+                <p
+                  className={`${storySerif.className} mt-3 text-[clamp(15px,3.4vw,22px)] leading-none text-[var(--color-about-brown)] lg:mt-4`}
+                >
+                  {String(index + 1).padStart(2, "0")}
+                </p>
+                <h3
+                  className={`${type.label} mt-1 font-semibold leading-[1.35] text-[var(--color-about-ink)] lg:mt-2`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={`${type.tiny} mt-1 leading-[1.5] text-[var(--color-about-muted)] lg:mt-2`}
+                >
+                  {step.body}
+                </p>
               </li>
             ))}
           </ol>
@@ -304,7 +306,7 @@ export default function AboutPage() {
       {/* 04 — Shopping With Confidence: the service band, fading into the
           packaging photograph on the right. */}
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[34%] lg:w-[52%]">
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[52%] lg:block">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={confidence.image}
@@ -316,57 +318,62 @@ export default function AboutPage() {
             className="absolute inset-0 bg-gradient-to-r from-[var(--color-about-bg)] via-[var(--color-about-bg)]/55 to-transparent"
           />
         </div>
-        <div className="relative mx-auto max-w-[1440px] px-4 py-10 sm:px-10 lg:px-16 lg:py-24">
-          <p
-            className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
-          >
-            {confidence.eyebrow}
-          </p>
-          <h2
-            className={`${storySerif.className} ${type.sectionHeading} mt-3 max-w-none leading-[1.18] text-[var(--color-about-ink)] lg:mt-5 lg:max-w-[18ch]`}
-          >
-            {confidence.headingLines.map((line) => (
-              <span key={line} className="block">
-                {line}
-              </span>
-            ))}
-          </h2>
-          <ul className="mt-6 grid max-w-[240px] grid-cols-1 gap-x-8 gap-y-4 sm:max-w-none sm:grid-cols-2 lg:mt-10 lg:max-w-[860px] lg:grid-cols-4 lg:gap-y-9">
-            {confidence.services.map((service) => (
-              <li key={service.title} className="flex items-start gap-2 lg:gap-3">
-                <span className="mt-0.5 shrink-0 text-[var(--color-about-brown)] [&>svg]:h-4 [&>svg]:w-4 lg:[&>svg]:h-5 lg:[&>svg]:w-5">
-                  <LineIcon name={service.icon} />
-                </span>
-                <span className="min-w-0">
-                  <span
-                    className={`${type.small} block font-semibold leading-[1.35] text-[var(--color-about-ink)]`}
-                  >
-                    {service.title}
+        <div className="relative mx-auto max-w-[1440px] px-5 py-10 sm:px-10 lg:px-16 lg:py-24">
+          <div className={`${rail} lg:block`}>
+            <div className="w-[250px] shrink-0 snap-start lg:w-auto">
+              <p
+                className={`${type.eyebrow} font-medium uppercase text-[var(--color-about-green)]`}
+              >
+                {confidence.eyebrow}
+              </p>
+              <h2
+                className={`${storySerif.className} ${type.sectionHeading} mt-3 max-w-none leading-[1.18] text-[var(--color-about-ink)] lg:mt-5 lg:max-w-[18ch]`}
+              >
+                {confidence.headingLines.map((line) => (
+                  <span key={line} className="block">
+                    {line}
                   </span>
-                  <span
-                    className={`${type.tiny} mt-0.5 block leading-[1.5] text-[var(--color-about-muted)]`}
-                  >
-                    {service.body}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
+                ))}
+              </h2>
+              <ul className="mt-5 flex flex-col gap-3 lg:mt-10 lg:max-w-[860px] lg:grid lg:grid-cols-4 lg:gap-x-8 lg:gap-y-9">
+                {confidence.services.map((service) => (
+                  <li key={service.title} className="flex items-start gap-2 lg:gap-3">
+                    <span className="mt-0.5 shrink-0 text-[var(--color-about-brown)] [&>svg]:h-4 [&>svg]:w-4 lg:[&>svg]:h-5 lg:[&>svg]:w-5">
+                      <LineIcon name={service.icon} />
+                    </span>
+                    <span className="min-w-0">
+                      <span
+                        className={`${type.small} block font-semibold leading-[1.35] text-[var(--color-about-ink)]`}
+                      >
+                        {service.title}
+                      </span>
+                      <span
+                        className={`${type.tiny} mt-0.5 block leading-[1.5] text-[var(--color-about-muted)]`}
+                      >
+                        {service.body}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* On a phone the packaging photograph joins the row as another
+                swipeable piece instead of a cropped sliver. */}
+            <div className="w-[330px] shrink-0 snap-start lg:hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={confidence.image}
+                alt=""
+                className="aspect-[3/2] h-auto w-full object-cover"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
       {/* 05 — Explore the Collection: the one clear call to action. */}
-      <section className="grid grid-cols-[55%_45%] lg:grid-cols-[60%_40%]">
-        <div className="overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={collection.image}
-            alt={collection.imageAlt}
-            className="h-full w-full object-cover"
-            style={{ aspectRatio: "16 / 9" }}
-          />
-        </div>
-        <div className="flex flex-col justify-center bg-[var(--color-about-green)] px-4 py-8 text-[var(--color-about-bg)] sm:px-12 lg:px-16 lg:py-24">
+      <section className={`${rail} lg:grid-cols-[60%_40%]`}>
+        <div className="order-1 w-[260px] shrink-0 snap-start bg-[var(--color-about-green)] px-5 py-10 text-[var(--color-about-bg)] lg:order-2 lg:flex lg:w-auto lg:flex-col lg:justify-center lg:px-16 lg:py-24">
           <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-[#c3cdb8] lg:text-[11px] lg:tracking-[0.2em]">
             {collection.eyebrow}
           </p>
@@ -388,6 +395,14 @@ export default function AboutPage() {
               <span aria-hidden="true">→</span>
             </Link>
           ) : null}
+        </div>
+        <div className="order-2 w-[330px] shrink-0 snap-start lg:order-1 lg:w-auto">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={collection.image}
+            alt={collection.imageAlt}
+            className="aspect-[16/9] h-auto w-full object-cover lg:h-full lg:aspect-auto"
+          />
         </div>
       </section>
     </div>
