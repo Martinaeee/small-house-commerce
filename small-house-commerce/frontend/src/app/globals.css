@@ -74,6 +74,8 @@
   --color-story-kicker: #3b4626;
   --color-story-link: #333d24;
   --color-story-link-border: #a8ae9a;
+  /* The deep green panel the brand story page closes on (mockup 2026-10-21). */
+  --color-story-panel: #2f4034;
 
   /* Admin design system. These tokens are consumed only inside AdminShell;
      storefront surfaces keep the warm brand palette above. */
