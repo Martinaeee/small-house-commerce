@@ -10,7 +10,7 @@ import type {
 } from "@/lib/api";
 import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { resolveSkuProductDimensions } from "./pdp-facts";
-import { formatInches } from "./pdp-specification-display";
+import { formatCentimeters } from "./pdp-specification-display";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 
 function isSelectable(variant: StorefrontProductVariant): boolean {
@@ -156,10 +156,10 @@ function sizeCardMeasurements(
     const parts = displayedAxes.flatMap(({ key, letter }) => {
       const cm = dims[key];
       return cm == null ? [] : [
-        `${formatInches(cm)}${displayedAxes.length > 1 ? letter : ""}`,
+        `${formatCentimeters(cm)}${displayedAxes.length > 1 ? letter : ""}`,
       ];
     });
-    const dimension = parts.length ? `${parts.join(" × ")} in` : null;
+    const dimension = parts.length ? `${parts.join(" × ")} cm` : null;
     return [value.id, {
       name: dimension ? sizeCardName(value.label) : value.label,
       dimension,
@@ -225,7 +225,7 @@ export function ProductOptionSelector({
           : null;
         // The legend repeats the size card's display name, so an operator
         // label that carries its own measurement suffix ("Tall · 121.5 cm")
-        // cannot contradict the inch-rendered dimension printed on the card.
+        // cannot contradict the centimetre dimension printed on the card.
         const selectedDisplayName = selectedValueId
           ? measurements?.get(selectedValueId)?.name ?? selectedLabel
           : selectedLabel;

@@ -560,7 +560,7 @@ describe("PDP conversion hero", () => {
     const summary = screen.getByTestId("pdp-dimensions-line");
     expect(summary).toHaveTextContent("Component dimensions:");
     expect(summary).toHaveTextContent("Chair × 4");
-    expect(summary).toHaveTextContent("17.7W × 31.5H × 19.7D in");
+    expect(summary).toHaveTextContent("45W × 80H × 50D cm");
     expect(summary).not.toHaveTextContent("999");
     await user.click(screen.getByRole("button", { name: "Size guide" }));
     const guide = within(screen.getByRole("dialog", { name: "Product details" }));
@@ -568,7 +568,7 @@ describe("PDP conversion hero", () => {
     const bundleRow = [...sizeTable.querySelectorAll("tbody tr")].find((row) =>
       row.textContent?.includes("Chair / Oak × 4"),
     )!;
-    expect(bundleRow).toHaveTextContent("17.7W × 31.5H × 19.7D in");
+    expect(bundleRow).toHaveTextContent("45W × 80H × 50D cm");
     expect(bundleRow).not.toHaveTextContent("393.3");
     expect(guide.queryByText("180 cm")).not.toBeInTheDocument();
   });
@@ -599,9 +599,9 @@ describe("PDP conversion hero", () => {
     Object.assign(item.variants.find(row => row.id === "red-large")!.sku!, { productWidth: 0, productDepth: null, productHeight: 95 });
     renderPdp({ item, variantId: "red-small" });
     const hero = screen.getByTestId("pdp-purchase");
-    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 47.2W × 29.5H × 23.6D in");
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 120W × 75H × 60D cm");
     await user.click(within(within(hero).getByRole("group", { name: "Size" })).getByRole("button", { name: "Large" }));
-    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W × 37.4H × 19.7D in");
+    expect(within(hero).getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W × 95H × 50D cm");
   });
 
   it("shows the selected SKU dimensions in the size guide without changing folded values", async () => {
@@ -612,11 +612,11 @@ describe("PDP conversion hero", () => {
     renderPdp({ item, variantId: "red-small" });
     await user.click(screen.getByRole("button", { name: "Size guide" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getAllByRole("table")[0]).toHaveTextContent("47.2W × 29.5H × 23.6D in");
+    expect(within(dialog).getAllByRole("table")[0]).toHaveTextContent("120W × 75H × 60D cm");
     const folded = dialog.querySelector('[data-block="folded"]')!;
     expect(
       [...folded.querySelectorAll("dt, dd")].map((node) => node.textContent?.trim()),
-    ).toEqual(["Width", "35.4 in", "Folded height", "3.9 in", "Folded depth", "15.7 in"]);
+    ).toEqual(["Width", "90 cm", "Folded height", "10 cm", "Folded depth", "40 cm"]);
   });
 
   it("does not show the default SKU size when only a different size option is selected", async () => {
@@ -637,7 +637,7 @@ describe("PDP conversion hero", () => {
     const item = structuredClone(product);
     Object.assign(item.variants.find(row => row.id === "red-small")!.sku!, { productWidth: 0, productDepth: null, productHeight: null });
     renderPdp({ item, variantId: "red-small" });
-    expect(screen.getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W in · H, D not provided");
+    expect(screen.getByTestId("pdp-dimensions-line").textContent).toBe("Dimensions: 0W cm · H, D not provided");
   });
 
   it("orders real product facts, purchase actions, then truthful service assurances", () => {
@@ -701,7 +701,7 @@ describe("PDP conversion hero", () => {
     // One compact dimension line with the size guide right beside it; no
     // folded line and no framed card in the hero.
     expect(within(hero).getByTestId("pdp-dimensions-line")).toHaveTextContent(
-      "Dimensions: 47.2W × 29.1H × 23.6D in",
+      "Dimensions: 120W × 74H × 60D cm",
     );
     expect(within(hero).queryByText(/Folded:/)).not.toBeInTheDocument();
     expect(
@@ -960,9 +960,9 @@ describe("ProductOptionSelector", () => {
       "/standard.jpg",
     );
     expect(within(standard).getByText("Standard")).toBeVisible();
-    expect(within(standard).getByText("36.6 in")).toBeVisible();
+    expect(within(standard).getByText("93 cm")).toBeVisible();
     expect(within(standard).queryByText("Standard · 93 cm")).not.toBeInTheDocument();
-    expect(within(tall).getByText("47.8 in")).toBeVisible();
+    expect(within(tall).getByText("121.5 cm")).toBeVisible();
 
     expect(standard).toHaveAttribute("aria-pressed", "false");
     expect(within(standard).queryByTestId("option-selected-check")).not.toBeInTheDocument();
@@ -1010,9 +1010,9 @@ describe("ProductOptionSelector", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Blue" }));
     const group = screen.getByRole("group", { name: "Size" });
-    expect(within(group).getByText("9.4W × 51.2H × 11D in")).toBeVisible();
-    expect(within(group).getByRole("button", { name: "Tall" })).toHaveAccessibleDescription("9.4W × 51.2H × 11D in");
-    expect(within(group).queryByText("47.8 in")).not.toBeInTheDocument();
+    expect(within(group).getByText("24W × 130H × 28D cm")).toBeVisible();
+    expect(within(group).getByRole("button", { name: "Tall" })).toHaveAccessibleDescription("24W × 130H × 28D cm");
+    expect(within(group).queryByText("121.5 cm")).not.toBeInTheDocument();
   });
 
   it("uses a single full-width card for one value and falls back to inline buttons without thumbnails", () => {
@@ -1084,8 +1084,8 @@ describe("ProductOptionSelector", () => {
     );
 
     const group = screen.getByRole("group", { name: "Size" });
-    expect(within(group).getByText("37W × 36.6H × 16.9D in")).toBeVisible();
-    expect(within(group).getByText("55.5W × 47.2H × 23.6D in")).toBeVisible();
+    expect(within(group).getByText("94W × 93H × 43D cm")).toBeVisible();
+    expect(within(group).getByText("141W × 120H × 60D cm")).toBeVisible();
     expect(within(group).getByText("Standard")).toBeVisible();
     expect(within(group).getByText("Tall")).toBeVisible();
   });
@@ -1099,10 +1099,10 @@ describe("ProductOptionSelector", () => {
       </PdpPurchaseProvider>,
     );
     const tall = screen.getByRole("button", { name: "Tall · 121.5 cm" });
-    expect(within(tall).queryByText("47.8 in")).not.toBeInTheDocument();
+    expect(within(tall).queryByText("121.5 cm")).not.toBeInTheDocument();
     expect(within(tall).getByText("Tall · 121.5 cm")).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Red" }));
-    expect(within(tall).getByText("47.8 in")).toBeVisible();
+    expect(within(tall).getByText("121.5 cm")).toBeVisible();
   });
 
   it("does not quote a disabled SKU's measurement or borrow dimensions for a bundle", async () => {

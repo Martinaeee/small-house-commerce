@@ -141,7 +141,7 @@ describe("ProductDetailsModal", () => {
     expect(dialog().querySelector('[data-field="materials"]')).toHaveTextContent("Solid oak");
     expect(within(dialog()).getAllByText("Solid oak", { exact: true })).toHaveLength(1);
     expect(within(dialog()).getAllByText("4 kg · Net weight", { exact: true })).toHaveLength(1);
-    expect(within(dialog()).getAllByText("37W × 36.6H × 16.9D in", { exact: true })).toHaveLength(1);
+    expect(within(dialog()).getAllByText("94W × 93H × 43D cm", { exact: true })).toHaveLength(1);
     expect(dialog().querySelector('[data-field="variant"]')).toBeNull();
     expect(within(dialog()).getAllByRole("button", { name: "Black" })).toHaveLength(1);
     expect(dialog().querySelector('#specifications')).toBeNull();
@@ -276,24 +276,24 @@ describe("ProductDetailsModal", () => {
     document.body.style.overflow = "";
   });
 
-  it("lists the real variant sizes in inches and marks the current selection", () => {
+  it("lists the real variant sizes in centimetres and marks the current selection", () => {
     const { dialog } = renderModal(product(), "bt");
 
     expect(within(dialog()).getByText("Product size")).toBeVisible();
     const table = within(dialog()).getByRole("table");
     expect(
       within(table).getAllByRole("columnheader").map((cell) => cell.textContent?.trim()),
-    ).toEqual(["Variant", "Dimensions (in)"]);
+    ).toEqual(["Variant", "Dimensions (cm)"]);
     expect(tableRows(table)).toEqual([
-      { selection: null, cells: ["3-Tier", "37W × 36.6H × 16.9D in"] },
-      { selection: "selected", cells: ["4-Tier Selected", "55.5W × 47.2H × 23.6D in"] },
+      { selection: null, cells: ["3-Tier", "94W × 93H × 43D cm"] },
+      { selection: "selected", cells: ["4-Tier Selected", "141W × 120H × 60D cm"] },
     ]);
     expect(
       within(dialog()).getByText("Measurements may vary slightly. Measure your doorway before delivery."),
     ).toBeVisible();
   });
 
-  it("shows the folded size in inches as its own labelled block", () => {
+  it("shows the folded size in centimetres as its own labelled block", () => {
     const source = product({
       foldedWidth: 20,
       foldedHeight: 8,
@@ -307,11 +307,11 @@ describe("ProductDetailsModal", () => {
       [...folded.querySelectorAll("dt, dd")].map((node) => node.textContent?.trim()),
     ).toEqual([
       "Width",
-      "7.9 in",
+      "20 cm",
       "Folded height",
-      "3.1 in",
+      "8 cm",
       "Folded depth",
-      "3.9 in",
+      "10 cm",
     ]);
     expect(within(dialog()).queryByText(/package/i)).not.toBeInTheDocument();
   });
@@ -345,8 +345,8 @@ describe("ProductDetailsModal", () => {
     const text = (dialog().textContent ?? "").replace(/\s+/g, " ");
     expect(text).not.toMatch(/999/);
     expect(text).not.toMatch(/393\.3/);
-    expect(text).toContain("Chair / Oak × 2 17.7W × 31.5H × 19.7D in");
-    expect(text).toContain("Table / White × 1 47.2W × 29.5H × 23.6D in");
+    expect(text).toContain("Chair / Oak × 2 45W × 80H × 50D cm");
+    expect(text).toContain("Table / White × 1 120W × 75H × 60D cm");
     expect(within(dialog()).getByText("Folded size")).toBeVisible();
     const folded = dialog().querySelector('[data-block="folded"]')!;
     expect(folded.textContent).toContain("Chair / Oak × 2");
@@ -354,11 +354,11 @@ describe("ProductDetailsModal", () => {
       [...folded.querySelectorAll("dt, dd")].map((node) => node.textContent?.trim()),
     ).toEqual([
       "Width",
-      "19.7 in",
+      "50 cm",
       "Folded height",
-      "4.7 in",
+      "12 cm",
       "Folded depth",
-      "15.7 in",
+      "40 cm",
     ]);
     await userEvent.setup().click(within(dialog()).getByText("Details"));
     expect(dialog().querySelector('[data-field="materials"]')).toHaveTextContent("Chair / Oak × 2 Solid oak");

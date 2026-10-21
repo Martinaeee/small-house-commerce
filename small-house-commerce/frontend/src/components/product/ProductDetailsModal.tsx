@@ -73,7 +73,7 @@ function GuideTable({
             Variant
           </th>
           <th scope="col" className={GUIDE_HEAD}>
-            Dimensions (in)
+            Dimensions (cm)
           </th>
         </tr>
       </thead>

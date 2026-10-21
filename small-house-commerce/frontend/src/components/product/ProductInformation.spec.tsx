@@ -164,8 +164,8 @@ describe("ProductInformation", () => {
       within(table).getAllByRole("columnheader").map((cell) => cell.textContent?.trim()),
     ).toEqual(["Style", "Dimensions"]);
     expect(tableRows(table)).toEqual([
-      { members: "bs,ws", selection: null, cells: ["3-Tier", "37W × 36.6H × 16.9D in"] },
-      { members: "bt,wt", selection: null, cells: ["4-Tier", "55.5W × 47.2H × 23.6D in"] },
+      { members: "bs,ws", selection: null, cells: ["3-Tier", "94W × 93H × 43D cm"] },
+      { members: "bt,wt", selection: null, cells: ["4-Tier", "141W × 120H × 60D cm"] },
     ]);
   });
 
@@ -236,7 +236,7 @@ describe("ProductInformation", () => {
 
     const region = section();
     expect(within(region).queryByRole("table")).not.toBeInTheDocument();
-    expect(within(region).getByText("37W × 36.6H × 16.9D in")).toBeInTheDocument();
+    expect(within(region).getByText("94W × 93H × 43D cm")).toBeInTheDocument();
   });
 
   it("uses the real material value as the owner column instead of repeating it", () => {
@@ -267,8 +267,8 @@ describe("ProductInformation", () => {
       within(table).getAllByRole("columnheader").map((cell) => cell.textContent?.trim()),
     ).toEqual(["Dimensions", "Materials"]);
     expect(tableRows(table)).toEqual([
-      { members: "b-oak,w-oak", selection: null, cells: ["37W × 36.6H × 16.9D in", "Oak"] },
-      { members: "b-bamboo,w-bamboo", selection: null, cells: ["55.5W × 47.2H × 23.6D in", "Bamboo"] },
+      { members: "b-oak,w-oak", selection: null, cells: ["94W × 93H × 43D cm", "Oak"] },
+      { members: "b-bamboo,w-bamboo", selection: null, cells: ["141W × 120H × 60D cm", "Bamboo"] },
     ]);
   });
 
@@ -301,8 +301,8 @@ describe("ProductInformation", () => {
     const text = (region.textContent ?? "").replace(/\s+/g, " ");
     expect(text).not.toMatch(/999/);
     expect(text).not.toMatch(/393\.3/);
-    expect(text).toContain("Chair / Oak × 2 17.7W × 31.5H × 19.7D in");
-    expect(text).toContain("Table / White × 1 47.2W × 29.5H × 23.6D in");
+    expect(text).toContain("Chair / Oak × 2 45W × 80H × 50D cm");
+    expect(text).toContain("Table / White × 1 120W × 75H × 60D cm");
     const weight = within(region).getByRole("table");
     expect(weight.textContent).toContain("4 kg · Net weight / per item");
     expect(weight.textContent).toContain("Not provided");

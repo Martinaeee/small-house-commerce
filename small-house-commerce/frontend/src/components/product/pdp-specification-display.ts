@@ -149,12 +149,17 @@ const DISPLAY_AXES = [
   { index: 1, letter: "D" },
 ] as const;
 
-export function formatInches(cm: number): string {
-  return String(Math.round((cm / 2.54) * 10) / 10);
+/**
+ * The storefront shows the measurements the operator entered: centimetres.
+ * The API already stores centimetres, so the value is only rounded for
+ * display (one decimal, no trailing zeros).
+ */
+export function formatCentimeters(cm: number): string {
+  return String(Math.round(cm * 10) / 10);
 }
 
 export function formatLength(cm: number | null | undefined): string {
-  return numeric(cm) ? `${formatInches(cm)} in` : "Not provided";
+  return numeric(cm) ? `${formatCentimeters(cm)} cm` : "Not provided";
 }
 
 function buildDimensionsCell(
@@ -304,12 +309,12 @@ export function formatPdpSpecCell(cell: PdpSpecCell): string {
       const missing: string[] = [];
       for (const axis of DISPLAY_AXES) {
         const value = cell.value[axis.index];
-        if (numeric(value)) parts.push(`${formatInches(value)}${axis.letter}`);
+        if (numeric(value)) parts.push(`${formatCentimeters(value)}${axis.letter}`);
         else missing.push(axis.letter);
       }
       if (!parts.length) return "Not provided";
       return (
-        `${parts.join(" × ")} in` +
+        `${parts.join(" × ")} cm` +
         (missing.length ? ` · ${missing.join(", ")} not provided` : "")
       );
     }
@@ -664,9 +669,9 @@ export function formatFoldedLine(entry: PdpFoldedEntry): string | null {
   const parts: string[] = [];
   for (const axis of DISPLAY_AXES) {
     const value = entry.values[axis.index];
-    if (numeric(value)) parts.push(`${formatInches(value)}${axis.letter}`);
+    if (numeric(value)) parts.push(`${formatCentimeters(value)}${axis.letter}`);
   }
-  return parts.length ? `${parts.join(" × ")} in` : null;
+  return parts.length ? `${parts.join(" × ")} cm` : null;
 }
 
 export function formatSkuDimensions(

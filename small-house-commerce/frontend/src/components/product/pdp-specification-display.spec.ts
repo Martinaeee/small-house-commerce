@@ -169,7 +169,7 @@ describe("analyzePdpSpecifications", () => {
     expect(model.formatCell(model.rows[0].cells.weight)).toBe("0 kg · Net weight");
   });
 
-  it("never merges centimeter values that only look equal after inch rounding", () => {
+  it("never merges centimeter values that only look equal after rounding to a tenth of a centimetre", () => {
     const p = product();
     p.variants.forEach((v) => Object.assign(v.sku!, { productWidth: 94, productDepth: 43, productHeight: 93 }));
     Object.assign(p.variants[1].sku!, { productWidth: 94.01 });
@@ -266,7 +266,7 @@ describe("analyzePdpSpecifications", () => {
     const model = analyzePdpSpecifications(p);
     const group = model.groups.find((g) => g.fields.some((f) => f.key === "dimensions"))!;
     expect(group.basis).toEqual(["o-style"]);
-    expect(model.formatCell(group.rows[0].cells.dimensions)).toMatch(/37W/);
+    expect(model.formatCell(group.rows[0].cells.dimensions)).toMatch(/94W/);
   });
 
   it("retains full variant names when reduced labels would be ambiguous", () => {
@@ -324,7 +324,7 @@ describe("analyzePdpSpecifications", () => {
     p.foldedHeight = null;
     p.foldedDepth = null;
     expect(formatLength(p.foldedWidth)).toBe("Not provided");
-    expect(formatLength(2.54)).toBe("1 in");
+    expect(formatLength(2.54)).toBe("2.5 cm");
     const model = analyzePdpSpecifications(p);
     expect(model.rows[0].cells.dimensions.value).toEqual([94, 43, 93]);
   });

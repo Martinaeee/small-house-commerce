@@ -211,7 +211,7 @@ describe("PdpDetails", () => {
     ).toEqual(["Style", "Dimensions", "Weight", "Materials"]);
     const rows = tableRows(table);
     expect(rows[0].cells[0]).toBe("Black");
-    expect(rows[0].cells[1]).toBe("47.2W × 29.5H × 23.6D in");
+    expect(rows[0].cells[1]).toBe("120W × 75H × 60D cm");
     expect(rows[0].cells[3]).toBe("Powder-coated steel");
     const bundleRow = rows[1].cells.join(" | ");
     expect(bundleRow).toContain("Table / Oak × 1");
@@ -266,8 +266,8 @@ describe("PdpDetails", () => {
     const section = screen.getByRole("region", { name: "Product information" });
     const table = within(section).getByRole("table");
     expect(tableRows(table).map((row) => row.cells[0])).toEqual(["Black", "White"]);
-    expect(tableRows(table)[0].cells[1]).toBe("47.2W × 29.5H × 23.6D in");
-    expect(tableRows(table)[1].cells[1]).toBe("39.4W × 0H × 31.5D in");
+    expect(tableRows(table)[0].cells[1]).toBe("120W × 75H × 60D cm");
+    expect(tableRows(table)[1].cells[1]).toBe("100W × 0H × 80D cm");
     expect(within(section).queryByText("130 cm")).not.toBeInTheDocument();
     expect(within(section).queryByText("132 cm")).not.toBeInTheDocument();
 
@@ -291,7 +291,7 @@ describe("PdpDetails", () => {
     const section = screen.getByRole("region", { name: "Product information" });
     expect(section).toBeVisible();
     const rows = tableRows(within(section).getByRole("table"));
-    expect(rows[0].cells[1]).toBe("0W in · H, D not provided");
+    expect(rows[0].cells[1]).toBe("0W cm · H, D not provided");
     expect(rows[1].cells[1]).toBe("Not provided");
 
     await user.click(screen.getByRole("button", { name: "White" }));
