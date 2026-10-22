@@ -47,7 +47,7 @@ export function CardEmpty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-start gap-1 py-4">
+    <div className="flex flex-col items-center justify-center gap-1 py-4 text-center">
       <p className="text-sm font-medium text-ink-secondary">{title}</p>
       {hint ? <p className="text-xs text-ink-muted">{hint}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
