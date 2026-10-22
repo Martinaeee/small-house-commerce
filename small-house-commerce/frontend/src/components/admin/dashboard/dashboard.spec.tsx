@@ -37,7 +37,7 @@ describe("DashboardKpis", () => {
           conversionRate: kpi({ value: 0.0342 }),
           averageOrderValue: kpi({ value: 294 }),
           refundRate: kpi({ value: 0.02 }),
-          grossProfit: { ...kpi({ value: 4000 }), costCoverage: 1, missing: [] },
+          grossProfit: { ...kpi({ value: 4000 }), costCoverage: 1, partial: false, missing: [] },
         }}
       />,
     );
@@ -63,6 +63,7 @@ describe("DashboardKpis", () => {
           grossProfit: {
             ...kpi({ value: null, unavailableReason: "COST_DATA_INCOMPLETE" }),
             costCoverage: 0.5,
+            partial: false,
             missing: ["PRODUCT_COST"],
           },
         }}
@@ -75,6 +76,49 @@ describe("DashboardKpis", () => {
     expect(screen.getByText("dash_cost_incomplete")).toBeVisible();
     // A real zero is still a real zero.
     expect(screen.getByText("0")).toBeVisible();
+  });
+
+  it("states the reduced profit formula when a cost input was not recorded", () => {
+    render(
+      <DashboardKpis
+        kpis={{
+          netSales: kpi(),
+          orders: kpi(),
+          conversionRate: kpi(),
+          averageOrderValue: kpi(),
+          refundRate: kpi(),
+          grossProfit: {
+            ...kpi({ value: 4000 }),
+            costCoverage: 1,
+            partial: true,
+            missing: ["SHIPPING_COST", "PAYMENT_FEE"],
+          },
+        }}
+      />,
+    );
+
+    // The number is profitable product margin, not the full formula; the card
+    // itself has to say which inputs were left out.
+    expect(screen.getByText("₱4,000")).toBeVisible();
+    expect(screen.getByText(/dash_kpi_gross_profit_hint_partial/)).toBeVisible();
+    expect(screen.queryByText("dash_kpi_gross_profit_hint")).toBeNull();
+  });
+
+  it("states the full profit formula once every cost input is recorded", () => {
+    render(
+      <DashboardKpis
+        kpis={{
+          netSales: kpi(),
+          orders: kpi(),
+          conversionRate: kpi(),
+          averageOrderValue: kpi(),
+          refundRate: kpi(),
+          grossProfit: { ...kpi({ value: 4000 }), costCoverage: 1, partial: false, missing: [] },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("dash_kpi_gross_profit_hint")).toBeVisible();
   });
 });
 

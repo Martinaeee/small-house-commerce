@@ -1377,6 +1377,8 @@ export const adminApi = {
   listOrders: (p: {
     /** Single status or comma-separated set (workbench tab buckets). */
     status?: string;
+    /** Single payment status or comma-separated set (dashboard drill-downs). */
+    paymentStatus?: string;
     classification?: string;
     confirmation?: string;
     assignedTo?: string;
@@ -1390,6 +1392,7 @@ export const adminApi = {
     adminAuthedFetch<Paged<AdminOrderListRow>>(
       `/api/v1/admin/orders${buildQuery({
         status: p.status,
+        paymentStatus: p.paymentStatus,
         classification: p.classification,
         confirmation: p.confirmation,
         assignedTo: p.assignedTo,

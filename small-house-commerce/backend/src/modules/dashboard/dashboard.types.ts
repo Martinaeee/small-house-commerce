@@ -47,6 +47,8 @@ export interface Kpi {
 
 export interface GrossProfitKpi extends Kpi {
   costCoverage: number;
+  /** A published value that leaves a cost input out (shipping or fees unrecorded). */
+  partial: boolean;
   missing: string[];
 }
 
@@ -94,7 +96,8 @@ export interface CustomerSnapshot {
   returningCustomers: number;
   repeatPurchaseRate: number | null;
   repeatCustomers: number;
-  totalCustomers: number;
+  /** Customers with at least one valid order in the period (the rate's denominator). */
+  periodCustomers: number;
   emailSubscribers: number;
   newEmailSubscribers: number;
 }

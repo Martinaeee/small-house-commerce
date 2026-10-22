@@ -6,10 +6,10 @@ import { CardEmpty, CardSkeleton, DashboardCard } from "./DashboardCard";
 import { count, ratio } from "./format";
 
 /**
- * New/returning are order-based, not signup-based: "new" is a customer whose
- * FIRST valid order falls inside the period; "returning" is a customer who
- * ordered in the period and had ordered before it. Identical rules govern the
- * repeat rate, so the three numbers always add up.
+ * Every number follows the selected period. New + returning equals the
+ * period's customers (a buyer is either new or had ordered before), and the
+ * repeat rate divides the period's repeat buyers by that same group — so an
+ * empty period reports "—" instead of a historical rate.
  */
 export function CustomerSnapshotCard({
   snapshot,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { OrderStatus, SourceType } from '../../../generated/prisma/client.js';
+import { OrderStatus, PaymentStatus, SourceType } from '../../../generated/prisma/client.js';
 
 export const checkoutSchema = z.object({
   customer: z.object({
@@ -102,6 +102,14 @@ export const orderQuerySchema = z.object({
     .string()
     .transform((s) => s.split(',').map((v) => v.trim()))
     .pipe(z.array(z.nativeEnum(OrderStatus)).min(1).max(10))
+    .optional(),
+  // Payment status set, same comma convention as `status`. The dashboard's
+  // "failed payments" backlog links here with paymentStatus=FAILED so the list
+  // filters by exactly what the card counted.
+  paymentStatus: z
+    .string()
+    .transform((s) => s.split(',').map((v) => v.trim()))
+    .pipe(z.array(z.nativeEnum(PaymentStatus)).min(1).max(9))
     .optional(),
   classification: z.enum(['NEW', 'AGAIN', 'RPT', 'RECHECK']).optional(),
   confirmation: z.enum(['UNCONFIRMED', 'NEEDS_REVIEW', 'CONFIRMED', 'REJECTED']).optional(),

@@ -175,6 +175,13 @@ export interface GrossProfitResult {
    * simply does not record yet, and the result names them in `missing`.
    */
   productCostComplete: boolean;
+  /**
+   * True when a published value leaves a recorded-cost input out (shipping
+   * cost or payment fee was never recorded for the period). The number is
+   * still real — net sales minus product cost — but the interface must state
+   * the reduced formula next to it instead of claiming the full one.
+   */
+  partial: boolean;
   /** Cost inputs that were not recorded for this period. */
   missing: string[];
 }
@@ -195,10 +202,16 @@ export function grossProfit(
   // Never publish a profit built on partial product cost: a number that
   // silently omits unrecorded costs reads as real money.
   if (costs.itemLines === 0 || costs.costedItemLines < costs.itemLines) {
-    return { value: null, costCoverage, productCostComplete: false, missing };
+    return { value: null, costCoverage, productCostComplete: false, partial: false, missing };
   }
   const profit = sales - costs.productCost - costs.shippingCost - costs.paymentFee;
-  return { value: roundMoney(profit), costCoverage, productCostComplete: true, missing };
+  return {
+    value: roundMoney(profit),
+    costCoverage,
+    productCostComplete: true,
+    partial: missing.length > 0,
+    missing,
+  };
 }
 
 export type StockDataStatus = 'OK' | 'OUT_OF_STOCK' | 'NO_RECENT_SALES' | 'NEW_SKU';

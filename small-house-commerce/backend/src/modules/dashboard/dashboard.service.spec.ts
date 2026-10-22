@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardService } from './dashboard.service.js';
 
 /**
@@ -112,6 +112,76 @@ describe('DashboardService.overview', () => {
     expect(result.range.days).toBe(30);
     expect(result.range.preset).toBe('LAST_30_DAYS');
     expect(result.currency).toBe('PHP');
+  });
+});
+
+describe('DashboardService.overview drill-downs', () => {
+  // The dashboard runs on Manila calendar days; pinning "now" keeps the day
+  // strings below identical on every machine.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-21T02:00:00.000Z')); // 10:00 Manila, Oct 21
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('links each order tile to the same Manila days it counted', async () => {
+    const { prisma, marketingReport } = emptyPrisma(['ORDER_VIEW_ALL']);
+    const service = new DashboardService(prisma as never, marketingReport as never);
+
+    const result = await service.overview('user-1', { range: 'LAST_MONTH', sort: 'revenue' });
+    const tile = result.ordersOverview.tiles.find((row) => row.key === 'TO_FULFILL')!;
+    const params = new URL(tile.href, 'http://admin.test').searchParams;
+
+    // Last month is 2026-09-01 .. 2026-09-30 in Manila; the link must carry
+    // those days, not the UTC day of the window's start instant.
+    expect(params.get('dateFrom')).toBe('2026-09-01');
+    expect(params.get('dateTo')).toBe('2026-09-30');
+  });
+
+  it('drills into failed payments by their exact payment status', async () => {
+    const { prisma, marketingReport } = emptyPrisma(['ORDER_VIEW_ALL']);
+    const service = new DashboardService(prisma as never, marketingReport as never);
+
+    const result = await service.overview('user-1', { range: 'LAST_7_DAYS', sort: 'revenue' });
+    const item = result.needsAttention.find((row) => row.key === 'FAILED_PAYMENTS')!;
+    const params = new URL(item.href, 'http://admin.test').searchParams;
+
+    expect(params.get('paymentStatus')).toBe('FAILED');
+    // The card counts failed payments on orders that still need attention, so
+    // the link must exclude cancelled and denied orders the same way.
+    expect(params.get('status')?.split(',')).toEqual([
+      'NEW',
+      'PENDING',
+      'QUESTION',
+      'CONFIRMED',
+      'ABNORMAL',
+      'SHIPPING',
+      'SIGNED',
+      'AFTER_SALES',
+    ]);
+  });
+
+  it('scopes the customer snapshot denominator to the period', async () => {
+    const { prisma, marketingReport } = emptyPrisma(['ORDER_VIEW_ALL'], [
+      {
+        new_customers: 3n,
+        returning_customers: 2n,
+        repeat_customers: 1n,
+        customers: 5n,
+      },
+    ]);
+    const service = new DashboardService(prisma as never, marketingReport as never);
+
+    const result = await service.overview('user-1', { range: 'LAST_MONTH', sort: 'revenue' });
+
+    expect(result.customerSnapshot).toMatchObject({
+      newCustomers: 3,
+      returningCustomers: 2,
+      repeatCustomers: 1,
+      periodCustomers: 5,
+      // new + returning = the period's customers.
+      repeatPurchaseRate: 0.2,
+    });
   });
 });
 

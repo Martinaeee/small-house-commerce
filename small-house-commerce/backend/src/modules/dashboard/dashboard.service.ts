@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client.js';
+import { OrderStatus, Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MarketingReportService } from '../marketing/marketing-report.service.js';
 import type { MarketingAccount } from '../marketing/marketing-access.js';
@@ -57,6 +57,26 @@ import type {
 const HOMEPAGE_DOCUMENT_ID = '00000000-0000-0000-0000-000000000001';
 
 const VALID_ORDER_STATUSES = Prisma.sql`('CANCELLED','DENIED')`;
+
+/**
+ * Every order status that can still need an operator's action. Backlog
+ * drill-downs list these because the order list only filters by inclusion.
+ */
+const ACTIVE_ORDER_STATUSES = Object.values(OrderStatus).filter(
+  (status) => status !== 'CANCELLED' && status !== 'DENIED',
+);
+
+/**
+ * The failed-payment backlog counts orders whose payment failed and that are
+ * not cancelled or denied. The order list can only include statuses, so the
+ * link names every status the count kept — its length then equals the card.
+ */
+function failedPaymentsHref(): string {
+  return `/admin/orders?${new URLSearchParams({
+    paymentStatus: 'FAILED',
+    status: ACTIVE_ORDER_STATUSES.join(','),
+  }).toString()}`;
+}
 
 function num(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -145,7 +165,7 @@ export class DashboardService {
       canSales ? this.costFacts(window.start, window.end) : Promise.resolve(emptyCostFacts()),
       canSales ? this.costFacts(window.previousStart, window.previousEnd) : Promise.resolve(emptyCostFacts()),
       canSales ? this.dailySeries(window) : Promise.resolve([]),
-      canSales ? this.orderTiles(window.start, window.end) : Promise.resolve(null),
+      canSales ? this.orderTiles(window) : Promise.resolve(null),
       canSales ? this.ordersByLocation(window.start, window.end) : Promise.resolve(null),
       this.needsAttention(window, thresholds, { canSales, canInventory, canContent, canMarketing }),
       canCustomers ? this.customerSnapshot(window) : Promise.resolve(null),
@@ -219,6 +239,7 @@ export class DashboardService {
         value: canProfit ? profit.value : null,
         change: percentChange(profit.value ?? 0, previousProfit.value),
         costCoverage: profit.costCoverage,
+        partial: profit.partial,
         missing: profit.missing,
         ...(canProfit ? {} : { unavailableReason: 'NO_PERMISSION' }),
         ...(canProfit && profit.value === null ? { unavailableReason: 'COST_DATA_INCOMPLETE' } : {}),
@@ -428,8 +449,7 @@ export class DashboardService {
   }
 
   private async orderTiles(
-    start: Date,
-    end: Date,
+    window: DashboardWindow,
   ): Promise<{ tiles: OrderTile[]; total: number }> {
     const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
       SELECT
@@ -442,14 +462,15 @@ export class DashboardService {
         COUNT(*) FILTER (WHERE payment_status IN ('REFUNDED','PARTIALLY_REFUNDED') OR order_status = 'AFTER_SALES') AS refund_requested,
         COUNT(*) AS total
       FROM orders
-      WHERE created_at >= ${start}::timestamptz AND created_at < ${end}::timestamptz
+      WHERE created_at >= ${window.start}::timestamptz AND created_at < ${window.end}::timestamptz
     `);
     const row = rows[0] ?? {};
-    // The orders list filters on Manila date inputs, so the drill-down uses the
-    // same day strings the API received rather than raw instants.
+    // The orders list reads its From/To as Manila calendar days, so the
+    // drill-down carries the window's own days. Using the UTC date of `start`
+    // would point one day early: Manila 00:00 is the previous UTC evening.
     const dayParams = {
-      dateFrom: start.toISOString().slice(0, 10),
-      dateTo: new Date(end.getTime() - 1).toISOString().slice(0, 10),
+      dateFrom: window.fromDate,
+      dateTo: window.toDate,
     };
     const href = (params: Record<string, string>) =>
       `/admin/orders?${new URLSearchParams({ ...dayParams, ...params }).toString()}`;
@@ -520,7 +541,7 @@ export class DashboardService {
       items.push(
         { key: 'AWAITING_FULFILLMENT', labelKey: 'AWAITING_FULFILLMENT', count: toFulfill, href: '/admin/orders?status=CONFIRMED', tone: toFulfill > 0 ? 'amber' : 'neutral' },
         { key: 'COD_TO_CONFIRM', labelKey: 'COD_TO_CONFIRM', count: toConfirm, href: '/admin/orders?status=NEW,PENDING,QUESTION', tone: toConfirm > 0 ? 'amber' : 'neutral' },
-        { key: 'FAILED_PAYMENTS', labelKey: 'FAILED_PAYMENTS', count: failed, href: '/admin/orders?status=NEW,PENDING,CONFIRMED,SHIPPING', tone: failed > 0 ? 'red' : 'neutral', hintKey: 'FAILED_PAYMENTS_HINT' },
+        { key: 'FAILED_PAYMENTS', labelKey: 'FAILED_PAYMENTS', count: failed, href: failedPaymentsHref(), tone: failed > 0 ? 'red' : 'neutral', hintKey: 'FAILED_PAYMENTS_HINT' },
         { key: 'REFUNDS_AFTER_SALES', labelKey: 'REFUNDS_AFTER_SALES', count: afterSales, href: '/admin/orders?status=AFTER_SALES', tone: afterSales > 0 ? 'red' : 'neutral', hintKey: 'REFUNDS_AFTER_SALES_HINT' },
       );
     }
@@ -579,8 +600,20 @@ export class DashboardService {
   }
 
   private async customerSnapshot(window: DashboardWindow) {
+    // Everything is scoped to the period: the denominator is the customers who
+    // ordered in it, so an empty range reports "no rate" instead of a
+    // historical one. New + returning always equals that denominator, and the
+    // repeat customers are a subset of it.
     const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-      WITH valid AS (
+      WITH period AS (
+        SELECT o.customer_id
+        FROM orders o
+        WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}
+          AND o.created_at >= ${window.start}::timestamptz
+          AND o.created_at < ${window.end}::timestamptz
+        GROUP BY o.customer_id
+      ),
+      lifetime AS (
         SELECT o.customer_id,
           MIN(o.created_at) AS first_order,
           COUNT(*) AS orders
@@ -589,20 +622,12 @@ export class DashboardService {
         GROUP BY o.customer_id
       )
       SELECT
-        COUNT(*) FILTER (WHERE v.first_order >= ${window.start}::timestamptz AND v.first_order < ${window.end}::timestamptz) AS new_customers,
-        COUNT(*) FILTER (
-          WHERE v.first_order < ${window.start}::timestamptz
-            AND EXISTS (
-              SELECT 1 FROM orders o2
-              WHERE o2.customer_id = v.customer_id
-                AND o2.created_at >= ${window.start}::timestamptz
-                AND o2.created_at < ${window.end}::timestamptz
-                AND o2.order_status NOT IN ${VALID_ORDER_STATUSES}
-            )
-        ) AS returning_customers,
-        COUNT(*) FILTER (WHERE v.orders >= 2) AS repeat_customers,
+        COUNT(*) FILTER (WHERE l.first_order >= ${window.start}::timestamptz AND l.first_order < ${window.end}::timestamptz) AS new_customers,
+        COUNT(*) FILTER (WHERE l.first_order < ${window.start}::timestamptz) AS returning_customers,
+        COUNT(*) FILTER (WHERE l.orders >= 2) AS repeat_customers,
         COUNT(*) AS customers
-      FROM valid v
+      FROM period p
+      JOIN lifetime l ON l.customer_id = p.customer_id
     `);
     const row = rows[0] ?? {};
     const [emailSubscribers, newEmailSubscribers] = await Promise.all([
@@ -618,7 +643,7 @@ export class DashboardService {
       repeatPurchaseRate:
         customers === 0 ? null : Math.round((num(row.repeat_customers) / customers) * 10000) / 10000,
       repeatCustomers: num(row.repeat_customers),
-      totalCustomers: customers,
+      periodCustomers: customers,
       emailSubscribers,
       newEmailSubscribers,
     };

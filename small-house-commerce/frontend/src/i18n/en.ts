@@ -2438,6 +2438,10 @@ export const en: Record<ZhKey, string> = {
   dash_kpi_aov_hint: "Net sales ÷ orders",
   dash_kpi_refund_rate_hint: "Refunded orders ÷ valid orders",
   dash_kpi_gross_profit_hint: "Net sales − product cost − shipping − payment fees",
+  dash_kpi_gross_profit_hint_partial: "Net sales − product cost (excludes {excluded})",
+  dash_cost_shipping: "shipping",
+  dash_cost_payment_fee: "payment fees",
+  dash_cost_join: ", ",
   dash_vs_previous: "vs previous period",
   dash_change_up: "Up {percent}% on the previous period",
   dash_change_down: "Down {percent}% on the previous period",
@@ -2526,7 +2530,7 @@ export const en: Record<ZhKey, string> = {
   dash_repeat_rate: "Repeat purchase rate",
   dash_subscribers: "Email subscribers",
   dash_repeat_hint:
-    "Repeat rate = customers with 2+ valid orders ÷ customers with any valid order",
+    "Repeat rate = customers who ordered in the period and have 2+ valid orders in total ÷ customers who ordered in the period",
   dash_scheduled: "Scheduled content",
   dash_scheduled_empty: "Nothing is scheduled",
   dash_kind_homepage_version: "Homepage version",
@@ -2551,7 +2555,7 @@ export const en: Record<ZhKey, string> = {
   dash_attention_awaiting_fulfillment: "Orders waiting for fulfillment",
   dash_attention_cod_to_confirm: "COD orders needing confirmation",
   dash_attention_failed_payments: "Failed payments",
-  dash_attention_failed_payments_hint: "Filter the list by payment status inside the order view.",
+  dash_attention_failed_payments_hint: "Opens the order list filtered to failed payments.",
   dash_attention_refunds_after_sales: "Refunded / after-sales orders",
   dash_attention_refunds_after_sales_hint:
     "Refunds are recorded as a payment status; there is no partial refund amount.",

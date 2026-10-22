@@ -10,6 +10,7 @@ import {
   revalidateCache,
 } from '../../common/revalidation.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
+import { manilaDayEndExclusive, manilaDayStart } from '../../common/manila-day.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomerRiskService, type CustomerClassification } from './customer-risk.service.js';
@@ -963,8 +964,13 @@ export class OrdersService {
       where.orderStatus =
         query.status.length === 1 ? query.status[0]! : { in: query.status };
     }
+    if (query.paymentStatus) {
+      where.paymentStatus =
+        query.paymentStatus.length === 1
+          ? query.paymentStatus[0]!
+          : { in: query.paymentStatus };
+    }
     if (query.classification) where.customerClassification = query.classification;
-    if (query.confirmation) where.confirmationStatus = query.confirmation;
     if (query.confirmation) where.confirmationStatus = query.confirmation;
     if (query.assignedTo) where.assignedToId = query.assignedTo;
     if (query.risk) {
@@ -978,9 +984,13 @@ export class OrdersService {
       ];
     }
     if (query.dateFrom || query.dateTo) {
+      // From/To are Manila calendar days — the day the operator lives in — and
+      // the window is half-open, so an order placed at 00:30 Manila belongs to
+      // that Manila day. The dashboard counts the same days, which is what
+      // makes a tile's drill-down land on exactly the orders it counted.
       where.createdAt = {
-        gte: query.dateFrom ? new Date(`${query.dateFrom}T00:00:00Z`) : undefined,
-        lte: query.dateTo ? new Date(`${query.dateTo}T23:59:59Z`) : undefined,
+        gte: query.dateFrom ? manilaDayStart(query.dateFrom) : undefined,
+        lt: query.dateTo ? manilaDayEndExclusive(query.dateTo) : undefined,
       };
     }
 

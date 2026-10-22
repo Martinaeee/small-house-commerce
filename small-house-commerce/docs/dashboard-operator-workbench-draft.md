@@ -59,14 +59,14 @@ Code: `backend/src/modules/dashboard/dashboard-metrics.ts` (pure functions, unit
 | AOV | Net Sales ÷ Orders |
 | Conversion Rate | Sessions that placed an order ÷ sessions that visited (a `page_view` event). A later **cancellation does not undo the conversion** — the checkout happened; the cancellation is reported on its own as the cancel rate. Mixing the two would make the funnel contradict itself |
 | Refund Rate | Orders whose payment status is refunded ÷ valid orders (count basis — the schema stores refund *state*, not amount) |
-| Estimated Gross Profit | Net Sales − product cost − shipping cost − payment fees. **Withheld** (`N/A` + "Cost data incomplete") until every order line carries a cost snapshot; the missing pieces (`PRODUCT_COST`, `SHIPPING_COST`, `PAYMENT_FEE`) are reported explicitly |
+| Estimated Gross Profit | Net Sales − product cost − shipping cost − payment fees. **Withheld** (`N/A` + "Cost data incomplete") until every order line carries a cost snapshot. Shipping cost and payment fees are **not recorded by the platform at all**, so the published number is the product-cost margin and the KPI card states the reduced formula next to it (`净销售额 − 商品成本（未含运费、支付手续费）`) instead of promising the full one — see §7 |
 | Est. stockout | Remaining units ÷ average daily units sold over the velocity window. `NO_RECENT_SALES` / `NEW_SKU` / `OUT_OF_STOCK` are reported instead of a number |
 | Signed Rate | Signed orders ÷ **every order created in the period** — cancelled and denied stay in the denominator (BUSINESS_RULES §11, DATABASE.md §71). "Signed" means the order has at least one shipment and **every** shipment is SIGNED with a timestamp (DATABASE.md §69) |
 | Shipping-to-Signed Rate | Signed orders ÷ orders that entered shipping. A different metric, reported separately and never under the signed-rate label (DATABASE.md §73) |
 | Confirmation / Cancel / Denied rate | Confirmed / cancelled / denied orders ÷ every order created in the period |
 | Product revenue | Product line revenue, net of the **order-level discount allocated to the lines in proportion to their amount**, so the column adds up to the period's placed revenue |
 | Product profit | Product revenue − product cost. Published only when **every** line of that product carries a cost snapshot; otherwise `—` with the reason (a partial cost would read as real margin) |
-| New vs returning customer | New = first valid order falls inside the period. Returning = ordered in the period and had ordered before it. Repeat rate = customers with ≥2 valid orders ÷ customers with ≥1 valid order. All three come from the same order query, so they always agree |
+| New vs returning customer | New = first valid order falls inside the period. Returning = ordered in the period and had ordered before it. Repeat rate = customers who ordered **in the period** and have ≥2 valid orders in total ÷ customers who ordered in the period. New + returning = the period's customers = the rate's denominator, so the three numbers always agree and an empty period reports "—" instead of a historical rate |
 
 All time windows are **Asia/Manila calendar days**, converted to half-open UTC
 intervals exactly like the marketing report does, so a day is never counted
@@ -108,6 +108,7 @@ Three grouped reads — the page never fires a request per card.
 | `GET /api/v1/admin/inventory/costs` | Cost backfill grid: every active SKU with its cost, stock and 30-day sales |
 | `PATCH /api/v1/admin/inventory/costs` | Bulk landed/supplier cost write; per-row settled results |
 | `POST /api/v1/storefront/events` | Public first-party event ingest (batched, ≤20 events, rate limited per address) |
+| `GET /api/v1/admin/orders` (drill-down target) | The workbench list. `status` and `paymentStatus` accept a comma-separated set; `dateFrom`/`dateTo` are **Manila calendar days** (`[day 00:00, next day 00:00)` Manila) — the same days the dashboard counts, so a tile's link lands on exactly the orders it counted |
 
 `range` accepts `TODAY`, `YESTERDAY`, `LAST_7_DAYS`, `LAST_30_DAYS`,
 `THIS_MONTH`, `LAST_MONTH`, `CUSTOM` (+`from`/`to`, `YYYY-MM-DD`).
@@ -149,7 +150,7 @@ The nav entry is hidden from such accounts too.
 | KPIs + period | Open `/admin`, change the period selector; every card changes. Compare with the same range in the Orders list |
 | Sales overview | Chart shows revenue bars + order line; the four totals match the Orders list totals for the range |
 | Needs attention | Each row links to a **filtered** list (e.g. `status=CONFIRMED`), not the plain Orders page |
-| Orders overview | Every tile links to its status filter; counts match the Orders tab counters |
+| Orders overview | Every tile links to its status filter **and to the period's Manila days** (`dateFrom`/`dateTo`); the drill-down list length equals the tile count |
 | Orders by location | Aggregated from the order address snapshot; "Metro Manila" merges the NCR spellings only |
 | Active campaigns | Numbers match `/admin/marketing/compare` for the same range (same report service) |
 | Top products | Revenue per product matches the product report |
@@ -158,7 +159,7 @@ The nav entry is hidden from such accounts too.
 | Products needing attention | Change a threshold env var and reload — the flags change |
 | Inventory alerts | "Est. stockout" shows `--`/reason when there is no recent sales; restock links to the SKU in the inventory list |
 | Homepage performance | Scroll the live homepage, then reload the dashboard; impressions appear per section. Scroll back and forth — the count does not inflate |
-| Customer snapshot | New + returning reconcile with the order count for the range |
+| Customer snapshot | New + returning = the period's customers; the repeat rate divides by that same group, so it moves with the period and is "—" when the period is empty |
 | Scheduled content | Every row comes from a real publish/schedule field (homepage version, section schedule, landing page, promo code) |
 | Recent orders | Rows open the order detail |
 | Quick create | Only entries whose target feature exists are listed |
@@ -180,6 +181,27 @@ The nav entry is hidden from such accounts too.
   landed cost of every SKU in one batch, and orders placed afterwards carry
   the snapshot. Orders placed BEFORE the cost was filled keep their missing
   snapshot — the dashboard never back-fills history.
+- **Shipping cost and payment fees are not recorded anywhere in the schema.**
+  `shipments.shipping_cost` is never written by any code path and there is no
+  COD/gateway fee column. The published gross profit is therefore the
+  **product-cost margin**; the KPI card states the reduced formula next to the
+  number (`净销售额 − 商品成本（未含运费、支付手续费）`) instead of claiming the
+  full one. It is deliberately **not** shown as `N/A`: with the fees
+  structurally unrecorded, a strict `N/A` would blank a requested metric
+  forever. Product cost stays strict — a partially costed period is `N/A`.
+- **"支付失败" is 0 in every environment.** No code path ever writes
+  `payment_status = FAILED` (the platform has COD only), so the backlog card
+  and its drill-down are wired and exact but count nothing until a payment
+  gateway exists. The drill-down filters on the payment status itself
+  (`?paymentStatus=FAILED`) and lists every order status the card counted, so
+  the list length equals the card.
+- **Two backlog drill-downs stay approximate** (they were, and still are,
+  approximations rather than exact filters): "待付款" counts orders with a
+  pending payment under any live status, while its link lists five order
+  statuses; "退款 / 售后" counts refunded **or** after-sales orders, while its
+  link can only show the after-sales half — the order list filters by
+  inclusion, so an `OR` cannot be expressed. The two cards this round fixed
+  (the order tiles and failed payments) are exact.
 - **Order-level discounts are allocated, not stored per line.** The dashboard
   splits `discountTotal` across the order's lines in proportion to their
   amount so the product revenue column reconciles with the period total.
@@ -277,4 +299,56 @@ products, the anomaly card was filled with them and the conversion,
 cancellation and refund findings never surfaced. The card now takes the
 rows round by round, so every detected issue type gets a slot before any
 type is repeated.
+
+---
+
+## 10. 验收记录（第三轮：四个已知问题）
+
+Four defects that the second round left open were fixed with tests first.
+
+### 10.1 What changed
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | The order tiles' drill-down carried the **UTC date of the window's start instant** (`dateFrom=2026-08-31` for the September window) | `orderTiles()` now uses the window's own Manila days (`window.fromDate` / `window.toDate`), and the order list reads its `dateFrom`/`dateTo` as Manila calendar days (`[day 00:00, next day 00:00)` Manila) so the drill-down set equals the tile count |
+| 2 | Repeat purchase rate was a **lifetime** rate: the denominator was every customer who ever ordered, so an empty period still showed a historical rate | The snapshot is scoped to the period: denominator = customers who ordered in it (new + returning), numerator = those with ≥2 valid orders in total. An empty period now reports "—" |
+| 3 | The "failed payments" card linked to `?status=NEW,PENDING,CONFIRMED,SHIPPING` — a filter unrelated to the count | The order list accepts `paymentStatus` (comma-separated set) and shows it as an active **Payment** control; the card links `?paymentStatus=FAILED&status=<every status the card kept>` so the list length equals the card |
+| 4 | The gross-profit KPI showed a number while its hint promised the full formula (shipping and payment fees are subtracted, but neither is recorded) | The KPI card states the formula it actually applied (`净销售额 − 商品成本（未含运费、支付手续费）`) and the API carries `partial: true`. Product cost stays strict (`N/A` while a line has no snapshot) |
+
+### 10.2 Evidence
+
+**Tests (all written before the fix, watched failing first)**
+
+| Suite | Result |
+|---|---|
+| Backend `vitest run` | 129 files · 1628 tests passed (11 integration files skipped without their database) |
+| Backend dashboard integration spec on a dedicated `small_house_dashboard_dev` database (55 migrations applied) | 4/4 passed — period-scoped customer snapshot, Manila-day order filter, payment-status filter, tile links |
+| Frontend `vitest run` | 227 files · 2216 tests passed |
+| `tsc --noEmit` (both packages) · `oxlint` · `eslint` | clean (2 pre-existing warnings in files this round did not touch) |
+
+**Real data (`small_house_real`, 15 orders, 11 customers)**
+
+| Check | Result |
+|---|---|
+| September window, dashboard vs the order list's date filter | 15 orders either way — all real orders were placed between 11:07 and 23:29 Manila, so the old 8-hour skew was latent, not visible on this data |
+| Customer snapshot, September | 11 new · 0 returning · 1 repeat · 11 period customers → 9.09% (identical to the old query on this data, because every customer ordered in September) |
+| Customer snapshot, **empty window (May 2026)** | new: **0 period customers → rate "—"**; the old query reported 11 customers and 9.09% for a month with **zero** orders — the reported bug, reproduced and fixed |
+| `payment_status` distribution | 15 × `COD_PENDING`, **no `FAILED`** — the card is wired and exact but counts 0 until a gateway exists |
+| Order timestamps | 11:07 → 23:29 Manila; none in the 00:00–08:00 band where a UTC-day filter would have skewed the drill-down |
+
+### 10.3 Behaviour changes to report
+
+- **The admin order list's From/To inputs are now Manila calendar days.** They
+  were UTC days, which put an order placed at 00:30 Manila on the previous
+  day and dropped the last second of a day (`lte 23:59:59Z`). Landing pages,
+  the marketing report and the dashboard already used Manila days; the order
+  list was the only outlier.
+- **The order list gained a "Payment" filter** (and a `paymentStatus` query
+  parameter). Without a visible control the dashboard's drill-down would have
+  applied an invisible filter.
+- **`customerSnapshot.totalCustomers` was renamed to `periodCustomers`** and now
+  counts the period's customers. The field was not rendered anywhere; the new
+  name says what it is.
+- **`grossProfit` gained `partial`** (and the KPI carries it), so the interface
+  can tell a reduced formula from the full one.
 

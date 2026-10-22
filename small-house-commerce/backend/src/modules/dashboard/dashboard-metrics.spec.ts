@@ -165,6 +165,30 @@ describe('grossProfit', () => {
     });
     expect(result.missing).toEqual(['SHIPPING_COST', 'PAYMENT_FEE']);
   });
+
+  it('marks a published profit as partial while a cost input is missing', () => {
+    const partial = grossProfit(1000, {
+      productCost: 400,
+      shippingCost: 0,
+      paymentFee: 0,
+      itemLines: 1,
+      costedItemLines: 1,
+    });
+    // The number is still published (it is real), but it must say that it is
+    // not the full formula.
+    expect(partial.value).toBe(600);
+    expect(partial.partial).toBe(true);
+
+    const complete = grossProfit(1000, {
+      productCost: 400,
+      shippingCost: 50,
+      paymentFee: 10,
+      itemLines: 1,
+      costedItemLines: 1,
+    });
+    expect(complete.value).toBe(540);
+    expect(complete.partial).toBe(false);
+  });
 });
 
 describe('percentChange', () => {

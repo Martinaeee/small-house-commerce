@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutSchema } from './order.dto.js';
+import { checkoutSchema, orderQuerySchema } from './order.dto.js';
 
 const SKU = '66666666-6666-4666-a666-666666666666';
 const base = {
@@ -58,5 +58,24 @@ describe('checkoutSchema customer note', () => {
     expect(checkoutSchema.safeParse({ ...base, customerNote: { text: 'x' } }).success).toBe(
       false,
     );
+  });
+});
+
+describe('orderQuerySchema payment status filter', () => {
+  it('parses a single status and a comma-separated set', () => {
+    expect(orderQuerySchema.parse({ paymentStatus: 'FAILED' }).paymentStatus).toEqual([
+      'FAILED',
+    ]);
+    expect(
+      orderQuerySchema.parse({ paymentStatus: 'FAILED, REFUNDED' }).paymentStatus,
+    ).toEqual(['FAILED', 'REFUNDED']);
+  });
+
+  it('rejects an unknown status instead of silently ignoring it', () => {
+    expect(orderQuerySchema.safeParse({ paymentStatus: 'NOPE' }).success).toBe(false);
+  });
+
+  it('leaves the filter out when it was not asked for', () => {
+    expect(orderQuerySchema.parse({}).paymentStatus).toBeUndefined();
   });
 });
