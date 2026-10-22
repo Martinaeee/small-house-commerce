@@ -127,3 +127,40 @@ Modelled on `/root/release-hero-links.sh`:
 3. If the database needs to go back: restore the `pg_dump` from the backup
    directory. The dashboard migration is additive, so leaving it in place is
    harmless — a rolled-back container does not read it.
+
+---
+
+## 8. What was deployed (2026-10-22T075243Z)
+
+| | |
+|---|---|
+| Box HEAD | `6cb0dd5` → **`3872227`** (the reviewed SHA; the script refuses to move otherwise) |
+| Migrations | 57 → **58** — one additive migration (`20261021090000_add_dashboard_analytics`) |
+| `analytics_events` | present, 0 rows (the storefront has not sent traffic since the release) |
+| Containers | backend/frontend/db healthy, **restart count 0** on all four; caddy untouched (13 days) |
+| Backend log | no error, exception or fatal line in the 20 minutes after the restart |
+| HTTP | `/` 200 · `/about` 200 · `/api/v1/storefront/homepage` 200 · `/admin/login` 200 · `/admin` 200 |
+| Dashboard API | `/api/v1/admin/dashboard/{overview,products,marketing}` → **401** (the routes are live and guarded) |
+| Backup | `/root/deploy-backups/dashboard-20261022T075243Z/pre-dashboard.dump` (339,693 B) + `backup.sha256`, plus the before/after table fingerprints, `base-head.txt`, `build.log` and `containers-after.txt` |
+| Rollback images | `small-house-prod-backend:rollback-pre-dashboard-20261022T075243Z`, `small-house-prod-frontend:rollback-pre-dashboard-20261022T075243Z` |
+
+**Fingerprint diff** — four lines, all explained:
+
+| Table | Why |
+|---|---|
+| `_prisma_migrations` | one more applied migration |
+| `analytics_events` | new, empty |
+| `orders` | the new nullable `tracking_session_id` column is part of every row's text |
+| `homepage_documents` | **not the deploy**: the row's `draftUpdatedById` is the production admin account, and its `draftRev` kept climbing (365 → 367 → 370) while the release was running — an operator was editing the homepage draft in the browser. The **published** document (the one the storefront renders) did not change, so the live site is unaffected. |
+
+**Production numbers the dashboard now shows** (read straight from the
+production database with the service's own SQL, Manila September window
+2026-09-01 → 2026-09-30): net sales ₱1,047.00 · 3 valid orders of 4 created ·
+customer snapshot 2 new · 0 returning · 1 repeat of 2 period customers (50%) ·
+tiles: 0 to fulfil · 3 awaiting payment · 3 processing · 1 cancelled · 0 failed
+payments · 4 orders in the period.
+
+The production admin account is `admin@luwag.shop`; its password was not used
+during the release, so the dashboard's own acceptance numbers were read from
+the database rather than through a logged-in browser session.
+
