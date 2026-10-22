@@ -96,6 +96,15 @@ import { BundlesService } from './bundles.service.js';
     SharedFaqService,
     QuestionsService,
   ],
-  exports: [ReviewsService, ProductsService, SharedFaqService, MarketingTouchService],
+  // MarketingReportService is exported for the operator dashboard: the
+  // campaign card must use the very same report service the marketing surface
+  // uses, so the two can never disagree.
+  exports: [
+    ReviewsService,
+    ProductsService,
+    SharedFaqService,
+    MarketingTouchService,
+    MarketingReportService,
+  ],
 })
 export class CatalogModule {}
