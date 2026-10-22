@@ -103,6 +103,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     streetAddress: "",
     landmark: "",
     preferredDeliveryDate: defaultPreferredDeliveryDate(),
+    notes: "",
   });
 
   // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
@@ -163,6 +164,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           ...f,
           ...d.customer,
           preferredDeliveryDate: d.preferredDeliveryDate ?? "",
+          notes: d.customerNote ?? "",
         }));
         setInitialPromoCode(d.promoCode ?? "");
       }
@@ -385,7 +387,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null);
+    }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
     router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
@@ -502,77 +504,35 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           </div>
         </div>
 
-        {/* 2. Contact information — existing <section> card moved here verbatim */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-1">
-          <section className="rounded-lg border border-border bg-card p-5">
-            <h2 className="mb-4 text-lg font-semibold text-ink">Contact Information</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                Full Name *
-                <input
-                  id="checkout-name"
-                  className={`${inputCls}${errors.name ? " border-sale" : ""}`}
-                  value={form.name}
-                  onChange={set("name")}
-                  onBlur={revalidate("name")}
-                  aria-invalid={Boolean(errors.name)}
-                  aria-describedby={errors.name ? "checkout-name-error" : undefined}
-                  placeholder="Juan Dela Cruz"
-                />
-                <FieldError id="checkout-name" message={errors.name} />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium text-ink">
-                Mobile Number *
-                <input
-                  id="checkout-phone"
-                  className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
-                  value={form.phone}
-                  onChange={set("phone")}
-                  onBlur={revalidate("phone")}
-                  aria-invalid={Boolean(errors.phone)}
-                  aria-describedby={errors.phone ? "checkout-phone-error" : undefined}
-                  placeholder="0917 123 4567"
-                  inputMode="tel"
-                  autoComplete="tel"
-                />
-                <FieldError id="checkout-phone" message={errors.phone} />
-              </label>
-            </div>
-            <p className="mt-2 text-xs text-ink-muted">
-              We use your mobile number for delivery updates.
-            </p>
-          </section>
-        </div>
-
-        {/* 3. Delivery address — existing <section> card moved here verbatim */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-2">
-          <section className="rounded-lg border border-border bg-card p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-ink">Delivery Address</h2>
+        {/* 2. Delivery information — ONE compact card for who, where and the
+            shopper's note. It used to be two cards with their own headers and
+            padding, which made the form tall and repetitive. */}
+        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-1 lg:row-span-2">
+          <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-ink">Delivery information</h2>
               <button
                 type="button"
                 data-testid="use-my-location"
                 onClick={handleUseMyLocation}
                 disabled={locating}
-                className="text-sm font-medium text-cta hover:underline disabled:opacity-60"
+                className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-cta hover:underline disabled:opacity-60"
               >
-                <span className="inline-flex items-center gap-1.5">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"
-                      strokeLinejoin="round"
-                    />
-                    <circle cx="12" cy="10" r="2.5" />
-                  </svg>
-                  {locating ? "Locating…" : "Use my location"}
-                </span>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="10" r="2.5" />
+                </svg>
+                {locating ? "Locating…" : "Use my location"}
               </button>
             </div>
             {locationError && (
@@ -593,7 +553,37 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 {locationNotice}
               </p>
             )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+                Full Name *
+                <input
+                  id="checkout-name"
+                  className={`${inputCls}${errors.name ? " border-sale" : ""}`}
+                  value={form.name}
+                  onChange={set("name")}
+                  onBlur={revalidate("name")}
+                  aria-invalid={Boolean(errors.name)}
+                  aria-describedby={errors.name ? "checkout-name-error" : undefined}
+                  placeholder="Juan Dela Cruz"
+                />
+                <FieldError id="checkout-name" message={errors.name} />
+              </label>
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+                Mobile Number *
+                <input
+                  id="checkout-phone"
+                  className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
+                  value={form.phone}
+                  onChange={set("phone")}
+                  onBlur={revalidate("phone")}
+                  aria-invalid={Boolean(errors.phone)}
+                  aria-describedby={errors.phone ? "checkout-phone-error" : undefined}
+                  placeholder="0917 123 4567"
+                  inputMode="tel"
+                  autoComplete="tel"
+                />
+                <FieldError id="checkout-phone" message={errors.phone} />
+              </label>
               <PsgcAddressSelects
                 province={form.province}
                 city={form.city}
@@ -606,7 +596,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 inputCls={inputCls}
               />
               <div className="flex flex-col gap-1">
-                <label className="flex flex-col gap-1 text-sm font-medium text-ink">
+                <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                   Postal Code
                   <input
                     id="checkout-postal-code"
@@ -656,7 +646,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   </span>
                 ) : null}
               </div>
-              <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
+              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Full Address *
                 <input
                   id="checkout-address"
@@ -672,11 +662,16 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 />
                 <FieldError id="checkout-address" message={errors.streetAddress} />
               </label>
-              <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
-                Landmark
-                <input className={inputCls} value={form.landmark} onChange={set("landmark")} placeholder="Near…" />
+              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
+                Landmark (Optional)
+                <input
+                  className={inputCls}
+                  value={form.landmark}
+                  onChange={set("landmark")}
+                  placeholder="Nearby building or landmark"
+                />
               </label>
-              <label className="col-span-full flex flex-col gap-1 text-sm font-medium text-ink">
+              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Preferred delivery date (optional)
                 <input
                   id="checkout-preferred-date"
@@ -700,13 +695,29 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               </label>
               <p
                 data-testid="checkout-preferred-date-hint"
-                className="col-span-full -mt-2 text-xs text-ink-muted"
+                className="col-span-full -mt-1 text-xs text-ink-muted"
               >
                 {form.province.trim()
                   ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
                   : "Choose a preferred date (optional)."}
               </p>
-              <p data-testid="checkout-privacy-note" className="col-span-full mt-3 text-xs text-ink-secondary">
+              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
+                Order Notes (Optional)
+                <textarea
+                  id="checkout-notes"
+                  data-testid="checkout-notes"
+                  className={`${inputCls} resize-y`}
+                  rows={2}
+                  maxLength={200}
+                  value={form.notes}
+                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+                />
+                <span className="text-xs font-normal text-ink-muted">
+                  We&apos;ll do our best to accommodate your request.
+                </span>
+              </label>
+              <p data-testid="checkout-privacy-note" className="col-span-full text-xs text-ink-secondary">
                 Your information is used only to process and deliver your order.
               </p>
             </div>

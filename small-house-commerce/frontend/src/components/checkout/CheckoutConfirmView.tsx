@@ -181,6 +181,7 @@ export function CheckoutConfirmView({
         attribution: { sourceType: "ORGANIC" },
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
         promoCode: appliedPromo?.code ?? null,
+        customerNote: draft.customerNote ?? null,
       };
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
@@ -390,6 +391,11 @@ export function CheckoutConfirmView({
             {draft.preferredDeliveryDate ? (
               <p className="mt-3 text-sm text-ink-secondary" data-testid="confirm-preferred-date">
                 {`Preferred delivery date: ${formatPreferredDate(draft.preferredDeliveryDate)}`}
+              </p>
+            ) : null}
+            {draft.customerNote ? (
+              <p className="mt-3 text-sm text-ink-secondary" data-testid="confirm-notes">
+                {`Order notes: ${draft.customerNote}`}
               </p>
             ) : null}
             {draft.customer.streetAddress && draft.customer.city && draft.customer.province ? (

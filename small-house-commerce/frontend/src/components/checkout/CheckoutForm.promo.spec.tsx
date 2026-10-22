@@ -117,6 +117,7 @@ describe("CheckoutForm promo code", () => {
       expect.any(String),
       undefined,
       "SAVE10",
+      null,
     );
     expect(routerMock.push).toHaveBeenCalledWith(
       "/checkout/confirm?items=item-1",
@@ -152,6 +153,50 @@ describe("CheckoutForm promo code", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(review).toBeEnabled());
+  });
+});
+
+describe("CheckoutForm order notes", () => {
+  it("carries the trimmed order note into the checkout draft", async () => {
+    const user = userEvent.setup();
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await user.type(
+      screen.getByTestId("checkout-notes"),
+      "  Please call before delivery  ",
+    );
+    await user.click(screen.getByTestId("review-order"));
+
+    expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      undefined,
+      null,
+      "Please call before delivery",
+    );
+  });
+
+  it("keeps the note optional: a blank note becomes null", async () => {
+    const user = userEvent.setup();
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await user.click(screen.getByTestId("review-order"));
+
+    expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      undefined,
+      null,
+      null,
+    );
+  });
+
+  it("limits the note to the 200 characters the order API accepts", () => {
+    render(<CheckoutForm itemsParam="item-1" />);
+    expect(screen.getByTestId("checkout-notes")).toHaveAttribute(
+      "maxlength",
+      "200",
+    );
   });
 });
 
