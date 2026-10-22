@@ -47,6 +47,10 @@ model NewsletterSubscriber {
 model BackInStockSubscription {
   id          String            @id @default(uuid(7)) @db.Uuid
   email       String
+  /// Optional contact number for follow-up. The alert itself is email only;
+  /// the number lets the shop reach the shopper (call / WhatsApp) when the
+  /// item is back.
+  phone       String?
   skuId       String            @map("sku_id") @db.Uuid
   status      BackInStockStatus @default(PENDING)
   productName String            @map("product_name")

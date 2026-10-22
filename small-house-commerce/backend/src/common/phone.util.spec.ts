@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePhilippinePhone } from './phone.util.js';
+import {
+  normalizeContactPhone,
+  normalizePhilippinePhone,
+} from './phone.util.js';
 
 describe('normalizePhilippinePhone', () => {
   it('normalizes the three formats from DATABASE.md §12 to one identity', () => {
@@ -19,5 +22,26 @@ describe('normalizePhilippinePhone', () => {
     expect(normalizePhilippinePhone('0917123456')).toBeNull();
     expect(normalizePhilippinePhone('+15123456789')).toBeNull();
     expect(normalizePhilippinePhone('')).toBeNull();
+  });
+});
+
+describe('normalizeContactPhone', () => {
+  it('keeps the canonical form for Philippine mobiles', () => {
+    expect(normalizeContactPhone('09171234567')).toBe('+639171234567');
+    expect(normalizeContactPhone('+63 917-123-4567')).toBe('+639171234567');
+  });
+
+  it('keeps other international numbers in a dialable form', () => {
+    expect(normalizeContactPhone('+1 512 345 6789')).toBe('+15123456789');
+  });
+
+  it('drops anything that could never be dialled', () => {
+    expect(normalizeContactPhone('')).toBeNull();
+    expect(normalizeContactPhone('   ')).toBeNull();
+    expect(normalizeContactPhone('12')).toBeNull();
+    expect(normalizeContactPhone('not a number')).toBeNull();
+    expect(normalizeContactPhone('1234567890123456789')).toBeNull();
+    expect(normalizeContactPhone(null)).toBeNull();
+    expect(normalizeContactPhone(undefined)).toBeNull();
   });
 });

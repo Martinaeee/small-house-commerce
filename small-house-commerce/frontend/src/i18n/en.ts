@@ -1601,6 +1601,7 @@ export const en: Record<ZhKey, string> = {
   newsletter_back_in_stock_load_failed: "Could not load back-in-stock alerts.",
   newsletter_back_in_stock_empty: "No back-in-stock alerts match this filter.",
   newsletter_back_in_stock_product: "Product / variant",
+  newsletter_back_in_stock_phone: "Phone",
   newsletter_back_in_stock_sku: "SKU",
   newsletter_back_in_stock_created_at: "Registered",
   newsletter_back_in_stock_notified_at: "Notified",

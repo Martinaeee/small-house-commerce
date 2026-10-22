@@ -7,8 +7,12 @@ import { createInitialPurchaseLines } from "./PdpPurchaseProvider";
 import { resolveSelection } from "@/lib/product-selection";
 import { PdpStickyBuy } from "./PdpStickyBuy";
 
+const { mockSettings } = vi.hoisted(() => ({
+  mockSettings: { backInStockEnabled: true },
+}));
+
 vi.mock("@/components/site/SiteSettingsProvider", () => ({
-  useSiteSettings: () => ({ backInStockEnabled: true }),
+  useSiteSettings: () => ({ backInStockEnabled: mockSettings.backInStockEnabled }),
 }));
 
 const product = {
@@ -151,6 +155,8 @@ function Harness({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  mockSettings.backInStockEnabled = true;
+  window.localStorage.clear();
   document.body.style.paddingBottom = "";
   document.documentElement.style.removeProperty("--sticky-bar-offset");
 });
@@ -259,7 +265,7 @@ describe("PdpStickyBuy", () => {
     ).toBeNull();
   });
 
-  it("subscribes the currently resolved out-of-stock sticky SKU", async () => {
+  it("subscribes the currently resolved out-of-stock sticky SKU from one action", async () => {
     const observer = installIntersectionObserver();
     const outOfStock = {
       ...product,
@@ -282,9 +288,11 @@ describe("PdpStickyBuy", () => {
 
     observer.leave();
 
+    // One action for an unavailable item: no ORDER NOW, no second button.
     expect(screen.queryByTestId("sticky-order-now")).toBeNull();
+    expect(screen.queryByTestId("sticky-add-to-cart")).toBeNull();
     await user.click(
-      screen.getByRole("button", { name: "Notify me when back in stock" }),
+      screen.getByRole("button", { name: "Notify me when available" }),
     );
     await user.type(screen.getByLabelText("Email address"), "sticky@example.com");
     await user.click(screen.getByRole("button", { name: "Notify me" }));
@@ -298,6 +306,29 @@ describe("PdpStickyBuy", () => {
         }),
       }),
     );
+  });
+
+  it("keeps one honest action when the shop cannot save a restock alert", () => {
+    // Without a working alert service the bar must not promise an email it
+    // cannot send: the single action is the cart add instead.
+    mockSettings.backInStockEnabled = false;
+    const observer = installIntersectionObserver();
+    const outOfStock = {
+      ...product,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        sku: variant.sku
+          ? { ...variant.sku, availableInventory: 0 }
+          : null,
+      })),
+    } as Product;
+    render(<Harness value={outOfStock} />);
+
+    observer.leave();
+
+    expect(screen.queryByRole("button", { name: /Notify me/ })).toBeNull();
+    expect(screen.queryByTestId("sticky-order-now")).toBeNull();
+    expect(screen.getByTestId("sticky-add-to-cart")).toBeInTheDocument();
   });
 
   it("keeps the summary and both actions on one row that never scrolls sideways on phones", () => {

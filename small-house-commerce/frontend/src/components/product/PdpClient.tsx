@@ -13,10 +13,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Product, ProductImage } from "@/lib/api";
 import type { ProductMediaScope } from "@/lib/product-media";
 import { loadProductMedia } from "@/lib/product-media";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
-import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
+import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAction";
+import { Toast } from "@/components/ui/Toast";
 import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import {
@@ -188,7 +189,7 @@ export function PdpClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { addItem, openPicker, cart } = useCart();
-  const { supportEmail, supportHours } = useSiteSettings();
+  const { backInStockEnabled } = useSiteSettings();
   const {
     primaryLine,
     primaryDerived,
@@ -200,6 +201,7 @@ export function PdpClient({
   const [busy, setBusy] = useState(false);
   const purchaseBusy = busy || purchaseLocked || preview;
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [gallerySelection, setGallerySelection] = useState({
     scopeKey: "shared",
     index: 0,
@@ -445,7 +447,7 @@ export function PdpClient({
   }, [restoreIntentFocus]);
 
   const executeAddToCart = useCallback(
-    async (opts?: { openDrawer?: boolean }) => {
+    async (opts?: { openDrawer?: boolean; silent?: boolean }) => {
       if (!sku || !resolvedVariant) return;
       setBusy(true);
       setNotice(null);
@@ -454,7 +456,9 @@ export function PdpClient({
         // The drawer option is only passed when it matters, so the ordinary
         // add keeps its original single-argument call.
         await (opts ? addItem(input, opts) : addItem(input));
-        setNotice("Added to cart");
+        // A silent add is confirmed elsewhere (the restock toast), so it does
+        // not also print the inline notice.
+        if (!opts?.silent) setNotice("Added to cart");
         // The add succeeded: exactly one variant_confirm + AddToCart pair,
         // both keyed by the final SKU. A failed add emits nothing.
         // Out-of-stock save-for-later adds intentionally keep firing this
@@ -492,15 +496,24 @@ export function PdpClient({
    * A restock alert is how a shopper keeps an unavailable item: the alert and
    * the saved cart line are one action. The line is only added when it is not
    * already in the cart, so a shopper who added it first does not end up
-   * holding two of them. The drawer stays closed — the alert dialog is still
-   * open on top of it.
+   * holding two of them. The drawer stays closed — the toast is the
+   * confirmation.
    */
   const keepOutOfStockItemInCart = useCallback(async () => {
     if (!sku) return;
     const alreadySaved = cart?.items.some((item) => item.skuId === sku.id) ?? false;
     if (alreadySaved) return;
-    await executeAddToCart({ openDrawer: false });
+    await executeAddToCart({ openDrawer: false, silent: true });
   }, [cart, executeAddToCart, sku]);
+
+  /**
+   * The alert is saved: the item goes into the cart and the shopper is told
+   * what happens next.
+   */
+  const handleRestockSaved = useCallback(async () => {
+    await keepOutOfStockItemInCart();
+    setToast("We’ll notify you when it’s back in stock.");
+  }, [keepOutOfStockItemInCart]);
 
   const executeOrderNow = useCallback(() => {
     if (!sku || sku.availableInventory <= 0) {
@@ -622,13 +635,6 @@ export function PdpClient({
     : lowStock
       ? `Only ${available} left`
       : null;
-  const variantSuffix =
-    displayVariant && product.variants.length > 1
-      ? ` — ${displayVariant.name}`
-      : "";
-  const restockHref = `mailto:${supportEmail}?subject=${encodeURIComponent(
-    `Restock request: ${product.name}${variantSuffix}`,
-  )}`;
   const overlayOpen =
     lightboxIndex !== null || detailsOpen || pendingIntent !== null;
   const ratingRow =
@@ -797,17 +803,33 @@ export function PdpClient({
                 ORDER NOW
               </Button>
             )}
-            <Button
-              variant={resolvedOutOfStock ? "primary" : "secondary"}
-              onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
-              disabled={purchaseBusy || selectableCount === 0}
-              // The secondary label is the longer of the two, so it takes a
-              // slightly larger share of the phone row and stays on one line.
-              className="min-w-0! flex-[1.2] whitespace-nowrap px-2 text-[13px] leading-tight sm:min-w-[120px]! sm:flex-1 sm:px-5 sm:text-sm lg:text-base"
-              data-testid="add-to-cart"
-            >
-              ADD TO CART
-            </Button>
+            {resolvedOutOfStock && sku && !preview && backInStockEnabled ? (
+              // One action for an unavailable item: register the restock
+              // alert and keep the item saved. The alert service is only
+              // offered when it can actually save one, so the button never
+              // promises an email the shop cannot send.
+              <RestockNotifyAction
+                skuId={sku.id}
+                productName={product.name}
+                label="Notify me when available"
+                variant="primary"
+                className="min-w-0! flex-1 whitespace-nowrap px-2 text-[13px] leading-tight sm:min-w-[120px]! sm:px-5 sm:text-sm lg:text-base"
+                onSaved={handleRestockSaved}
+                data-testid="notify-me"
+              />
+            ) : (
+              <Button
+                variant={resolvedOutOfStock ? "primary" : "secondary"}
+                onClick={(event) => requestIntent("ADD_TO_CART", event.currentTarget)}
+                disabled={purchaseBusy || selectableCount === 0}
+                // The secondary label is the longer of the two, so it takes a
+                // slightly larger share of the phone row and stays on one line.
+                className="min-w-0! flex-[1.2] whitespace-nowrap px-2 text-[13px] leading-tight sm:min-w-[120px]! sm:flex-1 sm:px-5 sm:text-sm lg:text-base"
+                data-testid="add-to-cart"
+              >
+                ADD TO CART
+              </Button>
+            )}
           </div>
 
           <div
@@ -840,29 +862,6 @@ export function PdpClient({
             </ul>
           </div>
 
-          {resolvedOutOfStock && (
-            <div className="rounded-lg border border-border bg-background p-4" data-testid="oos-contact">
-              <p className="text-sm font-semibold text-ink">Currently out of stock</p>
-              <p className="mt-1 text-sm text-ink-secondary">
-                You can still add it to your cart to save it — checkout stays unavailable until
-                the item is restocked — or email us to ask about restocking or a special order.
-              </p>
-              {!preview && sku ? (
-                <div className="mt-3">
-                  <BackInStockTrigger
-                    skuId={sku.id}
-                    productName={product.name}
-                    onSubscribed={() => void keepOutOfStockItemInCart()}
-                  />
-                </div>
-              ) : null}
-              <ButtonLink href={restockHref} size="md" variant="secondary" className="mt-3" data-testid="contact-restock">
-                Contact us to order
-              </ButtonLink>
-              <p className="mt-2 text-xs text-ink-muted">{supportEmail} · {supportHours}</p>
-            </div>
-          )}
-
           {notice && (
             <p role="status" className="rounded-lg border border-primary bg-primary-light/40 px-3 py-2 text-sm text-cta">
               {notice}
@@ -870,6 +869,8 @@ export function PdpClient({
           )}
         </div>
       </div>
+
+      <Toast message={toast} onDismiss={() => setToast(null)} />
 
       {lightboxIndex !== null && galleryImages.length > 0 && (
         <ProductLightbox
@@ -904,7 +905,7 @@ export function PdpClient({
             setQuantity(primaryLine.clientLineId, quantity)
           }
           onIntent={requestIntent}
-          onNotifySubscribed={() => void keepOutOfStockItemInCart()}
+          onRestockSaved={handleRestockSaved}
         />
       ) : null}
     </>

@@ -1270,10 +1270,11 @@ describe("PDP option confirmation and deep links", () => {
 
     // A later mutation flows into the next picker opening — the drawer is
     // never pre-set to a stale combination.
+    await user.click(screen.getByRole("button", { name: "Blue" }));
     await user.click(screen.getByRole("button", { name: "Large" }));
     await user.click(screen.getByTestId("add-to-cart"));
     expect(cart.openPicker).toHaveBeenLastCalledWith(product, {
-      initialVariantId: "red-large",
+      initialVariantId: "blue-large",
       initialQuantity: 1,
       intent: "ADD_TO_CART",
     });
@@ -1284,7 +1285,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(cart.addItem).not.toHaveBeenCalled();
   });
 
-  it("routes an out-of-stock combination through the drawer for save-for-later and hides Order Now", async () => {
+  it("offers one merged action for an out-of-stock combination and hides Order Now", async () => {
     const user = userEvent.setup();
     renderPdp();
 
@@ -1292,16 +1293,18 @@ describe("PDP option confirmation and deep links", () => {
     await user.click(screen.getByRole("button", { name: "Large" }));
     expect(screen.getByTestId("stock-state")).toHaveTextContent("Out of Stock");
 
-    // The drawer picker allows adding an out-of-stock combination (save for
-    // later); the PDP never adds it silently.
-    await user.click(screen.getByTestId("add-to-cart"));
-    expect(cart.openPicker).toHaveBeenCalledWith(product, {
-      initialVariantId: "red-large",
-      initialQuantity: 1,
-      intent: "ADD_TO_CART",
-    });
-    expect(cart.addItem).not.toHaveBeenCalled();
+    // An unavailable item has one entry: the restock alert that also keeps
+    // the item saved. There is no second add-to-cart button next to it.
     expect(screen.queryByTestId("order-now")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("add-to-cart")).not.toBeInTheDocument();
+    const notify = screen.getByTestId("notify-me");
+    expect(notify).toHaveTextContent("Notify me when available");
+
+    // It asks for the contact first; the item is only saved once the alert
+    // is registered.
+    await user.click(notify);
+    expect(cart.openPicker).not.toHaveBeenCalled();
+    expect(cart.addItem).not.toHaveBeenCalled();
     expect(navigation.push).not.toHaveBeenCalledWith(
       expect.stringContaining("/checkout"),
       expect.anything(),
@@ -1832,6 +1835,24 @@ describe("browser history navigation", () => {
 });
 
 describe("PDP restock alert", () => {
+  it("drops the separate out-of-stock card and its contact link", () => {
+    const outOfStock: Product = {
+      ...product,
+      variants: product.variants.map((variant) =>
+        variant.id === "red-small" && variant.sku
+          ? { ...variant, sku: { ...variant.sku, availableInventory: 0 } }
+          : variant,
+      ),
+    };
+    renderPdp({ item: outOfStock, variantId: "red-small" });
+
+    // The purchase area keeps one action and no wall of small print.
+    expect(screen.queryByText("Currently out of stock")).not.toBeInTheDocument();
+    expect(screen.queryByText("Contact us to order")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oos-contact")).not.toBeInTheDocument();
+    expect(screen.getByTestId("notify-me")).toBeInTheDocument();
+  });
+
   it("keeps the item in the cart when the shopper registers a restock alert", async () => {
     const outOfStock: Product = {
       ...product,
@@ -1850,16 +1871,16 @@ describe("PDP restock alert", () => {
     const user = userEvent.setup();
     renderPdp({ item: outOfStock, variantId: "red-small" });
 
-    await user.click(
-      screen.getByRole("button", { name: "Notify me when back in stock" }),
-    );
+    await user.click(screen.getByTestId("notify-me"));
     await user.type(
       screen.getByRole("textbox", { name: "Email address" }),
       "shopper@example.com",
     );
     await user.click(screen.getByRole("button", { name: "Notify me" }));
 
-    expect(await screen.findByText(/also in your cart/)).toBeVisible();
+    expect(await screen.findByTestId("storefront-toast")).toHaveTextContent(
+      "We’ll notify you when it’s back in stock.",
+    );
     expect(submit).toHaveBeenCalledWith(
       "/api/v1/storefront/back-in-stock",
       expect.objectContaining({
@@ -1873,7 +1894,7 @@ describe("PDP restock alert", () => {
     expect(cart.addItem).toHaveBeenCalledTimes(1);
     expect(cart.addItem).toHaveBeenCalledWith(
       { skuId: "sku-red-small", quantity: 1 },
-      { openDrawer: false },
+      { openDrawer: false, silent: true },
     );
   });
 });

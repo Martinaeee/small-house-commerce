@@ -17,10 +17,25 @@ describe('back-in-stock DTO schemas', () => {
     ).toEqual({ email: 'Shopper@Example.com', skuId: SKU_ID });
   });
 
+  it('accepts an optional contact number and keeps it trimmed', () => {
+    expect(
+      backInStockSubscribeSchema.parse({
+        email: 'shopper@example.com',
+        skuId: SKU_ID,
+        phone: '  09171234567  ',
+      }),
+    ).toEqual({
+      email: 'shopper@example.com',
+      skuId: SKU_ID,
+      phone: '09171234567',
+    });
+  });
+
   it.each([
     { email: 'not-an-email', skuId: SKU_ID },
     { email: 'a@b.com', skuId: 'not-a-uuid' },
     { email: `${'a'.repeat(200)}@b.com`, skuId: SKU_ID },
+    { email: 'a@b.com', skuId: SKU_ID, phone: '1'.repeat(33) },
   ])('rejects invalid subscribe input %#', (input) => {
     expect(backInStockSubscribeSchema.safeParse(input).success).toBe(false);
   });

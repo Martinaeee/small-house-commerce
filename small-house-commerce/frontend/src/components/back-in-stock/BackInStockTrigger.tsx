@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { BackInStockDialog } from "./BackInStockDialog";
+import { writeRestockContact, type RestockContact } from "./restock-contact";
 
 export interface BackInStockTriggerProps {
   skuId: string;
@@ -14,7 +15,7 @@ export interface BackInStockTriggerProps {
    * Called once the alert is saved, so the surface can also keep the item in
    * the shopper's cart.
    */
-  onSubscribed?: () => void;
+  onSubscribed?: (contact: RestockContact) => void;
 }
 
 export function BackInStockTrigger({
@@ -51,7 +52,13 @@ export function BackInStockTrigger({
               skuId={skuId}
               productName={productName}
               onClose={() => setOpenSkuId(null)}
-              onSubscribed={onSubscribed}
+              keepsInCart={onSubscribed !== undefined}
+              onSubscribed={(contact) => {
+                // Remember the contact so the next alert on this browser is a
+                // single click.
+                writeRestockContact(contact);
+                onSubscribed?.(contact);
+              }}
               returnFocusRef={triggerRef}
             />,
             document.body,

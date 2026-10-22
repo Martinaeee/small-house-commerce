@@ -7,6 +7,11 @@ import {
   type FormEvent,
   type RefObject,
 } from "react";
+import {
+  normalizeContactPhone,
+  subscribeToRestockAlert,
+  type RestockContact,
+} from "./restock-contact";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FOCUSABLE =
@@ -23,11 +28,26 @@ export interface BackInStockDialogProps {
   productName: string;
   onClose(): void;
   /**
-   * Called once the alert is saved. The PDP passes its add-to-cart action so
-   * one click both registers the restock alert and keeps the item saved in
-   * the cart until it is back.
+   * Called once the alert is saved, with the contact the shopper gave us.
+   * The PDP uses it to keep the item in the cart, so one click covers both
+   * wishes.
    */
-  onSubscribed?: () => void;
+  onSubscribed?: (contact: RestockContact) => void;
+  /**
+   * True when the surface also keeps the item in the cart, so the copy may
+   * say so. It is never promised without the cart add behind it.
+   */
+  keepsInCart?: boolean;
+  /**
+   * Closes the dialog as soon as the alert is saved instead of showing the
+   * success panel. The page shows its own confirmation (a toast) then.
+   */
+  dismissOnSuccess?: boolean;
+  /** Pre-fills the contact from a previous alert. */
+  initialEmail?: string;
+  initialPhone?: string | null;
+  /** Shown before the shopper types anything (a failed retry, for example). */
+  initialError?: string | null;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
@@ -36,10 +56,18 @@ export function BackInStockDialog({
   productName,
   onClose,
   onSubscribed,
+  keepsInCart = false,
+  dismissOnSuccess = false,
+  initialEmail = "",
+  initialPhone = null,
+  initialError = null,
   returnFocusRef,
 }: BackInStockDialogProps) {
-  const [email, setEmail] = useState("");
-  const [state, setState] = useState<DialogState>({ status: "idle" });
+  const [email, setEmail] = useState(initialEmail);
+  const [phone, setPhone] = useState(initialPhone ?? "");
+  const [state, setState] = useState<DialogState>(
+    initialError ? { status: "error", message: initialError } : { status: "idle" },
+  );
   const panelRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const requestLocked = useRef(false);
@@ -91,22 +119,37 @@ export function BackInStockDialog({
       setState({ status: "error", message: "Please enter a valid email." });
       return;
     }
+    const phoneValue = phone.trim();
+    if (phoneValue !== "" && normalizeContactPhone(phoneValue) === null) {
+      setState({
+        status: "error",
+        message: "Please enter a valid phone number, or leave it empty.",
+      });
+      return;
+    }
 
     requestLocked.current = true;
     setState({ status: "busy" });
     try {
-      const response = await fetch("/api/v1/storefront/back-in-stock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: value, skuId }),
+      await subscribeToRestockAlert({
+        skuId,
+        email: value,
+        phone: phoneValue === "" ? null : phoneValue,
       });
-      if (!response.ok) throw new Error(String(response.status));
-      if (alive.current) {
-        setState({ status: "success" });
-        // The alert is saved: hand the item to the caller's cart action so
-        // one click covers both wishes.
-        onSubscribed?.();
+      if (!alive.current) return;
+      const contact: RestockContact = {
+        email: value,
+        phone: phoneValue === "" ? null : phoneValue,
+      };
+      if (dismissOnSuccess) {
+        // The page confirms with its own message, so the dialog gets out of
+        // the way.
+        onSubscribed?.(contact);
+        onClose();
+        return;
       }
+      setState({ status: "success" });
+      onSubscribed?.(contact);
     } catch {
       if (alive.current) {
         setState({
@@ -146,23 +189,19 @@ export function BackInStockDialog({
           ✕
         </button>
         <div className="pr-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cta">
-            Restock alert
-          </p>
           <h2
             id="back-in-stock-title"
-            className="mt-1 text-2xl font-semibold text-ink"
+            className="text-xl font-semibold text-ink"
           >
-            Back in stock alert
+            Notify me when available
           </h2>
           <p
             id="back-in-stock-description"
-            className="mt-2 text-sm text-ink-secondary"
+            className="mt-1 text-sm text-ink-secondary"
           >
-            Enter your email and we&apos;ll let you know when {productName} is
-            available again.
-            {onSubscribed
-              ? " We’ll also keep it in your cart so it’s ready to order the moment it returns."
+            We&apos;ll email you when {productName} is back in stock.
+            {keepsInCart
+              ? " We’ll also keep it in your cart."
               : ""}
           </p>
         </div>
@@ -171,7 +210,7 @@ export function BackInStockDialog({
           <div className="mt-6" aria-live="polite">
             <p className="rounded-xl border border-primary bg-primary-light/40 px-4 py-3 text-sm font-medium text-ink">
               We&apos;ll email you when it&apos;s back in stock.
-              {onSubscribed ? " It’s also in your cart." : ""}
+              {keepsInCart ? " It’s also in your cart." : ""}
             </p>
             <button
               type="button"
@@ -182,8 +221,11 @@ export function BackInStockDialog({
             </button>
           </div>
         ) : (
-          <form onSubmit={submit} noValidate className="mt-6">
-            <label htmlFor={`back-in-stock-email-${skuId}`} className="text-sm font-semibold text-ink">
+          <form onSubmit={submit} noValidate className="mt-5">
+            <label
+              htmlFor={`back-in-stock-email-${skuId}`}
+              className="text-sm font-semibold text-ink"
+            >
               Email address
             </label>
             <input
@@ -197,6 +239,25 @@ export function BackInStockDialog({
                 if (state.status === "error") setState({ status: "idle" });
               }}
               placeholder="you@example.com"
+              className="mt-2 h-12 w-full min-w-0 rounded-lg border border-border bg-background px-4 text-base text-ink outline-none transition placeholder:text-ink-muted focus:border-cta focus:ring-2 focus:ring-cta/15"
+            />
+            <label
+              htmlFor={`back-in-stock-phone-${skuId}`}
+              className="mt-4 block text-sm font-semibold text-ink"
+            >
+              Phone number (optional)
+            </label>
+            <input
+              id={`back-in-stock-phone-${skuId}`}
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(event) => {
+                setPhone(event.target.value);
+                if (state.status === "error") setState({ status: "idle" });
+              }}
+              placeholder="0917 123 4567"
               className="mt-2 h-12 w-full min-w-0 rounded-lg border border-border bg-background px-4 text-base text-ink outline-none transition placeholder:text-ink-muted focus:border-cta focus:ring-2 focus:ring-cta/15"
             />
             {state.status === "error" ? (

@@ -10,7 +10,8 @@ import {
 import type { Product, ProductImage } from "@/lib/api";
 import type { ProductSelectionDerived } from "@/lib/product-selection";
 import { Button } from "@/components/ui/Button";
-import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
+import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAction";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { PriceBox, formatPrice } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
 
@@ -38,7 +39,7 @@ export interface PdpStickyBuyProps {
    * Runs after a restock alert is saved from this bar, so the same click can
    * also keep the item in the cart.
    */
-  onNotifySubscribed?: () => void;
+  onRestockSaved?: () => void | Promise<void>;
 }
 
 export function PdpStickyBuy({
@@ -51,8 +52,9 @@ export function PdpStickyBuy({
   variantLabel,
   onQuantityChange,
   onIntent,
-  onNotifySubscribed,
+  onRestockSaved,
 }: PdpStickyBuyProps): ReactNode {
+  const { backInStockEnabled } = useSiteSettings();
   const [visible, setVisible] = useState(false);
   const [codInView, setCodInView] = useState(false);
   const barRef = useRef<HTMLElement | null>(null);
@@ -227,33 +229,55 @@ export function PdpStickyBuy({
         </div>
 
         {resolvedOutOfStock && resolvedSku ? (
-          <BackInStockTrigger
-            skuId={resolvedSku.id}
-            productName={product.name}
-            onSubscribed={onNotifySubscribed}
-            className="inline-flex h-9 min-w-0 shrink items-center justify-center rounded-lg border border-border bg-card px-2.5 text-center text-xs font-semibold leading-tight text-cta transition hover:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta sm:h-10 sm:min-w-[120px] sm:px-5 sm:text-sm"
-          />
+          // An unavailable item gets ONE action in the bar: register the
+          // restock alert and keep the item saved. When the alert service
+          // cannot save an alert, the same single action is the cart add.
+          backInStockEnabled ? (
+            <RestockNotifyAction
+              skuId={resolvedSku.id}
+              productName={product.name}
+              label="Notify me when available"
+              variant="primary"
+              size="sm"
+              className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
+              onSaved={onRestockSaved}
+              data-testid="sticky-notify-me"
+            />
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
+              disabled={busy || unavailable}
+              className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
+              data-testid="sticky-add-to-cart"
+            >
+              ADD TO CART
+            </Button>
+          )
         ) : (
-          <Button
-            size="sm"
-            onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
-            disabled={busy || unavailable}
-            className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
-            data-testid="sticky-order-now"
-          >
-            ORDER NOW
-          </Button>
+          <>
+            <Button
+              size="sm"
+              onClick={(event) => onIntent("ORDER_NOW", event.currentTarget)}
+              disabled={busy || unavailable}
+              className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
+              data-testid="sticky-order-now"
+            >
+              ORDER NOW
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
+              disabled={busy || unavailable}
+              className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
+              data-testid="sticky-add-to-cart"
+            >
+              ADD TO CART
+            </Button>
+          </>
         )}
-        <Button
-          size="sm"
-          variant={resolvedOutOfStock ? "primary" : "secondary"}
-          onClick={(event) => onIntent("ADD_TO_CART", event.currentTarget)}
-          disabled={busy || unavailable}
-          className="shrink-0 whitespace-nowrap sm:h-12 sm:min-w-[120px] sm:px-5 sm:text-sm lg:text-base"
-          data-testid="sticky-add-to-cart"
-        >
-          ADD TO CART
-        </Button>
       </div>
     </aside>
   );

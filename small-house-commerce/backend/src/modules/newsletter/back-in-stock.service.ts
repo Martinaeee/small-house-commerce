@@ -12,6 +12,7 @@ import type {
   Prisma,
 } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { normalizeContactPhone } from '../../common/phone.util.js';
 import {
   EMAIL_GATEWAY,
   type EmailGateway,
@@ -55,6 +56,9 @@ export class BackInStockService {
   async subscribe(input: BackInStockSubscribeInput): Promise<{ ok: true }> {
     this.assertDeliveryEnabled();
     const email = normalizeEmail(input.email);
+    // The number is optional: a shopper who types something unusable still
+    // gets their alert, we just do not store a number we cannot call.
+    const phone = normalizeContactPhone(input.phone);
 
     return this.prisma.$transaction(async (tx) => {
       const sku = await tx.sku.findUnique({
@@ -83,12 +87,16 @@ export class BackInStockService {
         where: { email_skuId: { email, skuId: sku.id } },
         create: {
           email,
+          phone,
           skuId: sku.id,
           productName: sku.variant.product.name,
           productSlug: sku.variant.product.slug,
         },
         update: {
           status: 'PENDING',
+          // A later visit may bring a number the first one did not have, so
+          // the newest one wins — but never a blank over a good one.
+          ...(phone ? { phone } : {}),
           productName: sku.variant.product.name,
           productSlug: sku.variant.product.slug,
           lastError: null,

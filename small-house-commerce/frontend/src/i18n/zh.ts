@@ -1555,6 +1555,7 @@ export const zh = {
   newsletter_back_in_stock_load_failed: "无法加载有货通知。",
   newsletter_back_in_stock_empty: "没有符合条件的有货通知。",
   newsletter_back_in_stock_product: "商品 / 款式",
+  newsletter_back_in_stock_phone: "手机号",
   newsletter_back_in_stock_sku: "SKU",
   newsletter_back_in_stock_created_at: "登记时间",
   newsletter_back_in_stock_notified_at: "通知时间",

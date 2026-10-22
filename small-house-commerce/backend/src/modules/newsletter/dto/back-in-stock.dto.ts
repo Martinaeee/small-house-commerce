@@ -3,6 +3,10 @@ import { z } from 'zod';
 export const backInStockSubscribeSchema = z.object({
   email: z.string().trim().email().max(200),
   skuId: z.string().uuid(),
+  // Optional contact number for follow-up. The alert itself is still email
+  // only; the number is stored with the subscription so the shop can reach
+  // the shopper (call / WhatsApp) when the item returns.
+  phone: z.string().trim().max(32).optional(),
 });
 
 export const backInStockQuerySchema = z.object({

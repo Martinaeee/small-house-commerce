@@ -338,6 +338,60 @@ describe.skipIf(!database)('BackInStockService PostgreSQL behavior', () => {
     ).resolves.toBeNull();
   });
 
+  it('stores the optional contact number and keeps a good one on a repeat visit', async () => {
+    const fixture = await createPhysicalSku(0);
+
+    await service.subscribe({
+      email: 'shopper@example.com',
+      skuId: fixture.skuId,
+      phone: '09171234567',
+    });
+
+    const row = await prisma.backInStockSubscription.findUniqueOrThrow({
+      where: {
+        email_skuId: {
+          email: 'shopper@example.com',
+          skuId: fixture.skuId,
+        },
+      },
+    });
+    // The number is stored in the same canonical form as every other
+    // customer number in the system.
+    expect(row.phone).toBe('+639171234567');
+
+    // A later visit without a number must not erase the one we have.
+    await service.subscribe({
+      email: 'shopper@example.com',
+      skuId: fixture.skuId,
+    });
+    await expect(
+      prisma.backInStockSubscription.findUniqueOrThrow({
+        where: { id: row.id },
+      }),
+    ).resolves.toMatchObject({ phone: '+639171234567' });
+  });
+
+  it('drops a number that could never be dialled but keeps the alert', async () => {
+    const fixture = await createPhysicalSku(0);
+
+    await service.subscribe({
+      email: 'shopper@example.com',
+      skuId: fixture.skuId,
+      phone: '12',
+    });
+
+    await expect(
+      prisma.backInStockSubscription.findUniqueOrThrow({
+        where: {
+          email_skuId: {
+            email: 'shopper@example.com',
+            skuId: fixture.skuId,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ email: 'shopper@example.com', phone: null });
+  });
+
   it('rejects an SKU that is already available', async () => {
     const fixture = await createPhysicalSku(1);
 

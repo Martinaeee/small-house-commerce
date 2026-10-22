@@ -1,4 +1,4 @@
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 
 /**
  * DESIGN_SYSTEM §10 buttons.
@@ -28,7 +28,7 @@ const sizes: Record<Size, string> = {
   sm: "h-9 min-w-0 px-2 text-[13px] font-semibold",
 };
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ComponentProps<"button"> {
   variant?: Variant;
   size?: Size;
 }
@@ -49,7 +49,7 @@ export function Button({
   );
 }
 
-interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+interface ButtonLinkProps extends ComponentProps<"a"> {
   variant?: Variant;
   size?: Size;
 }

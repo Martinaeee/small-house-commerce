@@ -144,6 +144,9 @@ export function BackInStockTable({ canWrite }: BackInStockTableProps) {
                   {t("newsletter_subscriber_email")}
                 </th>
                 <th className="px-4 py-3">
+                  {t("newsletter_back_in_stock_phone")}
+                </th>
+                <th className="px-4 py-3">
                   {t("newsletter_back_in_stock_product")}
                 </th>
                 <th className="px-4 py-3">
@@ -172,6 +175,9 @@ export function BackInStockTable({ canWrite }: BackInStockTableProps) {
               {result.items.map((row) => (
                 <tr key={row.id} className="border-t border-border align-top">
                   <td className="px-4 py-3 font-medium text-ink">{row.email}</td>
+                  <td className="px-4 py-3 text-ink-secondary">
+                    {row.phone ?? "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-ink">{row.productName}</p>
                     <p className="mt-0.5 text-xs text-ink-muted">

@@ -906,6 +906,7 @@ export type BackInStockStatus = "PENDING" | "SENT" | "CANCELLED";
 export interface AdminBackInStockSubscription {
   id: string;
   email: string;
+  phone: string | null;
   skuId: string;
   status: BackInStockStatus;
   productName: string;
