@@ -14,11 +14,9 @@ function renderPage({
       <PdpSectionNav
         hasDetails={hasDetails}
         hasSpecifications={hasSpecifications}
-        hasDelivery
       />
       <main>
         <section id="pdp-purchase" className="scroll-mt-32" />
-        <section id="pdp-delivery" className="scroll-mt-32" />
         <section id="details" className="scroll-mt-32" />
         <section id="specifications" className="scroll-mt-32" />
         <section id="reviews" className="scroll-mt-32" />
@@ -39,14 +37,13 @@ function sectionPositions(tops: Record<string, number>) {
 }
 
 describe("PdpSectionNav", () => {
-  it("renders native anchors for real content including the existing delivery card", () => {
+  it("renders native anchors for the real content sections", () => {
     renderPage();
 
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     const expected = [
       ["Details", "#details"],
       ["Specifications", "#specifications"],
-      ["Delivery", "#pdp-delivery"],
       ["Reviews & Q&A", "#reviews"],
       ["Order Now", "#pdp-purchase"],
     ] as const;
@@ -89,7 +86,6 @@ describe("PdpSectionNav", () => {
       within(nav).queryByRole("link", { name: "Specifications" }),
     ).toBeNull();
     expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Delivery",
       "Reviews & Q&A",
       "Order Now",
     ]);
@@ -103,18 +99,18 @@ describe("PdpSectionNav", () => {
     expect(specifications).toHaveAttribute("aria-current", "location");
     expect(specifications).toHaveClass("border-cta", "text-cta");
     expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
-    fireEvent.click(within(nav).getByRole("link", { name: "Delivery" }));
+    fireEvent.click(within(nav).getByRole("link", { name: "Order Now" }));
     expect(specifications).not.toHaveAttribute("aria-current");
-    expect(within(nav).getByRole("link", { name: "Delivery" })).toHaveAttribute("aria-current", "location");
+    expect(within(nav).getByRole("link", { name: "Order Now" })).toHaveAttribute("aria-current", "location");
   });
 
   it("tracks scrolling down and back up using content positions rather than menu order", async () => {
     renderPage();
-    sectionPositions({ "pdp-purchase": -900, "pdp-delivery": -500, details: -200, specifications: 100, reviews: 800 });
+    sectionPositions({ "pdp-purchase": -900, details: -200, specifications: 100, reviews: 800 });
     fireEvent.scroll(window);
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     await waitFor(() => expect(within(nav).getByRole("link", { name: "Specifications" })).toHaveAttribute("aria-current", "location"));
-    sectionPositions({ "pdp-purchase": 20, "pdp-delivery": 600, details: 900, specifications: 1500, reviews: 2000 });
+    sectionPositions({ "pdp-purchase": 20, details: 900, specifications: 1500, reviews: 2000 });
     fireEvent.scroll(window);
     await waitFor(() => expect(within(nav).getByRole("link", { name: "Order Now" })).toHaveAttribute("aria-current", "location"));
     expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
@@ -122,7 +118,7 @@ describe("PdpSectionNav", () => {
 
   it("rechecks layout after resizing without requiring another click", async () => {
     renderPage();
-    sectionPositions({ "pdp-purchase": -1500, "pdp-delivery": -1000, details: -900, specifications: -500, reviews: 40 });
+    sectionPositions({ "pdp-purchase": -1500, details: -900, specifications: -500, reviews: 40 });
     fireEvent.resize(window);
     const reviews = screen.getByRole("link", { name: "Reviews & Q&A" });
     await waitFor(() => expect(reviews).toHaveAttribute("aria-current", "location"));
@@ -130,14 +126,14 @@ describe("PdpSectionNav", () => {
 
   it("keeps a native anchor current when subpixel layout rounds its landing position", async () => {
     renderPage();
-    sectionPositions({ "pdp-purchase": -1500, "pdp-delivery": -1000, details: -900, specifications: -500, reviews: 128.5 });
+    sectionPositions({ "pdp-purchase": -1500, details: -900, specifications: -500, reviews: 128.5 });
     fireEvent.scroll(window);
     await waitFor(() => expect(screen.getByRole("link", { name: "Reviews & Q&A" })).toHaveAttribute("aria-current", "location"));
   });
 
   it("keeps the same current link visible when the rail narrows", async () => {
     renderPage();
-    sectionPositions({ "pdp-purchase": -1500, "pdp-delivery": -1000, details: -900, specifications: -500, reviews: 40 });
+    sectionPositions({ "pdp-purchase": -1500, details: -900, specifications: -500, reviews: 40 });
     const nav = screen.getByRole("navigation", { name: "Product sections" });
     const reviews = within(nav).getByRole("link", { name: "Reviews & Q&A" });
     let width = 600;

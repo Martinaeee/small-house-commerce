@@ -673,7 +673,7 @@ describe("PDP conversion hero", () => {
     const price = within(hero).getByText("₱100.00");
     const options = within(hero).getByRole("group", { name: "Color" });
     const dimensions = within(hero).getByTestId("pdp-dimensions-summary");
-    const deliveryHeading = within(hero).getByText("Estimated delivery");
+    const assurances = within(hero).getByTestId("pdp-delivery");
     const buyRow = within(hero).getByTestId("pdp-buy-row");
     const orderNow = within(hero).getByTestId("order-now");
     const addToCart = within(hero).getByTestId("add-to-cart");
@@ -687,7 +687,7 @@ describe("PDP conversion hero", () => {
       options,
       dimensions,
       buyRow,
-      deliveryHeading,
+      assurances,
     ]);
 
     // Selling points are the real solution tags, each with its own line icon.
@@ -712,15 +712,17 @@ describe("PDP conversion hero", () => {
       within(dimensions).getByRole("button", { name: "Size guide" }),
     ]);
 
-    // Service assurances sit inside the delivery card, beside the estimate.
-    const delivery = within(hero).getByTestId("pdp-delivery");
-    expect(within(delivery).getByText("Estimated delivery")).toBeVisible();
-    expect(within(delivery).getByText("Metro Manila: 2–3 days")).toBeVisible();
-    expect(within(delivery).getByText("COD & Free Shipping")).toBeVisible();
-    expect(within(delivery).getByText("Arrived in 1-5 days")).toBeVisible();
+    // Service assurances stand on their own: no delivery estimate beside
+    // them and no card drawn around them.
+    expect(assurances).toHaveAccessibleName("Service assurances");
+    expect(within(assurances).getByText("COD & Free Shipping")).toBeVisible();
+    expect(within(assurances).getByText("Arrived in 1-5 days")).toBeVisible();
     expect(
-      within(delivery).getByText("7-Day Free Return & Exchange"),
+      within(assurances).getByText("7-Day Free Return & Exchange"),
     ).toBeVisible();
+    expect(within(hero).queryByText(/Estimated delivery/i)).toBeNull();
+    expect(within(hero).queryByText(/Metro Manila/)).toBeNull();
+    expect(assurances.className).not.toMatch(/\brounded-lg\b/);
 
     // Quantity and both purchase actions share one row.
     expect(buyRow).toContainElement(within(buyRow).getByTestId("qty"));
@@ -754,7 +756,7 @@ describe("PDP conversion hero", () => {
     expect(tagline.classList.contains("sm:block")).toBe(true);
   });
 
-  it("keeps the selling points slidable and lets the delivery card wrap on phones", () => {
+  it("keeps the selling points and the assurances to one slidable row on phones", () => {
     const item: Product = {
       ...product,
       solutions: ["FOLDABLE", "MOBILE"],
@@ -777,22 +779,20 @@ describe("PDP conversion hero", () => {
       .getAllByRole("listitem")
       .forEach((pill) => expect(pill).toHaveClass("shrink-0", "whitespace-nowrap", "text-sm"));
 
-    // Delivery estimate and the assurances share one row at every width. The
-    // card no longer scrolls sideways on a phone: the estimate keeps its width
-    // and the assurances list wraps, so every guarantee stays readable.
-    const delivery = within(hero).getByTestId("pdp-delivery");
-    expect(delivery.className).not.toMatch(/\boverflow-x-auto\b/);
-    expect(delivery.className).not.toMatch(/\bflex-col\b/);
-    expect(delivery.firstElementChild?.className).toMatch(/\bshrink-0\b/);
-    const assurances = within(delivery).getByRole("list", {
-      name: "Service assurances",
-    });
-    expect(assurances.className).toMatch(/\bmin-w-0\b/);
-    expect(
-      within(delivery).getByText("Estimated delivery").compareDocumentPosition(
-        within(delivery).getByText("COD & Free Shipping"),
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // The assurances are one row with no card: a phone that cannot fit them
+    // scrolls the row sideways instead of stacking the lines.
+    const assurances = within(hero).getByTestId("pdp-delivery");
+    expect(assurances).toHaveAccessibleName("Service assurances");
+    expect(assurances.className).toMatch(/\bflex-nowrap\b/);
+    expect(assurances.className).toMatch(/\boverflow-x-auto\b/);
+    expect(assurances.className).not.toMatch(/\brounded-lg\b/);
+    const items = within(assurances).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    items.forEach((item) =>
+      expect(item).toHaveClass("shrink-0", "whitespace-nowrap"),
+    );
+    // The delivery estimate is gone from the purchase island.
+    expect(within(hero).queryByText(/Estimated delivery/i)).toBeNull();
   });
 });
 

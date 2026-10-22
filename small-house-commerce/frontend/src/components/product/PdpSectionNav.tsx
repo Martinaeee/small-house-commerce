@@ -11,21 +11,18 @@ interface SectionLink {
 export function PdpSectionNav({
   hasDetails,
   hasSpecifications,
-  hasDelivery = false,
 }: {
   hasDetails: boolean;
   hasSpecifications: boolean;
-  hasDelivery?: boolean;
 }): ReactNode {
   const navRef = useRef<HTMLElement>(null);
   const [active, setActive] = useState("#pdp-purchase");
   const links = useMemo(() => ([
     { href: "#details", label: "Details", visible: hasDetails },
     { href: "#specifications", label: "Specifications", visible: hasSpecifications },
-    { href: "#pdp-delivery", label: "Delivery", visible: hasDelivery },
     { href: "#reviews", label: "Reviews & Q&A", visible: true },
     { href: "#pdp-purchase", label: "Order Now", visible: true },
-  ] satisfies SectionLink[]).filter(link => link.visible), [hasDetails, hasSpecifications, hasDelivery]);
+  ] satisfies SectionLink[]).filter(link => link.visible), [hasDetails, hasSpecifications]);
 
   useEffect(() => {
     let frame = 0;
@@ -34,7 +31,7 @@ export function PdpSectionNav({
       const nav = navRef.current;
       if (!nav) return;
       const line = Math.max(128, (parseFloat(getComputedStyle(nav).top) || 0) + nav.getBoundingClientRect().height + 8);
-      // Delivery and purchase precede Details in the document, not in the menu.
+      // The purchase block precedes Details in the document, not in the menu.
       const targets = links.flatMap(link => {
         const target = document.getElementById(link.href.slice(1));
         return target ? [{ href: link.href, top: target.getBoundingClientRect().top }] : [];
