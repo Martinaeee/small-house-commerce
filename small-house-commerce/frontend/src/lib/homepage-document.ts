@@ -68,6 +68,13 @@ export type LinkValue =
   | {
       type: "EXTERNAL";
       url: string;
+    }
+  | {
+      /**
+       * Opens the subscribe popup instead of navigating. It carries no URL:
+       * the storefront recognises the type and asks the popup to open.
+       */
+      type: "SUBSCRIBE";
     };
 
 export type ElementStyle = {
@@ -279,6 +286,27 @@ export type HeroElements = {
   countdown: HeroCountdownElement;
 };
 
+/**
+ * A clickable rectangle painted over the hero picture. The box is stored in
+ * percentages of the slide, so it keeps its place on every device. A zone
+ * with `background.visible = false` is an invisible hotspot; with a colour it
+ * shows that colour.
+ */
+export type HeroLinkZone = {
+  id: string;
+  layout: {
+    xPct: number;
+    yPct: number;
+    widthPct: number;
+    heightPct: number;
+  };
+  link: LinkValue | null;
+  background: {
+    visible: boolean;
+    color: string;
+  };
+};
+
 export type HeroSlide = {
   id: string;
   name: string;
@@ -288,6 +316,15 @@ export type HeroSlide = {
   media: HeroMedia | null;
   overlay: SlideOverlay;
   elements: HeroElements;
+  /**
+   * BUTTON = only the CTA buttons navigate; SLIDE = the whole banner
+   * navigates. Absent means BUTTON, so every stored slide keeps its meaning.
+   */
+  linkMode?: "BUTTON" | "SLIDE";
+  /** The target the whole banner navigates to in SLIDE mode. */
+  slideLink?: LinkValue | null;
+  /** Clickable rectangles painted over the picture. */
+  zones?: HeroLinkZone[];
 };
 
 export type HeroPayload = {
@@ -1126,6 +1163,123 @@ export function updateHeroSlide(
     currentSlide.schedule = structuredClone(patch.schedule);
   if (patch.overlay !== undefined)
     currentSlide.overlay = structuredClone(patch.overlay);
+  return next;
+}
+
+/** How the slide navigates: only its buttons, or the whole banner. */
+export type HeroLinkMode = "BUTTON" | "SLIDE";
+
+/** The maximum number of link zones one slide may carry. */
+export const MAX_HERO_ZONES = 12;
+
+export function heroZonesOf(slide: HeroSlide | undefined): HeroLinkZone[] {
+  return slide?.zones ?? [];
+}
+
+function clampZoneLayout(
+  layout: Partial<HeroLinkZone["layout"]>,
+): HeroLinkZone["layout"] {
+  const xPct = clampPct(typeof layout.xPct === "number" ? layout.xPct : 0);
+  const yPct = clampPct(typeof layout.yPct === "number" ? layout.yPct : 0);
+  const widthPct = Math.min(
+    100 - xPct,
+    Math.max(1, typeof layout.widthPct === "number" ? layout.widthPct : 30),
+  );
+  const heightPct = Math.min(
+    100 - yPct,
+    Math.max(1, typeof layout.heightPct === "number" ? layout.heightPct : 30),
+  );
+  return { xPct, yPct, widthPct, heightPct };
+}
+
+/**
+ * Sets how a slide navigates and where the whole banner points. A slide
+ * without a `slideLink` keeps its buttons as the only way out.
+ */
+export function updateHeroSlideLinks(
+  doc: HomepageDocument,
+  slideId: string,
+  patch: { linkMode?: HeroLinkMode; slideLink?: LinkValue | null },
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const slide = target.slide;
+  if (patch.linkMode !== undefined) slide.linkMode = patch.linkMode;
+  if (patch.slideLink !== undefined) {
+    slide.slideLink =
+      patch.slideLink === null ? null : structuredClone(patch.slideLink);
+  }
+  return next;
+}
+
+/**
+ * Adds a clickable rectangle over the slide picture. The zone starts where
+ * the operator drew it; a zone without a link stays invisible until one is
+ * chosen.
+ */
+export function addHeroZone(
+  doc: HomepageDocument,
+  slideId: string,
+  layout: Partial<HeroLinkZone["layout"]> = {},
+  zoneId: string = newUuid(),
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const slide = target.slide;
+  const zones = slide.zones ?? [];
+  if (zones.length >= MAX_HERO_ZONES) return next;
+  zones.push({
+    id: zoneId,
+    layout: clampZoneLayout(layout),
+    link: null,
+    background: { visible: false, color: "#B99B81" },
+  });
+  slide.zones = zones;
+  return next;
+}
+
+export function updateHeroZone(
+  doc: HomepageDocument,
+  slideId: string,
+  zoneId: string,
+  patch: {
+    layout?: Partial<HeroLinkZone["layout"]>;
+    link?: LinkValue | null;
+    background?: Partial<HeroLinkZone["background"]>;
+  },
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const zone = (target.slide.zones ?? []).find(({ id }) => id === zoneId);
+  if (!zone) return next;
+  if (patch.layout !== undefined) {
+    zone.layout = clampZoneLayout({ ...zone.layout, ...patch.layout });
+  }
+  if (patch.link !== undefined) {
+    zone.link = patch.link === null ? null : structuredClone(patch.link);
+  }
+  if (patch.background !== undefined) {
+    zone.background = { ...zone.background, ...patch.background };
+  }
+  return next;
+}
+
+export function removeHeroZone(
+  doc: HomepageDocument,
+  slideId: string,
+  zoneId: string,
+): HomepageDocument {
+  const next = cloneDocument(doc);
+  const target = heroSlideTarget(next, slideId);
+  if (!target) return next;
+  const zones = target.slide.zones ?? [];
+  const index = zones.findIndex(({ id }) => id === zoneId);
+  if (index < 0) return next;
+  zones.splice(index, 1);
+  target.slide.zones = zones;
   return next;
 }
 

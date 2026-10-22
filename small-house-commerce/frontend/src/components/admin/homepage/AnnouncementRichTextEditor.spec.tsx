@@ -168,6 +168,31 @@ describe("AnnouncementRichTextEditor", () => {
     expect(JSON.stringify(value)).not.toMatch(/javascript|position|href|ignored/);
   });
 
+  it("hands the selected copy to the link label", async () => {
+    const onUseSelectionAsLinkLabel = vi.fn();
+    renderWithI18n(
+      <AnnouncementRichTextEditor
+        itemId={ITEM_ONE}
+        fallbackText="Subscribe and save"
+        onChange={vi.fn()}
+        onUseSelectionAsLinkLabel={onUseSelectionAsLinkLabel}
+      />,
+    );
+    const textbox = await editor();
+
+    const range = document.createRange();
+    range.selectNodeContents(textbox);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use selection as link label" }),
+    );
+
+    expect(onUseSelectionAsLinkLabel).toHaveBeenCalledWith("Subscribe and save");
+  });
+
   it("keeps editor undo shortcuts local while allowing the global save shortcut", async () => {
     const parentKeyDown = vi.fn();
     renderWithI18n(

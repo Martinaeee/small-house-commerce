@@ -103,6 +103,12 @@ const linkSchema = z.discriminatedUnion('type', [
     type: z.literal('EXTERNAL'),
     url: z.url({ protocol: /^https$/ }).max(2048),
   }),
+  // Opens the subscribe popup instead of navigating. It carries no target row
+  // and no href: the storefront recognises the type and asks the popup to
+  // open, so the announcement bar and a hero zone can both use it.
+  z.object({
+    type: z.literal('SUBSCRIBE'),
+  }),
 ]);
 
 // --- hero element styles ----------------------------------------------------
@@ -309,6 +315,29 @@ const slideOverlaySchema = z.object({
 
 // --- hero slide / payload ---------------------------------------------------
 
+/**
+ * A clickable rectangle painted over the hero picture. The box is stored in
+ * percentages of the slide, so it keeps its place on every device. A zone
+ * with `background.visible = false` is an invisible hotspot; with a colour it
+ * shows that colour.
+ */
+const heroLinkZoneSchema = z.object({
+  id: z.string().uuid(),
+  layout: z.object({
+    xPct: z.number().min(0).max(100),
+    yPct: z.number().min(0).max(100),
+    widthPct: z.number().min(1).max(100),
+    heightPct: z.number().min(1).max(100),
+  }),
+  link: linkSchema.nullable(),
+  background: z.object({
+    visible: z.boolean(),
+    color: hexColor,
+  }),
+});
+
+export type HeroLinkZone = z.infer<typeof heroLinkZoneSchema>;
+
 const heroSlideSchema = z.object({
   id: z.string().uuid(),
   name: z.string().max(80),
@@ -320,6 +349,13 @@ const heroSlideSchema = z.object({
   media: heroMediaSchema.nullable(),
   overlay: slideOverlaySchema,
   elements: heroElementsSchema,
+  // BUTTON = only the CTA buttons navigate; SLIDE = the whole banner
+  // navigates. Absent means BUTTON, so every stored slide keeps its meaning.
+  linkMode: z.enum(['BUTTON', 'SLIDE']).optional(),
+  // The target the whole banner navigates to in SLIDE mode.
+  slideLink: linkSchema.nullable().optional(),
+  // Clickable rectangles painted over the picture.
+  zones: z.array(heroLinkZoneSchema).max(12).optional(),
 });
 
 const sliderBehaviorSchema = z.object({

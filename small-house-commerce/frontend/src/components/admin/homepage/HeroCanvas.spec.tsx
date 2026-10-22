@@ -950,6 +950,117 @@ describe("HeroCanvas", () => {
   });
 });
 
+describe("hero link zones", () => {
+  const ZONE_ID = "00000000-0000-7000-8000-000000000131";
+
+  function zoneDocument(): HomepageDocument {
+    const doc = canvasDocument();
+    heroSectionOf(doc).payload.slides[0].zones = [
+      {
+        id: ZONE_ID,
+        layout: { xPct: 10, yPct: 20, widthPct: 20, heightPct: 20 },
+        link: null,
+        background: { visible: false, color: "#B99B81" },
+      },
+    ];
+    return doc;
+  }
+
+  it("draws a link zone when the operator drags with the zone tool armed", () => {
+    renderCanvas();
+    mockStageRect();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Draw a link zone" }),
+    );
+
+    const target = stage();
+    fireEvent.pointerDown(target, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(target, {
+      clientX: 300,
+      clientY: 200,
+      pointerId: POINTER_ID,
+    });
+    fireEvent.pointerUp(target, {
+      clientX: 300,
+      clientY: 200,
+      pointerId: POINTER_ID,
+    });
+
+    const zones = heroSectionOf(documentFromProbe()).payload.slides[0].zones;
+    expect(zones).toHaveLength(1);
+    expect(zones?.[0].layout).toEqual({
+      xPct: 10,
+      yPct: 20,
+      widthPct: 20,
+      heightPct: 20,
+    });
+  });
+
+  it("does not create a zone for a click without a drag", () => {
+    renderCanvas();
+    mockStageRect();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Draw a link zone" }),
+    );
+
+    const target = stage();
+    fireEvent.pointerDown(target, {
+      clientX: 200,
+      clientY: 200,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerUp(target, {
+      clientX: 200,
+      clientY: 200,
+      pointerId: POINTER_ID,
+    });
+
+    expect(heroSectionOf(documentFromProbe()).payload.slides[0].zones).toBeUndefined();
+  });
+
+  it("moves an existing zone with the pointer", () => {
+    renderCanvas({ document: zoneDocument() });
+    mockStageRect();
+
+    const zoneEl = document.querySelector<HTMLElement>(
+      `[data-hero-zone="${ZONE_ID}"]`,
+    );
+    expect(zoneEl).not.toBeNull();
+
+    fireEvent.pointerDown(zoneEl!, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(zoneEl!, {
+      clientX: 200,
+      clientY: 100,
+      pointerId: POINTER_ID,
+    });
+    fireEvent.pointerUp(zoneEl!, {
+      clientX: 200,
+      clientY: 100,
+      pointerId: POINTER_ID,
+    });
+
+    const zone = heroSectionOf(documentFromProbe()).payload.slides[0]
+      .zones?.[0];
+    expect(zone?.layout).toEqual({
+      xPct: 20,
+      yPct: 20,
+      widthPct: 20,
+      heightPct: 20,
+    });
+  });
+});
+
 describe("CTA direct manipulation resize", () => {
   function ctaDocument(): HomepageDocument {
     const doc = canvasDocument();

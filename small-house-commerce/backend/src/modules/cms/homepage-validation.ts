@@ -45,13 +45,24 @@ export type LinkEntityType = 'PRODUCT' | 'COLLECTION' | 'CATEGORY' | 'LANDING';
 export type NavigationTarget = { type: 'CATEGORY' | 'COLLECTION'; id: string; name: string; slug: string };
 
 /** A `LinkValue` that points at a stored entity row (needs a lookup). */
-type EntityLink = Exclude<LinkValue, { type: 'EXTERNAL' } | { type: 'INTERNAL' }>;
+type EntityLink = Exclude<
+  LinkValue,
+  { type: 'EXTERNAL' } | { type: 'INTERNAL' } | { type: 'SUBSCRIBE' }
+>;
 
-/** Links that carry their own href and need no entity lookup. */
+/** Links that carry their own href or action and need no entity lookup. */
 function isSelfResolvingLink(
   link: LinkValue | null,
-): link is Extract<LinkValue, { type: 'EXTERNAL' | 'INTERNAL' }> {
-  return link !== null && (link.type === 'EXTERNAL' || link.type === 'INTERNAL');
+): link is Extract<
+  LinkValue,
+  { type: 'EXTERNAL' | 'INTERNAL' | 'SUBSCRIBE' }
+> {
+  return (
+    link !== null &&
+    (link.type === 'EXTERNAL' ||
+      link.type === 'INTERNAL' ||
+      link.type === 'SUBSCRIBE')
+  );
 }
 
 type ProductStatus = 'ACTIVE' | 'DRAFT' | 'DISABLED';
@@ -197,6 +208,11 @@ function collectLookupIds(doc: HomepageDocument): LookupIds {
             addLink(slide.elements[key].link);
           }
         }
+        // The whole-banner target and the link zones are entity links too.
+        addLink(slide.slideLink ?? null);
+        for (const zone of slide.zones ?? []) {
+          addLink(zone.link ?? null);
+        }
       }
     } else if (section.type === 'PRODUCT_GRID') {
       for (const row of section.products) ids.productIds.add(row.productId);
@@ -302,6 +318,45 @@ function checkHeroSection(
           'ERROR',
           'LINK_TARGET_MISSING',
           `Slide "${slide.name}": the ${key} link points to a ${ENTITY_NOUN[link.type]} that does not exist.`,
+          section.id,
+          slide.id,
+        ),
+      );
+    }
+
+    // The whole-banner target (SLIDE mode) and every link zone are checked
+    // the same way, so a deleted target blocks the publish instead of
+    // shipping a dead link.
+    const slideLink = slide.slideLink ?? null;
+    if (
+      slideLink !== null &&
+      !isSelfResolvingLink(slideLink) &&
+      !linkExists(slideLink, results)
+    ) {
+      errors.push(
+        issue(
+          'ERROR',
+          'LINK_TARGET_MISSING',
+          `Slide "${slide.name}": the whole-banner link points to a ${ENTITY_NOUN[slideLink.type]} that does not exist.`,
+          section.id,
+          slide.id,
+        ),
+      );
+    }
+    for (const zone of slide.zones ?? []) {
+      const link = zone.link ?? null;
+      if (
+        link === null ||
+        isSelfResolvingLink(link) ||
+        linkExists(link, results)
+      ) {
+        continue;
+      }
+      errors.push(
+        issue(
+          'ERROR',
+          'LINK_TARGET_MISSING',
+          `Slide "${slide.name}": a link zone points to a ${ENTITY_NOUN[link.type]} that does not exist.`,
           section.id,
           slide.id,
         ),

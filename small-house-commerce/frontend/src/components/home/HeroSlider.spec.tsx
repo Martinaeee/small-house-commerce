@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 import { emptyDocument } from "@/lib/homepage-document";
+import { requestNewsletterOffer } from "@/components/newsletter/newsletterOfferChannel";
 import { HeroSlider } from "./HeroSlider";
 import type {
   HomepageHeroBehavior,
+  HomepageHeroLinkZone,
   HomepageHeroMedia,
   HomepageHeroSlide,
   HomepageSection,
 } from "@/lib/api";
+
+vi.mock("@/components/newsletter/newsletterOfferChannel", () => ({
+  requestNewsletterOffer: vi.fn(),
+}));
 
 // Task 19 storefront HERO renderer contract (spec §6.1): styled via heroCss,
 // slides from payload.slides, only the active slide visible, autoplay/pause
@@ -105,6 +111,160 @@ describe("Hero typography fallback precedence", () => {
     expect(element("heading").style.fontWeight).toBe("var(--el-heading-weight, var(--hp-hero-fallback-weight, 600))");
     expect(element("heading").style.lineHeight).toBe("var(--el-heading-lh, var(--hp-hero-fallback-lh, inherit))");
     expect(element("heading").style.letterSpacing).toBe("var(--el-heading-ls, var(--hp-hero-fallback-ls, inherit))");
+  });
+});
+
+describe("Hero links", () => {
+  beforeEach(() => {
+    vi.mocked(requestNewsletterOffer).mockClear();
+  });
+
+  function zone(
+    patch: Partial<HomepageHeroLinkZone> = {},
+  ): HomepageHeroLinkZone {
+    return {
+      id: "00000000-0000-7000-8000-000000000031",
+      layout: { xPct: 10, yPct: 20, widthPct: 30, heightPct: 25 },
+      link: { type: "PRODUCT", id: "product-1" },
+      linkHref: "/products/chair",
+      background: { visible: false, color: "#B99B81" },
+      ...patch,
+    };
+  }
+
+  it("makes the whole banner a link in SLIDE mode", () => {
+    render(
+      <HeroSlider
+        section={section([
+          slide(0, {
+            linkMode: "SLIDE",
+            slideLink: { type: "COLLECTION", id: "collection-1" },
+            slideLinkHref: "/collections/living-room",
+          }),
+        ])}
+      />,
+    );
+
+    const link = document.querySelector("[data-hero-slide-link]");
+    expect(link?.tagName).toBe("A");
+    expect(link).toHaveAttribute("href", "/collections/living-room");
+  });
+
+  it("keeps the banner unlinked in BUTTON mode", () => {
+    render(
+      <HeroSlider
+        section={section([
+          slide(0, {
+            linkMode: "BUTTON",
+            slideLink: { type: "COLLECTION", id: "collection-1" },
+            slideLinkHref: "/collections/living-room",
+          }),
+        ])}
+      />,
+    );
+
+    expect(document.querySelector("[data-hero-slide-link]")).toBeNull();
+  });
+
+  it("opens the subscribe popup from a whole-banner subscribe link", () => {
+    render(
+      <HeroSlider
+        section={section([
+          slide(0, {
+            linkMode: "SLIDE",
+            slideLink: { type: "SUBSCRIBE" },
+            slideLinkHref: null,
+          }),
+        ])}
+      />,
+    );
+
+    const trigger = document.querySelector("[data-hero-slide-link]");
+    expect(trigger?.tagName).toBe("BUTTON");
+    fireEvent.click(trigger as HTMLElement);
+    expect(requestNewsletterOffer).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a link zone as a clickable box over the picture", () => {
+    render(
+      <HeroSlider
+        section={section([slide(0, { zones: [zone()] })])}
+      />,
+    );
+
+    const box = document.querySelector("[data-hero-zone]");
+    expect(box?.tagName).toBe("A");
+    expect(box).toHaveAttribute("href", "/products/chair");
+    expect((box as HTMLElement).style.left).toBe("10%");
+    expect((box as HTMLElement).style.width).toBe("30%");
+  });
+
+  it("paints a zone background only when it is visible", () => {
+    render(
+      <HeroSlider
+        section={section([
+          slide(0, {
+            zones: [
+              zone(),
+              zone({
+                id: "00000000-0000-7000-8000-000000000032",
+                background: { visible: true, color: "#B99B81" },
+              }),
+            ],
+          }),
+        ])}
+      />,
+    );
+
+    const boxes = Array.from(
+      document.querySelectorAll("[data-hero-zone]"),
+    ) as HTMLElement[];
+    expect(boxes[0].style.backgroundColor).toBe("transparent");
+    expect(boxes[1].style.backgroundColor).toBe("rgb(185, 155, 129)");
+  });
+
+  it("opens the subscribe popup from a zone that points at the subscribe popup", () => {
+    render(
+      <HeroSlider
+        section={section([
+          slide(0, {
+            zones: [
+              zone({
+                link: { type: "SUBSCRIBE" },
+                linkHref: null,
+              }),
+            ],
+          }),
+        ])}
+      />,
+    );
+
+    const trigger = document.querySelector("[data-hero-zone]");
+    expect(trigger?.tagName).toBe("BUTTON");
+    fireEvent.click(trigger as HTMLElement);
+    expect(requestNewsletterOffer).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the zones inert in the draft preview and the canvas", () => {
+    render(
+      <HeroSlider
+        section={section([slide(0, { zones: [zone()] })])}
+        interactionMode="preview"
+      />,
+    );
+    const previewBox = document.querySelector("[data-hero-zone]");
+    expect(previewBox?.tagName).toBe("DIV");
+
+    render(
+      <HeroSlider
+        section={section([slide(0, { zones: [zone()] })])}
+        edit={{ selectedElementKey: null, onSelectElement: vi.fn() }}
+      />,
+    );
+    const canvasBox = Array.from(
+      document.querySelectorAll("[data-hero-zone]"),
+    ).at(-1) as HTMLElement;
+    expect(canvasBox.tagName).toBe("DIV");
   });
 });
 

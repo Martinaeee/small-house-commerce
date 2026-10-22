@@ -376,6 +376,16 @@ describe('homepage document schema v1', () => {
     }
   });
 
+  it('accepts a subscribe-popup link next to the url link types', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    const cta = (slide.elements as Record<string, Record<string, unknown>>)
+      .ctaPrimary;
+
+    cta.link = { type: 'SUBSCRIBE' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
   it('keeps every pre-INTERNAL document valid', () => {
     const doc = emptyDocument();
     const slide = heroSlidesOf(doc)[0];
@@ -891,6 +901,69 @@ describe('homepage document schema v1', () => {
     const legacy: Record<string, unknown> = structuredClone(emptyDocument());
     delete legacy.defaults;
     expect(homepageDocumentSchema.safeParse(legacy).success).toBe(true);
+  });
+});
+
+describe('hero slide links and link zones', () => {
+  const zone = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: uuid(31),
+    layout: { xPct: 10, yPct: 20, widthPct: 30, heightPct: 25 },
+    link: { type: 'COLLECTION', id: uuid(21) },
+    background: { visible: true, color: '#B99B81' },
+    ...over,
+  });
+
+  it('accepts a slide that links the whole banner and carries link zones', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    slide.linkMode = 'SLIDE';
+    slide.slideLink = { type: 'COLLECTION', id: uuid(21) };
+    slide.zones = [zone(), zone({ id: uuid(32), background: { visible: false, color: '#292724' } })];
+
+    const parsed = homepageDocumentSchema.safeParse(doc);
+    expect(parsed.success).toBe(true);
+    const parsedSlide = (
+      (parsed.success ? parsed.data : doc).sections.find(
+        (section) => section.type === 'HERO',
+      ) as HomepageSection
+    ).payload as { slides: Array<Record<string, unknown>> };
+    expect(parsedSlide.slides[0].linkMode).toBe('SLIDE');
+    expect(parsedSlide.slides[0].zones).toHaveLength(2);
+  });
+
+  it('keeps a slide without links or zones schema-valid', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+    delete slide.linkMode;
+    delete slide.slideLink;
+    delete slide.zones;
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it('rejects a zone outside the slide, an empty zone and too many zones', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+
+    slide.zones = [zone({ layout: { xPct: -1, yPct: 0, widthPct: 10, heightPct: 10 } })];
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+
+    slide.zones = [zone({ layout: { xPct: 0, yPct: 0, widthPct: 0, heightPct: 10 } })];
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+
+    slide.zones = Array.from({ length: 13 }, (_, index) => zone({ id: uuid(40 + index) }));
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+
+  it('rejects an unknown link mode and an unsafe zone link', () => {
+    const doc = emptyDocument();
+    const slide = heroSlidesOf(doc)[0];
+
+    slide.linkMode = 'EVERYTHING';
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
+
+    slide.linkMode = 'SLIDE';
+    slide.slideLink = { type: 'EXTERNAL', url: 'http://insecure.example' };
+    expect(homepageDocumentSchema.safeParse(doc).success).toBe(false);
   });
 });
 

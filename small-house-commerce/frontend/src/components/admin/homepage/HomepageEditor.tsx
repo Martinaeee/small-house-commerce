@@ -100,6 +100,9 @@ export type HomepageEditorContextValue = {
   setSelectedSlideId: Dispatch<SetStateAction<string | null>>;
   selectedElementKey: HeroElementKey | null;
   setSelectedElementKey: Dispatch<SetStateAction<HeroElementKey | null>>;
+  /** The link zone the operator picked on the hero canvas. */
+  selectedZoneId: string | null;
+  setSelectedZoneId: Dispatch<SetStateAction<string | null>>;
   safeAreaFlags: SafeAreaFlags;
   setSafeAreaFlags: Dispatch<SetStateAction<SafeAreaFlags>>;
 };
@@ -161,6 +164,7 @@ export function HomepageEditorProvider({
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [selectedElementKey, setSelectedElementKeyState] =
     useState<HeroElementKey | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const heroSectionId =
     state.document.sections.find((section) => section.type === "HERO")?.id ?? null;
   const setSelectedElementKey = useCallback<
@@ -212,6 +216,8 @@ export function HomepageEditorProvider({
       setSelectedSlideId,
       selectedElementKey,
       setSelectedElementKey,
+      selectedZoneId,
+      setSelectedZoneId,
       safeAreaFlags,
       setSafeAreaFlags,
     }),
@@ -224,6 +230,8 @@ export function HomepageEditorProvider({
       selectedSlideId,
       selectedElementKey,
       setSelectedElementKey,
+      selectedZoneId,
+      setSelectedZoneId,
       safeAreaFlags,
     ],
   );

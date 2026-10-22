@@ -914,6 +914,45 @@ describe('HomepageService versioned storefront source', () => {
     expect(heroPayload.slides[0].elements).toEqual(originalElements);
   });
 
+  it('resolves the whole-slide link and every link zone on a hero slide', async () => {
+    const document = structuredClone(emptyDocument());
+    const heroPayload = document.sections[0].payload as {
+      slides: Array<Record<string, unknown>>;
+    };
+    const slide = heroPayload.slides[0];
+    slide.linkMode = 'SLIDE';
+    slide.slideLink = { type: 'COLLECTION', id: COLLECTION_ID };
+    slide.zones = [
+      {
+        id: '00000000-0000-7000-8000-000000000031',
+        layout: { xPct: 10, yPct: 20, widthPct: 30, heightPct: 25 },
+        link: { type: 'PRODUCT', id: PRODUCT_ID },
+        background: { visible: false, color: '#B99B81' },
+      },
+      {
+        id: '00000000-0000-7000-8000-000000000032',
+        layout: { xPct: 0, yPct: 0, widthPct: 10, heightPct: 10 },
+        link: { type: 'SUBSCRIBE' },
+        background: { visible: true, color: '#B99B81' },
+      },
+    ];
+
+    const ctx = versionedContext(document);
+    const result = await versionedService(ctx).storefrontGet();
+    const outputSlide = (
+      result.sections[0].payload as { slides: Array<Record<string, unknown>> }
+    ).slides[0];
+
+    expect(outputSlide.linkMode).toBe('SLIDE');
+    expect(outputSlide.slideLinkHref).toBe('/collections/living-room');
+    const zones = outputSlide.zones as Array<Record<string, unknown>>;
+    expect(zones[0].linkHref).toBe('/products/chair');
+    // The subscribe popup is an action, not a URL: it keeps its type and
+    // resolves to no href.
+    expect(zones[1].linkHref).toBeNull();
+    expect((zones[1].link as Record<string, unknown>).type).toBe('SUBSCRIBE');
+  });
+
   it('filters and resolves announcement items, while preserving sort order and input immutability', async () => {
     vi.setSystemTime(NOW);
     const document = structuredClone(emptyDocument());

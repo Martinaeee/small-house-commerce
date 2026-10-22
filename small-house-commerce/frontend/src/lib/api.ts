@@ -458,6 +458,20 @@ export interface HomepageHeroButton {
   arrow?: boolean;
 }
 
+export interface HomepageHeroLinkZone {
+  id: string;
+  layout?: {
+    xPct?: number;
+    yPct?: number;
+    widthPct?: number;
+    heightPct?: number;
+  };
+  link?: Record<string, unknown> | null;
+  /** Resolved by the backend storefront mapping; null = unresolvable. */
+  linkHref?: string | null;
+  background?: { visible?: boolean; color?: string };
+}
+
 export interface HomepageHeroSlide {
   id: string;
   name?: string;
@@ -473,6 +487,13 @@ export interface HomepageHeroSlide {
     };
   };
   elements?: Partial<Record<HomepageHeroElementKey, HomepageHeroElement>>;
+  /** BUTTON = only the CTA buttons navigate; SLIDE = the whole banner does. */
+  linkMode?: "BUTTON" | "SLIDE";
+  slideLink?: Record<string, unknown> | null;
+  /** Resolved by the backend storefront mapping. */
+  slideLinkHref?: string | null;
+  /** Clickable rectangles painted over the picture. */
+  zones?: HomepageHeroLinkZone[];
 }
 
 export interface HomepageHeroBehavior {

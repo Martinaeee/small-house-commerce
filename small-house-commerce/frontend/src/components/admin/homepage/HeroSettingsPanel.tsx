@@ -7,6 +7,7 @@ import { useHomepageEditor } from "./HomepageEditor";
 import { SectionDisplaySettings } from "./SectionDisplaySettings";
 import { HeroStyleSettings } from "./HeroStyleSettings";
 import { HeroMediaSettings } from "./HeroMediaSettings";
+import { HeroLinkSettings } from "./HeroLinkSettings";
 import { SettingsPanel } from "./SettingsPanel";
 import styles from "./HomepageStudio.module.css";
 
@@ -19,13 +20,14 @@ const ELEMENT_LABELS: Record<HeroElementKey, TKey> = {
   ctaPrimary: "homepage_builder_element_ctaPrimary",
   ctaSecondary: "homepage_builder_element_ctaSecondary",
 };
-const GROUPS = ["layout", "text", "buttons", "media", "overlay", "behavior", "advanced"] as const;
+const GROUPS = ["layout", "text", "buttons", "links", "media", "overlay", "behavior", "advanced"] as const;
 type SettingsGroup = (typeof GROUPS)[number];
 const SHORTCUTS = ["layout", "text", "buttons", "media"] as const;
 const GROUP_LABELS: Record<SettingsGroup, TKey> = {
   layout: "homepage_builder_studio_layout",
   text: "homepage_builder_studio_text",
   buttons: "homepage_builder_studio_buttons",
+  links: "homepage_builder_studio_links",
   media: "homepage_builder_studio_media",
   overlay: "homepage_builder_studio_overlay",
   behavior: "homepage_builder_studio_behavior",
@@ -127,10 +129,11 @@ export function HeroSettingsPanel(): ReactNode {
           </div>
           {elements(TEXT_ELEMENTS)}
         </> : group === "buttons" ? elements(BUTTON_ELEMENTS)
-          : group === "media" ? <HeroMediaSettings embedded view="media" />
-            : group === "overlay" ? <HeroStyleSettings embedded group="overlay" />
-              : group === "behavior" ? <HeroStyleSettings embedded group="behavior" />
-                : <SectionDisplaySettings view="spacing" />}
+          : group === "links" ? <HeroLinkSettings />
+            : group === "media" ? <HeroMediaSettings embedded view="media" />
+              : group === "overlay" ? <HeroStyleSettings embedded group="overlay" />
+                : group === "behavior" ? <HeroStyleSettings embedded group="behavior" />
+                  : <SectionDisplaySettings view="spacing" />}
       </div>
     </details>)}
   </div>;

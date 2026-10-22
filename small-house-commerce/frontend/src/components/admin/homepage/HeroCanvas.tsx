@@ -23,10 +23,13 @@ import {
   effectiveButtonMetrics,
   effectiveElementStyle,
   emptyElement,
+  newUuid,
   resetElementLayout,
   setElementOverride,
   setHeroButtonMetrics,
   updateHeroElement,
+  updateHeroZone,
+  addHeroZone,
   BUTTON_BOX_LIMITS,
   type ElementLayout,
   type HeroButtonMetricsPatch,
@@ -294,6 +297,39 @@ type DragState = {
 };
 
 type DragPreview = { key: HeroElementKey; xPct: number; yPct: number };
+
+/** A link-zone box in the slide's percentage space. */
+type ZoneRect = {
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+};
+
+/** Moving an existing zone with the pointer. */
+type ZoneMoveState = {
+  zoneId: string;
+  slideId: string;
+  startX: number;
+  startY: number;
+  widthPct: number;
+  heightPct: number;
+  startClientX: number;
+  startClientY: number;
+  pointerId: number;
+  moved: boolean;
+  capture: HTMLElement | null;
+};
+
+/** Drawing a new zone with the pointer. */
+type ZoneDrawState = {
+  slideId: string;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+  pointerId: number;
+};
 
 type ResizeState = {
   key: HeroCtaKey;
@@ -581,8 +617,10 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     device,
     selectedSlideId,
     selectedElementKey,
+    selectedZoneId,
     setSelectedSectionId,
     setSelectedElementKey,
+    setSelectedZoneId,
     safeAreaFlags,
   } = useHomepageEditor();
 
@@ -592,10 +630,15 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   const previewRef = useRef<DragPreview | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const resizePreviewRef = useRef<ResizePreview | null>(null);
+  const zoneMoveRef = useRef<ZoneMoveState | null>(null);
+  const zoneDrawRef = useRef<ZoneDrawState | null>(null);
   const suppressClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null);
   const [dragGuides, setDragGuides] = useState<DragGuides>(NO_GUIDES);
+  /** Armed while the operator draws a new link zone on the picture. */
+  const [zoneTool, setZoneTool] = useState(false);
+  const [zonePreview, setZonePreview] = useState<ZoneRect | null>(null);
   const [toolbarAnchor, setToolbarAnchor] = useState<{
     left: number;
     top: number;
@@ -847,7 +890,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     if (target instanceof Element && target.closest("[data-hero-element]")) {
       return;
     }
+    if (target instanceof Element && target.closest("[data-hero-zone]")) {
+      return;
+    }
     setSelectedElementKey(null);
+    setSelectedZoneId(null);
   };
 
   /**
@@ -959,6 +1006,69 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   ): void => {
     if (event.button !== 0) return;
     const target = event.target;
+
+    // A link zone on the picture: grabbing it moves the box.
+    const zoneEl =
+      target instanceof Element
+        ? target.closest("[data-hero-zone]")
+        : null;
+    if (
+      zoneEl instanceof HTMLElement &&
+      canvasRef.current?.contains(zoneEl) &&
+      slide
+    ) {
+      const zoneId = zoneEl.getAttribute("data-hero-zone");
+      const zone = (slide.zones ?? []).find((item) => item.id === zoneId);
+      if (zoneId && zone) {
+        event.preventDefault();
+        suppressClickRef.current = false;
+        if (section) setSelectedSectionId(section.id);
+        setSelectedElementKey(null);
+        setSelectedZoneId(zoneId);
+        zoneMoveRef.current = {
+          zoneId,
+          slideId: slide.id,
+          startX: zone.layout.xPct,
+          startY: zone.layout.yPct,
+          widthPct: zone.layout.widthPct,
+          heightPct: zone.layout.heightPct,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          pointerId: event.pointerId,
+          moved: false,
+          capture: zoneEl,
+        };
+        try {
+          zoneEl.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable (jsdom) or the pointer is gone.
+        }
+        focusCanvas();
+        return;
+      }
+    }
+
+    // The zone tool draws a new box over the picture.
+    if (zoneTool && slide) {
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const xPct = clampPct(((event.clientX - rect.left) / rect.width) * 100);
+      const yPct = clampPct(((event.clientY - rect.top) / rect.height) * 100);
+      event.preventDefault();
+      suppressClickRef.current = false;
+      zoneDrawRef.current = {
+        slideId: slide.id,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: xPct,
+        startY: yPct,
+        pointerId: event.pointerId,
+      };
+      setZonePreview({ xPct, yPct, widthPct: 0, heightPct: 0 });
+      focusCanvas();
+      return;
+    }
+
     const resizeHandle =
       target instanceof Element
         ? target.closest("[data-hero-resize-handle]")
@@ -1033,6 +1143,41 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   const handlePointerMove = (
     event: ReactPointerEvent<HTMLDivElement>,
   ): void => {
+    const zoneMove = zoneMoveRef.current;
+    if (zoneMove) {
+      if (event.pointerId !== zoneMove.pointerId) return;
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const dx = event.clientX - zoneMove.startClientX;
+      const dy = event.clientY - zoneMove.startClientY;
+      if (dx !== 0 || dy !== 0) zoneMove.moved = true;
+      setZonePreview({
+        xPct: dragDeltaToPct(zoneMove.startX, dx, rect.width),
+        yPct: dragDeltaToPct(zoneMove.startY, dy, rect.height),
+        widthPct: zoneMove.widthPct,
+        heightPct: zoneMove.heightPct,
+      });
+      return;
+    }
+    const zoneDraw = zoneDrawRef.current;
+    if (zoneDraw) {
+      if (event.pointerId !== zoneDraw.pointerId) return;
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const xPct = clampPct(
+        ((event.clientX - rect.left) / rect.width) * 100,
+      );
+      const yPct = clampPct(
+        ((event.clientY - rect.top) / rect.height) * 100,
+      );
+      setZonePreview({
+        xPct: Math.min(zoneDraw.startX, xPct),
+        yPct: Math.min(zoneDraw.startY, yPct),
+        widthPct: Math.abs(xPct - zoneDraw.startX),
+        heightPct: Math.abs(yPct - zoneDraw.startY),
+      });
+      return;
+    }
     const resize = resizeRef.current;
     if (resize) {
       if (event.pointerId !== resize.pointerId) return;
@@ -1094,6 +1239,51 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   };
 
   const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const zoneMove = zoneMoveRef.current;
+    if (zoneMove) {
+      if (event.pointerId !== zoneMove.pointerId) return;
+      zoneMoveRef.current = null;
+      try {
+        zoneMove.capture?.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // Nothing to release without pointer capture.
+      }
+      const preview = zonePreview;
+      setZonePreview(null);
+      if (event.type === "pointercancel") return;
+      if (!zoneMove.moved || !preview) return;
+      suppressClickRef.current = true;
+      const { zoneId, slideId } = zoneMove;
+      dispatch({
+        type: "mutate",
+        // One commit per gesture, applied to the latest document.
+        mutate: (doc) =>
+          updateHeroZone(doc, slideId, zoneId, {
+            layout: { xPct: preview.xPct, yPct: preview.yPct },
+          }),
+      });
+      return;
+    }
+    const zoneDraw = zoneDrawRef.current;
+    if (zoneDraw) {
+      if (event.pointerId !== zoneDraw.pointerId) return;
+      zoneDrawRef.current = null;
+      const preview = zonePreview;
+      setZonePreview(null);
+      if (event.type === "pointercancel") return;
+      // A click without a drag is not a box.
+      if (!preview || preview.widthPct < 1 || preview.heightPct < 1) return;
+      suppressClickRef.current = true;
+      const zoneId = newUuid();
+      const slideId = zoneDraw.slideId;
+      dispatch({
+        type: "mutate",
+        mutate: (doc) => addHeroZone(doc, slideId, preview, zoneId),
+      });
+      setSelectedZoneId(zoneId);
+      setZoneTool(false);
+      return;
+    }
     const resize = resizeRef.current;
     if (resize) {
       if (event.pointerId !== resize.pointerId) return;
@@ -1321,6 +1511,26 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       onPointerCancel={handlePointerEnd}
       onKeyDown={handleKeyDown}
     >
+      <button
+        type="button"
+        data-hero-zone-tool
+        aria-pressed={zoneTool}
+        onClick={() => {
+          setZoneTool((current) => !current);
+          setZonePreview(null);
+        }}
+        className={`absolute right-2 top-2 z-40 rounded-lg border px-2 py-1 text-xs font-semibold shadow ${
+          zoneTool
+            ? "border-cta bg-cta text-cta-foreground"
+            : "border-border bg-card text-ink-secondary"
+        }`}
+      >
+        {t(
+          zoneTool
+            ? "homepage_builder_hero_zone_tool_stop"
+            : "homepage_builder_hero_zone_tool_start",
+        )}
+      </button>
       <div
         ref={stageRef}
         data-hero-stage
@@ -1345,10 +1555,24 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
               edit={{
                 selectedElementKey,
                 onSelectElement: setSelectedElementKey,
+                selectedZoneId,
               }}
             />
             {deviceOverrideCss ? (
               <style data-hero-canvas-device-css>{deviceOverrideCss}</style>
+            ) : null}
+            {zonePreview ? (
+              <div
+                data-hero-zone-preview
+                aria-hidden="true"
+                className="absolute z-40 border-2 border-dashed border-cta bg-cta/10"
+                style={{
+                  left: `${zonePreview.xPct}%`,
+                  top: `${zonePreview.yPct}%`,
+                  width: `${zonePreview.widthPct}%`,
+                  height: `${zonePreview.heightPct}%`,
+                }}
+              />
             ) : null}
           </>
         ) : (

@@ -113,7 +113,7 @@ describe("HeroSettingsPanel", () => {
     mount();
     const before = current();
     expect([...document.querySelectorAll('[data-panel="hero-settings"] > details')].map(node => node.getAttribute('data-settings-group')))
-      .toEqual(["layout", "text", "buttons", "media", "overlay", "behavior", "advanced"]);
+      .toEqual(["layout", "text", "buttons", "links", "media", "overlay", "behavior", "advanced"]);
     const layout = document.querySelector<HTMLElement>('[data-settings-group="layout"]')!;
     fireEvent.click(within(layout).getByRole("button", { name: /banner/i }));
     const updated = current().sections[0];

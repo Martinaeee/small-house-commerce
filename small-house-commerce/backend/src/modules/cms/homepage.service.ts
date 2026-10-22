@@ -491,7 +491,25 @@ export class HomepageService {
               : this.hrefForLink(this.asLink(value.link), linkHrefs),
           };
         }
-        return { ...slide, elements: nextElements };
+        const nextSlide: Record<string, unknown> = { ...slide, elements: nextElements };
+        // The whole-banner target (SLIDE mode) and every link zone resolve
+        // through the same batch as the element links.
+        if (slide.slideLink !== undefined) {
+          nextSlide.slideLinkHref = this.hrefForLink(
+            this.asLink(slide.slideLink),
+            linkHrefs,
+          );
+        }
+        if (Array.isArray(slide.zones)) {
+          nextSlide.zones = slide.zones.map((zone) => {
+            if (!this.isRecord(zone)) return zone;
+            return {
+              ...zone,
+              linkHref: this.hrefForLink(this.asLink(zone.link), linkHrefs),
+            };
+          });
+        }
+        return nextSlide;
       });
 
     return { ...payload, slides };
@@ -520,6 +538,17 @@ export class HomepageService {
           if (key === 'countdown' && value.endsAt === null) continue;
           links.push(this.asLink(value.link));
         }
+        // The whole-banner target and the link zones need the same batch, so
+        // a slide that only carries those links still resolves.
+        if (slide.slideLink !== undefined) {
+          links.push(this.asLink(slide.slideLink));
+        }
+        if (Array.isArray(slide.zones)) {
+          for (const zone of slide.zones) {
+            if (!this.isRecord(zone)) continue;
+            links.push(this.asLink(zone.link));
+          }
+        }
       }
     }
     return this.resolveLinks(links);
@@ -532,7 +561,12 @@ export class HomepageService {
       LINK_ENTITY_TYPES.map((type) => [type, new Set<string>()]),
     );
     for (const link of links) {
-      if (link && link.type !== 'EXTERNAL' && link.type !== 'INTERNAL') {
+      if (
+        link &&
+        link.type !== 'EXTERNAL' &&
+        link.type !== 'INTERNAL' &&
+        link.type !== 'SUBSCRIBE'
+      ) {
         ids.get(link.type)?.add(link.id);
       }
     }
@@ -563,6 +597,11 @@ export class HomepageService {
         hrefs.set(key, link.path);
         continue;
       }
+      if (link.type === 'SUBSCRIBE') {
+        // The subscribe popup is an action, not a destination.
+        hrefs.set(key, null);
+        continue;
+      }
       const slug = slugMaps.get(link.type)?.get(link.id);
       hrefs.set(key, slug ? this.internalHref(link.type, slug) : null);
     }
@@ -573,12 +612,15 @@ export class HomepageService {
     if (!link) return null;
     if (link.type === 'EXTERNAL') return link.url;
     if (link.type === 'INTERNAL') return link.path;
+    // The subscribe popup is an action, not a destination.
+    if (link.type === 'SUBSCRIBE') return null;
     return hrefs.get(this.linkKey(link)) ?? null;
   }
 
   private linkKey(link: LinkValue): string {
     if (link.type === 'EXTERNAL') return `${link.type}:${link.url}`;
     if (link.type === 'INTERNAL') return `${link.type}:${link.path}`;
+    if (link.type === 'SUBSCRIBE') return link.type;
     return `${link.type}:${link.id}`;
   }
 
@@ -610,6 +652,9 @@ export class HomepageService {
       typeof value.id === 'string'
     ) {
       return { type: value.type, id: value.id };
+    }
+    if (value.type === 'SUBSCRIBE') {
+      return { type: 'SUBSCRIBE' };
     }
     return null;
   }

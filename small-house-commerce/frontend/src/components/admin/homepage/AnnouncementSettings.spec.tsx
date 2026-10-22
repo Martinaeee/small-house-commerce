@@ -468,6 +468,23 @@ describe("AnnouncementSettings", () => {
     });
   });
 
+  it("offers the subscribe popup as an announcement destination", () => {
+    renderSettings();
+
+    const card = itemCard(ITEM_ONE_ID);
+    const typeSelect = within(card).getByRole("combobox", { name: "Link type" });
+    expect(
+      within(typeSelect).getByRole("option", { name: "Subscribe popup" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(typeSelect, { target: { value: "SUBSCRIBE" } });
+
+    expect(announcement().items[0].link).toEqual({ type: "SUBSCRIBE" });
+    expect(
+      within(card).getByText(/subscribe popup only opens/i),
+    ).toBeInTheDocument();
+  });
+
   it("switches to external, validates https URLs and clears the link", async () => {
     renderSettings();
 

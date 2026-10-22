@@ -14,6 +14,7 @@ import type { AnnouncementBlockView, AnnouncementItemView } from "@/lib/api";
 import { parseAnnouncementRichText } from "@/lib/announcement-rich-text";
 import type { AnnouncementCountdownConfig, Schedule } from "@/lib/homepage-document";
 import { safeHex } from "@/lib/homepage-styles";
+import { requestNewsletterOffer } from "@/components/newsletter/newsletterOfferChannel";
 import {
   AnnouncementCountdown,
   type AnnouncementDevice,
@@ -167,6 +168,40 @@ function Separator(): ReactElement {
   return <span aria-hidden="true"> · </span>;
 }
 
+/**
+ * The subscribe popup is an action, not a URL: an item may point at it
+ * instead of a page. The trigger is a real button so it is reachable by
+ * keyboard and announced as an action.
+ */
+function SubscribeTrigger({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      data-announcement-subscribe
+      onClick={() => requestNewsletterOffer()}
+      className={`cursor-pointer border-0 bg-transparent p-0 font-inherit text-inherit ${className ?? ""}`.trim()}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** True when the item points at the subscribe popup instead of a page. */
+function isSubscribeItem(item: AnnouncementItemView): boolean {
+  return item.link?.type === "SUBSCRIBE";
+}
+
+/** Opens the subscribe popup on demand. */
+function openSubscribe(): void {
+  requestNewsletterOffer();
+}
+
 function RichItem({
   item,
   countdown,
@@ -184,12 +219,23 @@ function RichItem({
     <AnnouncementCountdown config={countdown} nowMs={nowMs} device={device} />
   ) : null;
   const hasTimer = timer !== null;
-  const hasCta = Boolean(item.linkHref && item.linkLabel);
+  const subscribe = isSubscribeItem(item);
+  // A subscribe item has no href; its label is the trigger that opens the
+  // popup. A normal item needs both a resolved href and a label.
+  const hasCta = subscribe
+    ? Boolean(item.linkLabel)
+    : Boolean(item.linkHref && item.linkLabel);
   const cta = hasCta ? (
     mode === "live" ? (
-      <a href={item.linkHref!} className="underline underline-offset-2">
-        {item.linkLabel}
-      </a>
+      subscribe ? (
+        <SubscribeTrigger className="underline underline-offset-2">
+          {item.linkLabel}
+        </SubscribeTrigger>
+      ) : (
+        <a href={item.linkHref!} className="underline underline-offset-2">
+          {item.linkLabel}
+        </a>
+      )
     ) : (
       <span className="underline underline-offset-2">{item.linkLabel}</span>
     )
@@ -222,12 +268,28 @@ function LegacyItem({
   const timer = countdown ? (
     <AnnouncementCountdown config={countdown} nowMs={nowMs} device={device} />
   ) : null;
+  const subscribe = isSubscribeItem(item);
   const body = (
     <>
       <span>{item.text}</span>
       {timer ? <Separator /> : null}
       {timer}
-      {item.linkHref && item.linkLabel ? (
+      {subscribe ? (
+        item.linkLabel ? (
+          <>
+            {" "}
+            {mode === "live" ? (
+              <SubscribeTrigger className="underline underline-offset-2">
+                {item.linkLabel}
+              </SubscribeTrigger>
+            ) : (
+              <span className="underline underline-offset-2">
+                {item.linkLabel}
+              </span>
+            )}
+          </>
+        ) : null
+      ) : item.linkHref && item.linkLabel ? (
         <>
           {" "}
           <span className="underline underline-offset-2">{item.linkLabel}</span>
@@ -288,6 +350,10 @@ export function AnnouncementBar({
   const item = reducedMotion ? items[0] : items[activeIndex % items.length];
   const countdown = countdownOf(item);
   const rich = parseAnnouncementRichText(item.content) !== null;
+  // A subscribe item without a label opens the popup from the whole line, so
+  // the bar itself becomes the trigger.
+  const wholeBarTriggersSubscribe =
+    mode === "live" && isSubscribeItem(item) && !item.linkLabel;
 
   return (
     <div
@@ -299,6 +365,18 @@ export function AnnouncementBar({
         backgroundColor: safeHex(item.backgroundColor, DEFAULT_BACKGROUND),
         color: safeHex(item.textColor, DEFAULT_TEXT_COLOR),
       }}
+      role={wholeBarTriggersSubscribe ? "button" : undefined}
+      tabIndex={wholeBarTriggersSubscribe ? 0 : undefined}
+      onClick={wholeBarTriggersSubscribe ? openSubscribe : undefined}
+      onKeyDown={
+        wholeBarTriggersSubscribe
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              openSubscribe();
+            }
+          : undefined
+      }
       onMouseEnter={() => {
         hoveredRef.current = true;
       }}

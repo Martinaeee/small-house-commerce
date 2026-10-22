@@ -571,6 +571,13 @@ function AnnouncementItemCard({
               }),
             )
           }
+          onUseSelectionAsLinkLabel={(text) =>
+            applyMutation((current) =>
+              updateAnnouncementItem(current, item.id, {
+                linkLabel: text.slice(0, MAX_LINK_LABEL_LENGTH),
+              }),
+            )
+          }
         />
       </div>
 
@@ -596,12 +603,18 @@ function AnnouncementItemCard({
         <LinkPicker
           value={item.link}
           allowExternal
+          allowSubscribe
           onChange={(next) =>
             applyMutation((current) =>
               updateAnnouncementItem(current, item.id, { link: next }),
             )
           }
         />
+        {item.link?.type === "SUBSCRIBE" ? (
+          <p className="text-xs text-ink-muted">
+            {t("homepage_builder_announcement_subscribe_hint")}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-3">

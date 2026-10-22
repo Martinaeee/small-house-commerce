@@ -139,7 +139,32 @@ const ALIGNMENT_KEYS = {
   right: "homepage_builder_align_right",
 } as const;
 
-function EditorToolbar({ editor }: { editor: Editor | null }): ReactElement {
+/**
+ * The copy the operator has highlighted. The editor's own selection is the
+ * accurate source; the DOM selection is the fallback for the moment when the
+ * editor state has not caught up with the drag yet.
+ */
+function selectedCopy(editor: Editor | null): string {
+  if (editor) {
+    const { from, to, empty } = editor.state.selection;
+    if (!empty) {
+      const text = editor.state.doc.textBetween(from, to, " ").trim();
+      if (text !== "") return text;
+    }
+  }
+  if (typeof window === "undefined") return "";
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? "";
+  return text;
+}
+
+function EditorToolbar({
+  editor,
+  onUseSelectionAsLinkLabel,
+}: {
+  editor: Editor | null;
+  onUseSelectionAsLinkLabel?: (text: string) => void;
+}): ReactElement {
   const { t } = useAdminI18n();
   const canRun = editor !== null;
   const chain = (): ReturnType<Editor["chain"]> => editor!.chain().focus();
@@ -262,6 +287,19 @@ function EditorToolbar({ editor }: { editor: Editor | null }): ReactElement {
         disabled={!canRun}
         onClick={() => chain().unsetAllMarks().setTextAlign("center").run()}
       />
+      {onUseSelectionAsLinkLabel ? (
+        <ToolbarButton
+          label={t("homepage_builder_announcement_use_selection_as_link")}
+          disabled={!canRun}
+          onClick={() => {
+            // The button keeps the focus (mousedown is prevented), so the
+            // selection the operator just made is still there.
+            const text = selectedCopy(editor);
+            if (text === "") return;
+            onUseSelectionAsLinkLabel(text);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -271,11 +309,17 @@ export function AnnouncementRichTextEditor({
   content,
   fallbackText,
   onChange,
+  onUseSelectionAsLinkLabel,
 }: {
   itemId: string;
   content?: AnnouncementRichTextDocument;
   fallbackText: string;
   onChange(value: AnnouncementEditorValue): void;
+  /**
+   * Called with the copy the operator highlighted, so a phrase from the
+   * announcement can become the link label without retyping it.
+   */
+  onUseSelectionAsLinkLabel?: (text: string) => void;
 }): ReactElement {
   const { t } = useAdminI18n();
   const initialContent = useMemo(
@@ -378,7 +422,10 @@ export function AnnouncementRichTextEditor({
       className="flex flex-col gap-2"
       onKeyDown={stopEditorShortcut}
     >
-      <EditorToolbar editor={editor} />
+      <EditorToolbar
+        editor={editor}
+        onUseSelectionAsLinkLabel={onUseSelectionAsLinkLabel}
+      />
       <EditorContent editor={editor} onBlur={flush} />
     </div>
   );

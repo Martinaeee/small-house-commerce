@@ -45,7 +45,7 @@ import {
 
 const ENTITY_TYPES = ["PRODUCT", "COLLECTION", "CATEGORY", "LANDING"] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
-type LinkType = EntityType | "EXTERNAL" | "INTERNAL";
+type LinkType = EntityType | "EXTERNAL" | "INTERNAL" | "SUBSCRIBE";
 
 /** Static mapping: `LANDING` stores as `homepage_builder_link_type_LANDING`. */
 const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
@@ -55,6 +55,7 @@ const LINK_TYPE_LABEL_KEYS: Record<LinkType, TKey> = {
   LANDING: "homepage_builder_link_type_LANDING",
   EXTERNAL: "homepage_builder_link_type_EXTERNAL",
   INTERNAL: "homepage_builder_link_type_INTERNAL",
+  SUBSCRIBE: "homepage_builder_link_type_SUBSCRIBE",
 };
 
 const SERVER_SEARCH_DEBOUNCE_MS = 250;
@@ -108,7 +109,12 @@ function useEntityOptions(
   const productSearchKey = type === "PRODUCT" || type === "LANDING" ? search : "";
 
   useEffect(() => {
-    if (type === "" || type === "EXTERNAL" || type === "INTERNAL") {
+    if (
+      type === "" ||
+      type === "EXTERNAL" ||
+      type === "INTERNAL" ||
+      type === "SUBSCRIBE"
+    ) {
       // Fold any in-flight request so it can never resolve into current
       // state. Stale options keep their freshness tag until a fetch for the
       // active type lands, so the renderer never mistakes them for fresh.
@@ -196,17 +202,20 @@ export function LinkPicker({
   onChange,
   allowExternal,
   allowInternal = false,
+  allowSubscribe = false,
   entityTypes = ENTITY_TYPES,
 }: {
   value: LinkValue | null;
   onChange(value: LinkValue | null): void;
   allowExternal: boolean;
   allowInternal?: boolean;
+  /** Offers the subscribe popup as a destination (it is not a URL). */
+  allowSubscribe?: boolean;
   entityTypes?: readonly EntityType[];
 }): ReactNode {
   const { t } = useAdminI18n();
   const permitsType = (candidate: LinkType | "") => candidate === "" ||
-    (candidate === "EXTERNAL" ? allowExternal : candidate === "INTERNAL" ? allowInternal : entityTypes.includes(candidate));
+    (candidate === "EXTERNAL" ? allowExternal : candidate === "INTERNAL" ? allowInternal : candidate === "SUBSCRIBE" ? allowSubscribe : entityTypes.includes(candidate));
   const [type, setType] = useState<LinkType | "">(value?.type ?? "");
   const [lastSeenType, setLastSeenType] = useState<LinkType | "">(
     value?.type ?? "",
@@ -224,7 +233,10 @@ export function LinkPicker({
   }
 
   const valueId =
-    value !== null && value.type !== "EXTERNAL" && value.type !== "INTERNAL"
+    value !== null &&
+    value.type !== "EXTERNAL" &&
+    value.type !== "INTERNAL" &&
+    value.type !== "SUBSCRIBE"
       ? value.id
       : null;
 
@@ -294,11 +306,22 @@ export function LinkPicker({
     }
     external.reset("");
     internal.reset("");
+    if (nextType === "SUBSCRIBE") {
+      commitChange({ type: "SUBSCRIBE" });
+      return;
+    }
     commitChange(null);
   };
 
   const selectEntity = (option: EntityOption): void => {
-    if (type === "" || type === "EXTERNAL" || type === "INTERNAL") return;
+    if (
+      type === "" ||
+      type === "EXTERNAL" ||
+      type === "INTERNAL" ||
+      type === "SUBSCRIBE"
+    ) {
+      return;
+    }
     commitChange({ type, id: option.id });
   };
 
@@ -316,7 +339,7 @@ export function LinkPicker({
   const valueType = value !== null ? value.type : null;
   const productSearchKey =
     type === "PRODUCT" || type === "LANDING" ? searchInput : "";
-  const isEntityType = permitsType(type) && type !== "" && type !== "EXTERNAL" && type !== "INTERNAL";
+  const isEntityType = permitsType(type) && type !== "" && type !== "EXTERNAL" && type !== "INTERNAL" && type !== "SUBSCRIBE";
   const fresh = result.type === type && isEntityType;
   const settled = result.type === type && result.search === productSearchKey;
 
@@ -396,6 +419,9 @@ export function LinkPicker({
           ) : null}
           {allowInternal ? (
             <option value="INTERNAL">{t(LINK_TYPE_LABEL_KEYS.INTERNAL)}</option>
+          ) : null}
+          {allowSubscribe ? (
+            <option value="SUBSCRIBE">{t(LINK_TYPE_LABEL_KEYS.SUBSCRIBE)}</option>
           ) : null}
         </select>
         {value !== null ? (
@@ -513,6 +539,10 @@ export function LinkPicker({
           ) : value.type === "INTERNAL" ? (
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">
               {value.path}
+            </span>
+          ) : value.type === "SUBSCRIBE" ? (
+            <span className="min-w-0 flex-1 truncate text-xs text-ink-secondary">
+              {t("homepage_builder_link_resolved_subscribe")}
             </span>
           ) : (
             <span

@@ -15,6 +15,7 @@ import {
 } from "react";
 import { ViewportVideo } from "@/components/product/ViewportVideo";
 import type { ProductCardInteractionMode } from "@/components/product/ProductCard";
+import { requestNewsletterOffer } from "@/components/newsletter/newsletterOfferChannel";
 import { trackAttrs } from "@/lib/home-tracking";
 import {
   elementInlineVars,
@@ -27,6 +28,7 @@ import {
   type HomepageHeroButton,
   type HomepageHeroElement,
   type HomepageHeroElementKey,
+  type HomepageHeroLinkZone,
   type HomepageHeroMedia,
   type HomepageHeroSlide,
 } from "@/lib/api";
@@ -73,6 +75,8 @@ export function HeroSlider({
   edit?: {
     selectedElementKey: HeroElementKey | null;
     onSelectElement(key: HeroElementKey): void;
+    /** The link zone the canvas has selected (canvas only). */
+    selectedZoneId?: string | null;
   };
 }): ReactNode {
   const payload = isHeroPayloadView(section.payload) ? section.payload : null;
@@ -279,6 +283,17 @@ export function HeroSlider({
 
       {slides.map((slide, index) => {
         const active = index === activeIndex;
+        const slideLinkHref = slide.slideLinkHref ?? null;
+        const slideSubscribes = slide.slideLink?.type === "SUBSCRIBE";
+        // The whole banner navigates only when the operator chose SLIDE mode
+        // and gave it a target. The preview keeps every link inert.
+        const wholeSlideLink =
+          interactive &&
+          !previewing &&
+          slide.linkMode === "SLIDE" &&
+          (slideLinkHref !== null || slideSubscribes);
+        const slideLinkLabel =
+          slide.elements?.heading?.text?.trim() || slide.name || "Open";
         return (
           <div
             key={slide.id}
@@ -295,6 +310,30 @@ export function HeroSlider({
             <HeroSlideMedia
               slide={slide}
               eager={index === 0}
+            />
+            {wholeSlideLink ? (
+              slideSubscribes ? (
+                <button
+                  type="button"
+                  data-hero-slide-link
+                  aria-label={slideLinkLabel}
+                  onClick={() => requestNewsletterOffer()}
+                  className="absolute inset-0 z-30 cursor-pointer border-0 bg-transparent p-0"
+                />
+              ) : (
+                <a
+                  href={slideLinkHref ?? undefined}
+                  data-hero-slide-link
+                  aria-label={slideLinkLabel}
+                  className="absolute inset-0 z-30 block"
+                />
+              )
+            ) : null}
+            <HeroLinkZoneLayer
+              slide={slide}
+              editing={editing}
+              previewing={previewing}
+              selectedZoneId={edit?.selectedZoneId}
             />
             {ELEMENT_KEYS.map((key) => (
               <HeroElementContainer
@@ -314,7 +353,7 @@ export function HeroSlider({
                 aria-label={unmuted ? "Mute slide video" : "Enable slide sound"}
                 aria-pressed={unmuted}
                 onClick={() => setUnmuted((current) => !current)}
-                className="absolute bottom-4 right-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-ink/40 text-white backdrop-blur transition-colors hover:bg-ink/60"
+                className="absolute bottom-4 right-4 z-50 flex h-9 w-9 items-center justify-center rounded-full bg-ink/40 text-white backdrop-blur transition-colors hover:bg-ink/60"
               >
                 {unmuted ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
               </button>
@@ -498,6 +537,109 @@ function slideHasSoundToggle(slide: HomepageHeroSlide): boolean {
   return desktop || mobile;
 }
 
+/** The zone box as a share of the slide, in percentages. */
+function zoneBoxStyle(zone: HomepageHeroLinkZone): CSSProperties {
+  const layout = zone.layout ?? {};
+  const pct = (value: unknown): string =>
+    typeof value === "number" && Number.isFinite(value)
+      ? `${Math.min(100, Math.max(0, value))}%`
+      : "0%";
+  return {
+    position: "absolute",
+    left: pct(layout.xPct),
+    top: pct(layout.yPct),
+    width: pct(layout.widthPct),
+    height: pct(layout.heightPct),
+  };
+}
+
+/**
+ * The clickable rectangles painted over the picture. On the storefront a zone
+ * with a target is a link (or a button that opens the subscribe popup); a
+ * transparent zone is an invisible hotspot. In the admin canvas every zone is
+ * drawn as an outlined box so the operator can see and move it.
+ */
+function HeroLinkZoneLayer({
+  slide,
+  editing,
+  previewing,
+  selectedZoneId,
+}: {
+  slide: HomepageHeroSlide;
+  editing: boolean;
+  previewing: boolean;
+  selectedZoneId?: string | null;
+}): ReactNode {
+  const zones = slide.zones ?? [];
+  if (zones.length === 0) return null;
+
+  return (
+    <>
+      {zones.map((zone) => {
+        const style = zoneBoxStyle(zone);
+        const subscribe = zone.link?.type === "SUBSCRIBE";
+        const href = zone.linkHref ?? null;
+        if (editing) {
+          const selected = zone.id === selectedZoneId;
+          return (
+            <div
+              key={zone.id}
+              data-hero-zone={zone.id}
+              data-hero-zone-selected={selected ? "true" : undefined}
+              aria-hidden="true"
+              className={`border-2 ${
+                selected ? "border-cta bg-cta/20" : "border-dashed border-cta/70"
+              }`}
+              style={style}
+            />
+          );
+        }
+        const paint = {
+          ...style,
+          zIndex: 35,
+          background:
+            zone.background?.visible === true
+              ? safeHex(zone.background.color ?? null, "#B99B81")
+              : "transparent",
+        };
+        if (previewing) {
+          // The draft preview shows the zones but never navigates.
+          return (
+            <div key={zone.id} data-hero-zone={zone.id} aria-hidden="true" style={paint} />
+          );
+        }
+        if (subscribe) {
+          return (
+            <button
+              key={zone.id}
+              type="button"
+              data-hero-zone={zone.id}
+              aria-label="Open the subscribe popup"
+              onClick={() => requestNewsletterOffer()}
+              className="cursor-pointer border-0 p-0"
+              style={paint}
+            />
+          );
+        }
+        if (!href) {
+          return (
+            <div key={zone.id} data-hero-zone={zone.id} aria-hidden="true" style={paint} />
+          );
+        }
+        return (
+          <a
+            key={zone.id}
+            href={href}
+            data-hero-zone={zone.id}
+            className="block"
+            style={paint}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function HeroSlideMedia({
   slide,
   eager,
@@ -644,6 +786,9 @@ function HeroElementContainer({
     letterSpacing: `var(--el-${elementKey}-ls, var(--hp-hero-fallback-ls, inherit))`,
     color: `var(--el-${elementKey}-color, inherit)`,
     maxWidth: `var(--el-${elementKey}-maxw, none)`,
+    // A CTA keeps its own link even when a link zone covers that part of the
+    // picture, so it stays above the zones.
+    ...(ctaElement ? { zIndex: 40 } : {}),
   };
 
   return (

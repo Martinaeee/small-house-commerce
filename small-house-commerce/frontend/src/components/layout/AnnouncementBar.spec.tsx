@@ -1,7 +1,12 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnnouncementBlockView, AnnouncementItemView } from "@/lib/api";
+import { requestNewsletterOffer } from "@/components/newsletter/newsletterOfferChannel";
 import { AnnouncementBar } from "./AnnouncementBar";
+
+vi.mock("@/components/newsletter/newsletterOfferChannel", () => ({
+  requestNewsletterOffer: vi.fn(),
+}));
 
 // Task 20 storefront announcement contract (spec §6.2): the bar renders one
 // visible line at a time; null data / disabled block / zero enabled items
@@ -80,6 +85,7 @@ async function advance(ms: number): Promise<void> {
 describe("AnnouncementBar", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.mocked(requestNewsletterOffer).mockClear();
   });
 
   afterEach(() => {
@@ -519,6 +525,52 @@ describe("AnnouncementBar", () => {
 
     expect(screen.queryByRole("link")).toBeNull();
     expect(visibleText()).toBe("Preview message Shop now");
+  });
+
+  it("opens the subscribe popup when the item links to the subscribe popup", () => {
+    render(
+      <AnnouncementBar
+        data={block([
+          item(0, { link: { type: "SUBSCRIBE" }, linkHref: null }),
+        ])}
+      />,
+    );
+
+    // The whole line is the trigger: the popup is the destination, not a URL.
+    const trigger = screen.getByRole("button", { name: /Message 1/ });
+    fireEvent.click(trigger);
+    expect(requestNewsletterOffer).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the subscribe popup from the link label and keeps it inert in preview", () => {
+    const view = render(
+      <AnnouncementBar
+        data={block([
+          item(0, {
+            link: { type: "SUBSCRIBE" },
+            linkHref: null,
+            linkLabel: "New here?",
+          }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New here?" }));
+    expect(requestNewsletterOffer).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <AnnouncementBar
+        mode="preview"
+        data={block([
+          item(0, {
+            link: { type: "SUBSCRIBE" },
+            linkHref: null,
+            linkLabel: "New here?",
+          }),
+        ])}
+      />,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("clears the rotation interval on unmount", () => {
