@@ -138,4 +138,86 @@ describe('CollectionsService.storefrontProducts', () => {
       pageSize: 2,
     });
   });
+
+  it('serves every active product newest first for the All Products collection', async () => {
+    const rows = [{ id: 'product-new' }, { id: 'product-old' }];
+    const prisma = {
+      collection: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'collection-all', slug: 'all-products' }),
+      },
+      product: {
+        findMany: vi.fn().mockResolvedValue(rows),
+        count: vi.fn().mockResolvedValue(2),
+      },
+      collectionProduct: { findMany: vi.fn(), count: vi.fn() },
+      $transaction: vi.fn(async (work: Array<Promise<unknown>>) => Promise.all(work)),
+    };
+    const products = {
+      storefrontByIds: vi.fn(async (ids: string[]) => ids.map((id) => ({ id }))),
+    };
+    const service = new CollectionsService(prisma as never, products as never);
+
+    const result = await service.storefrontProducts('all-products', {
+      page: 1,
+      pageSize: 12,
+    });
+
+    // The list is automatic: no membership rows are read at all.
+    expect(prisma.collectionProduct.findMany).not.toHaveBeenCalled();
+    expect(prisma.collectionProduct.count).not.toHaveBeenCalled();
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: 'ACTIVE' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: 0,
+        take: 12,
+      }),
+    );
+    expect(prisma.product.count).toHaveBeenCalledWith({ where: { status: 'ACTIVE' } });
+    expect(products.storefrontByIds).toHaveBeenCalledWith(['product-new', 'product-old']);
+    expect(result).toEqual({
+      items: [{ id: 'product-new' }, { id: 'product-old' }],
+      total: 2,
+      page: 1,
+      pageSize: 12,
+    });
+  });
+
+  it('keeps the room and price filters on the automatic All Products list', async () => {
+    const prisma = {
+      collection: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'collection-all', slug: 'all-products' }),
+      },
+      product: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      collectionProduct: { findMany: vi.fn(), count: vi.fn() },
+      $transaction: vi.fn(async (work: Array<Promise<unknown>>) => Promise.all(work)),
+    };
+    const service = new CollectionsService(
+      prisma as never,
+      { storefrontByIds: vi.fn().mockResolvedValue([]) } as never,
+    );
+
+    await service.storefrontProducts('all-products', {
+      page: 3,
+      pageSize: 6,
+      room: 'LIVING_ROOM',
+      minPrice: 1000,
+      maxPrice: 5000,
+    });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: 'ACTIVE',
+          room: 'LIVING_ROOM',
+          variants: { some: { sku: { price: { gte: 1000, lte: 5000 } } } },
+        },
+        skip: 12,
+        take: 6,
+      }),
+    );
+  });
 });

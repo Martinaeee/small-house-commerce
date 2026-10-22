@@ -203,6 +203,10 @@ async function ensureCoreCollections(): Promise<void> {
     { name: 'Bedroom Essentials', slug: 'bedroom-essentials', type: 'NAVIGATION', sortOrder: 5 },
     { name: 'Small-Space Solutions', slug: 'small-space-solutions', type: 'SCENARIO', sortOrder: 6 },
     { name: 'Best Sellers', slug: 'best-sellers', type: 'SYSTEM', sortOrder: 7 },
+    // Automatic membership: the storefront resolves `all-products` to every
+    // active product (collections.service ALL_PRODUCTS_SLUG), so it never
+    // needs a hand-maintained list.
+    { name: 'All Products', slug: 'all-products', type: 'SYSTEM', sortOrder: 8 },
   ] as const;
 
   for (const c of core) {

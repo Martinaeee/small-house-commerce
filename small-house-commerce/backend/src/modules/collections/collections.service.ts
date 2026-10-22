@@ -10,13 +10,19 @@ import type {
   UpdateCollectionInput,
 } from './dto/collection.dto.js';
 
+/**
+ * The seeded "All Products" collection. It is automatic: its product list is
+ * every active product, ordered newest first, so it never needs membership
+ * upkeep. The slug is the contract the seed and this service share.
+ */
+export const ALL_PRODUCTS_SLUG = 'all-products';
+
 @Injectable()
 export class CollectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly products: ProductsService,
   ) {}
-
   // --- storefront -----------------------------------------------------------
 
   /** Navigation/landing collections for the header and homepage. */
@@ -93,7 +99,7 @@ export class CollectionsService {
   ) {
     const collection = await this.prisma.collection.findFirst({
       where: { slug, status: 'ACTIVE' },
-      select: { id: true },
+      select: { id: true, slug: true },
     });
     if (!collection) {
       throw new NotFoundException('Collection not found');
@@ -111,6 +117,25 @@ export class CollectionsService {
           sku: { price: { gte: query.minPrice, lte: query.maxPrice } },
         },
       };
+    }
+
+    // All Products is automatic: it always holds every active product, so
+    // membership rows are ignored and new products appear without upkeep.
+    if (collection.slug === ALL_PRODUCTS_SLUG) {
+      const [rows, total] = await this.prisma.$transaction([
+        this.prisma.product.findMany({
+          where: productWhere,
+          select: { id: true },
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.product.count({ where: productWhere }),
+      ]);
+      const items = await this.products.storefrontByIds(
+        rows.map(({ id }) => id),
+      );
+      return { items, total, page, pageSize };
     }
 
     const membershipWhere: Prisma.CollectionProductWhereInput = {

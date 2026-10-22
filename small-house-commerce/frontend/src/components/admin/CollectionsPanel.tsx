@@ -32,6 +32,13 @@ import { api, type Product } from "@/lib/api";
 const NEW_BADGE_SLUG = "new-arrivals";
 const BESTSELLER_BADGE_SLUG = "best-sellers";
 
+/**
+ * The seeded All Products collection resolves to every active product on the
+ * storefront (backend `ALL_PRODUCTS_SLUG`), so its membership list is ignored
+ * and the editor shows a note instead of a membership picker.
+ */
+const ALL_PRODUCTS_SLUG = "all-products";
+
 const TYPE_HINTS: Record<AdminCollectionRow["type"], string> = {
   NAVIGATION: "导航集合（分类导购页）",
   MARKETING: "营销集合（活动/角标）",
@@ -220,23 +227,29 @@ function CollectionsPageContent() {
     setSearchInput("");
     setAppliedSearch("");
     setCandidates(null);
-    fetchAllMembers(collection.slug)
-      .then((items) => {
-        if (!mountedRef.current) return;
-        setMembers(items);
-      })
-      .catch(() => {
-        if (!mountedRef.current) return;
-        // A disabled collection is not readable via the public endpoint.
-        // Block the membership save: PATCH replaces the whole list, and saving
-        // a list we could not load would silently wipe existing members.
-        setMembersLoadError(
-          "无法读取当前商品名单（集合可能处于 DISABLED 停用状态）。请先启用集合后再管理，以免保存时清空原有商品。",
-        );
-      })
-      .finally(() => {
-        if (mountedRef.current) setMembersLoading(false);
-      });
+    if (collection.slug === ALL_PRODUCTS_SLUG) {
+      // Automatic membership: nothing to read, and the save path never
+      // touches the list.
+      setMembersLoading(false);
+    } else {
+      fetchAllMembers(collection.slug)
+        .then((items) => {
+          if (!mountedRef.current) return;
+          setMembers(items);
+        })
+        .catch(() => {
+          if (!mountedRef.current) return;
+          // A disabled collection is not readable via the public endpoint.
+          // Block the membership save: PATCH replaces the whole list, and saving
+          // a list we could not load would silently wipe existing members.
+          setMembersLoadError(
+            "无法读取当前商品名单（集合可能处于 DISABLED 停用状态）。请先启用集合后再管理，以免保存时清空原有商品。",
+          );
+        })
+        .finally(() => {
+          if (mountedRef.current) setMembersLoading(false);
+        });
+    }
     loadCandidates("");
   }, [loadCandidates]);
 
@@ -315,7 +328,10 @@ function CollectionsPageContent() {
       if (!mountedRef.current) return;
 
       let memberNote = "";
-      if (membersLoadError) {
+      if (editor.collection.slug === ALL_PRODUCTS_SLUG) {
+        // Automatic membership: the storefront ignores the list, so there is
+        // nothing to write and nothing that can be wiped by a save.
+      } else if (membersLoadError) {
         memberNote = "（商品名单未能读取，本次未改动名单）";
       } else if (!membersLoading) {
         await adminApi.setCollectionProducts(
@@ -342,7 +358,9 @@ function CollectionsPageContent() {
                       ? { ...editor.collection.heroStyle, ...heroStyleFromForm(editor.hero) }
                       : (heroStyleFromForm(editor.hero) as AdminCollectionRow["heroStyle"]),
                     _count:
-                      membersLoadError || membersLoading
+                      row.slug === ALL_PRODUCTS_SLUG ||
+                      membersLoadError ||
+                      membersLoading
                         ? row._count
                         : { products: members.length },
                   }
@@ -447,7 +465,7 @@ function CollectionsPageContent() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                        {row._count.products}
+                        {row.slug === ALL_PRODUCTS_SLUG ? "全部" : row._count.products}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-secondary">
                         {row.sortOrder}
@@ -667,6 +685,14 @@ function CollectionsPageContent() {
             ) : null}
 
             {editorSection === "products" ? (
+              editor.collection.slug === ALL_PRODUCTS_SLUG ? (
+                <p
+                  data-testid="all-products-automatic"
+                  className="rounded-lg bg-primary-light/40 px-3 py-2.5 text-sm leading-relaxed text-ink-secondary"
+                >
+                  这是自动集合：前台始终列出<strong className="font-semibold text-ink">全部在售商品</strong>（最新上架的在最前面），新商品上架后会自动出现，不需要维护商品名单。
+                </p>
+              ) : (
               <div className="flex flex-col gap-5">
                 {membersLoadError ? (
                   <p
@@ -828,6 +854,7 @@ function CollectionsPageContent() {
                   </p>
                 </section>
               </div>
+              )
             ) : null}
 
             {editorError ? (
