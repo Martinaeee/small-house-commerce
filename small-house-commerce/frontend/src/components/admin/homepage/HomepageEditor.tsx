@@ -103,6 +103,13 @@ export type HomepageEditorContextValue = {
   /** The link zone the operator picked on the hero canvas. */
   selectedZoneId: string | null;
   setSelectedZoneId: Dispatch<SetStateAction<string | null>>;
+  /**
+   * Armed while the operator is about to draw a link zone on the picture.
+   * The canvas and the hero link panel share this so the tool can be started
+   * from either side.
+   */
+  zoneToolArmed: boolean;
+  setZoneToolArmed: Dispatch<SetStateAction<boolean>>;
   safeAreaFlags: SafeAreaFlags;
   setSafeAreaFlags: Dispatch<SetStateAction<SafeAreaFlags>>;
 };
@@ -165,6 +172,7 @@ export function HomepageEditorProvider({
   const [selectedElementKey, setSelectedElementKeyState] =
     useState<HeroElementKey | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [zoneToolArmed, setZoneToolArmed] = useState(false);
   const heroSectionId =
     state.document.sections.find((section) => section.type === "HERO")?.id ?? null;
   const setSelectedElementKey = useCallback<
@@ -218,6 +226,8 @@ export function HomepageEditorProvider({
       setSelectedElementKey,
       selectedZoneId,
       setSelectedZoneId,
+      zoneToolArmed,
+      setZoneToolArmed,
       safeAreaFlags,
       setSafeAreaFlags,
     }),
@@ -232,6 +242,8 @@ export function HomepageEditorProvider({
       setSelectedElementKey,
       selectedZoneId,
       setSelectedZoneId,
+      zoneToolArmed,
+      setZoneToolArmed,
       safeAreaFlags,
     ],
   );

@@ -163,7 +163,7 @@ function Harness({
 }
 
 function Probe(): ReactNode {
-  const { state, dispatch, device, selectedElementKey, setSelectedSlideId } =
+  const { state, dispatch, device, selectedElementKey, setSelectedSlideId, setZoneToolArmed } =
     useHomepageEditor();
   return (
     <div>
@@ -187,6 +187,9 @@ function Probe(): ReactNode {
       </button>
       <button type="button" onClick={() => setSelectedSlideId(SLIDE_TWO_ID)}>
         select-slide-two
+      </button>
+      <button type="button" onClick={() => setZoneToolArmed(true)}>
+        arm-zone-tool
       </button>
     </div>
   );
@@ -1057,6 +1060,85 @@ describe("hero link zones", () => {
       yPct: 20,
       widthPct: 20,
       heightPct: 20,
+    });
+  });
+
+  it("draws a zone when the tool is armed from the settings panel", () => {
+    renderCanvas();
+    mockStageRect();
+    // The hero link panel arms the same shared tool.
+    fireEvent.click(screen.getByRole("button", { name: "arm-zone-tool" }));
+
+    const target = stage();
+    fireEvent.pointerDown(target, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(target, {
+      clientX: 300,
+      clientY: 200,
+      pointerId: POINTER_ID,
+    });
+    fireEvent.pointerUp(target, {
+      clientX: 300,
+      clientY: 200,
+      pointerId: POINTER_ID,
+    });
+
+    const zones = heroSectionOf(documentFromProbe()).payload.slides[0].zones;
+    expect(zones).toHaveLength(1);
+  });
+
+  it("re-shapes the selected zone with a corner handle", () => {    renderCanvas({ document: zoneDocument() });
+    mockStageRect();
+
+    const zoneEl = document.querySelector<HTMLElement>(
+      `[data-hero-zone="${ZONE_ID}"]`,
+    )!;
+    fireEvent.pointerDown(zoneEl, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerUp(zoneEl, {
+      clientX: 100,
+      clientY: 100,
+      pointerId: POINTER_ID,
+    });
+
+    const handle = document.querySelector<HTMLElement>(
+      `[data-hero-zone-handle="se"]`,
+    );
+    expect(handle).not.toBeNull();
+
+    fireEvent.pointerDown(handle!, {
+      clientX: 300,
+      clientY: 200,
+      pointerId: POINTER_ID,
+      button: 0,
+    });
+    fireEvent.pointerMove(handle!, {
+      clientX: 500,
+      clientY: 300,
+      pointerId: POINTER_ID,
+    });
+    fireEvent.pointerUp(handle!, {
+      clientX: 500,
+      clientY: 300,
+      pointerId: POINTER_ID,
+    });
+
+    const zone = heroSectionOf(documentFromProbe()).payload.slides[0]
+      .zones?.[0];
+    // 200px of 1000 is 20% of the slide.
+    expect(zone?.layout).toEqual({
+      xPct: 10,
+      yPct: 20,
+      widthPct: 40,
+      heightPct: 40,
     });
   });
 });

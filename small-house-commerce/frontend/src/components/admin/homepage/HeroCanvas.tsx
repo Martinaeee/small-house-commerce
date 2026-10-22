@@ -45,6 +45,12 @@ import {
   type ButtonResizeStart,
   type ResizeDirection,
 } from "@/lib/hero-button-resize";
+import {
+  resizeZoneRect,
+  zoneRectFromDrag,
+  type ZoneCorner,
+  type ZoneRect,
+} from "@/lib/hero-zone-layout";
 import { safeHex } from "@/lib/homepage-styles";
 import { HeroSlider } from "@/components/home/HeroSlider";
 
@@ -298,16 +304,7 @@ type DragState = {
 
 type DragPreview = { key: HeroElementKey; xPct: number; yPct: number };
 
-/** A link-zone box in the slide's percentage space. */
-type ZoneRect = {
-  xPct: number;
-  yPct: number;
-  widthPct: number;
-  heightPct: number;
-};
-
-/** Moving an existing zone with the pointer. */
-type ZoneMoveState = {
+/** Moving an existing zone with the pointer. */type ZoneMoveState = {
   zoneId: string;
   slideId: string;
   startX: number;
@@ -329,6 +326,19 @@ type ZoneDrawState = {
   startX: number;
   startY: number;
   pointerId: number;
+};
+
+/** Re-shaping an existing zone with one of its corner handles. */
+type ZoneResizeState = {
+  zoneId: string;
+  slideId: string;
+  corner: ZoneCorner;
+  start: ZoneRect;
+  startClientX: number;
+  startClientY: number;
+  pointerId: number;
+  moved: boolean;
+  capture: HTMLElement | null;
 };
 
 type ResizeState = {
@@ -377,6 +387,10 @@ function isResizeDirection(value: string | null): value is ResizeDirection {
 
 function isCtaKey(value: string | null): value is HeroCtaKey {
   return value === "ctaPrimary" || value === "ctaSecondary";
+}
+
+function isZoneCorner(value: string | null): value is ZoneCorner {
+  return value === "nw" || value === "ne" || value === "sw" || value === "se";
 }
 
 /** Visual scale of the simulated stage: screen px / CSS px. */
@@ -618,9 +632,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     selectedSlideId,
     selectedElementKey,
     selectedZoneId,
+    zoneToolArmed,
     setSelectedSectionId,
     setSelectedElementKey,
     setSelectedZoneId,
+    setZoneToolArmed,
     safeAreaFlags,
   } = useHomepageEditor();
 
@@ -632,12 +648,11 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
   const resizePreviewRef = useRef<ResizePreview | null>(null);
   const zoneMoveRef = useRef<ZoneMoveState | null>(null);
   const zoneDrawRef = useRef<ZoneDrawState | null>(null);
+  const zoneResizeRef = useRef<ZoneResizeState | null>(null);
   const suppressClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null);
   const [dragGuides, setDragGuides] = useState<DragGuides>(NO_GUIDES);
-  /** Armed while the operator draws a new link zone on the picture. */
-  const [zoneTool, setZoneTool] = useState(false);
   const [zonePreview, setZonePreview] = useState<ZoneRect | null>(null);
   const [toolbarAnchor, setToolbarAnchor] = useState<{
     left: number;
@@ -1007,6 +1022,45 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     if (event.button !== 0) return;
     const target = event.target;
 
+    // A corner handle of the selected zone re-shapes it.
+    const zoneHandleEl =
+      target instanceof Element
+        ? target.closest("[data-hero-zone-handle]")
+        : null;
+    if (
+      zoneHandleEl instanceof HTMLElement &&
+      canvasRef.current?.contains(zoneHandleEl) &&
+      slide &&
+      selectedZoneId
+    ) {
+      const corner = zoneHandleEl.getAttribute("data-hero-zone-handle");
+      const zone = (slide.zones ?? []).find(
+        (item) => item.id === selectedZoneId,
+      );
+      if (zone && isZoneCorner(corner)) {
+        event.preventDefault();
+        suppressClickRef.current = false;
+        zoneResizeRef.current = {
+          zoneId: zone.id,
+          slideId: slide.id,
+          corner,
+          start: { ...zone.layout },
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          pointerId: event.pointerId,
+          moved: false,
+          capture: zoneHandleEl,
+        };
+        try {
+          zoneHandleEl.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Pointer capture is unavailable (jsdom) or the pointer is gone.
+        }
+        focusCanvas();
+        return;
+      }
+    }
+
     // A link zone on the picture: grabbing it moves the box.
     const zoneEl =
       target instanceof Element
@@ -1049,7 +1103,7 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
     }
 
     // The zone tool draws a new box over the picture.
-    if (zoneTool && slide) {
+    if (zoneToolArmed && slide) {
       const rect = stageRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
       const xPct = clampPct(((event.clientX - rect.left) / rect.width) * 100);
@@ -1159,6 +1213,24 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       });
       return;
     }
+    const zoneResize = zoneResizeRef.current;
+    if (zoneResize) {
+      if (event.pointerId !== zoneResize.pointerId) return;
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const dx = event.clientX - zoneResize.startClientX;
+      const dy = event.clientY - zoneResize.startClientY;
+      if (dx !== 0 || dy !== 0) zoneResize.moved = true;
+      setZonePreview(
+        resizeZoneRect(
+          zoneResize.start,
+          zoneResize.corner,
+          (dx / rect.width) * 100,
+          (dy / rect.height) * 100,
+        ),
+      );
+      return;
+    }
     const zoneDraw = zoneDrawRef.current;
     if (zoneDraw) {
       if (event.pointerId !== zoneDraw.pointerId) return;
@@ -1170,12 +1242,9 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       const yPct = clampPct(
         ((event.clientY - rect.top) / rect.height) * 100,
       );
-      setZonePreview({
-        xPct: Math.min(zoneDraw.startX, xPct),
-        yPct: Math.min(zoneDraw.startY, yPct),
-        widthPct: Math.abs(xPct - zoneDraw.startX),
-        heightPct: Math.abs(yPct - zoneDraw.startY),
-      });
+      setZonePreview(
+        zoneRectFromDrag(zoneDraw.startX, zoneDraw.startY, xPct, yPct),
+      );
       return;
     }
     const resize = resizeRef.current;
@@ -1264,6 +1333,28 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       });
       return;
     }
+    const zoneResize = zoneResizeRef.current;
+    if (zoneResize) {
+      if (event.pointerId !== zoneResize.pointerId) return;
+      zoneResizeRef.current = null;
+      try {
+        zoneResize.capture?.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // Nothing to release without pointer capture.
+      }
+      const preview = zonePreview;
+      setZonePreview(null);
+      if (event.type === "pointercancel") return;
+      if (!zoneResize.moved || !preview) return;
+      suppressClickRef.current = true;
+      const { zoneId, slideId } = zoneResize;
+      dispatch({
+        type: "mutate",
+        mutate: (doc) =>
+          updateHeroZone(doc, slideId, zoneId, { layout: preview }),
+      });
+      return;
+    }
     const zoneDraw = zoneDrawRef.current;
     if (zoneDraw) {
       if (event.pointerId !== zoneDraw.pointerId) return;
@@ -1281,7 +1372,7 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
         mutate: (doc) => addHeroZone(doc, slideId, preview, zoneId),
       });
       setSelectedZoneId(zoneId);
-      setZoneTool(false);
+      setZoneToolArmed(false);
       return;
     }
     const resize = resizeRef.current;
@@ -1514,23 +1605,41 @@ export function HeroCanvas({ style, previewViewportHeight }: { style?: unknown; 
       <button
         type="button"
         data-hero-zone-tool
-        aria-pressed={zoneTool}
+        aria-pressed={zoneToolArmed}
         onClick={() => {
-          setZoneTool((current) => !current);
+          setZoneToolArmed((current) => !current);
           setZonePreview(null);
         }}
-        className={`absolute right-2 top-2 z-40 rounded-lg border px-2 py-1 text-xs font-semibold shadow ${
-          zoneTool
+        className={`absolute right-3 top-3 z-40 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow ${
+          zoneToolArmed
             ? "border-cta bg-cta text-cta-foreground"
             : "border-border bg-card text-ink-secondary"
         }`}
       >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          aria-hidden="true"
+          className="h-3.5 w-3.5"
+        >
+          <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+        </svg>
         {t(
-          zoneTool
+          zoneToolArmed
             ? "homepage_builder_hero_zone_tool_stop"
             : "homepage_builder_hero_zone_tool_start",
         )}
       </button>
+      {zoneToolArmed ? (
+        <p
+          data-hero-zone-hint
+          className="absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-lg bg-ink/85 px-3 py-1.5 text-xs font-medium text-white shadow"
+        >
+          {t("homepage_builder_hero_zone_tool_hint")}
+        </p>
+      ) : null}
       <div
         ref={stageRef}
         data-hero-stage
