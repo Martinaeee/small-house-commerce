@@ -4,6 +4,12 @@
 FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
+# Some regions cannot reach registry.npmjs.org reliably; the deploy may
+# point corepack's binary download at a mirror (e.g.
+# https://registry.npmmirror.com) through this build arg. Empty = the
+# official registry.
+ARG COREPACK_NPM_REGISTRY=""
+ENV COREPACK_NPM_REGISTRY=$COREPACK_NPM_REGISTRY
 RUN corepack enable \
  && corepack prepare pnpm@12.3.4 --activate
 WORKDIR /app
@@ -12,6 +18,10 @@ WORKDIR /app
 FROM base AS build
 ARG NEXT_PUBLIC_META_PIXEL_ID=""
 ENV NEXT_PUBLIC_META_PIXEL_ID=$NEXT_PUBLIC_META_PIXEL_ID
+# pnpm resolves packages against this registry (npmjs by default). A mirror
+# exists for regions where npmjs is unreachable or flaky. Empty = official.
+ARG NPM_CONFIG_REGISTRY=""
+ENV NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile

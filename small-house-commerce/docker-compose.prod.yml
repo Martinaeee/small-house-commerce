@@ -19,6 +19,12 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        # Empty = official npmjs registry; a mirror (npmmirror.com) lets
+        # regions where npmjs is unreachable/flaky still build. See the
+        # Dockerfiles' COREPACK_NPM_REGISTRY / NPM_CONFIG_REGISTRY args.
+        COREPACK_NPM_REGISTRY: ${COREPACK_NPM_REGISTRY:-}
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
     restart: unless-stopped
     depends_on:
       db:
@@ -54,6 +60,9 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_META_PIXEL_ID: ${NEXT_PUBLIC_META_PIXEL_ID:-}
+        # Same registry-mirror escape hatch as backend (see the Dockerfiles).
+        COREPACK_NPM_REGISTRY: ${COREPACK_NPM_REGISTRY:-}
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
     restart: unless-stopped
     depends_on:
       backend:
