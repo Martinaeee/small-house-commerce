@@ -173,124 +173,152 @@ export function DashboardClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      {/*
+        A main column and a side rail, each packed on its own.
+
+        A grid row takes the height of its tallest card, so a short card beside
+        a tall one leaves a band of empty page under it — the gap this page
+        used to show. Two independent columns (CSS `columns` inside each) pack
+        every card at its own height, so the space between two modules is
+        always the one gap value and never a hole. `break-inside-avoid` keeps a
+        card from being split across columns.
+
+        The split is by shape, not by importance: the modules that need width
+        (the chart, the ranking table) live in the wide main column, and the
+        list-shaped ones live in the rail.
+      */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
-          <SalesOverview
-            series={overview?.salesSeries ?? []}
-            totals={
-              overview?.salesTotals ?? {
-                totalSales: 0,
-                orders: 0,
-                averageOrderValue: null,
-                customers: 0,
-              }
-            }
-            canRead={overview?.capabilities.sales ?? false}
-            loading={loading || !overview}
-          />
-        </div>
-        <div className="min-w-0">
-          <NeedsAttention
-            items={overview?.needsAttention ?? []}
-            loading={loading || !overview}
-            canRead={Boolean(
-              overview &&
-                (overview.capabilities.sales ||
-                  overview.capabilities.inventory ||
-                  overview.capabilities.content ||
-                  overview.capabilities.marketing),
-            )}
-          />
+          <div className="columns-1 gap-4">
+            <div className="mb-4 break-inside-avoid">
+              <SalesOverview
+                series={overview?.salesSeries ?? []}
+                totals={
+                  overview?.salesTotals ?? {
+                    totalSales: 0,
+                    orders: 0,
+                    averageOrderValue: null,
+                    customers: 0,
+                  }
+                }
+                canRead={overview?.capabilities.sales ?? false}
+                loading={loading || !overview}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <OrdersOverview
+                tiles={overview?.ordersOverview.tiles ?? []}
+                total={overview?.ordersOverview.total ?? 0}
+                loading={loading || !overview}
+                canRead={overview?.capabilities.sales ?? false}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <CodMetricsCard
+                metrics={products?.codMetrics ?? null}
+                loading={loading || !products}
+                canRead={products?.capabilities.products ?? false}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <ProductPerformanceTable
+                products={products?.topProducts ?? []}
+                loading={loading || !products}
+                canRead={products?.capabilities.products ?? false}
+                sort={sort}
+                onSortChange={setSort}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <HomepagePerformance
+                sections={marketing?.homepage.sections ?? []}
+                totals={marketing?.homepage.totals ?? { impressions: 0, clicks: 0, ctr: null }}
+                trackingSince={marketing?.homepage.trackingSince ?? null}
+                loading={loading || !marketing}
+                canRead={marketing?.capabilities.content ?? false}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <ActiveCampaigns
+                campaigns={marketing?.campaigns ?? []}
+                loading={loading || !marketing}
+                canRead={marketing?.capabilities.marketing ?? false}
+              />
+            </div>
+
+            <div className="mb-4 break-inside-avoid">
+              <RecentOrders
+                orders={overview?.recentOrders ?? []}
+                loading={loading || !overview}
+                canRead={overview?.capabilities.sales ?? false}
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="min-w-0 lg:col-span-2">
-          <OrdersOverview
-            tiles={overview?.ordersOverview.tiles ?? []}
-            total={overview?.ordersOverview.total ?? 0}
-            loading={loading || !overview}
-            canRead={overview?.capabilities.sales ?? false}
-          />
-        </div>
         <div className="min-w-0">
-          <OrdersByLocation
-            rows={overview?.ordersByLocation.rows ?? []}
-            total={overview?.ordersByLocation.total ?? 0}
-            loading={loading || !overview}
-            canRead={overview?.capabilities.sales ?? false}
-          />
-        </div>
+          <div className="columns-1 gap-4">
+            <div className="mb-4 break-inside-avoid">
+              <NeedsAttention
+                items={overview?.needsAttention ?? []}
+                loading={loading || !overview}
+                canRead={Boolean(
+                  overview &&
+                    (overview.capabilities.sales ||
+                      overview.capabilities.inventory ||
+                      overview.capabilities.content ||
+                      overview.capabilities.marketing),
+                )}
+              />
+            </div>
 
-        <div className="min-w-0 lg:col-span-2">
-          <CodMetricsCard
-            metrics={products?.codMetrics ?? null}
-            loading={loading || !products}
-            canRead={products?.capabilities.products ?? false}
-          />
-        </div>
-        <div className="min-w-0">
-          <ProductAttentionCard
-            signals={products?.productAttention ?? []}
-            loading={loading || !products}
-            canRead={products?.capabilities.products ?? false}
-          />
-        </div>
+            <div className="mb-4 break-inside-avoid">
+              <OrdersByLocation
+                rows={overview?.ordersByLocation.rows ?? []}
+                total={overview?.ordersByLocation.total ?? 0}
+                loading={loading || !overview}
+                canRead={overview?.capabilities.sales ?? false}
+              />
+            </div>
 
-        <div className="min-w-0 lg:col-span-2">
-          <ProductPerformanceTable
-            products={products?.topProducts ?? []}
-            loading={loading || !products}
-            canRead={products?.capabilities.products ?? false}
-            sort={sort}
-            onSortChange={setSort}
-          />
-        </div>
-        <div className="min-w-0">
-          <InventoryAlertsCard
-            alerts={products?.inventoryAlerts ?? []}
-            loading={loading || !products}
-            canRead={products?.capabilities.inventory ?? false}
-            velocityWindowDays={products?.thresholds.velocityWindowDays ?? 7}
-          />
-        </div>
+            <div className="mb-4 break-inside-avoid">
+              <ProductAttentionCard
+                signals={products?.productAttention ?? []}
+                loading={loading || !products}
+                canRead={products?.capabilities.products ?? false}
+              />
+            </div>
 
-        <div className="min-w-0 lg:col-span-2">
-          <HomepagePerformance
-            sections={marketing?.homepage.sections ?? []}
-            totals={marketing?.homepage.totals ?? { impressions: 0, clicks: 0, ctr: null }}
-            trackingSince={marketing?.homepage.trackingSince ?? null}
-            loading={loading || !marketing}
-            canRead={marketing?.capabilities.content ?? false}
-          />
-        </div>
-        <div className="min-w-0">
-          <CustomerSnapshotCard
-            snapshot={overview?.customerSnapshot ?? null}
-            loading={loading || !overview}
-            canRead={overview?.capabilities.customers ?? false}
-          />
-        </div>
+            <div className="mb-4 break-inside-avoid">
+              <InventoryAlertsCard
+                alerts={products?.inventoryAlerts ?? []}
+                loading={loading || !products}
+                canRead={products?.capabilities.inventory ?? false}
+                velocityWindowDays={products?.thresholds.velocityWindowDays ?? 7}
+              />
+            </div>
 
-        <div className="min-w-0 lg:col-span-2">
-          <ActiveCampaigns
-            campaigns={marketing?.campaigns ?? []}
-            loading={loading || !marketing}
-            canRead={marketing?.capabilities.marketing ?? false}
-          />
-        </div>
-        <div className="min-w-0">
-          <ScheduledContent
-            items={overview?.scheduledContent ?? []}
-            loading={loading || !overview}
-            canRead={overview?.capabilities.content ?? overview?.capabilities.marketing ?? false}
-          />
-        </div>
+            <div className="mb-4 break-inside-avoid">
+              <CustomerSnapshotCard
+                snapshot={overview?.customerSnapshot ?? null}
+                loading={loading || !overview}
+                canRead={overview?.capabilities.customers ?? false}
+              />
+            </div>
 
-        <div className="min-w-0 lg:col-span-2 xl:col-span-3">
-          <RecentOrders
-            orders={overview?.recentOrders ?? []}
-            loading={loading || !overview}
-            canRead={overview?.capabilities.sales ?? false}
-          />
+            <div className="mb-4 break-inside-avoid">
+              <ScheduledContent
+                items={overview?.scheduledContent ?? []}
+                loading={loading || !overview}
+                canRead={overview?.capabilities.content ?? overview?.capabilities.marketing ?? false}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
