@@ -18,6 +18,7 @@ import { SettingsModule } from './modules/settings/settings.module.js';
 import { StorefrontShellModule } from './modules/storefront-shell/storefront-shell.module.js';
 import { EmailModule } from './modules/email/email.module.js';
 import { NewsletterModule } from './modules/newsletter/newsletter.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -50,6 +51,7 @@ import { UsersModule } from './modules/users/users.module.js';
     StorefrontShellModule,
     EmailModule,
     NewsletterModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

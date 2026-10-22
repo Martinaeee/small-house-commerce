@@ -27,6 +27,7 @@ import {
   type AdminOrderRow,
   type OrderStatus,
   type Paged,
+  type PaymentStatus,
 } from "@/lib/admin-api";
 
 // OrderStatus union, in declaration order (admin-api.ts).
@@ -41,6 +42,20 @@ const ORDER_STATUSES: OrderStatus[] = [
   "CANCELLED",
   "DENIED",
   "AFTER_SALES",
+];
+
+// PaymentStatus values (admin-api.ts). The dashboard's "failed payments" card
+// links here with paymentStatus=FAILED.
+const PAYMENT_STATUSES: PaymentStatus[] = [
+  "COD_PENDING",
+  "COLLECTED",
+  "SETTLEMENT_PENDING",
+  "SETTLED",
+  "ONLINE_PENDING",
+  "PAID",
+  "FAILED",
+  "REFUNDED",
+  "PARTIALLY_REFUNDED",
 ];
 
 // Confirm blocked set (brief Step 3): cancelled / denied / in-or-after
@@ -178,6 +193,11 @@ function OrdersPageContent() {
     .split(",")
     .filter((s): s is OrderStatus => ORDER_STATUSES.includes(s as OrderStatus));
   const statusKey = status.join(",");
+  const rawPaymentStatus = searchParams.get("paymentStatus") ?? "";
+  const paymentStatus = rawPaymentStatus
+    .split(",")
+    .filter((s): s is PaymentStatus => PAYMENT_STATUSES.includes(s as PaymentStatus));
+  const paymentStatusKey = paymentStatus.join(",");
   const rawClassification = searchParams.get("classification") ?? "";
   const classification = CLASSIFICATIONS.includes(rawClassification)
     ? rawClassification
@@ -192,7 +212,15 @@ function OrdersPageContent() {
     Math.max(1, Number.parseInt(searchParams.get("page") ?? "", 10)) || 1;
 
   const filtersActive = Boolean(
-    statusKey || classification || confirmation || assignedTo || risk || search || dateFrom || dateTo,
+    statusKey ||
+      paymentStatusKey ||
+      classification ||
+      confirmation ||
+      assignedTo ||
+      risk ||
+      search ||
+      dateFrom ||
+      dateTo,
   );
 
   const patchParams = useCallback(
@@ -298,7 +326,7 @@ function OrdersPageContent() {
   // Bumped to force a re-run of the current query (Retry / resync).
   const [nonce, setNonce] = useState(0);
 
-  const queryKey = [statusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, String(page), String(nonce)].join("|");
+  const queryKey = [statusKey, paymentStatusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, String(page), String(nonce)].join("|");
   // Loading is DERIVED: it flips true the moment the keyed query changes and
   // flips back false when that exact query settles — no setState in the
   // fetch effect body (react-hooks/set-state-in-effect).
@@ -346,6 +374,7 @@ function OrdersPageContent() {
     adminApi
       .listOrders({
         status: statusKey || undefined,
+        paymentStatus: paymentStatusKey || undefined,
         classification: classification || undefined,
         confirmation: confirmation || undefined,
         assignedTo: assignedTo || undefined,
@@ -369,7 +398,7 @@ function OrdersPageContent() {
     return () => {
       active = false;
     };
-  }, [queryKey, statusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, page]);
+  }, [queryKey, statusKey, paymentStatusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, page]);
 
   // --- status tab counts (workbench tab bar) ---------------------------------
   const [counts, setCounts] = useState<{
@@ -623,7 +652,31 @@ function OrdersPageContent() {
                 }
               >
                 <option value="">All statuses</option>
+                {statusKey && !ORDER_STATUSES.includes(statusKey as OrderStatus) ? (
+                  // A multi-status filter (the dashboard links with one) has no
+                  // single option to match, so the applied set gets its own
+                  // entry instead of silently reading as "All statuses".
+                  <option value={statusKey}>{statusKey.split(",").join(", ")}</option>
+                ) : null}
                 {ORDER_STATUSES.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="md:w-44">
+            <Field label="Payment" htmlFor="orders-payment-status">
+              <Select
+                id="orders-payment-status"
+                value={paymentStatusKey}
+                onChange={(e) =>
+                  patchParams({ paymentStatus: e.target.value || null, page: null })
+                }
+              >
+                <option value="">All payment statuses</option>
+                {PAYMENT_STATUSES.map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>

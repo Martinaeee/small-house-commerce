@@ -194,6 +194,10 @@ model Order {
   preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
   customerNote           String?   @map("customer_note")
   promoCode              String?   @map("promo_code")
+  /// Browser session that placed the order (analytics_events.session_id).
+  /// The dashboard's conversion rate divides ordering sessions by all
+  /// sessions; the order row — not the PURCHASE pixel event — is the fact.
+  trackingSessionId      String?   @map("tracking_session_id") @db.VarChar(100)
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   items           OrderItem[]
@@ -211,8 +215,10 @@ model Order {
 
   @@index([customerId])
   @@index([orderStatus])
+  @@index([paymentStatus])
   @@index([assignedToId])
   @@index([createdAt])
+  @@index([trackingSessionId])
   @@map("orders")
 }
 
@@ -331,6 +337,8 @@ model OrderItem {
   shipmentItems ShipmentItem[]
 
   @@index([orderId])
+  @@index([productId])
+  @@index([skuId])
   @@map("order_items")
 }
 
@@ -350,6 +358,7 @@ model OrderShippingAddress {
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@index([province])
   @@map("order_shipping_address")
 }
 

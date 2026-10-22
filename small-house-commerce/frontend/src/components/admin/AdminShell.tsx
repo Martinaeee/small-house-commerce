@@ -44,6 +44,11 @@ interface NavItem {
   /** i18n dictionary key (see src/i18n/zh.ts nav_*). */
   labelKey: TKey;
   permission: NavPermission;
+  /**
+   * Match only the exact path. `/admin` is the dashboard, and a prefix match
+   * there would mark it active on every admin route.
+   */
+  exact?: boolean;
 }
 
 /**
@@ -61,6 +66,25 @@ interface NavGroup {
 type NavEntry = NavItem | NavGroup;
 
 const NAV_ITEMS: NavEntry[] = [
+  {
+    kind: "item",
+    href: "/admin",
+    labelKey: "nav_dashboard",
+    // Any module permission earns a seat at the workbench; the groups inside
+    // the page are gated individually. ORDER_VIEW_OWN is not enough: the
+    // dashboard aggregates every order, so an owner-scoped account must not
+    // get a seat that shows it site-wide numbers.
+    permission: [
+      "ORDER_VIEW_ALL",
+      "INVENTORY_VIEW",
+      "PRODUCT_MANAGE",
+      "MARKETING_VIEW_OWN",
+      "MARKETING_VIEW_ALL",
+      "REPORT_PROFIT_VIEW",
+      "CUSTOMER_MANAGE",
+    ],
+    exact: true,
+  },
   {
     kind: "item",
     href: "/admin/orders",
@@ -136,8 +160,8 @@ const NAV_ITEMS: NavEntry[] = [
 
 /** Permission-filtered render model: flat items plus titled groups. */
 type NavRenderEntry =
-  | { kind: "item"; href: string; label: string }
-  | { kind: "group"; label: string; items: { href: string; label: string }[] };
+  | { kind: "item"; href: string; label: string; exact?: boolean }
+  | { kind: "group"; label: string; items: { href: string; label: string; exact?: boolean }[] };
 
 const SEARCH_PERMISSIONS = [
   "PRODUCT_MANAGE",
@@ -166,6 +190,7 @@ function navLinkClass(active: boolean): string {
 }
 
 const NAV_ICON_PATHS: Record<string, string> = {
+  "/admin": "M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z",
   "/admin/orders": "M6 3h12v18l-3-2-3 2-3-2-3 2V3Zm3 5h6m-6 4h6",
   "/admin/inventory": "M3 7h18v14H3V7Zm3-4h12v4H6V3Zm3 8h6",
   "/admin/products": "m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 10v9m-9-14 9 5 9-5",
@@ -228,13 +253,14 @@ function NavLink({
   onNavigate,
   compact = false,
 }: {
-  item: { href: string; label: string };
+  item: { href: string; label: string; exact?: boolean };
   pathname: string;
   onNavigate?: () => void;
   compact?: boolean;
 }) {
-  const active =
-    pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const active = item.exact
+    ? pathname === item.href
+    : pathname === item.href || pathname.startsWith(`${item.href}/`);
   return (
     <Link
       href={item.href}
@@ -370,8 +396,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const navItems = navEntries.flatMap((entry) =>
     entry.kind === "item" ? [entry] : entry.items,
   );
-  const current = navItems.find(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
+  const current = navItems.find((item) =>
+    item.exact
+      ? pathname === item.href
+      : pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
   const title = current?.label ?? "Admin";
   // One source of truth for the notifications page: the route guard below and

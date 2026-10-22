@@ -351,6 +351,8 @@ describe("AdminShell website navigation group", () => {
       .getAllByRole("link")
       .map((link) => link.textContent);
     expect(labels).toEqual([
+      // The dashboard is the first seat: it opens the operator workbench.
+      "nav_dashboard",
       "nav_orders",
       "nav_inventory",
       "nav_products",
