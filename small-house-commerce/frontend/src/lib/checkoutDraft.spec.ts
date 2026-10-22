@@ -5,6 +5,34 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
+describe("checkout draft order note", () => {
+  const customer = {
+    name: "Juan Dela Cruz",
+    phone: "09171234567",
+    province: "Metro Manila",
+    city: "Quezon City",
+    barangay: "",
+    postalCode: "1100",
+    streetAddress: "12 Mabini St",
+    landmark: "",
+  };
+
+  it("round-trips a trimmed note", () => {
+    writeCheckoutDraft(customer, null, undefined, null, "  Please call before delivery  ");
+    expect(readCheckoutDraft()?.customerNote).toBe("Please call before delivery");
+  });
+
+  it("stores no note for a blank one", () => {
+    writeCheckoutDraft(customer, null, undefined, null, "   ");
+    expect(readCheckoutDraft()?.customerNote).toBeNull();
+  });
+
+  it("never keeps more than the order API accepts", () => {
+    writeCheckoutDraft(customer, null, undefined, null, "x".repeat(260));
+    expect(readCheckoutDraft()?.customerNote).toHaveLength(200);
+  });
+});
+
 describe("checkout draft", () => {
   it("round-trips a PDP inline multi-item selection with the customer", () => {
     writeCheckoutDraft(

@@ -40,8 +40,13 @@ function Setup({ document }: { document: HomepageDocument }): ReactNode {
 }
 
 function Probe(): ReactNode {
-  const { state } = useHomepageEditor();
-  return <pre data-testid="document">{JSON.stringify(state.document)}</pre>;
+  const { state, zoneToolArmed } = useHomepageEditor();
+  return (
+    <div>
+      <pre data-testid="document">{JSON.stringify(state.document)}</pre>
+      <span data-testid="zone-tool">{zoneToolArmed ? "armed" : "idle"}</span>
+    </div>
+  );
 }
 
 function mount(document = fixture()) {
@@ -100,6 +105,19 @@ describe("HeroLinkSettings", () => {
       type: "EXTERNAL",
       url: "https://example.com/collection",
     });
+  });
+
+  it("arms the box-select tool so the operator can drag an area on the picture", () => {
+    mount();
+
+    expect(screen.getByTestId("zone-tool").textContent).toBe("idle");
+    const draw = screen.getByRole("button", { name: "Box an area on the picture" });
+    fireEvent.click(draw);
+
+    expect(screen.getByTestId("zone-tool").textContent).toBe("armed");
+    expect(draw).toHaveAttribute("aria-pressed", "true");
+    // The hint tells the operator what to do next.
+    expect(screen.getByText(/drag over the picture/i)).toBeInTheDocument();
   });
 
   it("adds a link zone, gives it a target and shows its background", () => {

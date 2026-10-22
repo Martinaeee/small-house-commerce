@@ -162,6 +162,58 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+describe("CheckoutConfirmView order notes", () => {
+  it("shows the order note and submits it with the order", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "PENDING",
+    });
+    draftMock.readCheckoutDraft.mockReturnValue({
+      ...validDraft,
+      customerNote: "Please call before delivery",
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    expect(await screen.findByTestId("confirm-notes")).toHaveTextContent(
+      "Order notes: Please call before delivery",
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(apiMock.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerNote: "Please call before delivery",
+        }),
+      ),
+    );
+  });
+
+  it("sends no note when the shopper left it empty", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "PENDING",
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await userEvent
+      .setup()
+      .click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(apiMock.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ customerNote: null }),
+      ),
+    );
+  });
+});
+
 describe("CheckoutConfirmView", () => {
   it("submits a valid stored marketing credential at the order root", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);

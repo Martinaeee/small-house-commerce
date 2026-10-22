@@ -15,6 +15,8 @@ export interface CheckoutDraft {
   preferredDeliveryDate?: string | null;
   /** Applied subscribe-exclusive promotion code; null/absent means none. */
   promoCode?: string | null;
+  /** Free-text delivery note from the shopper (order-level, max 200). */
+  customerNote?: string | null;
   selection?: CheckoutDraftSelection;
 }
 const DRAFT_KEY = "luwag_checkout_draft";
@@ -67,6 +69,7 @@ export function readCheckoutDraft(): CheckoutDraft | null {
     }
     return {
       ...parsed,
+      customerNote: normalizeNote(parsed.customerNote),
       promoCode:
         typeof parsed.promoCode === "string" && parsed.promoCode.trim() !== ""
           ? parsed.promoCode.trim().toUpperCase().slice(0, 32)
@@ -74,11 +77,19 @@ export function readCheckoutDraft(): CheckoutDraft | null {
     };
   } catch { return null; }
 }
+/** Mirrors the order API: trimmed, at most 200 characters, blank = none. */
+function normalizeNote(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().slice(0, 200);
+  return trimmed === "" ? null : trimmed;
+}
+
 export function writeCheckoutDraft(
   customer: CheckoutDraftCustomer,
   preferredDeliveryDate: string | null = null,
   selection?: CheckoutDraftSelection,
   promoCode: string | null = null,
+  customerNote: string | null = null,
 ): void {
   try {
     sessionStorage.setItem(
@@ -91,6 +102,7 @@ export function writeCheckoutDraft(
           typeof promoCode === "string" && promoCode.trim() !== ""
             ? promoCode.trim().toUpperCase().slice(0, 32)
             : null,
+        customerNote: normalizeNote(customerNote),
         savedAt: new Date().toISOString(),
       }),
     );

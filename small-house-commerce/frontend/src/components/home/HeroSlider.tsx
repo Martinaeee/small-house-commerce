@@ -553,6 +553,16 @@ function zoneBoxStyle(zone: HomepageHeroLinkZone): CSSProperties {
   };
 }
 
+/** The four corners a link zone can be re-shaped from. */
+const ZONE_CORNERS = ["nw", "ne", "sw", "se"] as const;
+
+const ZONE_CORNER_CLASS: Record<(typeof ZONE_CORNERS)[number], string> = {
+  nw: "-left-1.5 -top-1.5 cursor-nwse-resize",
+  ne: "-right-1.5 -top-1.5 cursor-nesw-resize",
+  sw: "-bottom-1.5 -left-1.5 cursor-nesw-resize",
+  se: "-bottom-1.5 -right-1.5 cursor-nwse-resize",
+};
+
 /**
  * The clickable rectangles painted over the picture. On the storefront a zone
  * with a target is a link (or a button that opens the subscribe popup); a
@@ -591,7 +601,19 @@ function HeroLinkZoneLayer({
                 selected ? "border-cta bg-cta/20" : "border-dashed border-cta/70"
               }`}
               style={style}
-            />
+            >
+              {selected
+                ? ZONE_CORNERS.map((corner) => (
+                    <span
+                      key={corner}
+                      data-hero-zone-handle={corner}
+                      className={`absolute h-3 w-3 rounded-sm border-2 border-cta bg-card ${
+                        ZONE_CORNER_CLASS[corner]
+                      }`}
+                    />
+                  ))
+                : null}
+            </div>
           );
         }
         const paint = {

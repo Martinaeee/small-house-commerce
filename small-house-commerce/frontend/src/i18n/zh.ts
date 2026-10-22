@@ -321,6 +321,9 @@ export const zh = {
   homepage_builder_hero_zone_background: "区域背景色",
   homepage_builder_hero_zone_tool_start: "框选链接区域",
   homepage_builder_hero_zone_tool_stop: "完成框选",
+  homepage_builder_hero_zone_tool_hint:
+    "在图上按住鼠标拖动，框出要跳转的区域；框好后还能拖四个角调整大小。",
+  homepage_builder_hero_zone_draw: "在图上框选区域",
   homepage_builder_hero_links_no_slide: "还没有可编辑的首屏。",
   homepage_builder_link_search_placeholder:
     "搜索商品 / 集合 / 分类 / 落地页",

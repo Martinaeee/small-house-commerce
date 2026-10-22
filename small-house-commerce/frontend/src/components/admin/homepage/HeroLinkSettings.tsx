@@ -31,7 +31,9 @@ export function HeroLinkSettings(): ReactNode {
     dispatch,
     selectedSlideId,
     selectedZoneId,
+    zoneToolArmed,
     setSelectedZoneId,
+    setZoneToolArmed,
   } = useHomepageEditor();
 
   const hero = state.document.sections.find((section) => section.type === "HERO");
@@ -129,25 +131,59 @@ export function HeroLinkSettings(): ReactNode {
         <p className="text-xs text-ink-muted">
           {t("homepage_builder_hero_zones_hint")}
         </p>
-        <button
-          type="button"
-          data-hero-zone-add
-          className="w-fit rounded-lg border border-cta/40 px-3 py-1.5 text-sm font-semibold text-cta hover:bg-primary-light/40"
-          onClick={() => {
-            const id = newUuid();
-            commit((doc) =>
-              addHeroZone(
-                doc,
-                slide.id,
-                { xPct: 35, yPct: 35, widthPct: 30, heightPct: 25 },
-                id,
-              ),
-            );
-            setSelectedZoneId(id);
-          }}
-        >
-          {t("homepage_builder_hero_zone_add")}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-hero-zone-draw
+            aria-pressed={zoneToolArmed}
+            className={`flex w-fit items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+              zoneToolArmed
+                ? "border-cta bg-cta text-cta-foreground"
+                : "border-cta/40 text-cta hover:bg-primary-light/40"
+            }`}
+            onClick={() => setZoneToolArmed((current) => !current)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              aria-hidden="true"
+              className="h-4 w-4"
+            >
+              <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+            </svg>
+            {t(
+              zoneToolArmed
+                ? "homepage_builder_hero_zone_tool_stop"
+                : "homepage_builder_hero_zone_draw",
+            )}
+          </button>
+          {zoneToolArmed ? (
+            <p className="text-xs text-ink-secondary">
+              {t("homepage_builder_hero_zone_tool_hint")}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            data-hero-zone-add
+            className="w-fit rounded-lg border border-border px-3 py-1.5 text-sm font-semibold text-ink-secondary hover:bg-surface"
+            onClick={() => {
+              const id = newUuid();
+              commit((doc) =>
+                addHeroZone(
+                  doc,
+                  slide.id,
+                  { xPct: 35, yPct: 35, widthPct: 30, heightPct: 25 },
+                  id,
+                ),
+              );
+              setSelectedZoneId(id);
+            }}
+          >
+            {t("homepage_builder_hero_zone_add")}
+          </button>
+        </div>
         {zones.length === 0 ? (
           <p className="text-xs text-ink-muted">
             {t("homepage_builder_hero_zones_empty")}

@@ -48,16 +48,6 @@ import {
 } from "./pdp-specification-display";
 import { SolutionIcon } from "./pdp-solution-icons";
 
-function TruckGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 text-cta" fill="none" stroke="currentColor" strokeWidth={1.8}>
-      <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="7" cy="18" r="1.6" />
-      <circle cx="17" cy="18" r="1.6" />
-    </svg>
-  );
-}
-
 function RulerGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
@@ -172,7 +162,6 @@ function sameScopeFallback(
 export function PdpClient({
   product,
   category,
-  delivery,
   productPath,
   promoSlot,
   purchaseOnly = false,
@@ -180,6 +169,11 @@ export function PdpClient({
 }: {
   product: Product;
   category: { name: string; slug: string }[] | null;
+  /**
+   * Still accepted so the landing page's runtime context compiles unchanged,
+   * but the purchase island no longer prints a delivery estimate: the
+   * shopper sees the service promises only.
+   */
   delivery: DeliveryWindows;
   productPath?: string;
   promoSlot?: ReactNode;
@@ -832,35 +826,26 @@ export function PdpClient({
             )}
           </div>
 
-          <div
+          <ul
             id="pdp-delivery"
             data-testid="pdp-delivery"
-            // Estimate and assurances sit side by side at every width, like
-            // the desktop layout. On a phone the assurance list is allowed to
-            // shrink and wrap so every guarantee stays readable instead of
-            // sliding out of the card.
-            className="flex scroll-mt-32 items-start gap-3 rounded-lg border border-border bg-background p-3 text-xs sm:justify-between sm:gap-6"
+            aria-label="Service assurances"
+            // Just the promises, without a card around them: the delivery
+            // estimate is gone, so the assurances stand on their own. They
+            // stay on ONE row; a phone that is too narrow scrolls the row
+            // sideways instead of stacking the lines.
+            className="flex scroll-mt-32 flex-nowrap items-center gap-x-4 overflow-x-auto overscroll-x-contain text-xs text-ink-secondary [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-x-6 sm:text-sm"
           >
-            <div className="flex shrink-0 items-start gap-2.5">
-              <TruckGlyph />
-              <div>
-                <p className="text-sm font-semibold text-ink">Estimated delivery</p>
-                <p className="text-ink-secondary">Metro Manila: {delivery.metro}</p>
-                <p className="text-ink-secondary">Provinces: {delivery.provincial}</p>
-              </div>
-            </div>
-            <ul
-              aria-label="Service assurances"
-              className="flex min-w-0 flex-col gap-1.5 text-ink-secondary"
-            >
-              {SERVICE_ASSURANCES.map((line) => (
-                <li key={line} className="flex items-center gap-2">
-                  <span className="font-semibold text-cta">✓</span>
-                  {line}
-                </li>
-              ))}
-            </ul>
-          </div>
+            {SERVICE_ASSURANCES.map((line) => (
+              <li
+                key={line}
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap"
+              >
+                <span className="font-semibold text-cta">✓</span>
+                {line}
+              </li>
+            ))}
+          </ul>
 
           {notice && (
             <p role="status" className="rounded-lg border border-primary bg-primary-light/40 px-3 py-2 text-sm text-cta">

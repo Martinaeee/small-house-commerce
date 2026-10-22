@@ -329,6 +329,9 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_hero_zone_background: "Zone background colour",
   homepage_builder_hero_zone_tool_start: "Draw a link zone",
   homepage_builder_hero_zone_tool_stop: "Stop drawing",
+  homepage_builder_hero_zone_tool_hint:
+    "Drag over the picture to box the area that should link; drag the four corners to adjust it.",
+  homepage_builder_hero_zone_draw: "Box an area on the picture",
   homepage_builder_hero_links_no_slide: "There is no editable hero slide yet.",
   homepage_builder_link_search_placeholder:
     "Search products / collections / categories / landing pages",
