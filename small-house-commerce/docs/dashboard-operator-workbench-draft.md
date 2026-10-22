@@ -336,6 +336,19 @@ Four defects that the second round left open were fixed with tests first.
 | `payment_status` distribution | 15 × `COD_PENDING`, **no `FAILED`** — the card is wired and exact but counts 0 until a gateway exists |
 | Order timestamps | 11:07 → 23:29 Manila; none in the 00:00–08:00 band where a UTC-day filter would have skewed the drill-down |
 
+**Live API and browser (this worktree, backend on 3035 + Next dev on 3021,
+logged in as `dev@smallhouse.test`)**
+
+| Check | Result |
+|---|---|
+| `GET /admin/dashboard/overview?range=LAST_MONTH` | range 2026-09-01 → 2026-09-30 · net sales ₱41,979 · 14 valid orders · gross profit ₱16,779 with `partial: true` · customer snapshot 11 new · 0 returning · 9.09% repeat · 11 period customers |
+| Every tile link | `?dateFrom=2026-09-01&dateTo=2026-09-30&status=…` — the old build sent `dateFrom=2026-08-31` |
+| Failed-payment link | `?paymentStatus=FAILED&status=NEW,PENDING,QUESTION,CONFIRMED,ABNORMAL,SHIPPING,SIGNED,AFTER_SALES` |
+| `GET /admin/orders?dateFrom=2026-09-01&dateTo=2026-09-30` | **15 orders — exactly the tile total** |
+| Browser, 待发货 tile | the order list opens with From = 2026-09-01, To = 2026-09-30, Status = CONFIRMED and **2 rows — the tile's own count** |
+| Browser, gross-profit card | reads "预估毛利 ₱16,779 — 净销售额 − 商品成本（未含运费、支付手续费）" |
+| Browser, customer snapshot | "新客户 11 · 回访客户 0 · 复购率 9.1%" with the period-scoped formula in the card's subtitle |
+
 ### 10.3 Behaviour changes to report
 
 - **The admin order list's From/To inputs are now Manila calendar days.** They
@@ -351,4 +364,8 @@ Four defects that the second round left open were fixed with tests first.
   name says what it is.
 - **`grossProfit` gained `partial`** (and the KPI carries it), so the interface
   can tell a reduced formula from the full one.
+- **The Status filter now shows a multi-status selection.** The dashboard's
+  links carry a set of statuses (`status=NEW,PENDING,…`), and the select had
+  no matching option, so it displayed "All statuses" while the list was in
+  fact filtered. It now shows the applied set.
 

@@ -661,6 +661,12 @@ function OrdersPageContent() {
                 }
               >
                 <option value="">All statuses</option>
+                {statusKey && !ORDER_STATUSES.includes(statusKey as OrderStatus) ? (
+                  // A multi-status filter (the dashboard links with one) has no
+                  // single option to match, so the applied set gets its own
+                  // entry instead of silently reading as "All statuses".
+                  <option value={statusKey}>{statusKey.split(",").join(", ")}</option>
+                ) : null}
                 {ORDER_STATUSES.map((value) => (
                   <option key={value} value={value}>
                     {value}

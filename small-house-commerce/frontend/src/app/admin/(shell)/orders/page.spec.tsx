@@ -72,4 +72,17 @@ describe("admin orders page filters", () => {
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
     expect(api.listOrders.mock.calls[0][0].paymentStatus).toBeUndefined();
   });
+
+  it("shows the multi-status filter the dashboard links with", async () => {
+    navigation.query = "status=NEW,PENDING,QUESTION&paymentStatus=FAILED";
+
+    render(<AdminOrdersPage />);
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    const select = screen.getByLabelText("Status") as HTMLSelectElement;
+    // The applied statuses must be visible — an empty select would hide a
+    // filter that is really narrowing the list.
+    expect(select.value).toBe("NEW,PENDING,QUESTION");
+    expect(select.selectedOptions[0]?.textContent).toContain("NEW");
+  });
 });
