@@ -5,8 +5,8 @@ import type { Product } from "@/lib/api";
 import { CartProvider } from "@/components/cart/CartContext";
 import { ProductCard } from "./ProductCard";
 
-vi.mock("@/components/back-in-stock/BackInStockTrigger", () => ({
-  BackInStockTrigger: ({
+vi.mock("@/components/back-in-stock/RestockNotifyAction", () => ({
+  RestockNotifyAction: ({
     skuId,
     productName,
   }: {
@@ -17,6 +17,12 @@ vi.mock("@/components/back-in-stock/BackInStockTrigger", () => ({
       Notify {productName}
     </button>
   ),
+}));
+
+// The merged restock action is only offered when the alert service can
+// actually save an alert.
+vi.mock("@/components/site/SiteSettingsProvider", () => ({
+  useSiteSettings: () => ({ backInStockEnabled: true }),
 }));
 
 // The inline-purchase card reads the cart context, so every render needs a

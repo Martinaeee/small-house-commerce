@@ -5,7 +5,9 @@ import type { Product } from "@/lib/api";
 import type { CardBadge } from "@/lib/plpBadges";
 import { useCart } from "@/components/cart/CartContext";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { BackInStockTrigger } from "@/components/back-in-stock/BackInStockTrigger";
+import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAction";
+import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
+import { Toast } from "@/components/ui/Toast";
 import { cardInitialVariantId } from "@/lib/product-card-presentation";
 import { addToCartEvent, emitCommerceEvent, variantConfirmEvent } from "@/lib/commerce-events";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
@@ -29,12 +31,14 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
   selectorRoot: RefObject<HTMLDivElement | null>;
 }) {
   const { addItem, cart } = useCart();
+  const { backInStockEnabled } = useSiteSettings();
   const { primaryLine, primaryDerived, purchaseLocked, confirmLine, setPurchaseLocked } = usePdpPurchase();
   const requestLocked = useRef(false);
   const alive = useRef(true);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<CardFeedback | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; };
@@ -105,6 +109,7 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
     return <ButtonLink href={`/products/${product.slug}`} variant="secondary" size="md" className="w-full">View Details</ButtonLink>;
   }
   const outOfStock = (primaryDerived.resolvedVariant?.sku?.availableInventory ?? 1) <= 0;
+  const outOfStockSku = primaryDerived.resolvedVariant?.sku ?? null;
   // Say which real combination is unavailable, not just "Save for Later";
   // only rendered when out of stock so in-stock cards keep their height.
   const outOfStockLabels = outOfStock
@@ -122,28 +127,39 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
         {`${outOfStockLabels.join(" / ")} is out of stock`}
       </p>
     ) : null}
-    <Button onClick={() => { void addSelected(); }} disabled={busy || purchaseLocked} size="md"
-      variant={outOfStock ? "secondary" : "primary"} className="w-full">
-      {busy ? "Adding…" : visibleFeedback?.kind === "added" ? "Added" : outOfStock ? "Save for Later" : "Add to Cart"}
-    </Button>
-    {outOfStock && primaryDerived.resolvedVariant?.sku ? (
-      <div className="mt-2 text-center">
-        <BackInStockTrigger
-          skuId={primaryDerived.resolvedVariant.sku.id}
-          productName={product.name}
-          onSubscribed={() => {
-            // The alert and the saved item are one action: keep the item in
-            // the cart too, but never twice.
-            const skuId = primaryDerived.resolvedVariant?.sku?.id;
-            if (!skuId) return;
-            if (cart?.items.some((item) => item.skuId === skuId)) return;
+    {outOfStock && outOfStockSku && backInStockEnabled ? (
+      // One action for an unavailable item: register the restock alert and
+      // keep the item saved. The alert service is only offered when it can
+      // actually save one, so the card never promises an email the shop
+      // cannot send — until then the cart save stays the single action.
+      <RestockNotifyAction
+        skuId={outOfStockSku.id}
+        productName={product.name}
+        label="Notify me"
+        variant="secondary"
+        size="md"
+        className="w-full"
+        data-testid="card-notify"
+        onSaved={() => {
+          // The alert and the saved item are one action: keep the item in
+          // the cart too, but never twice.
+          const skuId = primaryDerived.resolvedVariant?.sku?.id;
+          if (!skuId) return;
+          if (!cart?.items.some((item) => item.skuId === skuId)) {
             void addSelected({ openDrawer: false });
-          }}
-        />
-      </div>
-    ) : null}
+          }
+          setToast("We’ll notify you when it’s back in stock.");
+        }}
+      />
+    ) : (
+      <Button onClick={() => { void addSelected(); }} disabled={busy || purchaseLocked} size="md"
+        variant={outOfStock ? "secondary" : "primary"} className="w-full">
+        {busy ? "Adding…" : visibleFeedback?.kind === "added" ? "Added" : outOfStock ? "Save for Later" : "Add to Cart"}
+      </Button>
+    )}
     <span role="status" className="sr-only">{busy ? "Adding to cart" : visibleFeedback?.kind === "added" ? "Added to cart" : ""}</span>
     {visibleFeedback?.kind === "error" ? <p role="alert" className="mt-2 text-xs text-sale">{visibleFeedback.message}</p> : null}
+    <Toast message={toast} onDismiss={() => setToast(null)} />
   </>;
 }
 

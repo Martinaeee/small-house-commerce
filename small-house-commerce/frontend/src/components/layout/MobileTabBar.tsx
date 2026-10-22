@@ -54,13 +54,38 @@ export function MobileTabBar() {
   const clearance = useRef<HTMLDivElement>(null);
   const navigation = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (pathname !== "/") { clearance.current?.style.removeProperty("height"); return; }
-    if (!navigation.current || !clearance.current) return;
-    const update = () => { if (clearance.current && navigation.current) clearance.current.style.height = `${navigation.current.offsetHeight}px`; };
+    const nav = navigation.current;
+    const spacer = clearance.current;
+    // Publishes the bar's height so floating surfaces (the toast) can sit
+    // above it instead of covering the navigation.
+    const publishOffset = () => {
+      if (!nav) {
+        document.documentElement.style.removeProperty("--mobile-tab-bar-offset");
+        return;
+      }
+      document.documentElement.style.setProperty(
+        "--mobile-tab-bar-offset",
+        `${nav.offsetHeight}px`,
+      );
+    };
+    if (pathname !== "/") {
+      spacer?.style.removeProperty("height");
+    }
+    if (!nav || !spacer) {
+      publishOffset();
+      return;
+    }
+    const update = () => {
+      spacer.style.height = `${nav.offsetHeight}px`;
+      publishOffset();
+    };
     const resize = new ResizeObserver(update);
-    resize.observe(navigation.current);
+    resize.observe(nav);
     update();
-    return () => resize.disconnect();
+    return () => {
+      resize.disconnect();
+      document.documentElement.style.removeProperty("--mobile-tab-bar-offset");
+    };
   }, [pathname]);
 
   // PDP (/products/*) and LP pages (/lp/*) render PdpClient's own sticky

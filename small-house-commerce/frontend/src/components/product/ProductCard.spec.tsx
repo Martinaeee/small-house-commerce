@@ -323,17 +323,25 @@ describe("ProductCard inline purchase", () => {
         <ProductCard product={product} />
       </SiteSettingsProvider>,
     );
-    expect(screen.getByRole("button", { name: "Save for Later" })).toBeEnabled();
-    await user.click(
-      screen.getByRole("button", { name: "Notify me when back in stock" }),
-    );
+    // One merged action replaces the separate save-for-later button and the
+    // restock link underneath it.
+    expect(screen.queryByRole("button", { name: "Save for Later" })).toBeNull();
+    const notify = screen.getByTestId("card-notify");
+    expect(notify).toBeEnabled();
+    await user.click(notify);
     await user.type(
       screen.getByRole("textbox", { name: "Email address" }),
       "shopper@example.com",
     );
-    await user.click(screen.getByRole("button", { name: "Notify me" }));
+    await user.click(
+      within(screen.getByTestId("back-in-stock-backdrop")).getByRole("button", {
+        name: "Notify me",
+      }),
+    );
 
-    expect(await screen.findByText(/also in your cart/)).toBeVisible();
+    expect(await screen.findByTestId("storefront-toast")).toHaveTextContent(
+      "We’ll notify you when it’s back in stock.",
+    );
     expect(submit).toHaveBeenCalledWith(
       "/api/v1/storefront/back-in-stock",
       expect.objectContaining({
@@ -349,9 +357,6 @@ describe("ProductCard inline purchase", () => {
     expect(api.addToCart).toHaveBeenCalledWith(
       expect.objectContaining({ skuId: "blue-sku", quantity: 1 }),
     );
-    // The card still offers the same action (its label flips to "Added"
-    // while the card shows the result).
-    expect(screen.getByRole("button", { name: /Save for Later|Added/ })).toBeEnabled();
   });
 
   it("does not add the item twice when a restock alert is requested again", async () => {
@@ -378,7 +383,7 @@ describe("ProductCard inline purchase", () => {
         },
       ],
     });
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const submit = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -391,20 +396,26 @@ describe("ProductCard inline purchase", () => {
       </SiteSettingsProvider>,
     );
 
-    for (let round = 0; round < 2; round++) {
-      await user.click(
-        screen.getByRole("button", { name: "Notify me when back in stock" }),
-      );
-      await user.type(
-        screen.getByRole("textbox", { name: "Email address" }),
-        "shopper@example.com",
-      );
-      await user.click(screen.getByRole("button", { name: "Notify me" }));
-      await screen.findByText(/also in your cart/);
-      await user.click(screen.getByRole("button", { name: "Done" }));
-    }
+    // The first alert asks for the contact once.
+    await user.click(screen.getByTestId("card-notify"));
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "shopper@example.com",
+    );
+    await user.click(
+      within(screen.getByTestId("back-in-stock-backdrop")).getByRole("button", {
+        name: "Notify me",
+      }),
+    );
+    await screen.findByTestId("storefront-toast");
 
-    // The second alert does not add a second copy of the same SKU.
+    // The browser remembers the contact, so the next alert is a single click.
+    await user.click(screen.getByTestId("card-notify"));
+    await screen.findByTestId("storefront-toast");
+
+    // Both alerts went through, and the second one did not add a second copy
+    // of the same SKU.
+    expect(submit).toHaveBeenCalledTimes(2);
     expect(api.addToCart).toHaveBeenCalledTimes(1);
   });
 
