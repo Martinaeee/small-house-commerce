@@ -58,6 +58,69 @@ const ORDER_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.OrderInclude;
 
+/**
+ * What the guest order-tracking page is allowed to see. Deliberately NOT
+ * ORDER_DETAIL_INCLUDE: that one carries staff notes, risk flags, optimizer
+ * attribution, inventory reservations and the per-line cost snapshot — none
+ * of which a shopper may read. The guest view is the order itself.
+ */
+const GUEST_ORDER_INCLUDE = {
+  customer: {
+    select: { id: true, name: true, normalizedPhone: true, email: true },
+  },
+  items: {
+    select: {
+      id: true,
+      productId: true,
+      variantId: true,
+      skuId: true,
+      productNameSnapshot: true,
+      skuCodeSnapshot: true,
+      variantSnapshot: true,
+      optionSnapshot: true,
+      quantity: true,
+      unitPrice: true,
+      lineTotal: true,
+      createdAt: true,
+      // The photo the shopper sees for this line. There is no image snapshot
+      // on the order line, so this is the product's current media, matched to
+      // the ordered option value first. The product is reached through the
+      // SKU: an order line points at a SKU, not at the product.
+      sku: {
+        select: {
+          product: {
+            select: {
+              slug: true,
+              status: true,
+              images: {
+                where: { type: 'IMAGE' as const },
+                orderBy: { sortOrder: 'asc' as const },
+                select: {
+                  url: true,
+                  variantId: true,
+                  optionValueId: true,
+                  isScene: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  shippingAddress: true,
+  statusHistory: {
+    orderBy: { createdAt: 'asc' as const },
+    select: {
+      id: true,
+      statusDomain: true,
+      oldStatus: true,
+      newStatus: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.OrderInclude;
+
 /** A SKU loaded with the Bundle bindings needed to validate and freeze it. */
 type SkuWithBundleComponents = {
   id: string;
@@ -75,6 +138,55 @@ type SkuWithBundleComponents = {
     };
   }[];
 };
+
+/**
+ * The photo for an ordered line: the image of the exact option value the
+ * shopper chose, else the variant's, else the product's own. Scene photos
+ * (the room-scene sets) are not product shots and never used here.
+ */
+function guestThumbnail(item: {
+  optionSnapshot: unknown;
+  variantId: string | null;
+  sku: {
+    product: {
+      images: Array<{
+        url: string;
+        variantId: string | null;
+        optionValueId: string | null;
+        isScene: boolean;
+      }>;
+    } | null;
+  } | null;
+}): string | null {
+  const images = (item.sku?.product?.images ?? []).filter(
+    (image) => !image.isScene,
+  );
+  if (images.length === 0) return null;
+
+  const snapshot = item.optionSnapshot as {
+    options?: Array<{ optionValueId?: string | null }>;
+  } | null;
+  const valueIds = new Set(
+    (snapshot?.options ?? [])
+      .map((option) => option.optionValueId)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const byOption = images.find(
+    (image) => image.optionValueId !== null && valueIds.has(image.optionValueId),
+  );
+  if (byOption) return byOption.url;
+
+  const byVariant = images.find(
+    (image) => image.variantId !== null && image.variantId === item.variantId,
+  );
+  if (byVariant) return byVariant.url;
+
+  const shared = images.find(
+    (image) => image.variantId === null && image.optionValueId === null,
+  );
+  return shared?.url ?? null;
+}
 
 @Injectable()
 export class OrdersService {
@@ -1507,49 +1619,184 @@ export class OrdersService {
    * Every failure (missing order, unparseable phone, non-matching phone)
    * resolves to the SAME 404 so the response cannot reveal order existence.
    */
-  async lookup(orderNumber: string, phone: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { orderNumber },
-      include: { ...ORDER_DETAIL_INCLUDE, items: { omit: { bundleSnapshot: true } } },
-    });
-
+  /**
+   * Guest order lookup. The shopper may give EITHER the order number OR the
+   * mobile number — one of them is enough:
+   *
+   * - both → the strict, verified path (the phone must match the order).
+   * - mobile number only → the phone IS the identity proof: the most recent
+   *   order for that number comes back, with the other orders on the same
+   *   number listed beside it so the shopper can pick one.
+   * - order number only → a 6-digit sequential number is guessable, so the
+   *   personal fields (name, phone, delivery address) stay hidden until the
+   *   shopper also proves the mobile number.
+   *
+   * Every failure path resolves to one uniform 404 so the response can never
+   * reveal whether an order exists.
+   */
+  /**
+   * Guest order lookup. The shopper may give EITHER the order number OR the
+   * mobile number — one of them is enough:
+   *
+   * - mobile number only → the phone IS the identity proof: every order on
+   *   that number comes back (latest first) so the shopper can open any of
+   *   them without searching again.
+   * - order number (+ phone) → the matching order. Without the phone the
+   *   personal fields (name, phone, delivery address) are withheld: a
+   *   6-digit sequential number is guessable, so it must not hand them out.
+   *
+   * Every failure path resolves to one uniform 404 so the response can never
+   * reveal whether an order exists.
+   */
+  async lookup(orderNumber?: string | null, phone?: string | null) {
     const notFound = () =>
       new NotFoundException(
-        'Order not found. Check your order number and mobile number.',
+        'Order not found. Check your order number or mobile number.',
       );
 
-    if (!order) {
-      throw notFound();
-    }
+    const wantedOrder = orderNumber?.trim() || null;
+    const wantedPhone = phone?.trim() || null;
+    if (!wantedOrder && !wantedPhone) throw notFound();
 
-    // The shared util returns null for unparseable input (and may throw in
-    // other call styles); either outcome is a non-match here, never a 400.
-    let queryPhone: string | null = null;
-    try {
-      queryPhone = normalizePhilippinePhone(phone);
-    } catch {
-      queryPhone = null;
-    }
+    if (wantedOrder) {
+      const order = await this.prisma.order.findUnique({
+        where: { orderNumber: wantedOrder },
+        include: GUEST_ORDER_INCLUDE,
+      });
+      if (!order) throw notFound();
 
-    let snapshotPhone: string | null = null;
-    const storedSnapshotPhone = order.shippingAddress?.phone;
-    if (storedSnapshotPhone) {
-      try {
-        snapshotPhone = normalizePhilippinePhone(storedSnapshotPhone);
-      } catch {
-        snapshotPhone = null;
+      if (!wantedPhone) {
+        // Order number alone: personal fields withheld.
+        return {
+          matchedBy: 'orderNumber' as const,
+          personalDetailsIncluded: false,
+          orders: [
+            {
+              ...this.guestOrder(order),
+              customer: {
+                id: order.customer.id,
+                name: null,
+                normalizedPhone: null,
+                email: null,
+              },
+              shippingAddress: null,
+            },
+          ],
+        };
       }
+
+      // Both given: the phone has to match this very order.
+      if (!this.guestPhoneMatches(order, wantedPhone)) throw notFound();
+      return {
+        matchedBy: 'orderNumber' as const,
+        personalDetailsIncluded: true,
+        orders: [this.guestOrder(order)],
+      };
     }
 
+    // Mobile number only: the phone is the identity proof.
+    if (!wantedPhone) throw notFound();
+    const normalized = this.normalizeGuestPhone(wantedPhone);
+    if (!normalized) throw notFound();
+    const candidates = await this.prisma.order.findMany({
+      where: this.guestPhoneFilter(normalized),
+      include: GUEST_ORDER_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    const orders = candidates
+      .filter((order) => this.guestPhoneMatches(order, wantedPhone))
+      .slice(0, 5);
+    if (orders.length === 0) throw notFound();
+    return {
+      matchedBy: 'phone' as const,
+      personalDetailsIncluded: true,
+      orders: orders.map((order) => this.guestOrder(order)),
+    };
+  }
+
+  /**
+   * The guest view of one order: every line carries the photo the shopper
+   * bought, and the product rows behind them are dropped from the response.
+   */
+  private guestOrder<T extends {
+    items: Array<{
+      optionSnapshot: unknown;
+      variantId: string | null;
+      sku: {
+        product: {
+          slug: string;
+          status: string;
+          images: Array<{
+            url: string;
+            variantId: string | null;
+            optionValueId: string | null;
+            isScene: boolean;
+          }>;
+        } | null;
+      } | null;
+    }>;
+  }>(order: T) {
+    return {
+      ...order,
+      items: order.items.map((item) => {
+        // The nested product rows never reach the guest - only the flat
+        // fields below do.
+        const { sku: _sku, ...rest } = item;
+        return {
+          ...rest,
+          thumbnailUrl: guestThumbnail(item),
+          // The product page of that line, but only while the product is on
+          // sale - a line whose product left the catalog has no page to go to.
+          productSlug:
+            item.sku?.product?.status === 'ACTIVE'
+              ? (item.sku.product.slug ?? null)
+              : null,
+        };
+      }),
+    };
+  }
+
+  /** The shared util returns null for unparseable input; never a 400 here. */
+  private normalizeGuestPhone(phone: string): string | null {
+    try {
+      return normalizePhilippinePhone(phone);
+    } catch {
+      return null;
+    }
+  }
+
+  /** True when this phone is the order's customer phone or address phone. */
+  private guestPhoneMatches(
+    order: {
+      customer: { normalizedPhone: string | null } | null;
+      shippingAddress: { phone: string | null } | null;
+    },
+    phone: string,
+  ): boolean {
+    const queryPhone = this.normalizeGuestPhone(phone);
+    if (!queryPhone) return false;
     const customerPhone = order.customer?.normalizedPhone ?? null;
-    if (
-      !queryPhone ||
-      (queryPhone !== customerPhone && queryPhone !== snapshotPhone)
-    ) {
-      throw notFound();
-    }
+    const snapshotPhone = order.shippingAddress?.phone
+      ? this.normalizeGuestPhone(order.shippingAddress.phone)
+      : null;
+    return queryPhone === customerPhone || queryPhone === snapshotPhone;
+  }
 
-    return order;
+  /**
+   * Orders whose customer record carries this number, plus the raw address
+   * phone forms as a fallback for orders whose customer record was updated
+   * after checkout. The caller re-checks every row by normalized number.
+   */
+  private guestPhoneFilter(normalized: string) {
+    const digits = normalized.replace(/^\+63/, '');
+    const forms = [normalized, `63${digits}`, `0${digits}`, digits];
+    return {
+      OR: [
+        { customer: { is: { normalizedPhone: normalized } } },
+        { shippingAddress: { is: { phone: { in: forms } } } },
+      ],
+    };
   }
 
   private async validateStoredBundleLines(

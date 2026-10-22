@@ -838,12 +838,13 @@ describe.skipIf(!database)('OrdersService Bundle lifecycle on PostgreSQL', () =>
     const result = await orders.checkout(request);
 
     const visible = await orders.lookup(result.orderNumber, request.customer.phone);
+    const order = visible.orders[0]!;
 
-    expect(visible.items).toHaveLength(1);
-    expect(visible.items[0]).not.toHaveProperty('bundleSnapshot');
-    expect(visible.items[0]).toMatchObject({ skuId: bundle.sku.id, quantity: 1 });
-    expect(Number(visible.grandTotal)).toBe(250);
-    expect(JSON.stringify(visible.items)).not.toContain(chair.sku.id);
+    expect(order.items).toHaveLength(1);
+    expect(order.items[0]).not.toHaveProperty('bundleSnapshot');
+    expect(order.items[0]).toMatchObject({ skuId: bundle.sku.id, quantity: 1 });
+    expect(Number(order.grandTotal)).toBe(250);
+    expect(JSON.stringify(order.items)).not.toContain(chair.sku.id);
     const stored = await prisma.orderItem.findFirstOrThrow({ where: { order: { orderNumber: result.orderNumber } } });
     expect(stored.bundleSnapshot).toMatchObject({ components: [{ componentSkuId: chair.sku.id, quantity: 2 }] });
   });

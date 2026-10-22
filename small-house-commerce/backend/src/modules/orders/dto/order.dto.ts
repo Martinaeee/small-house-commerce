@@ -104,10 +104,19 @@ export const orderQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
-export const lookupSchema = z.object({
-  orderNumber: z.string().regex(/^PH\d+$/),
-  phone: z.string().min(1).max(32),
-});
+/**
+ * Guest lookup: the shopper may give the order number OR the mobile number.
+ * At least one has to be present — which one decides what the backend
+ * returns (see OrdersService.lookup).
+ */
+export const lookupSchema = z
+  .object({
+    orderNumber: z.string().regex(/^PH\d+$/).optional(),
+    phone: z.string().min(1).max(32).optional(),
+  })
+  .refine((value) => Boolean(value.orderNumber || value.phone), {
+    message: 'Enter an order number or a mobile number.',
+  });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type OrderQuery = z.infer<typeof orderQuerySchema>;

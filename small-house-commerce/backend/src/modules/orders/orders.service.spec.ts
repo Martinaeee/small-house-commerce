@@ -173,7 +173,7 @@ describe('OrdersService.checkout attribution', () => {
 describe('OrdersService.lookup', () => {
   // Every failure path must resolve to this EXACT string so the response can
   // never reveal whether the order number exists (spec §3.1).
-  const NOT_FOUND_MESSAGE = 'Order not found. Check your order number and mobile number.';
+  const NOT_FOUND_MESSAGE = 'Order not found. Check your order number or mobile number.';
 
   function orderRecord(overrides: {
     customerPhone?: string | null;
@@ -185,6 +185,7 @@ describe('OrdersService.lookup', () => {
       orderNumber: 'PH1001',
       customer: customerPhone === null ? null : { normalizedPhone: customerPhone },
       shippingAddress: snapshotPhone === null ? null : { phone: snapshotPhone },
+      items: [],
     };
   }
 
@@ -229,7 +230,13 @@ describe('OrdersService.lookup', () => {
     const order = orderRecord({ customerPhone: '+639171234567' });
     prisma.order.findUnique.mockResolvedValue(order);
 
-    await expect(service.lookup('PH1001', '09171234567')).resolves.toBe(order);
+    // The response carries the lookup facts (how it was matched and whether
+    // the personal details are included) beside the order itself in 'orders'.
+    await expect(service.lookup('PH1001', '09171234567')).resolves.toMatchObject({
+      matchedBy: 'orderNumber',
+      personalDetailsIncluded: true,
+      orders: [order],
+    });
   });
 
   it('returns the order when the phone matches the shipping-address snapshot', async () => {
@@ -240,7 +247,11 @@ describe('OrdersService.lookup', () => {
     });
     prisma.order.findUnique.mockResolvedValue(order);
 
-    await expect(service.lookup('PH1001', '09171234567')).resolves.toBe(order);
+    await expect(service.lookup('PH1001', '09171234567')).resolves.toMatchObject({
+      matchedBy: 'orderNumber',
+      personalDetailsIncluded: true,
+      orders: [order],
+    });
   });
 });
 

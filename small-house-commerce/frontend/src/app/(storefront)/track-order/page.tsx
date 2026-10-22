@@ -1,24 +1,34 @@
 import type { Metadata } from "next";
 import { TrackOrderForm } from "@/components/track-order/TrackOrderForm";
+import { TrackRecommendations } from "@/components/track-order/TrackRecommendations";
+import { fetchTrackRecommendations } from "@/lib/track-order-products";
 
 export const metadata: Metadata = { title: "Track Your Order" };
 
+/**
+ * The order-tracking page. The lookup form and the order details share the
+ * narrow column (the shopper reads one order at a time); the product row
+ * underneath is full width, like the related row on a product page.
+ *
+ * The products are the store's own published products - not a personalised
+ * pick: this page knows nothing about the shopper until they look something
+ * up, and even then it never uses the order to choose them.
+ */
 export default async function TrackOrderPage({
   searchParams,
 }: {
   searchParams: Promise<{ order?: string }>;
 }) {
   const { order } = await searchParams;
+  const recommendations = await fetchTrackRecommendations();
   return (
-    <div className="mx-auto max-w-[600px] px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-semibold text-ink">Track Your Order</h1>
-      <p className="mt-2 text-ink-secondary">
-        Check the status of your order using the order number and the mobile
-        number you used at checkout.
-      </p>
-      <div className="mt-8">
+    <>
+      {/* The heading and the lookup form live inside the client component:
+          once an order is open the column shows the order details. */}
+      <div className="mx-auto max-w-[600px] px-4 py-12 sm:px-6">
         <TrackOrderForm prefillOrder={order} />
       </div>
-    </div>
+      <TrackRecommendations products={recommendations} />
+    </>
   );
 }

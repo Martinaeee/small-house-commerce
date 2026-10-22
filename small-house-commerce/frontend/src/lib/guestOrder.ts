@@ -1,5 +1,7 @@
 /**
- * Guest order lookup client (guest-order-tracking spec §3.1/§3.2, Batch C).
+ * Guest order lookup client (guest-order-tracking spec §3.1/§3.2, Batch C;
+ * revised 2026-10-21 — the shopper may give the order number OR the mobile
+ * number, either one is enough).
  *
  * Standalone on purpose: lib/api.ts is frozen (spec §2), so track-order owns
  * this small fetch wrapper instead of extending the shared `api` object.
@@ -44,15 +46,18 @@ export type PaymentStatus =
   | "REFUNDED"
   | "PARTIALLY_REFUNDED";
 
-// --- response shape (mirrors OrdersService.lookup via ORDER_DETAIL_INCLUDE) ---
+// --- response shape (mirrors OrdersService.lookup) ---------------------------
 
+/**
+ * The customer fields are null when the order was found by its order number
+ * alone: a guessable number must not hand out a name, a phone or an address.
+ */
 export interface GuestOrderCustomer {
-  id: string;
+  id: string | null;
   name: string | null;
-  // Customer has no "phone" column — normalizedPhone is the E.164 identity key.
-  normalizedPhone: string;
+  /** E.164 identity key; null while the personal details are withheld. */
+  normalizedPhone: string | null;
   email: string | null;
-  currentRiskLevel: string;
 }
 
 export interface GuestOrderItem {
@@ -67,9 +72,11 @@ export interface GuestOrderItem {
   optionSnapshot: OrderOptionSnapshotV1 | null;
   quantity: number;
   unitPrice: string;
-  unitDiscount: string;
-  unitCostSnapshot: string | null;
   lineTotal: string;
+  /** The product photo for this line; null when the product has no image. */
+  thumbnailUrl: string | null;
+  /** The product page of this line; null when the product is off sale. */
+  productSlug: string | null;
   createdAt: string;
 }
 
@@ -90,18 +97,15 @@ export interface GuestOrderStatusHistoryEntry {
   id: string;
   statusDomain: string;
   oldStatus: string | null;
-  /** Status reached by this entry — the Prisma column is `new_status`; the timeline maps this value. */
+  /** Status reached by this entry — the Prisma column is `new_status`. */
   newStatus: string;
-  source: string;
-  operatorId: string | null;
-  comment: string | null;
   createdAt: string;
 }
 
-export interface GuestOrderResult {
+/** One order as the storefront may show it (no staff fields, no costs). */
+export interface GuestOrderView {
   id: string;
   orderNumber: string;
-  customerId: string;
   orderStatus: OrderStatus;
   confirmationStatus: ConfirmationStatus;
   paymentStatus: PaymentStatus;
@@ -110,49 +114,62 @@ export interface GuestOrderResult {
   discountTotal: string;
   shippingTotal: string;
   grandTotal: string;
-  optimizerId: string | null;
-  optimizerAidSnapshot: string | null;
-  optimizerNameSnapshot: string | null;
-  customerClassification: string | null;
-  confirmedBy: string | null;
-  confirmedAt: string | null;
-  confirmationNote: string | null;
   createdAt: string;
-  updatedAt: string;
-  customer: GuestOrderCustomer;
+  customer: GuestOrderCustomer | null;
   items: GuestOrderItem[];
   shippingAddress: GuestOrderShippingAddress | null;
   statusHistory: GuestOrderStatusHistoryEntry[];
+}
+
+/** The guest lookup response: one or more orders and how they were found. */
+export interface GuestOrderResult {
+  /** How the orders were found: by the order number or by the mobile number. */
+  matchedBy: "orderNumber" | "phone";
+  /** False while only the (guessable) order number was given. */
+  personalDetailsIncluded: boolean;
+  /**
+   * One order for order-number lookups; every order on the mobile number
+   * (latest first) for phone lookups — the shopper opens any of them without
+   * searching again.
+   */
+  orders: GuestOrderView[];
 }
 
 // --- request -----------------------------------------------------------------
 
 const LOOKUP_PATH = "/api/v1/storefront/orders/lookup";
 
-/** Every non-match (bad input or phone mismatch) surfaces this one wording. */
+/** Every non-match (bad input or no order) surfaces this one wording. */
 const NOT_FOUND_MESSAGE =
-  "Order not found. Check your order number and mobile number.";
+  "Order not found. Check your order number or mobile number.";
 
 const UNEXPECTED_ERROR_MESSAGE =
   "Could not look up your order. Please try again.";
 
 /**
- * Looks up a guest order by order number + mobile number (spec §3.1).
+ * Looks up a guest order by order number OR mobile number — either one is
+ * enough (2026-10-21). Which one decides what the backend returns.
  *
  * - 404/400 → the shared "order not found" wording (the backend folds every
  *   non-match into one 404; 400 is treated the same so no existence leak).
  * - network failure / 5xx → a generic retry message.
  */
-export async function lookupOrder(
-  orderNumber: string,
-  phone: string,
-): Promise<GuestOrderResult> {
+export async function lookupOrder(input: {
+  orderNumber?: string | null;
+  phone?: string | null;
+}): Promise<GuestOrderResult> {
+  const orderNumber = input.orderNumber?.trim() ?? "";
+  const phone = input.phone?.trim() ?? "";
+  const body: { orderNumber?: string; phone?: string } = {};
+  if (orderNumber !== "") body.orderNumber = orderNumber;
+  if (phone !== "") body.phone = phone;
+
   let res: Response;
   try {
     res = await fetch(LOOKUP_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderNumber, phone }),
+      body: JSON.stringify(body),
     });
   } catch {
     throw new Error(UNEXPECTED_ERROR_MESSAGE);
