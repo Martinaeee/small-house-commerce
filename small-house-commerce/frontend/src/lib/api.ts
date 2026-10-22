@@ -864,6 +864,12 @@ export const api = {
     preferredDeliveryDate?: string | null;
     customerNote?: string | null;
     promoCode?: string | null;
+    /**
+     * The browser tab that placed the order. Analytics-only: it links the
+     * order to the visit that produced it so the dashboard can divide
+     * ordering sessions by all sessions. Never a customer identity.
+     */
+    trackingSessionId?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
@@ -877,6 +883,7 @@ export const api = {
           preferredDeliveryDate: input.preferredDeliveryDate ?? null,
           customerNote: input.customerNote ?? null,
           promoCode: input.promoCode ?? null,
+          trackingSessionId: input.trackingSessionId ?? null,
         }),
       },
     ),

@@ -5,6 +5,7 @@ import { BackToTop } from "@/components/layout/BackToTop";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { StorefrontShellPresentation } from "@/components/layout/StorefrontShellPresentation";
 import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
+import { PageViewTracker } from "@/components/tracking/PageViewTracker";
 import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { CartDrawer } from "@/components/cart/CartDrawer";
@@ -95,6 +96,7 @@ export default async function StorefrontLayout({
       />
       <Suspense fallback={null}>
         <MarketingTouchObserver />
+        <PageViewTracker />
       </Suspense>
       <MetaPixelInit />
       <div className="storefront-app flex min-h-full flex-1 flex-col">

@@ -22,6 +22,10 @@ export const checkoutSchema = z.object({
     )
     .min(1),
   marketingCredential: z.string().max(8192).nullable().optional(),
+  // The browser tab that placed the order. It links the order to the
+  // first-party events, so the dashboard's conversion rate divides ordering
+  // sessions by all sessions. Never a customer identity.
+  trackingSessionId: z.string().min(8).max(100).nullable().optional(),
   attribution: z.object({
     sourceType: z.nativeEnum(SourceType).default('ORGANIC'),
     aid: z.string().max(64).nullable().optional(),

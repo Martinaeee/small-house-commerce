@@ -58,7 +58,11 @@ export default async function HomePage() {
           const SectionComponent = SECTION_REGISTRY[section.type];
           if (!SectionComponent) return null;
           return (
-            <div key={section.id} data-homepage-section-type={section.type}>
+            <div
+              key={section.id}
+              data-homepage-section-id={section.id}
+              data-homepage-section-type={section.type}
+            >
               {index === rvIndex ? <RecentlyViewed /> : null}
               <SectionComponent section={section} appearance={appearance} />
             </div>

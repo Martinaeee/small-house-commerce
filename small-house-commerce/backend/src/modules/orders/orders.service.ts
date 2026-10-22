@@ -395,6 +395,7 @@ export class OrdersService {
             : null,
           customerNote: input.customerNote ?? null,
           promoCode: promo?.code ?? null,
+          trackingSessionId: input.trackingSessionId ?? null,
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,

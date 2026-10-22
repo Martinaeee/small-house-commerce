@@ -4,6 +4,7 @@ import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { ProductCard } from "@/components/product/ProductCard";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
+import { SearchEventTracker } from "@/components/tracking/SearchEventTracker";
 
 export const revalidate = 120;
 
@@ -86,6 +87,7 @@ export default async function SearchPage({
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
+      {q ? <SearchEventTracker term={q} /> : null}
       {!q ? (
         <div className="rounded-lg border border-border bg-card p-10 text-center">
           <h1 className="text-2xl font-semibold text-ink">Search</h1>

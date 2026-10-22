@@ -10,6 +10,7 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { readAttribution } from "@/lib/tracking";
+import { analyticsSessionId } from "@/lib/analytics";
 import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
 import {
@@ -182,6 +183,8 @@ export function CheckoutConfirmView({
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
         promoCode: appliedPromo?.code ?? null,
         customerNote: draft.customerNote ?? null,
+        // Analytics-only: links this order to the visit that produced it.
+        trackingSessionId: analyticsSessionId(),
       };
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
