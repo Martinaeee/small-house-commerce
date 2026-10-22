@@ -8,7 +8,16 @@ const api = vi.hoisted(() => ({
   products: vi.fn(),
   marketing: vi.fn(),
 }));
+const navigation = vi.hoisted(() => ({
+  query: "",
+  replace: vi.fn(),
+}));
 vi.mock("@/lib/dashboard-api", () => ({ dashboardApi: api }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: navigation.replace }),
+  useSearchParams: () => new URLSearchParams(navigation.query),
+}));
 
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
   useAdminAuth: () => ({
@@ -231,6 +240,7 @@ const marketing = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  navigation.query = "";
   api.overview.mockResolvedValue(overview);
   api.products.mockResolvedValue(products);
   api.marketing.mockResolvedValue(marketing);
@@ -257,11 +267,35 @@ describe("DashboardClient", () => {
     expect(screen.getByText("dash_recent_orders")).toBeVisible();
   });
 
+  it("loads the period named in the URL", async () => {
+    navigation.query = "range=LAST_MONTH";
+
+    render(<DashboardClient />);
+
+    await waitFor(() => expect(api.overview).toHaveBeenCalled());
+    expect(api.overview.mock.calls[0][0]).toEqual({ range: "LAST_MONTH" });
+  });
+
   it("loads the default period on mount", async () => {
     render(<DashboardClient />);
 
     await waitFor(() => expect(api.overview).toHaveBeenCalled());
     expect(api.overview.mock.calls[0][0]).toEqual({ range: "LAST_7_DAYS" });
+  });
+
+  it("keeps the selected period in the URL", async () => {
+    render(<DashboardClient />);
+    await waitFor(() => expect(api.overview).toHaveBeenCalled());
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("dash_range_custom"),
+      "LAST_30_DAYS",
+    );
+
+    expect(navigation.replace).toHaveBeenCalledWith(
+      "/admin?range=LAST_30_DAYS",
+      { scroll: false },
+    );
   });
 
   it("reloads every group when the period changes", async () => {

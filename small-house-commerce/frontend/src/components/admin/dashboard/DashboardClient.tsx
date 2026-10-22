@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import type { DashboardRangePreset, ProductPerformanceSort } from "@/lib/dashboard-api";
@@ -27,6 +28,22 @@ function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
+const RANGE_PRESETS: DashboardRangePreset[] = [
+  "TODAY",
+  "YESTERDAY",
+  "LAST_7_DAYS",
+  "LAST_30_DAYS",
+  "THIS_MONTH",
+  "LAST_MONTH",
+  "CUSTOM",
+];
+
+function parseRange(value: string | null): DashboardRangePreset {
+  return RANGE_PRESETS.includes(value as DashboardRangePreset)
+    ? (value as DashboardRangePreset)
+    : "LAST_7_DAYS";
+}
+
 function greetingKey(): "dash_greeting" | "dash_greeting_afternoon" | "dash_greeting_evening" {
   const hour = Number(
     new Intl.DateTimeFormat("en-US", {
@@ -50,10 +67,15 @@ function greetingKey(): "dash_greeting" | "dash_greeting_afternoon" | "dash_gree
 export function DashboardClient() {
   const { admin } = useAdminAuth();
   const { t } = useAdminI18n();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
-  const [range, setRange] = useState<DashboardRangePreset>("LAST_7_DAYS");
-  const [from, setFrom] = useState(() => daysAgo(6));
-  const [to, setTo] = useState(() => manilaToday());
+  const [range, setRange] = useState<DashboardRangePreset>(() =>
+    parseRange(searchParams.get("range")),
+  );
+  const [from, setFrom] = useState(() => searchParams.get("from") ?? daysAgo(6));
+  const [to, setTo] = useState(() => searchParams.get("to") ?? manilaToday());
   const [sort, setSort] = useState<ProductPerformanceSort>("revenue");
 
   const query = useMemo(() => {
@@ -63,6 +85,25 @@ export function DashboardClient() {
   }, [range, from, to]);
 
   const { overview, products, marketing, loading, errors, reload } = useDashboard(query, sort);
+
+  function applyRange(next: { range: DashboardRangePreset; from: string; to: string }) {
+    setRange(next.range);
+    if (next.range === "CUSTOM") {
+      setFrom(next.from);
+      setTo(next.to);
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("range", next.range);
+    if (next.range === "CUSTOM") {
+      params.set("from", next.from);
+      params.set("to", next.to);
+    } else {
+      params.delete("from");
+      params.delete("to");
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
 
   const rangeLabel = overview
     ? `${overview.range.fromDate} → ${overview.range.toDate}`
@@ -83,13 +124,7 @@ export function DashboardClient() {
           range={range}
           from={from}
           to={to}
-          onRangeChange={(next) => {
-            setRange(next.range);
-            if (next.range === "CUSTOM") {
-              setFrom(next.from || daysAgo(6));
-              setTo(next.to || manilaToday());
-            }
-          }}
+          onRangeChange={applyRange}
           quickCreate={overview?.quickCreate ?? []}
           onRefresh={reload}
           refreshing={loading}
