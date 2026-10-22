@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
@@ -369,13 +370,20 @@ function OrderCard({
                     item.optionSnapshot,
                     item.variantSnapshot,
                   );
-                  return (
-                    <li key={item.id} className="flex gap-3.5">
+                  // The product page of that line, when it is still on sale.
+                  const productHref = item.productSlug
+                    ? `/products/${item.productSlug}`
+                    : null;
+                  // The photo and the name are ONE link: tapping either opens
+                  // that product. A line whose product left the catalog has
+                  // no page to go to, so it stays plain text - no dead link.
+                  const line = (
+                    <>
                       {item.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={item.thumbnailUrl}
-                          alt={item.productNameSnapshot}
+                          alt={productHref ? "" : item.productNameSnapshot}
                           data-testid={`track-item-image-${item.id}`}
                           className="h-[76px] w-[76px] shrink-0 rounded-lg object-cover"
                         />
@@ -386,9 +394,12 @@ function OrderCard({
                         />
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-medium leading-6 text-ink">
+                        <span
+                          title={item.productNameSnapshot}
+                          className="block truncate text-[15px] font-medium leading-6 text-ink group-hover:underline"
+                        >
                           {item.productNameSnapshot}
-                        </p>
+                        </span>
                         <p className="mt-0.5 text-[13px] leading-5 text-ink-muted">
                           {optionsText ? `${optionsText} · ` : ""}SKU{" "}
                           {item.skuCodeSnapshot}
@@ -398,6 +409,21 @@ function OrderCard({
                           {formatPrice(Number(item.unitPrice))} each
                         </p>
                       </div>
+                    </>
+                  );
+                  return (
+                    <li key={item.id} className="flex gap-3.5">
+                      {productHref ? (
+                        <Link
+                          href={productHref}
+                          data-testid={`track-item-link-${item.id}`}
+                          className="group flex min-w-0 flex-1 gap-3.5"
+                        >
+                          {line}
+                        </Link>
+                      ) : (
+                        <div className="flex min-w-0 flex-1 gap-3.5">{line}</div>
+                      )}
                       <p className="shrink-0 text-[15px] font-semibold text-ink">
                         {formatPrice(Number(item.lineTotal))}
                       </p>

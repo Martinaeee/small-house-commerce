@@ -90,6 +90,8 @@ const GUEST_ORDER_INCLUDE = {
         select: {
           product: {
             select: {
+              slug: true,
+              status: true,
               images: {
                 where: { type: 'IMAGE' as const },
                 orderBy: { sortOrder: 'asc' as const },
@@ -1723,6 +1725,8 @@ export class OrdersService {
       variantId: string | null;
       sku: {
         product: {
+          slug: string;
+          status: string;
           images: Array<{
             url: string;
             variantId: string | null;
@@ -1736,8 +1740,19 @@ export class OrdersService {
     return {
       ...order,
       items: order.items.map((item) => {
-        const { sku, ...rest } = item;
-        return { ...rest, thumbnailUrl: guestThumbnail(item) };
+        // The nested product rows never reach the guest - only the flat
+        // fields below do.
+        const { sku: _sku, ...rest } = item;
+        return {
+          ...rest,
+          thumbnailUrl: guestThumbnail(item),
+          // The product page of that line, but only while the product is on
+          // sale - a line whose product left the catalog has no page to go to.
+          productSlug:
+            item.sku?.product?.status === 'ACTIVE'
+              ? (item.sku.product.slug ?? null)
+              : null,
+        };
       }),
     };
   }

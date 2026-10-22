@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { OrderList } from "./OrderList";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
@@ -43,6 +43,7 @@ function order(overrides: Partial<GuestOrderView> = {}): GuestOrderView {
         unitPrice: "2299",
         lineTotal: "2299",
         thumbnailUrl: "/uploads/catalog/2026/cabinet.png",
+        productSlug: "narrow-gap-cabinet",
         createdAt: "2026-10-21T05:58:00.000Z",
       },
     ],
@@ -137,6 +138,47 @@ describe("OrderList card layout", () => {
     expect(screen.getByTestId("track-totals-PH100006")).toHaveTextContent(
       "Free",
     );
+  });
+
+  it("links the line to its product page", () => {
+    renderList(result());
+
+    const link = screen.getByTestId("track-item-link-item-1");
+    expect(link).toHaveAttribute("href", "/products/narrow-gap-cabinet");
+    // The name stays on one line - the rest is folded away.
+    expect(link.querySelector("span")).toHaveClass("truncate");
+  });
+
+  it("puts the photo and the name on the same link to the product page", () => {
+    renderList(result());
+
+    const link = screen.getByTestId("track-item-link-item-1");
+    // Tapping the product - photo or name - opens that product.
+    expect(within(link).getByTestId("track-item-image-item-1")).toBeInTheDocument();
+    expect(link).toHaveTextContent("Narrow Gap Cabinet");
+  });
+
+  it("leaves a line whose product left the catalog without a link", () => {
+    renderList(
+      result({
+        orders: [
+          order({
+            items: [
+              {
+                ...order().items[0]!,
+                id: "item-off",
+                productSlug: null,
+                thumbnailUrl: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    // No dead link: the product has no page to go to.
+    expect(screen.queryByTestId("track-item-link-item-off")).toBeNull();
+    expect(screen.getByText(/Narrow Gap Cabinet/)).toBeInTheDocument();
   });
 
   it("shows the product photo for every line", () => {

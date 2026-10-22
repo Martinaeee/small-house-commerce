@@ -15,7 +15,10 @@ import { OrdersService } from './orders.service.js';
 
 const NOT_FOUND_MESSAGE = 'Order not found. Check your order number or mobile number.';
 
-function orderRecord(overrides: Record<string, unknown> = {}) {
+function orderRecord(
+  overrides: Record<string, unknown> = {},
+  product: Record<string, unknown> = {},
+) {
   return {
     id: 'order-1',
     orderNumber: 'PH100001',
@@ -55,6 +58,8 @@ function orderRecord(overrides: Record<string, unknown> = {}) {
         createdAt: '2026-10-21T00:00:00.000Z',
         sku: {
           product: {
+            slug: 'narrow-gap-cabinet',
+            status: 'ACTIVE',
             images: [
               {
                 url: '/uploads/catalog/2026/shared.png',
@@ -75,6 +80,7 @@ function orderRecord(overrides: Record<string, unknown> = {}) {
                 isScene: true,
               },
             ],
+            ...product,
           },
         },
       },
@@ -231,6 +237,42 @@ describe('OrdersService.lookup — the line photo', () => {
     expect(result.orders[0]!.items[0]!.thumbnailUrl).toBe(
       '/uploads/catalog/2026/red.png',
     );
+  });
+});
+
+describe('OrdersService.lookup — the product page of a line', () => {
+  it('carries the slug of a product that is still on sale', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord());
+
+    const result = await service.lookup('PH100001', '09171234567');
+
+    expect(result.orders[0]!.items[0]!.productSlug).toBe('narrow-gap-cabinet');
+  });
+
+  it('carries no slug for a product that left the catalog', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      orderRecord({}, { status: 'DISABLED' }),
+    );
+
+    const result = await service.lookup('PH100001', '09171234567');
+
+    // A line whose product is off sale has no page to go to - no dead link.
+    expect(result.orders[0]!.items[0]!.productSlug).toBeNull();
+  });
+
+  it('never sends the product graph of the line to the guest', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord());
+
+    const result = await service.lookup('PH100001', '09171234567');
+    const guest = result.orders[0]!.items[0]! as Record<string, unknown>;
+
+    // The nested product rows are dropped; only the flat fields remain.
+    expect(guest.sku).toBeUndefined();
+    expect(guest.productSlug).toBe('narrow-gap-cabinet');
+    expect(guest.thumbnailUrl).toBe('/uploads/catalog/2026/red.png');
   });
 });
 

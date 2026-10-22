@@ -75,6 +75,8 @@ export interface GuestOrderItem {
   lineTotal: string;
   /** The product photo for this line; null when the product has no image. */
   thumbnailUrl: string | null;
+  /** The product page of this line; null when the product is off sale. */
+  productSlug: string | null;
   createdAt: string;
 }
 

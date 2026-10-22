@@ -13,8 +13,10 @@ import { OrderList } from "./OrderList";
  * ONE field: the shopper types EITHER the order number OR the mobile
  * number. The shape of the value decides which one it is, so there is no
  * second box to fill and no "which one do I need" question. Until an order is
- * open the page shows the lookup form; after that it shows the order and
- * nothing else.
+ * open the page shows the lookup form; after that it shows the order.
+ *
+ * The product row under this block lives on the page, not here, so it stays
+ * under the order details as well.
  */
 
 const inputCls =
