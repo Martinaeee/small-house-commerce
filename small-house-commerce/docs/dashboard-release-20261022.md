@@ -164,3 +164,48 @@ The production admin account is `admin@luwag.shop`; its password was not used
 during the release, so the dashboard's own acceptance numbers were read from
 the database rather than through a logged-in browser session.
 
+---
+
+## 9. Dashboard layout: the empty bands between modules (same day, second release)
+
+The workbench showed a wide blank band under the sales chart. Measured in the
+browser, the cause was the grid, not the cards: a CSS grid row takes the
+height of its **tallest** card, and the shorter card beside it left the rest
+of the row as bare page background.
+
+| Card | Blank band (before) |
+|---|---|
+| 销售趋势 (sales chart) | 103px |
+| 履约与 COD 指标 | 262px |
+| 商品表现排行 | 249px |
+
+**Fix** — the modules are now a **main column and a side rail**, each packed
+on its own with CSS columns (`break-inside-avoid`), so every card sits at its
+own height and the space between two modules is always the one 16px gap. The
+split is by *shape*, not importance: the modules that need width (the chart,
+the ranking table) stay in the wide main column at their full width, and the
+list-shaped ones live in the rail. The empty state centres in its card instead
+of hanging at the top.
+
+| Measure | Before | After |
+|---|---|---|
+| Gap between any two modules | 16px **or** a 103–262px hole | **16px, every time** |
+| Page height (September window, 1470px) | 2877px | **2421px** |
+| Sales chart width | 923px | 773px (its own column) |
+| Ranking table width | 923px | 773px (its own column) |
+
+Verified at 390px, 820px and 1470px: no horizontal overflow, no card split
+across columns, every gap 16px. Frontend 272 files / 3097 tests, backend 138
+files / 2127 tests, `tsc` and `eslint` clean.
+
+**Released as `a895f08`** (the layout fix `fe32b3b` plus a merge of the
+three production commits that landed meanwhile — the compact delivery card,
+the zone tool, the service assurances — none of which touch the dashboard).
+
+Production run `20261022T111048Z`: base head `58c6d53` → `a895f08`, **no
+migration** (58 → 58), fingerprint diff empty (not one row changed), all four
+containers healthy with restart 0, no error in the logs, `/` `/about`
+`/api/v1/storefront/homepage` `/admin/login` `/admin` all 200. The new
+`break-inside-avoid` / `columns-1` classes are in the live bundle.
+
+
