@@ -255,6 +255,19 @@ describe("UnifiedGroupsDraft", () => {
     expect(await screen.findByText(/演示模式/)).toBeInTheDocument();
   });
 
+  it("sets parent categories apart from subcategories in the tree", async () => {
+    await renderDraft();
+    fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
+
+    const parentRow = screen
+      .getByText("Storage & Organization")
+      .closest("tr") as HTMLElement;
+    const childRow = screen.getByText("Shelving & Racks").closest("tr") as HTMLElement;
+
+    expect(within(parentRow).getByText("Storage & Organization")).toHaveClass("font-semibold");
+    expect(within(childRow).getByText("Shelving & Racks")).toHaveClass("font-normal");
+  });
+
   it("uses the same three section tabs as the original collection dialog", async () => {
     const dialog = await openStorageEditor();
 

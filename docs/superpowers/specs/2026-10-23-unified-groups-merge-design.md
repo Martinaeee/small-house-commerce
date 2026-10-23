@@ -213,6 +213,8 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
 - 顶部切换：全部分组 / 商品分类 / 营销集合（默认全部）。
 - 一张表：
   - CATEGORY 行树形缩进、可展开/收起；营销、场景、系统行平铺；
+  - 层级字体区分：一级分组 15px/600/主文字色，子分组 14px/400/次要色，
+    更深层级 13px/400/弱化色；每级缩进 20px；
   - 字段：分组名称（含层级箭头）、Slug、类型、商品数（直属 / 含子类 / 在售）、状态、排序、操作；
   - 商品数单元格可展开子分类明细；营销行显示成员/在售；
   - 操作：编辑、新建子分组（CATEGORY 行）、删除。
@@ -264,12 +266,12 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
   直属 1 · 成员 0」，展开后 24 行；Chairs & Stools 弹窗显示 7 个主分组 + 2 个成员，
   三个分区标签实测可切换且默认基本信息；成员 ↑/↓ 实测可换序；
   缩略图/SKU/「已在名单」/总数均实测出现；控制台 0 错误；
-  草稿相关 `vitest` 11/11，前端完整套件 3122/3122，`tsc --noEmit` 与 `eslint` 均通过。
+  草稿相关 `vitest` 12/12，前端完整套件 3123/3123，`tsc --noEmit` 与 `eslint` 均通过。
 - 截图：`.snapshots/unified-groups-draft-list.png`、`unified-groups-draft-editor.png`、
   `unified-groups-assignment-draft.png`、`unified-groups-draft-editor-thumbs-sku.png`、
   `unified-groups-tabs-basic.png`、`unified-groups-tabs-products.png`、
-  `unified-groups-banner-saved-preview.png`、`unified-groups-fullwidth.png`
-  （保存在 homepage-builder 工作树的 `.snapshots/`）。
+  `unified-groups-banner-saved-preview.png`、`unified-groups-fullwidth.png`、
+  `unified-groups-parent-child-type.png`（保存在 homepage-builder 工作树的 `.snapshots/`）。
 - **不保存任何更改**，不修改生产数据；正式接线在阶段 C。
 
 ## 8. 前台行为

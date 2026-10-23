@@ -40,6 +40,12 @@ function detailText(counts: UnifiedGroupRow["counts"]): string {
   return `直属 ${counts.direct} · 成员 ${counts.memberCount}`;
 }
 
+function groupNameClass(depth: number): string {
+  if (depth === 0) return "text-[15px] font-semibold text-ink";
+  if (depth === 1) return "text-sm font-normal text-ink-secondary";
+  return "text-[13px] font-normal text-ink-muted";
+}
+
 async function fetchMemberIds(slug: string): Promise<string[]> {
   const ids: string[] = [];
   let page = 1;
@@ -293,7 +299,7 @@ export function UnifiedGroupsDraft() {
                     ) : (
                       <span className="w-5" aria-hidden />
                     )}
-                    <span className="font-semibold text-ink">{row.name}</span>
+                    <span className={groupNameClass(row.depth)}>{row.name}</span>
                   </div>
                   <div
                     className="mt-0.5 font-mono text-xs text-ink-muted"
