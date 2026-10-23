@@ -39,6 +39,9 @@ const BESTSELLER_BADGE_SLUG = "best-sellers";
  */
 const ALL_PRODUCTS_SLUG = "all-products";
 
+/** Admin product list caps pageSize at 100; the picker pages until it has them all. */
+const CANDIDATE_PAGE_SIZE = 100;
+
 const TYPE_HINTS: Record<AdminCollectionRow["type"], string> = {
   NAVIGATION: "导航集合（分类导购页）",
   MARKETING: "营销集合（活动/角标）",
@@ -69,6 +72,13 @@ function ProductThumb({ url, name }: { url: string | null; name: string }) {
       className="h-10 w-10 shrink-0 overflow-hidden rounded-lg"
     />
   );
+}
+
+/** A product may carry several variants; the picker lists every real SKU code. */
+function candidateSkuCodes(product: AdminProduct): string[] {
+  return product.variants
+    .map((variant) => variant.sku?.skuCode)
+    .filter((code): code is string => Boolean(code));
 }
 
 /** Basic-info form shared by the unified page editor. */
@@ -181,23 +191,42 @@ function CollectionsPageContent() {
     };
   }, []);
 
+  // Only the latest search may write the candidate list: paging makes a stale
+  // response arrive later than a fresh one more easily.
+  const candidatesRequestIdRef = useRef(0);
+
   const loadCandidates = useCallback((search: string) => {
+    const requestId = ++candidatesRequestIdRef.current;
     setCandidatesLoading(true);
-    adminApi
-      .listProducts({ search: search || undefined, page: 1, pageSize: 20 })
-      .then((res) => {
-        if (!mountedRef.current) return;
-        setCandidates(res.items);
-        setCandidateTotal(res.total);
-      })
-      .catch(() => {
-        if (!mountedRef.current) return;
+    void (async () => {
+      try {
+        const items: AdminProduct[] = [];
+        let total = 0;
+        let page = 1;
+        for (;;) {
+          const res = await adminApi.listProducts({
+            search: search || undefined,
+            page,
+            pageSize: CANDIDATE_PAGE_SIZE,
+          });
+          if (!mountedRef.current || requestId !== candidatesRequestIdRef.current) return;
+          items.push(...res.items);
+          total = res.total;
+          if (items.length >= total || res.items.length === 0) break;
+          page += 1;
+        }
+        setCandidates(items);
+        setCandidateTotal(total);
+      } catch {
+        if (!mountedRef.current || requestId !== candidatesRequestIdRef.current) return;
         setCandidates([]);
         setCandidateTotal(0);
-      })
-      .finally(() => {
-        if (mountedRef.current) setCandidatesLoading(false);
-      });
+      } finally {
+        if (mountedRef.current && requestId === candidatesRequestIdRef.current) {
+          setCandidatesLoading(false);
+        }
+      }
+    })();
   }, []);
 
 
@@ -249,8 +278,8 @@ function CollectionsPageContent() {
         .finally(() => {
           if (mountedRef.current) setMembersLoading(false);
         });
+      loadCandidates("");
     }
-    loadCandidates("");
   }, [loadCandidates]);
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.id)), [members]);
@@ -808,6 +837,7 @@ function CollectionsPageContent() {
                       <ul className="divide-y divide-border text-sm">
                         {candidates.map((p) => {
                           const inCollection = memberIds.has(p.id);
+                          const skuCodes = candidateSkuCodes(p);
                           return (
                             <li
                               key={p.id}
@@ -819,6 +849,12 @@ function CollectionsPageContent() {
                               />
                               <span className="flex-1 truncate text-ink">
                                 {p.name}
+                              </span>
+                              <span
+                                className="w-40 shrink-0 truncate text-xs text-ink-muted"
+                                title={skuCodes.length > 0 ? skuCodes.join(", ") : undefined}
+                              >
+                                {skuCodes.length > 0 ? skuCodes.join(", ") : "—"}
                               </span>
                               <Badge
                                 value={p.status}
@@ -844,9 +880,9 @@ function CollectionsPageContent() {
                       </ul>
                     )}
                   </div>
-                  {candidateTotal > 20 ? (
+                  {candidateTotal > 0 ? (
                     <p className="mt-1 text-xs text-ink-muted">
-                      共 {candidateTotal} 个结果，仅显示前 20 个；请输入更精确的商品名再搜索。
+                      共 {candidateTotal} 个商品
                     </p>
                   ) : null}
                   <p className="mt-1 text-xs text-ink-muted">
