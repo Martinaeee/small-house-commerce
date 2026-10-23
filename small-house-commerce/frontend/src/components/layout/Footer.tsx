@@ -272,7 +272,7 @@ export function Footer({
 
   return (
     <footer className="mt-16 bg-footer-background text-footer-foreground">
-      {mode === "live" ? <SubscribeBand /> : null}
+      <SubscribeBand mode={mode} />
 
       <div className="mx-auto w-full max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
         <div

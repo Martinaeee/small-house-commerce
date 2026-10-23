@@ -251,14 +251,16 @@ describe("Footer published shell content", () => {
     expect(screen.queryByRole("link", { name: "Track a delivery" })).toBeNull();
   });
 
-  it("replaces every shell link with text and omits the customer newsletter island in preview", () => {
+  it("replaces every shell link with text and keeps an inert newsletter band in preview", () => {
     renderFooter({ shell, mode: "preview" });
 
     expect(document.querySelector("footer a")).toBeNull();
     expect(screen.getByText("Delivery")).toBeVisible();
     expect(screen.getByText("Track a delivery")).toBeVisible();
     expect(screen.getByText("hello@roomy.ph")).toBeVisible();
-    expect(screen.queryByTestId("newsletter-band")).toBeNull();
+    expect(screen.getByTestId("newsletter-band")).toBeInTheDocument();
+    expect(screen.getByTestId("newsletter-subscribe-email")).toBeDisabled();
+    expect(screen.getByTestId("newsletter-subscribe-submit")).toBeDisabled();
   });
 });
 

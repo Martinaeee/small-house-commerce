@@ -9,6 +9,8 @@ export interface SubscribeEmailFormProps {
   variant?: "band" | "popup" | "footer-pill";
   placeholder: string;
   onSuccess?: (promoCode: string | null) => void;
+  /** Preview renders the real band but never sends a subscription. */
+  disabled?: boolean;
 }
 
 type FormState =
@@ -29,6 +31,7 @@ export function SubscribeEmailForm({
   variant = "band",
   placeholder,
   onSuccess,
+  disabled = false,
 }: SubscribeEmailFormProps) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<FormState>({ status: "idle" });
@@ -36,7 +39,7 @@ export function SubscribeEmailForm({
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (state.status === "busy") return;
+    if (disabled || state.status === "busy") return;
 
     const value = email.trim();
     if (!EMAIL_PATTERN.test(value)) {
@@ -181,6 +184,7 @@ export function SubscribeEmailForm({
           data-testid="newsletter-subscribe-email"
           type="email"
           autoComplete="email"
+          disabled={disabled}
           value={email}
           onChange={(event) => {
             setEmail(event.target.value);
@@ -198,7 +202,7 @@ export function SubscribeEmailForm({
         <button
           data-testid="newsletter-subscribe-submit"
           type="submit"
-          disabled={busy}
+          disabled={busy || disabled}
           aria-label={busy ? "Subscribing" : "Subscribe"}
           className={
             stacked

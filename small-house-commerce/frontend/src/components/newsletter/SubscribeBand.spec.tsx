@@ -7,10 +7,13 @@ import { SubscribeBand } from "./SubscribeBand";
 const clipboardMock = vi.hoisted(() => ({ copyText: vi.fn() }));
 vi.mock("@/lib/clipboard", () => ({ copyText: clipboardMock.copyText }));
 
-function renderBand(patch: Partial<SiteSettings> = {}) {
+function renderBand(
+  patch: Partial<SiteSettings> = {},
+  mode?: "live" | "preview",
+) {
   return render(
     <SiteSettingsProvider settings={{ ...DEFAULT_SITE_SETTINGS, ...patch }}>
-      <SubscribeBand />
+      <SubscribeBand mode={mode} />
     </SiteSettingsProvider>,
   );
 }
@@ -55,6 +58,24 @@ describe("SubscribeBand", () => {
     expect(
       screen.getByTestId("newsletter-subscribe-email"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the band visible in preview but disables its form", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderBand({ newsletterBandEnabled: true }, "preview");
+
+    expect(screen.getByTestId("newsletter-band")).toBeInTheDocument();
+    const input = screen.getByTestId("newsletter-subscribe-email");
+    expect(input).toBeDisabled();
+    expect(screen.getByTestId("newsletter-subscribe-submit")).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "shopper@example.com" } });
+    fireEvent.submit(input.closest("form")!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses the band palette for the newsletter copy", () => {

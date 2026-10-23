@@ -15,8 +15,13 @@ const POPUP_SEEN_KEY = "luwag_newsletter_popup_seen";
  * live promotion this degrades to the standing line instead of promising a
  * discount that does not exist.
  */
-export function SubscribeBand() {
+export function SubscribeBand({
+  mode = "live",
+}: {
+  mode?: "live" | "preview";
+}) {
   const settings = useSiteSettings();
+  const preview = mode === "preview";
   const [successCode, setSuccessCode] = useState<string | null | undefined>(
     undefined,
   );
@@ -64,6 +69,7 @@ export function SubscribeBand() {
               source="FOOTER"
               variant="footer-pill"
               placeholder={settings.newsletterEmailPlaceholder}
+              disabled={preview}
               onSuccess={(promoCode) => {
                 try {
                   window.localStorage.setItem(POPUP_SEEN_KEY, "1");
