@@ -67,6 +67,8 @@ const detailBlockSchema = z.object({
   url: siteMediaUrl(),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
+  optionValueId: z.string().uuid().nullable().optional(),
+  variantId: z.string().uuid().nullable().optional(),
 });
 
 /**

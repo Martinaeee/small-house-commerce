@@ -56,7 +56,7 @@ export class LandingSnapshotService {
         },
         detailBlocks: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          select: { url: true, type: true, altText: true },
+          select: { url: true, type: true, altText: true, optionValueId: true, variantId: true },
         },
       },
     });
@@ -73,7 +73,7 @@ export class LandingSnapshotService {
     if (body)
       blocks.push({ id: 'description', type: 'richText', sourceKey: from('description'), props: { html: body } });
     if (product.detailBlocks.length)
-      blocks.push({ id: 'detail', type: 'detail', sourceKey: from('detail'), props: { media: product.detailBlocks.map((item) => ({ url: item.url, type: item.type, altText: item.altText, optionValueId: null, variantId: null })) } });
+      blocks.push({ id: 'detail', type: 'detail', sourceKey: from('detail'), props: { media: product.detailBlocks.map((item) => ({ url: item.url, type: item.type, altText: item.altText, optionValueId: item.optionValueId, variantId: item.variantId })) } });
     blocks.push(
       { id: 'facts', type: 'facts', sourceKey: from('facts'), props: {} },
       { id: 'reviews', type: 'reviews', sourceKey: from('reviews'), props: {} },
