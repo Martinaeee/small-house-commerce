@@ -51,6 +51,8 @@ function collection(
 function product(
   patch: Pick<AdminProduct, "id" | "name" | "categoryId"> & {
     status?: AdminProduct["status"];
+    images?: AdminProduct["images"];
+    variants?: { sku?: { skuCode?: string | null } | null }[];
   },
 ): AdminProduct {
   return {
@@ -96,11 +98,54 @@ const STORAGE = category({
   children: [SHELVING],
 });
 
+function image(id: string, url: string): AdminProduct["images"] {
+  return [{ id, url, type: "IMAGE", altText: null, sortOrder: 1 }];
+}
+
 const PRODUCTS = [
-  product({ id: "p1", name: "Root Shelf", categoryId: "cat-storage" }),
-  product({ id: "p2", name: "Rack", categoryId: "cat-shelving" }),
-  product({ id: "p3", name: "Draft Shelf", categoryId: "cat-storage", status: "DRAFT" }),
-  product({ id: "p4", name: "New Arrival Chair", categoryId: "cat-storage" }),
+  product({
+    id: "p1",
+    name: "Root Shelf",
+    categoryId: "cat-storage",
+    images: image("img-root", "https://cdn.test/root.jpg"),
+    variants: [{ sku: { skuCode: "SH-ROOT-01" } }],
+  }),
+  product({
+    id: "p2",
+    name: "Rack",
+    categoryId: "cat-shelving",
+    images: image("img-rack", "https://cdn.test/rack.jpg"),
+    variants: [{ sku: { skuCode: "SH-RACK-02" } }],
+  }),
+  product({
+    id: "p3",
+    name: "Draft Shelf",
+    categoryId: "cat-storage",
+    status: "DRAFT",
+    images: image("img-draft", "https://cdn.test/draft.jpg"),
+    variants: [{ sku: { skuCode: "SH-DRAFT-03" } }],
+  }),
+  product({
+    id: "p4",
+    name: "Member Chair",
+    categoryId: "cat-other",
+    images: image("img-chair", "https://cdn.test/chair.jpg"),
+    variants: [{ sku: { skuCode: "SH-CHAIR-04" } }],
+  }),
+  product({
+    id: "p5",
+    name: "Member Lamp",
+    categoryId: "cat-other",
+    images: image("img-lamp", "https://cdn.test/lamp.jpg"),
+    variants: [{ sku: { skuCode: "SH-LAMP-05" } }],
+  }),
+  product({
+    id: "p6",
+    name: "Candidate Table",
+    categoryId: "cat-other",
+    images: image("img-table", "https://cdn.test/table.jpg"),
+    variants: [{ sku: { skuCode: "SH-TABLE-06" } }],
+  }),
 ];
 
 beforeEach(() => {
@@ -138,9 +183,9 @@ beforeEach(() => {
     Promise.resolve({
       items:
         slug === "storage-organization"
-          ? [{ id: "p2" }, { id: "p4" }]
+          ? [{ id: "p2" }, { id: "p4" }, { id: "p5" }]
           : [{ id: "p1" }, { id: "p4" }],
-      total: 2,
+      total: slug === "storage-organization" ? 3 : 2,
       page: 1,
       pageSize: 24,
     }),
@@ -161,8 +206,8 @@ describe("UnifiedGroupsDraft", () => {
     const storageRow = screen
       .getByText("Storage & Organization")
       .closest("tr") as HTMLElement;
-    expect(within(storageRow).getByText(/含子类 4/)).toBeInTheDocument();
-    expect(within(storageRow).getByText(/在售 3/)).toBeInTheDocument();
+    expect(within(storageRow).getByText(/含子类 5/)).toBeInTheDocument();
+    expect(within(storageRow).getByText(/在售 4/)).toBeInTheDocument();
     expect(screen.getByText("New Arrivals")).toBeInTheDocument();
   });
 
@@ -190,13 +235,60 @@ describe("UnifiedGroupsDraft", () => {
     fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("商品名单")).toBeInTheDocument();
+    expect(within(dialog).getByText(/商品名单/)).toBeInTheDocument();
     expect(within(dialog).getByText("子分类商品数")).toBeInTheDocument();
     expect(within(dialog).getAllByText("主分组").length).toBeGreaterThan(0);
 
-    // A member that is already in the primary subtree is still listed once.
-    await waitFor(() => expect(within(dialog).getByText("Rack")).toBeInTheDocument());
+    // A member that is already in the primary subtree is shown once in the effective list.
+    const memberList = within(dialog).getByLabelText("商品名单");
+    await waitFor(() => expect(within(memberList).getByText("Rack")).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole("button", { name: "保存（演示）" }));
     expect(await screen.findByText(/演示模式/)).toBeInTheDocument();
+  });
+
+  it("keeps the original dialog's thumbnails, SKU codes, status and totals", async () => {
+    await renderDraft();
+    fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
+    const storageRow = screen
+      .getByText("Storage & Organization")
+      .closest("tr") as HTMLElement;
+    fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() => expect(within(dialog).getAllByText("SH-RACK-02")).toHaveLength(2));
+    expect(within(dialog).getAllByText("SH-CHAIR-04")).toHaveLength(2);
+    expect(within(dialog).getAllByText("SH-LAMP-05")).toHaveLength(2);
+    expect(within(dialog).getAllByText("SH-TABLE-06")).toHaveLength(1);
+    expect(dialog.querySelector('img[src="https://cdn.test/rack.jpg"]')).not.toBeNull();
+    expect(dialog.querySelector('img[src="https://cdn.test/chair.jpg"]')).not.toBeNull();
+    expect(dialog.querySelector('img[src="https://cdn.test/table.jpg"]')).not.toBeNull();
+    expect(within(dialog).getByText(/共 6 个商品/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText("已在名单").length).toBeGreaterThan(0);
+  });
+
+  it("reorders explicit members with the arrow controls", async () => {
+    await renderDraft();
+    fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
+    const storageRow = screen
+      .getByText("Storage & Organization")
+      .closest("tr") as HTMLElement;
+    fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const down = await within(dialog).findByRole("button", { name: "下移 Member Chair" });
+    expect(within(dialog).getByRole("button", { name: "上移 Member Chair" })).toBeDisabled();
+    fireEvent.click(down);
+    expect(within(dialog).getByRole("button", { name: "下移 Member Chair" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "上移 Member Chair" })).not.toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "上移 Member Lamp" })).toBeDisabled();
+  });
+
+  it("shows the selected product's thumbnail and SKU in the assignment draft", async () => {
+    await renderDraft();
+    fireEvent.click(screen.getByRole("button", { name: "商品归属交互稿" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText("SH-ROOT-01")).toBeInTheDocument();
+    expect(dialog.querySelector('img[src="https://cdn.test/root.jpg"]')).not.toBeNull();
   });
 });

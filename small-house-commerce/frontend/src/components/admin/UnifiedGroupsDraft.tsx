@@ -6,6 +6,7 @@ import { Badge } from "./Badge";
 import { Dialog } from "./Dialog";
 import { Field, Select, TextInput } from "./Field";
 import { Button } from "@/components/ui/Button";
+import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { adminApi, type AdminCategoryNode, type AdminCollectionRow, type AdminProduct } from "@/lib/admin-api";
 import { api } from "@/lib/api";
 import {
@@ -43,6 +44,41 @@ async function fetchMemberIds(slug: string): Promise<string[]> {
   return ids;
 }
 
+async function fetchAllProducts(): Promise<AdminProduct[]> {
+  const out: AdminProduct[] = [];
+  let page = 1;
+  for (;;) {
+    const res = await adminApi.listProducts({ page, pageSize: 100 });
+    out.push(...res.items);
+    if (out.length >= res.total || res.items.length === 0) break;
+    page += 1;
+  }
+  return out;
+}
+
+function ProductThumb({ product }: { product: AdminProduct }) {
+  const url = product.images?.[0]?.url ?? null;
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
+    <img
+      src={url}
+      alt=""
+      className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
+    />
+  ) : (
+    <PlaceholderImage
+      label={product.name}
+      className="h-10 w-10 shrink-0 overflow-hidden rounded-lg"
+    />
+  );
+}
+
+function skuCodesFor(product: AdminProduct): string[] {
+  return product.variants
+    .map((variant) => variant.sku?.skuCode)
+    .filter((code): code is string => Boolean(code));
+}
+
 export function UnifiedGroupsDraft() {
   const [categories, setCategories] = useState<AdminCategoryNode[] | null>(null);
   const [collections, setCollections] = useState<AdminCollectionRow[]>([]);
@@ -66,7 +102,7 @@ export function UnifiedGroupsDraft() {
         const [cats, cols, prods] = await Promise.all([
           adminApi.listCategories(),
           adminApi.listCollections(),
-          adminApi.listProducts({ page: 1, pageSize: 100 }),
+          fetchAllProducts(),
         ]);
         const members: Record<string, string[]> = {};
         await Promise.all(
@@ -77,7 +113,7 @@ export function UnifiedGroupsDraft() {
         if (cancelled) return;
         setCategories(cats);
         setCollections(cols.items);
-        setProducts(prods.items);
+        setProducts(prods);
         setMemberIdsBySlug(members);
       } catch {
         if (!cancelled) setLoadError("无法读取分组数据，请确认已登录后台并启动本地服务。");
@@ -409,26 +445,51 @@ function UnifiedGroupEditor({
     initialParentId ? "CATEGORY" : row?.kind ?? "CATEGORY",
   );
 
-  const effectiveIds = useMemo(
-    () => new Set([...primaryIds, ...localMembers]),
-    [primaryIds, localMembers],
+  const productById = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products],
+  );
+  const visibleMemberIds = useMemo(
+    () => localMembers.filter((id) => !primaryIds.has(id)),
+    [localMembers, primaryIds],
+  );
+  const memberProducts = useMemo(
+    () =>
+      visibleMemberIds
+        .map((id) => productById.get(id))
+        .filter((product): product is AdminProduct => Boolean(product)),
+    [visibleMemberIds, productById],
   );
   const effectiveProducts = useMemo(
-    () => products.filter((product) => effectiveIds.has(product.id)),
-    [products, effectiveIds],
+    () => [...primaryProducts, ...memberProducts],
+    [primaryProducts, memberProducts],
+  );
+  const effectiveIds = useMemo(
+    () => new Set(effectiveProducts.map((product) => product.id)),
+    [effectiveProducts],
   );
   const candidates = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return products
-      .filter((product) => !effectiveIds.has(product.id))
-      .filter((product) =>
-        query
-          ? product.name.toLowerCase().includes(query) ||
-            product.slug.toLowerCase().includes(query)
-          : true,
-      )
-      .slice(0, 8);
-  }, [products, effectiveIds, search]);
+    return products.filter((product) =>
+      query
+        ? product.name.toLowerCase().includes(query) ||
+          product.slug.toLowerCase().includes(query)
+        : true,
+    );
+  }, [products, search]);
+
+  const moveMember = (productId: string, delta: number) => {
+    const index = visibleMemberIds.indexOf(productId);
+    const targetId = visibleMemberIds[index + delta];
+    if (!targetId) return;
+    setLocalMembers((prev) => {
+      const next = [...prev];
+      const from = next.indexOf(productId);
+      const to = next.indexOf(targetId);
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+  };
 
   const parentOptions = categoryOptions(
     categories,
@@ -520,9 +581,11 @@ function UnifiedGroupEditor({
 
         <section className="flex flex-col gap-3">
           <div>
-            <p className="text-sm font-semibold text-ink">商品名单</p>
+            <p className="text-sm font-semibold text-ink">
+              商品名单（共 {effectiveProducts.length} 个：主分组 {primaryProducts.length} 个，成员 {visibleMemberIds.length} 个）
+            </p>
             <p className="mt-0.5 text-xs text-ink-muted">
-              商品分类的主分组商品自动显示（不可在此移除）；显式成员可增删。保存不会修改商品主分组。
+              顺序即前台展示顺序；用 ↑/↓ 调整成员，用「移除」移出（不会删除商品）。商品分类的主分组商品自动显示，不可在此移除；保存不会修改商品主分组。
             </p>
           </div>
 
@@ -543,15 +606,34 @@ function UnifiedGroupEditor({
             </div>
           ) : null}
 
-          <ul className="divide-y divide-border rounded-lg border border-border text-sm">
+          <ul
+            aria-label="商品名单"
+            className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border text-sm"
+          >
             {effectiveProducts.length === 0 ? (
               <li className="px-3 py-4 text-xs text-ink-muted">名单为空。</li>
             ) : (
               effectiveProducts.map((product) => {
                 const isPrimary = primaryIds.has(product.id);
+                const memberIndex = visibleMemberIds.indexOf(product.id);
+                const skuCodes = skuCodesFor(product);
                 return (
                   <li key={product.id} className="flex items-center gap-2 px-3 py-2">
-                    <span className="flex-1 truncate text-ink">{product.name}</span>
+                    <span className="w-6 shrink-0 text-xs text-ink-muted">
+                      {isPrimary ? "" : memberIndex + 1}
+                    </span>
+                    <ProductThumb product={product} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-ink">{product.name}</span>
+                      {skuCodes.length > 0 ? (
+                        <span
+                          className="block truncate text-xs text-ink-muted"
+                          title={skuCodes.join(", ")}
+                        >
+                          {skuCodes.join(", ")}
+                        </span>
+                      ) : null}
+                    </span>
                     <Badge
                       value={product.status}
                       tone={product.status === "ACTIVE" ? "green" : undefined}
@@ -561,15 +643,35 @@ function UnifiedGroupEditor({
                         主分组
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setLocalMembers((prev) => prev.filter((id) => id !== product.id))
-                        }
-                        className="rounded px-2 py-1 text-xs font-semibold text-admin-error hover:bg-red-50"
-                      >
-                        移除
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          aria-label={`上移 ${product.name}`}
+                          disabled={memberIndex === 0}
+                          onClick={() => moveMember(product.id, -1)}
+                          className="rounded px-1.5 py-0.5 text-xs text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`下移 ${product.name}`}
+                          disabled={memberIndex === visibleMemberIds.length - 1}
+                          onClick={() => moveMember(product.id, 1)}
+                          className="rounded px-1.5 py-0.5 text-xs text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLocalMembers((prev) => prev.filter((id) => id !== product.id))
+                          }
+                          className="rounded px-2 py-1 text-xs font-semibold text-admin-error hover:bg-red-50"
+                        >
+                          移除
+                        </button>
+                      </>
                     )}
                   </li>
                 );
@@ -588,26 +690,61 @@ function UnifiedGroupEditor({
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-            {candidates.length === 0 ? (
-              <p className="mt-2 text-xs text-ink-muted">没有可添加的商品。</p>
-            ) : (
-              <ul className="mt-2 space-y-1">
-                {candidates.map((product) => (
-                  <li key={product.id} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 truncate text-ink-secondary">{product.name}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setLocalMembers((prev) => [...prev, product.id])
-                      }
-                      className="rounded px-2 py-1 font-semibold text-cta hover:bg-primary-light/40"
-                    >
-                      添加
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border">
+              {candidates.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-ink-muted">
+                  没有找到商品{search.trim() ? `：${search.trim()}` : ""}。
+                </p>
+              ) : (
+                <ul aria-label="候选商品" className="divide-y divide-border text-sm">
+                  {candidates.map((product) => {
+                    const inList = effectiveIds.has(product.id);
+                    const skuCodes = skuCodesFor(product);
+                    return (
+                      <li key={product.id} className="flex items-center gap-2 px-3 py-2">
+                        <ProductThumb product={product} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-ink">{product.name}</span>
+                          <span
+                            className="block truncate text-xs text-ink-muted"
+                            title={skuCodes.length > 0 ? skuCodes.join(", ") : undefined}
+                          >
+                            {skuCodes.length > 0 ? skuCodes.join(", ") : "—"}
+                          </span>
+                        </span>
+                        <Badge
+                          value={product.status}
+                          tone={product.status === "ACTIVE" ? "green" : undefined}
+                        />
+                        {inList ? (
+                          <span className="w-16 shrink-0 text-right text-xs text-ink-muted">
+                            已在名单
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLocalMembers((prev) =>
+                                prev.includes(product.id) ? prev : [...prev, product.id],
+                              )
+                            }
+                            className="w-16 shrink-0 rounded px-2 py-1 text-xs font-semibold text-cta hover:bg-primary-light/40"
+                          >
+                            添加
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            {candidates.length > 0 ? (
+              <p className="mt-1 text-xs text-ink-muted">共 {candidates.length} 个商品</p>
+            ) : null}
+            <p className="mt-1 text-xs text-ink-muted">
+              草稿/下架商品可以加入名单，但要等商品 ACTIVE 后才会在前台集合页出现。
+            </p>
           </div>
         </section>
 
@@ -644,6 +781,7 @@ function ProductAssignmentDraft({
   const product = products.find((entry) => entry.id === productId) ?? products[0] ?? null;
   const [primaryId, setPrimaryId] = useState(product?.categoryId ?? "");
   const [others, setOthers] = useState<Set<string>>(new Set());
+  const productSkuCodes = product ? skuCodesFor(product) : [];
 
   const primaryOptions = useMemo(() => {
     const out: { id: string; label: string }[] = [];
@@ -695,6 +833,24 @@ function ProductAssignmentDraft({
             ))}
           </Select>
         </Field>
+        {product ? (
+          <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+            <ProductThumb product={product} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-ink">{product.name}</span>
+              <span
+                className="block truncate text-xs text-ink-muted"
+                title={productSkuCodes.length > 0 ? productSkuCodes.join(", ") : undefined}
+              >
+                {productSkuCodes.length > 0 ? productSkuCodes.join(", ") : "无 SKU"}
+              </span>
+            </span>
+            <Badge
+              value={product.status}
+              tone={product.status === "ACTIVE" ? "green" : undefined}
+            />
+          </div>
+        ) : null}
         <Field label="主分组（单选）" htmlFor="draft-assignment-primary" hint="决定面包屑与分类归属。">
           <Select
             id="draft-assignment-primary"

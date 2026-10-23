@@ -238,18 +238,23 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
   - `frontend/src/components/admin/UnifiedGroupsDraft.tsx` — 列表/树/编辑弹窗/商品归属交互；
   - `frontend/src/lib/admin-grouping-model.ts` — 同名合并、树构建、计数口径（纯函数）；
   - 两份 `.spec.ts(x)` — 单测覆盖合并、计数去重、标签过滤、编辑弹窗主分组/成员。
-- 数据：现有 `listCategories` / `listCollections` / `listProducts`（含 categoryId、status）
-  + 公开 `getCollectionProducts` 逐集合取成员 id；不改任何现有接口。
+- 数据：现有 `listCategories` / `listCollections` / `listProducts`（分页拉全量，含 categoryId、status）
+  + 公开 `getCollectionProducts` 逐集合取成员 id/顺序；不改任何现有接口。
 - 已覆盖交互：三标签切换、树展开/收起、直属/成员/含子类/在售计数、子分类统计块、
-  统一编辑弹窗（主分组只读标记 + 成员可移除 + 搜索添加）、新建子分组继承父级、
-  商品归属交互稿（单主分组 + 其他多选）。
+  统一编辑弹窗、新建子分组继承父级、商品归属交互稿（单主分组 + 其他多选）。
+- 商品弹窗与原集合弹窗功能对齐：名单与候选行都有缩略图、全部真实 SKU 码、状态角标；
+  候选列表显示「已在名单 / 添加」与「共 N 个商品」，草稿/下架商品提示保留；
+  成员保持展示顺序并可用 ↑/↓ 调整、可移除；主分组商品自动显示且不可移除；
+  商品归属交互稿额外显示所选商品的缩略图、SKU 与状态。
 - 演示限制：保存只改本次会话内存并提示「演示模式」；All Products 为运行时聚合，
   本地数据里不存在该集合，故草稿不列该行；成员数来自公开在售接口。
 - 本地验收（2026-10-23）：13 个商品、Storage & Organization 显示「含子类 6 · 在售 6 /
-  直属 1 · 成员 0」，展开后 24 行；Chairs & Stools 弹窗显示 7 个主分组标记；
-  控制台 0 错误；`vitest` 6/6、`tsc --noEmit` 与 `eslint` 均通过。
+  直属 1 · 成员 0」，展开后 24 行；Chairs & Stools 弹窗显示 7 个主分组 + 2 个成员，
+  成员 ↑/↓ 实测可换序；缩略图/SKU/「已在名单」/总数均实测出现；控制台 0 错误；
+  草稿相关 `vitest` 9/9，前端完整套件 3120/3120，`tsc --noEmit` 与 `eslint` 均通过。
 - 截图：`.snapshots/unified-groups-draft-list.png`、`unified-groups-draft-editor.png`、
-  `unified-groups-assignment-draft.png`（保存在 homepage-builder 工作树的 `.snapshots/`）。
+  `unified-groups-assignment-draft.png`、`unified-groups-draft-editor-thumbs-sku.png`
+  （保存在 homepage-builder 工作树的 `.snapshots/`）。
 - **不保存任何更改**，不修改生产数据；正式接线在阶段 C。
 
 ## 8. 前台行为
