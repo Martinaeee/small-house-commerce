@@ -556,6 +556,17 @@ function previewShell(
             },
       ),
       copyrightBrand: document.footer.copyrightBrand,
+      socials: document.footer.socials.map((social) => ({
+        id: social.id,
+        network: social.network,
+        href: social.url,
+      })),
+      legal: document.footer.legal.map((link) => ({
+        id: link.id,
+        label: link.label,
+        href: link.href,
+      })),
+      payments: [...document.footer.payments],
     },
     theme: document.theme,
     derivedTheme: deriveStorefrontTheme(document.theme),
@@ -1255,6 +1266,9 @@ export function StorefrontShellEditor({ children }: { children?: ReactNode }) {
                     description={state.document.footer.description}
                     columns={state.document.footer.columns}
                     copyrightBrand={state.document.footer.copyrightBrand}
+                    socials={state.document.footer.socials}
+                    legal={state.document.footer.legal}
+                    payments={state.document.footer.payments}
                     pendingUploads={state.pendingUploads}
                     issues={state.issues}
                     onChange={(next) =>

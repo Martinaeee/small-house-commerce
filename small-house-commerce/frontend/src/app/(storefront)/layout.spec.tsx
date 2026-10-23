@@ -75,6 +75,9 @@ const CUSTOM_SHELL: PublicStorefrontShell = {
       },
     ],
     copyrightBrand: "Roomy Co",
+    socials: [],
+    legal: [],
+    payments: [],
   },
   theme: {
     primary: "#315e81",

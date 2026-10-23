@@ -66,6 +66,13 @@ export type ResolvedFooterView = {
       }
   >;
   copyrightBrand: string;
+  socials: Array<{
+    id: string;
+    network: "FACEBOOK" | "INSTAGRAM" | "TIKTOK" | "YOUTUBE";
+    href: string;
+  }>;
+  legal: Array<{ id: string; label: string; href: string }>;
+  payments: string[];
 };
 
 export type PublicStorefrontShell = {
@@ -121,6 +128,31 @@ function exact(
     if (!allowed.has(key)) throw new Error(`${path}.${key} is unexpected`);
   }
   for (const key of keys) {
+    if (!(key in result)) throw new Error(`${path}.${key} is required`);
+  }
+  return result;
+}
+
+/**
+ * Same rules as `exact`, but the optional keys may be missing: the public
+ * shell grew the footer extras later, and an older cached payload must still
+ * render (the missing arrays simply mean "nothing configured").
+ */
+function exactWithOptional(
+  value: unknown,
+  path: string,
+  required: readonly string[],
+  optional: readonly string[],
+): JsonRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path} must be an object`);
+  }
+  const result = value as JsonRecord;
+  const allowed = new Set([...required, ...optional]);
+  for (const key of Object.keys(result)) {
+    if (!allowed.has(key)) throw new Error(`${path}.${key} is unexpected`);
+  }
+  for (const key of required) {
     if (!(key in result)) throw new Error(`${path}.${key} is required`);
   }
   return result;
@@ -370,12 +402,12 @@ export function parsePublicStorefrontShell(value: unknown): PublicStorefrontShel
     "squareMark",
   ]);
   const header = exact(source.header, "publicShell.header", ["items"]);
-  const footer = exact(source.footer, "publicShell.footer", [
-    "tagline",
-    "description",
-    "columns",
-    "copyrightBrand",
-  ]);
+  const footer = exactWithOptional(
+    source.footer,
+    "publicShell.footer",
+    ["tagline", "description", "columns", "copyrightBrand"],
+    ["socials", "legal", "payments"],
+  );
 
   return {
     publishedRevision: integer(
@@ -413,6 +445,27 @@ export function parsePublicStorefrontShell(value: unknown): PublicStorefrontShel
         footer.copyrightBrand,
         "publicShell.footer.copyrightBrand",
       ),
+      socials:
+        footer.socials === undefined
+          ? []
+          : array(footer.socials, "publicShell.footer.socials").map(
+              (entry, index) =>
+                parseFooterSocial(entry, `publicShell.footer.socials.${index}`),
+            ),
+      legal:
+        footer.legal === undefined
+          ? []
+          : array(footer.legal, "publicShell.footer.legal").map(
+              (entry, index) =>
+                parseFooterLegal(entry, `publicShell.footer.legal.${index}`),
+            ),
+      payments:
+        footer.payments === undefined
+          ? []
+          : array(footer.payments, "publicShell.footer.payments").map(
+              (entry, index) =>
+                stringValue(entry, `publicShell.footer.payments.${index}`),
+            ),
     },
     theme: parseTheme(source.theme, "publicShell.theme"),
     derivedTheme: parseDerivedTheme(
@@ -447,6 +500,39 @@ function parseHeaderItem(
     };
   }
   throw new Error(`${path}.kind is invalid`);
+}
+
+function parseFooterSocial(
+  value: unknown,
+  path: string,
+): ResolvedFooterView["socials"][number] {
+  const record = exactRecord(value, path);
+  const network = stringValue(record.network, `${path}.network`);
+  if (
+    network !== "FACEBOOK" &&
+    network !== "INSTAGRAM" &&
+    network !== "TIKTOK" &&
+    network !== "YOUTUBE"
+  ) {
+    throw new Error(`${path}.network is not a supported network`);
+  }
+  return {
+    id: stringValue(record.id, `${path}.id`),
+    network,
+    href: stringValue(record.href, `${path}.href`),
+  };
+}
+
+function parseFooterLegal(
+  value: unknown,
+  path: string,
+): ResolvedFooterView["legal"][number] {
+  const record = exactRecord(value, path);
+  return {
+    id: stringValue(record.id, `${path}.id`),
+    label: stringValue(record.label, `${path}.label`),
+    href: stringValue(record.href, `${path}.href`),
+  };
 }
 
 function parseFooterColumn(

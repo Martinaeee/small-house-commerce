@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
@@ -75,6 +75,9 @@ const shell: PublicStorefrontShell = {
       },
     ],
     copyrightBrand: "Roomy Co Living",
+    socials: [],
+    legal: [],
+    payments: [],
   },
   theme: {
     primary: "#c9a77b",
@@ -118,11 +121,14 @@ describe("Footer subscribe integration", () => {
     expect(footer).toContainElement(screen.getByTestId("newsletter-band"));
   });
 
-  it("keeps the footer as the single dark surface around the subscribe block", () => {
+  it("puts the subscribe band in its own sage strip above the footer surface", () => {
     renderFooter();
 
     const footer = document.querySelector("footer");
     expect(footer?.className).toContain("bg-footer-background");
+    const band = screen.getByTestId("newsletter-band");
+    expect(band.className).toContain("bg-footer-band");
+    expect(band.className).toContain("text-footer-band-ink");
   });
 
   it("uses storefront theme tokens for the Footer surface and readable copy", () => {
@@ -132,7 +138,7 @@ describe("Footer subscribe integration", () => {
     expect(footer?.className).toContain("bg-footer-background");
     expect(footer?.className).toContain("text-footer-foreground");
     expect(screen.getByText("Small-space furniture, made roomy").className).toContain(
-      "text-footer-muted",
+      "text-footer-foreground",
     );
     expect(
       screen.getByText(/Furniture for Filipino condos/).className,
@@ -217,6 +223,14 @@ describe("Footer published shell content", () => {
     expect(screen.getByTestId("newsletter-band")).toBeInTheDocument();
   });
 
+  it("uses a desktop grid sized for the brand block and three content columns", () => {
+    renderFooter({ shell, mode: "live" });
+
+    expect(screen.getByTestId("footer-column-grid").className).toContain(
+      "lg:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]",
+    );
+  });
+
   it("keeps Contact details but omits Track Order when its target is unavailable", () => {
     const withoutTrackOrder = {
       ...shell,
@@ -245,5 +259,71 @@ describe("Footer published shell content", () => {
     expect(screen.getByText("Track a delivery")).toBeVisible();
     expect(screen.getByText("hello@roomy.ph")).toBeVisible();
     expect(screen.queryByTestId("newsletter-band")).toBeNull();
+  });
+});
+
+describe("Footer phone accordion", () => {
+  it("gives every column a toggle and opens one column at a time", () => {
+    renderFooter({ shell, mode: "live" });
+
+    const toggles = screen.getAllByRole("button", { expanded: false });
+    expect(toggles).toHaveLength(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    expect(screen.getByRole("button", { name: "Help" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "About" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "About" }));
+    expect(screen.getByRole("button", { name: "Help" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "About" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+});
+
+describe("Footer social icons, legal links and payment labels", () => {
+  const withExtras = {
+    ...shell,
+    footer: {
+      ...shell.footer,
+      socials: [
+        { id: "s1", network: "FACEBOOK" as const, href: "https://facebook.com/luwag" },
+      ],
+      legal: [{ id: "l1", label: "Privacy", href: "/privacy" }],
+      payments: ["VISA", "GCash"],
+    },
+  };
+
+  it("renders the configured icons, legal links and payment labels", () => {
+    renderFooter({ shell: withExtras, mode: "live" });
+
+    expect(screen.getByRole("link", { name: "Facebook" })).toHaveAttribute(
+      "href",
+      "https://facebook.com/luwag",
+    );
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute(
+      "href",
+      "/privacy",
+    );
+    expect(screen.getByText("VISA")).toBeVisible();
+    expect(screen.getByText("GCash")).toBeVisible();
+  });
+
+  it("renders nothing extra when the operator configured nothing", () => {
+    renderFooter({ shell, mode: "live" });
+
+    expect(document.querySelector('footer a[href^="https://facebook.com"]')).toBeNull();
+    expect(screen.queryByRole("link", { name: "Privacy" })).toBeNull();
+    expect(screen.queryByText("VISA")).toBeNull();
   });
 });

@@ -31,8 +31,12 @@ export const SHELL_LIMITS = {
   externalUrl: 2048,
   maxEnabledHeaderItems: 8,
   maxHeaderRows: 24,
-  maxFooterColumns: 4,
+  maxFooterColumns: 5,
   maxFooterRows: 8,
+  maxFooterSocials: 4,
+  maxFooterLegal: 3,
+  maxFooterPayments: 6,
+  paymentLabel: 24,
 } as const;
 
 export type StructuredLink =
@@ -63,6 +67,12 @@ export type FooterColumn =
       trackOrderLabel: string;
       trackOrderLink: StructuredLink;
     };
+
+export type FooterSocialNetwork = "FACEBOOK" | "INSTAGRAM" | "TIKTOK" | "YOUTUBE";
+
+export type FooterSocial = { id: string; network: FooterSocialNetwork; url: string };
+
+export type FooterLegalLink = { id: string; label: string; href: string };
 
 export type HeadingFont = "SYSTEM" | "POPPINS_HEADING" | "SERIF_HEADING";
 export type BodyFont = "SYSTEM";
@@ -107,6 +117,9 @@ export type StorefrontShellDocument = {
     description: string;
     columns: FooterColumn[];
     copyrightBrand: string;
+    socials: FooterSocial[];
+    legal: FooterLegalLink[];
+    payments: string[];
   };
   theme: StorefrontThemeSource;
 };
@@ -301,6 +314,68 @@ function parseFooterColumn(value: unknown, path: string[]): FooterColumn {
   return fail([...path, "kind"], "Unsupported footer column kind");
 }
 
+function parseFooterSocials(value: unknown, path: string[]): FooterSocial[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail(path, "Expected an array");
+  if (value.length > SHELL_LIMITS.maxFooterSocials) {
+    fail(path, `Expected at most ${SHELL_LIMITS.maxFooterSocials} social links`);
+  }
+  return value.map((entry, index) => {
+    const itemPath = [...path, String(index)];
+    const record = strict(entry, itemPath, ["id", "network", "url"]);
+    const network = record.network;
+    if (
+      network !== "FACEBOOK" &&
+      network !== "INSTAGRAM" &&
+      network !== "TIKTOK" &&
+      network !== "YOUTUBE"
+    ) {
+      fail([...itemPath, "network"], "Unsupported social network");
+    }
+    const url = str(record.url, [...itemPath, "url"], SHELL_LIMITS.externalUrl, 1);
+    if (!isCredentialFreeHttpsUrl(url)) {
+      fail([...itemPath, "url"], "Social links must be credential-free https URLs");
+    }
+    return {
+      id: str(record.id, [...itemPath, "id"], 128, 1),
+      network,
+      url,
+    };
+  });
+}
+
+function parseFooterLegal(value: unknown, path: string[]): FooterLegalLink[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail(path, "Expected an array");
+  if (value.length > SHELL_LIMITS.maxFooterLegal) {
+    fail(path, `Expected at most ${SHELL_LIMITS.maxFooterLegal} legal links`);
+  }
+  return value.map((entry, index) => {
+    const itemPath = [...path, String(index)];
+    const record = strict(entry, itemPath, ["id", "label", "href"]);
+    const href = str(record.href, [...itemPath, "href"], SHELL_LIMITS.internalPath, 1);
+    if (!isSafeInternalPath(href) && !isCredentialFreeHttpsUrl(href)) {
+      fail([...itemPath, "href"], "Legal links must be internal paths or credential-free https URLs");
+    }
+    return {
+      id: str(record.id, [...itemPath, "id"], 128, 1),
+      label: str(record.label, [...itemPath, "label"], SHELL_LIMITS.label),
+      href,
+    };
+  });
+}
+
+function parseFooterPayments(value: unknown, path: string[]): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail(path, "Expected an array");
+  if (value.length > SHELL_LIMITS.maxFooterPayments) {
+    fail(path, `Expected at most ${SHELL_LIMITS.maxFooterPayments} payment labels`);
+  }
+  return value.map((entry, index) =>
+    str(entry, [...path, String(index)], SHELL_LIMITS.paymentLabel, 1),
+  );
+}
+
 function parseTheme(value: unknown, path: string[]): StorefrontThemeSource {
   const record = strict(value, path, [
     "primary",
@@ -348,6 +423,9 @@ export function storefrontShellDocumentSchemaParse(input: unknown): ShellDocumen
       "description",
       "columns",
       "copyrightBrand",
+      "socials",
+      "legal",
+      "payments",
     ]);
     if (!Array.isArray(footerRecord.columns)) fail(["footer", "columns"], "Expected an array");
     if (footerRecord.columns.length > SHELL_LIMITS.maxFooterColumns) {
@@ -371,6 +449,9 @@ export function storefrontShellDocumentSchemaParse(input: unknown): ShellDocumen
           parseFooterColumn(column, ["footer", "columns", String(index)]),
         ),
         copyrightBrand: str(footerRecord.copyrightBrand, ["footer", "copyrightBrand"], SHELL_LIMITS.brandName),
+        socials: parseFooterSocials(footerRecord.socials, ["footer", "socials"]),
+        legal: parseFooterLegal(footerRecord.legal, ["footer", "legal"]),
+        payments: parseFooterPayments(footerRecord.payments, ["footer", "payments"]),
       },
       theme: parseTheme(record.theme, ["theme"]),
     };

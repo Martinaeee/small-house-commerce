@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   FooterColumn,
+  FooterLegalLink,
+  FooterSocial,
   ShellIssue,
 } from "@/lib/storefront-shell-document";
 import { FooterContentEditor } from "./FooterContentEditor";
@@ -63,6 +65,9 @@ function Harness({
     description: "We build pieces that fit Filipino homes.",
     columns: structuredClone(columns),
     copyrightBrand: "LUWAG",
+    socials: [] as FooterSocial[],
+    legal: [] as FooterLegalLink[],
+    payments: [] as string[],
   });
   return (
     <>
@@ -72,6 +77,9 @@ function Harness({
         description={state.description}
         columns={state.columns}
         copyrightBrand={state.copyrightBrand}
+        socials={state.socials}
+        legal={state.legal}
+        payments={state.payments}
         issues={issues}
         pendingUploads={pendingUploads}
         onChange={setState}
@@ -161,7 +169,7 @@ describe("FooterContentEditor copy", () => {
 });
 
 describe("FooterContentEditor columns", () => {
-  it("adds and removes LINKS columns up to four total, reordering the rest", async () => {
+  it("adds and removes LINKS columns up to five total, reordering the rest", async () => {
     await renderSettled(<Harness />);
 
     fireEvent.click(
@@ -173,6 +181,14 @@ describe("FooterContentEditor columns", () => {
       screen.getByRole("button", { name: "storefront_shell_footer_add_column" }),
     );
     expect(state().columns).toHaveLength(4);
+    expect(
+      screen.getByRole("button", { name: "storefront_shell_footer_add_column" }),
+    ).toBeEnabled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "storefront_shell_footer_add_column" }),
+    );
+    expect(state().columns).toHaveLength(5);
     expect(
       screen.getByRole("button", { name: "storefront_shell_footer_add_column" }),
     ).toBeDisabled();
@@ -190,6 +206,7 @@ describe("FooterContentEditor columns", () => {
       beforeMove[2],
       "col-shop",
       beforeMove[3],
+      beforeMove[4],
     ]);
 
     fireEvent.click(
@@ -202,22 +219,25 @@ describe("FooterContentEditor columns", () => {
     ).toBe(false);
   });
 
-  it("keeps exactly one CONTACT column that can move but never duplicate or disappear", async () => {
+  it("allows the optional CONTACT column to move or be removed", async () => {
     await renderSettled(<Harness />);
 
     const contact = column("col-contact");
-    expect(
-      within(contact).queryByRole("button", {
-        name: "storefront_shell_footer_remove_column",
-      }),
-    ).toBeNull();
     expect(
       within(contact).getByRole("button", {
         name: "storefront_shell_footer_move_down",
       }),
     ).toBeEnabled();
 
-    expect(state().columns.filter((entry: FooterColumn) => entry.kind === "CONTACT")).toHaveLength(1);
+    fireEvent.click(
+      within(contact).getByRole("button", {
+        name: "storefront_shell_footer_remove_column",
+      }),
+    );
+
+    expect(
+      state().columns.filter((entry: FooterColumn) => entry.kind === "CONTACT"),
+    ).toHaveLength(0);
   });
 
   it("switches a LINKS row between LINK and TEXT without leaking stale fields", async () => {
@@ -380,5 +400,57 @@ describe("FooterContentEditor columns", () => {
     for (const input of screen.getAllByRole("textbox")) {
       expect(input.className).toContain("min-w-0");
     }
+  });
+
+  it("adds, edits and removes a social link", async () => {
+    await renderSettled(<Harness />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "storefront_shell_footer_add_social" }),
+    );
+    expect(state().socials).toHaveLength(1);
+    expect(state().socials[0].network).toBe("FACEBOOK");
+
+    const url = screen.getByLabelText("storefront_shell_footer_social_url");
+    fireEvent.change(url, {
+      target: { value: "https://www.facebook.com/luwag" },
+    });
+    expect(state().socials[0].url).toBe("https://www.facebook.com/luwag");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "storefront_shell_footer_remove_social" }),
+    );
+    expect(state().socials).toHaveLength(0);
+  });
+
+  it("adds a legal link and stores its label and target", async () => {
+    await renderSettled(<Harness />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "storefront_shell_footer_add_legal" }),
+    );
+    expect(state().legal).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText("storefront_shell_footer_legal_label"), {
+      target: { value: "Terms" },
+    });
+    fireEvent.change(screen.getByLabelText("storefront_shell_footer_legal_href"), {
+      target: { value: "/terms" },
+    });
+    expect(state().legal[0]).toMatchObject({ label: "Terms", href: "/terms" });
+  });
+
+  it("splits payment labels on commas and keeps at most six", async () => {
+    await renderSettled(<Harness />);
+
+    fireEvent.change(
+      screen.getByLabelText("storefront_shell_footer_payments"),
+      {
+        target: {
+          value: "VISA, Mastercard, GCash, A, B, C, D",
+        },
+      },
+    );
+    expect(state().payments).toEqual(["VISA", "Mastercard", "GCash", "A", "B", "C"]);
   });
 });

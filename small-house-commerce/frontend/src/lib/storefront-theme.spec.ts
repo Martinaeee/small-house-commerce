@@ -67,14 +67,17 @@ describe("frontend theme derivation matches the shared contract fixtures", () =>
 });
 
 describe("storefront theme component adoption", () => {
-  it("derives legacy-equivalent Footer and Newsletter tokens for the current theme", () => {
+  it("gives the Footer a cream surface and a sage newsletter band", () => {
     expect(themeCssVariables(current.source, current.expected)).toMatchObject({
       "--color-cta-foreground": "#ffffff",
-      "--color-footer-background": "#704632",
-      "--color-footer-foreground": "#fff8f1",
-      "--color-footer-secondary": "#ead7ca",
-      "--color-footer-muted": "#d9c2b5",
-      "--color-footer-border": "#9b7460",
+      "--color-footer-background": "#f7f2e8",
+      "--color-footer-foreground": "#23301f",
+      "--color-footer-secondary": "#4c5646",
+      "--color-footer-muted": "#6b7263",
+      "--color-footer-border": "#d9d2c2",
+      "--color-footer-band": "#a9b69b",
+      "--color-footer-band-ink": "#23301f",
+      "--color-footer-band-soft": "#33412c",
       "--color-newsletter-overlay": "#2f211b",
       "--color-newsletter-surface": "#fff4ed",
       "--color-newsletter-surface-alt": "#fffaf6",
@@ -83,12 +86,15 @@ describe("storefront theme component adoption", () => {
     });
   });
 
-  it("maps custom Footer and Newsletter surfaces to the validated source pairs", () => {
+  it("derives the newsletter band from the operator primary for a custom theme", () => {
     const derived = deriveStorefrontTheme(blue.source);
 
     expect(themeCssVariables(blue.source, derived)).toMatchObject({
       "--color-footer-background": blue.source.action,
       "--color-footer-foreground": derived.actionForeground,
+      "--color-footer-band": blue.source.primary,
+      "--color-footer-band-ink": derived.actionForeground,
+      "--color-footer-band-soft": derived.actionForeground,
       "--color-newsletter-surface": blue.source.surface,
       "--color-newsletter-text": blue.source.text,
       "--color-newsletter-accent": blue.source.action,

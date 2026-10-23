@@ -154,11 +154,6 @@ function validateFooter(
   }
 
   const contacts = columns.filter((column) => column.kind === 'CONTACT');
-  if (contacts.length === 0) {
-    issues.push(
-      issue('SHELL_CONTACT_COLUMN_MISSING', ['footer', 'columns'], 'Exactly one Contact column is required'),
-    );
-  }
   if (contacts.length > 1) {
     issues.push(
       issue('SHELL_CONTACT_COLUMN_DUPLICATED', ['footer', 'columns'], 'Only one Contact column is allowed'),
@@ -291,6 +286,14 @@ export type ResolvedFooterColumn =
       trackOrderHref: string | null;
     };
 
+export type ResolvedFooterSocial = {
+  id: string;
+  network: 'FACEBOOK' | 'INSTAGRAM' | 'TIKTOK' | 'YOUTUBE';
+  href: string;
+};
+
+export type ResolvedFooterLegalLink = { id: string; label: string; href: string };
+
 export type ResolvedStorefrontShell = {
   brand: {
     brandName: string;
@@ -303,6 +306,9 @@ export type ResolvedStorefrontShell = {
     description: string;
     columns: ResolvedFooterColumn[];
     copyrightBrand: string;
+    socials: ResolvedFooterSocial[];
+    legal: ResolvedFooterLegalLink[];
+    payments: string[];
   };
   theme: StorefrontShellDocument['theme'];
 };
@@ -388,6 +394,17 @@ export function publicProjection(
       description: document.footer.description,
       columns,
       copyrightBrand: document.footer.copyrightBrand,
+      socials: document.footer.socials.map((social) => ({
+        id: social.id,
+        network: social.network,
+        href: social.url,
+      })),
+      legal: document.footer.legal.map((link) => ({
+        id: link.id,
+        label: link.label,
+        href: link.href,
+      })),
+      payments: [...document.footer.payments],
     },
     theme: document.theme,
   };

@@ -256,6 +256,30 @@ describe('StorefrontShellService.publish', () => {
     expect(snapshot.publishedRevision).toBe(2);
   });
 
+  it('publishes without a CONTACT column and preserves existing site settings', async () => {
+    const doc = seedDocument();
+    const withoutContact = {
+      ...doc,
+      footer: {
+        ...doc.footer,
+        columns: doc.footer.columns.filter((column) => column.kind !== 'CONTACT'),
+      },
+    };
+    const prisma = createPrismaMock({ draftDocument: withoutContact });
+    const service = createService(prisma);
+
+    await expect(service.publish(1, 'user-1')).resolves.toMatchObject({
+      publishedRevision: 2,
+    });
+
+    expect(prisma.siteSetting.upsert).not.toHaveBeenCalled();
+    const published = prisma.storefrontShell.updateMany.mock.calls[0][0].data
+      .publishedDocument;
+    expect(published.footer.columns).toEqual(
+      expect.not.arrayContaining([expect.objectContaining({ kind: 'CONTACT' })]),
+    );
+  });
+
   it('refuses to publish an invalid draft and leaves every published field untouched', async () => {
     const doc = seedDocument();
     const invalid = {

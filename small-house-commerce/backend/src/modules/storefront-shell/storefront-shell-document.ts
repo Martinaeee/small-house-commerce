@@ -30,8 +30,12 @@ export const SHELL_LIMITS = {
   externalUrl: 2048,
   maxEnabledHeaderItems: 8,
   maxHeaderRows: 24,
-  maxFooterColumns: 4,
+  maxFooterColumns: 5,
   maxFooterRows: 8,
+  maxFooterSocials: 4,
+  maxFooterLegal: 3,
+  maxFooterPayments: 6,
+  paymentLabel: 24,
   maxExternalUrl: 2048,
 } as const;
 
@@ -131,6 +135,47 @@ const footerColumnSchema = z.discriminatedUnion('kind', [
 
 export type FooterColumn = z.infer<typeof footerColumnSchema>;
 
+export const footerSocialNetworkSchema = z.enum([
+  'FACEBOOK',
+  'INSTAGRAM',
+  'TIKTOK',
+  'YOUTUBE',
+]);
+
+export type FooterSocialNetwork = z.infer<typeof footerSocialNetworkSchema>;
+
+/** Social icon link: the network picks the glyph, the URL is the real target. */
+const footerSocialSchema = z
+  .object({
+    id: z.string().min(1),
+    network: footerSocialNetworkSchema,
+    url: httpsExternalUrlSchema,
+  })
+  .strict();
+
+export type FooterSocial = z.infer<typeof footerSocialSchema>;
+
+/**
+ * Legal links (Privacy, Terms…) point at a page the operator owns. They are
+ * projected as-is instead of going through the navigation target resolver, so
+ * publishing a new policy page needs no entity row.
+ */
+const footerLegalLinkSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().trim().max(SHELL_LIMITS.label),
+    href: z.union([internalPathSchema, httpsExternalUrlSchema]),
+  })
+  .strict();
+
+export type FooterLegalLink = z.infer<typeof footerLegalLinkSchema>;
+
+const footerPaymentSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SHELL_LIMITS.paymentLabel);
+
 export const headingFontSchema = z.enum(['SYSTEM', 'POPPINS_HEADING', 'SERIF_HEADING']);
 export const bodyFontSchema = z.enum(['SYSTEM']);
 
@@ -174,6 +219,20 @@ export const storefrontShellDocumentSchema = z
         description: z.string().trim().max(SHELL_LIMITS.description),
         columns: z.array(footerColumnSchema).max(SHELL_LIMITS.maxFooterColumns),
         copyrightBrand: z.string().trim().max(SHELL_LIMITS.brandName),
+        // Optional additions ride on `.default([])` so every previously stored
+        // document keeps validating and simply renders without them.
+        socials: z
+          .array(footerSocialSchema)
+          .max(SHELL_LIMITS.maxFooterSocials)
+          .default([]),
+        legal: z
+          .array(footerLegalLinkSchema)
+          .max(SHELL_LIMITS.maxFooterLegal)
+          .default([]),
+        payments: z
+          .array(footerPaymentSchema)
+          .max(SHELL_LIMITS.maxFooterPayments)
+          .default([]),
       })
       .strict(),
     theme: storefrontThemeSourceSchema,

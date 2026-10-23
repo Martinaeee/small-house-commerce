@@ -6,7 +6,7 @@ import { grantNewsletterCode } from "./newsletterOfferChannel";
 
 export interface SubscribeEmailFormProps {
   source: "POPUP" | "FOOTER";
-  variant?: "band" | "popup";
+  variant?: "band" | "popup" | "footer-pill";
   placeholder: string;
   onSuccess?: (promoCode: string | null) => void;
 }
@@ -79,6 +79,7 @@ export function SubscribeEmailForm({
   }
 
   const stacked = variant === "popup";
+  const pill = variant === "footer-pill";
 
   if (state.status === "done") {
     return (
@@ -91,7 +92,9 @@ export function SubscribeEmailForm({
           className={
             stacked
               ? "text-center text-sm font-medium text-[#53382c]"
-              : "text-sm font-medium text-[#fff8f1]"
+              : pill
+                ? "text-sm font-medium text-footer-foreground"
+                : "text-sm font-medium text-[#fff8f1]"
           }
         >
           You&apos;re subscribed. Thanks for joining LUWAG Living.
@@ -165,7 +168,9 @@ export function SubscribeEmailForm({
         className={
           stacked
             ? "flex min-w-0 flex-col gap-3"
-            : "flex min-w-0 items-end gap-3 sm:gap-4"
+            : pill
+              ? "flex min-w-0 items-center gap-2 rounded-full bg-white py-1 pl-4 pr-1 shadow-[0_1px_2px_rgba(35,48,31,0.12)]"
+              : "flex min-w-0 items-end gap-3 sm:gap-4"
         }
       >
         <label className="sr-only" htmlFor={`newsletter-email-${source}`}>
@@ -185,7 +190,9 @@ export function SubscribeEmailForm({
           className={
             stacked
               ? "h-12 min-w-0 w-full rounded-xl border border-[#b9927c] bg-white px-4 text-base text-[#34261f] outline-none transition placeholder:text-[#9b918c] focus:border-[#8d5138] focus:ring-2 focus:ring-[#c97b5d]/15"
-              : "h-11 min-w-0 flex-1 border-0 border-b border-[#d7b8a6] bg-transparent px-0 text-base text-white outline-none transition placeholder:text-[#ead7ca]/75 focus:border-white"
+              : pill
+                ? "h-9 min-w-0 flex-1 bg-transparent px-0 text-[13px] text-footer-foreground outline-none transition placeholder:text-footer-muted"
+                : "h-11 min-w-0 flex-1 border-0 border-b border-[#d7b8a6] bg-transparent px-0 text-base text-white outline-none transition placeholder:text-[#ead7ca]/75 focus:border-white"
           }
         />
         <button
@@ -196,7 +203,9 @@ export function SubscribeEmailForm({
           className={
             stacked
               ? "inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#a85238] px-6 text-base font-semibold text-white shadow-[0_8px_20px_rgba(121,62,40,0.2)] transition hover:-translate-y-0.5 hover:bg-[#93462f] disabled:cursor-not-allowed disabled:opacity-60"
-              : "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fff8f1] text-[#704632] transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-12"
+              : pill
+                ? "group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-footer-foreground text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                : "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fff8f1] text-[#704632] transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-12"
           }
         >
           {busy ? (
@@ -226,7 +235,9 @@ export function SubscribeEmailForm({
           className={
             stacked
               ? "mt-2 text-sm text-sale"
-              : "mt-2 text-sm text-[#ffe0d3]"
+              : pill
+                ? "mt-2 text-xs text-[#8a2f1f]"
+                : "mt-2 text-sm text-[#ffe0d3]"
           }
         >
           {state.message}

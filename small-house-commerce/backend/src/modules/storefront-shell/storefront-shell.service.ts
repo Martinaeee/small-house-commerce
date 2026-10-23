@@ -201,18 +201,6 @@ export class StorefrontShellService {
           const contact = document.footer.columns.find(
             (column) => column.kind === 'CONTACT',
           );
-          if (!contact) {
-            throw new UnprocessableEntityException({
-              code: 'SHELL_PUBLISH_VALIDATION_FAILED',
-              issues: [
-                {
-                  code: 'SHELL_CONTACT_COLUMN_MISSING',
-                  path: ['footer', 'columns'],
-                  message: 'Exactly one Contact column is required',
-                },
-              ],
-            });
-          }
 
           const publishedAt = new Date();
           const updated = await tx.storefrontShell.updateMany({
@@ -229,18 +217,20 @@ export class StorefrontShellService {
             throw shellVersionConflict(null);
           }
 
-          await tx.siteSetting.upsert({
-            where: { id: SITE_SETTINGS_ID },
-            create: {
-              id: SITE_SETTINGS_ID,
-              supportEmail: contact.supportEmail,
-              supportHours: contact.supportHours,
-            },
-            update: {
-              supportEmail: contact.supportEmail,
-              supportHours: contact.supportHours,
-            },
-          });
+          if (contact) {
+            await tx.siteSetting.upsert({
+              where: { id: SITE_SETTINGS_ID },
+              create: {
+                id: SITE_SETTINGS_ID,
+                supportEmail: contact.supportEmail,
+                supportHours: contact.supportHours,
+              },
+              update: {
+                supportEmail: contact.supportEmail,
+                supportHours: contact.supportHours,
+              },
+            });
+          }
 
           const committed = await tx.storefrontShell.findUniqueOrThrow({
             where: { id: STOREFRONT_SHELL_ID },
