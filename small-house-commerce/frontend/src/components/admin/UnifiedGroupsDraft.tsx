@@ -5,6 +5,14 @@ import { PageHeader } from "./PageHeader";
 import { Badge } from "./Badge";
 import { Dialog } from "./Dialog";
 import { Field, Select, TextInput } from "./Field";
+import {
+  HeroStyleFields,
+  heroStyleFromForm,
+  toHeroStyleFormValue,
+  type HeroStyleFormValue,
+} from "./HeroStyleFields";
+import { LivePreview } from "./PreviewPane";
+import { HeroBanner } from "@/components/product/HeroBanner";
 import { Button } from "@/components/ui/Button";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { adminApi, type AdminCategoryNode, type AdminCollectionRow, type AdminProduct } from "@/lib/admin-api";
@@ -363,6 +371,15 @@ export function UnifiedGroupsDraft() {
           memberIds={
             editor.row ? effectiveMembers[editor.row.slug] ?? [] : []
           }
+          sourceCollection={
+            editor.row
+              ? collections.find(
+                  (collection) =>
+                    collection.id === editor.row?.collectionId ||
+                    collection.slug === editor.row?.slug,
+                ) ?? null
+              : null
+          }
           onClose={closeEditor}
           onSave={applyDemoSave}
         />
@@ -385,6 +402,7 @@ interface UnifiedGroupEditorProps {
   categories: AdminCategoryNode[];
   products: AdminProduct[];
   memberIds: string[];
+  sourceCollection: AdminCollectionRow | null;
   onClose: () => void;
   onSave: (slug: string | null, memberIds: string[]) => void;
 }
@@ -421,6 +439,7 @@ function UnifiedGroupEditor({
   categories,
   products,
   memberIds,
+  sourceCollection,
   onClose,
   onSave,
 }: UnifiedGroupEditorProps) {
@@ -443,6 +462,13 @@ function UnifiedGroupEditor({
   const [parentId, setParentId] = useState(initialParentId ?? row?.parentId ?? "");
   const [type, setType] = useState<string>(
     initialParentId ? "CATEGORY" : row?.kind ?? "CATEGORY",
+  );
+  const [section, setSection] = useState<"basic" | "banner" | "products">("basic");
+  const [description, setDescription] = useState(sourceCollection?.description ?? "");
+  const [seoTitle, setSeoTitle] = useState(sourceCollection?.seoTitle ?? "");
+  const [seoDescription, setSeoDescription] = useState(sourceCollection?.seoDescription ?? "");
+  const [hero, setHero] = useState<HeroStyleFormValue>(() =>
+    toHeroStyleFormValue(sourceCollection?.heroStyle),
   );
 
   const productById = useMemo(
@@ -510,6 +536,32 @@ function UnifiedGroupEditor({
       width="lg"
     >
       <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="编辑分组分区">
+          {(
+            [
+              ["basic", "基本信息"],
+              ["banner", "页面横幅"],
+              ["products", "商品名单"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={section === key}
+              onClick={() => setSection(key)}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                section === key
+                  ? "bg-cta text-white"
+                  : "border border-border bg-card text-ink-secondary hover:text-cta"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {section === "basic" ? (
         <section className="grid gap-4 sm:grid-cols-2">
           <Field label="名称" htmlFor="draft-group-name" hint="前台显示与列表名称。">
             <TextInput
@@ -577,8 +629,59 @@ function UnifiedGroupEditor({
               </Select>
             </Field>
           ) : null}
+          <div className="sm:col-span-2">
+            <Field
+              label="描述"
+              htmlFor="draft-group-desc"
+              hint="选填。显示在分组页横幅下方的一行说明。"
+            >
+              <TextInput
+                id="draft-group-desc"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="SEO 标题" htmlFor="draft-group-seo-title" hint="选填。留空用分组名。">
+            <TextInput
+              id="draft-group-seo-title"
+              value={seoTitle}
+              onChange={(event) => setSeoTitle(event.target.value)}
+            />
+          </Field>
+          <Field label="SEO 描述" htmlFor="draft-group-seo-desc" hint="选填。">
+            <TextInput
+              id="draft-group-seo-desc"
+              value={seoDescription}
+              onChange={(event) => setSeoDescription(event.target.value)}
+            />
+          </Field>
         </section>
+        ) : null}
 
+        {section === "banner" ? (
+          <section className="flex flex-col gap-4">
+            <HeroStyleFields
+              idPrefix="draft-group-hero"
+              value={hero}
+              onChange={(patch) => setHero((prev) => ({ ...prev, ...patch }))}
+            />
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-ink">预览</h3>
+              <div className="mt-3">
+                <LivePreview>
+                  <HeroBanner
+                    name={name || row?.name || "分组名称"}
+                    style={heroStyleFromForm(hero)}
+                    fallbackImage={sourceCollection?.heroImage ?? null}
+                  />
+                </LivePreview>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {section === "products" ? (
         <section className="flex flex-col gap-3">
           <div>
             <p className="text-sm font-semibold text-ink">
@@ -747,6 +850,7 @@ function UnifiedGroupEditor({
             </p>
           </div>
         </section>
+        ) : null}
 
         <div className="flex justify-end gap-2 border-t border-border pt-4">
           <Button type="button" variant="secondary" size="md" onClick={onClose}>

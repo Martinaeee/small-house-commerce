@@ -197,6 +197,14 @@ async function renderDraft() {
   await screen.findByText("商品分组（统一草稿）");
 }
 
+async function openStorageEditor() {
+  await renderDraft();
+  fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
+  const storageRow = screen.getByText("Storage & Organization").closest("tr") as HTMLElement;
+  fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
+  return screen.findByRole("dialog");
+}
+
 describe("UnifiedGroupsDraft", () => {
   it("shows one merged category row with direct/subtree/active counts", async () => {
     await renderDraft();
@@ -235,7 +243,8 @@ describe("UnifiedGroupsDraft", () => {
     fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/商品名单/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "商品名单" }));
+    expect(within(dialog).getByText(/商品名单（共/)).toBeInTheDocument();
     expect(within(dialog).getByText("子分类商品数")).toBeInTheDocument();
     expect(within(dialog).getAllByText("主分组").length).toBeGreaterThan(0);
 
@@ -246,14 +255,28 @@ describe("UnifiedGroupsDraft", () => {
     expect(await screen.findByText(/演示模式/)).toBeInTheDocument();
   });
 
+  it("uses the same three section tabs as the original collection dialog", async () => {
+    const dialog = await openStorageEditor();
+
+    expect(within(dialog).getByRole("tab", { name: "基本信息" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(dialog).getByDisplayValue("Storage & Organization")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("商品名单")).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "页面横幅" }));
+    expect(within(dialog).getByText(/标题始终使用上方的名称/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("商品名单")).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "商品名单" }));
+    expect(within(dialog).getByLabelText("商品名单")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "保存（演示）" })).toBeInTheDocument();
+  });
+
   it("keeps the original dialog's thumbnails, SKU codes, status and totals", async () => {
-    await renderDraft();
-    fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
-    const storageRow = screen
-      .getByText("Storage & Organization")
-      .closest("tr") as HTMLElement;
-    fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await openStorageEditor();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "商品名单" }));
 
     await waitFor(() => expect(within(dialog).getAllByText("SH-RACK-02")).toHaveLength(2));
     expect(within(dialog).getAllByText("SH-CHAIR-04")).toHaveLength(2);
@@ -267,13 +290,8 @@ describe("UnifiedGroupsDraft", () => {
   });
 
   it("reorders explicit members with the arrow controls", async () => {
-    await renderDraft();
-    fireEvent.click(screen.getByRole("button", { name: "展开子分组 Storage & Organization" }));
-    const storageRow = screen
-      .getByText("Storage & Organization")
-      .closest("tr") as HTMLElement;
-    fireEvent.click(within(storageRow).getByRole("button", { name: "编辑" }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await openStorageEditor();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "商品名单" }));
 
     const down = await within(dialog).findByRole("button", { name: "下移 Member Chair" });
     expect(within(dialog).getByRole("button", { name: "上移 Member Chair" })).toBeDisabled();
