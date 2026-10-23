@@ -164,3 +164,96 @@ The production admin account is `admin@luwag.shop`; its password was not used
 during the release, so the dashboard's own acceptance numbers were read from
 the database rather than through a logged-in browser session.
 
+---
+
+## 10. The analytics write side (2026-10-22 evening, released as `dc9268b`)
+
+### 10.1 The gap
+
+The dashboard shipped on 2026-10-22 with the analytics **table** and the
+analytics **read side**, but nothing ever wrote to it. Measured on production
+before this release:
+
+| Check | Production |
+|---|---|
+| Backend routes mentioning events / analytics (out of 182 mapped routes) | **0** — `POST /api/v1/storefront/events` returned **404** |
+| Frontend bundle: `analyticsSessionId`, `HOMEPAGE_SECTION_IMPRESSION` | **0 chunks** |
+| Storefront API paths in the bundle | back-in-stock, cart, checkout, orders… **no events** |
+| `analytics_events` rows | **0** |
+| `orders.tracking_session_id` | **0 of 7** orders set |
+
+So the conversion rate (ordering sessions ÷ sessions) and the homepage module
+performance could never fill in — and the card said "tracking starts from the
+first visit after this release", which could never come true. (An earlier
+`page_view` grep hit was a false positive: it matched the admin i18n key
+`marketing_page_view`, not a tracker.)
+
+### 10.2 What the release adds
+
+Ported onto the production baseline (`31e0195` → `dc9268b`), **no schema change
+and no migration** — the table and the column already shipped with the
+dashboard:
+
+- backend `modules/analytics/**` (module, service, DTO, controller) + the module
+  registered in `app.module.ts`; checkout takes `trackingSessionId` and stores
+  it on the order;
+- frontend `lib/analytics.ts` (one session id per browser tab, batched posts,
+  sendBeacon/flush on hide), `PageViewTracker` in the storefront layout,
+  `SearchEventTracker` on the search page, homepage impression/click tracking,
+  `data-homepage-section-id` on every homepage section, and the session id in
+  the order payload.
+
+One adaptation to the current schema: the dashboard's product lookup used
+`findUnique({ where: { slug } })`, but the production schema makes a slug
+unique only among ACTIVE products (SQL-managed partial index), so the port
+uses `findFirst({ where: { slug, status: 'ACTIVE' } })`.
+
+### 10.3 Verification
+
+Local, end to end on a real database: a browser visit wrote **1 page_view +
+12 section impressions**; attributing one order to that session made the
+dashboard report a **50% conversion rate** and **21 impressions**, and the
+"no traffic data" note disappeared.
+
+Production, after the release:
+
+| Check | Result |
+|---|---|
+| Box HEAD | `31e0195` → **`dc9268b`** |
+| Migrations | 58 → **58** (no migration) |
+| Fingerprint diff | **empty** — not one row changed |
+| Containers | backend/frontend/db healthy, **restart 0**, caddy untouched |
+| `POST /api/v1/storefront/events` | **400** with an empty body (route alive and validating; it was 404) |
+| Deployed bundle | `trackingSessionId` in the checkout chunks, `storefront/events` in the bundle, homepage HTML carries `data-homepage-section-id` |
+| Real browser through an SSH tunnel | one visit wrote **1 PAGE_VIEW + 12 HOMEPAGE_SECTION_IMPRESSION**, zero console errors |
+| Real visitors already recorded | **3 sessions** besides the test one, including a **mobile** visitor on a product page — traffic is being captured now |
+| Dashboard SQL on production | sessions 3 · ordering sessions 0 (nobody has ordered yet) → conversion renders **0%**, not "no data"; homepage impressions **12** |
+
+**Honest gaps after this release**
+
+- No order has been placed since the deploy (the last is 2026-10-22 17:34
+  Manila), so `tracking_session_id` on a real order is still pending — the
+  order→session link is proven locally and the checkout bundle carries the
+  field, but the first real order will be the live proof.
+- The visitor browsers run on plain HTTP, where `crypto.randomUUID` is not
+  exposed, so their session ids use the built-in `s-<timestamp>-<random>`
+  fallback. It is still one id per tab; the format differs, nothing else.
+
+**About the release script's `EXIT=255`.** The SSH connection dropped while the
+script was in its verification section, so the local log stops at step [5/8]
+and the script never printed `RELEASE_DONE`. The release itself had already
+completed: the box was at `dc9268b`, the containers had been recreated at
+21:36, and the backup directory held the after-fingerprints. Everything in the
+table above was then verified **by inspecting the produced state**, not by
+trusting the script's own report.
+
+**About the `Server Action` errors in the frontend log** ("Failed to find
+Server Action… older or newer deployment" and "Server Reference ID … Received
+\"x\""): they appear at irregular 1–3 hour intervals, the first one eleven
+minutes after the new container started, and they are the classic stale-tab
+signature of a visitor holding a page from before the deploy. A fresh page
+load in a real browser produced **zero console errors**, and this release adds
+no Server Action — so they are deploy-boundary noise, not a regression from
+the analytics change.
+
+
