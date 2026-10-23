@@ -221,8 +221,7 @@ describe("the processing history", () => {
     );
 
     expect(await screen.findByText(/PH100004/)).toBeTruthy();
-    // the section with the other orders of this number
-    expect(screen.getByText("The orders of this phone number")).toBeTruthy();
+    expect(await screen.findByText("The orders of this phone number")).toBeTruthy();
     expect(screen.getByText(/Fulfilment/)).toBeTruthy();
 
     const open = screen.getByRole("button", {
