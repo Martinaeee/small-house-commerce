@@ -290,17 +290,18 @@ export function CheckoutConfirmView({
           {/* Payment + totals */}
           <div className="flex flex-col gap-4">
             <div className="rounded-lg border border-border bg-card p-5">
-              <p className="text-sm font-medium text-ink">Cash on Delivery · No payment needed now</p>
+              <p className="text-sm font-medium text-ink">Cash on Delivery</p>
               <dl className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Subtotal</dt>
                   <dd className="font-medium text-ink">
-                    {checkout.totals.savings > 0 && (
-                      <span className="mr-2 text-xs font-normal text-ink-muted line-through">
+                    {checkout.totals.savings > 0 ? (
+                      <span data-testid="confirm-subtotal-compare" className="text-ink-muted">
                         {formatPrice(checkout.totals.compareAtTotal)}
                       </span>
+                    ) : (
+                      formatPrice(checkout.totals.subtotal)
                     )}
-                    {formatPrice(checkout.totals.subtotal)}
                   </dd>
                 </div>
                 {checkout.totals.savings > 0 && (
@@ -335,7 +336,7 @@ export function CheckoutConfirmView({
                 onApplied={setAppliedPromo}
                 onCheckingChange={setPromoChecking}
               />
-              <NewsletterOfferPrompt />
+              <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
             </div>
 
             <p
@@ -438,7 +439,7 @@ export function CheckoutConfirmView({
               {submitting ? "Placing order…" : "PLACE COD ORDER"}
             </Button>
             <p className="mt-2 text-center text-xs text-ink-muted">
-              Cash on Delivery · No payment needed now
+              Cash on Delivery
             </p>
           </div>
         </div>

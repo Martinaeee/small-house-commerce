@@ -43,6 +43,21 @@ function item(
   };
 }
 
+/** Rich-text copy in the editor's document shape. */
+const RICH_CONTENT = {
+  version: 1 as const,
+  doc: {
+    type: "doc" as const,
+    content: [
+      {
+        type: "paragraph" as const,
+        attrs: { textAlign: "center" as const },
+        content: [{ type: "text" as const, text: "More room, better deals" }],
+      },
+    ],
+  },
+};
+
 function block(
   items: AnnouncementItemView[],
   patch: Partial<Omit<AnnouncementBlockView, "items">> = {},
@@ -223,6 +238,51 @@ describe("AnnouncementBar", () => {
     expect(visibleText()).toBe("Message 1");
   });
 
+  it("makes the whole bar clickable for a rich item whose link has no label", () => {
+    render(
+      <AnnouncementBar
+        data={block([
+          item(0, {
+            content: RICH_CONTENT,
+            linkHref: "/collections/living-room",
+            linkLabel: null,
+          }),
+        ])}
+      />,
+    );
+
+    // The bar itself is the affordance: one anchor wrapping the copy, no
+    // dangling suffix and no nested links.
+    const links = document.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    const link = screen.getByRole("link");
+    expect(link).toHaveAttribute("href", "/collections/living-room");
+    expect(link.textContent).toContain("More room, better deals");
+  });
+
+  it("keeps a rich item's CTA label as plain text inside the whole-bar link", () => {
+    render(
+      <AnnouncementBar
+        data={block([
+          item(0, {
+            content: RICH_CONTENT,
+            linkHref: "/collections/living-room",
+            linkLabel: "Shop Now",
+          }),
+        ])}
+      />,
+    );
+
+    const links = document.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    const link = screen.getByRole("link");
+    expect(link).toHaveAttribute("href", "/collections/living-room");
+    // The anchor wraps the copy itself, not just the trailing label.
+    expect(link.textContent).toContain("More room, better deals");
+    expect(link.textContent).toContain("Shop Now");
+  });
+
+
   it("re-clamps item colors through safeHex before they reach the style attribute", () => {
     render(
       <AnnouncementBar
@@ -319,9 +379,11 @@ describe("AnnouncementBar", () => {
     expect(styled.closest("[data-announcement-paragraph]")).toHaveStyle({
       textAlign: "right",
     });
-    const cta = screen.getByRole("link", { name: "Shop now" });
+    // The whole bar is the link: it wraps the rich copy and the label, and
+    // the label stays plain text inside it (no nested anchor).
+    const cta = screen.getByRole("link", { name: /Shop now/ });
     expect(cta).toHaveAttribute("href", "/sale");
-    expect(cta).not.toContainElement(rich);
+    expect(cta).toContainElement(rich);
   });
 
   it("falls back to safe plain text when rich content is malformed", () => {

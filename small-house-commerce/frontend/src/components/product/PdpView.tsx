@@ -4,7 +4,7 @@ import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
-import { ProductCard } from "./ProductCard";
+import { PdpRecommendations } from "./PdpRecommendations";
 import { ProductFeedback } from "./ProductFeedback";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 import { TrustBar } from "@/components/ui/TrustBar";
@@ -86,14 +86,7 @@ export async function PdpView({
       </Suspense>
 
       {related.length > 0 && (
-        <section className="mt-12">
-          <h2 className="mb-6 text-2xl font-semibold text-ink">You May Also Like</h2>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {related.map((item) => (
-              <ProductCard key={item.id} product={item} />
-            ))}
-          </div>
-        </section>
+        <PdpRecommendations currentProduct={product} fallback={related} />
       )}
 
       <RecentlyViewed excludeProductId={product.id} limit={4} />

@@ -351,7 +351,7 @@ export function RoomSceneGallery({
  * rating only appears when the product actually has reviews. Each card
  * carries the same number as the hotspot marker that points at it.
  */
-function RoomProductList({
+export function RoomProductList({
   section,
   scene,
   activeIndex,

@@ -190,7 +190,7 @@ test.describe("PDP V1 freeze", () => {
       delivery.getByRole("list", { name: "Service assurances" }).getByRole("listitem"),
     ).toHaveText([
       "✓COD & Free Shipping",
-      "✓Arrived in 1-5 days",
+      "✓Arrives as fast as 7 days",
       "✓7-Day Free Return & Exchange",
     ]);
     await expect(page.locator('section[aria-label="Why shop with us"]')).toBeVisible();

@@ -500,7 +500,7 @@ describe("ProductDetailsModal", () => {
     const user = userEvent.setup();
     const { dialog } = renderModal(product(), "bs");
     await user.click(within(dialog()).getByText("Delivery, warranty and returns"));
-    expect(within(dialog()).getByText("Metro Manila 3–5 days, provinces 5–7 days")).toBeVisible();
+    expect(within(dialog()).getByText("Delivery as fast as 7 days")).toBeVisible();
     expect(within(dialog()).getByText("Cash on Delivery")).toBeVisible();
     expect(within(dialog()).queryByText(/warranty of|guarantee/i)).not.toBeInTheDocument();
   });

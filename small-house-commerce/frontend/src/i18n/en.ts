@@ -246,6 +246,27 @@ export const en: Record<ZhKey, string> = {
   storefront_shell_footer_row_kind_link: "Link",
   storefront_shell_footer_row_kind_text: "Plain text",
   storefront_shell_footer_row_text: "Text",
+  storefront_shell_footer_socials: "Social icons",
+  storefront_shell_footer_socials_hint:
+    "The icons appear in the footer brand area once a profile URL is filled in.",
+  storefront_shell_footer_social_network: "Social network",
+  storefront_shell_footer_social_facebook: "Facebook",
+  storefront_shell_footer_social_instagram: "Instagram",
+  storefront_shell_footer_social_tiktok: "TikTok",
+  storefront_shell_footer_social_youtube: "YouTube",
+  storefront_shell_footer_social_url: "Social profile URL",
+  storefront_shell_footer_add_social: "Add social icon",
+  storefront_shell_footer_remove_social: "Remove this social icon",
+  storefront_shell_footer_legal: "Legal links",
+  storefront_shell_footer_legal_hint:
+    "Privacy, Terms and the like — an internal path (/privacy) or an https URL.",
+  storefront_shell_footer_legal_label: "Legal link label",
+  storefront_shell_footer_legal_href: "Legal link URL",
+  storefront_shell_footer_add_legal: "Add legal link",
+  storefront_shell_footer_remove_legal: "Remove this legal link",
+  storefront_shell_footer_payments: "Payment methods",
+  storefront_shell_footer_payments_hint:
+    "Comma separated, up to 6 — for example VISA, Mastercard, GCash.",
   settings_contact_title: "Support contact",
   settings_contact_email: "Support email",
   settings_contact_phone: "Support phone",
@@ -2264,8 +2285,6 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_announcement_countdown_weight: "Countdown weight",
   homepage_builder_announcement_countdown_color: "Countdown color",
   homepage_builder_announcement_countdown_inherit_color: "Use text color",
-  homepage_builder_announcement_issue_cta_label:
-    "Add a CTA label for this rich announcement link.",
   homepage_builder_announcement_issue_deadline_required:
     "Set a future countdown deadline.",
   homepage_builder_announcement_issue_deadline_future:

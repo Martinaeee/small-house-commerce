@@ -716,7 +716,7 @@ describe("PDP conversion hero", () => {
     // them and no card drawn around them.
     expect(assurances).toHaveAccessibleName("Service assurances");
     expect(within(assurances).getByText("COD & Free Shipping")).toBeVisible();
-    expect(within(assurances).getByText("Arrived in 1-5 days")).toBeVisible();
+    expect(within(assurances).getByText("Arrives as fast as 7 days")).toBeVisible();
     expect(
       within(assurances).getByText("7-Day Free Return & Exchange"),
     ).toBeVisible();
@@ -1468,7 +1468,7 @@ describe("scoped gallery integration", () => {
     renderPdp({ item: landingProduct, path: "/lp/chair-sale" });
 
     await user.click(screen.getByRole("button", { name: "View media 2" }));
-    await user.click(screen.getByRole("button", { name: "Open image gallery" }));
+    await user.click(screen.getByRole("button", { name: "Open media 2" }));
     expect(screen.getByRole("dialog", { name: "Product image gallery" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Blue" }));

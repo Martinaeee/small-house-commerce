@@ -109,6 +109,108 @@ describe('storefrontShellDocumentSchema', () => {
   });
 });
 
+describe('footer extras (socials, legal links, payment labels)', () => {
+  it('defaults the three optional arrays to empty', () => {
+    const doc = validDocument();
+    expect(doc.footer.socials).toEqual([]);
+    expect(doc.footer.legal).toEqual([]);
+    expect(doc.footer.payments).toEqual([]);
+  });
+
+  it('accepts https socials, internal or https legal links and payment labels', () => {
+    const doc = validDocument();
+    const parsed = storefrontShellDocumentSchema.parse({
+      ...doc,
+      footer: {
+        ...doc.footer,
+        socials: [
+          { id: 's1', network: 'FACEBOOK', url: 'https://facebook.com/luwag' },
+          { id: 's2', network: 'INSTAGRAM', url: 'https://instagram.com/luwag' },
+        ],
+        legal: [
+          { id: 'l1', label: 'Privacy', href: '/privacy' },
+          { id: 'l2', label: 'Terms', href: 'https://luwag.ph/terms' },
+        ],
+        payments: ['VISA', 'Mastercard', 'GCash'],
+      },
+    });
+    expect(parsed.footer.socials).toHaveLength(2);
+    expect(parsed.footer.legal[1].href).toBe('https://luwag.ph/terms');
+    expect(parsed.footer.payments).toEqual(['VISA', 'Mastercard', 'GCash']);
+  });
+
+  it('rejects unsafe urls, unknown networks and over-limit lists', () => {
+    const doc = validDocument();
+    const withFooter = (footer: Record<string, unknown>) => ({
+      ...doc,
+      footer: { ...doc.footer, ...footer },
+    });
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({
+          socials: [{ id: 's', network: 'FACEBOOK', url: 'http://x.test' }],
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({
+          socials: [{ id: 's', network: 'MYSPACE', url: 'https://x.test' }],
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({ legal: [{ id: 'l', label: 'P', href: 'javascript:alert(1)' }] }),
+      ),
+    ).toThrow();
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({
+          socials: Array.from({ length: 5 }, (_, index) => ({
+            id: `s${index}`,
+            network: 'FACEBOOK',
+            url: 'https://x.test',
+          })),
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({ payments: ['x'.repeat(25)] }),
+      ),
+    ).toThrow();
+    expect(() =>
+      storefrontShellDocumentSchema.parse(
+        withFooter({ payments: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] }),
+      ),
+    ).toThrow();
+  });
+  it('accepts five footer columns and rejects a sixth', () => {
+    const doc = validDocument();
+    const linksColumn = (index: number) => ({
+      id: `00000000-0000-7000-8000-0000000003${index}0`,
+      kind: 'LINKS' as const,
+      title: `Column ${index}`,
+      rows: [],
+    });
+    const five = {
+      ...doc,
+      footer: {
+        ...doc.footer,
+        columns: [linksColumn(1), linksColumn(2), linksColumn(3), linksColumn(4), doc.footer.columns[1]!],
+      },
+    };
+    expect(storefrontShellDocumentSchema.parse(five).footer.columns).toHaveLength(5);
+    expect(() =>
+      storefrontShellDocumentSchema.parse({
+        ...five,
+        footer: { ...five.footer, columns: [...five.footer.columns, linksColumn(5)] },
+      }),
+    ).toThrow();
+  });
+});
+
 describe('normalizeStorefrontShellDocument', () => {
   it('trims strings and lowercases hex values while preserving ids and order', () => {
     const doc = validDocument();
@@ -147,7 +249,7 @@ describe('normalizeStorefrontShellDocument', () => {
         ...doc,
         footer: {
           ...doc.footer,
-          columns: Array.from({ length: 5 }, (_, index) => ({
+          columns: Array.from({ length: 6 }, (_, index) => ({
             id: `column-${index}`,
             kind: 'LINKS' as const,
             title: `Column ${index}`,

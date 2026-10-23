@@ -208,12 +208,15 @@ function RichItem({
   nowMs,
   device,
   mode,
+  wholeBarLink = false,
 }: {
   item: AnnouncementItemView;
   countdown: AnnouncementCountdownConfig | null;
   nowMs: number | null;
   device: AnnouncementDevice;
   mode: "live" | "preview";
+  /** The bar itself is the anchor, so the label must not nest another one. */
+  wholeBarLink?: boolean;
 }): ReactElement {
   const timer = countdown ? (
     <AnnouncementCountdown config={countdown} nowMs={nowMs} device={device} />
@@ -221,7 +224,8 @@ function RichItem({
   const hasTimer = timer !== null;
   const subscribe = isSubscribeItem(item);
   // A subscribe item has no href; its label is the trigger that opens the
-  // popup. A normal item needs both a resolved href and a label.
+  // popup. A normal item needs both a resolved href and a label - unless the
+  // whole bar carries the link, in which case the label is just a suffix.
   const hasCta = subscribe
     ? Boolean(item.linkLabel)
     : Boolean(item.linkHref && item.linkLabel);
@@ -231,6 +235,8 @@ function RichItem({
         <SubscribeTrigger className="underline underline-offset-2">
           {item.linkLabel}
         </SubscribeTrigger>
+      ) : wholeBarLink ? (
+        <span className="underline underline-offset-2">{item.linkLabel}</span>
       ) : (
         <a href={item.linkHref!} className="underline underline-offset-2">
           {item.linkLabel}
@@ -354,6 +360,12 @@ export function AnnouncementBar({
   // the bar itself becomes the trigger.
   const wholeBarTriggersSubscribe =
     mode === "live" && isSubscribeItem(item) && !item.linkLabel;
+  // A rich item with a page link turns the whole line into that link (the
+  // copy itself is the affordance, exactly like a legacy item).
+  const wholeBarHref =
+    mode === "live" && rich && !isSubscribeItem(item) && item.linkHref
+      ? item.linkHref
+      : null;
 
   return (
     <div
@@ -385,13 +397,30 @@ export function AnnouncementBar({
       }}
     >
       {rich ? (
-        <RichItem
-          item={item}
-          countdown={countdown}
-          nowMs={nowMs}
-          device={resolvedDevice}
-          mode={mode}
-        />
+        wholeBarHref ? (
+          <a
+            href={wholeBarHref}
+            data-announcement-whole-link
+            className="inline-flex max-w-full items-center justify-center"
+          >
+            <RichItem
+              item={item}
+              countdown={countdown}
+              nowMs={nowMs}
+              device={resolvedDevice}
+              mode={mode}
+              wholeBarLink
+            />
+          </a>
+        ) : (
+          <RichItem
+            item={item}
+            countdown={countdown}
+            nowMs={nowMs}
+            device={resolvedDevice}
+            mode={mode}
+          />
+        )
       ) : (
         <LegacyItem
           item={item}

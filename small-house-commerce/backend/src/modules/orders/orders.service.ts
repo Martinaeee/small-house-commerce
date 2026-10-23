@@ -549,29 +549,66 @@ export class OrdersService {
     operatorId: string,
     decision?: { decision: 'CONFIRM' | 'CANCEL' | 'REQUEST_INFO'; note?: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
-    const order = await tx.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
-    if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DENIED') {
-      throw new BadRequestException('Cancelled or denied orders cannot be confirmed');
-    }
-    if (order.confirmationStatus === 'CONFIRMED') {
-      throw new ConflictException('Order is already confirmed');
-    }
-    if (order.orderStatus === 'SHIPPING' || order.orderStatus === 'SIGNED') {
-      throw new BadRequestException('Shipped orders cannot be confirmed');
-    }
+    const { updated, promoReleased, backInStockClaims } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { riskFlags: { where: { resolved: false } } },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DENIED') {
+        throw new BadRequestException('Cancelled or denied orders cannot be confirmed');
+      }
+      if (order.confirmationStatus === 'CONFIRMED') {
+        throw new ConflictException('Order is already confirmed');
+      }
+      if (order.orderStatus === 'SHIPPING' || order.orderStatus === 'SIGNED') {
+        throw new BadRequestException('Shipped orders cannot be confirmed');
+      }
 
-    // CUSTOMER_RISK_SPEC §17 gate: RPT/RECHECK orders need a manual customer
-    // service review decision before confirmation (Phase 2 landing).
-    const classification = (order.customerClassification ?? 'NEW') as CustomerClassification;
-    const needsReview = classification === 'RPT' || classification === 'RECHECK';
-    if (needsReview && !decision) {
-      throw new BadRequestException(
-        `Order ${order.orderNumber} is classified ${classification}; a customer-service decision is required before confirmation`,
-      );
-    }
+      // CUSTOMER_RISK_SPEC §17 gate: RPT/RECHECK orders need a manual customer
+      // service review decision before confirmation (Phase 2 landing).
+      const classification = (order.customerClassification ?? 'NEW') as CustomerClassification;
+      const needsReview = classification === 'RPT' || classification === 'RECHECK';
+      if (needsReview && !decision) {
+        throw new BadRequestException(
+          `Order ${order.orderNumber} is classified ${classification}; a customer-service decision is required before confirmation`,
+        );
+      }
+
+      // The decision decides what happens. A "CANCEL" decision cancels the
+      // order, a "REQUEST_INFO" decision sends it back to the queue - neither
+      // of them confirms the order.
+      if (decision?.decision === 'CANCEL') {
+        return this.applyCancellation(tx, order, operatorId, decision.note);
+      }
+      if (decision?.decision === 'REQUEST_INFO') {
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: 'QUESTION' },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'QUESTION',
+            source: 'ADMIN',
+            operatorId,
+            comment: decision.note ?? 'Requested more information from the customer',
+          },
+        });
+        return { updated, promoReleased: false, backInStockClaims: [] };
+      }
+
+      // An unresolved risk flag blocks the confirmation: the duplicate and the
+      // recheck decisions have to be made by a human first.
+      const unresolved = order.riskFlags ?? [];
+      if (unresolved.length > 0) {
+        throw new BadRequestException(
+          `RISK_FLAG_UNRESOLVED: ${unresolved.map((f) => f.flagType).join(', ')} must be resolved before the order can be confirmed`,
+        );
+      }
 
       const updated = await tx.order.update({
         where: { id: orderId },
@@ -622,8 +659,46 @@ export class OrdersService {
           },
         });
       }
-      return updated;
+      return { updated, promoReleased: false, backInStockClaims: [] };
     });
+    await this.backInStock.deliverClaims(backInStockClaims);
+    if (promoReleased) {
+      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    }
+    return updated;
+  }
+
+  /**
+   * The cancellation itself, shared by the cancel endpoint and by a review
+   * decision of "CANCEL": the order goes to CANCELLED, the stock reservation
+   * and the promo slot are released and the back-in-stock claims come back.
+   */
+  private async applyCancellation(
+    tx: Prisma.TransactionClient,
+    order: { id: string; orderStatus: OrderStatus },
+    operatorId: string,
+    comment?: string,
+  ) {
+    const updated = await tx.order.update({
+      where: { id: order.id },
+      data: { orderStatus: 'CANCELLED' },
+    });
+    const backInStockClaims = await this.inventory.releaseForOrder(tx, order.id, {
+      claimBackInStock: true,
+    });
+    const promoReleased = await this.releasePromoSlot(tx, order.id);
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId: order.id,
+        statusDomain: 'ORDER_STATUS',
+        oldStatus: order.orderStatus,
+        newStatus: 'CANCELLED',
+        source: 'ADMIN',
+        operatorId,
+        comment: comment ?? null,
+      },
+    });
+    return { updated, promoReleased, backInStockClaims };
   }
 
   /** §22.2 cancel: allowed until shipping; releases reservations (§31). */
@@ -774,13 +849,16 @@ export class OrdersService {
         const order = await tx.order.findUnique({ where: { id: orderId } });
         if (!order) throw new NotFoundException('Order not found');
 
+        // The status endpoint only moves an order inside the "in progress"
+        // states. CONFIRMED, SHIPPING and CANCELLED each have their own
+        // endpoint, because they carry rules (verification, stock, shipment).
         const legal: Record<string, OrderStatus[]> = {
-          NEW: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-          PENDING: ['QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'ABNORMAL'],
-          QUESTION: ['PENDING', 'CONFIRMED', 'CANCELLED', 'DENIED'],
-          CONFIRMED: ['SHIPPING', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-          ABNORMAL: ['PENDING', 'QUESTION', 'CONFIRMED', 'CANCELLED', 'DENIED', 'AFTER_SALES'],
-          SHIPPING: ['SIGNED', 'CANCELLED', 'AFTER_SALES'],
+          NEW: ['PENDING', 'QUESTION', 'DENIED'],
+          PENDING: ['QUESTION', 'DENIED', 'ABNORMAL'],
+          QUESTION: ['PENDING', 'DENIED'],
+          CONFIRMED: ['AFTER_SALES'],
+          ABNORMAL: ['PENDING', 'QUESTION', 'DENIED', 'AFTER_SALES'],
+          SHIPPING: ['SIGNED', 'AFTER_SALES'],
           SIGNED: ['AFTER_SALES'],
           CANCELLED: [],
           DENIED: [],
@@ -788,8 +866,18 @@ export class OrdersService {
         };
         const targets = legal[order.orderStatus];
         if (!targets?.includes(status)) {
+          const hint =
+            status === 'CONFIRMED'
+              ? 'use POST /admin/orders/:id/confirm'
+              : status === 'SHIPPING'
+                ? 'use POST /admin/orders/:id/ship'
+                : status === 'CANCELLED'
+                  ? 'use POST /admin/orders/:id/cancel'
+                  : '';
           throw new BadRequestException(
-            `Invalid status transition ${order.orderStatus} -> ${status}`,
+            `Invalid status transition ${order.orderStatus} -> ${status}${
+              hint ? ` (${hint})` : ''
+            }`,
           );
         }
 

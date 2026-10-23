@@ -20,7 +20,7 @@ const icons = {
 interface TrustItem { icon: keyof typeof icons; label: string }
 const TRUST_ITEMS: TrustItem[] = [
   { icon: "banknote", label: "COD & Free Shipping" },
-  { icon: "calendar", label: "Estimated delivery {range}" },
+  { icon: "calendar", label: "Delivery {range}" },
   { icon: "bubble", label: "Support {hours}" },
   { icon: "shield", label: "Inspect at delivery · 48h exchange for defects" },
 ];
@@ -38,8 +38,8 @@ export function CheckoutTrustStrip({ deliveryRange }: { deliveryRange: string })
             {icons[item.icon]}
           </svg>
           <span>
-            {item.label === "Estimated delivery {range}"
-              ? `Estimated delivery ${deliveryRange}`
+            {item.label === "Delivery {range}"
+              ? `Delivery ${deliveryRange}`
               : item.label === "Support {hours}"
                 ? `Support ${supportHours}`
                 : item.label}

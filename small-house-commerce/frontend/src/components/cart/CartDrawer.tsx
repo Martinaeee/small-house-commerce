@@ -36,7 +36,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled])';
 
 const SERVICE_LINES = [
   "Cash on Delivery — no payment now",
-  "Nationwide delivery 3–7 days",
+  "Nationwide delivery as fast as 7 days",
   "Phone confirmation before delivery",
 ];
 
@@ -476,7 +476,7 @@ export function CartDrawer() {
               <button
                 type="button"
                 onClick={handleClose}
-                className="text-sm font-semibold text-cta hover:underline"
+                className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-semibold text-cta transition-colors hover:border-cta hover:bg-primary-light/40"
               >
                 Continue shopping
               </button>
@@ -508,7 +508,7 @@ export function CartDrawer() {
             <button
               type="button"
               onClick={handleClose}
-              className="mt-2 w-full text-center text-sm text-ink-secondary hover:text-ink"
+              className="mt-2 flex w-full items-center justify-center rounded-lg border border-border px-4 py-3 text-sm font-semibold text-cta transition-colors hover:border-cta hover:bg-primary-light/40"
             >
               Continue shopping
             </button>

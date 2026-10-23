@@ -182,11 +182,11 @@ describe('validateShellForPublish', () => {
     });
   });
 
-  it('blocks more than four Footer columns', () => {
+  it('blocks more than five Footer columns', () => {
     const doc = document();
     const columns: FooterColumn[] = [
       ...doc.footer.columns,
-      ...Array.from({ length: 3 }, (_, index) => ({
+      ...Array.from({ length: 4 }, (_, index) => ({
         id: `extra-${index}`,
         kind: 'LINKS' as const,
         title: `Extra ${index}`,
@@ -201,12 +201,12 @@ describe('validateShellForPublish', () => {
     );
   });
 
-  it('requires exactly one CONTACT column', () => {
+  it('allows a footer without a CONTACT column but still blocks duplicates', () => {
     const doc = document();
     const noContact: FooterColumn[] = [{ id: 'links', kind: 'LINKS', title: 'Shop', rows: [] }];
     const without = { ...doc, footer: { ...doc.footer, columns: noContact } };
 
-    expect(validateShellForPublish(without, context(without))).toContainEqual(
+    expect(validateShellForPublish(without, context(without))).not.toContainEqual(
       expect.objectContaining({ code: 'SHELL_CONTACT_COLUMN_MISSING' }),
     );
 

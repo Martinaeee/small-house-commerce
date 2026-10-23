@@ -67,7 +67,11 @@ export function discountPct(sku: Sku): number {
   return Math.round((1 - sku.price / sku.compareAtPrice) * 100);
 }
 
-export function useCartRecommendations(cart: CartSummary | null): Product[] {
+export function useCartRecommendations(
+  cart: CartSummary | null,
+  take: number = RECOMMENDATIONS_TAKE,
+  includeEmptyCart = false,
+): Product[] {
   const cartSlugs = useMemo(
     () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
     [cart],
@@ -78,7 +82,7 @@ export function useCartRecommendations(cart: CartSummary | null): Product[] {
   // Resolve cart-line categories (detail payloads are session-cached), then
   // fetch the three candidate pools. State is only set after the awaits.
   useEffect(() => {
-    if (cartKey === "") return;
+    if (cartKey === "" && !includeEmptyCart) return;
     let cancelled = false;
     void (async () => {
       const cartProducts = (
@@ -104,7 +108,7 @@ export function useCartRecommendations(cart: CartSummary | null): Product[] {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey]);
+  }, [cartKey, includeEmptyCart]);
 
   return useMemo<Product[]>(() => {
     if (!pools || pools.cartKey !== cartKey) return [];
@@ -148,8 +152,8 @@ export function useCartRecommendations(cart: CartSummary | null): Product[] {
       if (seen.has(product.slug)) continue;
       seen.add(product.slug);
       chosen.push(product);
-      if (chosen.length >= RECOMMENDATIONS_TAKE) break;
+      if (chosen.length >= take) break;
     }
     return chosen;
-  }, [pools, cartKey, cartSlugs]);
+  }, [pools, cartKey, cartSlugs, take]);
 }

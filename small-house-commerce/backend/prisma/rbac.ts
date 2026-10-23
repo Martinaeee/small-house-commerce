@@ -96,6 +96,30 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
     description: 'Edit the site-wide shared FAQ library every product may use.',
   },
+  {
+    code: PermissionCode.ORDER_ASSIGN,
+    description: 'Assign an order to a handler and set its verification checklist.',
+  },
+  {
+    code: PermissionCode.ORDER_VERIFY,
+    description: 'Record the outcome of a verification item on an order.',
+  },
+  {
+    code: PermissionCode.ORDER_NOTE_WRITE,
+    description: 'Write internal and customer notes on an order.',
+  },
+  {
+    code: PermissionCode.ORDER_RISK_WRITE,
+    description: 'Raise and resolve risk flags on an order.',
+  },
+  {
+    code: PermissionCode.ORDER_MERGE,
+    description: 'Merge a duplicate order into another order.',
+  },
+  {
+    code: PermissionCode.ORDER_HANDOVER,
+    description: 'Record the handover of an order to the warehouse.',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -121,6 +145,12 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.PRODUCT_FAQ_SHARED_MANAGE,
     PermissionCode.CUSTOMER_MANAGE,
     PermissionCode.CAMPAIGN_LINK_BUILD,
+    PermissionCode.ORDER_ASSIGN,
+    PermissionCode.ORDER_VERIFY,
+    PermissionCode.ORDER_NOTE_WRITE,
+    PermissionCode.ORDER_RISK_WRITE,
+    PermissionCode.ORDER_MERGE,
+    PermissionCode.ORDER_HANDOVER,
     PermissionCode.NEWSLETTER_READ,
     PermissionCode.NEWSLETTER_WRITE,
     PermissionCode.MARKETING_VIEW_OWN,
@@ -142,16 +172,22 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.ORDER_VIEW_ALL,
     PermissionCode.ORDER_CONFIRM,
     PermissionCode.ORDER_CANCEL,
+    PermissionCode.ORDER_ASSIGN,
+    PermissionCode.ORDER_VERIFY,
+    PermissionCode.ORDER_NOTE_WRITE,
+    PermissionCode.ORDER_RISK_WRITE,
     PermissionCode.CUSTOMER_RISK_VIEW,
     PermissionCode.CUSTOMER_RISK_EDIT,
-    // deliberately not INVENTORY_ADJUST, not REPORT_PROFIT_VIEW
+    // deliberately not ORDER_MERGE, not ORDER_HANDOVER, not INVENTORY_ADJUST, not REPORT_PROFIT_VIEW
   ],
 
   [RoleCode.WAREHOUSE]: [
     PermissionCode.ORDER_VIEW_ALL,
     PermissionCode.INVENTORY_VIEW,
     PermissionCode.SHIPMENT_CREATE,
-    // deliberately not ORDER_CHANGE_AID, not REPORT_PROFIT_VIEW, not INVENTORY_ADJUST
+    PermissionCode.ORDER_NOTE_WRITE,
+    PermissionCode.ORDER_HANDOVER,
+    // deliberately not ORDER_CHANGE_AID, not ORDER_RISK_WRITE, not REPORT_PROFIT_VIEW, not INVENTORY_ADJUST
   ],
 
   [RoleCode.FINANCE]: [

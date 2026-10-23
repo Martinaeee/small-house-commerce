@@ -6,17 +6,30 @@ import { newId } from "@/lib/admin-id";
 import {
   SHELL_LIMITS,
   type FooterColumn,
+  type FooterLegalLink,
   type FooterRow,
+  type FooterSocial,
+  type FooterSocialNetwork,
   type ShellIssue,
 } from "@/lib/storefront-shell-document";
 import { OrderedRows, type RowControls } from "./OrderedRows";
 import { ShellLinkEditor } from "./ShellLinkEditor";
+
+const SOCIAL_NETWORKS: FooterSocialNetwork[] = [
+  "FACEBOOK",
+  "INSTAGRAM",
+  "TIKTOK",
+  "YOUTUBE",
+];
 
 export type FooterDraft = {
   tagline: string;
   description: string;
   columns: FooterColumn[];
   copyrightBrand: string;
+  socials: FooterSocial[];
+  legal: FooterLegalLink[];
+  payments: string[];
 };
 
 export type FooterContentEditorProps = {
@@ -24,6 +37,9 @@ export type FooterContentEditorProps = {
   description: string;
   columns: readonly FooterColumn[];
   copyrightBrand: string;
+  socials: readonly FooterSocial[];
+  legal: readonly FooterLegalLink[];
+  payments: readonly string[];
   pendingUploads: ReadonlySet<"horizontal" | "square">;
   issues?: readonly ShellIssue[];
   onChange: (next: FooterDraft) => void;
@@ -69,6 +85,9 @@ export function FooterContentEditor({
   description,
   columns,
   copyrightBrand,
+  socials,
+  legal,
+  payments,
   pendingUploads,
   issues = [],
   onChange,
@@ -80,7 +99,16 @@ export function FooterContentEditor({
   const atColumnLimit = columns.length >= SHELL_LIMITS.maxFooterColumns;
 
   const emit = (patch: Partial<FooterDraft>) =>
-    onChange({ tagline, description, columns: [...columns], copyrightBrand, ...patch });
+    onChange({
+      tagline,
+      description,
+      columns: [...columns],
+      copyrightBrand,
+      socials: [...socials],
+      legal: [...legal],
+      payments: [...payments],
+      ...patch,
+    });
 
   const updateColumn = (
     id: string,
@@ -186,6 +214,198 @@ export function FooterContentEditor({
             {t("storefront_shell_footer_copyright_hint")}
           </span>
         </label>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <section className="min-w-0 rounded-xl border border-admin-border bg-admin-surface p-4">
+          <h3 className="text-sm font-semibold text-ink">
+            {t("storefront_shell_footer_socials")}
+          </h3>
+          <p className="mt-1 text-xs text-ink-muted">
+            {t("storefront_shell_footer_socials_hint")}
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {socials.map((social) => (
+              <li
+                key={social.id}
+                data-testid={`footer-social-${social.id}`}
+                className="flex min-w-0 flex-wrap items-center gap-2"
+              >
+                <select
+                  aria-label={t("storefront_shell_footer_social_network")}
+                  value={social.network}
+                  onChange={(event) =>
+                    emit({
+                      socials: socials.map((entry) =>
+                        entry.id === social.id
+                          ? {
+                              ...entry,
+                              network: event.target
+                                .value as FooterSocialNetwork,
+                            }
+                          : entry,
+                      ),
+                    })
+                  }
+                  className="rounded-lg border border-admin-border bg-surface px-2 py-2 text-sm"
+                >
+                  {SOCIAL_NETWORKS.map((network) => (
+                    <option key={network} value={network}>
+                      {t(
+                        `storefront_shell_footer_social_${network.toLowerCase()}` as "storefront_shell_footer_social_facebook",
+                      )}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="url"
+                  value={social.url}
+                  aria-label={t("storefront_shell_footer_social_url")}
+                  placeholder="https://"
+                  onChange={(event) =>
+                    emit({
+                      socials: socials.map((entry) =>
+                        entry.id === social.id
+                          ? { ...entry, url: event.target.value }
+                          : entry,
+                      ),
+                    })
+                  }
+                  className="min-w-0 flex-1 rounded-lg border border-admin-border px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  aria-label={t("storefront_shell_footer_remove_social")}
+                  disabled={locked}
+                  onClick={() =>
+                    emit({
+                      socials: socials.filter((entry) => entry.id !== social.id),
+                    })
+                  }
+                  className="rounded-lg border border-admin-error px-2 py-1.5 text-sm text-admin-error disabled:opacity-40"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            disabled={locked || socials.length >= SHELL_LIMITS.maxFooterSocials}
+            onClick={() =>
+              emit({
+                socials: [
+                  ...socials,
+                  { id: newId(), network: "FACEBOOK", url: "https://" },
+                ],
+              })
+            }
+            className="mt-3 rounded-lg border border-admin-border px-3 py-2 text-sm disabled:opacity-40"
+          >
+            {t("storefront_shell_footer_add_social")}
+          </button>
+        </section>
+
+        <section className="min-w-0 rounded-xl border border-admin-border bg-admin-surface p-4">
+          <h3 className="text-sm font-semibold text-ink">
+            {t("storefront_shell_footer_legal")}
+          </h3>
+          <p className="mt-1 text-xs text-ink-muted">
+            {t("storefront_shell_footer_legal_hint")}
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {legal.map((link) => (
+              <li
+                key={link.id}
+                data-testid={`footer-legal-${link.id}`}
+                className="flex min-w-0 flex-wrap items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={link.label}
+                  aria-label={t("storefront_shell_footer_legal_label")}
+                  maxLength={SHELL_LIMITS.label}
+                  onChange={(event) =>
+                    emit({
+                      legal: legal.map((entry) =>
+                        entry.id === link.id
+                          ? { ...entry, label: event.target.value }
+                          : entry,
+                      ),
+                    })
+                  }
+                  className="w-32 rounded-lg border border-admin-border px-3 py-2 text-sm"
+                />
+                <input
+                  type="text"
+                  value={link.href}
+                  aria-label={t("storefront_shell_footer_legal_href")}
+                  placeholder="/privacy"
+                  onChange={(event) =>
+                    emit({
+                      legal: legal.map((entry) =>
+                        entry.id === link.id
+                          ? { ...entry, href: event.target.value }
+                          : entry,
+                      ),
+                    })
+                  }
+                  className="min-w-0 flex-1 rounded-lg border border-admin-border px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  aria-label={t("storefront_shell_footer_remove_legal")}
+                  disabled={locked}
+                  onClick={() =>
+                    emit({
+                      legal: legal.filter((entry) => entry.id !== link.id),
+                    })
+                  }
+                  className="rounded-lg border border-admin-error px-2 py-1.5 text-sm text-admin-error disabled:opacity-40"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            disabled={locked || legal.length >= SHELL_LIMITS.maxFooterLegal}
+            onClick={() =>
+              emit({
+                legal: [
+                  ...legal,
+                  { id: newId(), label: "Privacy", href: "/privacy" },
+                ],
+              })
+            }
+            className="mt-3 rounded-lg border border-admin-border px-3 py-2 text-sm disabled:opacity-40"
+          >
+            {t("storefront_shell_footer_add_legal")}
+          </button>
+
+          <h3 className="mt-5 text-sm font-semibold text-ink">
+            {t("storefront_shell_footer_payments")}
+          </h3>
+          <p className="mt-1 text-xs text-ink-muted">
+            {t("storefront_shell_footer_payments_hint")}
+          </p>
+          <input
+            type="text"
+            value={payments.join(", ")}
+            aria-label={t("storefront_shell_footer_payments")}
+            onChange={(event) =>
+              emit({
+                payments: event.target.value
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter((value) => value !== "")
+                  .slice(0, SHELL_LIMITS.maxFooterPayments),
+              })
+            }
+            className="mt-2 w-full min-w-0 rounded-lg border border-admin-border px-3 py-2 text-sm"
+          />
+        </section>
       </div>
 
       {atColumnLimit ? (
@@ -318,17 +538,15 @@ function FooterColumnCard({
         >
           ↓
         </button>
-        {contact ? null : (
-          <button
-            type="button"
-            aria-label={t("storefront_shell_footer_remove_column")}
-            disabled={locked}
-            onClick={onRemove}
-            className="ml-auto rounded-lg border border-admin-error px-3 py-1.5 text-sm text-admin-error disabled:opacity-40"
-          >
-            {t("storefront_shell_footer_remove_column")}
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label={t("storefront_shell_footer_remove_column")}
+          disabled={locked}
+          onClick={onRemove}
+          className="ml-auto rounded-lg border border-admin-error px-3 py-1.5 text-sm text-admin-error disabled:opacity-40"
+        >
+          {t("storefront_shell_footer_remove_column")}
+        </button>
       </div>
 
       <label className="mt-4 block min-w-0 text-sm font-medium text-ink">

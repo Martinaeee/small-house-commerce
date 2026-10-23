@@ -1,31 +1,15 @@
 /**
- * PDP buy-box delivery estimates.
+ * Storefront delivery estimate.
  *
- * Windows mirror the TrustBar copy exactly: Metro Manila 3–5 days,
- * provinces 5–7 days (business days — Sundays skipped — from the order
- * date). All calendar math is rendered in Asia/Manila so an UTC server
- * and a PH browser produce the same string — the Philippines has no
- * DST, so adding whole days in ms is safe.
+ * The shop quotes one nationwide window — as fast as 7 business days from
+ * the order date (Sundays skipped). All calendar math is rendered in
+ * Asia/Manila so a UTC server and a PH browser produce the same date — the
+ * Philippines has no DST, so adding whole days in ms is safe.
  */
 
 const TIME_ZONE = "Asia/Manila";
-
-type DayParts = { month: string; day: number };
-
-function manilaDayParts(date: Date): DayParts {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIME_ZONE,
-    month: "short",
-    day: "numeric",
-  }).formatToParts(date);
-  const month = parts.find((p) => p.type === "month")?.value ?? "";
-  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
-  return { month, day };
-}
-
-function addDays(now: Date, days: number): Date {
-  return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-}
+const DELIVERY_DAYS = 7;
+const DELIVERY_LABEL = `as fast as ${DELIVERY_DAYS} days`;
 
 type ManilaWallDate = { year: number; month: number; day: number };
 
@@ -67,44 +51,14 @@ export function toDateInputValue(date: Date): string {
 }
 
 /**
- * Default preferred-delivery date: the 7th business day from Manila-today
- * (provinces deliver in 5–7 business days, so this matches the stated window
- * and always skips Sundays). Pre-fills the checkout date field so it never
- * shows the blank year/month/day placeholder.
+ * Default preferred-delivery date: the 7th business day from Manila-today.
+ * Pre-fills the checkout date field so it never shows the blank
+ * year/month/day placeholder.
  */
 export function defaultPreferredDeliveryDate(now: Date = new Date()): string {
   const { year, month, day } = manilaWallDate(now);
   const manilaToday = new Date(Date.UTC(year, month - 1, day));
-  return toDateInputValue(addBusinessDays(manilaToday, 7));
-}
-
-/** "Sep 16–18" within one month; "Sep 28 – Oct 2" across a month boundary. */
-export function formatDeliveryRange(now: Date, minDays: number, maxDays: number): string {
-  const start = manilaDayParts(addDays(now, minDays));
-  const end = manilaDayParts(addDays(now, maxDays));
-  if (start.month === end.month) return `${start.month} ${start.day}–${end.day}`;
-  return `${start.month} ${start.day} – ${end.month} ${end.day}`;
-}
-
-/** Range between the minDays-th and maxDays-th business day from `now`. */
-function businessDayRange(now: Date, minDays: number, maxDays: number): string {
-  const start = addBusinessDays(now, minDays);
-  const end = addBusinessDays(now, maxDays);
-  // Both endpoints keep `now`'s Manila wall time, so the ms span is a whole
-  // number of days (the Philippines has no DST).
-  const span = (end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000);
-  return formatDeliveryRange(start, 0, span);
-}
-
-const METRO_MANILA_ALIASES = new Set([
-  "metro manila",
-  "ncr",
-  "national capital region",
-]);
-
-export function isMetroManila(province: string): boolean {
-  const normalized = province.trim().toLowerCase().replace(/\s+/g, " ");
-  return METRO_MANILA_ALIASES.has(normalized);
+  return toDateInputValue(addBusinessDays(manilaToday, DELIVERY_DAYS));
 }
 
 export interface DeliveryWindows {
@@ -112,16 +66,11 @@ export interface DeliveryWindows {
   provincial: string;
 }
 
-export function deliveryWindows(now: Date = new Date()): DeliveryWindows {
-  return {
-    metro: businessDayRange(now, 3, 5),
-    provincial: businessDayRange(now, 5, 7),
-  };
+/** One nationwide window; the province no longer changes the estimate. */
+export function deliveryWindows(): DeliveryWindows {
+  return { metro: DELIVERY_LABEL, provincial: DELIVERY_LABEL };
 }
 
-/** Province-aware range: Metro Manila 3–5 business days, provinces 5–7. */
-export function deliveryWindowFor(province: string, now: Date = new Date()): string {
-  return isMetroManila(province)
-    ? businessDayRange(now, 3, 5)
-    : businessDayRange(now, 5, 7);
+export function deliveryWindowFor(_province: string): string {
+  return DELIVERY_LABEL;
 }

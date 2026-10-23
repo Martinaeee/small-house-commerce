@@ -137,7 +137,7 @@ describe("normalizeStorefrontShellDocument", () => {
         ...doc,
         footer: {
           ...doc.footer,
-          columns: Array.from({ length: 5 }, (_, index) => ({
+          columns: Array.from({ length: 6 }, (_, index) => ({
             id: `column-${index}`,
             kind: "LINKS",
             title: `Column ${index}`,
@@ -233,6 +233,9 @@ describe("themeCssVariables", () => {
         "--color-footer-logo-tile",
         "--color-footer-logo-square",
         "--color-footer-logo-stroke",
+        "--color-footer-band",
+        "--color-footer-band-ink",
+        "--color-footer-band-soft",
         "--color-newsletter-overlay",
         "--color-newsletter-surface",
         "--color-newsletter-surface-alt",

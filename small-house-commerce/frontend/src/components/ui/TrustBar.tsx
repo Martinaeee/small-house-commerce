@@ -47,7 +47,7 @@ const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
       </svg>
     ),
     label: "Philippines Delivery",
-    sub: "Metro Manila 3-5 days, provinces 5-7",
+    sub: "Delivery as fast as 7 days",
   },
 ];
 

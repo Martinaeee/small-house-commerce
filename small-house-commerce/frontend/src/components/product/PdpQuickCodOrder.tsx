@@ -11,7 +11,6 @@ import {
 import { useRouter } from "next/navigation";
 import { type Product, type StorefrontProductVariant } from "@/lib/api";
 import {
-  addBusinessDays,
   defaultPreferredDeliveryDate,
   deliveryWindowFor,
   manilaWallDate,
@@ -196,7 +195,9 @@ export function PdpQuickCodOrder(): ReactNode {
     const { year, month, day } = manilaWallDate(new Date());
     const manilaToday = new Date(Date.UTC(year, month - 1, day));
     return {
-      min: toDateInputValue(addBusinessDays(manilaToday, 3)),
+      min: toDateInputValue(
+        new Date(manilaToday.getTime() + 7 * 24 * 60 * 60 * 1000),
+      ),
       max: toDateInputValue(
         new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000),
       ),
@@ -714,17 +715,18 @@ export function PdpQuickCodOrder(): ReactNode {
             <div className="flex justify-between">
               <dt className="text-ink-secondary">Subtotal</dt>
               <dd className="font-medium text-ink">
-                {totals.savings > 0 && (
+                {totals.savings > 0 ? (
                   <span
-                    data-testid="quick-cod-compare-total"
-                    className="mr-2 text-xs font-normal text-ink-muted line-through"
+                    data-testid="quick-cod-subtotal"
+                    className="text-ink-muted line-through"
                   >
                     {formatPrice(totals.compareAtTotal)}
                   </span>
+                ) : (
+                  <span data-testid="quick-cod-subtotal">
+                    {formatPrice(totals.subtotal)}
+                  </span>
                 )}
-                <span data-testid="quick-cod-subtotal">
-                  {formatPrice(totals.subtotal)}
-                </span>
               </dd>
             </div>
             {totals.savings > 0 && (
@@ -766,7 +768,7 @@ export function PdpQuickCodOrder(): ReactNode {
             onApplied={setAppliedPromo}
             onCheckingChange={setPromoChecking}
           />
-          <NewsletterOfferPrompt />
+          <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
         </div>
 
         {/* Delivery form */}
@@ -1003,7 +1005,7 @@ export function PdpQuickCodOrder(): ReactNode {
               />
               <p className="mt-1 text-xs text-ink-muted">
                 {form.province.trim()
-                  ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                  ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
                   : "Choose a preferred date (optional)."}
               </p>
             </div>

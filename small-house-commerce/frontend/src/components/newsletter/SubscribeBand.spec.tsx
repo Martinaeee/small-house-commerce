@@ -57,29 +57,36 @@ describe("SubscribeBand", () => {
     ).toBeInTheDocument();
   });
 
-  it("uses published shell tokens for the footer newsletter copy", () => {
+  it("uses the band palette for the newsletter copy", () => {
     renderBand({
       newsletterBandEnabled: true,
       newsletterOfferAvailable: false,
     });
 
-    const eyebrow = screen.getByText(DEFAULT_SITE_SETTINGS.newsletterEyebrow);
-    expect(eyebrow).toHaveClass("text-footer-muted");
-    expect(eyebrow.querySelector("span")).toHaveClass("bg-footer-border");
-    expect(
-      screen.getByRole("heading", { name: "Make more room for good ideas" }),
-    ).toHaveClass("text-newsletter-foreground");
+    const band = screen.getByTestId("newsletter-band");
+    expect(band.className).toContain("bg-footer-band");
+    expect(band.className).toContain("text-footer-band-ink");
+    expect(screen.getByTestId("newsletter-eyebrow").className).toContain(
+      "text-footer-band-soft",
+    );
+    const headline = screen.getByRole("heading", {
+      name: "Make more room for good ideas",
+    });
+    expect(headline.className).toContain("uppercase");
+    expect(headline.className).toContain("font-bold");
     expect(
       screen.getByText(
-        "New furniture, small-space inspiration and subscriber-only updates, sent occasionally.",
+        "New arrivals, home ideas and special offers — straight to your inbox.",
       ),
-    ).toHaveClass("text-footer-secondary");
-    expect(screen.getByTestId("newsletter-form-title")).toHaveClass(
-      "text-footer-secondary",
+    ).toHaveClass("text-footer-band-soft");
+    // The form title stays available to assistive technology, the consent
+    // line stays visible.
+    expect(screen.getByTestId("newsletter-form-title").className).toContain(
+      "sr-only",
     );
     expect(
       screen.getByText(DEFAULT_SITE_SETTINGS.newsletterConsentText),
-    ).toHaveClass("text-footer-muted");
+    ).toHaveClass("text-footer-band-soft");
   });
 
   it("opens the shared success dialog after subscribing from the band", async () => {

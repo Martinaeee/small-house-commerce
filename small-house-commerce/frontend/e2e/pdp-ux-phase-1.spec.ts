@@ -263,7 +263,7 @@ test.describe("PDP UX Phase 1", () => {
         .getByRole("listitem"),
     ).toHaveText([
       "✓COD & Free Shipping",
-      "✓Arrived in 1-5 days",
+      "✓Arrives as fast as 7 days",
       "✓7-Day Free Return & Exchange",
     ]);
 

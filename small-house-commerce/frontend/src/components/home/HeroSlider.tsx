@@ -799,6 +799,13 @@ function HeroElementContainer({
 }): ReactNode {
   const selected = edit?.selectedElementKey === elementKey;
   const ctaElement = elementKey === "ctaPrimary" || elementKey === "ctaSecondary";
+  // A slide may carry its message in the picture itself. Then the heading
+  // element is not rendered at all on the storefront (no empty box, no empty
+  // page <h1>); the canvas keeps the selectable frame so the operator can
+  // still position it.
+  if (elementKey === "heading" && !edit && (element?.text ?? "").trim() === "") {
+    return null;
+  }
   const fallback = TYPOGRAPHY_FALLBACKS[elementKey];
   const style: CSSProperties = {
     ...elementInlineVars(elementKey),

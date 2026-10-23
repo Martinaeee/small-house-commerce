@@ -209,6 +209,36 @@ describe("CheckoutForm totals summary", () => {
     );
   });
 
+  it("shows the original price as the subtotal so the savings rows add up", () => {
+    checkoutLinesMock.mockReturnValue({
+      isBuyNow: false,
+      cartLoading: false,
+      product: null,
+      productError: null,
+      cartBlocked: false,
+      buyNowMatchedSku: true,
+      ready: true,
+      lines: [],
+      orderItems: [{ skuId: "sku-1", quantity: 1 }],
+      totals: {
+        compareAtTotal: 130,
+        subtotal: 100,
+        savings: 30,
+        discount: 0,
+        total: 100,
+      },
+      total: 100,
+    });
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    const subtotal = screen.getByText("Subtotal").nextElementSibling;
+    expect(subtotal).toHaveTextContent("₱130.00");
+    expect(subtotal).not.toHaveTextContent("₱100.00");
+    expect(screen.getByTestId("checkout-subtotal-compare")).not.toHaveClass(
+      "line-through",
+    );
+  });
+
   it("shows the promo discount in the summary and lowers the total", async () => {
     const user = userEvent.setup();
     apiMock.previewPromoCode.mockResolvedValue({

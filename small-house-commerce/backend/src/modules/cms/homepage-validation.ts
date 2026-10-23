@@ -9,7 +9,6 @@ import type {
   HomepageSection,
   LinkValue,
   PublishIssue,
-  Schedule,
 } from './homepage-document.js';
 import {
   announcementRichTextPlainText,
@@ -364,26 +363,10 @@ function checkHeroSection(
     }
   }
 
-  // Overlap is only a conflict between two enabled slides; the windows are
-  // half-open ([publishAt ?? -Infinity, unpublishAt ?? +Infinity)), so a slide
-  // starting exactly when another ends is fine.
-  for (let i = 0; i < slides.length; i += 1) {
-    for (let j = i + 1; j < slides.length; j += 1) {
-      if (
-        windowsOverlap(windowOf(slides[i].schedule), windowOf(slides[j].schedule))
-      ) {
-        errors.push(
-          issue(
-            'ERROR',
-            'SCHEDULE_CONFLICT',
-            `Slide "${slides[j].name}" schedule overlaps slide "${slides[i].name}" (both enabled).`,
-            section.id,
-            slides[j].id,
-          ),
-        );
-      }
-    }
-  }
+  // Several enabled slides may be live at the same moment: every slide inside
+  // its schedule window is part of the storefront's hero rotation, so
+  // overlapping windows describe a carousel rather than a conflict. A window
+  // only decides when a slide joins or leaves the rotation.
 }
 
 function checkSlideContent(
@@ -450,17 +433,8 @@ function checkSlideContent(
     }
   }
 
-  if (slide.elements.heading.text.trim() === '') {
-    errors.push(
-      issue(
-        'ERROR',
-        'HERO_HEADING_REQUIRED',
-        `Slide "${slide.name}" needs a heading.`,
-        section.id,
-        slide.id,
-      ),
-    );
-  }
+  // The heading is optional: a slide whose message lives in the picture ships
+  // without a text heading (and without a page-level <h1>).
 
   // The publish-time surface for links legacy normalization had to drop (and
   // for links the operator never picked): text without a target renders a
@@ -701,16 +675,8 @@ function checkAnnouncement(
       );
     }
 
-    if (
-      item.content !== undefined &&
-      item.link !== null &&
-      (item.linkLabel === null || item.linkLabel.trim() === '')
-    ) {
-      pushError(
-        'ANNOUNCEMENT_CTA_LABEL_REQUIRED',
-        'Rich announcement links need a CTA label before publishing.',
-      );
-    }
+    // A rich item's link may ride on the whole bar (AnnouncementBar renders
+    // one for rich copy), so a CTA label is optional rather than required.
 
     if (item.countdown !== undefined && item.countdown !== null) {
       if (item.countdown.endsAt === null) {
@@ -759,30 +725,6 @@ function checkAnnouncement(
 }
 
 // --- helpers ----------------------------------------------------------------
-
-type ScheduleWindow = { start: number; end: number };
-
-/**
- * `[publishAt ?? -Infinity, unpublishAt ?? +Infinity)` — the same half-open
- * window semantics the storefront resolver uses (publishAt == now is active,
- * unpublishAt == now is not).
- */
-function windowOf(schedule: Schedule): ScheduleWindow {
-  return {
-    start:
-      schedule.publishAt === null
-        ? Number.NEGATIVE_INFINITY
-        : Date.parse(schedule.publishAt),
-    end:
-      schedule.unpublishAt === null
-        ? Number.POSITIVE_INFINITY
-        : Date.parse(schedule.unpublishAt),
-  };
-}
-
-function windowsOverlap(a: ScheduleWindow, b: ScheduleWindow): boolean {
-  return a.start < b.end && b.start < a.end;
-}
 
 function issue(
   severity: 'ERROR' | 'WARNING',

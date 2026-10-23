@@ -395,18 +395,13 @@ describe('HomepageValidator hero rules', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('reports HERO_HEADING_REQUIRED for an enabled slide with a blank heading', async () => {
+  it('allows an enabled slide with a blank heading (the copy can live in the picture)', async () => {
     const doc = validDoc();
     slidesOf(doc)[0].elements.heading.text = '   ';
 
     const { errors } = await makeValidator(createLookup()).validate(doc);
 
-    expect(codes(errors)).toEqual(['HERO_HEADING_REQUIRED']);
-    expect(errors[0]).toMatchObject({
-      severity: 'ERROR',
-      sectionId: HERO_SECTION_ID,
-      slideId: HERO_SLIDE_ID,
-    });
+    expect(errors).toEqual([]);
   });
 
   it('ignores disabled slides entirely', async () => {
@@ -438,27 +433,23 @@ describe('HomepageValidator hero rules', () => {
   });
 });
 
-describe('HomepageValidator schedule conflicts', () => {
-  it('reports SCHEDULE_CONFLICT (on the later slide) for overlapping enabled windows', async () => {
+describe('HomepageValidator slide schedules', () => {
+  it('allows several enabled slides with open windows to run as one carousel', async () => {
     const doc = validDoc();
-    slidesOf(doc)[0].schedule = { publishAt: null, unpublishAt: T_END };
-    const second = addSlide(doc, {
-      schedule: { publishAt: T_START, unpublishAt: null },
-    });
+    addSlide(doc);
+    addSlide(doc);
 
     const { errors } = await makeValidator(createLookup()).validate(doc);
 
-    expect(codes(errors)).toEqual(['SCHEDULE_CONFLICT']);
-    expect(errors[0]).toMatchObject({
-      severity: 'ERROR',
-      sectionId: HERO_SECTION_ID,
-      slideId: second.id,
-    });
+    // Every enabled slide that is in its window is part of the rotation;
+    // several slides being live at the same moment is the carousel, not a
+    // conflict.
+    expect(errors).toEqual([]);
   });
 
-  it('treats windows as half-open: starting when the other ends is not a conflict', async () => {
+  it('allows overlapping scheduled windows (a schedule only decides when a slide joins)', async () => {
     const doc = validDoc();
-    slidesOf(doc)[0].schedule = { publishAt: null, unpublishAt: T_START };
+    slidesOf(doc)[0].schedule = { publishAt: null, unpublishAt: T_END };
     addSlide(doc, { schedule: { publishAt: T_START, unpublishAt: null } });
 
     const { errors } = await makeValidator(createLookup()).validate(doc);
@@ -466,20 +457,9 @@ describe('HomepageValidator schedule conflicts', () => {
     expect(errors).toEqual([]);
   });
 
-  it('conflicts when two enabled slides share the same open window', async () => {
+  it('still ignores disabled slides', async () => {
     const doc = validDoc();
-    addSlide(doc);
-
-    const { errors } = await makeValidator(createLookup()).validate(doc);
-
-    expect(codes(errors)).toEqual(['SCHEDULE_CONFLICT']);
-  });
-
-  it('ignores zero-length windows and disabled slides', async () => {
-    const doc = validDoc();
-    slidesOf(doc)[0].schedule = { publishAt: T_START, unpublishAt: T_START };
     addSlide(doc, { enabled: false });
-    addSlide(doc, { schedule: { publishAt: null, unpublishAt: T_START } });
 
     const { errors } = await makeValidator(createLookup()).validate(doc);
 
@@ -612,7 +592,6 @@ describe('HomepageValidator link targets', () => {
       let result = await makeValidator(createLookup()).validate(doc);
       expect(codes(result.errors)).toEqual([
         'ANNOUNCEMENT_CONTENT_INVALID',
-        'ANNOUNCEMENT_CTA_LABEL_REQUIRED',
         'ANNOUNCEMENT_END_REQUIRED',
       ]);
       expect(result.errors).toEqual(

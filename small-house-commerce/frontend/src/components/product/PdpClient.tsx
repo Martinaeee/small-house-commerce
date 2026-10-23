@@ -63,7 +63,7 @@ function RulerGlyph() {
  */
 const SERVICE_ASSURANCES = [
   "COD & Free Shipping",
-  "Arrived in 1-5 days",
+  "Arrives as fast as 7 days",
   "7-Day Free Return & Exchange",
 ] as const;
 

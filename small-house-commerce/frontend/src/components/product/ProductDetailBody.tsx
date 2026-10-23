@@ -7,17 +7,22 @@ export type { DetailBlockLike } from "./pdp-detail-blocks";
 function DetailMedia({
   block,
   index,
+  fullBleed,
 }: {
   block: DetailBlockLike;
   index: number;
+  fullBleed: boolean;
 }): ReactNode {
+  const frame = fullBleed
+    ? "-mx-4 w-[calc(100%+2rem)] max-w-none sm:mx-0 sm:w-full"
+    : "w-full";
   if (block.type === "VIDEO") {
     return (
       <ViewportVideo
         src={block.url}
         mode="CONTENT"
         ariaLabel={block.altText ?? "Product detail video"}
-        className="w-full rounded-lg border border-border bg-black"
+        className={`${frame} bg-black`}
       />
     );
   }
@@ -28,7 +33,7 @@ function DetailMedia({
       src={block.url}
       alt={block.altText ?? ""}
       loading="lazy"
-      className="w-full rounded-lg border border-border"
+      className={`${frame} block`}
       data-detail-index={index}
     />
   );
@@ -36,18 +41,22 @@ function DetailMedia({
 
 export function ProductDetailMedia({
   blocks,
+  fullBleed = false,
 }: {
   blocks: readonly DetailBlockLike[];
+  /** Phones: run each image edge to edge. The images themselves are stitched. */
+  fullBleed?: boolean;
 }): ReactNode {
   if (blocks.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       {blocks.map((block, index) => (
         <DetailMedia
           key={`${block.url}-${block.type}-${index}`}
           block={block}
           index={index}
+          fullBleed={fullBleed}
         />
       ))}
     </div>

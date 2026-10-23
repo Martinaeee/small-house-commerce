@@ -389,10 +389,14 @@ describe("CheckoutConfirmView", () => {
     render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
     await screen.findByText("Confirm your order");
 
-    // The totals keep the strikethrough reference and the real total.
+    // The subtotal shows the original reference price; the saving row below
+    // subtracts it, so the rows add up to the total.
     const totals = screen.getByText("Subtotal").closest("dl");
     expect(totals).not.toBeNull();
     expect(within(totals!).getByText("₱260.00")).toBeInTheDocument(); // 130 × 2 compare-at
+    expect(within(totals!).getByTestId("confirm-subtotal-compare")).not.toHaveClass(
+      "line-through",
+    );
     expect(within(totals!).getByText("You save")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Have a promo code?" }));

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  addBusinessDays,
   defaultPreferredDeliveryDate,
   deliveryWindowFor,
   manilaWallDate,
@@ -107,13 +106,15 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   });
 
   // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
-  // wall clock (min = +3 business days, max = +30 calendar days). A form left
+  // wall clock (min = +7 calendar days, max = +30 calendar days). A form left
   // open across midnight can drift ≤1 day — accepted, same trade-off as B batch.
   const [dateBounds] = useState(() => {
     const { year, month, day } = manilaWallDate(new Date());
     const manilaToday = new Date(Date.UTC(year, month - 1, day));
     return {
-      min: toDateInputValue(addBusinessDays(manilaToday, 3)),
+      min: toDateInputValue(
+        new Date(manilaToday.getTime() + 7 * 24 * 60 * 60 * 1000),
+      ),
       max: toDateInputValue(new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000)),
     };
   });
@@ -698,7 +699,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 className="col-span-full -mt-1 text-xs text-ink-muted"
               >
                 {form.province.trim()
-                  ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                  ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
                   : "Choose a preferred date (optional)."}
               </p>
               <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
@@ -739,15 +740,12 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 <dd className="font-medium text-ink">
                   {isBuyNow && total === null ? (
                     "Calculated at checkout"
+                  ) : totals.savings > 0 ? (
+                    <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
+                      {formatPrice(totals.compareAtTotal)}
+                    </span>
                   ) : (
-                    <>
-                      {totals.savings > 0 && (
-                        <span className="mr-2 text-sm font-normal text-ink-muted line-through">
-                          {formatPrice(totals.compareAtTotal)}
-                        </span>
-                      )}
-                      {formatPrice(totals.subtotal)}
-                    </>
+                    formatPrice(totals.subtotal)
                   )}
                 </dd>
               </div>
@@ -787,7 +785,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
             />
-            <NewsletterOfferPrompt />
+            <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
           </div>
 
           <div className="order-4 lg:order-none">
@@ -795,19 +793,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               deliveryRange={
                 form.province.trim()
                   ? deliveryWindowFor(form.province)
-                  : "Metro Manila 3-5 days · provinces 5-7 days"
+                  : "as fast as 7 days"
               }
             />
-          </div>
-
-          <div className="order-5 rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary lg:order-none">
-            <p className="font-semibold text-ink">Cash on Delivery</p>
-            <p className="mt-1">
-              Pay in cash when your order arrives.{" "}
-              {form.province.trim()
-                ? `Estimated delivery: ${deliveryWindowFor(form.province)}`
-                : "Estimated delivery: Metro Manila 3-5 days, provinces 5-7 days."}
-            </p>
           </div>
         </div>
 
@@ -822,7 +810,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             REVIEW ORDER
           </Button>
           <p className="mt-2 text-center text-xs text-ink-muted">
-            Cash on Delivery · No payment needed now
+            Cash on Delivery
           </p>
         </div>
       </div>

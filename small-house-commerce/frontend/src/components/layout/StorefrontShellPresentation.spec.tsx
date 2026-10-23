@@ -46,6 +46,9 @@ const shell: PublicStorefrontShell = {
     description: "Furniture for Filipino condos and rentals.",
     columns: [],
     copyrightBrand: "LUWAG Living",
+    socials: [],
+    legal: [],
+    payments: [],
   },
   theme: {
     primary: "#c9a77b",
