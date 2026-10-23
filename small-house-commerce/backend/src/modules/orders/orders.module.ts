@@ -6,6 +6,9 @@ import { OrdersService } from './orders.service.js';
 import { CustomerRiskService } from './customer-risk.service.js';
 import { StorefrontOrdersController } from './storefront/orders.controller.js';
 import { AdminOrdersController, AdminCustomersController } from './admin/orders.controller.js';
+import { AdminOrderVerificationController } from './admin/order-verification.controller.js';
+import { OrderVerificationService } from './verification.service.js';
+import { OrderHandoverService } from './handover.service.js';
 
 /**
  * Orders: guest COD checkout (storefront) and admin list/detail/confirm/cancel.
@@ -15,7 +18,12 @@ import { AdminOrdersController, AdminCustomersController } from './admin/orders.
  */
 @Module({
   imports: [AuthModule, CatalogModule, NewsletterModule],
-  controllers: [StorefrontOrdersController, AdminOrdersController, AdminCustomersController],
-  providers: [OrdersService, CustomerRiskService],
+  controllers: [
+    StorefrontOrdersController,
+    AdminOrdersController,
+    AdminCustomersController,
+    AdminOrderVerificationController,
+  ],
+  providers: [OrdersService, CustomerRiskService, OrderVerificationService, OrderHandoverService],
 })
 export class OrdersModule {}

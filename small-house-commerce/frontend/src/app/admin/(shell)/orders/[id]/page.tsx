@@ -1610,14 +1610,26 @@ function OrderDetailPage(): ReactNode {
       <Dialog
         open={dialog !== null}
         onClose={closeDialog}
-        title={dialog === "cancel" ? "Cancel order" : "Confirm order"}
+        title={
+          dialog === "cancel"
+            ? "Cancel order"
+            : reviewDecision === "CANCEL"
+              ? "Cancel order (review decision)"
+              : reviewDecision === "REQUEST_INFO"
+                ? "Request more information"
+                : "Confirm order"
+        }
         width="sm"
       >
         <form onSubmit={onDialogSubmit}>
           <p className="text-sm text-ink-secondary">
             {dialog === "cancel"
               ? `Cancel order ${order.orderNumber}? Reserved stock is released.`
-              : `Confirm order ${order.orderNumber}? This marks it confirmed for fulfillment.`}
+              : reviewDecision === "CANCEL"
+                ? `The review decision "Cancel" cancels order ${order.orderNumber} and releases its reserved stock. The order is not confirmed.`
+                : reviewDecision === "REQUEST_INFO"
+                  ? `Order ${order.orderNumber} goes back to the customer-service queue (QUESTION) and stays unconfirmed until the customer answers.`
+                  : `Confirm order ${order.orderNumber}? This marks it confirmed for fulfillment.`}
           </p>
           {dialog === "confirm" &&
           (order.customerClassification === "RPT" ||
@@ -1641,8 +1653,8 @@ function OrderDetailPage(): ReactNode {
                   >
                     <option value="">Select…</option>
                     <option value="CONFIRM">Confirm — customer verified</option>
-                    <option value="CANCEL">Cancel — refused / unreachable</option>
-                    <option value="REQUEST_INFO">Request info — need details</option>
+                    <option value="CANCEL">Cancel — refuses the order, releases the stock</option>
+                    <option value="REQUEST_INFO">Request info — sends it back to the queue</option>
                   </select>
                 </Field>
                 <Field label="Review note" htmlFor="review-note">
@@ -1687,7 +1699,11 @@ function OrderDetailPage(): ReactNode {
                 ? "Working…"
                 : dialog === "cancel"
                   ? "Cancel order"
-                  : "Confirm"}
+                  : reviewDecision === "CANCEL"
+                    ? "Cancel order"
+                    : reviewDecision === "REQUEST_INFO"
+                      ? "Send back to the queue"
+                      : "Confirm"}
             </Button>
           </div>
         </form>

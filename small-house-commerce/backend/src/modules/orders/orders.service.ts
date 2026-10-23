@@ -36,6 +36,46 @@ import {
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 
+/**
+ * The verification progress of one order, as the workbench table shows it
+ * under the status: how many questions are done and how many are still open.
+ */
+export interface VerificationSummary {
+  assigned: boolean;
+  done: number;
+  total: number;
+  pending: number;
+  problem: number;
+  priority: string | null;
+  nextFollowUpAt: Date | null;
+  assigneeId: string | null;
+}
+
+function verificationSummary(
+  assignments:
+    | {
+        id: string;
+        assigneeId: string | null;
+        priority: string;
+        nextFollowUpAt: Date | null;
+        items: { required: boolean; status: string }[];
+      }[]
+    | undefined,
+): VerificationSummary {
+  const assignment = assignments?.[0] ?? null;
+  const items = assignment?.items ?? [];
+  return {
+    assigned: Boolean(assignment),
+    done: items.filter((i) => i.status === 'DONE' || i.status === 'SKIPPED').length,
+    total: items.length,
+    pending: items.filter((i) => i.status === 'PENDING').length,
+    problem: items.filter((i) => i.status === 'PROBLEM').length,
+    priority: assignment?.priority ?? null,
+    nextFollowUpAt: assignment?.nextFollowUpAt ?? null,
+    assigneeId: assignment?.assigneeId ?? null,
+  };
+}
+
 const ORDER_DETAIL_INCLUDE = {
   customer: {
     include: {
@@ -56,6 +96,24 @@ const ORDER_DETAIL_INCLUDE = {
   shipments: {
     include: { items: { include: { orderItem: true } } },
     orderBy: { createdAt: 'desc' as const },
+  },
+  verificationAssignments: {
+    where: { closedAt: null },
+    select: {
+      id: true,
+      assigneeId: true,
+      priority: true,
+      nextFollowUpAt: true,
+      items: {
+        select: {
+          id: true,
+          itemKey: true,
+          titleSnapshot: true,
+          required: true,
+          status: true,
+        },
+      },
+    },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -610,6 +668,9 @@ export class OrdersService {
         );
       }
 
+    // The verification checklist is a record of what the operator checked,
+    // not a gate: an order may be confirmed with open questions.
+
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -772,23 +833,172 @@ export class OrdersService {
    * buckets the tabs surface: needsReview (RPT/RECHECK queue) and duplicate
    * (unresolved POSSIBLE_DUPLICATE flags).
    */
-  async counts() {
-    const [byStatus, needsReview, duplicate] = await Promise.all([
+  /**
+   * The counters of the workbench tab bar.
+   *
+   * Every number is computed with the filters of the current list, so the
+   * tab bar always describes the list the operator is looking at: switching
+   * a filter changes the numbers, not only the rows.
+   */
+  async counts(
+    query: OrderQuery = { page: 1, pageSize: 20 },
+    currentUserId?: string,
+  ) {
+    const base = this.buildListWhere(query);
+    const bucket = (queue: string) => this.queueWhere(queue, currentUserId);
+    const [
+      byStatus,
+      needsReview,
+      duplicate,
+      all,
+      todo,
+      recheck,
+      toship,
+      shipping,
+      exception,
+      signed,
+      cods,
+      cancelled,
+      mine,
+    ] = await Promise.all([
       this.prisma.order.groupBy({ by: ['orderStatus'], _count: { _all: true } }),
       this.prisma.order.count({
-        where: { confirmationStatus: 'NEEDS_REVIEW' },
+        where: { AND: [base, { confirmationStatus: 'NEEDS_REVIEW' }] },
       }),
       this.prisma.order.count({
-        where: { riskFlags: { some: { flagType: 'POSSIBLE_DUPLICATE', resolved: false } } },
+        where: {
+          AND: [
+            base,
+            { riskFlags: { some: { flagType: 'POSSIBLE_DUPLICATE', resolved: false } } },
+          ],
+        },
       }),
+      this.prisma.order.count({ where: base }),
+      this.prisma.order.count({ where: { AND: [base, bucket('todo')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('recheck')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('toship')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('shipping')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('exception')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('signed')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('cods')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('cancelled')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('mine')] } }),
     ]);
-    const counts: Record<string, number> = {};
-    let total = 0;
+    const statusCounts: Record<string, number> = {};
     for (const row of byStatus) {
-      counts[row.orderStatus] = row._count._all;
-      total += row._count._all;
+      statusCounts[row.orderStatus] = row._count._all;
     }
-    return { total, byStatus: counts, needsReview, duplicate };
+    return {
+      total: all,
+      byStatus: statusCounts,
+      needsReview,
+      duplicate,
+      todo,
+      recheck,
+      toship,
+      shipping,
+      exception,
+      signed,
+      codPending: cods,
+      cancelled,
+      mine,
+      queues: {
+        all,
+        todo,
+        recheck,
+        toship,
+        shipping,
+        exception,
+        signed,
+        cods,
+        cancelled,
+        mine,
+      },
+    };
+  }
+
+  /**
+   * Every order of one phone number, with the numbers the workbench needs
+   * to judge the customer: how often they sign for an order, what is still
+   * on the way, and what was cancelled.
+   */
+  async customerOrderHistory(phone: string) {
+    const orders = await this.prisma.order.findMany({
+      where: { customer: { normalizedPhone: phone } },
+      include: {
+        customer: { select: { name: true } },
+        items: {
+          select: {
+            id: true,
+            skuCodeSnapshot: true,
+            productNameSnapshot: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+          },
+        },
+        riskFlags: { where: { resolved: false } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const signed = orders.filter((o) => o.orderStatus === 'SIGNED').length;
+    const shipping = orders.filter((o) => o.orderStatus === 'SHIPPING').length;
+    const open = orders.filter((o) =>
+      ['NEW', 'PENDING', 'QUESTION'].includes(o.orderStatus),
+    ).length;
+    const confirmed = orders.filter((o) => o.orderStatus === 'CONFIRMED').length;
+    const cancelled = orders.filter((o) => o.orderStatus === 'CANCELLED').length;
+    const exception = orders.filter(
+      (o) => o.orderStatus === 'SHIPPING' && o.riskFlags.length > 0,
+    ).length;
+    const value = orders.reduce((sum, o) => sum + Number(o.grandTotal ?? 0), 0);
+    // The owner (customer-service assignee) of every order, resolved from the
+    // users table - the schema stores the id without a relation.
+    const assignedIds = [
+      ...new Set(orders.map((o) => o.assignedToId).filter((id): id is string => Boolean(id))),
+    ];
+    const operators = assignedIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: assignedIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(operators.map((u) => [u.id, u.name]));
+    return {
+      phone,
+      customerName: orders[0]?.customer.name ?? null,
+      customerClassification: orders[0]?.customerClassification ?? null,
+      total: orders.length,
+      signed,
+      rate: orders.length ? Math.round((signed / orders.length) * 100) : 0,
+      shipping,
+      open,
+      confirmed,
+      cancelled,
+      exception,
+      value,
+      lastOrderAt: orders[0]?.createdAt ?? null,
+      orders: orders.map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        createdAt: o.createdAt,
+        orderStatus: o.orderStatus,
+        confirmationStatus: o.confirmationStatus,
+        paymentStatus: o.paymentStatus,
+        grandTotal: o.grandTotal,
+        customerClassification: o.customerClassification,
+        ownerName: o.assignedToId ? (nameById.get(o.assignedToId) ?? null) : null,
+        items: o.items.map((i) => ({
+          id: i.id,
+          skuCodeSnapshot: i.skuCodeSnapshot,
+          productNameSnapshot: i.productNameSnapshot,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          lineTotal: i.lineTotal,
+        })),
+        riskFlags: o.riskFlags.map((f) => ({ flagType: f.flagType, reason: f.reason })),
+      })),
+    };
   }
 
   /** SKU search for manual order entry: sellable SKUs matching name/code. */
@@ -851,7 +1061,8 @@ export class OrdersService {
 
         // The status endpoint only moves an order inside the "in progress"
         // states. CONFIRMED, SHIPPING and CANCELLED each have their own
-        // endpoint, because they carry rules (verification, stock, shipment).
+        // endpoint, because they carry rules (verification, stock, shipment)
+        // that a plain status change would walk around.
         const legal: Record<string, OrderStatus[]> = {
           NEW: ['PENDING', 'QUESTION', 'DENIED'],
           PENDING: ['QUESTION', 'DENIED', 'ABNORMAL'],
@@ -1391,9 +1602,8 @@ export class OrdersService {
     return this.get(keptId);
   }
 
-  async list(query: OrderQuery) {
+  private buildListWhere(query: OrderQuery): Prisma.OrderWhereInput {
     const where: Prisma.OrderWhereInput = {};
-
     if (query.status) {
       where.orderStatus =
         query.status.length === 1 ? query.status[0]! : { in: query.status };
@@ -1427,16 +1637,182 @@ export class OrdersService {
         lt: query.dateTo ? manilaDayEndExclusive(query.dateTo) : undefined,
       };
     }
+    // The customer phone is an exact match: the customer history opens with
+    // it and a partial number would mix two customers.
+    if (query.phone) {
+      where.customer = { normalizedPhone: query.phone };
+    }
+    // The product filter looks at the SKU snapshot of the order lines.
+    if (query.sku) {
+      where.items = {
+        some: {
+          OR: [
+            { skuCodeSnapshot: { contains: query.sku, mode: 'insensitive' } },
+            { productNameSnapshot: { contains: query.sku, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+    // Payment method: the first payment row of the order.
+    if (query.payment) {
+      where.payments = { some: { method: query.payment } };
+    }
+    // Region: city or province of the shipping snapshot.
+    if (query.region) {
+      where.shippingAddress = {
+        is: {
+          OR: [
+            { city: { contains: query.region, mode: 'insensitive' } },
+            { province: { contains: query.region, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+    // The verification filters all talk about the open assignment.
+    const verificationFilter: Prisma.OrderVerificationAssignmentWhereInput = { closedAt: null };
+    let filterVerification = false;
+    if (query.priority) {
+      verificationFilter.priority = query.priority;
+      filterVerification = true;
+    }
+    if (query.verification) {
+      filterVerification = true;
+      if (query.verification === 'none') {
+        where.verificationAssignments = { none: { closedAt: null } };
+        filterVerification = false;
+      } else {
+        const status: Prisma.EnumVerificationItemStatusFilter<"OrderVerificationItem"> =
+          query.verification === 'pending'
+            ? { equals: 'PENDING' }
+            : query.verification === 'problem'
+              ? { equals: 'PROBLEM' }
+              : query.verification === 'open'
+                ? { in: ['PENDING', 'PROBLEM'] }
+                : { equals: 'DONE' };
+        verificationFilter.items = { some: { status } };
+      }
+    }
+    if (query.followUp) {
+      const now = new Date();
+      const endOfToday = new Date(now);
+      endOfToday.setHours(23, 59, 59, 999);
+      const endOfWeek = new Date(now);
+      endOfWeek.setDate(endOfWeek.getDate() + 7);
+      const until = query.followUp === 'overdue' ? now : query.followUp === 'today' ? endOfToday : endOfWeek;
+      verificationFilter.nextFollowUpAt = { lte: until };
+      filterVerification = true;
+    }
+    if (filterVerification) {
+      where.verificationAssignments = { some: verificationFilter };
+    }
+
+    return where;
+  }
+
+  /**
+   * The bucket of one work queue (the tabs of the workbench). The counters
+   * and the list use the same definition, so a tab never shows a number that
+   * the list cannot deliver.
+   */
+  private queueWhere(queue: string, assigneeId?: string): Prisma.OrderWhereInput {
+    switch (queue) {
+      case 'todo':
+        return {
+          orderStatus: { in: ['NEW', 'PENDING', 'QUESTION'] },
+          confirmationStatus: { not: 'CONFIRMED' },
+        };
+      case 'recheck':
+        return { customerClassification: { in: ['RPT', 'RECHECK'] } };
+      case 'toship':
+        return { orderStatus: 'CONFIRMED' };
+      case 'shipping':
+        return { orderStatus: 'SHIPPING' };
+      case 'exception':
+        return { orderStatus: 'SHIPPING', riskFlags: { some: { resolved: false } } };
+      case 'signed':
+        return { orderStatus: 'SIGNED' };
+      case 'cods':
+        return { orderStatus: 'SIGNED', paymentStatus: { not: 'SETTLED' } };
+      case 'cancelled':
+        return { orderStatus: { in: ['CANCELLED', 'DENIED'] } };
+      case 'mine':
+        return assigneeId
+          ? {
+              verificationAssignments: {
+                some: {
+                  closedAt: null,
+                  assigneeId,
+                  items: { some: { status: { in: ['PENDING', 'PROBLEM'] } } },
+                },
+              },
+            }
+          : { orderStatus: { in: [] } };
+      default:
+        return {};
+    }
+  }
+
+  async list(query: OrderQuery, currentUserId?: string) {
+    const base = this.buildListWhere(query);
+    // The tab of the workbench selects a bucket of the queue; it is combined
+    // with the filters, never with them.
+    const where: Prisma.OrderWhereInput = query.queue
+      ? { AND: [base, this.queueWhere(query.queue, currentUserId ?? query.assignedTo)] }
+      : base;
+
+    const orderBy =
+      query.sort === 'newest'
+        ? { createdAt: 'desc' as const }
+        : query.sort === 'verify'
+          ? { verificationAssignments: { _count: 'asc' as const } }
+          : { createdAt: 'asc' as const };
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
         where,
         include: {
           customer: true,
-          items: { select: { id: true, skuCodeSnapshot: true, productNameSnapshot: true, quantity: true, lineTotal: true } },
+          // unitPrice is what the table shows as the sold price; shipping
+          // stays a cost and never enters the consumer total.
+          items: {
+            select: {
+              id: true,
+              skuCodeSnapshot: true,
+              productNameSnapshot: true,
+              variantSnapshot: true,
+              quantity: true,
+              lineTotal: true,
+              unitPrice: true,
+            },
+          },
           riskFlags: { where: { resolved: false } },
+          shippingAddress: true,
+          // The payment method of the order (the first payment row).
+          payments: {
+            select: { method: true, status: true },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
+          verificationAssignments: {
+            where: { closedAt: null },
+            select: {
+              id: true,
+              assigneeId: true,
+              priority: true,
+              nextFollowUpAt: true,
+              items: {
+                select: {
+                  id: true,
+                  itemKey: true,
+                  titleSnapshot: true,
+                  required: true,
+                  status: true,
+                },
+              },
+            },
+          },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),
@@ -1451,7 +1827,11 @@ export class OrdersService {
     const nameById = new Map(operators.map((u) => [u.id, u.name]));
     const enriched = items.map((o) => ({
       ...o,
+      // The payment method (COD / online) the table filters on.
+      paymentMethod: o.payments?.[0]?.method ?? null,
       assignedTo: o.assignedToId ? { id: o.assignedToId, name: nameById.get(o.assignedToId) ?? null } : null,
+      // The verification progress the table shows under the status.
+      verification: verificationSummary(o.verificationAssignments),
     }));
 
     return { items: enriched, total, page: query.page, pageSize: query.pageSize };
@@ -1694,6 +2074,8 @@ export class OrdersService {
       ...order,
       assignedTo: assignee,
       assignedBy: assigner,
+      // The same verification progress the list shows.
+      verification: verificationSummary(order.verificationAssignments),
       statusHistory: order.statusHistory.map((h) => ({
         ...h,
         operatorName: h.operatorId ? (nameById.get(h.operatorId) ?? null) : null,

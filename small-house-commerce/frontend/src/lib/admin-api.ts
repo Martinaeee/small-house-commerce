@@ -219,6 +219,8 @@ export interface AdminOrderRow {
   createdAt: string;
   updatedAt: string;
   preferredDeliveryDate: string | null;
+  /** The note the customer service left on the order. */
+  customerNote: string | null;
 }
 
 export interface AdminOrderCustomer {
@@ -230,14 +232,51 @@ export interface AdminOrderCustomer {
   currentRiskLevel: string;
 }
 
+/** The work queues of the order workbench (the tab bar). */
+export type AdminOrderQueue =
+  | "all"
+  | "todo"
+  | "recheck"
+  | "toship"
+  | "shipping"
+  | "exception"
+  | "signed"
+  | "cods"
+  | "cancelled"
+  | "mine";
+
+export type VerificationPriority = "NORMAL" | "HIGH" | "URGENT";
+export type VerificationItemStatus =
+  | "PENDING"
+  | "DONE"
+  | "PROBLEM"
+  | "SKIPPED"
+  | "INVALIDATED";
+
+/** The verification progress the table shows under the order status. */
+export interface AdminVerificationSummary {
+  assigned: boolean;
+  done: number;
+  total: number;
+  pending: number;
+  problem: number;
+  priority: VerificationPriority | null;
+  nextFollowUpAt: string | null;
+  assigneeId: string | null;
+}
+
 export interface AdminOrderListRow extends AdminOrderRow {
   customer: AdminOrderCustomer;
   items: {
     id: string;
     skuCodeSnapshot: string;
     productNameSnapshot: string;
+    /** The variant text the customer picked (colour, size, ...). */
+    variantSnapshot: string;
     quantity: number;
     lineTotal: string;
+    /** The sold unit price — the table shows it, never a computed total. */
+    unitPrice: string;
   }[];
   assignedTo: { id: string; name: string | null } | null;
   riskFlags: {
@@ -246,6 +285,165 @@ export interface AdminOrderListRow extends AdminOrderRow {
     reason: string | null;
     resolved: boolean;
     createdAt: string;
+  }[];
+  /** The address snapshot, so the table can show the region. */
+  shippingAddress: {
+    streetAddress: string;
+    barangay: string | null;
+    city: string;
+    province: string;
+    postalCode: string | null;
+    landmark: string | null;
+  } | null;
+  /** The payment method of the order (COD / online). */
+  paymentMethod: string | null;
+  verification: AdminVerificationSummary;
+}
+
+export interface AdminHandoverLine {
+  orderItemId: string;
+  quantity: number;
+  skuCodeSnapshot: string;
+}
+
+export interface AdminHandoverSummary {
+  handedOver: AdminHandoverLine[];
+  outstanding: AdminHandoverLine[];
+  rejected: number;
+  withdrawn: number;
+  complete: boolean;
+  events: {
+    id: string;
+    type: string;
+    disposition: string | null;
+    occurredAt: string;
+    operatorId: string | null;
+    reason: string | null;
+    note: string | null;
+  }[];
+}
+
+export interface AdminHandoverEvent {
+  id: string;
+  orderId: string;
+  type: string;
+  disposition: string | null;
+  occurredAt: string;
+  operatorId: string | null;
+  reason: string | null;
+  note: string | null;
+  items: unknown;
+}
+
+export interface AdminVerificationItem {
+  id: string;
+  orderId: string;
+  assignmentId: string | null;
+  itemKey: string;
+  category: string;
+  titleSnapshot: string;
+  /** The person who checks this question - it can differ from the owner. */
+  assigneeId: string | null;
+  status: VerificationItemStatus;
+  result: string | null;
+  note: string | null;
+  operatorId: string | null;
+  completedAt: string | null;
+  nextFollowUpAt: string | null;
+  skippedReason: string | null;
+  invalidatedAt: string | null;
+  invalidatedReason: string | null;
+  rev: number;
+}
+
+export interface AdminVerificationAssignment {
+  id: string;
+  orderId: string;
+  assigneeId: string | null;
+  assignedById: string;
+  assignedAt: string;
+  closedAt: string | null;
+  priority: VerificationPriority;
+  nextFollowUpAt: string | null;
+  note: string | null;
+  rev: number;
+}
+
+export interface AdminVerificationEvent {
+  id: string;
+  orderId: string;
+  itemId: string | null;
+  type: string;
+  fromStatus: VerificationItemStatus | null;
+  toStatus: VerificationItemStatus | null;
+  result: string | null;
+  note: string | null;
+  operatorId: string | null;
+  createdAt: string;
+}
+
+export interface AdminVerificationState {
+  assignment: AdminVerificationAssignment | null;
+  items: AdminVerificationItem[];
+  events: AdminVerificationEvent[];
+}
+
+export interface AdminVerificationTemplateItem {
+  key: string;
+  title: string;
+}
+
+export interface AdminVerificationLibraryItem extends AdminVerificationTemplateItem {
+  category: string;
+  subject: string;
+}
+
+export interface AdminVerificationTemplates {
+  system: { key: string; name: string; items: string[] }[];
+  library: AdminVerificationLibraryItem[];
+  custom: {
+    id: string;
+    name: string;
+    scope: string;
+    ownerId: string | null;
+    items: AdminVerificationTemplateItem[];
+  }[];
+}
+
+/** Every order of one phone number, with the signature rate. */
+export interface AdminCustomerOrderHistory {
+  phone: string;
+  customerName: string | null;
+  customerClassification: string | null;
+  total: number;
+  signed: number;
+  rate: number;
+  shipping: number;
+  open: number;
+  confirmed: number;
+  cancelled: number;
+  exception: number;
+  value: number;
+  lastOrderAt: string | null;
+  orders: {
+    id: string;
+    orderNumber: string;
+    createdAt: string;
+    orderStatus: string;
+    confirmationStatus: string;
+    paymentStatus: string;
+    grandTotal: string;
+    customerClassification: string | null;
+    ownerName: string | null;
+    items: {
+      id: string;
+      skuCodeSnapshot: string;
+      productNameSnapshot: string;
+      quantity: number;
+      unitPrice: string;
+      lineTotal: string;
+    }[];
+    riskFlags: { flagType: string; reason: string | null }[];
   }[];
 }
 
@@ -375,6 +573,7 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     amount: string;
     reference: string | null;
     paidAt: string | null;
+    createdAt: string;
   }[];
   statusHistory: AdminStatusHistory[];
   reservations: {
@@ -1394,6 +1593,24 @@ export const adminApi = {
     assignedTo?: string;
     risk?: string;
     search?: string;
+    /** Exact customer phone (E.164) - opens the customer history. */
+    phone?: string;
+    /** Product: a SKU code or part of the product name. */
+    sku?: string;
+    /** The priority of the open verification assignment. */
+    priority?: VerificationPriority;
+    /** The state of the open verification assignment. */
+    verification?: "none" | "pending" | "problem" | "done" | "open";
+    /** The next follow-up of the open verification assignment. */
+    followUp?: "overdue" | "today" | "week";
+    /** Work-queue ordering. */
+    sort?: "waiting" | "newest" | "verify";
+    /** Payment method of the order. */
+    payment?: "COD" | "AIRWALLEX";
+    /** City or province of the shipping snapshot. */
+    region?: string;
+    /** The work queue bucket the tab bar selects. */
+    queue?: AdminOrderQueue;
     dateFrom?: string;
     dateTo?: string;
     page?: number;
@@ -1408,6 +1625,15 @@ export const adminApi = {
         assignedTo: p.assignedTo,
         risk: p.risk,
         search: p.search,
+        phone: p.phone,
+        sku: p.sku,
+        priority: p.priority,
+        verification: p.verification,
+        followUp: p.followUp,
+        sort: p.sort,
+        payment: p.payment,
+        region: p.region,
+        queue: p.queue,
         dateFrom: p.dateFrom,
         dateTo: p.dateTo,
         page: p.page,
@@ -1455,6 +1681,28 @@ export const adminApi = {
     adminAuthedFetch(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}/sign`,
       { method: "POST" },
+    ),
+
+  // --- Warehouse handover (stage 1A) ---
+
+  handoverSummary: (orderId: string): Promise<AdminHandoverSummary> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/handover`,
+    ),
+
+  recordHandover: (
+    orderId: string,
+    input: {
+      type: "HANDED_OVER" | "REJECTED" | "WITHDRAWN";
+      occurredAt?: string | null;
+      reason?: string | null;
+      note?: string | null;
+      items: { orderItemId: string; quantity: number }[];
+    },
+  ): Promise<AdminHandoverEvent> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/handover`,
+      { method: "POST", body: JSON.stringify(input) },
     ),
 
   // --- Order workbench (2026-09-18 spec) ---
@@ -1526,12 +1774,134 @@ export const adminApi = {
       `/api/v1/admin/orders/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
     ),
 
-  orderCounts: (): Promise<{
+  orderCounts: (
+    p?: {
+      status?: string;
+      paymentStatus?: string;
+      classification?: string;
+      confirmation?: string;
+      assignedTo?: string;
+      risk?: string;
+      search?: string;
+      phone?: string;
+      sku?: string;
+      priority?: VerificationPriority;
+      verification?: "none" | "pending" | "problem" | "done" | "open";
+      followUp?: "overdue" | "today" | "week";
+      payment?: "COD" | "AIRWALLEX";
+      region?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    },
+  ): Promise<{
     total: number;
     byStatus: Record<string, number>;
     needsReview: number;
     duplicate: number;
-  }> => adminAuthedFetch(`/api/v1/admin/orders/counts`),
+    /** Still in progress and not confirmed yet. */
+    todo: number;
+    /** The customer classification asks for a human decision. */
+    recheck: number;
+    /** Confirmed and waiting for the warehouse. */
+    toship: number;
+    /** On the way. */
+    shipping: number;
+    /** On the way with an unresolved risk flag. */
+    exception: number;
+    /** Delivered. */
+    signed: number;
+    /** Delivered, waiting for the COD settlement. */
+    codPending: number;
+    cancelled: number;
+    /** My open verification work. */
+    mine: number;
+    /** The counters of the work queue tabs. */
+    queues: Record<string, number>;
+  }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/counts${buildQuery({
+        status: p?.status,
+        paymentStatus: p?.paymentStatus,
+        classification: p?.classification,
+        confirmation: p?.confirmation,
+        assignedTo: p?.assignedTo,
+        risk: p?.risk,
+        search: p?.search,
+        phone: p?.phone,
+        sku: p?.sku,
+        priority: p?.priority,
+        verification: p?.verification,
+        followUp: p?.followUp,
+        payment: p?.payment,
+        region: p?.region,
+        dateFrom: p?.dateFrom,
+        dateTo: p?.dateTo,
+      })}`,
+    ),
+
+  // --- Manual COD verification (stage 1A) ---
+
+  orderVerification: (orderId: string): Promise<AdminVerificationState> =>
+    adminAuthedFetch<AdminVerificationState>(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/verification`,
+    ),
+
+  assignVerification: (
+    orderId: string,
+    input: {
+      assigneeId?: string | null;
+      priority?: VerificationPriority;
+      itemKeys?: string[];
+      customItems?: { key: string; title: string }[];
+      /** The person who checks a single question. */
+      itemAssignees?: { itemKey: string; assigneeId: string | null }[];
+      /** The handover note of a single question. */
+      itemNotes?: { itemKey: string; note: string | null }[];
+      note?: string | null;
+      nextFollowUpAt?: string | null;
+    },
+  ): Promise<{ assignment: AdminVerificationAssignment; items: AdminVerificationItem[] }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/verification/assign`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  setVerificationResult: (
+    orderId: string,
+    itemKey: string,
+    input: {
+      status: VerificationItemStatus;
+      result?: string | null;
+      note?: string | null;
+      nextFollowUpAt?: string | null;
+      skippedReason?: string | null;
+      rev?: number;
+    },
+  ): Promise<AdminVerificationItem> =>
+    adminAuthedFetch<AdminVerificationItem>(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/verification/${encodeURIComponent(itemKey)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  recordVerificationContact: (
+    orderId: string,
+    input: { itemKey?: string | null; result: string; note?: string | null },
+  ): Promise<AdminVerificationEvent> =>
+    adminAuthedFetch<AdminVerificationEvent>(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/verification/contact`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  verificationTemplates: (): Promise<AdminVerificationTemplates> =>
+    adminAuthedFetch<AdminVerificationTemplates>(
+      `/api/v1/admin/orders/verification/templates`,
+    ),
+
+  /** Every order of one phone number, with the signature rate. */
+  customerOrderHistory: (phone: string): Promise<AdminCustomerOrderHistory> =>
+    adminAuthedFetch<AdminCustomerOrderHistory>(
+      `/api/v1/admin/orders/customer-history${buildQuery({ phone })}`,
+    ),
 
   /** Manual order entry (phone orders) — reuses the storefront checkout payload. */
   createOrder: (input: {

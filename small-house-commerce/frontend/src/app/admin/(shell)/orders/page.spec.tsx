@@ -1,88 +1,295 @@
-import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import type { AdminOrderListRow } from "@/lib/admin-api";
 import AdminOrdersPage from "./page";
 
 const api = vi.hoisted(() => ({
   listOrders: vi.fn(),
-  listAssignees: vi.fn(),
   orderCounts: vi.fn(),
+  listAssignees: vi.fn(),
+  listSkus: vi.fn(),
+  assignOrder: vi.fn(),
+  confirmOrder: vi.fn(),
+  cancelOrder: vi.fn(),
+  createOrder: vi.fn(),
+  orderVerification: vi.fn(),
+  setVerificationResult: vi.fn(),
+  verificationTemplates: vi.fn(),
+  assignVerification: vi.fn(),
+  recordVerificationContact: vi.fn(),
+  customerOrderHistory: vi.fn(),
+  getOrder: vi.fn(),
 }));
+
 const navigation = vi.hoisted(() => ({ query: "" }));
 
-vi.mock("@/lib/admin-api", () => ({
-  adminApi: api,
-  formatAmount: (value: string) => value,
-}));
-
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/orders",
-  useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(navigation.query),
 }));
 
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
   useAdminAuth: () => ({
-    status: "authed",
-    admin: { id: "admin-1", name: "Admin", permissions: [] },
     hasPermission: () => true,
-    logout: vi.fn(),
+    admin: { id: "staff-a", name: "客服 A", email: "a@b.c", status: "ACTIVE", roles: [], permissions: [] },
   }),
 }));
 
-vi.mock("@/lib/admin-i18n", () => ({
-  useAdminI18n: () => ({ t: (key: string) => key }),
+vi.mock("@/lib/admin-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/admin-api")>()),
+  adminApi: api,
 }));
 
+function row(over: Partial<AdminOrderListRow> = {}): AdminOrderListRow {
+  return {
+    id: "order-1",
+    orderNumber: "PH100004",
+    orderStatus: "NEW",
+    confirmationStatus: "UNCONFIRMED",
+    paymentStatus: "COD_PENDING",
+    customerClassification: "NEW",
+    customerId: "cust-1",
+    assignedToId: null,
+    createdAt: "2026-10-21T14:22:00.000Z",
+    subtotal: "1499",
+    discountTotal: "0",
+    shippingTotal: "0",
+    grandTotal: "1499",
+    currency: "PHP",
+    customer: { id: "cust-1", name: "Marisol Reyes", normalizedPhone: "+639171224466" },
+    items: [
+      {
+        id: "line-1",
+        skuCodeSnapshot: "SKU-FD-140-WN",
+        productNameSnapshot: "Foldable Desk with Wood-Grain Top",
+        variantSnapshot: "Wood grain",
+        quantity: 1,
+        lineTotal: "1499",
+        unitPrice: "1499",
+      },
+    ],
+    assignedTo: null,
+    riskFlags: [],
+    shippingAddress: {
+      streetAddress: "24-B Kamuning St.",
+      barangay: "Kamuning",
+      city: "Quezon City",
+      province: "Metro Manila",
+      postalCode: "1103",
+      landmark: null,
+    },
+    paymentMethod: "COD",
+    verification: {
+      assigned: true,
+      done: 1,
+      total: 8,
+      pending: 6,
+      problem: 1,
+      requiredMissing: 5,
+      priority: "HIGH",
+      nextFollowUpAt: null,
+      assigneeId: "staff-a",
+    },
+    ...over,
+  } as unknown as AdminOrderListRow;
+}
+
+function renderPage() {
+  return render(
+    <AdminI18nProvider>
+      <AdminOrdersPage />
+    </AdminI18nProvider>,
+  );
+}
+
 beforeEach(() => {
-  vi.clearAllMocks();
+  cleanup();
+  setAdminLang("en");
   navigation.query = "";
-  api.listOrders.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 });
-  api.listAssignees.mockResolvedValue([]);
+  vi.clearAllMocks();
+  api.listOrders.mockResolvedValue({ items: [row()], total: 1, page: 1, pageSize: 20 });
   api.orderCounts.mockResolvedValue({
-    total: 0,
-    byStatus: {},
+    total: 1,
+    byStatus: { NEW: 1 },
     needsReview: 0,
     duplicate: 0,
+    todo: 1,
+    recheck: 0,
+    toship: 0,
+    shipping: 0,
+    exception: 0,
+    signed: 0,
+    codPending: 0,
+    cancelled: 0,
+    mine: 1,
+    queues: {
+      all: 1,
+      todo: 1,
+      recheck: 0,
+      toship: 0,
+      shipping: 0,
+      exception: 0,
+      signed: 0,
+      cods: 0,
+      cancelled: 0,
+      mine: 1,
+    },
+  });
+  api.listAssignees.mockResolvedValue([{ id: "staff-a", name: "客服 A" }]);
+  api.customerOrderHistory.mockResolvedValue({
+    phone: "+639171224466",
+    total: 4,
+    signed: 1,
+    rate: 25,
+    shipping: 1,
+    open: 1,
+    confirmed: 0,
+    cancelled: 1,
+    exception: 0,
+    value: 5145,
+    lastOrderAt: "2026-10-21T16:02:00.000Z",
+    orders: [],
+  });
+  api.orderVerification.mockResolvedValue({ assignment: null, items: [], events: [] });
+});
+
+describe("the order workbench list", () => {
+  it("shows the wide ERP table with the real fields", async () => {
+    renderPage();
+
+    expect(await screen.findByText("PH100004")).toBeTruthy();
+    // the verification progress sits under the status
+    expect(screen.getByText(/1\/8/)).toBeTruthy();
+    // the real unit price, not a computed total - whole pesos, as the draft
+    expect(screen.getAllByText("₱1,499").length).toBeGreaterThan(0);
+    // the order time is the short form, with how long it has been waiting
+    expect(screen.getByText(/^\d{2}-\d{2} \d{2}:\d{2}$/)).toBeTruthy();
+    expect(screen.getByText(/⏱ \d+(天 \d+小时|小时 \d+分)/)).toBeTruthy();
+    // the address and the region are two columns
+    expect(screen.getByText("24-B Kamuning St., Kamuning, Quezon City, Metro Manila")).toBeTruthy();
+    expect(screen.getByText("Quezon City")).toBeTruthy();
+    // the columns of the workbench, in reading order
+    for (const header of [
+      "Order no.",
+      "Customer",
+      "Phone",
+      "Status",
+      "Product",
+      "SKU",
+      "Qty",
+      "Sold price",
+      "Order total",
+      "Placed at",
+      "Note",
+      "Address",
+      "Region",
+      "History",
+      "Actions",
+    ]) {
+      expect(screen.getByRole("columnheader", { name: new RegExp(`^${header}`) })).toBeTruthy();
+    }
+  });
+
+  it("keeps the shipping cost column hidden until the operator asks for it", async () => {
+    renderPage();
+
+    await screen.findByText("PH100004");
+    expect(screen.queryByRole("columnheader", { name: /^Shipping \(cost\)/ })).toBeNull();
+  });
+
+  it("shows the queue tabs with their counters", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: /All orders/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Review/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /To ship/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /My todos/ })).toBeTruthy();
+  });
+
+  it("opens the customer history from the phone number", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const phone = await screen.findByRole("button", { name: "+639171224466" });
+    await user.click(phone);
+
+    await waitFor(() => {
+      expect(api.customerOrderHistory).toHaveBeenCalledWith("+639171224466");
+    });
+    expect(await screen.findByText(/Customer order history/)).toBeTruthy();
+    expect(screen.getByText("25%")).toBeTruthy();
+  });
+
+  it("opens the verification drawer from the row", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Continue verifying" }));
+
+    await waitFor(() => {
+      expect(api.orderVerification).toHaveBeenCalledWith("order-1");
+    });
+  });
+
+  it("opens the order drawer with its five tabs", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "PH100004" }));
+
+    expect(await screen.findByRole("tab", { name: "Overview" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Verification" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Customer" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Items" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "History" })).toBeTruthy();
   });
 });
 
-describe("admin orders page filters", () => {
-  it("filters the list by the payment status named in the URL", async () => {
+describe("dashboard and notification deep links", () => {
+  it("filters by the payment status named in the URL", async () => {
     navigation.query = "paymentStatus=FAILED";
-
-    render(<AdminOrdersPage />);
+    renderPage();
 
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
     expect(api.listOrders.mock.calls[0][0]).toMatchObject({ paymentStatus: "FAILED" });
   });
 
-  it("shows the payment filter as an active control instead of hiding it", async () => {
+  it("shows the applied payment status as a checked control", async () => {
+    const user = userEvent.setup();
     navigation.query = "paymentStatus=FAILED";
-
-    render(<AdminOrdersPage />);
+    renderPage();
 
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
-    const select = screen.getByLabelText("Payment") as HTMLSelectElement;
-    expect(select.value).toBe("FAILED");
+    await user.click(screen.getByRole("button", { name: "More filters" }));
+    const box = screen.getByRole("checkbox", { name: "FAILED" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
   });
 
-  it("sends no payment filter when the parameter is absent", async () => {
-    render(<AdminOrdersPage />);
+  it("sends no payment status when the parameter is absent", async () => {
+    renderPage();
 
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
     expect(api.listOrders.mock.calls[0][0].paymentStatus).toBeUndefined();
   });
 
-  it("shows the multi-status filter the dashboard links with", async () => {
-    navigation.query = "status=NEW,PENDING,QUESTION&paymentStatus=FAILED";
-
-    render(<AdminOrdersPage />);
+  it("shows the multi-status set the dashboard links with", async () => {
+    navigation.query = "status=NEW,PENDING,QUESTION";
+    renderPage();
 
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
-    const select = screen.getByLabelText("Status") as HTMLSelectElement;
-    // The applied statuses must be visible — an empty select would hide a
-    // filter that is really narrowing the list.
+    const select = screen.getByLabelText("Order Status") as HTMLSelectElement;
     expect(select.value).toBe("NEW,PENDING,QUESTION");
     expect(select.selectedOptions[0]?.textContent).toContain("NEW");
+  });
+
+  it("filters by the confirmation link of the notifications", async () => {
+    navigation.query = "confirmation=NEEDS_REVIEW";
+    renderPage();
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    expect(api.listOrders.mock.calls[0][0]).toMatchObject({ confirmation: "NEEDS_REVIEW" });
   });
 });

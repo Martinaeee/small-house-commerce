@@ -110,6 +110,37 @@ export const orderQuerySchema = z.object({
   assignedTo: z.string().uuid().optional(),
   risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
   search: z.string().max(255).optional(),
+  // Exact customer phone (E.164). The customer history opens with it.
+  phone: z.string().max(32).optional(),
+  // Product: a SKU code or part of the product name.
+  sku: z.string().max(64).optional(),
+  // The priority of the open verification assignment.
+  priority: z.enum(['NORMAL', 'HIGH', 'URGENT']).optional(),
+  // The state of the open verification assignment.
+  verification: z.enum(['none', 'pending', 'problem', 'done', 'open']).optional(),
+  // The next follow-up of the open verification assignment.
+  followUp: z.enum(['overdue', 'today', 'week']).optional(),
+  // Work-queue ordering.
+  sort: z.enum(['waiting', 'newest', 'verify']).optional(),
+  // Payment method of the order (COD / online).
+  payment: z.enum(['COD', 'AIRWALLEX']).optional(),
+  // City or province of the shipping snapshot.
+  region: z.string().trim().max(64).optional(),
+  // The work queue the tab bar selects.
+  queue: z
+    .enum([
+      'all',
+      'todo',
+      'recheck',
+      'toship',
+      'shipping',
+      'exception',
+      'signed',
+      'cods',
+      'cancelled',
+      'mine',
+    ])
+    .optional(),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
   page: z.coerce.number().int().positive().default(1),
