@@ -1468,7 +1468,7 @@ describe("scoped gallery integration", () => {
     renderPdp({ item: landingProduct, path: "/lp/chair-sale" });
 
     await user.click(screen.getByRole("button", { name: "View media 2" }));
-    await user.click(screen.getByRole("button", { name: "Open image gallery" }));
+    await user.click(screen.getByRole("button", { name: "Open media 2" }));
     expect(screen.getByRole("dialog", { name: "Product image gallery" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Blue" }));

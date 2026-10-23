@@ -67,7 +67,10 @@ export function discountPct(sku: Sku): number {
   return Math.round((1 - sku.price / sku.compareAtPrice) * 100);
 }
 
-export function useCartRecommendations(cart: CartSummary | null): Product[] {
+export function useCartRecommendations(
+  cart: CartSummary | null,
+  take: number = RECOMMENDATIONS_TAKE,
+): Product[] {
   const cartSlugs = useMemo(
     () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
     [cart],
@@ -148,8 +151,8 @@ export function useCartRecommendations(cart: CartSummary | null): Product[] {
       if (seen.has(product.slug)) continue;
       seen.add(product.slug);
       chosen.push(product);
-      if (chosen.length >= RECOMMENDATIONS_TAKE) break;
+      if (chosen.length >= take) break;
     }
     return chosen;
-  }, [pools, cartKey, cartSlugs]);
+  }, [pools, cartKey, cartSlugs, take]);
 }

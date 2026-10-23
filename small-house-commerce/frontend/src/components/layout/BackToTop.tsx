@@ -46,13 +46,13 @@ export function BackToTop() {
       aria-label="Back to top"
       aria-hidden={!visible}
       tabIndex={visible ? 0 : -1}
-      className={`fixed right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-cta shadow-md outline-none transition-opacity duration-200 hover:bg-primary-light focus-visible:ring-2 focus-visible:ring-cta ${
+      className={`fixed right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-cta text-cta-foreground shadow-xl ring-2 ring-white/70 outline-none transition-opacity duration-200 hover:bg-cta-hover focus-visible:ring-4 focus-visible:ring-white ${
         tallMobileBar
           ? "bottom-[calc(8rem+env(safe-area-inset-bottom)+0.75rem)]"
           : "bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)]"
       } md:bottom-24 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-5 w-5" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} className="h-6 w-6" aria-hidden="true">
         <path d="M12 19V5" strokeLinecap="round" />
         <path d="M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>

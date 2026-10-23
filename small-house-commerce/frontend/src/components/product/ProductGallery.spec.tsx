@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductImage } from "@/lib/api";
 import { ProductGallery } from "./ProductGallery";
 
@@ -41,13 +41,28 @@ function Harness() {
   );
 }
 
+function giveTrackSize(track: HTMLElement, width = 300) {
+  Object.defineProperty(track, "clientWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(track, "scrollLeft", {
+    configurable: true,
+    writable: true,
+    value: 0,
+  });
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("ProductGallery video", () => {
   it("loads only the active video and keeps mixed-media indices stable", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
     const videoThumb = screen.getByRole("button", { name: "View media 2" });
-    expect(videoThumb.querySelector("video")).toBeNull();
     expect(document.querySelectorAll("video")).toHaveLength(0);
 
     await user.click(videoThumb);
@@ -66,18 +81,19 @@ describe("ProductGallery video", () => {
 });
 
 describe("ProductGallery phone presentation", () => {
-  it("drops the stage frame and lets the phone image run edge to edge", () => {
+  it("runs the swipe track edge to edge with no frame around the media", () => {
     render(<Harness />);
 
-    const stage = screen.getByRole("button", { name: "Open image gallery" });
-    expect(stage.classList.contains("border")).toBe(false);
-    expect(stage.classList.contains("rounded-lg")).toBe(false);
-
-    // The gallery escapes the page padding on phones and returns to the
-    // content column from sm up.
-    const root = stage.parentElement as HTMLElement;
+    const track = screen.getByRole("group", { name: "Product media" });
+    const root = track.parentElement as HTMLElement;
     expect(root.className).toMatch(/-mx-4/);
     expect(root.className).toMatch(/sm:mx-0/);
+    expect(track.className).toMatch(/snap-x/);
+    expect(track.className).toMatch(/overflow-x-auto/);
+
+    const firstSlide = screen.getByRole("button", { name: "Open media 1" });
+    expect(firstSlide.classList.contains("border")).toBe(false);
+    expect(firstSlide.classList.contains("rounded-lg")).toBe(false);
   });
 
   it("uses the next image behind the overflow tile instead of a flat colour", () => {
@@ -114,80 +130,76 @@ describe("ProductGallery phone presentation", () => {
       expect(thumb.classList.contains(cls)).toBe(true);
     }
   });
+});
 
-  it("swipes sideways to change the image without opening the lightbox", () => {
+describe("ProductGallery swipe", () => {
+  it("reports the next image after the carousel settles", () => {
+    vi.useFakeTimers();
     const onSelect = vi.fn();
-    const onOpenLightbox = vi.fn();
     render(
       <ProductGallery
         images={media}
         active={0}
         onSelect={onSelect}
-        onOpenLightbox={onOpenLightbox}
+        onOpenLightbox={vi.fn()}
       />,
     );
 
-    const stage = screen.getByRole("button", { name: "Open image gallery" });
-    fireEvent.pointerDown(stage, {
-      pointerType: "touch",
-      clientX: 320,
-      clientY: 200,
-    });
-    fireEvent.pointerUp(stage, {
-      pointerType: "touch",
-      clientX: 180,
-      clientY: 208,
+    const track = screen.getByRole("group", { name: "Product media" });
+    giveTrackSize(track);
+    (track as HTMLDivElement).scrollLeft = 300;
+    fireEvent.scroll(track);
+    act(() => {
+      vi.advanceTimersByTime(150);
     });
 
     expect(onSelect).toHaveBeenCalledWith(1);
-    // The click that follows the gesture must not also open the lightbox.
-    fireEvent.click(stage);
-    expect(onOpenLightbox).not.toHaveBeenCalled();
   });
 
-  it("ignores a small jiggle, a vertical scroll and a mouse drag", () => {
+  it("keeps the current image when the finger barely moved", () => {
+    vi.useFakeTimers();
     const onSelect = vi.fn();
     render(
       <ProductGallery
         images={media}
-        active={1}
+        active={0}
         onSelect={onSelect}
         onOpenLightbox={vi.fn()}
       />,
     );
 
-    const stage = screen.getByRole("button", { name: "Open image gallery" });
-    fireEvent.pointerDown(stage, { pointerType: "touch", clientX: 300, clientY: 200 });
-    fireEvent.pointerUp(stage, { pointerType: "touch", clientX: 280, clientY: 205 });
-    expect(onSelect).not.toHaveBeenCalled();
+    const track = screen.getByRole("group", { name: "Product media" });
+    giveTrackSize(track);
+    (track as HTMLDivElement).scrollLeft = 40;
+    fireEvent.scroll(track);
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
 
-    fireEvent.pointerDown(stage, { pointerType: "touch", clientX: 300, clientY: 300 });
-    fireEvent.pointerUp(stage, { pointerType: "touch", clientX: 300, clientY: 120 });
-    expect(onSelect).not.toHaveBeenCalled();
-
-    fireEvent.pointerDown(stage, { pointerType: "mouse", clientX: 320, clientY: 200 });
-    fireEvent.pointerUp(stage, { pointerType: "mouse", clientX: 180, clientY: 200 });
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("stops at the first and last image instead of wrapping", () => {
-    const first = vi.fn();
-    const { unmount } = render(
-      <ProductGallery images={media} active={0} onSelect={first} onOpenLightbox={vi.fn()} />,
-    );
-    const stage = screen.getByRole("button", { name: "Open image gallery" });
-    fireEvent.pointerDown(stage, { pointerType: "touch", clientX: 180, clientY: 200 });
-    fireEvent.pointerUp(stage, { pointerType: "touch", clientX: 320, clientY: 200 });
-    expect(first).not.toHaveBeenCalled();
-    unmount();
-
-    const last = vi.fn();
+  it("does not open the lightbox with the click that ends a swipe", () => {
+    const onOpenLightbox = vi.fn();
     render(
-      <ProductGallery images={media} active={2} onSelect={last} onOpenLightbox={vi.fn()} />,
+      <ProductGallery
+        images={media}
+        active={0}
+        onSelect={vi.fn()}
+        onOpenLightbox={onOpenLightbox}
+      />,
     );
-    const lastStage = screen.getByRole("button", { name: "Open image gallery" });
-    fireEvent.pointerDown(lastStage, { pointerType: "touch", clientX: 320, clientY: 200 });
-    fireEvent.pointerUp(lastStage, { pointerType: "touch", clientX: 180, clientY: 200 });
-    expect(last).not.toHaveBeenCalled();
+
+    const track = screen.getByRole("group", { name: "Product media" });
+    giveTrackSize(track);
+    const second = screen.getByRole("button", { name: "Open media 2" });
+    fireEvent.pointerDown(track);
+    (track as HTMLDivElement).scrollLeft = 300;
+    fireEvent.click(second);
+    expect(onOpenLightbox).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(track);
+    fireEvent.click(second);
+    expect(onOpenLightbox).toHaveBeenCalledWith(1);
   });
 });
