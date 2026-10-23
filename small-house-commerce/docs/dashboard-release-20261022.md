@@ -256,4 +256,17 @@ load in a real browser produced **zero console errors**, and this release adds
 no Server Action — so they are deploy-boundary noise, not a regression from
 the analytics change.
 
+### 10.4 Synthetic acceptance traffic cleanup (2026-10-23)
 
+The production browser acceptance session
+`13562b63-3b3f-40f8-90e5-a427d7a6825b` contained exactly **13 rows**: one
+`PAGE_VIEW` and 12 `HOMEPAGE_SECTION_IMPRESSION` events. Before deleting it,
+the rows were exported to
+`/root/deploy-backups/analytics-synthetic-cleanup-20261023T014435Z/synthetic-session.csv`
+(SHA-256 `98afa88df77b92fda61095c0e4fc457708505fc1e9bc75667009a4acfd0a22e4`).
+
+The cleanup transaction locked `analytics_events`, asserted that the target
+still contained exactly 13 rows, deleted only that session, and committed.
+Post-cleanup checks returned target rows **0** and table rows **15** (28 before
+cleanup). This was a data cleanup only: no code, schema, migration, container,
+or published storefront state changed.
