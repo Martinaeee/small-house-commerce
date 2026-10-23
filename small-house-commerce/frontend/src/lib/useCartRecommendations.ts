@@ -70,6 +70,7 @@ export function discountPct(sku: Sku): number {
 export function useCartRecommendations(
   cart: CartSummary | null,
   take: number = RECOMMENDATIONS_TAKE,
+  includeEmptyCart = false,
 ): Product[] {
   const cartSlugs = useMemo(
     () => [...new Set((cart?.items ?? []).map((item) => item.productSlug))],
@@ -81,7 +82,7 @@ export function useCartRecommendations(
   // Resolve cart-line categories (detail payloads are session-cached), then
   // fetch the three candidate pools. State is only set after the awaits.
   useEffect(() => {
-    if (cartKey === "") return;
+    if (cartKey === "" && !includeEmptyCart) return;
     let cancelled = false;
     void (async () => {
       const cartProducts = (
@@ -107,7 +108,7 @@ export function useCartRecommendations(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey]);
+  }, [cartKey, includeEmptyCart]);
 
   return useMemo<Product[]>(() => {
     if (!pools || pools.cartKey !== cartKey) return [];

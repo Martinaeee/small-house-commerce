@@ -10,10 +10,10 @@ const PDP_RECOMMENDATION_TAKE = 4;
 
 /**
  * "You May Also Like" rail under the product page. Server-side related
- * products are the first paint; once the cart has lines the shared cart
- * recommender takes over, so a product just added to the cart drops out
- * immediately and another one replaces it. The current product and every
- * cart line are never recommended.
+ * products are the first paint; the shared cart recommender then fills the
+ * rail to four from best sellers and the wider catalog — even before the cart
+ * has lines, so a thin related list still gets the requested 3–5 cards. Cart
+ * lines and the current product are never recommended.
  */
 export function PdpRecommendations({
   currentProduct,
@@ -23,7 +23,7 @@ export function PdpRecommendations({
   fallback: Product[];
 }) {
   const { cart } = useCart();
-  const fromCart = useCartRecommendations(cart, PDP_RECOMMENDATION_TAKE);
+  const fromCart = useCartRecommendations(cart, PDP_RECOMMENDATION_TAKE, true);
   const cartSlugs = new Set(
     (cart?.items ?? []).map((item) => item.productSlug),
   );
