@@ -449,8 +449,8 @@ const TYPOGRAPHY_FALLBACKS: Record<
   countdown: { size: "1.25rem", weight: "600" },
 };
 
-const DEFAULT_TEXT_COLOR = "#292724";
-const DEFAULT_CHIP_BG = "#F2EFE9";
+const DEFAULT_TEXT_COLOR = "#1f2a24";
+const DEFAULT_CHIP_BG = "#faf8f5";
 /** A drag shorter than this is a stray move, not a swipe. */
 const DRAG_TOLERANCE_PX = 8;
 /** A horizontal drag past this distance pages to the next/previous slide. */
@@ -621,7 +621,7 @@ function HeroLinkZoneLayer({
           zIndex: 35,
           background:
             zone.background?.visible === true
-              ? safeHex(zone.background.color ?? null, "#B99B81")
+              ? safeHex(zone.background.color ?? null, "#c9a77b")
               : "transparent",
         };
         if (previewing) {

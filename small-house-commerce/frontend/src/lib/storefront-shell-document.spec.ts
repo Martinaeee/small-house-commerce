@@ -164,7 +164,7 @@ describe("deriveStorefrontTheme", () => {
 
   it("picks the higher-contrast foreground for the action color", () => {
     expect(deriveStorefrontTheme(current.source).actionForeground).toBe("#ffffff");
-    expect(deriveStorefrontTheme({ ...current.source, action: "#fff8ee" }).actionForeground).toBe("#222222");
+    expect(deriveStorefrontTheme({ ...current.source, action: "#fff8ee" }).actionForeground).toBe("#1f2a24");
   });
 });
 

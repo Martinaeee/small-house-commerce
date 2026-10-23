@@ -8,88 +8,88 @@
  * (DESIGN_SYSTEM §4).
  */
 @theme {
-  /* §5.1 primary brand (warm beige) */
+  /* §5.1 primary brand (warm sand accent; decoration, stars, tints) */
   --color-primary: #c9a77b;
   --color-primary-dark: #b8946a;
-  --color-primary-light: #e8dccb;
+  --color-primary-light: #dce4d7;
 
   /* §5.2 background, §5.3 card */
   --color-background: #faf8f5;
   --color-card: #ffffff;
 
   /* §5.4 text */
-  --color-ink: #222222;
-  --color-ink-secondary: #666666;
-  --color-ink-muted: #999999;
+  --color-ink: #1f2a24;
+  --color-ink-secondary: #5a665e;
+  --color-ink-muted: #8c968e;
 
-  /* §5.5 CTA (deep brown) */
-  --color-cta: #6b4f3a;
-  --color-cta-hover: #5a4130;
+  /* §5.5 CTA (deep forest green) */
+  --color-cta: #244c3c;
+  --color-cta-hover: #1b3b2e;
   --color-cta-foreground: #ffffff;
 
   /* Shell component tokens preserve the existing LUWAG palette by default;
      the published Storefront Shell style derives and overrides them from the
      five operator-owned source colors. */
   /* Footer: a sage newsletter band above a cream link surface. */
-  --color-footer-background: #f7f2e8;
-  --color-footer-foreground: #23301f;
-  --color-footer-secondary: #4c5646;
-  --color-footer-muted: #6b7263;
-  --color-footer-border: #d9d2c2;
-  --color-footer-logo-tile: #23301f;
-  --color-footer-logo-square: #f7f2e8;
-  --color-footer-logo-stroke: #f7f2e8;
+  --color-footer-background: #f2ede4;
+  --color-footer-foreground: #1f2a24;
+  --color-footer-secondary: #5a665e;
+  --color-footer-muted: #8c968e;
+  --color-footer-border: #e4dfd5;
+  --color-footer-logo-tile: #1f2a24;
+  --color-footer-logo-square: #f2ede4;
+  --color-footer-logo-stroke: #f2ede4;
   --color-footer-band: #a9b69b;
-  --color-footer-band-ink: #23301f;
+  --color-footer-band-ink: #1f2a24;
   --color-footer-band-soft: #33412c;
-  --color-newsletter-overlay: #2f211b;
-  --color-newsletter-surface: #fff4ed;
-  --color-newsletter-surface-alt: #fffaf6;
+  --color-newsletter-overlay: #1f2a24;
+  --color-newsletter-surface: #f2ede4;
+  --color-newsletter-surface-alt: #f6f1e8;
   --color-newsletter-card: #ffffff;
-  --color-newsletter-text: #2f241f;
-  --color-newsletter-secondary: #735f54;
-  --color-newsletter-muted: #8d786d;
+  --color-newsletter-text: #1f2a24;
+  --color-newsletter-secondary: #5a665e;
+  --color-newsletter-muted: #8c968e;
   --color-newsletter-accent: #a85238;
-  --color-newsletter-accent-hover: #93462f;
-  --color-newsletter-border: #edcdbf;
-  --color-newsletter-ticket: #c35439;
+  --color-newsletter-accent-hover: #8e4230;
+  --color-newsletter-border: #e4dfd5;
+  --color-newsletter-ticket: #a85238;
   --color-newsletter-foreground: #ffffff;
 
   /* §5.6 promotion (sale only) */
-  --color-sale: #d9534f;
+  --color-sale: #a85238;
 
-  /* rating stars (PDP_SPEC §22): amber filled glyphs; empty ones use the
+  /* rating stars (PDP_SPEC §22): sand filled glyphs; empty ones use the
      border token, so this is the only star colour the storefront needs. */
-  --color-star: #f5a623;
+  --color-star: #c9a77b;
 
   /* positive state (logged-in check badge); added after the design-system
      palette, which defines no success color */
-  --color-success: #217a3c;
+  --color-success: #2f6b4f;
 
   /* borders derived from the beige palette */
-  --color-border: #e8e2d9;
+  --color-border: #e4dfd5;
 
   /* Homepage brand-story block (mockup 2026-10-21, 1672×941 artboard). This
      is the one section that speaks in its own voice instead of the beige
      storefront palette, so its colours live in their own tokens rather than
-     being re-derived per component. Sampled from the approved mockup. */
-  --color-story-heading: #121110;
-  --color-story-body: #3b3532;
-  --color-story-kicker: #3b4626;
-  --color-story-link: #333d24;
-  --color-story-link-border: #a8ae9a;
+     being re-derived per component. Sampled from the approved mockup, then
+     mapped onto the unified palette so ink/serif stay one family. */
+  --color-story-heading: #1f2a24;
+  --color-story-body: #5a665e;
+  --color-story-kicker: #3b4a33;
+  --color-story-link: #244c3c;
+  --color-story-link-border: #a9b69b;
   /* The deep green panel the brand story page closes on (mockup 2026-10-21). */
-  --color-story-panel: #2f4034;
+  --color-story-panel: #244c3c;
 
   /* About Us page (design reference 2026-10-21, 1920px artboard, 1440px
-     content). The page carries its own warm palette so the rest of the
-     storefront keeps its existing colours. */
-  --color-about-bg: #f7f3ed;
-  --color-about-ink: #292724;
-  --color-about-green: #294638;
-  --color-about-brown: #b99b81;
-  --color-about-muted: #6f6961;
-  --color-about-disc: #ece3d6;
+     content), mapped onto the unified palette. */
+  --color-about-bg: #f2ede4;
+  --color-about-ink: #1f2a24;
+  --color-about-green: #244c3c;
+  --color-about-brown: #c9a77b;
+  --color-about-muted: #5a665e;
+  --color-about-disc: #ede6da;
 
   /* Admin design system. These tokens are consumed only inside AdminShell;
      storefront surfaces keep the warm brand palette above. */
@@ -105,7 +105,7 @@
   --color-admin-primary: #1f5a47;
   --color-admin-primary-hover: #174a3a;
   --color-admin-primary-soft: #e7f0ec;
-  --color-admin-success: #217a3c;
+  --color-admin-success: #2f6b4f;
   --color-admin-success-soft: #e8f5ed;
   --color-admin-warning: #9a5512;
   --color-admin-warning-soft: #fff4e5;
@@ -158,13 +158,13 @@
 .storefront-theme {
   --color-background: #faf8f5;
   --color-card: #ffffff;
-  --color-border: #e8e2d9;
+  --color-border: #e4dfd5;
   --color-primary: #c9a77b;
   --color-primary-dark: #b8946a;
-  --color-primary-light: #e8dccb;
-  --color-cta: #6b4f3a;
-  --color-cta-hover: #5a4130;
-  --color-success: #217a3c;
+  --color-primary-light: #dce4d7;
+  --color-cta: #244c3c;
+  --color-cta-hover: #1b3b2e;
+  --color-success: #2f6b4f;
 }
 
 .admin-app {

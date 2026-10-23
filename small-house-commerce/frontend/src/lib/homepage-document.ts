@@ -1234,7 +1234,7 @@ export function addHeroZone(
     id: zoneId,
     layout: clampZoneLayout(layout),
     link: null,
-    background: { visible: false, color: "#B99B81" },
+    background: { visible: false, color: "#c9a77b" },
   });
   slide.zones = zones;
   return next;
@@ -1450,8 +1450,8 @@ export function addAnnouncementItem(doc: HomepageDocument): HomepageDocument {
     text: DEFAULT_ANNOUNCEMENT_TEXT,
     link: null,
     linkLabel: null,
-    textColor: "#292724",
-    backgroundColor: "#F2EFE9",
+    textColor: "#1f2a24",
+    backgroundColor: "#faf8f5",
     schedule: { publishAt: null, unpublishAt: null },
     enabled: true,
     sortOrder: items.length * 10,

@@ -280,10 +280,10 @@ export function normalizeStorefrontShellDocument(input: unknown): StorefrontShel
 /** The compile-time LUWAG tokens the migration and runtime fallback must match. */
 export const CURRENT_LUWAG_THEME_SOURCE: StorefrontThemeSource = {
   primary: '#c9a77b',
-  action: '#6b4f3a',
+  action: '#244c3c',
   background: '#faf8f5',
   surface: '#ffffff',
-  text: '#222222',
+  text: '#1f2a24',
   headingFont: 'SYSTEM',
   bodyFont: 'SYSTEM',
 };

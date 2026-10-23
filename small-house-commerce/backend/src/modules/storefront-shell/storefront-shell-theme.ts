@@ -19,13 +19,13 @@ import {
 /** The hand-tuned tokens the migration, fallback and first publish must match. */
 export const CURRENT_LUWAG_DERIVED_THEME: DerivedStorefrontTheme = {
   primaryDark: '#b8946a',
-  primaryLight: '#e8dccb',
-  actionHover: '#5a4130',
-  textSecondary: '#666666',
-  textMuted: '#999999',
-  border: '#e8e2d9',
-  focus: '#6b4f3a',
-  disabled: '#999999',
+  primaryLight: '#dce4d7',
+  actionHover: '#1b3b2e',
+  textSecondary: '#5a665e',
+  textMuted: '#8c968e',
+  border: '#e4dfd5',
+  focus: '#244c3c',
+  disabled: '#8c968e',
   actionForeground: '#ffffff',
 };
 

@@ -127,7 +127,7 @@ describe("HeroLinkSettings", () => {
     expect(slide().zones).toHaveLength(1);
 
     const zone = slide().zones?.[0];
-    expect(zone?.background).toEqual({ visible: false, color: "#B99B81" });
+    expect(zone?.background).toEqual({ visible: false, color: "#c9a77b" });
 
     const picker = within(
       document.querySelector<HTMLElement>('[data-hero-zone-settings]')!,

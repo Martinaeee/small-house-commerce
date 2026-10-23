@@ -425,7 +425,7 @@ describe('StorefrontShellService.getPublic', () => {
     const shell = await service.getPublic();
 
     expect(shell.brand.brandName).toBe('LUWAG');
-    expect(shell.theme).toMatchObject({ primary: '#c9a77b', action: '#6b4f3a' });
+    expect(shell.theme).toMatchObject({ primary: '#c9a77b', action: '#244c3c' });
     expect(shell.footer.columns[1]).toMatchObject({
       kind: 'CONTACT',
       supportEmail: 'support@luwag.ph',
