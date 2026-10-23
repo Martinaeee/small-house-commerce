@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product } from "@/lib/api";
-import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
+import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
@@ -426,5 +426,72 @@ describe("PdpDetails", () => {
 
     await user.click(screen.getByRole("button", { name: "White" }));
     expect(tableRows(within(specifications).getByRole("table"))[1].selection).toBe("selected");
+  });
+});
+
+function ScopeHarness(): React.ReactNode {
+  const { selectOption } = usePdpPurchase();
+  return (
+    <button type="button" onClick={() => selectOption("primary", "finish", "white")}>
+      pick white
+    </button>
+  );
+}
+
+describe("variant-scoped detail media", () => {
+  it("swaps the detail blocks when the selected option value changes", async () => {
+    const scoped: Product = {
+      ...product,
+      options: product.options.map((option) => ({
+        ...option,
+        isMediaDriver: true,
+      })),
+      detailBlocks: [
+        {
+          id: "d-shared",
+          type: "IMAGE",
+          url: "/shared.jpg",
+          altText: null,
+          sortOrder: 0,
+          optionValueId: null,
+          variantId: null,
+        },
+        {
+          id: "d-black",
+          type: "IMAGE",
+          url: "/black.jpg",
+          altText: null,
+          sortOrder: 1,
+          optionValueId: "black",
+          variantId: null,
+        },
+        {
+          id: "d-white",
+          type: "IMAGE",
+          url: "/white.jpg",
+          altText: null,
+          sortOrder: 2,
+          optionValueId: "white",
+          variantId: null,
+        },
+      ],
+    };
+
+    render(
+      <PdpPurchaseProvider product={scoped}>
+        <ScopeHarness />
+        <PdpDetails product={scoped} />
+      </PdpPurchaseProvider>,
+    );
+
+    // Before the shopper narrows the option down, only shared blocks show.
+    expect(document.querySelector('img[src="/shared.jpg"]')).not.toBeNull();
+    expect(document.querySelector('img[src="/black.jpg"]')).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "pick white" }));
+
+    expect(document.querySelector('img[src="/white.jpg"]')).not.toBeNull();
+    expect(document.querySelector('img[src="/black.jpg"]')).toBeNull();
+    expect(document.querySelector('img[src="/shared.jpg"]')).toBeNull();
   });
 });

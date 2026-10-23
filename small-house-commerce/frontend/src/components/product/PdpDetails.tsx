@@ -7,8 +7,10 @@ import {
   ProductDetailMedia,
 } from "./ProductDetailBody";
 import { ProductInformation } from "./ProductInformation";
+import { usePdpPurchase } from "./PdpPurchaseProvider";
 import {
   partitionDetailBlocks,
+  resolveDetailBlocksForSelection,
   type DetailBlockLike,
 } from "./pdp-detail-blocks";
 
@@ -58,9 +60,15 @@ export function PdpDetails({
 }: {
   product: Product;
 }): ReactNode {
-  const { featured, remaining } = partitionDetailBlocks(
+  const { product: purchaseProduct, primaryLine, primaryDerived } =
+    usePdpPurchase();
+  const scopedBlocks = resolveDetailBlocksForSelection(
     product.detailBlocks ?? [],
+    purchaseProduct.options,
+    primaryLine.selectedValueIds,
+    primaryDerived.resolvedVariant?.id ?? null,
   );
+  const { featured, remaining } = partitionDetailBlocks(scopedBlocks);
 
   return (
     <div className="flex flex-col gap-8">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   partitionDetailBlocks,
+  resolveDetailBlocksForSelection,
   type DetailBlockLike,
 } from "./pdp-detail-blocks";
 
@@ -74,5 +75,54 @@ describe("partitionDetailBlocks", () => {
     expect(result.featured).toBe(featured);
     expect(result.remaining).toEqual([video, final]);
     expect(result.valid).toEqual([featured, video, final]);
+  });
+});
+
+describe("resolveDetailBlocksForSelection", () => {
+  const options = [
+    { id: "color", position: 0, isMediaDriver: true },
+    { id: "size", position: 1, isMediaDriver: false },
+  ];
+  const blocks: DetailBlockLike[] = [
+    { url: "/shared.jpg", type: "IMAGE", optionValueId: null, variantId: null },
+    { url: "/orange.jpg", type: "IMAGE", optionValueId: "orange", variantId: null },
+    { url: "/tall.jpg", type: "IMAGE", optionValueId: null, variantId: "tall" },
+  ];
+  const urls = (result: DetailBlockLike[]): string[] => result.map((b) => b.url);
+
+  it("shows shared blocks when nothing scoped matches", () => {
+    expect(urls(resolveDetailBlocksForSelection(blocks, options, {}, null))).toEqual([
+      "/shared.jpg",
+    ]);
+  });
+
+  it("replaces shared blocks with the selected option value's blocks", () => {
+    expect(
+      urls(resolveDetailBlocksForSelection(blocks, options, { color: "orange" }, null)),
+    ).toEqual(["/orange.jpg"]);
+  });
+
+  it("prefers an exact variant over an option value", () => {
+    expect(
+      urls(
+        resolveDetailBlocksForSelection(blocks, options, { color: "orange" }, "tall"),
+      ),
+    ).toEqual(["/tall.jpg"]);
+  });
+
+  it("ignores option values of non media-driver options", () => {
+    const sized: DetailBlockLike[] = [
+      { url: "/queen.jpg", type: "IMAGE", optionValueId: "queen", variantId: null },
+    ];
+    expect(
+      urls(resolveDetailBlocksForSelection(sized, options, { size: "queen" }, null)),
+    ).toEqual([]);
+  });
+
+  it("treats blocks without scope fields as shared", () => {
+    const legacy: DetailBlockLike[] = [{ url: "/legacy.jpg", type: "IMAGE" }];
+    expect(urls(resolveDetailBlocksForSelection(legacy, options, {}, null))).toEqual([
+      "/legacy.jpg",
+    ]);
   });
 });
