@@ -2220,7 +2220,6 @@ export const zh = {
   homepage_builder_announcement_countdown_weight: "倒计时字重",
   homepage_builder_announcement_countdown_color: "倒计时颜色",
   homepage_builder_announcement_countdown_inherit_color: "使用文字颜色",
-  homepage_builder_announcement_issue_cta_label: "请为富文本公告链接填写按钮文字。",
   homepage_builder_announcement_issue_deadline_required: "请设置未来的倒计时截止时间。",
   homepage_builder_announcement_issue_deadline_future: "倒计时截止时间必须晚于当前时间。",
   homepage_builder_announcement_issue_empty_window: "倒计时在此公告的排期内没有有效展示时间。",

@@ -81,9 +81,8 @@ function announcementItemIssues(
 ): AnnouncementItemIssue[] {
   if (!blockEnabled || !item.enabled) return [];
   const issues: AnnouncementItemIssue[] = [];
-  if (item.content && item.link && !item.linkLabel?.trim()) {
-    issues.push({ key: "homepage_builder_announcement_issue_cta_label" });
-  }
+  // A rich item's link rides on the whole bar when no label is set, so a
+  // missing CTA label is a valid state, not an issue.
   if (item.countdown) {
     if (item.countdown.endsAt === null) {
       issues.push({

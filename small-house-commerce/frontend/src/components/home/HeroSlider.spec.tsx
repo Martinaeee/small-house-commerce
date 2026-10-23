@@ -698,6 +698,17 @@ describe("HeroSlider", () => {
     expect(element("heading").querySelector("h1")).toBeNull();
   });
 
+  it("renders no heading element and no h1 when the slide carries no heading text", () => {
+    // The copy can live in the picture; the storefront then ships without a
+    // page-level heading instead of an empty <h1>.
+    const blank = slide(0);
+    blank.elements!.heading!.text = "   ";
+    render(<HeroSlider section={section([blank])} />);
+
+    expect(document.querySelector('[data-hero-element="heading"]')).toBeNull();
+    expect(document.querySelector("h1")).toBeNull();
+  });
+
   it("resets the unmuted sound state when the slide rotates", async () => {
     const videoSlide = (index: number): HomepageHeroSlide =>
       slide(index, {

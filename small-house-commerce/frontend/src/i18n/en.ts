@@ -2285,8 +2285,6 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_announcement_countdown_weight: "Countdown weight",
   homepage_builder_announcement_countdown_color: "Countdown color",
   homepage_builder_announcement_countdown_inherit_color: "Use text color",
-  homepage_builder_announcement_issue_cta_label:
-    "Add a CTA label for this rich announcement link.",
   homepage_builder_announcement_issue_deadline_required:
     "Set a future countdown deadline.",
   homepage_builder_announcement_issue_deadline_future:
