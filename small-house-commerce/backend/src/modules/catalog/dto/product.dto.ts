@@ -58,6 +58,18 @@ const imageSchema = z.object({
 });
 
 /**
+ * Row identity as the database holds it. Legacy catalog-graph projection ids
+ * were minted with `md5(...)::uuid`, which keeps Postgres happy but leaves the
+ * RFC 4122 version/variant bits at whatever the digest produced, so
+ * `z.string().uuid()` rejected rows the system itself created.
+ */
+const persistedUuidSchema = z
+  .string()
+  .regex(
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  );
+
+/**
  * One block of the PDP description body. Media-only on purpose: the supplier
  * detail decks are images/videos, and `description` already carries the short
  * text intro.
@@ -67,8 +79,8 @@ const detailBlockSchema = z.object({
   url: siteMediaUrl(),
   altText: z.string().max(255).optional(),
   sortOrder: z.number().int().default(0),
-  optionValueId: z.string().uuid().nullable().optional(),
-  variantId: z.string().uuid().nullable().optional(),
+  optionValueId: persistedUuidSchema.nullable().optional(),
+  variantId: persistedUuidSchema.nullable().optional(),
 });
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProductSchema } from "./product.dto.js";
+import { createProductSchema, updateProductSchema } from "./product.dto.js";
 
 const base = {
   name: "Chair",
@@ -8,6 +8,18 @@ const base = {
 };
 
 describe("detail block scope", () => {
+  it.each(["optionValueId", "variantId"] as const)(
+    "accepts a persisted legacy UUID for %s on create and update",
+    (scopeField) => {
+      const legacyId = "cdc54a3c-8bfa-832d-e016-d659f5aba8ad";
+      const detailBlocks = [
+        { type: "IMAGE", url: "https://cdn.test/detail.jpg", [scopeField]: legacyId },
+      ];
+      expect(createProductSchema.parse({ ...base, detailBlocks }).detailBlocks[0][scopeField]).toBe(legacyId);
+      expect(updateProductSchema.parse({ detailBlocks }).detailBlocks![0][scopeField]).toBe(legacyId);
+    },
+  );
+
   it("accepts an option-value scope and leaves the variant scope empty", () => {
     const parsed = createProductSchema.parse({
       ...base,
