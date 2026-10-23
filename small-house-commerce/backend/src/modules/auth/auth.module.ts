@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { PermissionsGuard } from './permissions.guard.js';
+import { PermissionsService } from './permissions.service.js';
 
 /** Duration literal accepted by @nestjs/jwt's expiresIn (vercel/ms format). */
 export type MsDuration = `${number}${'ms' | 's' | 'm' | 'h' | 'd'}`;
@@ -22,7 +23,7 @@ export type MsDuration = `${number}${'ms' | 's' | 'm' | 'h' | 'd'}`;
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, PermissionsGuard],
-  exports: [AuthService, JwtModule, JwtAuthGuard, PermissionsGuard],
+  providers: [AuthService, JwtAuthGuard, PermissionsGuard, PermissionsService],
+  exports: [AuthService, JwtModule, JwtAuthGuard, PermissionsGuard, PermissionsService],
 })
 export class AuthModule {}

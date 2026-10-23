@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { PermissionCode } from '../../generated/prisma/client.js';
-import { PrismaService } from '../../prisma/prisma.service.js';
 import type { RequestUser } from './jwt-auth.guard.js';
+import { PermissionsService } from './permissions.service.js';
 import { PERMISSIONS_KEY } from './permissions.decorator.js';
 
 type AuthenticatedRequest = Request & { user?: RequestUser };
@@ -21,7 +21,7 @@ type AuthenticatedRequest = Request & { user?: RequestUser };
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly prisma: PrismaService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -41,30 +41,11 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException();
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        roles: {
-          include: {
-            role: {
-              include: {
-                permissions: { include: { permission: true } },
-              },
-            },
-          },
-        },
-      },
-    });
+    const granted = await this.permissions.granted(userId);
 
-    if (!user || user.status !== 'ACTIVE') {
+    if (granted.size === 0) {
       throw new ForbiddenException();
     }
-
-    const granted = new Set<PermissionCode>(
-      user.roles.flatMap((userRole) =>
-        userRole.role.permissions.map((grant) => grant.permission.code),
-      ),
-    );
 
     if (!required.every((code) => granted.has(code))) {
       throw new ForbiddenException('Missing required permission');

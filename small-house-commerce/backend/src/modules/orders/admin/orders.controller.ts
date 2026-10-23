@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -14,6 +15,7 @@ import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { CurrentUser } from '../../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from '../orders.service.js';
+import { PermissionsService } from '../../auth/permissions.service.js';
 import {
   addCustomerNoteSchema,
   addOrderNoteSchema,
@@ -43,15 +45,19 @@ import {
  * order-workbench surface (2026-09-18 spec): assign, status, edit, notes,
  * risk flags, merge. Every handler requires JWT auth + a permission.
  *
- * Permission mapping: read = ORDER_VIEW_ALL, destructive/status ops reuse the
- * existing ORDER_CONFIRM / ORDER_CANCEL grants (no new roles in V1);
- * risk-flag resolution (a §8 "downgrade") requires ORDER_CHANGE_AID as the
- * admin-only signal.
+ * Read is ORDER_VIEW_ALL; every write has its own permission
+ * (ORDER_CONFIRM / ORDER_CANCEL / ORDER_ASSIGN / ORDER_NOTE_WRITE /
+ * ORDER_RISK_WRITE / ORDER_MERGE / SHIPMENT_CREATE). Two routes also check
+ * a second permission when the request turns destructive: a CANCEL decision
+ * or a DENIED status needs ORDER_CANCEL on top of ORDER_CONFIRM.
  */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('admin/orders')
 export class AdminOrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly permissions: PermissionsService,
+  ) {}
 
   @Get()
   @Permissions('ORDER_VIEW_ALL')
@@ -95,7 +101,7 @@ export class AdminOrdersController {
 
   @Post(':id/confirm')
   @Permissions('ORDER_CONFIRM')
-  confirm(
+  async confirm(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
     @Body(new ZodValidationPipe(confirmDecisionSchema)) body?: {
@@ -103,6 +109,13 @@ export class AdminOrdersController {
       note?: string;
     },
   ) {
+    // A cancellation decision releases the same reservations as the cancel route.
+    if (
+      body?.decision === 'CANCEL' &&
+      !(await this.permissions.has(user.userId, 'ORDER_CANCEL'))
+    ) {
+      throw new ForbiddenException('裁决「取消订单」需要 ORDER_CANCEL 权限');
+    }
     return this.ordersService.confirm(id, user.userId, body);
   }
 
@@ -116,7 +129,7 @@ export class AdminOrdersController {
   }
 
   @Post(':id/assign')
-  @Permissions('ORDER_CONFIRM')
+  @Permissions('ORDER_ASSIGN')
   assign(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignOrderSchema)) body: AssignOrderInput,
@@ -127,11 +140,16 @@ export class AdminOrdersController {
 
   @Post(':id/status')
   @Permissions('ORDER_CONFIRM')
-  updateStatus(
+  async updateStatus(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateOrderStatusSchema)) body: UpdateOrderStatusInput,
     @CurrentUser() user: { userId: string },
   ) {
+    // A denial releases the stock reservation, so it is a cancellation in
+    // everything but the name and needs the cancel permission on top.
+    if (body.status === 'DENIED' && !(await this.permissions.has(user.userId, 'ORDER_CANCEL'))) {
+      throw new ForbiddenException('拒绝订单需要 ORDER_CANCEL 权限');
+    }
     return this.ordersService.updateStatus(id, body.status, body.comment, user.userId);
   }
 
@@ -146,7 +164,7 @@ export class AdminOrdersController {
   }
 
   @Post(':id/notes')
-  @Permissions('ORDER_VIEW_ALL')
+  @Permissions('ORDER_NOTE_WRITE')
   addNote(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(addOrderNoteSchema)) body: AddOrderNoteInput,
@@ -156,7 +174,7 @@ export class AdminOrdersController {
   }
 
   @Post(':id/risk-flags')
-  @Permissions('ORDER_VIEW_ALL')
+  @Permissions('ORDER_RISK_WRITE')
   addRiskFlag(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(addRiskFlagSchema)) body: AddRiskFlagInput,
@@ -166,7 +184,7 @@ export class AdminOrdersController {
   }
 
   @Patch('risk-flags/:flagId/resolve')
-  @Permissions('ORDER_CHANGE_AID')
+  @Permissions('ORDER_RISK_WRITE')
   resolveRiskFlag(
     @Param('flagId') flagId: string,
     @CurrentUser() user: { userId: string },
@@ -175,7 +193,7 @@ export class AdminOrdersController {
   }
 
   @Post('merge')
-  @Permissions('ORDER_CONFIRM')
+  @Permissions('ORDER_MERGE')
   merge(
     @Body(new ZodValidationPipe(mergeOrdersSchema)) body: MergeOrdersInput,
     @CurrentUser() user: { userId: string },
@@ -213,7 +231,7 @@ export class AdminCustomersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post(':id/notes')
-  @Permissions('ORDER_VIEW_ALL')
+  @Permissions('ORDER_NOTE_WRITE')
   addCustomerNote(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(addCustomerNoteSchema)) body: AddCustomerNoteInput,

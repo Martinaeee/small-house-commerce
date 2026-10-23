@@ -98,6 +98,53 @@ describe('RBAC reference data', () => {
   });
 });
 
+describe('RBAC order workbench permissions', () => {
+  const orderCodes = [
+    PermissionCode.ORDER_ASSIGN,
+    PermissionCode.ORDER_VERIFY,
+    PermissionCode.ORDER_NOTE_WRITE,
+    PermissionCode.ORDER_RISK_WRITE,
+    PermissionCode.ORDER_MERGE,
+    PermissionCode.ORDER_HANDOVER,
+  ];
+
+  it('declares every order permission exactly once', () => {
+    for (const code of orderCodes) {
+      expect(RBAC_PERMISSIONS.filter((p) => p.code === code)).toHaveLength(1);
+    }
+  });
+
+  it('lets the customer-service roles run the checklist', () => {
+    for (const role of [RoleCode.ADMIN, RoleCode.CONFIRMOR, RoleCode.SUPER_ADMIN]) {
+      expect(RBAC_GRANTS[role]).toContain(PermissionCode.ORDER_ASSIGN);
+      expect(RBAC_GRANTS[role]).toContain(PermissionCode.ORDER_VERIFY);
+    }
+  });
+
+  it('keeps merging an order away from the customer-service role', () => {
+    expect(RBAC_GRANTS[RoleCode.ADMIN]).toContain(PermissionCode.ORDER_MERGE);
+    expect(RBAC_GRANTS[RoleCode.SUPER_ADMIN]).toContain(PermissionCode.ORDER_MERGE);
+    for (const role of [RoleCode.CONFIRMOR, RoleCode.WAREHOUSE, RoleCode.FINANCE, RoleCode.OPTIMIZER]) {
+      expect(RBAC_GRANTS[role]).not.toContain(PermissionCode.ORDER_MERGE);
+    }
+  });
+
+  it('gives the warehouse the handover and the notes, but no risk or verification', () => {
+    expect(RBAC_GRANTS[RoleCode.WAREHOUSE]).toContain(PermissionCode.ORDER_HANDOVER);
+    expect(RBAC_GRANTS[RoleCode.WAREHOUSE]).toContain(PermissionCode.ORDER_NOTE_WRITE);
+    expect(RBAC_GRANTS[RoleCode.WAREHOUSE]).not.toContain(PermissionCode.ORDER_RISK_WRITE);
+    expect(RBAC_GRANTS[RoleCode.WAREHOUSE]).not.toContain(PermissionCode.ORDER_VERIFY);
+  });
+
+  it('never grants an order write to the read-only roles', () => {
+    for (const role of [RoleCode.FINANCE, RoleCode.OPTIMIZER]) {
+      for (const code of orderCodes) {
+        expect(RBAC_GRANTS[role]).not.toContain(code);
+      }
+    }
+  });
+});
+
 describe('RBAC newsletter permissions', () => {
   it('declares newsletter read/write and grants both to ADMIN and SUPER_ADMIN', () => {
     expect(RBAC_PERMISSIONS).toEqual(

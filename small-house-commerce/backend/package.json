@@ -24,6 +24,7 @@
     "marketing:backfill-legacy-pages": "node dist/modules/marketing/legacy-migration-runner.js",
     "rbac:reconcile-campaign-link": "tsx prisma/reconcile-campaign-link-permission-runner.ts",
     "rbac:reconcile-marketing": "tsx prisma/reconcile-marketing-permissions-runner.ts",
+    "rbac:reconcile-order-permissions": "tsx prisma/reconcile-order-permissions-runner.ts",
     "rbac:reconcile-newsletter": "tsx prisma/reconcile-newsletter-permissions-runner.ts",
     "rbac:reconcile-product-faq": "tsx prisma/reconcile-product-faq-permission-runner.ts",
     "rbac:reconcile-storefront-shell": "tsx prisma/reconcile-storefront-shell-permission-runner.ts",
