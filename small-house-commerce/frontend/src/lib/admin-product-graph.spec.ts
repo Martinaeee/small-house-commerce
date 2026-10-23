@@ -1826,3 +1826,42 @@ describe("stripUnsavableMedia", () => {
     ]);
   });
 });
+
+describe("Detail block scope hydration", () => {
+  it("carries option-value and variant scopes into the form value", () => {
+    const product = {
+      ...productFor(serverGraph()),
+      detailBlocks: [
+        {
+          id: "d1",
+          type: "IMAGE" as const,
+          url: "/a.jpg",
+          altText: null,
+          sortOrder: 0,
+          optionValueId: "018f0000-0000-7000-8000-000000000011",
+          variantId: null,
+        },
+        {
+          id: "d2",
+          type: "VIDEO" as const,
+          url: "/b.mp4",
+          altText: null,
+          sortOrder: 1,
+          optionValueId: null,
+          variantId: "018f0000-0000-7000-8000-000000000012",
+        },
+      ],
+    };
+
+    const form = deserializeProduct(product);
+
+    expect(form.detailBlocks[0].optionValueId).toBe(
+      "018f0000-0000-7000-8000-000000000011",
+    );
+    expect(form.detailBlocks[0].variantId).toBeUndefined();
+    expect(form.detailBlocks[1].variantId).toBe(
+      "018f0000-0000-7000-8000-000000000012",
+    );
+    expect(form.detailBlocks[1].optionValueId).toBeUndefined();
+  });
+});

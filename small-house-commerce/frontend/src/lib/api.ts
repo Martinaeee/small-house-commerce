@@ -168,6 +168,8 @@ export interface ProductDetailBlock {
   url: string;
   altText: string | null;
   sortOrder: number;
+  optionValueId?: string | null;
+  variantId?: string | null;
 }
 
 export type ProductFaqAnswerBlock =

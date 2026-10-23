@@ -705,6 +705,8 @@ export interface AdminDetailBlock {
   url: string;
   altText: string | null;
   sortOrder: number;
+  optionValueId?: string | null;
+  variantId?: string | null;
 }
 
 export type AdminFaqMode = "SHARED" | "EXTEND" | "CUSTOM";
@@ -1369,6 +1371,8 @@ export interface CreateProductInput {
     url: string;
     altText?: string;
     sortOrder?: number;
+    optionValueId?: string;
+    variantId?: string;
   }[];
   variants: {
     name: string;

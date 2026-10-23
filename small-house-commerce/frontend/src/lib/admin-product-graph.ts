@@ -67,6 +67,8 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
       url: block.url,
       altText: block.altText ?? "",
       sortOrder: String(index),
+      ...(block.optionValueId ? { optionValueId: block.optionValueId } : {}),
+      ...(block.variantId ? { variantId: block.variantId } : {}),
     })),
     faq: p.faq
       ? {

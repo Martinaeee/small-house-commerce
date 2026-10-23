@@ -111,6 +111,8 @@ export interface ProductFormValue {
     url: string;
     altText: string;
     sortOrder: string;
+    optionValueId?: string;
+    variantId?: string;
   }[];
   faq?: AdminProductFaq;
   variants: {
@@ -658,6 +660,11 @@ export function serializeFormValue(
       url,
       ...(altText ? { altText } : {}),
       sortOrder,
+      ...(block.variantId
+        ? { variantId: block.variantId }
+        : block.optionValueId
+          ? { optionValueId: block.optionValueId }
+          : {}),
     });
   });
 
