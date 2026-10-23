@@ -491,7 +491,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
         {/* 1. Order preview (mobile first; desktop left column, row 1) */}
-        <div className="lg:col-start-1 lg:col-span-2 lg:row-start-1">
+        <div className="order-1 lg:order-none lg:col-start-1 lg:col-span-2 lg:row-start-1">
           <div className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-1 text-lg font-semibold text-ink">Your Order</h2>
             {isBuyNow && product === null && !productError ? (
@@ -507,7 +507,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         {/* 2. Delivery information — ONE compact card for who, where and the
             shopper's note. It used to be two cards with their own headers and
             padding, which made the form tall and repetitive. */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-1 lg:row-span-2">
+        <div className="order-3 lg:order-none lg:col-start-3 lg:col-span-3 lg:row-start-1 lg:row-span-2">
           <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-ink">Delivery information</h2>
@@ -724,9 +724,15 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           </section>
         </div>
 
-        {/* 4. Totals + COD assurance (desktop left column, row 2) */}
-        <div className="flex flex-col gap-4 lg:col-start-1 lg:col-span-2 lg:row-start-2">
-          <div className="rounded-lg border border-border bg-card p-5">
+        {/* 4. Totals + COD assurance (desktop left column, row 2). On phones
+            the wrapper is display:contents and the children use order, so the
+            totals card sits under Your Order and above the name field while
+            the desktop grid stays exactly as it was. */}
+        <div className="contents lg:flex lg:flex-col lg:gap-4 lg:col-start-1 lg:col-span-2 lg:row-start-2">
+          <div
+            data-testid="checkout-totals"
+            className="order-2 rounded-lg border border-border bg-card p-5 lg:order-none"
+          >
             <dl className="flex flex-col gap-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink-secondary">Subtotal</dt>
@@ -784,15 +790,17 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             <NewsletterOfferPrompt />
           </div>
 
-          <CheckoutTrustStrip
-            deliveryRange={
-              form.province.trim()
-                ? deliveryWindowFor(form.province)
-                : "Metro Manila 3-5 days · provinces 5-7 days"
-            }
-          />
+          <div className="order-4 lg:order-none">
+            <CheckoutTrustStrip
+              deliveryRange={
+                form.province.trim()
+                  ? deliveryWindowFor(form.province)
+                  : "Metro Manila 3-5 days · provinces 5-7 days"
+              }
+            />
+          </div>
 
-          <div className="rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary">
+          <div className="order-5 rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary lg:order-none">
             <p className="font-semibold text-ink">Cash on Delivery</p>
             <p className="mt-1">
               Pay in cash when your order arrives.{" "}
@@ -804,7 +812,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         </div>
 
         {/* 5. Review CTA (mobile bottom; desktop right column, row 3) */}
-        <div className="lg:col-start-3 lg:col-span-3 lg:row-start-3">
+        <div className="order-6 lg:order-none lg:col-start-3 lg:col-span-3 lg:row-start-3">
           <Button
             onClick={goToReview}
             className="w-full"

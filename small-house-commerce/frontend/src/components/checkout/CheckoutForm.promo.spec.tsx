@@ -281,3 +281,24 @@ describe("CheckoutForm totals summary", () => {
     expect(screen.queryByTestId("newsletter-offer-prompt")).toBeNull();
   });
 });
+
+describe("CheckoutForm mobile summary order", () => {
+  it("lifts the totals card above the name field on phones and leaves the desktop grid alone", () => {
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    const totals = screen.getByTestId("checkout-totals");
+    const delivery = document
+      .getElementById("checkout-name")!
+      .closest("section")!.parentElement!;
+    const summaryRow = totals.parentElement!;
+
+    expect(totals).toHaveClass("order-2", "lg:order-none");
+    expect(delivery).toHaveClass("order-3", "lg:order-none");
+    expect(summaryRow).toHaveClass("contents", "lg:flex");
+    expect(summaryRow).toHaveClass("lg:row-start-2");
+    expect(screen.getByTestId("review-order").parentElement).toHaveClass(
+      "order-6",
+      "lg:order-none",
+    );
+  });
+});
