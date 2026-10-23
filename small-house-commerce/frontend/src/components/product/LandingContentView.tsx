@@ -16,7 +16,7 @@ import { ProductDetailMedia } from "./ProductDetailBody";
 import { ProductSpecs, MaterialDimensions } from "./ProductSpecs";
 import { PdpInfoSections } from "./PdpInfoSections";
 import { ReviewSection } from "./ReviewSection";
-import { ProductCard } from "./ProductCard";
+import { PdpRecommendations } from "./PdpRecommendations";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 
 interface Runtime {
@@ -187,10 +187,9 @@ export function LandingContentView({ content, approvedContent, product, preview 
   return <LandingBlocksProvider product={product} approvedContent={approvedContent} preview={preview} delivery={delivery} productPath={productPath} initialVariantId={initialVariantId}>
     <LandingBlocksLayout>
       <LandingBlockSequence blocks={content.blocks} />
-      {!preview && related.length > 0 && <section>
-        <h2 className="mb-4 text-2xl font-semibold text-ink">You May Also Like</h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">{related.map((item) => <ProductCard key={item.id} product={item} />)}</div>
-      </section>}
+      {!preview && product && related.length > 0 && (
+        <PdpRecommendations currentProduct={product} fallback={related} />
+      )}
       {!preview && product && <RecentlyViewed excludeProductId={product.id} limit={4} />}
     </LandingBlocksLayout>
   </LandingBlocksProvider>;

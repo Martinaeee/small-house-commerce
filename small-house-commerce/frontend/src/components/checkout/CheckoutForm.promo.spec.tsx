@@ -234,7 +234,7 @@ describe("CheckoutForm totals summary", () => {
     const subtotal = screen.getByText("Subtotal").nextElementSibling;
     expect(subtotal).toHaveTextContent("₱130.00");
     expect(subtotal).not.toHaveTextContent("₱100.00");
-    expect(screen.getByTestId("checkout-subtotal-compare")).toHaveClass(
+    expect(screen.getByTestId("checkout-subtotal-compare")).not.toHaveClass(
       "line-through",
     );
   });

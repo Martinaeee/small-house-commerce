@@ -1,7 +1,7 @@
 // src/components/product/ReviewCard.tsx
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type Review } from "@/lib/api";
 import { RatingStars } from "./RatingStars";
 
@@ -42,6 +42,9 @@ function formatReviewDate(iso: string) {
 type HelpfulState = "idle" | "sending" | "voted" | "error";
 type ReportState = "idle" | "open" | "sending" | "done" | "error";
 
+/** Phones clamp every review to three lines; longer text gets a toggle. */
+const MOBILE_CLAMP_CHARS = 120;
+
 function subscribeVotes(onChange: () => void) {
   if (typeof window === "undefined") return () => {};
   window.addEventListener("storage", onChange);
@@ -54,6 +57,33 @@ export function ReviewCard({ review }: { review: Review }) {
   const [helpfulCount, setHelpfulCount] = useState(review.helpfulCount);
   const [reportState, setReportState] = useState<ReportState>("idle");
   const [reportReason, setReportReason] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [measuredOverflow, setMeasuredOverflow] = useState(false);
+  const bodyRef = useRef<HTMLParagraphElement | null>(null);
+  // The character check keeps the toggle available before layout is measured
+  // (SSR / first paint); the measurement catches ragged wrapping.
+  const longComment = review.comment.trim().length > MOBILE_CLAMP_CHARS;
+  const canToggle = longComment || measuredOverflow || expanded;
+  const bodyId = `review-body-${review.id}`;
+
+  useEffect(() => {
+    const element = bodyRef.current;
+    if (!element) return;
+    let alive = true;
+    const check = () => {
+      void Promise.resolve().then(() => {
+        if (!alive) return;
+        const next = element.scrollHeight > element.clientHeight + 1;
+        setMeasuredOverflow((current) => (current === next ? current : next));
+      });
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => {
+      alive = false;
+      window.removeEventListener("resize", check);
+    };
+  }, [review.comment, expanded]);
 
   // localStorage is client-only; the server snapshot keeps hydration identical.
   const storedVote = useSyncExternalStore(
@@ -123,9 +153,26 @@ export function ReviewCard({ review }: { review: Review }) {
         </p>
       )}
 
-      <p className="mt-2 whitespace-pre-line text-base leading-relaxed text-ink-secondary">
+      <p
+        id={bodyId}
+        ref={bodyRef}
+        className={`mt-2 whitespace-pre-line text-base leading-relaxed text-ink-secondary ${
+          expanded ? "" : "line-clamp-3"
+        } sm:line-clamp-none`}
+      >
         {review.comment}
       </p>
+      {canToggle ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={() => setExpanded((current) => !current)}
+          className="mt-1 text-sm font-semibold text-cta hover:underline sm:hidden"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      ) : null}
 
       {review.photos.length > 0 && (
         <div className="mt-2 flex gap-2">

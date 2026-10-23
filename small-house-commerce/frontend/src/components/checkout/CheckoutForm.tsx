@@ -741,10 +741,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   {isBuyNow && total === null ? (
                     "Calculated at checkout"
                   ) : totals.savings > 0 ? (
-                    <span
-                      data-testid="checkout-subtotal-compare"
-                      className="text-ink-muted line-through"
-                    >
+                    <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
                       {formatPrice(totals.compareAtTotal)}
                     </span>
                   ) : (
@@ -799,16 +796,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   : "as fast as 7 days"
               }
             />
-          </div>
-
-          <div className="order-5 rounded-lg border border-border bg-card p-5 text-sm text-ink-secondary lg:order-none">
-            <p className="font-semibold text-ink">Cash on Delivery</p>
-            <p className="mt-1">
-              Pay in cash when your order arrives.{" "}
-              {form.province.trim()
-                ? `Delivery ${deliveryWindowFor(form.province)}`
-                : "Delivery as fast as 7 days."}
-            </p>
           </div>
         </div>
 

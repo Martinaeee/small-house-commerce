@@ -394,7 +394,7 @@ describe("CheckoutConfirmView", () => {
     const totals = screen.getByText("Subtotal").closest("dl");
     expect(totals).not.toBeNull();
     expect(within(totals!).getByText("₱260.00")).toBeInTheDocument(); // 130 × 2 compare-at
-    expect(within(totals!).getByTestId("confirm-subtotal-compare")).toHaveClass(
+    expect(within(totals!).getByTestId("confirm-subtotal-compare")).not.toHaveClass(
       "line-through",
     );
     expect(within(totals!).getByText("You save")).toBeInTheDocument();

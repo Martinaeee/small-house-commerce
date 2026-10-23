@@ -1,7 +1,7 @@
 // src/components/product/ProductGallery.tsx
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
@@ -13,8 +13,10 @@ interface Props {
   onOpenLightbox: (index: number) => void;
 }
 
-/** A horizontal touch gesture shorter than this is a tap or a jiggle. */
-const SWIPE_THRESHOLD_PX = 40;
+/** A tap that moved the track more than this is a swipe, not an open. */
+const CLICK_SUPPRESS_PX = 8;
+/** Wait for the momentum scroll to settle before reporting the new index. */
+const SCROLL_SETTLE_MS = 100;
 
 /** Play glyph for video gallery entries. */
 function PlayBadge() {
@@ -28,102 +30,154 @@ function PlayBadge() {
   );
 }
 
+function scrollTrackTo(track: HTMLDivElement, left: number) {
+  if (typeof track.scrollTo === "function") {
+    track.scrollTo({ left, behavior: "auto" });
+    return;
+  }
+  track.scrollLeft = left;
+}
+
 /**
- * PDP_SPEC §6.3 + refinement: main media opens the lightbox. With 1–5 entries
- * all thumbnails are shown directly (up to five); with 6+ the strip shows four
- * direct thumbnails followed by a "+N" tile (N = total − 4) that opens the
- * lightbox at index 4. Gallery entries can be photos or short videos — the
- * stage shows the video's first frame with a play badge (playback happens in
- * the lightbox); a placeholder-only product is not interactive.
+ * PDP_SPEC §6.3 + refinement: main media opens the lightbox. On phones the
+ * media is a native scroll-snap carousel — the finger follows the image,
+ * momentum carries it, and each frame fills the screen edge to edge with no
+ * frame or gap. From sm up the carousel stays inside the content column.
+ * Thumbnails mirror the same selection: with 1–5 entries all thumbnails are
+ * shown directly (up to five); with 6+ the strip shows four direct thumbnails
+ * followed by a "+N" tile (N = total − 4) that opens the lightbox at index 4.
+ * Gallery entries can be photos or short videos — the stage shows a video's
+ * first frame with a play badge (playback happens in the lightbox); only the
+ * active video is mounted.
  */
 export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Props) {
   const hasRealImages = images.length > 0 && images.some((image) => image.url);
-  const current = images[Math.min(active, images.length - 1)];
   const directCount = images.length > 5 ? 4 : Math.min(5, images.length);
   const extra = images.length > 5 ? images.length - 4 : 0;
-  // Touch swipe: remember where the finger went down and whether the click
-  // that follows a swipe must not open the lightbox.
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressClickRef = useRef(false);
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerStartRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  // A thumbnail tap (or a route/media-scope change) moves the carousel.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || track.clientWidth <= 0) return;
+    const target = active * track.clientWidth;
+    if (Math.abs(track.scrollLeft - target) > 4) scrollTrackTo(track, target);
+  }, [active, images.length]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const track = trackRef.current;
+      if (!track || track.clientWidth <= 0) return;
+      scrollTrackTo(track, activeRef.current * track.clientWidth);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (scrollTimerRef.current !== null) clearTimeout(scrollTimerRef.current);
+    },
+    [],
+  );
 
   if (!hasRealImages) {
     return (
-      <div className="-mx-4 overflow-hidden sm:mx-0 sm:rounded-lg">
+      <div className="-mx-4 overflow-hidden sm:mx-0">
         <PlaceholderImage label="" className="aspect-square w-full" />
       </div>
     );
   }
 
-  const openActive = () => {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      return;
-    }
-    onOpenLightbox(Math.min(active, images.length - 1));
+  const handleScroll = () => {
+    if (scrollTimerRef.current !== null) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      const track = trackRef.current;
+      if (!track || track.clientWidth <= 0) return;
+      const index = Math.max(
+        0,
+        Math.min(images.length - 1, Math.round(track.scrollLeft / track.clientWidth)),
+      );
+      if (index !== activeRef.current) onSelect(index);
+    }, SCROLL_SETTLE_MS);
   };
 
-  const onPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === "mouse") return;
-    swipeStartRef.current = { x: event.clientX, y: event.clientY };
+  const handlePointerDown = () => {
+    pointerStartRef.current = trackRef.current?.scrollLeft ?? null;
   };
 
-  const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === "mouse") return;
-    const start = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!start) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    // A mostly-vertical or tiny gesture stays a scroll/tap, not a swipe.
-    if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) {
+  const handleSlideClick = (index: number) => {
+    const track = trackRef.current;
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (
+      track &&
+      start !== null &&
+      Math.abs(track.scrollLeft - start) > CLICK_SUPPRESS_PX
+    ) {
       return;
     }
-    // The browser fires a click after the gesture; it must not open the
-    // lightbox on top of the image that just slid in.
-    suppressClickRef.current = true;
-    window.setTimeout(() => {
-      suppressClickRef.current = false;
-    }, 0);
-    const next = dx < 0 ? active + 1 : active - 1;
-    if (next >= 0 && next < images.length) onSelect(next);
+    onOpenLightbox(index);
   };
 
   return (
-    // Full-bleed on phones (the page supplies px-4), framed column from sm up.
-    <div className="-mx-4 flex flex-col gap-4 sm:mx-0">
-      <button
-        type="button"
-        onClick={openActive}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-        onPointerCancel={() => {
-          swipeStartRef.current = null;
-        }}
-        aria-label="Open image gallery"
-        className="relative touch-pan-y overflow-hidden"
+    <div className="-mx-4 flex flex-col sm:mx-0">
+      <div
+        ref={trackRef}
+        role="group"
+        aria-label="Product media"
+        onScroll={handleScroll}
+        onPointerDown={handlePointerDown}
+        className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {current.type === "VIDEO" ? (
-          <ViewportVideo
-            key={current.id}
-            src={current.url}
-            mode="TEASER"
-            ariaLabel={current.altText ?? "Product video"}
-            controls={false}
-            className="pointer-events-none aspect-square w-full object-cover"
-          />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={current.url}
-            alt={current.altText ?? "Product image"}
-            className="aspect-square w-full object-cover"
-          />
-        )}
-        {current.type === "VIDEO" && <PlayBadge />}
-      </button>
+        {images.map((image, index) => (
+          <button
+            key={image.id}
+            type="button"
+            onClick={() => handleSlideClick(index)}
+            aria-label={`Open media ${index + 1}`}
+            aria-current={index === active ? "true" : undefined}
+            className="relative w-full shrink-0 snap-center overflow-hidden"
+          >
+            {image.type === "VIDEO" ? (
+              index === active ? (
+                <ViewportVideo
+                  key={image.id}
+                  src={image.url}
+                  mode="TEASER"
+                  ariaLabel={image.altText ?? "Product video"}
+                  controls={false}
+                  className="pointer-events-none aspect-square w-full object-cover"
+                />
+              ) : (
+                <span className="relative flex aspect-square w-full items-center justify-center bg-black">
+                  <PlayBadge />
+                </span>
+              )
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={image.url}
+                alt={image.altText ?? "Product image"}
+                loading={index === 0 ? "eager" : "lazy"}
+                className="aspect-square w-full object-cover"
+              />
+            )}
+            {image.type === "VIDEO" && index === active && <PlayBadge />}
+          </button>
+        ))}
+      </div>
 
       {images.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-3 flex gap-2 overflow-x-auto px-4 pb-1 sm:px-0">
           {images.slice(0, directCount).map((image, index) => (
             <button
               key={image.id}

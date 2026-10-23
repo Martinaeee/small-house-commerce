@@ -296,10 +296,7 @@ export function CheckoutConfirmView({
                   <dt className="text-ink-secondary">Subtotal</dt>
                   <dd className="font-medium text-ink">
                     {checkout.totals.savings > 0 ? (
-                      <span
-                        data-testid="confirm-subtotal-compare"
-                        className="text-ink-muted line-through"
-                      >
+                      <span data-testid="confirm-subtotal-compare" className="text-ink-muted">
                         {formatPrice(checkout.totals.compareAtTotal)}
                       </span>
                     ) : (
