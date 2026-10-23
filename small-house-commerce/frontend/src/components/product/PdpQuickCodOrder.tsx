@@ -11,7 +11,6 @@ import {
 import { useRouter } from "next/navigation";
 import { type Product, type StorefrontProductVariant } from "@/lib/api";
 import {
-  addBusinessDays,
   defaultPreferredDeliveryDate,
   deliveryWindowFor,
   manilaWallDate,
@@ -196,7 +195,9 @@ export function PdpQuickCodOrder(): ReactNode {
     const { year, month, day } = manilaWallDate(new Date());
     const manilaToday = new Date(Date.UTC(year, month - 1, day));
     return {
-      min: toDateInputValue(addBusinessDays(manilaToday, 7)),
+      min: toDateInputValue(
+        new Date(manilaToday.getTime() + 7 * 24 * 60 * 60 * 1000),
+      ),
       max: toDateInputValue(
         new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000),
       ),
@@ -1004,7 +1005,7 @@ export function PdpQuickCodOrder(): ReactNode {
               />
               <p className="mt-1 text-xs text-ink-muted">
                 {form.province.trim()
-                  ? `Estimated delivery: ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                  ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
                   : "Choose a preferred date (optional)."}
               </p>
             </div>

@@ -1,14 +1,15 @@
 /**
  * Storefront delivery estimate.
  *
- * The shop quotes one nationwide window — 7 business days from the order
- * date (Sundays skipped). All calendar math is rendered in Asia/Manila so an
- * UTC server and a PH browser produce the same date — the Philippines has no
- * DST, so adding whole days in ms is safe.
+ * The shop quotes one nationwide window — as fast as 7 business days from
+ * the order date (Sundays skipped). All calendar math is rendered in
+ * Asia/Manila so a UTC server and a PH browser produce the same date — the
+ * Philippines has no DST, so adding whole days in ms is safe.
  */
 
 const TIME_ZONE = "Asia/Manila";
 const DELIVERY_DAYS = 7;
+const DELIVERY_LABEL = `as fast as ${DELIVERY_DAYS} days`;
 
 type ManilaWallDate = { year: number; month: number; day: number };
 
@@ -67,10 +68,9 @@ export interface DeliveryWindows {
 
 /** One nationwide window; the province no longer changes the estimate. */
 export function deliveryWindows(): DeliveryWindows {
-  const label = `${DELIVERY_DAYS} days`;
-  return { metro: label, provincial: label };
+  return { metro: DELIVERY_LABEL, provincial: DELIVERY_LABEL };
 }
 
 export function deliveryWindowFor(_province: string): string {
-  return `${DELIVERY_DAYS} days`;
+  return DELIVERY_LABEL;
 }

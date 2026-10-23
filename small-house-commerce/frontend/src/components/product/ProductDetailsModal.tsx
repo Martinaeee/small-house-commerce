@@ -466,7 +466,7 @@ export function ProductDetailsModal({
               <div className={POLICY_ROW}>
                 <dt className={POLICY_LABEL}>Delivery</dt>
                 <dd className={POLICY_VALUE}>
-                  Delivery in 7 days
+                  Delivery as fast as 7 days
                 </dd>
               </div>
               <div className={POLICY_ROW}>

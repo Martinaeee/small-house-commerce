@@ -47,7 +47,7 @@ const ITEMS: { icon: ReactNode; label: string; sub?: string }[] = [
       </svg>
     ),
     label: "Philippines Delivery",
-    sub: "Delivery in 7 days",
+    sub: "Delivery as fast as 7 days",
   },
 ];
 

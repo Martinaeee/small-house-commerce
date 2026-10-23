@@ -36,7 +36,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled])';
 
 const SERVICE_LINES = [
   "Cash on Delivery — no payment now",
-  "Nationwide delivery 7 days",
+  "Nationwide delivery as fast as 7 days",
   "Phone confirmation before delivery",
 ];
 
