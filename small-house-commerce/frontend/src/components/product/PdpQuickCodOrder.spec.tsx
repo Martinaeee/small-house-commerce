@@ -331,15 +331,14 @@ describe("PdpQuickCodOrder", () => {
     expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
   });
 
-  it("shows the compare-at strikethrough and a saving that is never deducted", () => {
+  it("shows the original price as the subtotal and a saving that is never deducted", () => {
     renderQuickOrder();
 
-    expect(screen.getByTestId("quick-cod-compare-total")).toHaveTextContent(
+    expect(screen.getByTestId("quick-cod-subtotal")).toHaveTextContent(
       "₱130.00",
     );
-    expect(screen.getByTestId("quick-cod-subtotal")).toHaveTextContent(
-      "₱100.00",
-    );
+    expect(screen.getByTestId("quick-cod-subtotal")).toHaveClass("line-through");
+    expect(screen.queryByTestId("quick-cod-compare-total")).toBeNull();
     expect(screen.getByTestId("quick-cod-save")).toHaveTextContent("−₱30.00");
     // The total is the selling-price subtotal — the saving is reference only.
     expect(screen.getByTestId("quick-cod-total")).toHaveTextContent("₱100.00");

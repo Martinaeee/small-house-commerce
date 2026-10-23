@@ -107,13 +107,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   });
 
   // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
-  // wall clock (min = +3 business days, max = +30 calendar days). A form left
+  // wall clock (min = +7 business days, max = +30 calendar days). A form left
   // open across midnight can drift ≤1 day — accepted, same trade-off as B batch.
   const [dateBounds] = useState(() => {
     const { year, month, day } = manilaWallDate(new Date());
     const manilaToday = new Date(Date.UTC(year, month - 1, day));
     return {
-      min: toDateInputValue(addBusinessDays(manilaToday, 3)),
+      min: toDateInputValue(addBusinessDays(manilaToday, 7)),
       max: toDateInputValue(new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000)),
     };
   });
@@ -739,15 +739,15 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 <dd className="font-medium text-ink">
                   {isBuyNow && total === null ? (
                     "Calculated at checkout"
+                  ) : totals.savings > 0 ? (
+                    <span
+                      data-testid="checkout-subtotal-compare"
+                      className="text-ink-muted line-through"
+                    >
+                      {formatPrice(totals.compareAtTotal)}
+                    </span>
                   ) : (
-                    <>
-                      {totals.savings > 0 && (
-                        <span className="mr-2 text-sm font-normal text-ink-muted line-through">
-                          {formatPrice(totals.compareAtTotal)}
-                        </span>
-                      )}
-                      {formatPrice(totals.subtotal)}
-                    </>
+                    formatPrice(totals.subtotal)
                   )}
                 </dd>
               </div>
@@ -787,7 +787,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
             />
-            <NewsletterOfferPrompt />
+            <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
           </div>
 
           <div className="order-4 lg:order-none">
@@ -795,7 +795,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               deliveryRange={
                 form.province.trim()
                   ? deliveryWindowFor(form.province)
-                  : "Metro Manila 3-5 days · provinces 5-7 days"
+                  : "7 days"
               }
             />
           </div>
@@ -806,7 +806,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               Pay in cash when your order arrives.{" "}
               {form.province.trim()
                 ? `Estimated delivery: ${deliveryWindowFor(form.province)}`
-                : "Estimated delivery: Metro Manila 3-5 days, provinces 5-7 days."}
+                : "Estimated delivery: 7 days."}
             </p>
           </div>
         </div>
@@ -822,7 +822,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             REVIEW ORDER
           </Button>
           <p className="mt-2 text-center text-xs text-ink-muted">
-            Cash on Delivery · No payment needed now
+            Cash on Delivery
           </p>
         </div>
       </div>

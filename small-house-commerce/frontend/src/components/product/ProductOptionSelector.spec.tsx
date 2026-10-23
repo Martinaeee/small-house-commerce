@@ -716,7 +716,7 @@ describe("PDP conversion hero", () => {
     // them and no card drawn around them.
     expect(assurances).toHaveAccessibleName("Service assurances");
     expect(within(assurances).getByText("COD & Free Shipping")).toBeVisible();
-    expect(within(assurances).getByText("Arrived in 1-5 days")).toBeVisible();
+    expect(within(assurances).getByText("Arrived in 7 days")).toBeVisible();
     expect(
       within(assurances).getByText("7-Day Free Return & Exchange"),
     ).toBeVisible();
