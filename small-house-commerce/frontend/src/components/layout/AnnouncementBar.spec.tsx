@@ -297,7 +297,7 @@ describe("AnnouncementBar", () => {
 
     const node = bar();
     expect(node.style.color).toBe("rgb(255, 255, 255)");
-    expect(node.style.backgroundColor).toBe("rgb(107, 79, 58)"); // #6b4f3a
+    expect(node.style.backgroundColor).toBe("rgb(36, 76, 60)"); // #244c3c
     const styleAttr = node.getAttribute("style") ?? "";
     expect(styleAttr).not.toContain("javascript");
     expect(styleAttr).not.toContain("not-a-color");

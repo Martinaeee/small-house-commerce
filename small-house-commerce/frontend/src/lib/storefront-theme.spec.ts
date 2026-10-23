@@ -51,7 +51,7 @@ describe("frontend theme derivation matches the shared contract fixtures", () =>
       action: "#5fa046",
     });
 
-    expect(derived.actionForeground).toBe("#222222");
+    expect(derived.actionForeground).toBe("#1f2a24");
     expect(wcagContrast(derived.actionHover, derived.actionForeground)).toBeGreaterThanOrEqual(
       4.5,
     );
@@ -70,17 +70,17 @@ describe("storefront theme component adoption", () => {
   it("gives the Footer a cream surface and a sage newsletter band", () => {
     expect(themeCssVariables(current.source, current.expected)).toMatchObject({
       "--color-cta-foreground": "#ffffff",
-      "--color-footer-background": "#f7f2e8",
-      "--color-footer-foreground": "#23301f",
-      "--color-footer-secondary": "#4c5646",
-      "--color-footer-muted": "#6b7263",
-      "--color-footer-border": "#d9d2c2",
+      "--color-footer-background": "#f2ede4",
+      "--color-footer-foreground": "#1f2a24",
+      "--color-footer-secondary": "#5a665e",
+      "--color-footer-muted": "#8c968e",
+      "--color-footer-border": "#e4dfd5",
       "--color-footer-band": "#a9b69b",
-      "--color-footer-band-ink": "#23301f",
+      "--color-footer-band-ink": "#1f2a24",
       "--color-footer-band-soft": "#33412c",
-      "--color-newsletter-overlay": "#2f211b",
-      "--color-newsletter-surface": "#fff4ed",
-      "--color-newsletter-surface-alt": "#fffaf6",
+      "--color-newsletter-overlay": "#1f2a24",
+      "--color-newsletter-surface": "#f2ede4",
+      "--color-newsletter-surface-alt": "#f6f1e8",
       "--color-newsletter-accent": "#a85238",
       "--color-newsletter-foreground": "#ffffff",
     });

@@ -23,7 +23,7 @@ import { AnnouncementRichText } from "./AnnouncementRichText";
 
 const MIN_ROTATION_MS = 2000;
 const DEFAULT_ROTATION_MS = 5000;
-const DEFAULT_BACKGROUND = "#6b4f3a";
+const DEFAULT_BACKGROUND = "#244c3c";
 const DEFAULT_TEXT_COLOR = "#FFFFFF";
 const MAX_SAFE_TIMEOUT_MS = 2_147_483_647;
 

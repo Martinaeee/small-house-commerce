@@ -133,7 +133,7 @@ export function NewsletterPopup() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#2f211b]/60 px-3 py-5 backdrop-blur-[2px] sm:px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 px-3 py-5 backdrop-blur-[2px] sm:px-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -144,7 +144,7 @@ export function NewsletterPopup() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="newsletter-popup-title"
-        className="relative max-h-[calc(100dvh-2rem)] w-[min(94vw,25rem)] overflow-x-hidden overflow-y-auto rounded-[1.75rem] border border-white/70 bg-[#fff4ed] shadow-[0_28px_80px_rgba(45,29,22,0.35)]"
+        className="relative max-h-[calc(100dvh-2rem)] w-[min(94vw,25rem)] overflow-x-hidden overflow-y-auto rounded-[1.75rem] border border-white/70 bg-newsletter-surface shadow-[0_28px_80px_rgba(45,29,22,0.35)]"
       >
         <div
           aria-hidden="true"
@@ -161,7 +161,7 @@ export function NewsletterPopup() {
           data-testid="newsletter-popup-close"
           onClick={close}
           aria-label="Close"
-          className="absolute right-4 top-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full text-[#765f54] transition hover:bg-white/70 hover:text-[#33251f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a85238] focus-visible:ring-offset-2 focus-visible:ring-offset-[#fff4ed]"
+          className="absolute right-4 top-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full text-newsletter-muted transition hover:bg-white/70 hover:text-newsletter-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-newsletter-accent focus-visible:ring-offset-2 focus-visible:ring-offset-newsletter-surface"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
@@ -170,37 +170,37 @@ export function NewsletterPopup() {
 
         <div className="relative px-5 pb-6 pt-6 text-center sm:px-7 sm:pb-7">
           <div className="flex justify-center">
-            <BrandWordmark className="text-lg text-[#704632]" />
+            <BrandWordmark className="text-lg text-cta" />
           </div>
 
-          <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.24em] text-[#a7654b]">
+          <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.24em] text-newsletter-accent">
             {settings.newsletterEyebrow}
           </p>
 
           <h2
             id="newsletter-popup-title"
-            className="mt-2 text-[1.7rem] font-semibold leading-tight tracking-[-0.03em] text-[#2f241f]"
+            className="mt-2 text-[1.7rem] font-semibold leading-tight tracking-[-0.03em] text-newsletter-text"
           >
             {settings.newsletterFormTitle}
           </h2>
 
-          <p className="mx-auto mt-2 max-w-[19rem] text-sm leading-6 text-[#735f54]">
+          <p className="mx-auto mt-2 max-w-[19rem] text-sm leading-6 text-newsletter-secondary">
             {settings.newsletterOfferBody ||
               "Get first access to new pieces and subscriber-only offers."}
           </p>
 
           <div
             data-testid="newsletter-offer-ticket"
-            className="relative mx-auto mt-5 overflow-hidden rounded-2xl border border-[#edcdbf] bg-white px-6 py-5 shadow-[0_14px_34px_rgba(90,54,37,0.11)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-[#fff4ed] after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-[#fff4ed]"
+            className="relative mx-auto mt-5 overflow-hidden rounded-2xl border border-newsletter-border bg-white px-6 py-5 shadow-[0_14px_34px_rgba(90,54,37,0.11)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-newsletter-surface after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-newsletter-surface"
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#a36a52]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-newsletter-accent">
               One real checkout offer
             </p>
-            <p className="mt-2 break-words text-2xl font-bold leading-tight tracking-[-0.03em] text-[#c35439]">
+            <p className="mt-2 break-words text-2xl font-bold leading-tight tracking-[-0.03em] text-newsletter-accent">
               {offerTitle}
             </p>
-            <div className="mx-auto mt-4 w-4/5 border-t border-dashed border-[#e5c3b4]" />
-            <p className="mt-3 text-xs text-[#80675b]">
+            <div className="mx-auto mt-4 w-4/5 border-t border-dashed border-newsletter-border" />
+            <p className="mt-3 text-xs text-newsletter-secondary">
               Subscribe to reveal your code
             </p>
           </div>
@@ -217,7 +217,7 @@ export function NewsletterPopup() {
             />
           </div>
 
-          <p className="mx-auto mt-4 max-w-[20rem] text-[10px] leading-4 text-[#8d786d]">
+          <p className="mx-auto mt-4 max-w-[20rem] text-[10px] leading-4 text-newsletter-muted">
             {settings.newsletterConsentText}
           </p>
         </div>

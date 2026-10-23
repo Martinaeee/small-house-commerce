@@ -24,14 +24,14 @@ describe('deriveStorefrontTheme', () => {
   it('picks the higher-contrast foreground for the action color', () => {
     expect(deriveStorefrontTheme(current.source).actionForeground).toBe('#ffffff');
     expect(deriveStorefrontTheme({ ...current.source, action: '#fff8ee' }).actionForeground).toBe(
-      '#222222',
+      '#1f2a24',
     );
   });
 
   it('keeps the hover state readable when the action selects a dark foreground', () => {
     const derived = deriveStorefrontTheme({ ...current.source, action: '#5fa046' });
 
-    expect(derived.actionForeground).toBe('#222222');
+    expect(derived.actionForeground).toBe('#1f2a24');
     expect(wcagContrast(derived.actionHover, derived.actionForeground)).toBeGreaterThanOrEqual(
       4.5,
     );

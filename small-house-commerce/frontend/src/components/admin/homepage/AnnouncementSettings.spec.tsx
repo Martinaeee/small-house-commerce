@@ -163,7 +163,7 @@ describe("AnnouncementSettings", () => {
     expect(announcement().items).toHaveLength(3);
     const added = announcement().items[2];
     expect(added.text.length).toBeGreaterThan(0);
-    expect(added.backgroundColor).toBe("#F2EFE9");
+    expect(added.backgroundColor).toBe("#faf8f5");
 
     fireEvent.click(
       within(itemCard(ITEM_ONE_ID)).getByRole("button", {

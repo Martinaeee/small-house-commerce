@@ -91,10 +91,10 @@ export function SubscribeEmailForm({
           data-testid="newsletter-subscribe-status"
           className={
             stacked
-              ? "text-center text-sm font-medium text-[#53382c]"
+              ? "text-center text-sm font-medium text-newsletter-text"
               : pill
                 ? "text-sm font-medium text-footer-foreground"
-                : "text-sm font-medium text-[#fff8f1]"
+                : "text-sm font-medium text-newsletter-foreground"
           }
         >
           You&apos;re subscribed. Thanks for joining LUWAG Living.
@@ -104,16 +104,16 @@ export function SubscribeEmailForm({
             data-testid="newsletter-success-ticket"
             className={
               stacked
-                ? "relative overflow-hidden rounded-2xl border border-[#e8c6b7] bg-white px-5 py-4 text-center shadow-[0_12px_32px_rgba(91,55,38,0.12)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-[#fff4ed] after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-[#fff4ed]"
-                : "flex min-w-0 flex-wrap items-center justify-between gap-3 border-y border-dashed border-[#d7b8a6] py-3 text-[#fff8f1]"
+                ? "relative overflow-hidden rounded-2xl border border-newsletter-border bg-white px-5 py-4 text-center shadow-[0_12px_32px_rgba(91,55,38,0.12)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-newsletter-surface after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-newsletter-surface"
+                : "flex min-w-0 flex-wrap items-center justify-between gap-3 border-y border-dashed border-white/30 py-3 text-newsletter-foreground"
             }
           >
             <div className={stacked ? "" : "min-w-0"}>
               <p
                 className={
                   stacked
-                    ? "text-[10px] font-semibold uppercase tracking-[0.24em] text-[#9b6c56]"
-                    : "text-[10px] font-semibold uppercase tracking-[0.22em] text-[#ead7ca]"
+                    ? "text-[10px] font-semibold uppercase tracking-[0.24em] text-newsletter-accent"
+                    : "text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70"
                 }
               >
                 Your checkout code
@@ -122,7 +122,7 @@ export function SubscribeEmailForm({
                 data-testid="newsletter-subscribe-code"
                 className={
                   stacked
-                    ? "mt-1 block break-all font-mono text-2xl font-bold tracking-[0.12em] text-[#b5543a]"
+                    ? "mt-1 block break-all font-mono text-2xl font-bold tracking-[0.12em] text-newsletter-ticket"
                     : "mt-1 block break-all font-mono text-lg font-bold tracking-[0.1em] text-white"
                 }
               >
@@ -137,14 +137,14 @@ export function SubscribeEmailForm({
               }}
               className={
                 stacked
-                  ? "mt-3 inline-flex h-10 items-center justify-center rounded-full bg-[#704632] px-5 text-sm font-semibold text-white transition hover:bg-[#5f3929]"
-                  : "shrink-0 border-b border-[#fff8f1] pb-0.5 text-sm font-semibold text-[#fff8f1] transition hover:text-white"
+                  ? "mt-3 inline-flex h-10 items-center justify-center rounded-full bg-cta px-5 text-sm font-semibold text-cta-foreground transition hover:bg-cta-hover"
+                  : "shrink-0 border-b border-white pb-0.5 text-sm font-semibold text-newsletter-foreground transition hover:text-white"
               }
             >
               {copied ? "Copied" : "Copy code"}
             </button>
             {stacked ? (
-              <p className="mt-3 text-xs text-[#80604f]">
+              <p className="mt-3 text-xs text-newsletter-secondary">
                 Apply it at checkout to claim your welcome offer.
               </p>
             ) : null}
@@ -189,10 +189,10 @@ export function SubscribeEmailForm({
           placeholder={placeholder}
           className={
             stacked
-              ? "h-12 min-w-0 w-full rounded-xl border border-[#b9927c] bg-white px-4 text-base text-[#34261f] outline-none transition placeholder:text-[#9b918c] focus:border-[#8d5138] focus:ring-2 focus:ring-[#c97b5d]/15"
+              ? "h-12 min-w-0 w-full rounded-xl border border-newsletter-border bg-white px-4 text-base text-newsletter-text outline-none transition placeholder:text-newsletter-muted focus:border-newsletter-accent focus:ring-2 focus:ring-newsletter-accent/15"
               : pill
                 ? "h-9 min-w-0 flex-1 bg-transparent px-0 text-[13px] text-footer-foreground outline-none transition placeholder:text-footer-muted"
-                : "h-11 min-w-0 flex-1 border-0 border-b border-[#d7b8a6] bg-transparent px-0 text-base text-white outline-none transition placeholder:text-[#ead7ca]/75 focus:border-white"
+                : "h-11 min-w-0 flex-1 border-0 border-b border-white/30 bg-transparent px-0 text-base text-white outline-none transition placeholder:text-white/60 focus:border-white"
           }
         />
         <button
@@ -202,10 +202,10 @@ export function SubscribeEmailForm({
           aria-label={busy ? "Subscribing" : "Subscribe"}
           className={
             stacked
-              ? "inline-flex h-12 w-full items-center justify-center rounded-xl bg-[#a85238] px-6 text-base font-semibold text-white shadow-[0_8px_20px_rgba(121,62,40,0.2)] transition hover:-translate-y-0.5 hover:bg-[#93462f] disabled:cursor-not-allowed disabled:opacity-60"
+              ? "inline-flex h-12 w-full items-center justify-center rounded-xl bg-newsletter-accent px-6 text-base font-semibold text-white shadow-[0_8px_20px_rgba(121,62,40,0.2)] transition hover:-translate-y-0.5 hover:bg-newsletter-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
               : pill
                 ? "group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-footer-foreground text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                : "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fff8f1] text-[#704632] transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-12"
+                : "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-newsletter-foreground text-cta transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-12"
           }
         >
           {busy ? (
@@ -236,8 +236,8 @@ export function SubscribeEmailForm({
             stacked
               ? "mt-2 text-sm text-sale"
               : pill
-                ? "mt-2 text-xs text-[#8a2f1f]"
-                : "mt-2 text-sm text-[#ffe0d3]"
+                ? "mt-2 text-xs text-sale"
+                : "mt-2 text-sm text-white/80"
           }
         >
           {state.message}
