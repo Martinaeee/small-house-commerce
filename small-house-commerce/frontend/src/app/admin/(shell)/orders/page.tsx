@@ -543,7 +543,7 @@ function OrdersPageContent() {
   // --- render ---------------------------------------------------------------
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={t("orders_title")}
         count={data?.total}
@@ -1185,7 +1185,7 @@ export default function AdminOrdersPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <div className="w-full max-w-none px-4 py-6 md:px-8">
           <TableSkeleton rows={6} cols={10} />
         </div>
       }

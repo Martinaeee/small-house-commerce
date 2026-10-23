@@ -410,7 +410,7 @@ export function CategoriesPanel() {
   const loading = tree === null && !loadError;
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
 
       {/* Chinese operator guide. */}
       <div className="mt-4 rounded-xl border border-primary/50 bg-primary-light/30 p-4 text-xs leading-relaxed text-ink-secondary">

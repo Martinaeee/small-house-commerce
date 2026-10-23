@@ -17,7 +17,7 @@ export default function AdminGroupingsPage() {
 
   return (
     <div className="flex flex-col gap-8 py-6">
-      <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+      <div className="w-full max-w-none px-4 md:px-8">
         <PageHeader
           title={t("groupings_title")}
           subtitle={t("groupings_subtitle")}
@@ -41,7 +41,7 @@ export default function AdminGroupingsPage() {
       </div>
 
       <section id="groupings-categories" className="scroll-mt-20">
-        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+        <div className="w-full max-w-none px-4 md:px-8">
           <h2 className="text-lg font-semibold text-ink">分类</h2>
           <p className="mt-0.5 text-sm text-ink-secondary">
             商品的固定归属（一个商品只属于一个分类），带层级——决定前台导航菜单、面包屑和分类页。
@@ -51,7 +51,7 @@ export default function AdminGroupingsPage() {
       </section>
 
       <section id="groupings-collections" className="scroll-mt-20">
-        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+        <div className="w-full max-w-none px-4 md:px-8">
           <h2 className="text-lg font-semibold text-ink">集合</h2>
           <p className="mt-0.5 text-sm text-ink-secondary">
             营销专题（一个商品可进多个集合）——驱动首页的 New Arrivals / Best

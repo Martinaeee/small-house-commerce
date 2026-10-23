@@ -18,7 +18,7 @@ export default function NewsletterAdminPage() {
   >("subscribers");
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={t("newsletter_title")}
         subtitle={t("newsletter_subtitle")}

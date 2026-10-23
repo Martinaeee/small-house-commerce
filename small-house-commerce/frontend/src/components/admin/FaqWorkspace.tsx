@@ -670,7 +670,7 @@ export function FaqWorkspace({
 
   if (!canEditShared && !canEditProducts) {
     return (
-      <div className="mx-auto w-full max-w-[1280px] px-4 py-12 md:px-8">
+      <div className="w-full max-w-none px-4 py-12 md:px-8">
         <div
           role="alert"
           className="rounded-xl border border-border bg-card p-8 text-center"
@@ -692,7 +692,7 @@ export function FaqWorkspace({
   return (
     <div
       data-faq-workspace
-      className="mx-auto w-full max-w-[1280px] space-y-5 px-4 py-6 md:px-8"
+      className="w-full max-w-none space-y-5 px-4 py-6 md:px-8"
     >
       <PageHeader
         title={t("faq_workspace_title")}

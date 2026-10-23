@@ -182,7 +182,7 @@ function hasNavPermission(
 
 function navLinkClass(active: boolean): string {
   return [
-    "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
     active
       ? "bg-admin-rail-active text-white"
       : "text-admin-rail-muted hover:bg-admin-rail-hover hover:text-white",
@@ -269,11 +269,10 @@ function NavLink({
       className={compact ? `${navLinkClass(active)} ${studioStyles.railLink}` : navLinkClass(active)}
       title={compact ? item.label : undefined}
     >
-      {compact ? <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-5 w-5 shrink-0">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden className="h-5 w-5 shrink-0">
         <path d={NAV_ICON_PATHS[item.href]} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      </svg> : null}
-      <span className={compact ? "sr-only" : undefined}>{item.label}</span>
-    </Link>
+      </svg>
+      <span className={compact ? "sr-only" : undefined}>{item.label}</span>    </Link>
   );
 }
 

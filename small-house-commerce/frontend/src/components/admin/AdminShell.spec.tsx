@@ -349,7 +349,7 @@ describe("AdminShell website navigation group", () => {
 
     const labels = within(desktopNav())
       .getAllByRole("link")
-      .map((link) => link.textContent);
+      .map((link) => link.textContent?.trim());
     expect(labels).toEqual([
       // The dashboard is the first seat: it opens the operator workbench.
       "nav_dashboard",

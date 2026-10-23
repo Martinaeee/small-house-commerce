@@ -331,7 +331,7 @@ describe("FaqWorkspace", () => {
     await screen.findByText("Delivery & receiving");
 
     expect(container.querySelector("[data-faq-workspace]")).toHaveClass(
-      "max-w-[1280px]",
+      "max-w-none",
     );
     const filters = within(
       screen.getByRole("toolbar", { name: "FAQ filters" }),

@@ -194,7 +194,7 @@ export default function SiteSettingsPage(): ReactNode {
   };
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={t("settings_title")}
         subtitle={t("settings_subtitle")}

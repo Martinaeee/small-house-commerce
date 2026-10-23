@@ -1100,7 +1100,7 @@ export function StorefrontShellEditor({ children }: { children?: ReactNode }) {
   return (
     <StorefrontShellEditorContext.Provider value={contextValue}>
       <div className="min-h-[calc(100vh-3.5rem)] bg-admin-canvas">
-        <div className="mx-auto max-w-[1600px] px-4 pb-4 pt-6 sm:px-6">
+        <div className="w-full max-w-none px-4 pb-4 pt-6 sm:px-6">
           <h1 className="text-2xl font-bold text-ink">
             {t("storefront_shell_title")}
           </h1>
@@ -1129,7 +1129,7 @@ export function StorefrontShellEditor({ children }: { children?: ReactNode }) {
           onRestoreDefaults={restoreDefaults}
         />
 
-        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        <div className="w-full max-w-none px-4 py-6 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div role="group" aria-label={t("storefront_shell_tabs")} className="flex flex-wrap gap-2">
               {(["brand", "header", "footer"] as const).map((tab) => (
@@ -1309,7 +1309,7 @@ export function StorefrontShellEditor({ children }: { children?: ReactNode }) {
 
 function EditorLoading({ label }: { label: string }) {
   return (
-    <div className="mx-auto max-w-[1600px] p-8" aria-busy="true">
+    <div className="w-full max-w-none p-8" aria-busy="true">
       <p className="sr-only">{label}</p>
       <div className="h-8 w-64 animate-pulse rounded bg-admin-border" />
       <div className="mt-4 h-40 animate-pulse rounded-xl bg-admin-surface" />

@@ -367,7 +367,7 @@ function InventoryPageContent() {
   // --- render ---------------------------------------------------------------
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={t("inventory_title")}
         subtitle={t("inventory_subtitle")}
@@ -750,7 +750,7 @@ export default function AdminInventoryPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+        <div className="w-full max-w-none px-4 py-6 md:px-8">
           <TableSkeleton rows={6} cols={8} />
         </div>
       }

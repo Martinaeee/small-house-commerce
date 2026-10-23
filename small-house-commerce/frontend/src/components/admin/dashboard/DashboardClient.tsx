@@ -111,7 +111,7 @@ export function DashboardClient() {
   const errorList = [errors.overview, errors.products, errors.marketing].filter(Boolean);
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-4 px-4 py-6 md:px-8">
+    <div className="w-full max-w-none space-y-4 px-4 py-6 md:px-8">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("dash_title")}</h1>

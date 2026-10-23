@@ -389,7 +389,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="w-full max-w-none px-4 py-6 md:px-8">
         <EmptyState
           title="Product not found."
           hint="It may have been deleted."
@@ -407,7 +407,7 @@ function ProductReviewsContent({ productId }: { productId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <PageHeader
         title={product ? `Reviews · ${product.name}` : "Reviews"}
         count={reviews?.length}

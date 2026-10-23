@@ -108,7 +108,7 @@ export function StorefrontShellPublishBar({
       data-testid="storefront-shell-publish-bar"
       className="sticky top-14 z-20 border-b border-admin-border bg-admin-surface px-4 py-3 shadow-sm sm:px-6"
     >
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1" aria-live="polite">
           <p className="flex items-center gap-2 text-sm font-semibold text-ink">
             <span
@@ -219,7 +219,7 @@ export function StorefrontShellPublishBar({
       {conflict ? (
         <div
           role="alert"
-          className="mx-auto mt-3 flex max-w-[1600px] items-center justify-between gap-3 rounded-lg border border-admin-warning bg-admin-warning-soft px-3 py-2 text-sm text-ink"
+          className="mt-3 flex w-full items-center justify-between gap-3 rounded-lg border border-admin-warning bg-admin-warning-soft px-3 py-2 text-sm text-ink"
         >
           <span>{t("storefront_shell_conflict")}</span>
           <button
@@ -235,7 +235,7 @@ export function StorefrontShellPublishBar({
       {failure ? (
         <div
           role="alert"
-          className="mx-auto mt-3 flex max-w-[1600px] items-center justify-between gap-3 rounded-lg border border-admin-error bg-admin-error-soft px-3 py-2 text-sm text-admin-error"
+          className="mt-3 flex w-full items-center justify-between gap-3 rounded-lg border border-admin-error bg-admin-error-soft px-3 py-2 text-sm text-admin-error"
         >
           <span>{failure.message}</span>
           <button type="button" onClick={onRetry} className="font-semibold underline">

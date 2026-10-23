@@ -628,7 +628,7 @@ function OrderDetailPage(): ReactNode {
 
   if (initialLoading) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="w-full max-w-none px-4 py-6 md:px-8">
         <Link
           href="/admin/orders"
           className="text-sm font-medium text-ink-muted hover:text-ink"
@@ -644,7 +644,7 @@ function OrderDetailPage(): ReactNode {
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="w-full max-w-none px-4 py-6 md:px-8">
         <Link
           href="/admin/orders"
           className="text-sm font-medium text-ink-muted hover:text-ink"
@@ -670,7 +670,7 @@ function OrderDetailPage(): ReactNode {
 
   if (!order) {
     return (
-      <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="w-full max-w-none px-4 py-6 md:px-8">
         <Link
           href="/admin/orders"
           className="text-sm font-medium text-ink-muted hover:text-ink"
@@ -746,7 +746,7 @@ function OrderDetailPage(): ReactNode {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8">
+    <div className="w-full max-w-none px-4 py-6 md:px-8">
       <Link
         href="/admin/orders"
         className="text-sm font-medium text-ink-muted hover:text-ink"
