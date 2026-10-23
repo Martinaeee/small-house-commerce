@@ -301,6 +301,16 @@ describe("UnifiedGroupsDraft", () => {
     expect(within(dialog).getByRole("button", { name: "上移 Member Lamp" })).toBeDisabled();
   });
 
+  it("uses the product page's full-width, left-aligned shell", async () => {
+    const { container } = render(<UnifiedGroupsDraft />);
+    await screen.findByText("商品分组（统一草稿）");
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root).toHaveClass("w-full", "max-w-none");
+    expect(root).not.toHaveClass("mx-auto");
+    expect(container.querySelector(".max-w-\\[1200px\\]")).toBeNull();
+  });
+
   it("shows the selected product's thumbnail and SKU in the assignment draft", async () => {
     await renderDraft();
     fireEvent.click(screen.getByRole("button", { name: "商品归属交互稿" }));

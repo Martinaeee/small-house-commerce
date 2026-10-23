@@ -187,7 +187,7 @@ export function UnifiedGroupsDraft() {
 
   if (loadError) {
     return (
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 md:px-8">
+      <div className="w-full max-w-none px-4 py-6 md:px-8">
         <PageHeader title="商品分组（统一草稿）" />
         <p role="alert" className="mt-4 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">
           {loadError}
@@ -197,7 +197,7 @@ export function UnifiedGroupsDraft() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-4 py-6 md:px-8">
+    <div className="flex w-full max-w-none flex-col gap-4 px-4 py-6 md:px-8">
       <PageHeader
         title="商品分组（统一草稿）"
         subtitle="一个列表管理商品分类与营销集合。商品分类按主分组自动归属，营销集合按成员名单展示。"

@@ -236,6 +236,8 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
 ### 7.4 本地可点击草稿（阶段 A 已交付）
 
 - 路由：`/admin/groupings-v2`（仅本地开发，页面标注「本地草稿演示 · 不写数据库」）。
+- 页面外壳与商品页一致：`w-full max-w-none px-4 py-6 md:px-8`，靠左铺满主内容区，
+  不再用 `mx-auto max-w-[1200px]` 居中；列表与弹窗随之获得完整宽度。
 - 代码：
   - `frontend/src/app/admin/(shell)/groupings-v2/page.tsx` — 草稿入口；
   - `frontend/src/components/admin/UnifiedGroupsDraft.tsx` — 列表/树/编辑弹窗/商品归属交互；
@@ -261,11 +263,11 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
   直属 1 · 成员 0」，展开后 24 行；Chairs & Stools 弹窗显示 7 个主分组 + 2 个成员，
   三个分区标签实测可切换且默认基本信息；成员 ↑/↓ 实测可换序；
   缩略图/SKU/「已在名单」/总数均实测出现；控制台 0 错误；
-  草稿相关 `vitest` 10/10，前端完整套件 3121/3121，`tsc --noEmit` 与 `eslint` 均通过。
+  草稿相关 `vitest` 11/11，前端完整套件 3122/3122，`tsc --noEmit` 与 `eslint` 均通过。
 - 截图：`.snapshots/unified-groups-draft-list.png`、`unified-groups-draft-editor.png`、
   `unified-groups-assignment-draft.png`、`unified-groups-draft-editor-thumbs-sku.png`、
-  `unified-groups-tabs-basic.png`、`unified-groups-tabs-products.png`
-  （保存在 homepage-builder 工作树的 `.snapshots/`）。
+  `unified-groups-tabs-basic.png`、`unified-groups-tabs-products.png`、
+  `unified-groups-fullwidth.png`（保存在 homepage-builder 工作树的 `.snapshots/`）。
 - **不保存任何更改**，不修改生产数据；正式接线在阶段 C。
 
 ## 8. 前台行为
