@@ -222,6 +222,31 @@ export function appendDetailBlock(
   ];
 }
 
+/**
+ * Scope choices for a detail block: shared, a media-driver option value, or a
+ * persisted exact variant. Unsaved variants have no id to scope to yet.
+ */
+export function detailBlockScopeOptions(
+  graph: ProductFormValue["graph"] | undefined,
+  sharedLabel: string,
+): { value: string; label: string }[] {
+  const options = [{ value: "", label: sharedLabel }];
+  for (const option of graph?.options ?? []) {
+    if (!option.isMediaDriver) continue;
+    for (const optionValue of option.values) {
+      options.push({
+        value: `option:${optionValue.id}`,
+        label: `${option.name} = ${optionValue.label}`,
+      });
+    }
+  }
+  for (const variant of graph?.variants ?? []) {
+    if (!variant.id) continue;
+    options.push({ value: `variant:${variant.id}`, label: variant.name });
+  }
+  return options;
+}
+
 export type SerializeFormResult =
   | { ok: true; value: CreateProductInput }
   | { ok: false; error: string; fieldErrors: Record<string, string> };
@@ -1248,13 +1273,6 @@ export function ProductForm({
     }));
     clearValidation();
   };
-  const addDetailBlock = (type: DetailBlockFormValue["type"]): void => {
-    setValue((prev) => ({
-      ...prev,
-      detailBlocks: appendDetailBlock(prev.detailBlocks, type),
-    }));
-    clearValidation();
-  };
   const addDetailMedia = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
     setValue((prev) => ({
       ...prev,
@@ -1840,8 +1858,11 @@ export function ProductForm({
               onPatch: setDetailBlock,
               onMove: moveDetailBlock,
               onRemove: removeDetailBlock,
-              onAdd: addDetailBlock,
               onAddMedia: addDetailMedia,
+              scopeOptions: detailBlockScopeOptions(
+                value.graph,
+                t("product_detail_scope_shared"),
+              ),
               batchUpload,
             }}
           />

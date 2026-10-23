@@ -1351,7 +1351,7 @@ export const zh = {
   product_media_edit_card: "编辑 {scope} 的媒体 {number}",
   product_media_edit_close: "关闭媒体编辑",
   product_media_gallery_aria: "{scope} 图库",
-  product_media_manual_add: "手动添加空条目",
+  product_media_scope_label: "适用范围",
   product_media_batch_waiting: "等待中",
   product_media_batch_active: "上传中",
   product_media_batch_uploaded: "已上传",
@@ -1385,8 +1385,9 @@ export const zh = {
   product_detail_move_up: "将详情块 {number} 上移",
   product_detail_move_down: "将详情块 {number} 下移",
   product_detail_remove: "移除详情块",
-  product_detail_add_image: "添加详情图片",
-  product_detail_add_video: "添加详情视频",
+  product_detail_scope_label: "适用范围",
+  product_detail_scope_shared: "共享（所有款式）",
+  product_detail_scope_aria: "详情块 {number} 的适用范围",
 
   // --- Product form: specs tab ---
   product_specs_dimensions_title: "尺寸",

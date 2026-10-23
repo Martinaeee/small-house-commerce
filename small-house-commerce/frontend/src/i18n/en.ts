@@ -1370,7 +1370,7 @@ export const en: Record<ZhKey, string> = {
   product_media_edit_card: "Edit {scope} media {number}",
   product_media_edit_close: "Close media editor",
   product_media_gallery_aria: "{scope} gallery",
-  product_media_manual_add: "Manually add an empty row",
+  product_media_scope_label: "Applies to",
   product_media_batch_waiting: "Waiting",
   product_media_batch_active: "Uploading",
   product_media_batch_uploaded: "Uploaded",
@@ -1405,8 +1405,9 @@ export const en: Record<ZhKey, string> = {
   product_detail_move_up: "Move detail block {number} up",
   product_detail_move_down: "Move detail block {number} down",
   product_detail_remove: "Remove detail block",
-  product_detail_add_image: "Add detail image",
-  product_detail_add_video: "Add detail video",
+  product_detail_scope_label: "Applies to",
+  product_detail_scope_shared: "Shared (all variants)",
+  product_detail_scope_aria: "Detail block {number} applies to",
 
   product_specs_dimensions_title: "Dimensions",
   product_specs_dimensions_hint:

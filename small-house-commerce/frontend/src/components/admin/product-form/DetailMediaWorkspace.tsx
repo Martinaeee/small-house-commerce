@@ -5,7 +5,6 @@ import type { DetailBlockFormValue } from "@/components/admin/ProductForm";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
 import { MediaGallery } from "@/components/admin/product-form/MediaGallery";
 import { useMediaBatchUpload, type MediaBatchUpload, type UploadedMedia } from "@/components/admin/product-form/useMediaBatchUpload";
-import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { summarizeAdminMedia } from "@/lib/admin-product-media-summary";
 
@@ -15,19 +14,35 @@ export interface DetailMediaWorkspaceProps {
   highlightKey?: string | null;
   fieldErrors?: Readonly<Record<string, string>>;
   batchUpload?: MediaBatchUpload;
+  /** Shared / option-value / exact-variant choices for the per-row scope select. */
+  scopeOptions: readonly { value: string; label: string }[];
   onAddMedia(media: UploadedMedia): void;
   onPatch(index: number, patch: Partial<DetailBlockFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onRemove(index: number): void;
-  onAdd(type: "IMAGE" | "VIDEO"): void;
 }
 
-export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fieldErrors = {}, batchUpload, onAddMedia, onPatch, onMove, onRemove, onAdd }: DetailMediaWorkspaceProps): ReactNode {
+export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fieldErrors = {}, batchUpload, scopeOptions, onAddMedia, onPatch, onMove, onRemove }: DetailMediaWorkspaceProps): ReactNode {
   const { t } = useAdminI18n();
   const localBatch = useMediaBatchUpload({ disabled: pending });
   const uploadTask = batchUpload ?? localBatch;
   const summary = summarizeAdminMedia(blocks.map((block) => ({ ...block, sortOrder: Number(block.sortOrder.trim() || "0") || 0 })));
   const highlightedKey = highlightKey?.match(/^detailBlocks\.\d+(?=\.|$)/)?.[0] ?? null;
+  const scopeValueFor = (block: DetailBlockFormValue): string =>
+    block.variantId
+      ? `variant:${block.variantId}`
+      : block.optionValueId
+        ? `option:${block.optionValueId}`
+        : "";
+  const setScope = (index: number, value: string): void => {
+    if (value.startsWith("variant:")) {
+      onPatch(index, { variantId: value.slice(8), optionValueId: "" });
+    } else if (value.startsWith("option:")) {
+      onPatch(index, { optionValueId: value.slice(7), variantId: "" });
+    } else {
+      onPatch(index, { optionValueId: "", variantId: "" });
+    }
+  };
   return (
     <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -48,7 +63,10 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
       <MediaGallery
           scope={t("product_detail_title")}
           listLabel={t("product_detail_blocks_aria")}
-          items={blocks.map((block, index) => ({ ...block, key: `detailBlocks.${index}`, domId: `product-detail-block-${index}` }))}
+          items={blocks.map((block, index) => ({ ...block, key: `detailBlocks.${index}`, domId: `product-detail-block-${index}`, scopeValue: scopeValueFor(block) }))}
+          scopeOptions={scopeOptions}
+          scopeLabel={t("product_detail_scope_label")}
+          onScopeChange={(key, value) => setScope(Number(key.split(".")[1]), value)}
           pending={pending || Boolean(uploadTask.uploading)}
           indexed
           highlightedKey={highlightedKey}
@@ -61,6 +79,7 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
             previous: (number) => t("product_detail_move_up", { number }),
             next: (number) => t("product_detail_move_down", { number }),
             remove: t("product_detail_remove"),
+            scope: (number) => t("product_detail_scope_aria", { number }),
           }}
           onUpload={(key, file) => {
             const index = Number(key.split(".")[1]);
@@ -70,13 +89,6 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           onMove={(key, delta) => onMove(Number(key.split(".")[1]), delta)}
           onRemove={(key) => onRemove(Number(key.split(".")[1]))}
         />
-      <details className="mt-3 text-xs text-ink-muted">
-        <summary className="cursor-pointer">{t("product_media_manual_add")}</summary>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" size="md" onClick={() => onAdd("IMAGE")} disabled={pending || Boolean(uploadTask.uploading)}>{t("product_detail_add_image")}</Button>
-          <Button type="button" variant="secondary" size="md" onClick={() => onAdd("VIDEO")} disabled={pending || Boolean(uploadTask.uploading)}>{t("product_detail_add_video")}</Button>
-        </div>
-      </details>
     </section>
   );
 }

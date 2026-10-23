@@ -29,8 +29,8 @@ function renderWorkspace(
     onPatch: vi.fn(),
     onMove: vi.fn(),
     onRemove: vi.fn(),
-    onAdd: vi.fn(),
     onAddMedia: vi.fn(),
+    scopeOptions: [],
     ...overrides,
   };
   const view = render(
@@ -130,15 +130,14 @@ describe("DetailMediaWorkspace", () => {
       screen.getByRole("button", { name: "Move detail block 2 up" }),
     );
     expect(props.onMove).toHaveBeenCalledWith(1, -1);
-    await user.click(
-      screen.getAllByRole("button", { name: "Remove detail block" })[0],
-    );
+    await user.click(screen.getAllByRole("button", { name: "Remove detail block" })[0]);
     expect(props.onRemove).toHaveBeenCalledWith(0);
 
-    await user.click(screen.getByRole("button", { name: "Add detail image" }));
-    await user.click(screen.getByRole("button", { name: "Add detail video" }));
-    expect(props.onAdd).toHaveBeenNthCalledWith(1, "IMAGE");
-    expect(props.onAdd).toHaveBeenNthCalledWith(2, "VIDEO");
+    // The batch uploader + URL row already adds rows; the old duplicate
+    // "add detail image / video" panel must be gone.
+    expect(screen.queryByRole("button", { name: "Add detail image" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add detail video" })).toBeNull();
+    expect(screen.queryByText("Manually add an empty row")).toBeNull();
 
     rerender(
       <AdminI18nProvider>
@@ -155,6 +154,58 @@ describe("DetailMediaWorkspace", () => {
       url: "/uploads/detail-1.jpg",
       altText: "Assembly detail",
       sortOrder: "0",
+    });
+  });
+
+  it("sets an option-value scope on a single detail block", async () => {
+    const onPatch = vi.fn();
+    renderWorkspace({
+      onPatch,
+      scopeOptions: [
+        { value: "", label: "Shared" },
+        { value: "option:orange", label: "Color = Orange" },
+        { value: "variant:tall", label: "Tall" },
+      ],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Detail content (images / videos) media 1",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Detail block 1 applies to"), {
+      target: { value: "option:orange" },
+    });
+
+    expect(onPatch).toHaveBeenCalledWith(0, {
+      optionValueId: "orange",
+      variantId: "",
+    });
+  });
+
+  it("clears both scope ids when switched back to shared", async () => {
+    const onPatch = vi.fn();
+    renderWorkspace({
+      onPatch,
+      blocks: [{ ...blocks[0], variantId: "tall" }],
+      scopeOptions: [
+        { value: "", label: "Shared" },
+        { value: "variant:tall", label: "Tall" },
+      ],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Detail content (images / videos) media 1",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Detail block 1 applies to"), {
+      target: { value: "" },
+    });
+
+    expect(onPatch).toHaveBeenCalledWith(0, {
+      optionValueId: "",
+      variantId: "",
     });
   });
 });

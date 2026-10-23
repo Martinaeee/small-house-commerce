@@ -12,6 +12,8 @@ export interface MediaGalleryItem {
   type: "IMAGE" | "VIDEO";
   altText: string;
   isScene?: boolean;
+  /** Current scope selection for editors that scope rows (e.g. detail blocks). */
+  scopeValue?: string;
 }
 interface MediaGalleryLabels {
   type(number: number): string;
@@ -20,9 +22,10 @@ interface MediaGalleryLabels {
   previous(number: number): string;
   next(number: number): string;
   remove: string;
+  scope?(number: number): string;
 }
 
-export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, onUpload, onPatch, onMove, onRemove }: {
+export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, scopeOptions, scopeLabel, onScopeChange, onUpload, onPatch, onMove, onRemove }: {
   items: readonly MediaGalleryItem[];
   scope: string;
   pending: boolean;
@@ -33,6 +36,9 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
   problemKey?: string | null;
   errors?: Readonly<Record<string, string>>;
   indexed?: boolean;
+  scopeOptions?: readonly { value: string; label: string }[];
+  scopeLabel?: string;
+  onScopeChange?: (key: string, value: string) => void;
   onUpload(key: string, file: File): Promise<void>;
   onPatch(key: string, patch: Partial<Pick<MediaGalleryItem, "type" | "url" | "altText">>): void;
   onMove(key: string, delta: -1 | 1): void;
@@ -126,6 +132,15 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
               : <span className="text-xs text-ink-muted">{t(active.type === "VIDEO" ? "product_media_empty_video" : "product_media_empty_image")}</span>}
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+            {scopeOptions && onScopeChange ? (
+              <div className="sm:col-span-2">
+                <Field label={scopeLabel ?? t("product_media_scope_label")} htmlFor={`${editorId}-scope`}>
+                  <Select id={`${editorId}-scope`} aria-label={labels.scope?.(number) ?? scopeLabel} value={active.scopeValue ?? ""} disabled={pending} onChange={(event) => onScopeChange(active.key, event.target.value)}>
+                    {scopeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </Select>
+                </Field>
+              </div>
+            ) : null}
             <div id={fieldProblemId("type")}>
               <Field label={t("product_media_type_label")} htmlFor={`${editorId}-type`} error={errors[`${active.key}.type`]}>
                 <Select id={`${editorId}-type`} aria-label={labels.type(number)} value={active.type} disabled={pending} onChange={(event) => onPatch(active.key, {

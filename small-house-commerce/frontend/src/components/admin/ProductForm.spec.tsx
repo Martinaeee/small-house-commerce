@@ -1744,10 +1744,24 @@ describe("ProductForm Task 3 localization and structure", () => {
     await user.click(
       screen.getByRole("button", { name: "Move detail block 1 down" }),
     );
-    await user.click(screen.getByRole("button", { name: "Add detail video" }));
-    fireEvent.change(screen.getByLabelText("Detail block 3 URL"), {
-      target: { value: "/uploads/detail-c.mp4" },
+    const detailSection = screen
+      .getByRole("heading", { name: "Detail content (images / videos)" })
+      .closest("section") as HTMLElement;
+    fireEvent.change(within(detailSection).getByLabelText("New media type"), {
+      target: { value: "VIDEO" },
     });
+    await user.type(
+      within(detailSection).getByLabelText("Media URL to add"),
+      "/uploads/detail-c.mp4",
+    );
+    await user.click(
+      within(detailSection).getByRole("button", { name: "Add URL" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit Detail content (images / videos) media 3",
+      }),
+    );
     fireEvent.change(screen.getByLabelText("Detail block 3 alt text"), {
       target: { value: "Detail C" },
     });
