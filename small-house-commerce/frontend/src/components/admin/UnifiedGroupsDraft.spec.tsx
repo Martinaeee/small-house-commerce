@@ -267,6 +267,7 @@ describe("UnifiedGroupsDraft", () => {
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "页面横幅" }));
     expect(within(dialog).getByText(/标题始终使用上方的名称/)).toBeInTheDocument();
+    expect(within(dialog).getByText("整页预览（已保存版本）")).toBeInTheDocument();
     expect(within(dialog).queryByLabelText("商品名单")).toBeNull();
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "商品名单" }));

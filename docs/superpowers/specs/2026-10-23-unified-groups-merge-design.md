@@ -223,7 +223,8 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
 
 - 与原集合弹窗一致的三分区标签：**基本信息 / 页面横幅 / 商品名单**，默认「基本信息」；
 - 基本信息：名称/Slug/状态/排序/类型（只读）/父分组（CATEGORY）/描述/SEO 标题/SEO 描述；
-- 页面横幅：复用 `HeroStyleFields`，并提供 HeroBanner 实时预览；
+- 页面横幅：复用 `HeroStyleFields`，提供 HeroBanner 实时预览与「整页预览（已保存版本）」；
+  分类走 `/categories/<slug>`，营销集合走 `/collections/<slug>`。
 - 商品名单：有效列表、主分组标记、成员增删/排序、搜索添加、子分类统计块；
 - 底部动作行：关闭 / 保存（演示）；保存一次提交（基本信息 + 横幅 + 成员变化），
   CATEGORY 不改商品主分组。
@@ -249,7 +250,7 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
   统一编辑弹窗、新建子分组继承父级、商品归属交互稿（单主分组 + 其他多选）。
 - 编辑弹窗按原集合弹窗改成三分区标签：**基本信息 / 页面横幅 / 商品名单**，默认基本信息；
   基本信息含名称/Slug/状态/排序/类型/父分组/描述/SEO，页面横幅复用 `HeroStyleFields`
-  并提供 HeroBanner 实时预览，商品名单保留全部缩略图/SKU/排序/增删功能；
+  并提供 HeroBanner 实时预览与整页已保存预览，商品名单保留全部缩略图/SKU/排序/增删功能；
   底部「关闭 / 保存（演示）」动作行保留。
 - 说明：原集合弹窗运行时并没有 CSS `sticky`（标题、标签、底部按钮均随弹窗滚动）；
   本次按它的**分区标签结构**对齐，避免统一弹窗把所有内容堆成一条长页。
@@ -267,7 +268,8 @@ dump 可恢复、旧镜像可启动、恢复后页面与基线一致。
 - 截图：`.snapshots/unified-groups-draft-list.png`、`unified-groups-draft-editor.png`、
   `unified-groups-assignment-draft.png`、`unified-groups-draft-editor-thumbs-sku.png`、
   `unified-groups-tabs-basic.png`、`unified-groups-tabs-products.png`、
-  `unified-groups-fullwidth.png`（保存在 homepage-builder 工作树的 `.snapshots/`）。
+  `unified-groups-banner-saved-preview.png`、`unified-groups-fullwidth.png`
+  （保存在 homepage-builder 工作树的 `.snapshots/`）。
 - **不保存任何更改**，不修改生产数据；正式接线在阶段 C。
 
 ## 8. 前台行为

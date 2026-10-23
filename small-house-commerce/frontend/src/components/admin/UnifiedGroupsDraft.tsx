@@ -11,7 +11,7 @@ import {
   toHeroStyleFormValue,
   type HeroStyleFormValue,
 } from "./HeroStyleFields";
-import { LivePreview } from "./PreviewPane";
+import { LivePreview, StorefrontPreview } from "./PreviewPane";
 import { HeroBanner } from "@/components/product/HeroBanner";
 import { Button } from "@/components/ui/Button";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -677,6 +677,22 @@ function UnifiedGroupEditor({
                   />
                 </LivePreview>
               </div>
+              {row ? (
+                <div className="mt-4 border-t border-border pt-4">
+                  <h4 className="text-xs font-semibold text-ink-secondary">
+                    整页预览（已保存版本）
+                  </h4>
+                  <div className="mt-3">
+                    <StorefrontPreview
+                      path={
+                        row.kind === "CATEGORY"
+                          ? `/categories/${row.slug}`
+                          : `/collections/${row.slug}`
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
