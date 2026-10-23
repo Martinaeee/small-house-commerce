@@ -15,6 +15,7 @@ import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { CurrentUser } from '../../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from '../orders.service.js';
+import { OrderVerificationService } from '../verification.service.js';
 import { PermissionsService } from '../../auth/permissions.service.js';
 import {
   addCustomerNoteSchema,
@@ -56,13 +57,17 @@ import {
 export class AdminOrdersController {
   constructor(
     private readonly ordersService: OrdersService,
+    private readonly verificationService: OrderVerificationService,
     private readonly permissions: PermissionsService,
   ) {}
 
   @Get()
   @Permissions('ORDER_VIEW_ALL')
-  list(@Query(new ZodValidationPipe(orderQuerySchema)) query: OrderQuery) {
-    return this.ordersService.list(query);
+  list(
+    @Query(new ZodValidationPipe(orderQuerySchema)) query: OrderQuery,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.ordersService.list(query, user.userId);
   }
 
   @Get('assignees')
@@ -73,8 +78,11 @@ export class AdminOrdersController {
 
   @Get('counts')
   @Permissions('ORDER_VIEW_ALL')
-  counts() {
-    return this.ordersService.counts();
+  counts(
+    @Query(new ZodValidationPipe(orderQuerySchema)) query: OrderQuery,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.ordersService.counts(query, user.userId);
   }
 
   @Get('sku-search')
@@ -91,6 +99,18 @@ export class AdminOrdersController {
     @CurrentUser() _user: { userId: string },
   ) {
     return this.ordersService.checkout(body);
+  }
+
+  /**
+   * Every order of one phone number with the numbers the workbench needs to
+   * judge the customer - how often they sign, what is on the way and what
+   * was cancelled. It sits here (and not under admin/customers) because that
+   * controller already owns a ":id" route that would swallow the name.
+   */
+  @Get('customer-history')
+  @Permissions('ORDER_VIEW_ALL')
+  customerOrderHistory(@Query('phone') phone: string) {
+    return this.ordersService.customerOrderHistory(phone);
   }
 
   @Get(':id')
@@ -155,12 +175,22 @@ export class AdminOrdersController {
 
   @Patch(':id')
   @Permissions('ORDER_CONFIRM')
-  edit(
+  async edit(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(editOrderSchema)) body: EditOrderInput,
     @CurrentUser() user: { userId: string },
   ) {
-    return this.ordersService.edit(id, body, user.userId);
+    const updated = await this.ordersService.edit(id, body, user.userId);
+    // A material change (address, items, quantity) invalidates the
+    // verification results that depended on it; they have to be verified
+    // again before the order can be confirmed.
+    if (body.shippingAddress || body.items) {
+      const reason = body.items
+        ? '订单商品或数量已修改'
+        : '收货地址已修改';
+      await this.verificationService.invalidateForChange(id, user.userId, reason);
+    }
+    return updated;
   }
 
   @Post(':id/notes')

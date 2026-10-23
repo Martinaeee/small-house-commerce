@@ -57,14 +57,19 @@ const toneCls: Record<BadgeTone, string> = {
 export function Badge({
   value,
   tone,
+  className,
 }: {
   value: string;
   tone?: BadgeTone;
+  /** Extra classes for the surfaces that need a denser badge. */
+  className?: string;
 }): ReactNode {
   const resolved = tone ?? statusTone(value);
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${toneCls[resolved]}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${toneCls[resolved]}${
+        className ? ` ${className}` : ""
+      }`}
     >
       {value}
     </span>

@@ -10,9 +10,11 @@ const USER = { userId: 'op-1' };
 
 function harness(has: (permission: string) => Promise<boolean>) {
   const orders = { confirm: vi.fn(async () => ({})), updateStatus: vi.fn(async () => ({})) };
+  const verification = {} as never;
   const permissions = { has: vi.fn(has) };
   const controller = new AdminOrdersController(
     orders as never,
+    verification,
     permissions as never,
   );
   return { controller, orders, permissions };

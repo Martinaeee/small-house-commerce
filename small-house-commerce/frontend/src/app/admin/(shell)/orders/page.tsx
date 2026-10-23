@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -8,45 +7,80 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { Field, Select, TextInput } from "@/components/admin/Field";
+import { Field } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
-import { useAdminI18n } from "@/lib/admin-i18n";
+import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { Button } from "@/components/ui/Button";
+import { VerificationDrawer, AssignTasksDialog } from "@/components/admin/orders/VerificationPanel";
+import {
+  CustomerHistoryDialog,
+  OrderHistoryDialog,
+} from "@/components/admin/orders/HistoryPanels";
 import {
   adminApi,
-  formatAmount,
   type AdminOrderListRow,
-  type AdminOrderRow,
-  type OrderStatus,
+  type AdminOrderQueue,
+  type AdminVerificationState,
   type Paged,
-  type PaymentStatus,
 } from "@/lib/admin-api";
+import {
+  DEFAULT_HIDDEN_COLUMNS,
+  visibleColumns,
+  type WorkbenchColumnKey,
+} from "@/components/admin/orders/workbench/columns";
+import {
+  newViewId,
+  readColumnPrefs,
+  readViews,
+  writeColumnPrefs,
+  writeViews,
+  type SavedView,
+} from "@/components/admin/orders/workbench/prefs";
+import { OrderTable } from "@/components/admin/orders/workbench/OrderTable";
+import {
+  WorkbenchFilterBar,
+  type WorkbenchFilterState,
+} from "@/components/admin/orders/workbench/WorkbenchFilterBar";
+import { OrderDrawer } from "@/components/admin/orders/workbench/OrderDrawer";
+import {
+  OrderRowDialogs,
+  type RowDialogKind,
+} from "@/components/admin/orders/workbench/OrderRowDialogs";
 
-// OrderStatus union, in declaration order (admin-api.ts).
-const ORDER_STATUSES: OrderStatus[] = [
-  "NEW",
-  "PENDING",
-  "QUESTION",
-  "CONFIRMED",
-  "ABNORMAL",
-  "SHIPPING",
-  "SIGNED",
-  "CANCELLED",
-  "DENIED",
-  "AFTER_SALES",
+/**
+ * The order workbench (LUWAG Orders V2).
+ *
+ * One wide table with the fields the operator reads in order, the queue
+ * tabs on top, the filters in one compact bar, and every action on the row
+ * it belongs to. The details live in a drawer, the history in its own
+ * window, and nothing is faked: every number comes from the server.
+ */
+
+const QUEUES: { key: AdminOrderQueue; labelKey: TKey }[] = [
+  { key: "all", labelKey: "orders_tab_all" },
+  { key: "todo", labelKey: "orders_tab_todo" },
+  { key: "recheck", labelKey: "orders_tab_recheck" },
+  { key: "toship", labelKey: "orders_tab_toship" },
+  { key: "shipping", labelKey: "orders_tab_shipping" },
+  { key: "exception", labelKey: "orders_tab_exception" },
+  { key: "signed", labelKey: "orders_tab_signed" },
+  { key: "cods", labelKey: "orders_tab_cods" },
+  { key: "cancelled", labelKey: "orders_tab_cancelled" },
+  { key: "mine", labelKey: "orders_tab_mine" },
 ];
 
-// PaymentStatus values (admin-api.ts). The dashboard's "failed payments" card
-// links here with paymentStatus=FAILED.
-const PAYMENT_STATUSES: PaymentStatus[] = [
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Payment statuses the dashboard links with (paymentStatus=FAILED). The URL
+// value stays a comma-separated set, like the status filter.
+const PAYMENT_STATUS_VALUES = [
   "COD_PENDING",
   "COLLECTED",
   "SETTLEMENT_PENDING",
@@ -58,170 +92,113 @@ const PAYMENT_STATUSES: PaymentStatus[] = [
   "PARTIALLY_REFUNDED",
 ];
 
-// Confirm blocked set (brief Step 3): cancelled / denied / in-or-after
-// shipping is not confirmable; CONFIRMED confirmation status is checked
-// separately below.
-const CONFIRM_BLOCKED = new Set<OrderStatus>([
-  "CANCELLED",
-  "DENIED",
-  "SHIPPING",
-  "SIGNED",
-]);
+// The notification links open the list with confirmation=NEEDS_REVIEW.
+const CONFIRMATION_VALUES = ["UNCONFIRMED", "NEEDS_REVIEW", "CONFIRMED", "REJECTED"];
 
-// Cancel blocked set (brief Step 3): terminal states plus SHIPPING.
-const CANCEL_BLOCKED = new Set<OrderStatus>([
-  "CANCELLED",
-  "DENIED",
-  "SIGNED",
-  "AFTER_SALES",
-  "SHIPPING",
-]);
+type QueueCounts = Record<string, number> | undefined;
 
-// After a transition into one of these the list is re-queried for server
-// truth (brief Step 3).
-const TERMINAL_STATUSES = new Set<OrderStatus>([
-  "CANCELLED",
-  "DENIED",
-  "SIGNED",
-  "AFTER_SALES",
-]);
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Customer classification values (CUSTOMER_RISK_SPEC §7) and risk flag types
-// (DATABASE §47) used by the workbench filters.
-const CLASSIFICATIONS = ["NEW", "AGAIN", "RPT", "RECHECK"];
-const RISK_TYPES = ["POSSIBLE_DUPLICATE", "CUSTOMER_RECHECK", "CUSTOMER_BLOCKED"];
-
-// Customer classification badge (CUSTOMER_RISK_SPEC §16 display rules):
-// 🟢 AGAIN / 🟡 RPT / 🔴 RECHECK / neutral NEW. Color is enhancement only —
-// the raw value is always rendered.
-function ClassificationBadge({ value }: { value: string | null }) {
-  if (!value) return <span className="text-ink-muted">—</span>;
-  const tone =
-    value === "RECHECK"
-      ? "bg-admin-error-soft text-admin-error"
-      : value === "RPT"
-        ? "bg-admin-warning-soft text-admin-warning"
-        : value === "AGAIN"
-          ? "bg-admin-success-soft text-admin-success"
-          : "bg-admin-primary-soft text-cta";
-  const dot =
-    value === "RECHECK"
-      ? "🔴"
-      : value === "RPT"
-        ? "🟡"
-        : value === "AGAIN"
-          ? "🟢"
-          : "⚪";
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
-    >
-      <span aria-hidden>{dot}</span>
-      {value}
-    </span>
-  );
+/** Keeps a URL parameter inside a known set; anything else is ignored. */
+function oneOf<const T extends readonly string[]>(
+  value: string | null,
+  allowed: T,
+): T[number] | "" {
+  if (!value) return "";
+  return (allowed as readonly string[]).includes(value) ? (value as T[number]) : "";
 }
-
-// Workbench status tab (spec §7.2): label + count, color-enhanced. The raw
-// label is always rendered; counts come from /admin/orders/counts.
-function StatusTab({
-  active,
-  label,
-  count,
-  tone,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count?: number;
-  tone?: "amber" | "red" | "green";
-  onClick: () => void;
-}) {
-  const toneCls =
-    tone === "red"
-      ? "bg-admin-error-soft text-admin-error border-admin-error/20"
-      : tone === "amber"
-        ? "bg-admin-warning-soft text-admin-warning border-admin-warning/20"
-        : tone === "green"
-          ? "bg-admin-success-soft text-admin-success border-admin-success/20"
-          : "";
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-        active
-          ? `border-cta bg-cta text-white ${""}`
-          : `border-border bg-card text-ink-secondary hover:bg-primary-light/30 hover:text-cta ${toneCls && !active ? toneCls : ""}`
-      }`}
-    >
-      {label}
-      {count !== undefined ? (
-        <span
-          className={`rounded-full px-1.5 py-0.5 text-[11px] ${
-            active ? "bg-white/20" : "bg-border/60"
-          }`}
-        >
-          {count}
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-type ActionDialog = { id: string; kind: "confirm" | "cancel" } | null;
 
 function OrdersPageContent() {
   const { hasPermission } = useAdminAuth();
   const { t } = useAdminI18n();
   const canConfirmPerm = hasPermission("ORDER_CONFIRM");
   const canCancelPerm = hasPermission("ORDER_CANCEL");
+  const canAssignPerm = hasPermission("ORDER_ASSIGN");
+  const canNotePerm = hasPermission("ORDER_NOTE_WRITE");
+  const canRiskPerm = hasPermission("ORDER_RISK_WRITE");
+  const canMergePerm = hasPermission("ORDER_MERGE");
 
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // --- URL params: source of truth (brief Step 1) ---------------------------
+  // --- URL params: the source of truth -------------------------------------
 
   const search = searchParams.get("search")?.trim() ?? "";
   const rawStatus = searchParams.get("status") ?? "";
   const status = rawStatus
     .split(",")
-    .filter((s): s is OrderStatus => ORDER_STATUSES.includes(s as OrderStatus));
+    .filter((s): s is AdminOrderListRow["orderStatus"] =>
+      [
+        "NEW",
+        "PENDING",
+        "QUESTION",
+        "CONFIRMED",
+        "ABNORMAL",
+        "SHIPPING",
+        "SIGNED",
+        "CANCELLED",
+        "DENIED",
+        "AFTER_SALES",
+      ].includes(s as AdminOrderListRow["orderStatus"]),
+    );
   const statusKey = status.join(",");
-  const rawPaymentStatus = searchParams.get("paymentStatus") ?? "";
-  const paymentStatus = rawPaymentStatus
+  const queue = oneOf(searchParams.get("queue"), [
+    "all",
+    "todo",
+    "recheck",
+    "toship",
+    "shipping",
+    "exception",
+    "signed",
+    "cods",
+    "cancelled",
+    "mine",
+  ]) as AdminOrderQueue | "";
+  const payment = oneOf(searchParams.get("payment"), ["COD", "AIRWALLEX"]);
+  const paymentStatus = (searchParams.get("paymentStatus") ?? "")
     .split(",")
-    .filter((s): s is PaymentStatus => PAYMENT_STATUSES.includes(s as PaymentStatus));
-  const paymentStatusKey = paymentStatus.join(",");
-  const rawClassification = searchParams.get("classification") ?? "";
-  const classification = CLASSIFICATIONS.includes(rawClassification)
-    ? rawClassification
-    : "";
-  const confirmation = searchParams.get("confirmation") ?? "";
+    .filter((value) => PAYMENT_STATUS_VALUES.includes(value))
+    .join(",");
+  const confirmation = oneOf(searchParams.get("confirmation"), CONFIRMATION_VALUES);
+  const region = searchParams.get("region") ?? "";
+  const classification = searchParams.get("classification") ?? "";
   const assignedTo = searchParams.get("assignedTo") ?? "";
-  const rawRisk = searchParams.get("risk") ?? "";
-  const risk = RISK_TYPES.includes(rawRisk) ? rawRisk : "";
+  const risk = searchParams.get("risk") ?? "";
   const dateFrom = searchParams.get("dateFrom") ?? "";
   const dateTo = searchParams.get("dateTo") ?? "";
+  const phone = searchParams.get("phone") ?? "";
+  const sku = searchParams.get("sku") ?? "";
+  const priority = oneOf(searchParams.get("priority"), ["NORMAL", "HIGH", "URGENT"]);
+  const verification = oneOf(searchParams.get("verification"), [
+    "none",
+    "pending",
+    "problem",
+    "done",
+    "open",
+  ]);
+  const followUp = oneOf(searchParams.get("followUp"), ["overdue", "today", "week"]);
+  const sort = oneOf(searchParams.get("sort"), ["waiting", "newest", "verify"]);
   const page =
     Math.max(1, Number.parseInt(searchParams.get("page") ?? "", 10)) || 1;
 
-  const filtersActive = Boolean(
-    statusKey ||
-      paymentStatusKey ||
-      classification ||
-      confirmation ||
-      assignedTo ||
-      risk ||
-      search ||
-      dateFrom ||
-      dateTo,
-  );
+  const filters: WorkbenchFilterState = {
+    search,
+    status: statusKey,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    phone,
+    sku,
+    owner: assignedTo,
+    priority,
+    classification,
+    risk,
+    verification,
+    followUp,
+    dateFrom,
+    dateTo,
+    sort,
+  };
 
   const patchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -236,10 +213,7 @@ function OrdersPageContent() {
     [pathname, router, searchParams],
   );
 
-  // Search box keeps instant local state; changes sync to the URL after a
-  // 300ms debounce. URL -> input reconciliation happens during render (same
-  // pattern as AdminShell's route-state sync) so external navigation
-  // (reset / reload / back-forward) updates the field without an effect.
+  // The search box keeps its own state and syncs to the URL after 300ms.
   const [searchInput, setSearchInput] = useState(search);
   const [syncedSearch, setSyncedSearch] = useState(search);
   if (search !== syncedSearch) {
@@ -250,21 +224,13 @@ function OrdersPageContent() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       const value = searchInput.trim();
-      if (value !== search) {
-        // Any filter change resets to page 1.
-        patchParams({ search: value || null, page: null });
-      }
+      if (value !== search) patchParams({ search: value || null, page: null });
     }, 300);
     return () => clearTimeout(timeout);
   }, [searchInput, search, patchParams]);
 
-  const clearFilters = useCallback(() => {
-    setSearchInput("");
-    router.replace(pathname, { scroll: false });
-  }, [pathname, router]);
-
-  // --- assignee options for the staff filter + inline assignment ------------
-  const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([]);
+  // --- assignee options for the staff filter --------------------------------
+  const [assignees, setAssignees] = useState<{ id: string; name: string | null }[]>([]);
   useEffect(() => {
     let active = true;
     adminApi
@@ -273,16 +239,1012 @@ function OrdersPageContent() {
         if (active) setAssignees(users);
       })
       .catch(() => {
-        // Non-fatal: filters/assignment just show no options.
+        // Non-fatal: the staff lists stay empty.
       });
     return () => {
       active = false;
     };
   }, []);
 
+  const staffName = useCallback(
+    (id: string | null | undefined) =>
+      id ? (assignees.find((person) => person.id === id)?.name ?? null) : null,
+    [assignees],
+  );
 
-  // --- manual order entry (phone orders) -------------------------------------
+  // --- list data ------------------------------------------------------------
+
+  const [data, setData] = useState<Paged<AdminOrderListRow> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  const queryKey = [
+    statusKey,
+    queue,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    classification,
+    assignedTo,
+    risk,
+    search,
+    dateFrom,
+    dateTo,
+    phone,
+    sku,
+    priority,
+    verification,
+    followUp,
+    sort,
+    String(page),
+    String(nonce),
+  ].join("|");
+  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
+  const loading = fetchedKey !== queryKey;
+
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .listOrders({
+        status: statusKey || undefined,
+        queue: queue || undefined,
+        payment: payment || undefined,
+        paymentStatus: paymentStatus || undefined,
+        confirmation: confirmation || undefined,
+        region: region || undefined,
+        classification: classification || undefined,
+        assignedTo: assignedTo || undefined,
+        risk: risk || undefined,
+        search: search || undefined,
+        dateFrom: DATE_RE.test(dateFrom) ? dateFrom : undefined,
+        dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
+        phone: phone || undefined,
+        sku: sku || undefined,
+        priority: priority || undefined,
+        verification: verification || undefined,
+        followUp: followUp || undefined,
+        sort: sort || undefined,
+        page,
+      })
+      .then((res) => {
+        if (!active) return;
+        setData(res);
+        setError(null);
+        setFetchedKey(queryKey);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Failed to load orders.");
+        setFetchedKey(queryKey);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    queryKey,
+    statusKey,
+    queue,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    classification,
+    assignedTo,
+    risk,
+    search,
+    dateFrom,
+    dateTo,
+    phone,
+    sku,
+    priority,
+    verification,
+    followUp,
+    sort,
+    page,
+  ]);
+
+  // --- the counters of the queue tabs ---------------------------------------
+  const [counts, setCounts] = useState<{
+    total: number;
+    queues: Record<string, number>;
+  } | null>(null);
+
+  const countsKey = [
+    statusKey,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    classification,
+    assignedTo,
+    risk,
+    search,
+    dateFrom,
+    dateTo,
+    phone,
+    sku,
+    priority,
+    verification,
+    followUp,
+    String(nonce),
+  ].join("|");
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .orderCounts({
+        status: statusKey || undefined,
+        payment: payment || undefined,
+        paymentStatus: paymentStatus || undefined,
+        confirmation: confirmation || undefined,
+        region: region || undefined,
+        classification: classification || undefined,
+        assignedTo: assignedTo || undefined,
+        risk: risk || undefined,
+        search: search || undefined,
+        dateFrom: DATE_RE.test(dateFrom) ? dateFrom : undefined,
+        dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
+        phone: phone || undefined,
+        sku: sku || undefined,
+        priority: priority || undefined,
+        verification: verification || undefined,
+        followUp: followUp || undefined,
+      })
+      .then((result) => {
+        if (!active) return;
+        setCounts({ total: result.total, queues: result.queues ?? {} });
+      })
+      .catch(() => {
+        if (active) setCounts(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    countsKey,
+    statusKey,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    classification,
+    assignedTo,
+    risk,
+    search,
+    dateFrom,
+    dateTo,
+    phone,
+    sku,
+    priority,
+    verification,
+    followUp,
+  ]);
+
+  const queueCounts: QueueCounts = counts?.queues;
+
+  // --- the layout of the table (columns, widths, views) ---------------------
+
+  const [hiddenColumns, setHiddenColumns] = useState<WorkbenchColumnKey[]>(
+    () => readColumnPrefs().hidden,
+  );
+  const [colWidths, setColWidths] = useState<Record<string, number>>(
+    () => readColumnPrefs().widths,
+  );
+  const [views, setViews] = useState<SavedView[]>(() => readViews());
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  const persistColumns = useCallback(
+    (hidden: WorkbenchColumnKey[], widths: Record<string, number>) => {
+      writeColumnPrefs({ hidden, widths });
+    },
+    [],
+  );
+
+  const toggleColumn = useCallback(
+    (key: WorkbenchColumnKey) => {
+      setHiddenColumns((prev) => {
+        const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+        persistColumns(next, colWidths);
+        return next;
+      });
+    },
+    [colWidths, persistColumns],
+  );
+
+  const resetColumns = useCallback(() => {
+    setHiddenColumns([...DEFAULT_HIDDEN_COLUMNS]);
+    setColWidths({});
+    persistColumns([...DEFAULT_HIDDEN_COLUMNS], {});
+  }, [persistColumns]);
+
+  const changeWidth = useCallback(
+    (key: WorkbenchColumnKey, width: number) => {
+      setColWidths((prev) => {
+        const next = { ...prev, [key]: width };
+        persistColumns(hiddenColumns, next);
+        return next;
+      });
+    },
+    [hiddenColumns, persistColumns],
+  );
+
+  const resetWidth = useCallback(
+    (key: WorkbenchColumnKey) => {
+      setColWidths((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        persistColumns(hiddenColumns, next);
+        return next;
+      });
+    },
+    [hiddenColumns, persistColumns],
+  );
+
+  const columns = useMemo(() => visibleColumns(hiddenColumns), [hiddenColumns]);
+
+  const toggleExpand = useCallback((orderId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, []);
+
+  // --- saved views ----------------------------------------------------------
+
+  const saveView = useCallback(
+    (name: string) => {
+      const current = new URLSearchParams(searchParams.toString());
+      current.delete("page");
+      const filters: Record<string, string> = {};
+      current.forEach((value, key) => {
+        filters[key] = value;
+      });
+      const view: SavedView = {
+        id: newViewId(),
+        name,
+        filters,
+        hidden: hiddenColumns,
+        widths: colWidths,
+      };
+      const next = [...views.filter((entry) => entry.name !== name), view];
+      setViews(next);
+      writeViews(next);
+    },
+    [searchParams, hiddenColumns, colWidths, views],
+  );
+
+  const applyView = useCallback(
+    (view: SavedView) => {
+      setHiddenColumns(view.hidden);
+      setColWidths(view.widths);
+      persistColumns(view.hidden, view.widths);
+      const next = new URLSearchParams();
+      for (const [key, value] of Object.entries(view.filters)) next.set(key, value);
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, persistColumns],
+  );
+
+  const deleteView = useCallback(
+    (id: string) => {
+      const next = views.filter((view) => view.id !== id);
+      setViews(next);
+      writeViews(next);
+    },
+    [views],
+  );
+
+  // --- the panels ------------------------------------------------------------
+
+  const [drawerRow, setDrawerRow] = useState<AdminOrderListRow | null>(null);
+  const [verifyRow, setVerifyRow] = useState<AdminOrderListRow | null>(null);
+  const [assignRow, setAssignRow] = useState<AdminOrderListRow | null>(null);
+  const [assignState, setAssignState] = useState<AdminVerificationState | null>(null);
+  const [customerPhone, setCustomerPhone] = useState<string | null>(null);
+  const [customerOrderNumber, setCustomerOrderNumber] = useState<string | null>(null);
+  const [historyRow, setHistoryRow] = useState<AdminOrderListRow | null>(null);
+  const [rowMenu, setRowMenu] = useState<{
+    row: AdminOrderListRow;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [rowDialog, setRowDialog] = useState<RowDialogKind>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [dialogRow, setDialogRow] = useState<AdminOrderListRow | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!rowMenu) return;
+    const close = () => setRowMenu(null);
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [rowMenu]);
+
+  /** The customer order history of one phone number. */
+  const openCustomerHistory = useCallback(
+    (phone: string, orderNumber?: string | null) => {
+      setCustomerPhone(phone);
+      setCustomerOrderNumber(orderNumber ?? null);
+    },
+    [],
+  );
+
+  /**
+   * Open another order of the same customer: from the history window or from
+   * the customer list. The order may be outside the current page of the
+   * list, so it is fetched by phone when the list does not know it.
+   */
+  const openOrderById = useCallback(
+    async (orderId: string, phone?: string | null) => {
+      setHistoryRow(null);
+      setCustomerPhone(null);
+      const known = data?.items.find((row) => row.id === orderId);
+      if (known) {
+        setDrawerRow(known);
+        return;
+      }
+      if (!phone) return;
+      try {
+        const result = await adminApi.listOrders({
+          phone,
+          page: 1,
+          pageSize: 100,
+        });
+        const found = result.items.find((row) => row.id === orderId);
+        if (found) setDrawerRow(found);
+      } catch {
+        // The order stays closed; the operator can find it in the list.
+      }
+    },
+    [data],
+  );
+
+  const openRowMenu = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, row: AdminOrderListRow) => {
+      event.stopPropagation();
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      setRowMenu({
+        row,
+        x: Math.max(12, rect.right - 240),
+        y: Math.min(rect.bottom + 6, window.innerHeight - 320),
+      });
+    },
+    [setRowMenu],
+  );
+
+  const openDialog = useCallback((kind: RowDialogKind, row: AdminOrderListRow) => {
+    setDialogRow(row);
+    setRowDialog(kind);
+  }, []);
+
+  const openAssign = useCallback(
+    async (row: AdminOrderListRow) => {
+      try {
+        const state = await adminApi.orderVerification(row.id);
+        setAssignState(state);
+        setAssignRow(row);
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Request failed.");
+      }
+    },
+    [setAssignRow, setAssignState],
+  );
+
+  const primaryAction = useCallback(
+    (row: AdminOrderListRow) => {
+      switch (row.orderStatus) {
+        case "NEW":
+        case "PENDING":
+        case "QUESTION":
+          return {
+            label: row.verification?.total ? t("orders_action_continue") : t("orders_assign_tasks"),
+            tone: "primary" as const,
+          };
+        case "CONFIRMED":
+          return { label: t("orders_action_handover"), tone: "primary" as const };
+        case "SHIPPING":
+          return { label: t("orders_action_sign"), tone: "primary" as const };
+        case "ABNORMAL":
+          return { label: t("orders_action_exception"), tone: "primary" as const };
+        default:
+          return { label: t("orders_action_view"), tone: "secondary" as const };
+      }
+    },
+    [t],
+  );
+
+  // --- export ----------------------------------------------------------------
+
+  const exportCsv = useCallback(() => {
+    const rows = data?.items ?? [];
+    const head = [
+      t("orders_col_no"),
+      t("orders_col_customer"),
+      t("orders_col_phone"),
+      t("orders_col_status"),
+      t("orders_col_product"),
+      t("orders_col_sku"),
+      t("orders_col_qty"),
+      t("orders_col_unit"),
+      t("orders_col_total"),
+      t("orders_col_at"),
+      t("orders_col_address"),
+    ];
+    const lines = [head.join(",")];
+    for (const row of rows) {
+      const cells = [
+        row.orderNumber,
+        row.customer.name ?? "",
+        row.customer.normalizedPhone,
+        row.orderStatus,
+        row.items.map((item) => item.productNameSnapshot).join(" | "),
+        row.items.map((item) => item.skuCodeSnapshot).join(" | "),
+        String(row.items.reduce((sum, item) => sum + item.quantity, 0)),
+        row.items.map((item) => item.unitPrice).join(" | "),
+        row.grandTotal,
+        row.createdAt,
+        row.shippingAddress
+          ? [
+              row.shippingAddress.streetAddress,
+              row.shippingAddress.barangay,
+              row.shippingAddress.city,
+              row.shippingAddress.province,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : "",
+      ];
+      lines.push(cells.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","));
+    }
+    const blob = new Blob([`﻿${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `luwag-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [data, t]);
+
+  // --- filter helpers --------------------------------------------------------
+
+  const activeFilterCount = [
+    search,
+    statusKey,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    phone,
+    sku,
+    assignedTo,
+    priority,
+    classification,
+    risk,
+    verification,
+    followUp,
+    dateFrom,
+    dateTo,
+  ].filter(Boolean).length;
+
+  /**
+   * What the list is filtered by, in the words of the filter bar: every
+   * active condition is named, so a missing order is never a mystery.
+   */
+  const filterChips = useMemo(() => {
+    const chips: string[] = [];
+    if (dateFrom || dateTo) {
+      chips.push(
+        `${t("orders_date_range")} ${dateFrom || "…"} → ${dateTo || "…"}`,
+      );
+    }
+    if (statusKey) chips.push(`${t("orders_filter_status")} ${statusKey}`);
+    if (payment) chips.push(`${t("orders_filter_payment")} ${payment}`);
+    if (paymentStatus) {
+      chips.push(`${t("orders_filter_payment_status")} ${paymentStatus}`);
+    }
+    if (confirmation) {
+      chips.push(`${t("orders_filter_confirmation")} ${confirmation}`);
+    }
+    if (region) chips.push(`${t("orders_filter_region")} ${region}`);
+    if (phone) chips.push(`${t("orders_filter_phone")} ${phone}`);
+    if (sku) chips.push(`${t("orders_filter_product")} ${sku}`);
+    if (assignedTo) {
+      chips.push(
+        `${t("orders_filter_assigned")} ${staffName(assignedTo) ?? "—"}`,
+      );
+    }
+    if (priority) chips.push(`${t("orders_filter_priority")} ${priority}`);
+    if (classification) {
+      chips.push(`${t("orders_filter_classification")} ${classification}`);
+    }
+    if (risk) chips.push(`${t("orders_filter_risk")} ${risk}`);
+    if (verification) {
+      chips.push(`${t("orders_filter_verification")} ${verification}`);
+    }
+    if (search) chips.push(`${t("orders_filter_search")} ${search}`);
+    return chips;
+  }, [
+    t,
+    dateFrom,
+    dateTo,
+    statusKey,
+    payment,
+    paymentStatus,
+    confirmation,
+    region,
+    phone,
+    sku,
+    assignedTo,
+    staffName,
+    priority,
+    classification,
+    risk,
+    verification,
+    search,
+  ]);
+
+  const clearFilters = useCallback(() => {
+    setSearchInput("");
+    router.replace(pathname, { scroll: false });
+  }, [pathname, router]);
+
+  const onFilterChange = useCallback(
+    (patch: Partial<WorkbenchFilterState>) => {
+      const url: Record<string, string | null> = { page: null };
+      if (patch.search !== undefined) url.search = patch.search || null;
+      if (patch.status !== undefined) url.status = patch.status || null;
+      if (patch.payment !== undefined) url.payment = patch.payment || null;
+      if (patch.paymentStatus !== undefined)
+        url.paymentStatus = patch.paymentStatus || null;
+      if (patch.confirmation !== undefined)
+        url.confirmation = patch.confirmation || null;
+      if (patch.region !== undefined) url.region = patch.region || null;
+      if (patch.phone !== undefined) url.phone = patch.phone || null;
+      if (patch.sku !== undefined) url.sku = patch.sku || null;
+      if (patch.owner !== undefined) url.assignedTo = patch.owner || null;
+      if (patch.priority !== undefined) url.priority = patch.priority || null;
+      if (patch.classification !== undefined)
+        url.classification = patch.classification || null;
+      if (patch.risk !== undefined) url.risk = patch.risk || null;
+      if (patch.verification !== undefined) url.verification = patch.verification || null;
+      if (patch.followUp !== undefined) url.followUp = patch.followUp || null;
+      if (patch.dateFrom !== undefined) url.dateFrom = patch.dateFrom || null;
+      if (patch.dateTo !== undefined) url.dateTo = patch.dateTo || null;
+      if (patch.sort !== undefined) url.sort = patch.sort || null;
+      patchParams(url);
+    },
+    [patchParams],
+  );
+
+  const rows = data?.items ?? [];
+
+  return (
+    <div className="w-full max-w-none px-4 py-5 md:px-8">
+      <PageHeader
+        title={t("orders_title")}
+        count={counts?.total}
+        subtitle={t("orders_subtitle")}
+        actions={
+          canConfirmPerm ? (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => setShowCreate(true)}
+            >
+              {t("orders_new")}
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/* The queue tabs: one look at every bucket of the day. */}
+      <nav
+        className="mt-4 flex gap-1 overflow-x-auto border-b border-border"
+        role="tablist"
+        aria-label={t("orders_tabs_label")}
+      >
+        {QUEUES.map((entry) => {
+          const active = (queue || "all") === entry.key;
+          const count = queueCounts?.[entry.key];
+          return (
+            <button
+              key={entry.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() =>
+                patchParams({
+                  queue: entry.key === "all" ? null : entry.key,
+                  status: null,
+                  page: null,
+                })
+              }
+              className={
+                active
+                  ? "whitespace-nowrap border-b-2 border-cta px-3 py-2 text-[13.5px] font-semibold text-cta"
+                  : "whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-[13.5px] text-ink-secondary hover:text-ink"
+              }
+            >
+              {t(entry.labelKey)}
+              {typeof count === "number" ? (
+                <span className="ml-1 font-medium tabular-nums opacity-70">
+                  {count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* The filters of the table. */}
+      <div className="mt-3">
+        <WorkbenchFilterBar
+          filters={filters}
+          onChange={onFilterChange}
+          onClear={clearFilters}
+          assignees={assignees}
+          statusOptions={[]}
+          hiddenColumns={hiddenColumns}
+          onToggleColumn={toggleColumn}
+          onResetColumns={resetColumns}
+          views={views}
+          onApplyView={applyView}
+          onSaveView={saveView}
+          onDeleteView={deleteView}
+          onExport={exportCsv}
+          activeFilterCount={activeFilterCount}
+        />
+      </div>
+
+      {/* What the list is currently showing. */}
+      <p className="mt-2 text-[11.5px] text-ink-muted">
+        {filterChips.length > 0
+          ? `${t("orders_filter_summary")}：${filterChips.join(" · ")} —— ${t("orders_filter_hit")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`
+          : `${t("orders_filter_total")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`}
+      </p>
+
+      {/* The table. */}
+      <div className="mt-2">
+        {loading ? (
+          <TableSkeleton rows={8} cols={12} />
+        ) : error ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-border bg-card p-6"
+          >
+            <p className="text-sm font-semibold text-ink">{t("orders_load_error")}</p>
+            <p className="mt-1 text-sm text-ink-muted">{error}</p>
+            <Button variant="secondary" size="md" onClick={reload} className="mt-4">
+              {t("orders_retry")}
+            </Button>
+          </div>
+        ) : rows.length === 0 ? (
+          activeFilterCount > 0 || queue !== "all" ? (
+            <EmptyState
+              title={t("orders_no_match")}
+              hint={t("orders_clear_filters")}
+              action={
+                <Button variant="secondary" size="md" onClick={clearFilters}>
+                  {t("orders_clear_filters")}
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState title={t("orders_empty")} />
+          )
+        ) : (
+          <OrderTable
+            rows={rows}
+            columns={columns}
+            widths={colWidths}
+            onWidthChange={changeWidth}
+            onResetWidth={resetWidth}
+            expanded={expanded}
+            onToggleExpand={toggleExpand}
+            staffName={staffName}
+            onOpenDrawer={(row) => setDrawerRow(row)}
+            onOpenVerify={(row) => setVerifyRow(row)}
+            onOpenHistory={(row) => setHistoryRow(row)}
+            onOpenCustomer={(row) =>
+              openCustomerHistory(row.customer.normalizedPhone, row.orderNumber)
+            }
+            onOpenMenu={openRowMenu}
+            primaryAction={primaryAction}
+          />
+        )}
+      </div>
+
+      {data && !loading && !error ? (
+        <div className="mt-4">
+          <Pagination
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onChange={(nextPage) =>
+              patchParams({ page: nextPage === 1 ? null : String(nextPage) })
+            }
+            labels={{
+              prev: t("orders_pagination_prev"),
+              next: t("orders_pagination_next"),
+              page: t("orders_pagination_page"),
+            }}
+          />
+        </div>
+      ) : null}
+
+      {/* The row menu: every action of one order. */}
+      {rowMenu ? (
+        <div
+          className="fixed z-50 w-60 rounded-xl border border-border bg-card py-1 shadow-lg"
+          style={{ left: rowMenu.x, top: rowMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+            onClick={() => {
+              const row = rowMenu.row;
+              setRowMenu(null);
+              setDrawerRow(row);
+            }}
+          >
+            {t("orders_action_view")}
+          </button>
+          {canAssignPerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                void openAssign(row);
+              }}
+            >
+              {t("orders_assign_tasks")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_ASSIGN</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+            onClick={() => {
+              const row = rowMenu.row;
+              setRowMenu(null);
+              setHistoryRow(row);
+            }}
+          >
+            {t("orders_col_history")}
+          </button>
+          <div className="my-1 border-t border-border" />
+          {canConfirmPerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                openDialog("confirm", row);
+              }}
+            >
+              {t("orders_menu_confirm")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_CONFIRM</span>
+            </button>
+          ) : null}
+          {canCancelPerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-red-700 hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                openDialog("cancel", row);
+              }}
+            >
+              {t("orders_menu_cancel")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_CANCEL</span>
+            </button>
+          ) : null}
+          {canMergePerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                openDialog("merge", row);
+              }}
+            >
+              {t("orders_menu_merge")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_MERGE</span>
+            </button>
+          ) : null}
+          <div className="my-1 border-t border-border" />
+          {canRiskPerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                openDialog("risk", row);
+              }}
+            >
+              {t("orders_menu_risk")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_RISK_WRITE</span>
+            </button>
+          ) : null}
+          {canNotePerm ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                openDialog("note", row);
+              }}
+            >
+              {t("orders_menu_note")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_NOTE_WRITE</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+            onClick={() => {
+              const row = rowMenu.row;
+              setRowMenu(null);
+              openDialog("print", row);
+            }}
+          >
+            {t("orders_menu_print")}
+          </button>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+          {notice}
+        </div>
+      ) : null}
+
+      {/* The drawer of one order. */}
+      <OrderDrawer
+        row={drawerRow}
+        onClose={() => setDrawerRow(null)}
+        staff={assignees}
+        onOpenVerify={() => {
+          if (drawerRow) setVerifyRow(drawerRow);
+        }}
+        onOpenHistory={() => {
+          if (drawerRow) setHistoryRow(drawerRow);
+        }}
+        onOpenCustomer={() => {
+          if (drawerRow)
+            openCustomerHistory(drawerRow.customer.normalizedPhone, drawerRow.orderNumber);
+        }}
+        onOpenOrder={(orderId) => {
+          void openOrderById(orderId, drawerRow?.customer.normalizedPhone ?? null);
+        }}
+        onAssign={() => {
+          if (drawerRow) void openAssign(drawerRow);
+        }}
+        onConfirm={() => {
+          if (drawerRow) openDialog("confirm", drawerRow);
+        }}
+        canConfirm={canConfirmPerm && (drawerRow?.riskFlags.length ?? 0) === 0}
+        confirmBlockedReason={
+          (drawerRow?.riskFlags.length ?? 0) > 0 ? t("orders_risk_unresolved") : null
+        }
+      />
+
+      {/* The checklist of one order. */}
+      <VerificationDrawer
+        orderId={verifyRow?.id ?? null}
+        orderNumber={verifyRow?.orderNumber ?? ""}
+        staff={assignees}
+        onClose={() => setVerifyRow(null)}
+        onChanged={reload}
+      />
+
+      {/* The assignment of the verification tasks. */}
+      <AssignTasksDialog
+        key={`assign-${assignRow?.id ?? "none"}`}
+        open={assignRow !== null}
+        orderId={assignRow?.id ?? null}
+        staff={assignees}
+        current={assignState}
+        onClose={() => {
+          setAssignRow(null);
+          setAssignState(null);
+        }}
+        onSaved={async () => {
+          setAssignRow(null);
+          setAssignState(null);
+          reload();
+        }}
+      />
+
+      {/* The processing history of one order. It is rendered before the
+          customer history, so the customer history is painted on top of it
+          when the operator opens one from the other. */}
+      <OrderHistoryDialog
+        orderId={historyRow?.id ?? null}
+        open={historyRow !== null}
+        onClose={() => setHistoryRow(null)}
+        staff={assignees}
+        onOpenPhoneHistory={(phone) =>
+          openCustomerHistory(phone, historyRow?.orderNumber ?? null)
+        }
+        onOpenOrder={(orderId) => {
+          void openOrderById(orderId, historyRow?.customer.normalizedPhone ?? null);
+        }}
+      />
+
+      {/* Every order of one phone number. */}
+      <CustomerHistoryDialog
+        phone={customerPhone}
+        currentOrderNumber={customerOrderNumber}
+        open={customerPhone !== null}
+        onClose={() => setCustomerPhone(null)}
+        onFilterByPhone={(phone) => {
+          setCustomerPhone(null);
+          patchParams({ phone, page: null });
+        }}
+      />
+
+      {/* The actions behind the row menu. */}
+      <OrderRowDialogs
+        key={`${rowDialog}-${dialogRow?.id ?? "none"}`}
+        kind={rowDialog}
+        row={dialogRow}
+        onClose={() => {
+          setRowDialog(null);
+          setDialogRow(null);
+        }}
+        onDone={() => {
+          reload();
+        }}
+      />
+
+      <NewOrderDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={reload}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Manual order entry (phone orders)                                   */
+/* ------------------------------------------------------------------ */
+
+function NewOrderDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t } = useAdminI18n();
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState({
@@ -301,9 +1263,9 @@ function OrdersPageContent() {
   const [createQty, setCreateQty] = useState(1);
 
   useEffect(() => {
-    if (!showCreate) return;
+    if (!open) return;
     let active = true;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       adminApi
         .skuSearch(skuQuery)
         .then((opts) => {
@@ -315,29 +1277,13 @@ function OrdersPageContent() {
     }, 250);
     return () => {
       active = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
-  }, [showCreate, skuQuery]);
-
-  // --- list data ------------------------------------------------------------
-
-  const [data, setData] = useState<Paged<AdminOrderListRow> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Bumped to force a re-run of the current query (Retry / resync).
-  const [nonce, setNonce] = useState(0);
-
-  const queryKey = [statusKey, paymentStatusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, String(page), String(nonce)].join("|");
-  // Loading is DERIVED: it flips true the moment the keyed query changes and
-  // flips back false when that exact query settles — no setState in the
-  // fetch effect body (react-hooks/set-state-in-effect).
-  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
-  const loading = fetchedKey !== queryKey;
-
-  const reload = useCallback(() => setNonce((n) => n + 1), []);
+  }, [open, skuQuery]);
 
   async function submitCreate() {
     if (!pickedSku) {
-      setFormError("Pick a product first.");
+      setFormError(t("orders_create_pick_product"));
       return;
     }
     setCreating(true);
@@ -354,12 +1300,12 @@ function OrdersPageContent() {
         },
         items: [{ skuId: pickedSku.skuId, quantity: createQty }],
       });
-      setShowCreate(false);
       setPickedSku(null);
       setSkuQuery("");
       setCreateQty(1);
       setCreateForm({ name: "", phone: "", province: "", city: "", streetAddress: "", barangay: "" });
-      setNonce((n) => n + 1);
+      onCreated();
+      onClose();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Could not create the order.");
     } finally {
@@ -367,826 +1313,157 @@ function OrdersPageContent() {
     }
   }
 
-
-
-  useEffect(() => {
-    let active = true;
-    adminApi
-      .listOrders({
-        status: statusKey || undefined,
-        paymentStatus: paymentStatusKey || undefined,
-        classification: classification || undefined,
-        confirmation: confirmation || undefined,
-        assignedTo: assignedTo || undefined,
-        risk: risk || undefined,
-        search: search || undefined,
-        dateFrom: DATE_RE.test(dateFrom) ? dateFrom : undefined,
-        dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
-        page,
-      })
-      .then((res) => {
-        if (!active) return;
-        setData(res);
-        setError(null);
-        setFetchedKey(queryKey);
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : "Failed to load orders.");
-        setFetchedKey(queryKey);
-      });
-    return () => {
-      active = false;
-    };
-  }, [queryKey, statusKey, paymentStatusKey, classification, confirmation, assignedTo, risk, search, dateFrom, dateTo, page]);
-
-  // --- status tab counts (workbench tab bar) ---------------------------------
-  const [counts, setCounts] = useState<{
-    total: number;
-    byStatus: Record<string, number>;
-    needsReview: number;
-    duplicate: number;
-  } | null>(null);
-  useEffect(() => {
-    let active = true;
-    adminApi
-      .orderCounts()
-      .then((c) => {
-        if (active) setCounts(c);
-      })
-      .catch(() => {
-        // Non-fatal: tabs render without counts.
-      });
-    return () => {
-      active = false;
-    };
-  }, [nonce]);
-
-  // --- inline confirm / cancel ----------------------------------------------
-
-  const [dialog, setDialog] = useState<ActionDialog>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState(false);
-
-  const activeRow = useMemo(
-    () =>
-      dialog ? data?.items.find((row) => row.id === dialog.id) ?? null : null,
-    [dialog, data],
-  );
-
-  const openDialog = useCallback((id: string, kind: "confirm" | "cancel") => {
-    setActionError(null);
-    setDialog({ id, kind });
-  }, []);
-
-  const closeDialog = useCallback(() => {
-    // Do not allow dismissal while the mutation is in flight.
-    if (actionPending) return;
-    setDialog(null);
-    setActionError(null);
-  }, [actionPending]);
-
-  const submitAction = useCallback(async () => {
-    if (!dialog) return;
-    setActionPending(true);
-    setActionError(null);
-    try {
-      const updated: AdminOrderRow =
-        dialog.kind === "confirm"
-          ? await adminApi.confirmOrder(dialog.id)
-          : await adminApi.cancelOrder(dialog.id);
-
-      // m1 wire contract: confirm/cancel return BARE Order rows (no
-      // customer/items includes). Patch ONLY the row's status fields from
-      // the response — never replace the whole row object.
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((row) =>
-                row.id === dialog.id
-                  ? {
-                      ...row,
-                      orderStatus: updated.orderStatus,
-                      confirmationStatus: updated.confirmationStatus,
-                      paymentStatus: updated.paymentStatus,
-                    }
-                  : row,
-              ),
-            }
-          : prev,
-      );
-
-      setDialog(null);
-      setActionError(null);
-      // Terminal transition (e.g. cancel): re-run the current query for
-      // server truth.
-      if (TERMINAL_STATUSES.has(updated.orderStatus)) {
-        setNonce((n) => n + 1);
-      }
-    } catch (err) {
-      // 400/409: keep the dialog open and surface the backend message
-      // verbatim; resync the list against server truth (spec §8.3).
-      setActionError(
-        err instanceof Error ? err.message : "Request failed.",
-      );
-      setNonce((n) => n + 1);
-    } finally {
-      setActionPending(false);
-    }
-  }, [dialog]);
-
-  const onDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void submitAction();
-  };
-
-  // --- inline assignment -----------------------------------------------------
-
-  const assignRow = useCallback(async (id: string, assignedToId: string) => {
-    try {
-      await adminApi.assignOrder(id, assignedToId);
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((row) =>
-                row.id === id
-                  ? {
-                      ...row,
-                      assignedTo: {
-                        id: assignedToId,
-                        name:
-                          assignees.find((u) => u.id === assignedToId)?.name ?? null,
-                      },
-                    }
-                  : row,
-              ),
-            }
-          : prev,
-      );
-    } catch (err) {
-      // Surface quietly: the list stays consistent with server truth on the
-      // next fetch; a failed assignment should not block the page.
-      console.error("assign failed", err);
-    }
-  }, [assignees]);
-
-  const canConfirmRow = (row: AdminOrderListRow): boolean =>
-    canConfirmPerm &&
-    !CONFIRM_BLOCKED.has(row.orderStatus) &&
-    row.confirmationStatus !== "CONFIRMED";
-
-  const canCancelRow = (row: AdminOrderListRow): boolean =>
-    canCancelPerm && !CANCEL_BLOCKED.has(row.orderStatus);
-
-  // --- render ---------------------------------------------------------------
-
   return (
-    <div className="w-full max-w-none px-4 py-6 md:px-8">
-      <PageHeader
-        title={t("orders_title")}
-        count={data?.total}
-        subtitle={t("orders_subtitle")}
-        actions={
-          canConfirmPerm ? (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => {
-                setFormError(null);
-                setShowCreate(true);
-              }}
-            >
-              {t("orders_new")}
-            </Button>
-          ) : undefined
-        }
-      />
-
-      {/* Status tab bar (workbench): one glance shows every bucket. */}
-      <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Order status tabs">
-        <StatusTab
-          active={!statusKey && !confirmation && risk !== "POSSIBLE_DUPLICATE"}
-          label="All"
-          count={counts?.total}
-          onClick={() => patchParams({ status: null, confirmation: null, risk: null, page: null })}
-        />
-        <StatusTab
-          active={statusKey === "NEW,PENDING,QUESTION"}
-          label="To handle"
-          count={
-            counts
-              ? (counts.byStatus["NEW"] ?? 0) + (counts.byStatus["PENDING"] ?? 0) + (counts.byStatus["QUESTION"] ?? 0)
-              : undefined
-          }
-          tone="amber"
-          onClick={() => patchParams({ status: "NEW,PENDING,QUESTION", confirmation: null, risk: null, page: null })}
-        />
-        <StatusTab
-          active={confirmation === "NEEDS_REVIEW"}
-          label="Review"
-          count={counts?.needsReview}
-          tone="amber"
-          onClick={() => patchParams({ status: null, confirmation: "NEEDS_REVIEW", risk: null, page: null })}
-        />
-        <StatusTab
-          active={risk === "POSSIBLE_DUPLICATE"}
-          label="Duplicate"
-          count={counts?.duplicate}
-          tone="red"
-          onClick={() => patchParams({ status: null, confirmation: null, risk: "POSSIBLE_DUPLICATE", page: null })}
-        />
-        <StatusTab
-          active={statusKey === "CONFIRMED"}
-          label="Confirmed"
-          count={counts?.byStatus["CONFIRMED"]}
-          tone="green"
-          onClick={() => patchParams({ status: "CONFIRMED", confirmation: null, risk: null, page: null })}
-        />
-        <StatusTab
-          active={statusKey === "SHIPPING"}
-          label="Shipping"
-          count={counts?.byStatus["SHIPPING"]}
-          onClick={() => patchParams({ status: "SHIPPING", confirmation: null, risk: null, page: null })}
-        />
-        <StatusTab
-          active={statusKey === "SIGNED"}
-          label="Signed"
-          count={counts?.byStatus["SIGNED"]}
-          tone="green"
-          onClick={() => patchParams({ status: "SIGNED", confirmation: null, risk: null, page: null })}
-        />
-        <StatusTab
-          active={statusKey === "CANCELLED,DENIED"}
-          label="Cancelled"
-          count={counts ? (counts.byStatus["CANCELLED"] ?? 0) + (counts.byStatus["DENIED"] ?? 0) : undefined}
-          onClick={() => patchParams({ status: "CANCELLED,DENIED", confirmation: null, risk: null, page: null })}
-        />
-      </div>
-
-      {/* Filter bar */}
-      <div className="mt-4 rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
-          <div className="md:min-w-[220px] md:flex-1">
-            <Field label="Search" htmlFor="orders-search">
-              <TextInput
-                id="orders-search"
-                type="search"
-                placeholder="Order number, name or phone"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </Field>
-          </div>
-          <div className="md:w-44">
-            <Field label="Status" htmlFor="orders-status">
-              <Select
-                id="orders-status"
-                // status is the parsed array (multi-status URL support); the
-                // select needs the scalar joined key or React logs a
-                // non-scalar-value console error (caught by the T20 gate).
-                value={statusKey}
-                onChange={(e) =>
-                  patchParams({ status: e.target.value || null, page: null })
-                }
-              >
-                <option value="">All statuses</option>
-                {statusKey && !ORDER_STATUSES.includes(statusKey as OrderStatus) ? (
-                  // A multi-status filter (the dashboard links with one) has no
-                  // single option to match, so the applied set gets its own
-                  // entry instead of silently reading as "All statuses".
-                  <option value={statusKey}>{statusKey.split(",").join(", ")}</option>
-                ) : null}
-                {ORDER_STATUSES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="md:w-44">
-            <Field label="Payment" htmlFor="orders-payment-status">
-              <Select
-                id="orders-payment-status"
-                value={paymentStatusKey}
-                onChange={(e) =>
-                  patchParams({ paymentStatus: e.target.value || null, page: null })
-                }
-              >
-                <option value="">All payment statuses</option>
-                {PAYMENT_STATUSES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="md:w-44">
-            <Field label="Classification" htmlFor="orders-classification">
-              <Select
-                id="orders-classification"
-                value={classification}
-                onChange={(e) =>
-                  patchParams({ classification: e.target.value || null, page: null })
-                }
-              >
-                <option value="">All classifications</option>
-                {CLASSIFICATIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="md:w-44">
-            <Field label="Assigned To" htmlFor="orders-assigned">
-              <Select
-                id="orders-assigned"
-                value={assignedTo}
-                onChange={(e) =>
-                  patchParams({ assignedTo: e.target.value || null, page: null })
-                }
-              >
-                <option value="">All staff</option>
-                {assignees.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name ?? "—"}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="md:w-44">
-            <Field label="Risk" htmlFor="orders-risk">
-              <Select
-                id="orders-risk"
-                value={risk}
-                onChange={(e) =>
-                  patchParams({ risk: e.target.value || null, page: null })
-                }
-              >
-                <option value="">All risks</option>
-                {RISK_TYPES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="md:w-40">
-            <Field label="From" htmlFor="orders-date-from">
-              <TextInput
-                id="orders-date-from"
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(e) =>
-                  patchParams({ dateFrom: e.target.value || null, page: null })
-                }
-              />
-            </Field>
-          </div>
-          <div className="md:w-40">
-            <Field label="To" htmlFor="orders-date-to">
-              <TextInput
-                id="orders-date-to"
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(e) =>
-                  patchParams({ dateTo: e.target.value || null, page: null })
-                }
-              />
-            </Field>
-          </div>
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={clearFilters}
-            disabled={!filtersActive && searchInput === ""}
-          >
-            Clear filters
-          </Button>
-        </div>
-      </div>
-
-      {/* Table / states */}
-      <div className="mt-4">
-        {loading ? (
-          <TableSkeleton rows={6} cols={10} />
-        ) : error ? (
-          <div
-            role="alert"
-            className="rounded-xl border border-border bg-card p-6"
-          >
-            <p className="text-sm font-semibold text-ink">
-              Couldn&apos;t load orders.
-            </p>
-            <p className="mt-1 text-sm text-ink-muted">{error}</p>
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={reload}
-              className="mt-4"
-            >
-              Retry
-            </Button>
-          </div>
-        ) : data && data.items.length === 0 ? (
-          filtersActive ? (
-            <EmptyState
-              title="No orders found."
-              hint="Try clearing the filters."
-              action={
-                <Button variant="secondary" size="md" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState title="No orders yet." />
-          )
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[1120px] text-sm">
-              <caption className="sr-only">Orders</caption>
-              <thead>
-                <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  <th scope="col" className="px-4 py-2.5">Order</th>
-                  <th scope="col" className="px-4 py-2.5">Customer</th>
-                  <th scope="col" className="px-4 py-2.5">Items</th>
-                  <th scope="col" className="px-4 py-2.5 text-right">Total</th>
-                  <th scope="col" className="px-4 py-2.5">Class</th>
-                  <th scope="col" className="px-4 py-2.5">Status</th>
-                  <th scope="col" className="px-4 py-2.5">Assigned</th>
-                  <th scope="col" className="px-4 py-2.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.items.map((row) => {
-                  const showConfirm = canConfirmRow(row);
-                  const showCancel = canCancelRow(row);
-                  const rowBusy = actionPending && dialog?.id === row.id;
-                  const firstItem = row.items[0];
-                  // Row tint per CUSTOMER_RISK_SPEC §16 display rules.
-                  const rowTone =
-                    row.customerClassification === "RECHECK"
-                      ? "bg-red-50/70"
-                      : row.customerClassification === "RPT"
-                        ? "bg-amber-50/70"
-                        : row.customerClassification === "AGAIN"
-                          ? "bg-green-50/50"
-                          : "";
-                  return (
-                    <tr
-                      key={row.id}
-                      className={`border-b border-border last:border-0 hover:bg-primary-light/20 ${rowTone}`}
-                    >
-                      <td className="px-4 py-2.5">
-                        <Link
-                          href={`/admin/orders/${row.id}`}
-                          className="font-semibold text-cta hover:underline"
-                        >
-                          {row.orderNumber}
-                        </Link>
-                        <div className="text-xs text-ink-muted">
-                          {new Date(row.createdAt).toLocaleString("en-PH", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="text-ink">{row.customer.name ?? "—"}</div>
-                        <div className="text-xs text-ink-secondary">
-                          {row.customer.normalizedPhone}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="text-ink">{row.items.length} items</div>
-                        {firstItem ? (
-                          <div
-                            className="max-w-[160px] truncate text-xs text-ink-muted"
-                            title={firstItem.productNameSnapshot}
-                          >
-                            {firstItem.productNameSnapshot}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-right font-medium text-ink">
-                        {formatAmount(row.grandTotal, row.currency)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <ClassificationBadge value={row.customerClassification} />
-                        {row.riskFlags && row.riskFlags.length > 0 ? (
-                          <div
-                            title={row.riskFlags[0]?.reason ?? undefined}
-                            className="mt-1 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700"
-                          >
-                            ⚠ {row.riskFlags[0]?.flagType === "POSSIBLE_DUPLICATE" ? "Dup" : row.riskFlags[0]?.flagType}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex flex-wrap gap-1">
-                          <Badge value={row.orderStatus} />
-                          {row.confirmationStatus !== "UNCONFIRMED" ? (
-                            <Badge value={row.confirmationStatus} />
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5">
-                        {assignees.length > 0 ? (
-                          <select
-                            value={row.assignedTo?.id ?? ""}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (value) void assignRow(row.id, value);
-                            }}
-                            aria-label="Assign order"
-                            className="rounded-lg border border-border bg-background px-1.5 py-1 text-xs text-ink"
-                          >
-                            <option value="">—</option>
-                            {assignees.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name ?? "—"}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-right">
-                        {!showConfirm && !showCancel ? (
-                          <span className="text-ink-muted">—</span>
-                        ) : (
-                          <div className="inline-flex gap-3">
-                            {showConfirm ? (
-                              <button
-                                type="button"
-                                onClick={() => openDialog(row.id, "confirm")}
-                                disabled={rowBusy}
-                                className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                              >
-                                Confirm
-                              </button>
-                            ) : null}
-                            {showCancel ? (
-                              <button
-                                type="button"
-                                onClick={() => openDialog(row.id, "cancel")}
-                                disabled={rowBusy}
-                                className="text-sm font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                              >
-                                Cancel
-                              </button>
-                            ) : null}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {data && !loading && !error ? (
-        <div className="mt-6">
-          <Pagination
-            page={data.page}
-            pageSize={data.pageSize}
-            total={data.total}
-            onChange={(nextPage) =>
-              patchParams({ page: nextPage === 1 ? null : String(nextPage) })
-            }
-          />
-        </div>
-      ) : null}
-
-      <Dialog
-        open={dialog !== null}
-        onClose={closeDialog}
-        title={dialog?.kind === "cancel" ? "Cancel order" : "Confirm order"}
-        width="sm"
-      >
-        {activeRow ? (
-          <form onSubmit={onDialogSubmit}>
-            <p className="text-sm text-ink-secondary">
-              {dialog?.kind === "cancel"
-                ? `Cancel order ${activeRow.orderNumber}? Reserved stock is released.`
-                : `Confirm order ${activeRow.orderNumber}? This marks it confirmed for fulfillment.`}
-            </p>
-            {actionError ? (
-              <p
-                role="alert"
-                className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
-              >
-                {actionError}
-              </p>
-            ) : null}
-            <div className="mt-6 flex justify-end gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                size="md"
-                onClick={closeDialog}
-                disabled={actionPending}
-              >
-                Back
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                disabled={actionPending}
-              >
-                {actionPending
-                  ? "Working…"
-                  : dialog?.kind === "cancel"
-                    ? "Cancel order"
-                    : "Confirm"}
-              </Button>
-            </div>
-          </form>
-        ) : actionError ? (
-          <p
-            role="alert"
-            className="rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800"
-          >
-            {actionError}
-          </p>
-        ) : null}
-      </Dialog>
-
-      {/* Manual order entry (phone orders) */}
-      <Dialog
-        open={showCreate}
-        onClose={() => {
-          if (!creating) setShowCreate(false);
+    <Dialog open={open} onClose={onClose} title={t("orders_new")} width="md">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitCreate();
         }}
-        title="New Order"
-        width="md"
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitCreate();
-          }}
-        >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Full name *" htmlFor="co-name">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={t("orders_create_name")} htmlFor="co-name">
+            <input
+              id="co-name"
+              type="text"
+              required
+              value={createForm.name}
+              onChange={(event) => setCreateForm((f) => ({ ...f, name: event.target.value }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          <Field label={t("orders_create_phone")} htmlFor="co-phone">
+            <input
+              id="co-phone"
+              type="text"
+              required
+              placeholder="0917 123 4567"
+              value={createForm.phone}
+              onChange={(event) => setCreateForm((f) => ({ ...f, phone: event.target.value }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          <Field label={t("orders_create_province")} htmlFor="co-province">
+            <input
+              id="co-province"
+              type="text"
+              required
+              value={createForm.province}
+              onChange={(event) => setCreateForm((f) => ({ ...f, province: event.target.value }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          <Field label={t("orders_create_city")} htmlFor="co-city">
+            <input
+              id="co-city"
+              type="text"
+              required
+              value={createForm.city}
+              onChange={(event) => setCreateForm((f) => ({ ...f, city: event.target.value }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          <Field label={t("orders_create_street")} htmlFor="co-street">
+            <input
+              id="co-street"
+              type="text"
+              required
+              value={createForm.streetAddress}
+              onChange={(event) =>
+                setCreateForm((f) => ({ ...f, streetAddress: event.target.value }))
+              }
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          <Field label={t("orders_create_barangay")} htmlFor="co-barangay">
+            <input
+              id="co-barangay"
+              type="text"
+              value={createForm.barangay}
+              onChange={(event) => setCreateForm((f) => ({ ...f, barangay: event.target.value }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+        </div>
+        <div className="mt-4 rounded-lg border border-border bg-background p-3">
+          <Field label={t("orders_create_product")} htmlFor="co-sku">
+            <input
+              id="co-sku"
+              type="text"
+              placeholder={t("orders_create_product")}
+              value={pickedSku ? pickedSku.label : skuQuery}
+              onChange={(event) => {
+                setPickedSku(null);
+                setSkuQuery(event.target.value);
+              }}
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
+            />
+          </Field>
+          {!pickedSku && skuOptions.length > 0 ? (
+            <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border">
+              {skuOptions.map((option) => (
+                <li key={option.skuId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickedSku({ skuId: option.skuId, label: option.label });
+                      setSkuOptions([]);
+                    }}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
+                  >
+                    <span className="truncate">{option.label}</span>
+                    <span className="ml-3 whitespace-nowrap text-xs text-ink-secondary">
+                      {option.price ?? "—"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-2 w-28">
+            <Field label={t("orders_create_qty")} htmlFor="co-qty">
               <input
-                id="co-name"
-                type="text"
-                required
-                value={createForm.name}
-                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-            <Field label="Mobile *" htmlFor="co-phone">
-              <input
-                id="co-phone"
-                type="text"
-                required
-                placeholder="0917 123 4567"
-                value={createForm.phone}
-                onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-            <Field label="Province *" htmlFor="co-province">
-              <input
-                id="co-province"
-                type="text"
-                required
-                value={createForm.province}
-                onChange={(e) => setCreateForm((f) => ({ ...f, province: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-            <Field label="City / Municipality *" htmlFor="co-city">
-              <input
-                id="co-city"
-                type="text"
-                required
-                value={createForm.city}
-                onChange={(e) => setCreateForm((f) => ({ ...f, city: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-            <Field label="Street address *" htmlFor="co-street">
-              <input
-                id="co-street"
-                type="text"
-                required
-                value={createForm.streetAddress}
-                onChange={(e) => setCreateForm((f) => ({ ...f, streetAddress: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-            <Field label="Barangay" htmlFor="co-barangay">
-              <input
-                id="co-barangay"
-                type="text"
-                value={createForm.barangay}
-                onChange={(e) => setCreateForm((f) => ({ ...f, barangay: e.target.value }))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink"
-              />
-            </Field>
-          </div>
-          <div className="mt-4 rounded-lg border border-border bg-background p-3">
-            <Field label="Product *" htmlFor="co-sku">
-              <input
-                id="co-sku"
-                type="text"
-                placeholder="Search product…"
-                value={pickedSku ? pickedSku.label : skuQuery}
-                onChange={(e) => {
-                  setPickedSku(null);
-                  setSkuQuery(e.target.value);
-                }}
+                id="co-qty"
+                type="number"
+                min={1}
+                max={99}
+                value={createQty}
+                onChange={(event) => setCreateQty(Math.max(1, Number(event.target.value) || 1))}
                 className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
               />
             </Field>
-            {!pickedSku && skuOptions.length > 0 ? (
-              <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border">
-                {skuOptions.map((opt) => (
-                  <li key={opt.skuId}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPickedSku({ skuId: opt.skuId, label: opt.label });
-                        setSkuOptions([]);
-                      }}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
-                    >
-                      <span className="truncate">{opt.label}</span>
-                      <span className="ml-3 whitespace-nowrap text-xs text-ink-secondary">
-                        {opt.price ?? "—"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="mt-2 w-28">
-              <Field label="Qty *" htmlFor="co-qty">
-                <input
-                  id="co-qty"
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={createQty}
-                  onChange={(e) => setCreateQty(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
-                />
-              </Field>
-            </div>
           </div>
-          {formError ? (
-            <p role="alert" className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">
-              {formError}
-            </p>
-          ) : null}
-          <div className="mt-6 flex justify-end gap-3">
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={() => setShowCreate(false)}
-              disabled={creating}
-            >
-              Back
-            </Button>
-            <Button type="submit" variant="primary" size="md" disabled={creating || !pickedSku}>
-              {creating ? "Creating…" : "Create order"}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-    </div>
+        </div>
+        {formError ? (
+          <p role="alert" className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">
+            {formError}
+          </p>
+        ) : null}
+        <div className="mt-6 flex justify-end gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={onClose}
+            disabled={creating}
+          >
+            {t("orders_cancel")}
+          </Button>
+          <Button type="submit" variant="primary" size="md" disabled={creating || !pickedSku}>
+            {creating ? "…" : t("orders_create_submit")}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
 export default function AdminOrdersPage() {
-  // useSearchParams requires a Suspense boundary for prerender (m6).
   return (
     <Suspense
       fallback={
-        <div className="w-full max-w-none px-4 py-6 md:px-8">
-          <TableSkeleton rows={6} cols={10} />
+        <div className="w-full max-w-none px-4 py-5 md:px-8">
+          <TableSkeleton rows={8} cols={12} />
         </div>
       }
     >

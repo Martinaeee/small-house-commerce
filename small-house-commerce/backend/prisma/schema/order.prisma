@@ -198,6 +198,10 @@ model Order {
   /// The dashboard's conversion rate divides ordering sessions by all
   /// sessions; the order row — not the PURCHASE pixel event — is the fact.
   trackingSessionId      String?   @map("tracking_session_id") @db.VarChar(100)
+  // Manual COD verification (stage 1A): the checklist a handler works through.
+  verificationRequired Boolean  @default(false) @map("verification_required")
+  // When the handler should come back to this order (follow-up callback).
+  nextFollowUpAt DateTime? @map("next_follow_up_at") @db.Timestamptz(3)
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   items           OrderItem[]
@@ -212,6 +216,11 @@ model Order {
   reservations    InventoryReservation[]
   shipments       Shipment[]
   promoRedemption PromoCodeRedemption?
+  verificationAssignments OrderVerificationAssignment[]
+  verificationItems      OrderVerificationItem[]
+  verificationEvents     OrderVerificationEvent[]
+  verificationApprovals  OrderVerificationApproval[]
+  handoverEvents         OrderHandoverEvent[]
 
   @@index([customerId])
   @@index([orderStatus])
@@ -219,6 +228,7 @@ model Order {
   @@index([assignedToId])
   @@index([createdAt])
   @@index([trackingSessionId])
+  @@index([nextFollowUpAt])
   @@map("orders")
 }
 
@@ -338,6 +348,7 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+  // Filtering the order list by SKU / product needs this index.
   @@index([skuId])
   @@map("order_items")
 }
@@ -437,4 +448,224 @@ model Payment {
 
   @@index([orderId])
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Manual COD verification (stage 1A).
+//
+// A COD order is only confirmable once a human verified every applicable
+// mandatory item. The model is deliberately split into
+//   - one assignment   (who owns the order, priority, next follow-up)
+//   - one item per question (stable key, required-ness, current result)
+//   - an append-only event log (every action and every contact attempt)
+//   - one approval row (the basis a human confirmed on)
+// Nothing here rewrites order history: rows are appended, results are
+// superseded by newer events, and a changed order invalidates the affected
+// results instead of deleting them.
+// ---------------------------------------------------------------------------
+
+enum VerificationCategory {
+  CUSTOMER_INFO
+  PRODUCT_INFO
+  SHIPPING_ADDRESS
+  COD_PAYMENT
+  DELIVERY_SCHEDULE
+  RISK_REVIEW
+  OTHER
+}
+
+enum VerificationItemStatus {
+  PENDING
+  DONE
+  PROBLEM
+  SKIPPED
+  INVALIDATED
+}
+
+enum VerificationEventType {
+  ASSIGNED
+  REASSIGNED
+  RESULT_SET
+  CONTACT_ATTEMPT
+  NOTE
+  NEXT_FOLLOW_UP
+  INVALIDATED
+  SKIPPED
+}
+
+enum VerificationPriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum VerificationTemplateScope {
+  SYSTEM
+  CUSTOM
+}
+
+/// One current assignment per order. Reassignment closes the old row and
+/// opens a new one, so the checklist and its history are never lost.
+model OrderVerificationAssignment {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  orderId         String               @map("order_id") @db.Uuid
+  assigneeId      String?              @map("assignee_id") @db.Uuid
+  assignedById    String               @map("assigned_by_id") @db.Uuid
+  assignedAt      DateTime             @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  closedAt        DateTime?            @map("closed_at") @db.Timestamptz(3)
+  priority        VerificationPriority @default(NORMAL)
+  nextFollowUpAt  DateTime?            @map("next_follow_up_at") @db.Timestamptz(3)
+  note            String?
+  /// Optimistic lock: a stale write is rejected instead of overwriting.
+  rev             Int                  @default(1)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order     Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items     OrderVerificationItem[]
+  events    OrderVerificationEvent[]
+  approvals OrderVerificationApproval[]
+
+  @@index([orderId])
+  @@index([assigneeId, closedAt])
+  @@index([nextFollowUpAt])
+  @@map("order_verification_assignments")
+}
+
+/// One verification question on an order. itemKey is the stable identity
+/// (e.g. "addr_area"); business rules never key off the display title.
+model OrderVerificationItem {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  orderId        String                  @map("order_id") @db.Uuid
+  assignmentId   String?                 @map("assignment_id") @db.Uuid
+  itemKey        String                  @map("item_key")
+  category       VerificationCategory
+  titleSnapshot  String                  @map("title_snapshot")
+  required       Boolean                 @default(true)
+  // The person who checks this question. It can differ from the owner of the
+  // order, so a question can be handed to somebody else.
+  assigneeId     String?                 @map("assignee_id") @db.Uuid
+  status         VerificationItemStatus  @default(PENDING)
+  result         String?
+  note           String?
+  operatorId     String?                 @map("operator_id") @db.Uuid
+  completedAt    DateTime?               @map("completed_at") @db.Timestamptz(3)
+  nextFollowUpAt DateTime?               @map("next_follow_up_at") @db.Timestamptz(3)
+  skippedReason  String?                 @map("skipped_reason")
+  /// Fingerprint of the fields this question depends on. When the order is
+  /// edited and the fingerprint no longer matches, the result is invalidated
+  /// and has to be verified again.
+  subjectFingerprint String?              @map("subject_fingerprint")
+  invalidatedAt  DateTime?               @map("invalidated_at") @db.Timestamptz(3)
+  invalidatedReason String?               @map("invalidated_reason")
+  rev            Int                     @default(1)
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order      Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  events     OrderVerificationEvent[]
+
+  @@unique([orderId, itemKey])
+  @@index([orderId, status])
+  @@map("order_verification_items")
+}
+
+/// Append-only log: every assignment, every contact attempt, every result.
+model OrderVerificationEvent {
+  id           String                  @id @default(uuid(7)) @db.Uuid
+  orderId      String                  @map("order_id") @db.Uuid
+  itemId       String?                 @map("item_id") @db.Uuid
+  assignmentId String?                 @map("assignment_id") @db.Uuid
+  type         VerificationEventType
+  fromStatus   VerificationItemStatus? @map("from_status")
+  toStatus     VerificationItemStatus? @map("to_status")
+  result       String?
+  note         String?
+  operatorId   String?                 @map("operator_id") @db.Uuid
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order      Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item       OrderVerificationItem?     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@index([itemId, createdAt])
+  @@map("order_verification_events")
+}
+
+/// The basis a human confirmed on. Frozen so a later audit can see exactly
+/// which results the approver saw.
+model OrderVerificationApproval {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  assignmentId String?  @map("assignment_id") @db.Uuid
+  basis        Json
+  snapshotHash String   @map("snapshot_hash")
+  approvedById String   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime @default(now()) @map("approved_at") @db.Timestamptz(3)
+
+  order      Order                       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, approvedAt])
+  @@map("order_verification_approvals")
+}
+
+/// Reusable checklists. SYSTEM templates ship with the app; CUSTOM ones are
+/// owned by the person who created them.
+model VerificationItemTemplate {
+  id        String                    @id @default(uuid(7)) @db.Uuid
+  name      String
+  scope     VerificationTemplateScope @default(SYSTEM)
+  ownerId   String?                   @map("owner_id") @db.Uuid
+  items     Json
+  createdAt DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([scope])
+  @@map("verification_item_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Handover events (stage 1A).
+//
+// "Handed over to the warehouse" is a fact, not a status: it has a real time,
+// a real operator, a reason when the warehouse refuses or the customer
+// withdraws, and it names the order lines and quantities that moved. This is
+// deliberately not a warehouse-management system: no bins, no picking, no
+// labels.
+// ---------------------------------------------------------------------------
+
+enum OrderHandoverEventType {
+  HANDED_OVER
+  REJECTED
+  WITHDRAWN
+}
+
+enum OrderHandoverDisposition {
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+model OrderHandoverEvent {
+  id          String                   @id @default(uuid(7)) @db.Uuid
+  orderId     String                   @map("order_id") @db.Uuid
+  type        OrderHandoverEventType
+  disposition OrderHandoverDisposition
+  occurredAt  DateTime                 @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  operatorId  String                   @map("operator_id") @db.Uuid
+  /// Required for REJECTED and WITHDRAWN.
+  reason      String?
+  note        String?
+  /// [{ orderItemId, skuCodeSnapshot, quantity }] - the lines and quantities
+  /// that actually moved, so a partial handover stays attached to the order.
+  items       Json
+  createdAt   DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, occurredAt])
+  @@map("order_handover_events")
 }
