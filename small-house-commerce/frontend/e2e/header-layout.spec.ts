@@ -5,9 +5,11 @@ import { expect, test, type Page } from "@playwright/test";
 // hovering/clicking, otherwise a fast assertion can run against the
 // server-rendered markup before any handler is attached.
 async function waitForInteractiveHeader(page: Page) {
+  // Production streams the shell and hydrates after load, which can take
+  // longer than the default 5s expect timeout on a mobile connection.
   await expect(
     page.locator('body > [aria-hidden] [role="dialog"][aria-label="Menu"]'),
-  ).toBeAttached();
+  ).toBeAttached({ timeout: 30000 });
 }
 
 for (const width of [1280, 1440, 1920]) {
