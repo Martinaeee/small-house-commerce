@@ -5,6 +5,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import { AdminHelpTip } from "./AdminHelpTip";
 
 /**
  * Admin form primitives. Control class string mirrors the storefront
@@ -25,28 +26,40 @@ export function Field({
   label,
   error,
   hint,
+  hintDisplay = "tooltip",
   children,
   htmlFor,
 }: {
   label: string;
   error?: string;
-  // Operator-facing guidance (Chinese in the admin back office). Shown muted
-  // under the control; validation errors render after it in red.
+  // Operator-facing guidance (Chinese in the admin back office). By default it
+  // moves behind the label's question mark; pass "inline" for guidance the
+  // operator must read before filling the control (formats, blocking rules).
   hint?: ReactNode;
+  hintDisplay?: "tooltip" | "inline";
   children: ReactNode;
   htmlFor?: string;
 }): ReactNode {
   return (
-    <label className="flex flex-col gap-1 text-sm font-medium text-ink" htmlFor={htmlFor}>
-      {label}
-      <div>{children}</div>
-      {hint ? <p className="text-xs font-normal leading-relaxed text-ink-muted">{hint}</p> : null}
-      {error ? (
-        <p className="text-xs text-admin-error" role="alert">
-          {error}
-        </p>
+    <div className="relative">
+      <label className="flex flex-col gap-1 pr-6 text-sm font-medium text-ink" htmlFor={htmlFor}>
+        {label}
+        <div>{children}</div>
+        {hint && hintDisplay === "inline" ? (
+          <p className="text-xs font-normal leading-relaxed text-ink-muted">{hint}</p>
+        ) : null}
+        {error ? (
+          <p className="text-xs text-admin-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </label>
+      {hint && hintDisplay === "tooltip" ? (
+        <span className="absolute right-0 top-0">
+          <AdminHelpTip text={hint} />
+        </span>
       ) : null}
-    </label>
+    </div>
   );
 }
 

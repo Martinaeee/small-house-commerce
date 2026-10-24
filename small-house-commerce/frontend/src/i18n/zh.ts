@@ -497,6 +497,7 @@ export const zh = {
   link_builder_copy_variant: "复制款式链接",
   link_builder_copy_campaign: "复制投放链接",
   link_builder_copied: "已复制",
+  common_help_tip_aria: "更多说明",
   common_copy_failed_manual: "复制失败，请手动选择并复制",
   link_builder_waiting: "填写 AID 后生成可复制的投放链接。",
   link_builder_error_PRODUCT_INVALID: "请选择真实的已上架商品。",
@@ -1480,6 +1481,8 @@ export const zh = {
   product_media_batch_failure: "{name}：{reason}",
   product_media_url_add: "添加",
   product_media_url_add_aria: "要添加的媒体 URL",
+  product_detail_upload_scope: "归属",
+  product_media_drag_aria: "拖动排序第 {number} 张",
 
   // --- Product form: detail blocks ---
   product_detail_title: "详情内容（图片 / 视频）",

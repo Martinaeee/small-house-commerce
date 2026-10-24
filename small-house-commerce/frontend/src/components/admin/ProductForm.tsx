@@ -70,6 +70,7 @@ import { PhysicalSpecificationGroups } from "./product-form/PhysicalSpecificatio
 import { deriveAdminPhysicalSpecificationGroups } from "@/lib/admin-physical-specs";
 import { ProductMediaPanel } from "./product-form/ProductMediaPanel";
 import { useMediaBatchUpload } from "./product-form/useMediaBatchUpload";
+import type { DetailMediaScope } from "@/lib/admin-detail-scope";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { en } from "@/i18n/en";
 
@@ -1323,10 +1324,19 @@ export function ProductForm({
     }));
     clearValidation();
   };
-  const addDetailMedia = (media: { url: string; type: "IMAGE" | "VIDEO" }): void => {
+  const addDetailMedia = (
+    media: { url: string; type: "IMAGE" | "VIDEO" },
+    scope: DetailMediaScope = { optionValueId: "", variantId: "" },
+  ): void => {
     setValue((prev) => ({
       ...prev,
-      detailBlocks: [...prev.detailBlocks, { ...media, altText: "", sortOrder: nextImageSortOrder(prev.detailBlocks) }],
+      detailBlocks: [...prev.detailBlocks, {
+        ...media,
+        altText: "",
+        sortOrder: nextImageSortOrder(prev.detailBlocks),
+        ...(scope.optionValueId ? { optionValueId: scope.optionValueId } : {}),
+        ...(scope.variantId ? { variantId: scope.variantId } : {}),
+      }],
     }));
     clearValidation();
   };
@@ -1349,6 +1359,28 @@ export function ProductForm({
       if (j < 0 || j >= prev.detailBlocks.length) return prev;
       const next = [...prev.detailBlocks];
       [next[i], next[j]] = [next[j], next[i]];
+      return {
+        ...prev,
+        detailBlocks: next.map((b, k) => ({ ...b, sortOrder: String(k) })),
+      };
+    });
+    clearValidation();
+  };
+  /** Drag-and-drop reorder for detail blocks: move `from` to `to`. */
+  const moveDetailBlockTo = (from: number, to: number): void => {
+    setValue((prev) => {
+      if (
+        from === to ||
+        from < 0 ||
+        to < 0 ||
+        from >= prev.detailBlocks.length ||
+        to >= prev.detailBlocks.length
+      ) {
+        return prev;
+      }
+      const next = [...prev.detailBlocks];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
       return {
         ...prev,
         detailBlocks: next.map((b, k) => ({ ...b, sortOrder: String(k) })),
@@ -1960,6 +1992,7 @@ export function ProductForm({
               fieldErrors,
               onPatch: setDetailBlock,
               onMove: moveDetailBlock,
+              onReorder: moveDetailBlockTo,
               onRemove: removeDetailBlock,
               onAddMedia: addDetailMedia,
               scopeOptions: detailBlockScopeOptions(

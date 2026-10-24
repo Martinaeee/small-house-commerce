@@ -236,6 +236,38 @@ export function ProductMediaScopesEditor({
       renumberScopes(next);
     });
 
+  const reorderMedia = (fromKey: string, toKey: string): void =>
+    onChange((next) => {
+      const from = next.media.find((item) => rowKey(item) === fromKey);
+      const to = next.media.find((item) => rowKey(item) === toKey);
+      if (!from || !to) return;
+      const refOf = (row: AdminMediaDraft) => row.optionValueRef ?? row.variantRef;
+      const fromRef = refOf(from);
+      const toRef = refOf(to);
+      if (!fromRef || !toRef) return;
+      const sameKind = Boolean(from.optionValueRef) === Boolean(to.optionValueRef);
+      if (!sameKind || rowKey(fromRef) !== rowKey(toRef)) return;
+      const ordered = next.media
+        .filter((item) => {
+          const ref = refOf(item);
+          return (
+            ref &&
+            Boolean(item.optionValueRef) === Boolean(from.optionValueRef) &&
+            rowKey(ref) === rowKey(fromRef)
+          );
+        })
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      const fromIndex = ordered.indexOf(from);
+      const toIndex = ordered.indexOf(to);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+      ordered.splice(fromIndex, 1);
+      ordered.splice(toIndex, 0, from);
+      ordered.forEach((row, index) => {
+        row.sortOrder = index;
+      });
+      renumberScopes(next);
+    });
+
   const renderGallery = (rows: AdminMediaDraft[], scopeLabel: string): ReactNode => (
     <MediaGallery
       items={rows.map((row) => ({ ...row, key: rowKey(row), domId: `pf-row-${rowKey(row)}`, altText: row.altText ?? "" }))}
@@ -259,6 +291,11 @@ export function ProductMediaScopesEditor({
       }}
       onPatch={(key, patch) => setMedia(key, { ...patch, ...(patch.altText !== undefined ? { altText: patch.altText || null } : {}) })}
       onMove={moveMedia}
+      onReorder={(from, to) => {
+        const fromRow = rows[from];
+        const toRow = rows[to];
+        if (fromRow && toRow) reorderMedia(rowKey(fromRow), rowKey(toRow));
+      }}
       onRemove={removeMedia}
     />
   );

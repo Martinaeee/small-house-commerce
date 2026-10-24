@@ -510,6 +510,7 @@ export const en: Record<ZhKey, string> = {
   link_builder_copy_variant: "Copy variant link",
   link_builder_copy_campaign: "Copy campaign link",
   link_builder_copied: "Copied",
+  common_help_tip_aria: "More info",
   common_copy_failed_manual:
     "Copy failed. Please select the text and copy it manually.",
   link_builder_waiting: "Enter an AID to generate copyable campaign links.",
@@ -1499,6 +1500,8 @@ export const en: Record<ZhKey, string> = {
   product_media_batch_failure: "{name}: {reason}",
   product_media_url_add: "Add URL",
   product_media_url_add_aria: "Media URL to add",
+  product_detail_upload_scope: "Scope",
+  product_media_drag_aria: "Drag to reorder item {number}",
 
   product_detail_title: "Detail content (images / videos)",
   product_detail_scope_explanation:

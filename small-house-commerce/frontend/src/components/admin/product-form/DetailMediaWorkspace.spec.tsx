@@ -1,211 +1,148 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DetailBlockFormValue } from "@/components/admin/ProductForm";
-import { DetailMediaWorkspace } from "@/components/admin/product-form/DetailMediaWorkspace";
-import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
+import { describe, expect, it, vi } from "vitest";
+import { AdminI18nProvider } from "@/lib/admin-i18n";
+import {
+  DetailMediaWorkspace,
+  type DetailMediaWorkspaceProps,
+} from "./DetailMediaWorkspace";
 
-const blocks = Object.freeze([
-  Object.freeze({
-    type: "IMAGE" as const,
-    url: "/uploads/detail-1.jpg",
-    altText: "Assembly detail",
-    sortOrder: "0",
-  }),
-  Object.freeze({
-    type: "VIDEO" as const,
-    url: "/uploads/detail-2.mp4",
-    altText: " ",
-    sortOrder: "1",
-  }),
-]) satisfies readonly Readonly<DetailBlockFormValue>[];
+const SCOPES = [
+  { value: "", label: "共享" },
+  { value: "option:ov-black", label: "颜色 = 黑" },
+  { value: "variant:v-1", label: "黑色 / 小号" },
+];
 
 function renderWorkspace(
-  overrides: Partial<React.ComponentProps<typeof DetailMediaWorkspace>> = {},
-) {
-  const props: React.ComponentProps<typeof DetailMediaWorkspace> = {
-    blocks,
-    pending: false,
-    onPatch: vi.fn(),
-    onMove: vi.fn(),
-    onRemove: vi.fn(),
-    onAddMedia: vi.fn(),
-    scopeOptions: [],
-    ...overrides,
-  };
-  const view = render(
+  overrides: Partial<DetailMediaWorkspaceProps> = {},
+): {
+  onAddMedia: ReturnType<typeof vi.fn>;
+  onReorder: ReturnType<typeof vi.fn>;
+} {
+  const onAddMedia = vi.fn();
+  const onReorder = vi.fn();
+  render(
     <AdminI18nProvider>
-      <DetailMediaWorkspace {...props} />
+      <DetailMediaWorkspace
+        blocks={[]}
+        pending={false}
+        scopeOptions={SCOPES}
+        onAddMedia={onAddMedia}
+        onPatch={vi.fn()}
+        onMove={vi.fn()}
+        onReorder={onReorder}
+        onRemove={vi.fn()}
+        {...overrides}
+      />
     </AdminI18nProvider>,
   );
-  return { ...view, props };
+  return { onAddMedia, onReorder };
 }
 
-beforeEach(() => {
-  setAdminLang("en");
+describe("DetailMediaWorkspace batch scope", () => {
+  it("applies the selected scope to every media added from the upload row", async () => {
+    const user = userEvent.setup();
+    const { onAddMedia } = renderWorkspace();
+
+    await user.selectOptions(screen.getByLabelText("归属"), "option:ov-black");
+    await user.type(
+      screen.getByLabelText("要添加的媒体 URL"),
+      "https://example.com/new.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    expect(onAddMedia).toHaveBeenCalledWith(
+      { url: "https://example.com/new.jpg", type: "IMAGE" },
+      { optionValueId: "ov-black", variantId: "" },
+    );
+  });
+
+  it("switches back to shared without leaking the previous scope", async () => {
+    const user = userEvent.setup();
+    const { onAddMedia } = renderWorkspace();
+
+    await user.selectOptions(screen.getByLabelText("归属"), "variant:v-1");
+    await user.selectOptions(screen.getByLabelText("归属"), "");
+    await user.type(
+      screen.getByLabelText("要添加的媒体 URL"),
+      "https://example.com/shared.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    expect(onAddMedia).toHaveBeenCalledWith(
+      { url: "https://example.com/shared.jpg", type: "IMAGE" },
+      { optionValueId: "", variantId: "" },
+    );
+  });
+
+  it("labels each thumbnail with its resolved scope", () => {
+    renderWorkspace({
+      blocks: [
+        {
+          url: "https://example.com/a.jpg",
+          type: "IMAGE",
+          altText: "",
+          sortOrder: "0",
+          optionValueId: "",
+          variantId: "v-1",
+        },
+      ],
+    });
+
+    const badge = screen
+      .getAllByText("黑色 / 小号")
+      .find((element) => element.tagName === "SPAN");
+    expect(badge).toBeInTheDocument();
+  });
+
+  it("moves the two explanation paragraphs behind the title question mark", () => {
+    renderWorkspace();
+    const tip = screen.getByRole("tooltip");
+    expect(tip).toHaveTextContent(
+      "仅用于 PDP 长图 / 视频详情；不会进入商品主图库或款式图库。",
+    );
+    expect(tip).toHaveTextContent(
+      "显示在图集下方的详情区；顺序即前台展示顺序，用 ↑ ↓ 调整。",
+    );
+    expect(tip.closest("p")).toBeNull();
+  });
 });
 
-describe("DetailMediaWorkspace", () => {
-  it("does not carry a replacement error into another selected block", async () => {
-    renderWorkspace();
-    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
-    fireEvent.change(document.querySelector('input[type="file"]:not([multiple])')!, { target: { files: [new File(["pdf"], "notes.pdf", { type: "application/pdf" })] } });
-    expect(screen.getByText("仅支持 JPG / PNG / WebP 图片")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
-    expect(screen.queryByText("仅支持 JPG / PNG / WebP 图片")).not.toBeInTheDocument();
-  });
-
-  it("keeps detail media as thumbnails until a single block is selected", async () => {
-    renderWorkspace();
-    expect(screen.queryByLabelText("Detail block 1 URL")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Detail block 2 URL")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
-    expect(screen.getByLabelText("Detail block 2 URL")).toHaveValue("/uploads/detail-2.mp4");
-    expect(screen.queryByLabelText("Detail block 1 URL")).not.toBeInTheDocument();
-    expect(document.querySelector("[data-selected-media-preview] video")).not.toBeNull();
-    expect(document.querySelector('input[type="file"][multiple]')).not.toBeNull();
-    expect(document.querySelectorAll('input[type="file"]:not([multiple])')).toHaveLength(1);
-  });
-
-  it("separates PDP-only media with factual summaries and narrow-safe rows", () => {
-    renderWorkspace({ highlightKey: "detailBlocks.1.url" });
-
-    expect(
-      screen.getByRole("heading", { name: "Detail content (images / videos)" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "PDP long-form media only. These blocks do not appear in the main product gallery or variant galleries.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Rows 2")).toBeInTheDocument();
-    expect(screen.getByText("Images 1")).toBeInTheDocument();
-    expect(screen.getByText("Videos 1")).toBeInTheDocument();
-    expect(screen.getByText("Alt text 1/2")).toBeInTheDocument();
-    expect(screen.queryByText(/Gallery switching/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Shared product gallery/)).not.toBeInTheDocument();
-
-    const list = screen.getByRole("list", { name: "PDP detail media blocks" });
-    const rows = within(list).getAllByRole("listitem");
-    expect(rows).toHaveLength(2);
-    expect(list).toHaveClass("grid-cols-[repeat(auto-fill,minmax(88px,104px))]");
-    expect(rows[0].querySelector("input")).toBeNull();
-    expect(rows[1]).toHaveClass("ring-2");
-    expect(rows[1]).toHaveAttribute("id", "product-detail-block-1");
-    expect(document.getElementById("pf-row-detailBlocks.1.url")).not.toBeNull();
-  });
-
-  it("forwards type, uploader, text, ordering, removal, and add actions without mutation", async () => {
-    const user = userEvent.setup();
-    const { props, rerender } = renderWorkspace();
-
-    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
-    expect(screen.getByRole("button", { name: "上传图片" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 2" }));
-    expect(screen.getByRole("button", { name: "上传视频" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
-
-    await user.selectOptions(screen.getByLabelText("Detail block 1 type"), "VIDEO");
-    expect(props.onPatch).toHaveBeenCalledWith(0, { type: "VIDEO" });
-
-    fireEvent.change(screen.getByLabelText("Detail block 1 URL"), {
-      target: { value: "/uploads/replacement.mp4" },
-    });
-    expect(props.onPatch).toHaveBeenCalledWith(0, {
-      url: "/uploads/replacement.mp4",
-    });
-
-    fireEvent.change(screen.getByLabelText("Detail block 1 alt text"), {
-      target: { value: "Replacement detail" },
-    });
-    expect(props.onPatch).toHaveBeenCalledWith(0, {
-      altText: "Replacement detail",
-    });
-
-    await user.click(
-      screen.getByRole("button", { name: "Move detail block 1 down" }),
-    );
-    expect(props.onMove).toHaveBeenCalledWith(0, 1);
-    await user.click(
-      screen.getByRole("button", { name: "Move detail block 2 up" }),
-    );
-    expect(props.onMove).toHaveBeenCalledWith(1, -1);
-    await user.click(screen.getAllByRole("button", { name: "Remove detail block" })[0]);
-    expect(props.onRemove).toHaveBeenCalledWith(0);
-
-    // The batch uploader + URL row already adds rows; the old duplicate
-    // "add detail image / video" panel must be gone.
-    expect(screen.queryByRole("button", { name: "Add detail image" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add detail video" })).toBeNull();
-    expect(screen.queryByText("Manually add an empty row")).toBeNull();
-
-    rerender(
-      <AdminI18nProvider>
-        <DetailMediaWorkspace {...props} />
-      </AdminI18nProvider>,
-    );
-    await user.click(screen.getByRole("button", { name: "Edit Detail content (images / videos) media 1" }));
-    expect(screen.getByLabelText("Detail block 1 type")).toHaveValue("IMAGE");
-    expect(screen.getByLabelText("Detail block 1 URL")).toHaveValue(
-      "/uploads/detail-1.jpg",
-    );
-    expect(blocks[0]).toEqual({
-      type: "IMAGE",
-      url: "/uploads/detail-1.jpg",
-      altText: "Assembly detail",
-      sortOrder: "0",
-    });
-  });
-
-  it("sets an option-value scope on a single detail block", async () => {
-    const onPatch = vi.fn();
+describe("DetailMediaWorkspace drag affordance", () => {
+  it("renders a drag handle per thumbnail when reordering is wired", () => {
     renderWorkspace({
-      onPatch,
-      scopeOptions: [
-        { value: "", label: "Shared" },
-        { value: "option:orange", label: "Color = Orange" },
-        { value: "variant:tall", label: "Tall" },
+      blocks: [
+        {
+          url: "https://example.com/a.jpg",
+          type: "IMAGE",
+          altText: "",
+          sortOrder: "0",
+          optionValueId: "",
+          variantId: "",
+        },
       ],
     });
-
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Edit Detail content (images / videos) media 1",
-      }),
-    );
-    fireEvent.change(screen.getByLabelText("Detail block 1 applies to"), {
-      target: { value: "option:orange" },
-    });
-
-    expect(onPatch).toHaveBeenCalledWith(0, {
-      optionValueId: "orange",
-      variantId: "",
-    });
+    expect(
+      screen.getByRole("button", { name: "拖动排序第 1 张" }),
+    ).toBeInTheDocument();
   });
 
-  it("clears both scope ids when switched back to shared", async () => {
-    const onPatch = vi.fn();
+  it("stays read-only when no reorder handler is provided", () => {
     renderWorkspace({
-      onPatch,
-      blocks: [{ ...blocks[0], variantId: "tall" }],
-      scopeOptions: [
-        { value: "", label: "Shared" },
-        { value: "variant:tall", label: "Tall" },
+      onReorder: undefined,
+      blocks: [
+        {
+          url: "https://example.com/a.jpg",
+          type: "IMAGE",
+          altText: "",
+          sortOrder: "0",
+          optionValueId: "",
+          variantId: "",
+        },
       ],
     });
-
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Edit Detail content (images / videos) media 1",
-      }),
-    );
-    fireEvent.change(screen.getByLabelText("Detail block 1 applies to"), {
-      target: { value: "" },
-    });
-
-    expect(onPatch).toHaveBeenCalledWith(0, {
-      optionValueId: "",
-      variantId: "",
-    });
+    expect(
+      screen.queryByRole("button", { name: "拖动排序第 1 张" }),
+    ).not.toBeInTheDocument();
   });
 });

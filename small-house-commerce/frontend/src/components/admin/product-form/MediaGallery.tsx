@@ -1,6 +1,21 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
 import { Field, Select, TextInput } from "@/components/admin/Field";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -14,6 +29,8 @@ export interface MediaGalleryItem {
   isScene?: boolean;
   /** Current scope selection for editors that scope rows (e.g. detail blocks). */
   scopeValue?: string;
+  /** Human label shown on the thumbnail (e.g. "Shared", "Colour = Black"). */
+  scopeLabel?: string;
 }
 interface MediaGalleryLabels {
   type(number: number): string;
@@ -25,7 +42,7 @@ interface MediaGalleryLabels {
   scope?(number: number): string;
 }
 
-export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, scopeOptions, scopeLabel, onScopeChange, onUpload, onPatch, onMove, onRemove }: {
+export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, scopeOptions, scopeLabel, onScopeChange, onUpload, onPatch, onMove, onReorder, onRemove }: {
   items: readonly MediaGalleryItem[];
   scope: string;
   pending: boolean;
@@ -42,6 +59,7 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
   onUpload(key: string, file: File): Promise<void>;
   onPatch(key: string, patch: Partial<Pick<MediaGalleryItem, "type" | "url" | "altText">>): void;
   onMove(key: string, delta: -1 | 1): void;
+  onReorder?(from: number, to: number): void;
   onRemove(key: string): void;
 }): ReactNode {
   const { t } = useAdminI18n();
@@ -82,14 +100,35 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
     active?.key === highlightedKey && problemKey && problemField === field ? `pf-row-${problemKey}` : undefined;
   const invalidItems = items.map((item, index) => ({ item, index, messages: Object.entries(errors).filter(([key]) => key === item.key || key.startsWith(`${item.key}.`)).map(([, message]) => message) })).filter(({ messages }) => messages.length > 0);
   const actionClass = "inline-flex h-6 min-w-0 flex-1 items-center justify-center rounded bg-white/90 px-1 text-[11px] font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40";
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const handleDragEnd = (event: DragEndEvent): void => {
+    const { active: dragged, over } = event;
+    if (!onReorder || !over || dragged.id === over.id) return;
+    const from = items.findIndex((item) => item.key === dragged.id);
+    const to = items.findIndex((item) => item.key === over.id);
+    if (from < 0 || to < 0) return;
+    onReorder(from, to);
+  };
 
   return (
     <div className="mt-3 min-w-0" data-media-gallery={scope}>
-      <ul aria-label={listLabel ?? t("product_media_gallery_aria", { scope })} className="grid grid-cols-[repeat(auto-fill,minmax(88px,104px))] justify-start gap-2">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={items.map((item) => item.key)} strategy={rectSortingStrategy}>
+          <ul aria-label={listLabel ?? t("product_media_gallery_aria", { scope })} className="grid grid-cols-[repeat(auto-fill,minmax(88px,104px))] justify-start gap-2">
         {items.map((item, index) => {
           const expanded = active?.key === item.key;
           return (
-            <li key={item.key} id={item.domId === `pf-row-${problemKey}` && expanded ? undefined : item.domId} className={`group relative overflow-hidden rounded-lg bg-background ${item.key === highlightedKey || invalidItems.some(({ item: invalid }) => invalid.key === item.key) ? "ring-2 ring-cta ring-offset-1" : "border border-border"}`}>
+            <SortableTile
+              key={item.key}
+              id={item.key}
+              tileId={item.domId === `pf-row-${problemKey}` && expanded ? undefined : item.domId}
+              disabled={!onReorder || pending}
+              dragLabel={t("product_media_drag_aria", { number: index + 1 })}
+              className={`group relative overflow-hidden rounded-lg bg-background ${item.key === highlightedKey || invalidItems.some(({ item: invalid }) => invalid.key === item.key) ? "ring-2 ring-cta ring-offset-1" : "border border-border"}`}
+            >
               <button type="button" aria-label={t("product_media_edit_card", { scope, number: index + 1 })} aria-expanded={expanded} aria-controls={editorId} onClick={() => setSelected(expanded ? null : item.key)} className="relative block aspect-square w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-cta">
                 {item.url.trim() ? item.type === "VIDEO"
                   ? <video src={item.url} muted playsInline preload="metadata" className="pointer-events-none h-full w-full object-cover" />
@@ -99,16 +138,19 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
                 <span className="absolute left-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink-secondary">{index + 1}</span>
                 {item.type === "VIDEO" ? <span className="absolute right-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink">{t("product_media_type_video")}</span> : null}
                 {item.isScene ? <span className="absolute left-1 top-7 rounded bg-cta px-1 text-[10px] font-semibold text-white">{t("product_media_scene_badge")}</span> : null}
+                {item.scopeLabel ? <span className="absolute left-1 top-7 max-w-[calc(100%-0.5rem)] truncate rounded bg-white/90 px-1 text-[10px] font-semibold text-cta">{item.scopeLabel}</span> : null}
               </button>
               <div data-media-actions className={`absolute inset-x-0 bottom-0 flex gap-px bg-gradient-to-t from-black/45 px-px pb-1 pt-5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}>
                 <button type="button" className={actionClass} aria-label={labels.previous(index + 1)} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
                 <button type="button" className={actionClass} aria-label={labels.next(index + 1)} disabled={pending || index === items.length - 1} onClick={() => move(index, 1)}>↓</button>
                 <button type="button" className={actionClass} aria-label={labels.remove} disabled={pending} onClick={() => remove(index)}>×</button>
               </div>
-            </li>
+            </SortableTile>
           );
         })}
-      </ul>
+          </ul>
+        </SortableContext>
+      </DndContext>
       {invalidItems.filter(({ item }) => item.key !== active?.key).map(({ item, index, messages }) => (
         <button type="button" key={item.key} className="mt-2 flex flex-wrap gap-x-2 text-left text-xs text-admin-error hover:underline" onClick={() => setSelected(item.key)}>
           <span>{scope} {index + 1}</span>
@@ -165,5 +207,58 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SortableTile({
+  id,
+  tileId,
+  disabled,
+  dragLabel,
+  className,
+  children,
+}: {
+  id: string;
+  tileId?: string;
+  disabled: boolean;
+  dragLabel: string;
+  className: string;
+  children: ReactNode;
+}): ReactNode {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+  return (
+    <li
+      ref={setNodeRef}
+      id={tileId}
+      style={{
+        transform: transform
+          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          : undefined,
+        transition: transition ?? undefined,
+      }}
+      className={`${className} ${isDragging ? "z-10 shadow-lg" : ""}`}
+    >
+      {!disabled ? (
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={dragLabel}
+          className="absolute right-1 top-7 z-10 inline-flex h-5 w-5 cursor-grab touch-none items-center justify-center rounded bg-white/90 text-[11px] font-semibold text-ink-secondary opacity-0 transition-opacity hover:bg-white hover:text-cta group-hover:opacity-100 group-focus-within:opacity-100 active:cursor-grabbing [@media(hover:none)]:opacity-100"
+        >
+          ⠿
+        </button>
+      ) : null}
+      {children}
+    </li>
   );
 }

@@ -75,7 +75,7 @@ describe("ProductForm bulk media destinations", () => {
     expect(within(detail).getByRole("button", { name: "Upload images / videos (multiple)" })).toBeEnabled();
     fireEvent.change(within(detail).getByLabelText("Choose media to upload"), { target: { files: [new File(["x"], "new.jpg", { type: "image/jpeg" })] } });
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(within(detail).getByRole("status")).toHaveTextContent("Added 1 items"));
+    await waitFor(() => expect(within(detail).getByText("Added 1 items")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSubmit.mock.calls[0][0].detailBlocks.at(-1).url).toBe("/uploads/detail-new.jpg");
   });
@@ -99,7 +99,7 @@ describe("ProductForm bulk media destinations", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled());
     await userEvent.click(screen.getByRole("tab", { name: "Media" }));
     const receipt = kind === "shared" ? screen.getByRole("heading", { name: "Shared product gallery" }).closest("section")! : await scope(kind);
-    expect(within(receipt).getByRole("status")).toHaveTextContent("Updated 1 item");
+    expect(within(receipt).getByText("Updated 1 item")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     const saved = onSubmit.mock.calls[0][0];
@@ -149,11 +149,11 @@ describe("ProductForm bulk media destinations", () => {
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
     expect(container.querySelector('button[type="submit"]')).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: "Media" }));
-    expect(within(await scope(kind)).getByRole("status")).toHaveTextContent("Uploading 2/2 · b.mp4");
+    expect(within(await scope(kind)).getByText("Uploading 2/2 · b.mp4")).toBeInTheDocument();
     await act(async () => second.resolve({ url: "/uploads/b.mp4", key: "b" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled());
     const receipt = await scope(kind);
-    expect(within(receipt).getByRole("status")).toHaveTextContent("Added 2 items");
+    expect(within(receipt).getByText("Added 2 items")).toBeInTheDocument();
     expect(within(receipt).queryByRole("list", { name: "Media upload queue" })).not.toBeInTheDocument();
     await user.click(within(receipt).getByRole("button", { name: "Dismiss upload receipt" }));
     await user.click(screen.getByRole("button", { name: "Save draft" }));

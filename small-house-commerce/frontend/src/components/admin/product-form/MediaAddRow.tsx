@@ -54,11 +54,16 @@ export function MediaUploadResults({ batchUpload, targetKey, expanded, onExpande
   );
 }
 
-export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetKey = "shared" }: {
+export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetKey = "shared", scopeOptions, scopeValue = "", onScopeChange, scopeLabel }: {
   disabled?: boolean;
   onAddMedia: (media: UploadedMedia) => void;
   batchUpload?: MediaBatchUpload;
   targetKey?: string;
+  /** Detail media only: shared / option-value / exact-variant choices applied to this batch. */
+  scopeOptions?: readonly { value: string; label: string }[];
+  scopeValue?: string;
+  onScopeChange?: (value: string) => void;
+  scopeLabel?: string;
 }): ReactNode {
   const { t } = useAdminI18n();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,6 +94,22 @@ export function MediaAddRow({ disabled = false, onAddMedia, batchUpload, targetK
           {t("product_media_batch_upload")}
         </button>
         <input ref={fileRef} type="file" multiple accept={`${ACCEPT_ATTRS.image},${ACCEPT_ATTRS.video},.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov`} className="hidden" aria-label={t("product_media_batch_input_aria")} disabled={disabled || busy} onChange={(event) => void handleFiles(event.target.files)} />
+        {scopeOptions && onScopeChange ? (
+          <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-secondary">
+            {scopeLabel ?? t("product_detail_upload_scope")}
+            <Select
+              aria-label={scopeLabel ?? t("product_detail_upload_scope")}
+              className="h-9 w-44 text-sm"
+              value={scopeValue}
+              onChange={(event) => onScopeChange(event.target.value)}
+              disabled={disabled || busy}
+            >
+              {scopeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          </label>
+        ) : null}
         <div className="grid min-w-48 flex-1 grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-2">
           <Select aria-label={t("product_media_url_type")} value={urlType} onChange={(event) => setUrlType(event.target.value as UploadedMedia["type"])} disabled={disabled || busy}>
             <option value="IMAGE">{t("product_media_type_image")}</option>

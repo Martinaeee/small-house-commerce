@@ -57,11 +57,17 @@ export function MarketingMediaField({ value, onChange, readOnly }: { value: Land
   return <div className="min-w-0 space-y-3">
     <button type="button" className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm disabled:opacity-40" disabled={pending} onClick={() => { setSource(null); setSelected([]); setError(null); setChoosing(true); }}>{t("marketing_media_choose_source")}</button>
     <MediaAddRow disabled={pending} batchUpload={batch} targetKey={blockId} onAddMedia={item => apply([...latest.current, { ...item, altText: null, optionValueId: null, variantId: null }])} />
-    <MediaGallery scope={t("marketing_field_media")} indexed pending={pending} items={value.map((item, index) => ({ key: String(index), url: item.url, type: item.type, altText: item.altText ?? "" }))} labels={{
+    <MediaGallery scope={t("marketing_field_media")} indexed pending={pending} items={value.map((item, index) => {
+      const current = binding(item);
+      const available = scopes.some(scope => scope.value === current);
+      return { key: String(index), url: item.url, type: item.type, altText: item.altText ?? "", scopeLabel: available ? scopeLabel(item) : undefined };
+    })} labels={{
       type: number => t("marketing_media_format", { number }), url: number => t("marketing_media_url", { number }), alt: number => t("marketing_media_alt", { number }),
       previous: number => t("marketing_media_previous", { number }), next: number => t("marketing_media_next", { number }), remove: t("common_delete"),
     }} onPatch={(key, change) => patch(Number(key), change)} onRemove={key => apply(latest.current.filter((_, index) => String(index) !== key))} onMove={(key, delta) => {
       const next = [...latest.current]; const index = Number(key); [next[index], next[index + delta]] = [next[index + delta], next[index]]; apply(next);
+    }} onReorder={(from, to) => {
+      const next = [...latest.current]; const [moved] = next.splice(from, 1); next.splice(to, 0, moved); apply(next);
     }} onUpload={(key, file) => batch.upload([file], { key: blockId, operation: "REPLACE", kind: latest.current[Number(key)].type === "VIDEO" ? "video" : "image", onAddMedia: item => patch(Number(key), item) })} />
     {value.length > 0 && <details className="rounded-lg border border-admin-border p-2" open>
       <summary className="cursor-pointer text-sm font-medium">{t("marketing_media_bindings")}</summary>

@@ -124,7 +124,7 @@ describe("ProductForm upload lifecycle", () => {
     await user.click(screen.getByRole("tab", { name: "Media" }));
 
     expect(within(screen.getByRole("heading", { name: "Shared product gallery" }).closest("section")!).getByLabelText("Choose media to upload")).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("Uploading 2/2 · b.jpg");
+    expect(screen.getByText("Uploading 2/2 · b.jpg")).toBeInTheDocument();
     await user.click(screen.getByText("View details"));
     expect(screen.getByRole("list", { name: "Media upload queue" })).toHaveTextContent("a.jpg");
     await act(async () => second.reject(new Error("deliberate failure")));
