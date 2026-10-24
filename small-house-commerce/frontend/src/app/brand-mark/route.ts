@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { serverApiUrl } from "@/lib/api";
-import { DEFAULT_BRAND_MARK_SVG } from "@/lib/default-brand-mark";
+import { DEFAULT_BRAND_MARK_SVG, DEFAULT_BRAND_MARK_VERSION } from "@/lib/default-brand-mark";
 import { fetchStorefrontShell } from "@/lib/storefront-shell";
 
 export const dynamic = "force-dynamic";
@@ -114,7 +114,7 @@ async function selectPublishedMark(): Promise<SelectedBrandMark> {
   return {
     body: DEFAULT_BRAND_MARK_SVG,
     contentType: "image/svg+xml; charset=utf-8",
-    etag: `"shell-r${publishedRevision}-default"`,
+    etag: `"shell-r${publishedRevision}-default-${DEFAULT_BRAND_MARK_VERSION}"`,
   };
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
-import { DEFAULT_BRAND_MARK_SVG } from "@/lib/default-brand-mark";
+import { DEFAULT_BRAND_MARK_SVG, DEFAULT_BRAND_MARK_VERSION } from "@/lib/default-brand-mark";
 
 const shellMock = vi.hoisted(() => ({
   fetchStorefrontShell: vi.fn(),
@@ -206,7 +206,9 @@ describe("GET /brand-mark", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("image/svg+xml");
-      expect(response.headers.get("etag")).toBe('"shell-r7-default"');
+      expect(response.headers.get("etag")).toBe(
+        `"shell-r7-default-${DEFAULT_BRAND_MARK_VERSION}"`,
+      );
       expect(response.headers.get("cache-control")).toBe("no-cache");
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
       expect(await response.text()).toBe(DEFAULT_BRAND_MARK_SVG);
@@ -227,7 +229,9 @@ describe("GET /brand-mark", () => {
 
     const response = await GET(new NextRequest("http://localhost/brand-mark"));
 
-    expect(response.headers.get("etag")).toBe('"shell-r7-default"');
+    expect(response.headers.get("etag")).toBe(
+      `"shell-r7-default-${DEFAULT_BRAND_MARK_VERSION}"`,
+    );
     expect(await response.text()).toBe(DEFAULT_BRAND_MARK_SVG);
   });
 
@@ -245,7 +249,9 @@ describe("GET /brand-mark", () => {
     const response = await GET(new NextRequest("http://localhost/brand-mark"));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(response.headers.get("etag")).toBe('"shell-r11-default"');
+    expect(response.headers.get("etag")).toBe(
+      `"shell-r11-default-${DEFAULT_BRAND_MARK_VERSION}"`,
+    );
     expect(await response.text()).toBe(DEFAULT_BRAND_MARK_SVG);
   });
 
