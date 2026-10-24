@@ -67,7 +67,12 @@ export class LandingSnapshotService {
       { id: 'gallery', type: 'gallery', sourceKey: from('gallery'), props: { media: product.images } },
       { id: 'buy', type: 'buy', sourceKey: from('buy'), props: {} },
     ];
-    const features = (product.features ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+    // The admin marks a bullet hidden by prefixing the stored line; landing
+    // copy is storefront-facing, so those lines never leave the backend.
+    const features = (product.features ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('[hidden] '));
     const body = (product.description ? paragraph(product.description) : '') +
       (features.length ? '<ul>' + features.map((line) => '<li>' + escapeText(line) + '</li>').join('') + '</ul>' : '');
     if (body)

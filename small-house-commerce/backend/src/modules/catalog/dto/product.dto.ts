@@ -131,6 +131,8 @@ const productBaseSchema = z.object({
   // Structured specifications; features is one entry per line.
   materials: z.string().max(1000).nullable().optional(),
   features: z.string().max(2000).nullable().optional(),
+  // Whole-block switch for the PDP "Why You’ll Love It" list.
+  highlightsVisible: z.boolean().optional(),
   // PDP presentation. Optional everywhere: the admin form only sends what it
   // edits, and a PATCH omitting these must leave stored values untouched.
   sellingPointsVisibility: z.nativeEnum(SellingPointsVisibility).optional(),

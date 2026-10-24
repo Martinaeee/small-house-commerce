@@ -100,4 +100,10 @@ describe("buildProductCardPreview", () => {
     expect(preview.variants[0]).toMatchObject({ id: "v1", optionValueIds: ["red"] });
     expect(preview.cardMedia!.variants[0]).toMatchObject({ variantId: "v1", cover: { id: "card:v1:cover" } });
   });
+
+  it("leaves admin-hidden feature bullets out of the preview product", () => {
+    const { value, draft } = fixture();
+    value.features = ["Folds flat", "[hidden] Internal note"];
+    expect(buildProductCardPreview(value, draft, null).features).toBe("Folds flat");
+  });
 });

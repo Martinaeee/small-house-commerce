@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { HIDDEN_FEATURE_PREFIX } from "@/lib/feature-lines";
 import { MaterialDimensions, ProductSpecs, type ProductSpecSource } from "./ProductSpecs";
 
 const product: ProductSpecSource = {
@@ -17,8 +18,7 @@ function expectDimension(label: string, value: string) {
   expect(screen.getAllByText(label)[0].nextElementSibling?.textContent).toBe(value);
 }
 
-for (const Component of [ProductSpecs, MaterialDimensions]) {
-  describe(`${Component.name} selected SKU dimensions`, () => {
+for (const Component of [ProductSpecs, MaterialDimensions]) {  describe(`${Component.name} selected SKU dimensions`, () => {
     it("uses resolved component specifications rather than parent dimensions and material", () => {
       render(<Component product={product} specifications={{ kind: "BUNDLE_COMPONENTS", features: null, components: [{
         productName: "Chair", variantName: "Walnut", quantity: 4, width: 45, depth: null, height: 0,
@@ -92,3 +92,33 @@ for (const Component of [ProductSpecs, MaterialDimensions]) {
     });
   });
 }
+
+describe("ProductSpecs feature visibility", () => {
+  it("renders only the visible feature bullets", () => {
+    render(
+      <ProductSpecs
+        product={{
+          ...product,
+          features: `Folds flat\n${HIDDEN_FEATURE_PREFIX}Internal note`,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Features")).toBeVisible();
+    expect(screen.getByText("Folds flat")).toBeVisible();
+    expect(screen.queryByText("Internal note")).not.toBeInTheDocument();
+  });
+
+  it("omits the Features list when every bullet is hidden", () => {
+    render(
+      <ProductSpecs
+        product={{
+          ...product,
+          features: `${HIDDEN_FEATURE_PREFIX}Internal note`,
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Features")).not.toBeInTheDocument();
+  });
+});

@@ -1533,6 +1533,11 @@ export const zh = {
   product_specs_features_hint:
     "功能点列表，一行一条（前台显示为 ✓ 短句）。用 ↑ ↓ 调整顺序；留空则整块不显示。",
   product_specs_features_empty: "还没有功能点，点下方按钮添加第一条。",
+  product_specs_features_visible_label: "在商品页显示 Why You’ll Love It",
+  product_specs_features_visible_hint:
+    "关闭后整块隐藏；功能点仍保留在这里，可随时再打开。",
+  product_specs_feature_hide: "隐藏功能点 {number}",
+  product_specs_feature_show: "展现功能点 {number}",
   product_specs_feature_aria: "功能点 {number}",
   product_specs_feature_move_up: "将功能点 {number} 上移",
   product_specs_feature_move_down: "将功能点 {number} 下移",

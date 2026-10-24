@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import { adminApi, type AdminProduct } from "@/lib/admin-api";
@@ -144,8 +144,26 @@ describe("ProductQuickView", () => {
     });
   });
 
-  it("closes on Escape and never contains editing controls", async () => {
-    const user = userEvent.setup();
+  it("does not count hidden-only features as filled specifications", async () => {
+    const hiddenOnly = {
+      ...ROW,
+      materials: null,
+      width: null,
+      height: null,
+      depth: null,
+      features: "[hidden] Internal note",
+    };
+    vi.mocked(adminApi.getProduct).mockResolvedValue(hiddenOnly);
+    renderDrawer(hiddenOnly);
+
+    await waitFor(() => {
+      expect(screen.queryByText("读取中…")).not.toBeInTheDocument();
+    });
+    const specsRow = screen.getByText("商品规格").parentElement!;
+    expect(within(specsRow).getByText("未填完")).toBeInTheDocument();
+  });
+
+  it("closes on Escape and never contains editing controls", async () => {    const user = userEvent.setup();
     const onClose = vi.fn();
     renderDrawer(ROW, onClose);
 

@@ -266,6 +266,7 @@ const STOREFRONT_PDP_SELECT = {
   // Structured specifications are PDP-only (lists never need them).
   materials: true,
   features: true,
+  highlightsVisible: true,
   detailBlocks: {
     select: { id: true, type: true, url: true, altText: true, sortOrder: true, optionValueId: true, variantId: true },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
@@ -714,6 +715,7 @@ export class ProductsService {
             foldedDepth: input.foldedDepth ?? null,
             materials: input.materials ?? null,
             features: input.features ?? null,
+            highlightsVisible: input.highlightsVisible ?? true,
             sellingPointsVisibility: input.sellingPointsVisibility ?? 'INHERIT',
             pdpBannerEnabled: input.pdpBannerEnabled ?? false,
             pdpBannerText: input.pdpBannerText ?? null,
@@ -829,6 +831,8 @@ export class ProductsService {
     if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
     if (input.materials !== undefined) data.materials = input.materials;
     if (input.features !== undefined) data.features = input.features;
+    if (input.highlightsVisible !== undefined)
+      data.highlightsVisible = input.highlightsVisible;
     if (input.sellingPointsVisibility !== undefined)
       data.sellingPointsVisibility = input.sellingPointsVisibility;
     if (input.pdpBannerEnabled !== undefined)

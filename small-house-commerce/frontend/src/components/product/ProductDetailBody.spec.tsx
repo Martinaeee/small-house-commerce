@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { HIDDEN_FEATURE_PREFIX } from "@/lib/feature-lines";
 import { ProductDetailBody, ProductDetailMedia } from "./ProductDetailBody";
 
 const blocks = [
@@ -8,15 +9,62 @@ const blocks = [
 ];
 
 describe("ProductDetailBody", () => {
-  it("never renders the Why You’ll Love It highlights on the storefront", () => {
+  it("renders the Why You’ll Love It highlights by default", () => {
     render(<ProductDetailBody features={"Folds flat\nLocking frame"} blocks={blocks} />);
 
-    expect(screen.queryByRole("heading", { name: "Why You’ll Love It" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Why You’ll Love It" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Folds flat")).toBeInTheDocument();
+    expect(screen.getByText("Locking frame")).toBeInTheDocument();
+    expect(screen.getByAltText("A")).toBeInTheDocument();
+  });
+
+  it("hides the whole block when the module switch is off", () => {
+    render(
+      <ProductDetailBody
+        features={"Folds flat\nLocking frame"}
+        highlightsVisible={false}
+        blocks={blocks}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Why You’ll Love It" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Folds flat")).not.toBeInTheDocument();
     expect(screen.getByAltText("A")).toBeInTheDocument();
   });
 
-  it("leaves the description card unchanged when highlights are hidden", () => {
+  it("renders only the bullets that are not hidden", () => {
+    render(
+      <ProductDetailBody
+        features={`Folds flat\n${HIDDEN_FEATURE_PREFIX}Internal note\nLocking frame`}
+        blocks={blocks}
+      />,
+    );
+
+    expect(screen.getByText("Folds flat")).toBeInTheDocument();
+    expect(screen.getByText("Locking frame")).toBeInTheDocument();
+    expect(screen.queryByText("Internal note")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\[hidden\]/)).not.toBeInTheDocument();
+  });
+
+  it("drops the block when every bullet is hidden", () => {
+    render(
+      <ProductDetailBody
+        features={`${HIDDEN_FEATURE_PREFIX}Folds flat`}
+        blocks={blocks}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Why You’ll Love It" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByAltText("A")).toBeInTheDocument();
+  });
+
+  it("leaves the description card unchanged", () => {
     render(<ProductDetailBody description="A compact table." features="Folds flat" />);
 
     const description = screen.getByRole("heading", { name: "Description" }).parentElement!;
@@ -24,8 +72,29 @@ describe("ProductDetailBody", () => {
     expect(screen.getByText("A compact table.")).toBeVisible();
   });
 
-  it("renders nothing when the product has no description or detail media", () => {
-    const { container } = render(<ProductDetailBody features="Folds flat" />);
+  it("renders the highlights frameless and directly above the detail media", () => {
+    const { container } = render(
+      <ProductDetailBody description="A compact table." features="Folds flat" blocks={blocks} />,
+    );
+
+    const heading = screen.getByRole("heading", { name: "Why You’ll Love It" });
+    const highlightBlock = heading.parentElement!;
+    expect(highlightBlock.className).not.toContain("border");
+    expect(highlightBlock.className).not.toContain("bg-card");
+    expect(highlightBlock.className).not.toContain("rounded");
+
+    const media = container.querySelector("img[data-detail-index]")!;
+    expect(highlightBlock.parentElement!.contains(media)).toBe(true);
+    expect(highlightBlock.parentElement!.className).not.toContain("gap-");
+  });
+
+  it("renders nothing when the product has no description, visible feature or detail media", () => {
+    const { container } = render(
+      <ProductDetailBody
+        features={`${HIDDEN_FEATURE_PREFIX}Folds flat`}
+        highlightsVisible={false}
+      />,
+    );
 
     expect(container).toBeEmptyDOMElement();
   });

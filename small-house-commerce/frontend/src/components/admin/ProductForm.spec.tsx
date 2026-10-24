@@ -2013,3 +2013,61 @@ describe("ProductForm PDP banner and selling-point switch", () => {
     });
   });
 });
+
+describe("Why You’ll Love It visibility controls", () => {
+  beforeEach(() => setAdminLang("zh"));
+
+  it("persists the whole-block switch", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderForm(baseValue(), onSubmit);
+
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    const blockToggle = screen.getByRole("checkbox", {
+      name: "在商品页显示 Why You’ll Love It",
+    });
+    expect(blockToggle).toBeChecked();
+
+    await user.click(blockToggle);
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ highlightsVisible: false });
+  });
+
+  it("hides one bullet without losing its text and saves the marker", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderForm(baseValue({ features: ["Folds flat", "Locking frame"] }), onSubmit);
+
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+    await user.click(screen.getByRole("button", { name: "隐藏功能点 1" }));
+
+    expect(screen.getByRole("textbox", { name: "功能点 1" })).toHaveValue("Folds flat");
+    expect(screen.getByRole("button", { name: "展现功能点 1" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      features: ["[hidden] Folds flat", "Locking frame"],
+    });
+
+    const serialized = serializeFormValue(
+      baseValue({ features: ["[hidden] Folds flat", "Locking frame"] }),
+    );
+    expect(serialized.ok).toBe(true);
+    if (!serialized.ok) throw new Error(serialized.error);
+    expect(serialized.value.features).toBe("[hidden] Folds flat\nLocking frame");
+  });
+
+  it("loads a hidden bullet as plain text with a show control", async () => {
+    const user = userEvent.setup();
+    renderForm(baseValue({ features: ["[hidden] Internal note", "Folds flat"] }));
+
+    await user.click(screen.getByRole("tab", { name: "商品规格" }));
+
+    expect(screen.getByRole("textbox", { name: "功能点 1" })).toHaveValue("Internal note");
+    expect(screen.getByRole("button", { name: "展现功能点 1" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "隐藏功能点 2" })).toBeVisible();
+  });
+});

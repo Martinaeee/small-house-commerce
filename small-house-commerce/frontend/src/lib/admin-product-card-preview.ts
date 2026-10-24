@@ -1,6 +1,7 @@
 import type { ProductFormValue } from "@/components/admin/ProductForm";
 import type { Product, ProductCardMediaPair } from "@/lib/api";
 import { entityRowKey, type AdminCatalogGraphDraft, type EntityRef } from "@/lib/admin-product-graph";
+import { visibleFeatureLines } from "@/lib/feature-lines";
 
 function number(raw: string): number | null {
   if (raw.trim() === "") return null;
@@ -49,7 +50,7 @@ export function buildProductCardPreview(
     internalRole: value.internalRole || null, solutions: [...value.solutions] as Product["solutions"],
     width: number(value.width), height: number(value.height), depth: number(value.depth),
     foldedWidth: number(value.foldedWidth), foldedHeight: number(value.foldedHeight), foldedDepth: number(value.foldedDepth),
-    materials: value.materials || null, features: value.features.join("\n") || null,
+    materials: value.materials || null, features: visibleFeatureLines(value.features.join("\n")).join("\n") || null,
     catalogGraphVersion: draft.catalogGraphVersion,
     options: draft.options.filter(option => option.isActive).map(option => ({
       id: entityRowKey(option), kind: option.kind, name: option.name, position: option.position,

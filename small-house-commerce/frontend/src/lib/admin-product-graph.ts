@@ -54,6 +54,7 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
     foldedDepth: toFormNumber(p.foldedDepth),
     materials: p.materials ?? "",
     features: (p.features ?? "").split("\n").map((line) => line.trim()).filter(Boolean),
+    highlightsVisible: p.highlightsVisible ?? true,
     sellingPointsVisibility: p.sellingPointsVisibility ?? "INHERIT",
     pdpBannerEnabled: p.pdpBannerEnabled ?? false,
     pdpBannerText: p.pdpBannerText ?? "",

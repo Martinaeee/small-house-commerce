@@ -29,6 +29,14 @@ import { ProductDetailBody } from "@/components/product/ProductDetailBody";
 import { PdpBannerFields } from "./product-form/PdpBannerFields";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
 import {
+  HIDDEN_FEATURE_PREFIX,
+  featureLineText,
+  isHiddenFeatureLine,
+  serializeFeatureLines,
+  toggleFeatureLineVisibility,
+  visibleFeatureLines,
+} from "@/lib/feature-lines";
+import {
   formatAmount,
   type AdminCategoryNode,
   type AdminProductFaq,
@@ -105,8 +113,11 @@ export interface ProductFormValue {
   foldedDepth: string;
   /** Structured specifications, edited outside the description. */
   materials: string;
-  /** One feature per array slot (each becomes one line). */
+  /** One feature per array slot (each becomes one line). A hidden line keeps
+   *  the stored marker in front of its text. */
   features: string[];
+  /** Whole-block switch for the PDP "Why You’ll Love It" list. */
+  highlightsVisible: boolean;
   /** PDP selling-point pills; INHERIT follows the site-wide switch. */
   sellingPointsVisibility: SellingPointsVisibility;
   /** One promo strip above the PDP title; blank copy means "not authored". */
@@ -449,6 +460,7 @@ export function emptyProductFormValue(): ProductFormValue {
     foldedDepth: "",
     materials: "",
     features: [],
+    highlightsVisible: true,
     sellingPointsVisibility: "INHERIT",
     pdpBannerEnabled: false,
     pdpBannerText: "",
@@ -640,12 +652,15 @@ export function serializeFormValue(
   if (materials.length > 1000)
     addError(errors, "materials", translate("product_err_materials_max"));
 
-  const features = v.features
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (features.some((line) => line.length > 200))
+  const featureRows = v.features
+    .map((line) => ({
+      text: featureLineText(line).trim(),
+      hidden: isHiddenFeatureLine(line),
+    }))
+    .filter((row) => row.text !== "");
+  if (featureRows.some((row) => row.text.length > 200))
     addError(errors, "features", translate("product_err_feature_line_max"));
-  if (features.join("\n").length > 2000)
+  if ((serializeFeatureLines(featureRows) ?? "").length > 2000)
     addError(errors, "features", translate("product_err_features_max"));
 
   if (!v.categoryId)
@@ -830,7 +845,8 @@ export function serializeFormValue(
     ),
     ...dimensions,
     materials: materials || null,
-    features: features.join("\n") || null,
+    features: serializeFeatureLines(featureRows),
+    highlightsVisible: v.highlightsVisible,
     sellingPointsVisibility: v.sellingPointsVisibility,
     pdpBannerEnabled: v.pdpBannerEnabled,
     pdpBannerText: pdpBannerText || null,
@@ -900,6 +916,43 @@ function Section({
       ) : null}
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+function EyeIcon(): ReactNode {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M1.8 10S5.2 4.5 10 4.5 18.2 10 18.2 10 14.8 15.5 10 15.5 1.8 10 1.8 10Z" />
+      <circle cx="10" cy="10" r="2.4" />
+    </svg>
+  );
+}
+
+function EyeOffIcon(): ReactNode {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M1.8 10S5.2 4.5 10 4.5 18.2 10 18.2 10 14.8 15.5 10 15.5 1.8 10 1.8 10Z" />
+      <circle cx="10" cy="10" r="2.4" />
+      <path d="M3 3l14 14" />
+    </svg>
   );
 }
 
@@ -1297,7 +1350,22 @@ export function ProductForm({
   const setFeatureLine = (i: number, line: string): void => {
     setValue((prev) => ({
       ...prev,
-      features: prev.features.map((l, j) => (j === i ? line : l)),
+      features: prev.features.map((raw, j) =>
+        j === i
+          ? isHiddenFeatureLine(raw)
+            ? `${HIDDEN_FEATURE_PREFIX}${line}`
+            : line
+          : raw,
+      ),
+    }));
+    clearValidation();
+  };
+  const toggleFeatureLine = (i: number): void => {
+    setValue((prev) => ({
+      ...prev,
+      features: prev.features.map((raw, j) =>
+        j === i ? toggleFeatureLineVisibility(raw) : raw,
+      ),
     }));
     clearValidation();
   };
@@ -2061,53 +2129,95 @@ export function ProductForm({
               </Section>
 
               <Section title={t("product_specs_features_title")}>
+                <label
+                  htmlFor="pf-highlights-visible"
+                  className="flex items-center gap-2 text-sm text-ink"
+                >
+                  <input
+                    id="pf-highlights-visible"
+                    type="checkbox"
+                    checked={value.highlightsVisible}
+                    aria-describedby="pf-highlights-visible-hint"
+                    onChange={(e) =>
+                      patch({ highlightsVisible: e.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-border accent-cta"
+                  />
+                  {t("product_specs_features_visible_label")}
+                </label>
+                <p
+                  id="pf-highlights-visible-hint"
+                  className="mb-4 mt-1 text-xs leading-relaxed text-ink-muted"
+                >
+                  {t("product_specs_features_visible_hint")}
+                </p>
                 {value.features.length === 0 ? (
                   <p className="text-sm text-ink-muted">
                     {t("product_specs_features_empty")}
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-2">
-                    {value.features.map((line, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <span aria-hidden className="w-5 shrink-0 text-center text-sm font-semibold text-cta">
-                          {i + 1}
-                        </span>
-                        <TextInput
-                          aria-label={t("product_specs_feature_aria", { number: i + 1 })}
-                          value={line}
-                          maxLength={200}
-                          onChange={(e) => setFeatureLine(i, e.target.value)}
-                          autoComplete="off"
-                        />
-                        <button
-                          type="button"
-                          className={removeBtnCls}
-                          onClick={() => moveFeatureLine(i, -1)}
-                          disabled={pending || i === 0}
-                          aria-label={t("product_specs_feature_move_up", { number: i + 1 })}
+                    {value.features.map((line, i) => {
+                      const hidden = isHiddenFeatureLine(line);
+                      return (
+                        <li
+                          key={i}
+                          className={`flex items-center gap-2 ${hidden ? "opacity-60" : ""}`}
                         >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className={removeBtnCls}
-                          onClick={() => moveFeatureLine(i, 1)}
-                          disabled={pending || i === value.features.length - 1}
-                          aria-label={t("product_specs_feature_move_down", { number: i + 1 })}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className={removeBtnCls}
-                          onClick={() => removeFeatureLine(i)}
-                          disabled={pending}
-                          aria-label={t("product_specs_feature_remove", { number: i + 1 })}
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
+                          <span aria-hidden className="w-5 shrink-0 text-center text-sm font-semibold text-cta">
+                            {i + 1}
+                          </span>
+                          <TextInput
+                            aria-label={t("product_specs_feature_aria", { number: i + 1 })}
+                            value={featureLineText(line)}
+                            maxLength={200}
+                            className={hidden ? "line-through" : undefined}
+                            onChange={(e) => setFeatureLine(i, e.target.value)}
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-1 text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+                            onClick={() => toggleFeatureLine(i)}
+                            disabled={pending}
+                            aria-label={
+                              hidden
+                                ? t("product_specs_feature_show", { number: i + 1 })
+                                : t("product_specs_feature_hide", { number: i + 1 })
+                            }
+                          >
+                            {hidden ? <EyeOffIcon /> : <EyeIcon />}
+                          </button>
+                          <button
+                            type="button"
+                            className={removeBtnCls}
+                            onClick={() => moveFeatureLine(i, -1)}
+                            disabled={pending || i === 0}
+                            aria-label={t("product_specs_feature_move_up", { number: i + 1 })}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className={removeBtnCls}
+                            onClick={() => moveFeatureLine(i, 1)}
+                            disabled={pending || i === value.features.length - 1}
+                            aria-label={t("product_specs_feature_move_down", { number: i + 1 })}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className={removeBtnCls}
+                            onClick={() => removeFeatureLine(i)}
+                            disabled={pending}
+                            aria-label={t("product_specs_feature_remove", { number: i + 1 })}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 <Button
@@ -2612,6 +2722,7 @@ export function ProductForm({
                 {dimensionPreviewMember && !pureBundle ? <p className="text-sm font-semibold">{dimensionPreviewMember.name} · {dimensionPreviewMember.skuCode}</p> : null}
                 <ProductSpecs
                   variantDimensions={pureBundle ? null : dimensionPreviewMember?.values}
+                  includeFeatures={value.highlightsVisible}
                   product={{
                     width: pureBundle ? null : previewNumber(value.width),
                     height: pureBundle ? null : previewNumber(value.height),
@@ -2621,7 +2732,7 @@ export function ProductForm({
                     foldedDepth: pureBundle ? null : previewNumber(value.foldedDepth),
                     materials: pureBundle ? null : value.materials.trim() || null,
                     features:
-                      value.features.map((l) => l.trim()).filter(Boolean).join("\n") ||
+                      visibleFeatureLines(value.features.join("\n")).join("\n") ||
                       null,
                   }}
                 />

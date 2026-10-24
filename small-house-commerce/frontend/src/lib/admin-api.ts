@@ -901,6 +901,8 @@ export interface AdminProduct {
   /** Structured specifications; features is one entry per line. */
   materials: string | null;
   features: string | null;
+  /** Whole-block switch for the PDP "Why You’ll Love It" list. */
+  highlightsVisible?: boolean;
   /** PDP presentation; optional while talking to a pre-migration API. */
   sellingPointsVisibility?: SellingPointsVisibility;
   pdpBannerEnabled?: boolean;
@@ -1427,6 +1429,7 @@ export interface CreateProductInput {
   foldedDepth: number | null;
   materials?: string | null;
   features?: string | null;
+  highlightsVisible?: boolean;
   sellingPointsVisibility?: SellingPointsVisibility;
   pdpBannerEnabled?: boolean;
   pdpBannerText?: string | null;

@@ -1,5 +1,6 @@
 // src/components/product/ProductSpecs.tsx
 import type { ReactNode } from "react";
+import { visibleFeatureLines } from "@/lib/feature-lines";
 import { DimensionRows, type SpecDimensions } from "./SizeGuide";
 import { pdpSpecsVisible, resolveSkuProductDimensions, type ResolvedPdpSpecifications, type SkuProductDimensions } from "./pdp-facts";
 import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
@@ -8,13 +9,6 @@ import { BundleComponentSpecifications } from "./BundleComponentSpecifications";
 export interface ProductSpecSource extends SpecDimensions {
   materials?: string | null;
   features?: string | null;
-}
-
-function featureLines(features: string | null | undefined): string[] {
-  return (features ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 function hasDimensions(product: SpecDimensions): boolean {
@@ -46,7 +40,9 @@ export function ProductSpecs({
   const product = specifications?.kind === "SKU" ? specifications.product : { ...sourceProduct, ...resolveSkuProductDimensions(sourceProduct, variantDimensions) };
   const productWeight = bundle ? null : specifications?.kind === "SKU" ? specifications.productWeight : sourceWeight;
   const materials = bundle ? "" : product.materials?.trim() ?? "";
-  const features = includeFeatures ? featureLines(bundle ? bundle.features : product.features) : [];
+  const features = includeFeatures
+    ? visibleFeatureLines(bundle ? bundle.features : product.features)
+    : [];
   const dimensions = !bundle && hasDimensions(product);
 
   // The PDP passes includeFeatures={false}, so this is exactly the predicate

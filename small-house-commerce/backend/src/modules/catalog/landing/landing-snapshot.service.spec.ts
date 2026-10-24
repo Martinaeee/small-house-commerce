@@ -33,6 +33,27 @@ describe('saved product landing snapshots', () => {
     expect(contentHash(result)).not.toBe(contentHash(await snapshot({ ...source, features: 'Changed feature' })));
   });
 
+  it('leaves admin-hidden feature bullets out of the landing copy', async () => {
+    const source = {
+      ...product(),
+      description: '',
+      features: 'Space saving\n[hidden] Internal note\nFolds flat',
+    };
+    const result = await snapshot(source);
+    expect(result.blocks.find((block) => block.type === 'richText')).toMatchObject({
+      props: { html: '<ul><li>Space saving</li><li>Folds flat</li></ul>' },
+    });
+  });
+
+  it('omits the feature list when every bullet is hidden', async () => {
+    const result = await snapshot({
+      ...product(),
+      description: '',
+      features: '[hidden] Internal note',
+    });
+    expect(result.blocks.some((block) => block.type === 'richText')).toBe(false);
+  });
+
   it('ignores price and stock when detecting changed display content', async () => {
     const before = contentHash(await snapshot());
     expect(contentHash(await snapshot({ ...product(), price: 999, stock: 0 }))).toBe(before);

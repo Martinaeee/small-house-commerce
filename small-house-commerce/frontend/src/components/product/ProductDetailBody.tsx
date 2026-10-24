@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { visibleFeatureLines } from "@/lib/feature-lines";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
 import { ViewportVideo } from "./ViewportVideo";
 
@@ -65,24 +66,28 @@ export function ProductDetailMedia({
 
 export function ProductDetailBody({
   description,
+  features,
+  highlightsVisible = true,
   featured = null,
   blocks,
 }: {
   description?: string | null;
-  /** Accepted for callers that still send it; the highlights block is hidden. */
   features?: string | null;
+  /** Whole-block switch authored in the admin form; off hides every bullet. */
+  highlightsVisible?: boolean;
   featured?: DetailBlockLike | null;
   /** Compatibility input for the existing Admin live preview. */
   blocks?: readonly DetailBlockLike[];
 }): ReactNode {
   const intro = description?.trim() ?? "";
+  const highlights = highlightsVisible ? visibleFeatureLines(features) : [];
   const leadMedia = blocks
     ? blocks.filter((block) => block.url.trim() !== "")
     : featured
       ? [featured]
       : [];
 
-  if (!intro && leadMedia.length === 0) return null;
+  if (!intro && highlights.length === 0 && leadMedia.length === 0) return null;
 
   return (
     <section id="details" className="flex scroll-mt-32 flex-col gap-4">
@@ -95,7 +100,30 @@ export function ProductDetailBody({
         </div>
       ) : null}
 
-      <ProductDetailMedia blocks={leadMedia} />
+      <div className="flex flex-col">
+        {highlights.length > 0 ? (
+          <div className="pb-6">
+            <h2 className="mb-3 text-2xl font-semibold text-ink">
+              Why You’ll Love It
+            </h2>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {highlights.map((highlight, index) => (
+                <li
+                  key={`${highlight}-${index}`}
+                  className="flex items-start gap-2 text-base leading-relaxed text-ink-secondary"
+                >
+                  <span aria-hidden className="mt-0.5 font-semibold text-cta">
+                    ✓
+                  </span>
+                  {highlight}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <ProductDetailMedia blocks={leadMedia} />
+      </div>
     </section>
   );
 }

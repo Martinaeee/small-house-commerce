@@ -242,6 +242,8 @@ export interface Product {
    */
   materials?: string | null;
   features?: string | null;
+  /** Whole-block switch for the PDP "Why You’ll Love It" list. */
+  highlightsVisible?: boolean;
   /**
    * PDP presentation. `INHERIT` follows the site-wide switch in site
    * settings; SHOW/HIDE pin this product regardless of it.

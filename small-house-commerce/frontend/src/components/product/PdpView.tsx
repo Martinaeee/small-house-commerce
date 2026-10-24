@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { PdpClient } from "./PdpClient";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpDetails } from "./PdpDetails";
+import { pdpHasDetails } from "./pdp-details-visibility";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 import { PdpRecommendations } from "./PdpRecommendations";
@@ -40,13 +41,9 @@ export async function PdpView({
 }): Promise<ReactNode> {
   // Request-deduped with the layout's identical fetch (same URL + ISR tag).
   const settings = await fetchSiteSettings();
-  // Description text and media blocks are one section; the anchor only earns
-  // its place when at least one of them has something to show.
-  const detailBlocks = product.detailBlocks ?? [];
-  const hasDetails =
-    Boolean(product.description?.trim()) ||
-    Boolean(product.features?.trim()) ||
-    detailBlocks.some((block) => block.url.trim() !== "");
+  // The anchor only earns its place when the section has something to show —
+  // hidden feature bullets and the switched-off module do not count.
+  const hasDetails = pdpHasDetails(product);
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <script

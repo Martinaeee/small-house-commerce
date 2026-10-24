@@ -153,6 +153,8 @@ model Product {
   // Structured specifications rendered from columns, never from description.
   materials               String?
   features                String?
+  // Whole-block switch for the PDP "Why You’ll Love It" list.
+  highlightsVisible       Boolean                 @default(true) @map("highlights_visible")
   // PDP presentation. The banner is a single strip above the H1; colours are
   // hex strings and the storefront supplies readable defaults when unset.
   sellingPointsVisibility SellingPointsVisibility @default(INHERIT) @map("selling_points_visibility")

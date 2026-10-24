@@ -7,8 +7,7 @@ const base = {
   categoryId: "018f0000-0000-7000-8000-000000000001",
 };
 
-describe("detail block scope", () => {
-  it.each(["optionValueId", "variantId"] as const)(
+describe("detail block scope", () => {  it.each(["optionValueId", "variantId"] as const)(
     "accepts a persisted legacy UUID for %s on create and update",
     (scopeField) => {
       const legacyId = "cdc54a3c-8bfa-832d-e016-d659f5aba8ad";
@@ -56,5 +55,21 @@ describe("detail block scope", () => {
     });
     expect(parsed.detailBlocks[0]).toMatchObject({ type: "IMAGE" });
     expect(parsed.detailBlocks[0].optionValueId ?? null).toBeNull();
+  });
+});
+
+describe("Why You’ll Love It block visibility", () => {
+  it("accepts the block switch on create and update", () => {
+    expect(
+      createProductSchema.parse({ ...base, highlightsVisible: false }).highlightsVisible,
+    ).toBe(false);
+    expect(updateProductSchema.parse({ highlightsVisible: true }).highlightsVisible).toBe(
+      true,
+    );
+  });
+
+  it("leaves the switch undefined when the payload omits it", () => {
+    expect(createProductSchema.parse(base).highlightsVisible).toBeUndefined();
+    expect(updateProductSchema.parse({ name: "Chair" }).highlightsVisible).toBeUndefined();
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/admin/Badge";
 import { adminApi, formatAmount, type AdminProduct } from "@/lib/admin-api";
+import { visibleFeatureLines } from "@/lib/feature-lines";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 
 /**
@@ -51,7 +52,7 @@ function priceRange(row: AdminProduct): string {
 function hasSpecs(row: AdminProduct): boolean {
   return Boolean(
     row.materials?.trim() ||
-      row.features?.trim() ||
+      visibleFeatureLines(row.features).length > 0 ||
       row.width !== null ||
       row.height !== null ||
       row.depth !== null,

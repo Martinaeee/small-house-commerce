@@ -1552,6 +1552,12 @@ export const en: Record<ZhKey, string> = {
   product_specs_features_hint:
     "Feature list, one per line (shown as ✓ short sentences on the storefront). Use ↑ ↓ to reorder; the whole block hides when empty.",
   product_specs_features_empty: "No features yet. Add the first one below.",
+  product_specs_features_visible_label:
+    "Show “Why You’ll Love It” on the product page",
+  product_specs_features_visible_hint:
+    "When off, the whole block is hidden. The bullets stay here and can be shown again at any time.",
+  product_specs_feature_hide: "Hide feature {number}",
+  product_specs_feature_show: "Show feature {number}",
   product_specs_feature_aria: "Feature {number}",
   product_specs_feature_move_up: "Move feature {number} up",
   product_specs_feature_move_down: "Move feature {number} down",

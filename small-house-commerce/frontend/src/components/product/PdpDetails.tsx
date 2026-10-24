@@ -75,6 +75,7 @@ export function PdpDetails({
       <ProductDetailBody
         description={product.description}
         features={product.features}
+        highlightsVisible={product.highlightsVisible !== false}
       />
       <FoldableDetailMedia featured={featured} blocks={remaining} />
       <ProductInformation product={product} />
