@@ -27,8 +27,18 @@ type CardFeedback =
   | { revision: number; kind: "added" }
   | { revision: number; kind: "error"; message: string };
 
-function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "product"> & {
+const CARD_ACTION_CLASS_NAME = "h-14! w-full min-w-0! px-2!";
+
+function CardActionLabel({ label, note }: { label: string; note: string | null }) {
+  return <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
+    <span className="leading-5">{label}</span>
+    {note ? <span data-testid="card-action-note" title={note} className="block w-full truncate text-[11px] font-normal leading-4 opacity-85">{note}</span> : null}
+  </span>;
+}
+
+function ProductCardActions({ product, selectorRoot, note }: Pick<ProductCardProps, "product"> & {
   selectorRoot: RefObject<HTMLDivElement | null>;
+  note: string | null;
 }) {
   const { addItem, cart } = useCart();
   const { backInStockEnabled } = useSiteSettings();
@@ -106,27 +116,12 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
   }
 
   if (primaryDerived.selectableVariants.length === 0) {
-    return <ButtonLink href={`/products/${product.slug}`} variant="secondary" size="md" className="w-full">View Details</ButtonLink>;
+    return <ButtonLink href={`/products/${product.slug}`} variant="secondary" size="md" className={CARD_ACTION_CLASS_NAME}>View Details</ButtonLink>;
   }
   const outOfStock = (primaryDerived.resolvedVariant?.sku?.availableInventory ?? 1) <= 0;
   const outOfStockSku = primaryDerived.resolvedVariant?.sku ?? null;
-  // Say which real combination is unavailable, not just "Save for Later";
-  // only rendered when out of stock so in-stock cards keep their height.
-  const outOfStockLabels = outOfStock
-    ? [...product.options]
-        .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : 1))
-        .map((option) => {
-          const valueId = primaryLine.selectedValueIds[option.id];
-          return option.values.find((value) => value.id === valueId)?.label;
-        })
-        .filter((label): label is string => Boolean(label))
-    : [];
+  const actionLabel = busy ? "Adding…" : visibleFeedback?.kind === "added" ? "Added" : outOfStock ? "Save for Later" : "Add to Cart";
   return <>
-    {outOfStockLabels.length > 0 ? (
-      <p data-testid="card-out-of-stock-note" className="mb-2 text-xs text-ink-muted">
-        {`${outOfStockLabels.join(" / ")} is out of stock`}
-      </p>
-    ) : null}
     {outOfStock && outOfStockSku && backInStockEnabled ? (
       // One action for an unavailable item: register the restock alert and
       // keep the item saved. The alert service is only offered when it can
@@ -135,10 +130,12 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
       <RestockNotifyAction
         skuId={outOfStockSku.id}
         productName={product.name}
-        label="Notify me"
+        label={<CardActionLabel label="Notify me" note={note} />}
+        aria-label="Notify me"
+        aria-description={note ?? undefined}
         variant="secondary"
         size="md"
-        className="w-full"
+        className={CARD_ACTION_CLASS_NAME}
         data-testid="card-notify"
         onSaved={() => {
           // The alert and the saved item are one action: keep the item in
@@ -153,8 +150,9 @@ function ProductCardActions({ product, selectorRoot }: Pick<ProductCardProps, "p
       />
     ) : (
       <Button onClick={() => { void addSelected(); }} disabled={busy || purchaseLocked} size="md"
-        variant={outOfStock ? "secondary" : "primary"} className="w-full">
-        {busy ? "Adding…" : visibleFeedback?.kind === "added" ? "Added" : outOfStock ? "Save for Later" : "Add to Cart"}
+        variant={outOfStock ? "secondary" : "primary"} className={CARD_ACTION_CLASS_NAME}
+        aria-label={actionLabel} aria-description={note ?? undefined}>
+        <CardActionLabel label={actionLabel} note={note} />
       </Button>
     )}
     <span role="status" className="sr-only">{busy ? "Adding to cart" : visibleFeedback?.kind === "added" ? "Added to cart" : ""}</span>
@@ -167,10 +165,23 @@ function CardBody(props: ProductCardProps) {
   const { primaryLine, primaryDerived } = usePdpPurchase();
   const selectorRoot = useRef<HTMLDivElement | null>(null);
   const mode = props.interactionMode ?? "storefront";
+  const previewVariant = mode === "preview" ? props.product.variants.find(row => row.id === props.product.cardMedia?.displayVariantId) : undefined;
+  const variant = previewVariant ?? primaryDerived.resolvedVariant;
+  const stock = variant?.sku?.availableInventory;
+  const outOfStockLabels = stock !== undefined && stock <= 0
+    ? [...props.product.options]
+        .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : 1))
+        .map(option => option.values.find(value => variant?.optionValueIds.includes(value.id))?.label)
+        .filter((label): label is string => Boolean(label))
+    : [];
+  const note = outOfStockLabels.length > 0 ? `${outOfStockLabels.join(" / ")} is out of stock`
+    : stock !== undefined && stock > 0 && stock <= 5 ? `Only ${stock} left` : null;
   return <ProductCardView {...props} interactionMode={mode} primaryLine={primaryLine}
     derived={primaryDerived} selectorRoot={selectorRoot} action={mode === "preview"
-      ? <Button disabled size="md" className="w-full">Add to Cart</Button>
-      : <ProductCardActions product={props.product} selectorRoot={selectorRoot} />} />;
+      ? <Button disabled size="md" className={CARD_ACTION_CLASS_NAME} aria-label="Add to Cart" aria-description={note ?? undefined}>
+          <CardActionLabel label="Add to Cart" note={note} />
+        </Button>
+      : <ProductCardActions product={props.product} selectorRoot={selectorRoot} note={note} />} />;
 }
 
 export function ProductCard(props: ProductCardProps) {

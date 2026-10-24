@@ -33,7 +33,7 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
     product.options.length > 0 &&
     (preview ? product.variants.length : derived.selectableVariants.length) > 1;
   return (
-    <article data-product-id={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card transition-[translate,box-shadow] duration-200 motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-[0_8px_24px_rgba(0,0,0,0.14)] [@media(hover:hover)_and_(pointer:fine)_and_(prefers-reduced-motion:no-preference)]:hover:-translate-y-1.5">
+    <article data-product-id={product.id} className="flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card transition-[translate,box-shadow] duration-200 motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-[0_8px_24px_rgba(0,0,0,0.14)] [@media(hover:hover)_and_(pointer:fine)_and_(prefers-reduced-motion:no-preference)]:hover:-translate-y-1.5">
       <ProductCardImage productName={product.name} media={media} href={href} navigationTrackAttrs={navigationTrackAttrs}>
         {badge ? <span className="absolute right-3 top-3 rounded bg-cta px-2 py-1 text-xs font-semibold text-cta-foreground">{badge}</span> : null}
         {outOfStock || badges.length > 0 ? (
@@ -74,7 +74,6 @@ export function ProductCardView({ product, badge, badges = [], interactionMode =
             <ProductCardVariantSelector lineId={primaryLine.clientLineId} disabled={preview} preview={preview} />
           </div>
         ) : null}
-        {stock !== undefined && stock > 0 && stock <= 5 ? <p className="text-xs text-ink-muted">Only {stock} left</p> : null}
         <div className="relative mt-auto pt-1.5">{action}</div>
       </div>
     </article>

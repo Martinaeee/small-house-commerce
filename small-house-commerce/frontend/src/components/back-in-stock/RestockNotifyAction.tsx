@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import { BackInStockDialog } from "./BackInStockDialog";
@@ -15,7 +15,9 @@ export interface RestockNotifyActionProps {
   skuId: string;
   productName: string;
   /** The single action the shopper sees. */
-  label?: string;
+  label?: ReactNode;
+  "aria-label"?: string;
+  "aria-description"?: string;
   variant?: "primary" | "secondary";
   size?: "sm" | "md" | "lg";
   className?: string;

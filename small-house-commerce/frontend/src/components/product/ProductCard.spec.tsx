@@ -424,7 +424,7 @@ describe("ProductCard inline purchase", () => {
     product.variants[1]!.sku!.availableInventory = 0;
     renderCard(<ProductCard product={product} />);
 
-    const note = screen.getByTestId("card-out-of-stock-note");
+    const note = screen.getByText("Blue is out of stock");
     expect(note.textContent).toMatch(/out of stock/i);
     expect(note.textContent).toMatch(/Blue/);
     expect(screen.getByRole("button", { name: "Save for Later" })).toBeInTheDocument();
@@ -432,7 +432,7 @@ describe("ProductCard inline purchase", () => {
 
   it("shows no out-of-stock line when the resolved combination is available", () => {
     renderCard(<ProductCard product={cardTestProduct()} />);
-    expect(screen.queryByTestId("card-out-of-stock-note")).toBeNull();
+    expect(screen.queryByText(/is out of stock/)).toBeNull();
   });
 
   it("adds a zero-priced single SKU without a variant confirmation event", async () => {
@@ -795,6 +795,84 @@ describe("ProductCard sale price presentation", () => {
     );
 
     expect(screen.queryByTestId("card-discount")).toBeNull();
+  });
+});
+
+describe("ProductCard button stock notes", () => {
+  it.each([1, 5])("puts the remaining %i items inside the add button", (stock) => {
+    renderCard(<ProductCard product={buildProduct({
+      ...singleSkuProduct,
+      variants: [singleVariant({ availableInventory: stock })],
+    })} />);
+
+    const button = screen.getByRole("button", { name: "Add to Cart" });
+    expect(within(button).getByText(`Only ${stock} left`)).toBeVisible();
+    expect(button).toHaveAccessibleDescription(`Only ${stock} left`);
+  });
+
+  it("keeps the same button size without a low-stock note", () => {
+    const view = renderCard(<ProductCard product={singleSkuProduct} />);
+    const lowStockButton = screen.getByRole("button", { name: "Add to Cart" });
+    expect(lowStockButton).toHaveClass("h-14!");
+
+    view.rerender(<ProductCard product={buildProduct({
+      ...singleSkuProduct,
+      variants: [singleVariant({ availableInventory: 6 })],
+    })} />);
+    const stockedButton = screen.getByRole("button", { name: "Add to Cart" });
+    expect(stockedButton).toHaveClass("h-14!");
+    expect(stockedButton).not.toHaveAccessibleDescription();
+    expect(screen.queryByText(/Only \d+ left/)).not.toBeInTheDocument();
+  });
+
+  it("updates the button note with the selected SKU and still adds that SKU", async () => {
+    const product = cardTestProduct({ defaultDisplayVariantId: "red-variant", cardMedia: {
+      displayVariantId: "red-variant", unselected: { cover: null, scene: null }, variants: [],
+    } });
+    product.variants[0]!.sku!.availableInventory = 4;
+    product.variants[1]!.sku!.availableInventory = 0;
+    const user = userEvent.setup();
+    renderCard(<ProductCard product={product} />);
+
+    expect(within(screen.getByRole("button", { name: "Add to Cart" })).getByText("Only 4 left")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Blue" }));
+    const save = screen.getByRole("button", { name: "Save for Later" });
+    expect(within(save).getByText("Blue is out of stock")).toBeVisible();
+    expect(save).toHaveAccessibleDescription("Blue is out of stock");
+    expect(screen.queryByText("Only 4 left")).not.toBeInTheDocument();
+    await user.click(save);
+    expect(api.addToCart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ skuId: "blue-sku", quantity: 1 }));
+    expect(screen.getByRole("button", { name: "Added" })).toHaveClass("h-14!");
+  });
+
+  it("puts the unavailable combination inside the real notify button", async () => {
+    const product = buildProduct({ ...singleSkuProduct, variants: [singleVariant({ availableInventory: 0 })] });
+    const user = userEvent.setup();
+    renderCard(<SiteSettingsProvider settings={{ ...DEFAULT_SITE_SETTINGS, backInStockEnabled: true }}>
+      <ProductCard product={product} />
+    </SiteSettingsProvider>);
+
+    const notify = screen.getByRole("button", { name: "Notify me" });
+    expect(within(notify).getByText("Oak is out of stock")).toBeVisible();
+    expect(notify).toHaveAccessibleDescription("Oak is out of stock");
+    expect(notify).toHaveClass("h-14!");
+    await user.click(notify);
+    expect(screen.getByRole("textbox", { name: "Email address" })).toBeVisible();
+  });
+
+  it("shows the same low-stock note inside the disabled preview button", () => {
+    renderCard(<ProductCard product={singleSkuProduct} interactionMode="preview" />);
+
+    const button = screen.getByRole("button", { name: "Add to Cart" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveClass("h-14!");
+    expect(within(button).getByText("Only 4 left")).toBeVisible();
+    expect(button).toHaveAccessibleDescription("Only 4 left");
+  });
+
+  it("keeps the details action at the same height for an unsellable card", () => {
+    renderCard(<ProductCard product={buildProduct()} />);
+    expect(screen.getByRole("link", { name: "View Details" })).toHaveClass("h-14!");
   });
 });
 
