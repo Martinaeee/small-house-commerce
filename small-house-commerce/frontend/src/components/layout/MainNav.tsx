@@ -384,7 +384,7 @@ function LiveMainNav({
               <div className="flex items-center justify-between border-b border-border px-4 py-4">
                 <BrandWordmark
                   brand={brand}
-                  assetClassName="h-8 w-auto max-w-[160px]"
+                  assetClassName="h-9 w-auto max-w-[160px]"
                 />
                 <button
                   ref={closeButtonRef}
