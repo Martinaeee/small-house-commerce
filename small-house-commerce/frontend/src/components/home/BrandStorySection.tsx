@@ -1,6 +1,6 @@
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { SectionPlaceholder } from "./SectionPlaceholder";
-import { SectionShell, SmartLink } from "./sectionShell";
+import { SectionHeading, SectionShell, SmartLink } from "./sectionShell";
 import { poppinsMedium, storySerif } from "@/lib/fonts";
 import type { SectionProps } from "./sectionRegistry";
 
@@ -40,6 +40,7 @@ export function BrandStorySection({ section, previewDevice }: SectionProps) {
   const imageAlt = str(p.imageAlt);
   const eyebrow = str(p.eyebrow);
   const heading = str(p.heading) || section.title || "";
+  const title = section.title && section.title !== heading ? section.title : "About LUWAG";
   const body = str(p.body);
   const ctaText = str(p.ctaText);
   const ctaLink = str(p.ctaLink);
@@ -156,6 +157,7 @@ export function BrandStorySection({ section, previewDevice }: SectionProps) {
 
   return (
     <SectionShell style={section.style} previewDevice={previewDevice}>
+      <SectionHeading title={title} subtitle={section.subtitle} />
       <div data-brand-story-layout className={layoutClass}>
         <div data-brand-story-media data-homepage-role="brand-story-media" className={mediaClass}>
           {image ? (

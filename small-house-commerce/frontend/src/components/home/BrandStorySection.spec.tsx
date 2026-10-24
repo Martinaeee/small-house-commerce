@@ -35,6 +35,44 @@ const media = () => document.querySelector("[data-brand-story-media]");
 const copy = () => document.querySelector("[data-brand-story-copy]");
 
 describe("BrandStorySection", () => {
+  it("shows a section title above the card when the published title is empty", () => {
+    render(<BrandStorySection section={section()} />);
+
+    const title = screen.getByRole("heading", { name: "About LUWAG", level: 2 });
+    expect(title).toBeVisible();
+    expect(layout()!.contains(title)).toBe(false);
+    expect(title.compareDocumentPosition(layout()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Room to breathe\./ })).toBeVisible();
+  });
+
+  it("uses the configured section title and subtitle without replacing the card headline", () => {
+    render(
+      <BrandStorySection
+        section={section({ title: "Our Story", subtitle: "Made for real homes" })}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Our Story" })).toBeVisible();
+    expect(screen.getByText("Made for real homes")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "About LUWAG" })).toBeNull();
+    expect(screen.getByRole("heading", { name: /Room to breathe\./ })).toBeVisible();
+  });
+
+  it("keeps the legacy copy headline separate from the default section title", () => {
+    render(
+      <BrandStorySection
+        section={section({
+          title: "Our Story",
+          payload: { imageUrl: "/story.jpg", body: "Made for real homes" },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "About LUWAG" })).toBeVisible();
+    const headline = screen.getByRole("heading", { name: "Our Story" });
+    expect(layout()!.contains(headline)).toBe(true);
+  });
+
   it("renders the brand image beside the copy", () => {
     render(<BrandStorySection section={section()} />);
 
@@ -99,7 +137,7 @@ describe("BrandStorySection", () => {
   it("sets the heading and body in the serif face, the eyebrow in Poppins", () => {
     render(<BrandStorySection section={section()} />);
 
-    expect(screen.getByRole("heading")).toHaveClass("font-story-serif");
+    expect(screen.getByRole("heading", { name: /Room to breathe\./ })).toHaveClass("font-story-serif");
     expect(
       screen.getByText(/Thoughtful furniture for everyday spaces\./),
     ).toHaveClass("font-story-serif");
@@ -111,7 +149,7 @@ describe("BrandStorySection", () => {
   it("keeps the line breaks the design puts in the heading and body", () => {
     render(<BrandStorySection section={section()} />);
 
-    const heading = screen.getByRole("heading");
+    const heading = screen.getByRole("heading", { name: /Room to breathe\./ });
     expect(heading.textContent).toBe("Room to breathe.\nRoom to live.");
     expect(heading).toHaveClass("whitespace-pre-line");
 
@@ -218,7 +256,7 @@ describe("BrandStorySection", () => {
     // The studio appearance (STUDIO_V3) restyles every section by role, so
     // the brand story uses its own role names: its type scale is fixed by the
     // approved mockup and must not be replaced by the studio heading size.
-    expect(screen.getByRole("heading")).toHaveAttribute(
+    expect(screen.getByRole("heading", { name: /Room to breathe\./ })).toHaveAttribute(
       "data-homepage-role",
       "brand-story-heading",
     );
