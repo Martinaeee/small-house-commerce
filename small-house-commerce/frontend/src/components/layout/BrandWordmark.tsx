@@ -27,6 +27,8 @@ type BrandWordmarkProps = {
   variant?: "horizontal" | "square";
   decorative?: boolean;
   className?: string;
+  /** Overrides the uploaded image's box; the generated fallback keeps className. */
+  assetClassName?: string;
   /** Retained for the generated Footer fallback on its dark surface. */
   tone?: keyof typeof TONES;
 };
@@ -95,6 +97,7 @@ export function BrandWordmark({
   variant = "horizontal",
   decorative = false,
   className = "",
+  assetClassName,
   tone = "brand",
 }: BrandWordmarkProps) {
   const brandName = brand?.brandName ?? "LUWAG";
@@ -112,17 +115,19 @@ export function BrandWordmark({
 
   if (!asset) return fallback;
 
+  const assetBox =
+    assetClassName ??
+    (variant === "horizontal"
+      ? "h-[1.12em] w-auto max-w-[10em]"
+      : "h-[1.12em] w-[1.12em]");
+
   return (
     <BrandAssetImage
       src={asset.url}
       width={asset.width}
       height={asset.height}
       alt={decorative ? "" : brandName}
-      className={`${
-        variant === "horizontal"
-          ? "h-[1.12em] w-auto max-w-[10em]"
-          : "h-[1.12em] w-[1.12em]"
-      } ${className}`.trim()}
+      className={`${assetBox} ${className}`.trim()}
       fallback={fallback}
     />
   );

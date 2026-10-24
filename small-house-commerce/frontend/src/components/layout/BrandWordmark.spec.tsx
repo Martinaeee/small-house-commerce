@@ -79,6 +79,20 @@ describe("BrandWordmark", () => {
     );
   });
 
+  it("lets the call site size an uploaded logo independently of the fallback text", () => {
+    render(
+      <BrandWordmark
+        brand={brand}
+        variant="horizontal"
+        assetClassName="h-11 w-auto max-w-[240px]"
+      />,
+    );
+
+    const uploaded = screen.getByRole("img", { name: "Roomy Co" });
+    expect(uploaded).toHaveClass("h-11", "w-auto", "max-w-[240px]");
+    expect(uploaded).not.toHaveClass("h-[1.12em]");
+  });
+
   it("retains the exact readable LUWAG horizontal fallback when no asset exists", () => {
     render(<BrandWordmark />);
 

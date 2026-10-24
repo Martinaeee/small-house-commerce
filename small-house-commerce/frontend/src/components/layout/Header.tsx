@@ -92,24 +92,26 @@ export function Header({ navItems, brand, mode = "live" }: HeaderProps) {
           variant="horizontal"
           decorative
           className="text-lg"
+          assetClassName="h-11 w-auto max-w-[240px]"
         />
       </span>
       <span className="inline-flex items-center lg:hidden">
         <BrandWordmark
           brand={brand}
-          variant="square"
+          variant="horizontal"
           decorative
           className="text-lg"
+          assetClassName="h-9 w-auto max-w-[180px]"
         />
       </span>
     </>
   );
   const homeClassName =
-    "absolute left-1/2 flex -translate-x-1/2 shrink-0 items-center max-[374px]:text-[15px] lg:static lg:left-auto lg:translate-x-0 lg:text-lg";
+    "absolute left-1/2 flex -translate-x-1/2 shrink-0 items-center max-[374px]:text-[15px] lg:static lg:left-auto lg:translate-x-0 lg:mr-6 lg:text-lg";
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6 xl:gap-x-2.5">
+      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6 lg:min-h-20 xl:gap-x-2.5">
         {mode === "live" ? (
           <Link
             href="/"

@@ -285,6 +285,7 @@ export function Footer({
                 brand={shell?.brand}
                 variant="horizontal"
                 className="text-lg"
+                assetClassName="h-9 w-auto max-w-[200px]"
                 tone="onDark"
               />
               <p className="mt-5 hidden max-w-[26ch] text-[15px] font-medium leading-[1.5] text-footer-foreground lg:block">
