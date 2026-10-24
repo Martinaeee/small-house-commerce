@@ -85,6 +85,11 @@ const SCALAR_KEYS = [
   "internalRole",
   "materials",
   "features",
+  "sellingPointsVisibility",
+  "pdpBannerEnabled",
+  "pdpBannerText",
+  "pdpBannerBackground",
+  "pdpBannerTextColor",
 ] as const;
 
 const DIMENSION_KEYS = [

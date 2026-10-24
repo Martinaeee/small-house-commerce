@@ -17,6 +17,9 @@ model SiteSetting {
   newsletterFormTitle         String  @default("Subscribe by email") @map("newsletter_form_title")
   newsletterEmailPlaceholder  String  @default("Your email address") @map("newsletter_email_placeholder")
   newsletterConsentText       String  @default("By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.") @map("newsletter_consent_text")
+  /// Site-wide default for the PDP selling-point pills. Products left on
+  /// INHERIT follow this switch; SHOW/HIDE on a product always wins.
+  hideSellingPoints           Boolean @default(false) @map("hide_selling_points")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

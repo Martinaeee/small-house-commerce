@@ -6,6 +6,7 @@ import {
   InternalProductRole,
   ProductStatus,
   Room,
+  SellingPointsVisibility,
   SkuStatus,
   Solution,
 } from '../../../generated/prisma/client.js';
@@ -81,6 +82,13 @@ const productFaqSchema = z.object({
   expectedVersion: z.number().int().min(0),
 });
 
+/** `#rrggbb` only: the value goes straight into an inline style, so a free-form
+ * string would be a style-injection hole. */
+const hexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Use a #rrggbb hex colour');
+
 /**
  * Base product shape. Create requires it; update is a partial of it, with
  * images and variants treated as full replacements when present (the admin
@@ -109,6 +117,13 @@ const productBaseSchema = z.object({
   // Structured specifications; features is one entry per line.
   materials: z.string().max(1000).nullable().optional(),
   features: z.string().max(2000).nullable().optional(),
+  // PDP presentation. Optional everywhere: the admin form only sends what it
+  // edits, and a PATCH omitting these must leave stored values untouched.
+  sellingPointsVisibility: z.nativeEnum(SellingPointsVisibility).optional(),
+  pdpBannerEnabled: z.boolean().optional(),
+  pdpBannerText: z.string().trim().max(60).nullable().optional(),
+  pdpBannerBackground: hexColorSchema.nullable().optional(),
+  pdpBannerTextColor: hexColorSchema.nullable().optional(),
   images: z.array(imageSchema).default([]),
   detailBlocks: z.array(detailBlockSchema).default([]),
   variants: z.array(variantSchema).default([]),
@@ -158,6 +173,23 @@ export const bulkProductStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'DISABLED']),
 });
 export type BulkProductStatusInput = z.infer<typeof bulkProductStatusSchema>;
+
+/**
+ * Bulk PDP banner from the products list. One banner for every selected
+ * product — the list is where "put this weekend's promo on these six items"
+ * happens; per-product copy still lives in the product editor. `null` clears.
+ */
+export const bulkPdpBannerSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(100),
+  banner: z
+    .object({
+      text: z.string().trim().min(1).max(60),
+      background: hexColorSchema,
+      textColor: hexColorSchema.nullable().optional(),
+    })
+    .nullable(),
+});
+export type BulkPdpBannerInput = z.infer<typeof bulkPdpBannerSchema>;
 
 /** Storefront queries force ACTIVE and must never expose cost data. */
 export const storefrontProductQuerySchema = z.object({

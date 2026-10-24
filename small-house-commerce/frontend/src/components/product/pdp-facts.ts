@@ -62,6 +62,22 @@ export function pdpSolutionBadges(
   return SOLUTION_BADGES.filter((badge) => tagged.has(badge.value));
 }
 
+/**
+ * Whether the PDP prints the selling-point row at all. A product pinned to
+ * SHOW/HIDE always wins; INHERIT (the default) follows the site-wide switch,
+ * so an editor can silence the row everywhere and still keep it on one hero
+ * product if the merchandising calls for it.
+ */
+export function pdpSellingPointsVisible(
+  product: Pick<Product, "sellingPointsVisibility">,
+  siteHideSellingPoints: boolean,
+): boolean {
+  const visibility = product.sellingPointsVisibility ?? "INHERIT";
+  if (visibility === "HIDE") return false;
+  if (visibility === "SHOW") return true;
+  return !siteHideSellingPoints;
+}
+
 export type PdpSpecSource = Pick<
   Product,
   | "materials"

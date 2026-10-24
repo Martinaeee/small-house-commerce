@@ -1946,3 +1946,56 @@ describe("ProductForm media add helpers", () => {
     });
   });
 });
+
+describe("ProductForm PDP banner and selling-point switch", () => {
+  beforeEach(() => setAdminLang("zh"));
+
+  it("serializes the banner, trimming copy and turning blank colours into nulls", () => {
+    const result = serializeFormValue(baseValue({
+      sellingPointsVisibility: "HIDE",
+      pdpBannerEnabled: true,
+      pdpBannerText: "  Weekend offer  ",
+      pdpBannerBackground: " ",
+      pdpBannerTextColor: "#FFFFFF",
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.value).toMatchObject({
+      sellingPointsVisibility: "HIDE",
+      pdpBannerEnabled: true,
+      pdpBannerText: "Weekend offer",
+      pdpBannerBackground: null,
+      pdpBannerTextColor: "#FFFFFF",
+    });
+  });
+
+  it("blocks a save whose banner colour is not #rrggbb and keeps the typed copy", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderForm(baseValue({
+      pdpBannerEnabled: true,
+      pdpBannerText: "Weekend offer",
+      pdpBannerBackground: "#123456",
+      pdpBannerTextColor: "",
+    }), onSubmit);
+
+    expect(screen.getByRole("textbox", { name: "横幅文案" })).toHaveValue("Weekend offer");
+    const background = screen.getByPlaceholderText("#a85238");
+    await user.clear(background);
+    await user.type(background, "red");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    expect(await screen.findByText("请填 #rrggbb 格式的颜色，例如 #244c3c")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.clear(background);
+    await user.type(background, "#abcdef");
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      pdpBannerEnabled: true,
+      pdpBannerText: "Weekend offer",
+      pdpBannerBackground: "#abcdef",
+      pdpBannerTextColor: "",
+    });
+  });
+});

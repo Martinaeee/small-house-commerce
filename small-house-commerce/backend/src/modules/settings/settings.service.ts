@@ -56,6 +56,7 @@ export class SettingsService {
       newsletterFormTitle: row.newsletterFormTitle,
       newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
       newsletterConsentText: row.newsletterConsentText,
+      hideSellingPoints: row.hideSellingPoints,
       newsletterOfferAvailable: promotion !== null,
       backInStockEnabled: isEmailDeliveryEnabled(this.config),
     };
@@ -94,6 +95,9 @@ export class SettingsService {
       ...(input.newsletterConsentText === undefined
         ? {}
         : { newsletterConsentText: input.newsletterConsentText }),
+      ...(input.hideSellingPoints === undefined
+        ? {}
+        : { hideSellingPoints: input.hideSellingPoints }),
     };
     await this.prisma.siteSetting.upsert({
       where: { id: SITE_SETTINGS_ID },

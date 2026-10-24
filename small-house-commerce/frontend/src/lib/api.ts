@@ -192,6 +192,9 @@ export type Solution =
   | "HIDDEN_STORAGE"
   | "RENTAL_FRIENDLY";
 
+/** Per-product override for the PDP selling-point pills. */
+export type SellingPointsVisibility = "INHERIT" | "SHOW" | "HIDE";
+
 export interface Review {
   id: string;
   authorName: string;
@@ -237,6 +240,16 @@ export interface Product {
    */
   materials?: string | null;
   features?: string | null;
+  /**
+   * PDP presentation. `INHERIT` follows the site-wide switch in site
+   * settings; SHOW/HIDE pin this product regardless of it.
+   */
+  sellingPointsVisibility?: SellingPointsVisibility;
+  pdpBannerEnabled?: boolean;
+  pdpBannerText?: string | null;
+  /** `#rrggbb`; the PDP supplies readable defaults when unset. */
+  pdpBannerBackground?: string | null;
+  pdpBannerTextColor?: string | null;
   catalogGraphVersion: number;
   options: StorefrontProductOption[];
   defaultDisplayVariantId: string | null;

@@ -68,6 +68,7 @@ export async function PdpView({
             delivery={delivery}
             productPath={productPath}
             promoSlot={promoSlot}
+            hideSellingPoints={settings.hideSellingPoints}
           />
 
           <PdpSectionNavGate product={product} hasDetails={hasDetails} />

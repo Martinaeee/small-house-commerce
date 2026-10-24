@@ -318,12 +318,14 @@ function renderPdp({
   path = "/products/chair",
   purchaseOnly = false,
   preview = false,
+  hideSellingPoints = false,
 }: {
   item?: Product;
   variantId?: string | null;
   path?: string;
   purchaseOnly?: boolean;
   preview?: boolean;
+  hideSellingPoints?: boolean;
 } = {}) {
   return render(
     <PdpPurchaseProvider product={item} initialVariantId={variantId}>
@@ -334,6 +336,7 @@ function renderPdp({
         productPath={path}
         purchaseOnly={purchaseOnly}
         preview={preview}
+        hideSellingPoints={hideSellingPoints}
       />
     </PdpPurchaseProvider>,
   );
@@ -505,6 +508,54 @@ describe("isolated landing purchase presentation", () => {
 });
 
 describe("PDP conversion hero", () => {
+  it.each([
+    ["INHERIT", false, true], ["INHERIT", true, false],
+    ["SHOW", true, true], ["HIDE", false, false],
+  ] as const)("resolves %s selling points against the site switch %s", (visibility, hidden, visible) => {
+    renderPdp({ item: { ...product, solutions: ["FOLDABLE"], sellingPointsVisibility: visibility }, hideSellingPoints: hidden });
+    expect(Boolean(screen.queryByRole("list", { name: "Selling points" }))).toBe(visible);
+  });
+
+  it("shows the authored banner above the title as plain text", () => {
+    renderPdp({ item: { ...product, pdpBannerEnabled: true, pdpBannerText: "<b>Weekend offer</b>",
+      pdpBannerBackground: "#123456", pdpBannerTextColor: "#ffffff" } });
+    const banner = screen.getByTestId("pdp-banner");
+    expect(banner).toHaveTextContent("<b>Weekend offer</b>");
+    expect(banner.querySelector("b")).toBeNull();
+    expect(banner).toHaveStyle({ backgroundColor: "#123456", color: "#ffffff" });
+    expect(banner.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("frames the whole purchase column only while a banner is live", () => {
+    const { unmount } = render(
+      <PdpPurchaseProvider product={product} initialVariantId="red-small">
+        <PdpClient product={{ ...product, pdpBannerEnabled: true, pdpBannerText: "Weekend offer" }} category={null} delivery={delivery} />
+      </PdpPurchaseProvider>,
+    );
+    const hero = screen.getByTestId("pdp-purchase");
+    expect(hero).toHaveAttribute("data-framed", "true");
+    expect(hero.className).toMatch(/\brounded-xl\b/);
+    expect(hero.className).toMatch(/\bborder\b/);
+    // The banner is the card's first child, the buy content the padded body.
+    expect(hero.firstElementChild).toBe(screen.getByTestId("pdp-banner"));
+    expect(within(hero).getByRole("button", { name: /ADD TO CART/i })).toBeVisible();
+    unmount();
+
+    renderPdp({ variantId: "red-small" });
+    expect(screen.getByTestId("pdp-purchase")).not.toHaveAttribute("data-framed");
+  });
+
+  it("falls back to the campaign red when the banner has no colour", () => {
+    renderPdp({ item: { ...product, pdpBannerEnabled: true, pdpBannerText: "Weekend offer" } });
+    expect(screen.getByTestId("pdp-banner")).toHaveStyle({ backgroundColor: "var(--color-sale)" });
+  });
+
+  it.each([false, true])("does not show a savings amount in the purchase-only mode %s", (purchaseOnly) => {
+    renderPdp({ variantId: "red-small", purchaseOnly });
+    expect(screen.queryByText(/^Save ₱/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("pdp-purchase")).toHaveTextContent("23% OFF");
+  });
+
   it("keeps the complete product name with its review summary and all price facts in one group", () => {
     const name = "A long narrow cabinet with adjustable shelves and clear doors for small homes";
     renderPdp({ item: { ...product, name, ratingAverage: 4.8, reviewCount: 12, availableMediaScopes: { optionValueIds: [], variantIds: [] } }, variantId: "red-small" });
@@ -514,7 +565,7 @@ describe("PDP conversion hero", () => {
     expect(title).not.toHaveClass("truncate");
     expect(title.parentElement).toContainElement(within(hero).getByRole("link", { name: /12 reviews/ }));
     const priceGroup = within(hero).getByTestId("price").parentElement!;
-    expect(priceGroup).toContainElement(within(hero).getByText("Save ₱30.00"));
+    expect(within(hero).queryByText(/^Save ₱/)).not.toBeInTheDocument();
     expect(priceGroup).toContainElement(within(hero).getByText("23% OFF"));
     expect(within(hero).getByTestId("pdp-delivery")).toHaveAttribute("id", "pdp-delivery");
   });

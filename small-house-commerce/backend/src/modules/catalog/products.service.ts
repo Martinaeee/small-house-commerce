@@ -137,6 +137,11 @@ const STOREFRONT_SELECT = {
   foldedWidth: true,
   foldedHeight: true,
   foldedDepth: true,
+  sellingPointsVisibility: true,
+  pdpBannerEnabled: true,
+  pdpBannerText: true,
+  pdpBannerBackground: true,
+  pdpBannerTextColor: true,
   catalogGraphVersion: true,
   defaultDisplayVariantId: true,
   images: {
@@ -709,6 +714,11 @@ export class ProductsService {
             foldedDepth: input.foldedDepth ?? null,
             materials: input.materials ?? null,
             features: input.features ?? null,
+            sellingPointsVisibility: input.sellingPointsVisibility ?? 'INHERIT',
+            pdpBannerEnabled: input.pdpBannerEnabled ?? false,
+            pdpBannerText: input.pdpBannerText ?? null,
+            pdpBannerBackground: input.pdpBannerBackground ?? null,
+            pdpBannerTextColor: input.pdpBannerTextColor ?? null,
             images: { create: images },
             detailBlocks: { create: input.detailBlocks },
           },
@@ -819,6 +829,15 @@ export class ProductsService {
     if (input.foldedDepth !== undefined) data.foldedDepth = input.foldedDepth;
     if (input.materials !== undefined) data.materials = input.materials;
     if (input.features !== undefined) data.features = input.features;
+    if (input.sellingPointsVisibility !== undefined)
+      data.sellingPointsVisibility = input.sellingPointsVisibility;
+    if (input.pdpBannerEnabled !== undefined)
+      data.pdpBannerEnabled = input.pdpBannerEnabled;
+    if (input.pdpBannerText !== undefined) data.pdpBannerText = input.pdpBannerText;
+    if (input.pdpBannerBackground !== undefined)
+      data.pdpBannerBackground = input.pdpBannerBackground;
+    if (input.pdpBannerTextColor !== undefined)
+      data.pdpBannerTextColor = input.pdpBannerTextColor;
     if (input.detailBlocks !== undefined) {
       data.detailBlocks = { deleteMany: {}, create: input.detailBlocks };
     }
@@ -1170,6 +1189,35 @@ export class ProductsService {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
     return { updated: foundIds.length, notFound: ids.length - foundIds.length };
+  }
+
+  /**
+   * Put one promo banner on every selected product, or clear them all. The
+   * banner is presentation-only, so this never touches publish readiness.
+   */
+  async bulkSetPdpBanner(
+    ids: string[],
+    banner: { text: string; background: string; textColor?: string | null } | null,
+  ) {
+    const uniqueIds = [...new Set(ids)];
+    const result = await this.prisma.product.updateMany({
+      where: { id: { in: uniqueIds } },
+      data: banner
+        ? {
+            pdpBannerEnabled: true,
+            pdpBannerText: banner.text,
+            pdpBannerBackground: banner.background,
+            pdpBannerTextColor: banner.textColor ?? null,
+          }
+        : {
+            pdpBannerEnabled: false,
+            pdpBannerText: null,
+            pdpBannerBackground: null,
+            pdpBannerTextColor: null,
+          },
+    });
+    if (result.count > 0) await revalidateCache([CACHE_TAGS.STOREFRONT]);
+    return { updated: result.count, notFound: uniqueIds.length - result.count };
   }
 
   // --- storefront ----------------------------------------------------------

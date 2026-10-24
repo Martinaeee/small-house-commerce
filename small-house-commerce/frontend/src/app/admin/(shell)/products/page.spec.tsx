@@ -24,6 +24,7 @@ const listCategories = vi.fn();
 const productCounts = vi.fn();
 const deleteProduct = vi.fn();
 const bulkSetProductStatus = vi.fn();
+const bulkSetPdpBanner = vi.fn();
 
 vi.mock("@/lib/admin-api", () => ({
   ADMIN_PRODUCT_ATTENTION: [
@@ -40,6 +41,7 @@ vi.mock("@/lib/admin-api", () => ({
     listProductLandingPages: vi.fn(),
     deleteProduct: (...args: unknown[]) => deleteProduct(...args),
     bulkSetProductStatus: (...args: unknown[]) => bulkSetProductStatus(...args),
+    bulkSetPdpBanner: (...args: unknown[]) => bulkSetPdpBanner(...args),
   },
   formatAmount: (value: unknown) => (value === null || value === undefined ? "—" : `₱${value}`),
 }));
@@ -314,6 +316,38 @@ describe("AdminProductsPage bulk delete", () => {
   });
 
   afterEach(cleanup);
+
+  it("applies a custom banner only to selected products", async () => {
+    bulkSetPdpBanner.mockResolvedValue({ updated: 1, notFound: 0 });
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+    await user.click(screen.getByRole("checkbox", { name: "选择 Chair" }));
+    await user.click(screen.getByRole("button", { name: "活动横幅" }));
+    const dialog = screen.getByRole("dialog", { name: "批量配置活动横幅" });
+    await user.type(within(dialog).getByRole("textbox", { name: "横幅文案" }), "Weekend offer");
+    await user.click(within(dialog).getByRole("button", { name: "应用横幅" }));
+    await waitFor(() => expect(bulkSetPdpBanner).toHaveBeenCalledWith(["p1"], {
+      text: "Weekend offer", background: "#a85238", textColor: null,
+    }));
+    expect(await screen.findByText("已更新 1 个商品的活动横幅")).toBeVisible();
+  });
+
+  it("clears banners without requiring copy and keeps API failures visible for retry", async () => {
+    bulkSetPdpBanner.mockReset().mockRejectedValueOnce(new Error("Banner write failed"))
+      .mockResolvedValueOnce({ updated: 2, notFound: 0 });
+    const user = userEvent.setup();
+    renderListPage();
+    await screen.findAllByText("Chair");
+    await user.click(screen.getByRole("checkbox", { name: "全选本页" }));
+    await user.click(screen.getByRole("button", { name: "活动横幅" }));
+    const dialog = screen.getByRole("dialog", { name: "批量配置活动横幅" });
+    await user.click(within(dialog).getByRole("button", { name: "清除横幅" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Banner write failed");
+    await user.click(within(dialog).getByRole("button", { name: "清除横幅" }));
+    await waitFor(() => expect(bulkSetPdpBanner).toHaveBeenLastCalledWith(["p1", "p2"], null));
+    expect(await screen.findByText("已清除 2 个商品的活动横幅")).toBeVisible();
+  });
 
   it("selects individual rows and shows the bulk bar with the count", async () => {
     const user = userEvent.setup();

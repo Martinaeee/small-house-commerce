@@ -16,10 +16,12 @@ import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
   adminProductQuerySchema,
+  bulkPdpBannerSchema,
   bulkProductStatusSchema,
   createProductSchema,
   updateProductSchema,
   type AdminProductQuery,
+  type BulkPdpBannerInput,
   type BulkProductStatusInput,
   type CreateProductInput,
   type UpdateProductInput,
@@ -70,6 +72,15 @@ export class AdminProductsController {
     input: BulkProductStatusInput,
   ) {
     return this.products.bulkSetStatus(input.ids, input.status);
+  }
+
+  // Bulk promo banner from the products list; literal path, no :id clash.
+  @Post('bulk-pdp-banner')
+  bulkPdpBanner(
+    @Body(new ZodValidationPipe(bulkPdpBannerSchema))
+    input: BulkPdpBannerInput,
+  ) {
+    return this.products.bulkSetPdpBanner(input.ids, input.banner);
   }
 
   @Patch(':id')
