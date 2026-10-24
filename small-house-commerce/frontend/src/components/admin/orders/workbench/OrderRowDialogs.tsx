@@ -11,6 +11,7 @@ import {
   type AdminOrderRow,
 } from "@/lib/admin-api";
 import { peso } from "./format";
+import { buildPackingSlipHtml } from "./packing-slip";
 
 export type RowDialogKind =
   | "confirm"
@@ -221,6 +222,9 @@ export function OrderRowDialogs({ kind, row, onClose, onDone }: OrderRowDialogsP
         {kind === "print" ? (
           <>
             <div className="rounded-lg border border-border p-3 text-[13px]">
+              <p className="mb-2 text-[11.5px] text-ink-muted">
+                {t("orders_packing_slip_note")}
+              </p>
               <p className="font-semibold text-ink">{row.orderNumber}</p>
               <p className="text-ink-secondary">{row.customer.name ?? "—"}</p>
               <p className="text-ink-secondary">{row.customer.normalizedPhone}</p>
@@ -254,7 +258,17 @@ export function OrderRowDialogs({ kind, row, onClose, onDone }: OrderRowDialogsP
               type="button"
               variant="secondary"
               size="md"
-              onClick={() => window.print()}
+              onClick={() => {
+                const printWindow = window.open("", "_blank", "width=820,height=900");
+                if (!printWindow) {
+                  setError(t("orders_packing_slip_popup_blocked"));
+                  return;
+                }
+                printWindow.document.write(buildPackingSlipHtml(row));
+                printWindow.document.close();
+                printWindow.focus();
+                window.setTimeout(() => printWindow.print(), 100);
+              }}
             >
               {t("orders_dialog_print_button")}
             </Button>

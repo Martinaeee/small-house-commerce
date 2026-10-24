@@ -15,6 +15,8 @@ function harness(has: (permission: string) => Promise<boolean>) {
   const controller = new AdminOrdersController(
     orders as never,
     verification,
+    { record: vi.fn() } as never,
+    { list: vi.fn(), accept: vi.fn() } as never,
     permissions as never,
   );
   return { controller, orders, permissions };

@@ -63,6 +63,8 @@ function createHarness(options: { skus?: Record<string, unknown> } = {}) {
       })),
     },
     orderStatusHistory: { create: vi.fn(async () => ({})) },
+    orderHandoverEvent: { findMany: vi.fn(async () => []) },
+    returnAcceptanceItem: { findMany: vi.fn(async () => []) },
     customerRiskLog: { create: vi.fn(async () => ({})) },
     customerNote: { create: vi.fn(async () => ({})) },
     orderItem: {
@@ -371,6 +373,7 @@ describe('OrdersService.ship (§22.3, gates from workbench §6.1)', () => {
       items: [ORDER_LINE],
       shipments: [],
       riskFlags: [],
+      handoverCompletedAt: new Date('2026-10-23T00:00:00.000Z'),
       ...overrides,
     };
   }
@@ -431,6 +434,41 @@ describe('OrdersService.ship (§22.3, gates from workbench §6.1)', () => {
     inventory.consumeForOrder = vi.fn(async () => {});
     await expect(service.ship('order-1', shipInput, 'op-1')).resolves.toMatchObject({
       shipmentId: 'ship-1',
+    });
+  });
+
+  it('rejects shipping a confirmed order until every line has been handed over', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      confirmedOrder({ handoverCompletedAt: null }),
+    );
+    await expect(service.ship('order-1', shipInput, 'op-1')).rejects.toThrow(
+      /handover/i,
+    );
+  });
+
+  it('repairs a stale handover flag inside the shipping transaction', async () => {
+    const { service, prisma, tx, inventory } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      confirmedOrder({ handoverCompletedAt: null }),
+    );
+    tx.orderHandoverEvent.findMany.mockResolvedValue([
+      { type: 'HANDED_OVER', items: [{ orderItemId: ORDER_LINE.id, quantity: 2 }] },
+    ]);
+    tx.shipment = { create: vi.fn(async () => ({ id: 'ship-1' })) };
+    tx.shipmentItem = { create: vi.fn(async () => ({})) };
+    tx.inventoryReservation = { findMany: vi.fn(async () => []), update: vi.fn(async () => ({})) };
+    tx.inventory = { update: vi.fn(async () => ({})) };
+    tx.inventoryMovement = { create: vi.fn(async () => ({})) };
+    tx.orderNote = { create: vi.fn(async () => ({})) };
+    inventory.consumeForOrder = vi.fn(async () => {});
+
+    await expect(service.ship('order-1', shipInput, 'op-1')).resolves.toMatchObject({
+      orderStatus: 'SHIPPING',
+    });
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: 'order-1' },
+      data: { handoverCompletedAt: expect.any(Date) },
     });
   });
 
@@ -666,7 +704,16 @@ describe('OrdersService.sign (§69)', () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'order-1',
       orderStatus: 'SHIPPING',
-      shipments: [{ id: 'ship-1', status: 'SHIPPING', carrier: 'J&T', trackingNumber: 'JT-1' }],
+      items: [{ id: 'line-1', quantity: 1 }],
+      shipments: [
+        {
+          id: 'ship-1',
+          status: 'SHIPPING',
+          carrier: 'J&T',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 1 }],
+        },
+      ],
     });
     tx.shipment = { update: vi.fn(async () => ({ status: 'SIGNED' })) };
     tx.shipment = {
@@ -689,9 +736,22 @@ describe('OrdersService.sign (§69)', () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'order-1',
       orderStatus: 'SHIPPING',
+      items: [{ id: 'line-1', quantity: 1 }],
       shipments: [
-        { id: 'ship-1', status: 'SHIPPING', carrier: 'J&T', trackingNumber: 'JT-1' },
-        { id: 'ship-2', status: 'SHIPPING', carrier: 'Ninja', trackingNumber: 'N-2' },
+        {
+          id: 'ship-1',
+          status: 'SHIPPING',
+          carrier: 'J&T',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 1 }],
+        },
+        {
+          id: 'ship-2',
+          status: 'SHIPPING',
+          carrier: 'Ninja',
+          trackingNumber: 'N-2',
+          items: [],
+        },
       ],
     });
     tx.shipment = {
@@ -702,6 +762,92 @@ describe('OrdersService.sign (§69)', () => {
     const out = await service.sign('order-1', 'ship-1', 'op-1');
     expect(out.orderStatus).toBe('SHIPPING');
     expect(tx.order.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps the order SHIPPING when a signed box does not cover the whole order', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderStatus: 'SHIPPING',
+      items: [{ id: 'line-1', quantity: 2 }],
+      shipments: [
+        {
+          id: 'ship-1',
+          status: 'SHIPPING',
+          carrier: 'J&T',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 1 }],
+        },
+      ],
+    });
+    tx.shipment = {
+      update: vi.fn(async () => ({ status: 'SIGNED' })),
+      count: vi.fn(async () => 0),
+    };
+    tx.orderNote = { create: vi.fn(async () => ({})) };
+    const out = await service.sign('order-1', 'ship-1', 'op-1');
+    expect(out.orderStatus).toBe('SHIPPING');
+    expect(tx.order.update).not.toHaveBeenCalled();
+  });
+
+  it('signs the remaining goods of a partially returned box and closes the order as PARTIALLY_RETURNED', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderStatus: 'SHIPPING',
+      items: [{ id: 'line-1', quantity: 2 }],
+      shipments: [
+        {
+          id: 'ship-1',
+          status: 'SHIPPING',
+          carrier: 'J&T',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 2 }],
+        },
+      ],
+    });
+    tx.shipment = {
+      update: vi.fn(async () => ({ status: 'PARTIALLY_RETURNED' })),
+      count: vi.fn(async () => 0),
+    };
+    tx.orderNote = { create: vi.fn(async () => ({})) };
+    tx.returnAcceptanceItem = {
+      findMany: vi.fn(async () => [
+        { orderItemId: 'line-1', quantityGood: 1, quantityDamaged: 0 },
+      ]),
+    };
+    const out = await service.sign('order-1', 'ship-1', 'op-1');
+    expect(out.orderStatus).toBe('PARTIALLY_RETURNED');
+    expect(out.shipmentStatus).toBe('PARTIALLY_RETURNED');
+    expect(tx.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'PARTIALLY_RETURNED', signedAt: expect.any(Date) },
+      }),
+    );
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { orderStatus: 'PARTIALLY_RETURNED' } }),
+    );
+  });
+
+  it('refuses to sign a box whose goods were already fully returned', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderStatus: 'SHIPPING',
+      items: [{ id: 'line-1', quantity: 2 }],
+      shipments: [
+        {
+          id: 'ship-1',
+          status: 'RETURNED',
+          carrier: 'J&T',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 2 }],
+        },
+      ],
+    });
+    await expect(service.sign('order-1', 'ship-1', 'op-1')).rejects.toThrow(
+      /already returned/,
+    );
   });
 
   it('rejects signing an already-signed shipment', async () => {
@@ -823,6 +969,7 @@ function orderDetail(overrides: Record<string, unknown> = {}) {
     statusHistory: [],
     notes: [],
     customer: { notes: [], riskLogs: [] },
+    handoverCompletedAt: new Date('2026-10-23T00:00:00.000Z'),
     ...overrides,
   };
 }

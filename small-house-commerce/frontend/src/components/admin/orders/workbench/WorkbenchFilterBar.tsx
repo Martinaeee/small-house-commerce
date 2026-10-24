@@ -59,6 +59,8 @@ const ORDER_STATUS_OPTIONS = [
   { value: "CANCELLED", label: "CANCELLED" },
   { value: "DENIED", label: "DENIED" },
   { value: "AFTER_SALES", label: "AFTER_SALES" },
+  { value: "RETURNED", label: "RETURNED" },
+  { value: "PARTIALLY_RETURNED", label: "PARTIALLY_RETURNED" },
 ];
 
 const RISK_OPTIONS = ["POSSIBLE_DUPLICATE", "CUSTOMER_RECHECK", "CUSTOMER_BLOCKED"];

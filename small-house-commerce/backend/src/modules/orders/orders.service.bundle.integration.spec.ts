@@ -240,6 +240,10 @@ describe.skipIf(!database)('OrdersService Bundle lifecycle on PostgreSQL', () =>
   async function confirmedOrder(items: CheckoutInput['items']) {
     const order = await checkoutWith(items);
     await orders.confirm(order.id, operatorId);
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { handoverCompletedAt: new Date() },
+    });
     return order;
   }
 

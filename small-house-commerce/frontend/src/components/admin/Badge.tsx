@@ -38,6 +38,7 @@ const RED_STATUSES = new Set([
   "REFUNDED",
   "PARTIALLY_REFUNDED",
   "DISABLED",
+  "RETURNED",
 ]);
 
 export function statusTone(value: string): BadgeTone {

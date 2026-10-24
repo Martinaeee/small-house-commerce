@@ -52,6 +52,8 @@ const ORDER_STATUS_KEYS: Record<string, TKey> = {
   CANCELLED: "admin_search_order_status_CANCELLED",
   DENIED: "admin_search_order_status_DENIED",
   AFTER_SALES: "admin_search_order_status_AFTER_SALES",
+  RETURNED: "admin_search_order_status_RETURNED",
+  PARTIALLY_RETURNED: "admin_search_order_status_PARTIALLY_RETURNED",
 };
 
 const CONFIRMATION_STATUS_KEYS: Record<string, TKey> = {

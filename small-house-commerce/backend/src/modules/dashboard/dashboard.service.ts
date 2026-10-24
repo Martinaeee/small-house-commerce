@@ -56,20 +56,32 @@ import type {
 /** Fixed id of the singleton homepage document (homepage_documents CHECK). */
 const HOMEPAGE_DOCUMENT_ID = '00000000-0000-0000-0000-000000000001';
 
-const VALID_ORDER_STATUSES = Prisma.sql`('CANCELLED','DENIED')`;
+const CANCELLED_ORDER_STATUSES = Prisma.sql`('CANCELLED','DENIED')`;
+
+/**
+ * Orders that produced no kept sale: cancelled/denied plus fully or partly
+ * returned. A returned order must not appear as gross sales, customer activity
+ * or a payment backlog. Net-of-return revenue arrives with the analytics stage.
+ */
+const NON_SALE_ORDER_STATUSES = Prisma.sql`('CANCELLED','DENIED','RETURNED','PARTIALLY_RETURNED')`;
 
 /**
  * Every order status that can still need an operator's action. Backlog
  * drill-downs list these because the order list only filters by inclusion.
  */
 const ACTIVE_ORDER_STATUSES = Object.values(OrderStatus).filter(
-  (status) => status !== 'CANCELLED' && status !== 'DENIED',
+  (status) =>
+    status !== 'CANCELLED' &&
+    status !== 'DENIED' &&
+    status !== 'RETURNED' &&
+    status !== 'PARTIALLY_RETURNED',
 );
 
 /**
  * The failed-payment backlog counts orders whose payment failed and that are
- * not cancelled or denied. The order list can only include statuses, so the
- * link names every status the count kept — its length then equals the card.
+ * not cancelled, denied or returned. The order list can only include statuses,
+ * so the link names every status the count kept — its length then equals the
+ * card.
  */
 function failedPaymentsHref(): string {
   return `/admin/orders?${new URLSearchParams({
@@ -370,15 +382,15 @@ export class DashboardService {
       Array<Record<string, unknown>>
     >(Prisma.sql`
       SELECT
-        COUNT(*) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}) AS valid_orders,
-        COALESCE(SUM(o.subtotal) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}), 0) AS gross_product_sales,
-        COALESCE(SUM(o.discount_total) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}), 0) AS discount_total,
+        COUNT(*) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}) AS valid_orders,
+        COALESCE(SUM(o.subtotal) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}), 0) AS gross_product_sales,
+        COALESCE(SUM(o.discount_total) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}), 0) AS discount_total,
         COALESCE(SUM(o.subtotal - o.discount_total) FILTER (WHERE o.payment_status = 'REFUNDED'), 0) AS refunded_amount,
         COUNT(*) FILTER (WHERE o.payment_status IN ('REFUNDED','PARTIALLY_REFUNDED')) AS refunded_orders,
-        COUNT(*) FILTER (WHERE o.order_status IN ${VALID_ORDER_STATUSES}) AS cancelled_orders,
+        COUNT(*) FILTER (WHERE o.order_status IN ${CANCELLED_ORDER_STATUSES}) AS cancelled_orders,
         COUNT(*) FILTER (WHERE o.order_status = 'SIGNED') AS signed_orders,
         COUNT(*) FILTER (WHERE o.confirmation_status = 'CONFIRMED') AS confirmed_orders,
-        COUNT(DISTINCT o.customer_id) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}) AS customers
+        COUNT(DISTINCT o.customer_id) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}) AS customers
       FROM orders o
       WHERE o.created_at >= ${start}::timestamptz AND o.created_at < ${end}::timestamptz
     `);
@@ -406,14 +418,14 @@ export class DashboardService {
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
         WHERE o.created_at >= ${start}::timestamptz AND o.created_at < ${end}::timestamptz
-          AND o.order_status NOT IN ${VALID_ORDER_STATUSES}
+          AND o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
       `),
       this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
         SELECT COALESCE(SUM(s.shipping_cost), 0) AS shipping_cost
         FROM shipments s
         JOIN orders o ON o.id = s.order_id
         WHERE o.created_at >= ${start}::timestamptz AND o.created_at < ${end}::timestamptz
-          AND o.order_status NOT IN ${VALID_ORDER_STATUSES}
+          AND o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
       `),
     ]);
     const item = items[0] ?? {};
@@ -434,8 +446,8 @@ export class DashboardService {
     const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
       SELECT
         to_char((o.created_at AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS day,
-        COALESCE(SUM(o.subtotal - o.discount_total) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}), 0) AS revenue,
-        COUNT(*) FILTER (WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}) AS orders
+        COALESCE(SUM(o.subtotal - o.discount_total) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}), 0) AS revenue,
+        COUNT(*) FILTER (WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}) AS orders
       FROM orders o
       WHERE o.created_at >= ${window.start}::timestamptz AND o.created_at < ${window.end}::timestamptz
       GROUP BY 1
@@ -454,11 +466,11 @@ export class DashboardService {
     const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
       SELECT
         COUNT(*) FILTER (WHERE order_status = 'CONFIRMED') AS to_fulfill,
-        COUNT(*) FILTER (WHERE order_status NOT IN ${VALID_ORDER_STATUSES} AND payment_status IN ('COD_PENDING','ONLINE_PENDING')) AS awaiting_payment,
+        COUNT(*) FILTER (WHERE order_status NOT IN ${NON_SALE_ORDER_STATUSES} AND payment_status IN ('COD_PENDING','ONLINE_PENDING')) AS awaiting_payment,
         COUNT(*) FILTER (WHERE order_status IN ('NEW','PENDING','QUESTION','ABNORMAL')) AS processing,
         COUNT(*) FILTER (WHERE order_status = 'SHIPPING') AS shipped,
         COUNT(*) FILTER (WHERE order_status = 'SIGNED') AS delivered,
-        COUNT(*) FILTER (WHERE order_status IN ${VALID_ORDER_STATUSES}) AS cancelled,
+        COUNT(*) FILTER (WHERE order_status IN ${CANCELLED_ORDER_STATUSES}) AS cancelled,
         COUNT(*) FILTER (WHERE payment_status IN ('REFUNDED','PARTIALLY_REFUNDED') OR order_status = 'AFTER_SALES') AS refund_requested,
         COUNT(*) AS total
       FROM orders
@@ -497,7 +509,7 @@ export class DashboardService {
       FROM orders o
       JOIN order_shipping_address a ON a.order_id = o.id
       WHERE o.created_at >= ${start}::timestamptz AND o.created_at < ${end}::timestamptz
-        AND o.order_status NOT IN ${VALID_ORDER_STATUSES}
+        AND o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
       GROUP BY a.province
     `);
     const grouped = groupLocations(
@@ -527,7 +539,7 @@ export class DashboardService {
           },
         }),
         this.prisma.order.count({
-          where: { paymentStatus: 'FAILED', orderStatus: { notIn: ['CANCELLED', 'DENIED'] } },
+          where: { paymentStatus: 'FAILED', orderStatus: { in: ACTIVE_ORDER_STATUSES } },
         }),
         this.prisma.order.count({
           where: {
@@ -608,7 +620,7 @@ export class DashboardService {
       WITH period AS (
         SELECT o.customer_id
         FROM orders o
-        WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}
+        WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
           AND o.created_at >= ${window.start}::timestamptz
           AND o.created_at < ${window.end}::timestamptz
         GROUP BY o.customer_id
@@ -618,7 +630,7 @@ export class DashboardService {
           MIN(o.created_at) AS first_order,
           COUNT(*) AS orders
         FROM orders o
-        WHERE o.order_status NOT IN ${VALID_ORDER_STATUSES}
+        WHERE o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
         GROUP BY o.customer_id
       )
       SELECT
@@ -979,7 +991,7 @@ export class DashboardService {
       this.prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
         SELECT oi.product_id,
           COUNT(DISTINCT o.id) AS orders,
-          COUNT(DISTINCT o.id) FILTER (WHERE o.order_status IN ${VALID_ORDER_STATUSES}) AS cancelled,
+          COUNT(DISTINCT o.id) FILTER (WHERE o.order_status IN ${CANCELLED_ORDER_STATUSES}) AS cancelled,
           COUNT(DISTINCT o.id) FILTER (WHERE o.payment_status IN ('REFUNDED','PARTIALLY_REFUNDED')) AS refunded
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
@@ -1119,7 +1131,7 @@ export class DashboardService {
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
         WHERE o.created_at >= ${velocityStart}::timestamptz
-          AND o.order_status NOT IN ${VALID_ORDER_STATUSES}
+          AND o.order_status NOT IN ${NON_SALE_ORDER_STATUSES}
         GROUP BY oi.sku_id
       )
       SELECT k.id AS sku_id, k.sku_code, k.created_at,

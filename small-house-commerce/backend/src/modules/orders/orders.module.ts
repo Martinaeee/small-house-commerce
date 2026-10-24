@@ -9,6 +9,8 @@ import { AdminOrdersController, AdminCustomersController } from './admin/orders.
 import { AdminOrderVerificationController } from './admin/order-verification.controller.js';
 import { OrderVerificationService } from './verification.service.js';
 import { OrderHandoverService } from './handover.service.js';
+import { LogisticsEventService } from './logistics-event.service.js';
+import { ReturnAcceptanceService } from './return-acceptance.service.js';
 
 /**
  * Orders: guest COD checkout (storefront) and admin list/detail/confirm/cancel.
@@ -24,6 +26,13 @@ import { OrderHandoverService } from './handover.service.js';
     AdminCustomersController,
     AdminOrderVerificationController,
   ],
-  providers: [OrdersService, CustomerRiskService, OrderVerificationService, OrderHandoverService],
+  providers: [
+    OrdersService,
+    CustomerRiskService,
+    OrderVerificationService,
+    OrderHandoverService,
+    LogisticsEventService,
+    ReturnAcceptanceService,
+  ],
 })
 export class OrdersModule {}

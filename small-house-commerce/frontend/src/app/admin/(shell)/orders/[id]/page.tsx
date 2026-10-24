@@ -37,6 +37,8 @@ const CONFIRM_BLOCKED = new Set<OrderStatus>([
   "DENIED",
   "SHIPPING",
   "SIGNED",
+  "RETURNED",
+  "PARTIALLY_RETURNED",
 ]);
 
 const CANCEL_BLOCKED = new Set<OrderStatus>([
@@ -45,6 +47,8 @@ const CANCEL_BLOCKED = new Set<OrderStatus>([
   "SIGNED",
   "AFTER_SALES",
   "SHIPPING",
+  "RETURNED",
+  "PARTIALLY_RETURNED",
 ]);
 
 const SOURCE_TYPE_LABELS: Record<SourceType, string> = {

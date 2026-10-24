@@ -30,7 +30,9 @@ export type OrderStatus =
   | "SIGNED"
   | "CANCELLED"
   | "DENIED"
-  | "AFTER_SALES";
+  | "AFTER_SALES"
+  | "RETURNED"
+  | "PARTIALLY_RETURNED";
 
 export type ConfirmationStatus =
   | "UNCONFIRMED"
@@ -223,6 +225,8 @@ export interface AdminOrderRow {
   preferredDeliveryDate: string | null;
   /** The note the customer service left on the order. */
   customerNote: string | null;
+  /** Set once every ordered unit has reached the warehouse. */
+  handoverCompletedAt: string | null;
 }
 
 export interface AdminOrderCustomer {
@@ -239,6 +243,7 @@ export type AdminOrderQueue =
   | "all"
   | "todo"
   | "recheck"
+  | "tohandover"
   | "toship"
   | "shipping"
   | "exception"
@@ -513,16 +518,60 @@ export interface AdminShipmentItem {
   orderItem: AdminOrderItem;
 }
 
+export type AdminLogisticsEventStatus =
+  | "SHIPPED"
+  | "IN_TRANSIT"
+  | "OUT_FOR_DELIVERY"
+  | "SIGNED"
+  | "FAILED_DELIVERY"
+  | "RETURNING"
+  | "RETURNED";
+
+export interface AdminLogisticsEvent {
+  id: string;
+  shipmentId: string;
+  carrier: string;
+  externalEventId: string | null;
+  externalStatus: string;
+  normalizedStatus: AdminLogisticsEventStatus;
+  eventTime: string;
+  receivedAt: string;
+  province: string | null;
+  city: string | null;
+  rawPayloadReference: string | null;
+  createdAt: string;
+}
+
+export interface AdminReturnAcceptanceItem {
+  id: string;
+  orderItemId: string;
+  quantityGood: number;
+  quantityDamaged: number;
+  conditionNote: string | null;
+}
+
+export interface AdminReturnAcceptance {
+  id: string;
+  orderId: string;
+  shipmentId: string;
+  reason: string | null;
+  receivedBy: string;
+  receivedAt: string;
+  createdAt: string;
+  items: AdminReturnAcceptanceItem[];
+}
+
 export interface AdminShipment {
   id: string;
   carrier: string;
   trackingNumber: string | null;
-  status: "SHIPPING" | "SIGNED";
+  status: "SHIPPING" | "SIGNED" | "RETURNED" | "PARTIALLY_RETURNED";
   shippingCost: string | null;
   shippedAt: string;
   signedAt: string | null;
   createdAt: string;
   items: AdminShipmentItem[];
+  events?: AdminLogisticsEvent[];
 }
 
 export interface AdminStatusHistory {
@@ -606,6 +655,7 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     createdAt: string;
   }[];
   shipments: AdminShipment[];
+  returnAcceptances?: AdminReturnAcceptance[];
 }
 
 // --- catalog -----------------------------------------------------------------
@@ -1696,10 +1746,47 @@ export const adminApi = {
   signShipment: (
     id: string,
     shipmentId: string,
-  ): Promise<{ shipmentId: string; orderStatus: string }> =>
+  ): Promise<{ shipmentId: string; orderStatus: string; shipmentStatus?: AdminShipment["status"] }> =>
     adminAuthedFetch(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}/sign`,
       { method: "POST" },
+    ),
+
+  recordLogisticsEvent: (    orderId: string,
+    shipmentId: string,
+    input: {
+      normalizedStatus: AdminLogisticsEventStatus;
+      externalStatus?: string;
+      externalEventId?: string;
+      eventTime?: string;
+      province?: string;
+      city?: string;
+      rawPayloadReference?: string;
+    },
+  ): Promise<AdminLogisticsEvent> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/shipments/${encodeURIComponent(shipmentId)}/events`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  // --- RTO / return acceptance (stage 3B) ---
+
+  acceptReturn: (
+    orderId: string,
+    input: {
+      shipmentId: string;
+      reason?: string;
+      items: {
+        orderItemId: string;
+        quantityGood: number;
+        quantityDamaged: number;
+        conditionNote?: string;
+      }[];
+    },
+  ): Promise<AdminReturnAcceptance> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${encodeURIComponent(orderId)}/returns`,
+      { method: "POST", body: JSON.stringify(input) },
     ),
 
   // --- Warehouse handover (stage 1A) ---
@@ -1822,6 +1909,8 @@ export const adminApi = {
     /** The customer classification asks for a human decision. */
     recheck: number;
     /** Confirmed and waiting for the warehouse. */
+    tohandover: number;
+    /** Confirmed, fully handed over and waiting for the carrier. */
     toship: number;
     /** On the way. */
     shipping: number;

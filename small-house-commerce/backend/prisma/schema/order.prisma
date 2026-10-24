@@ -26,6 +26,12 @@ enum OrderStatus {
   CANCELLED
   DENIED
   AFTER_SALES
+  /// Every unit left in this order was returned to the warehouse. No delivery
+  /// happened, so no COD money is owed.
+  RETURNED
+  /// Some units were delivered, the rest came back. This is how an order
+  /// closes: there is no later "fully signed".
+  PARTIALLY_RETURNED
 }
 
 enum ConfirmationStatus {
@@ -70,6 +76,10 @@ enum ReservationStatus {
 enum ShipmentStatus {
   SHIPPING
   SIGNED
+  /// The carrier brought every unit in this box back to us.
+  RETURNED
+  /// Part of the box came back and the rest was signed for.
+  PARTIALLY_RETURNED
 }
 
 enum MovementType {
@@ -202,6 +212,9 @@ model Order {
   verificationRequired Boolean  @default(false) @map("verification_required")
   // When the handler should come back to this order (follow-up callback).
   nextFollowUpAt DateTime? @map("next_follow_up_at") @db.Timestamptz(3)
+  // Derived from the handover events: the moment every ordered unit has
+  // arrived at the warehouse. The events stay the source of truth.
+  handoverCompletedAt DateTime? @map("handover_completed_at") @db.Timestamptz(3)
 
   customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
   items           OrderItem[]
@@ -221,6 +234,7 @@ model Order {
   verificationEvents     OrderVerificationEvent[]
   verificationApprovals  OrderVerificationApproval[]
   handoverEvents         OrderHandoverEvent[]
+  returnAcceptances      ReturnAcceptance[]
 
   @@index([customerId])
   @@index([orderStatus])
@@ -229,6 +243,7 @@ model Order {
   @@index([createdAt])
   @@index([trackingSessionId])
   @@index([nextFollowUpAt])
+  @@index([orderStatus, handoverCompletedAt])
   @@map("orders")
 }
 
@@ -302,9 +317,88 @@ model Shipment {
   order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
   warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   items     ShipmentItem[]
+  events    LogisticsEvent[]
+  returnAcceptances ReturnAcceptance[]
 
   @@index([orderId])
   @@map("shipments")
+}
+
+/// §65 normalized delivery states. The carrier's own wording stays in
+/// `external_status`; business rules only read this value.
+enum LogisticsEventStatus {
+  SHIPPED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  SIGNED
+  FAILED_DELIVERY
+  RETURNING
+  RETURNED
+}
+
+/// §64-66 what the carrier reported, kept verbatim alongside the normalized
+/// state. The unique pair is the idempotency key: a webhook delivered twice
+/// must not create a second event or move inventory twice.
+model LogisticsEvent {
+  id                  String               @id @default(uuid(7)) @db.Uuid
+  shipmentId          String               @map("shipment_id") @db.Uuid
+  carrier             String
+  externalEventId     String?              @map("external_event_id")
+  externalStatus      String               @map("external_status")
+  normalizedStatus    LogisticsEventStatus @map("normalized_status")
+  eventTime           DateTime             @map("event_time") @db.Timestamptz(3)
+  receivedAt          DateTime             @default(now()) @map("received_at") @db.Timestamptz(3)
+  province            String?
+  city                String?
+  rawPayloadReference String?              @map("raw_payload_reference")
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, externalEventId])
+  @@index([shipmentId, eventTime])
+  @@map("logistics_events")
+}
+
+/// §85 after-sales / RTO: what came back to the warehouse and what was
+/// accepted as sellable. Good units are restocked from the line's recorded
+/// Bundle snapshot; damaged units stay recorded here and never re-enter
+/// sellable stock. Acceptances are capped by the shipped quantity per line,
+/// so the same box cannot be "returned" twice.
+model ReturnAcceptance {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  orderId    String   @map("order_id") @db.Uuid
+  /// The box the goods came back in. Returns are counted per box, so a
+  /// partial return on one shipment never blocks signing another one.
+  shipmentId String   @map("shipment_id") @db.Uuid
+  reason     String?
+  receivedBy String   @map("received_by") @db.Uuid
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order    Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  shipment Shipment            @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  items    ReturnAcceptanceItem[]
+
+  @@index([orderId, receivedAt])
+  @@index([shipmentId])
+  @@map("return_acceptances")
+}
+
+model ReturnAcceptanceItem {
+  id                 String  @id @default(uuid(7)) @db.Uuid
+  returnAcceptanceId String  @map("return_acceptance_id") @db.Uuid
+  orderItemId        String  @map("order_item_id") @db.Uuid
+  quantityGood       Int     @map("quantity_good")
+  quantityDamaged    Int     @map("quantity_damaged")
+  conditionNote      String? @map("condition_note")
+
+  acceptance ReturnAcceptance @relation(fields: [returnAcceptanceId], references: [id], onDelete: Cascade)
+  orderItem  OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  @@unique([returnAcceptanceId, orderItemId])
+  @@index([orderItemId])
+  @@map("return_acceptance_items")
 }
 
 /// §63 shipment items — which order lines (and how much) went in each box.
@@ -345,6 +439,7 @@ model OrderItem {
   sku   Sku   @relation(fields: [skuId], references: [id], onDelete: Restrict)
 
   shipmentItems ShipmentItem[]
+  returnAcceptanceItems ReturnAcceptanceItem[]
 
   @@index([orderId])
   @@index([productId])

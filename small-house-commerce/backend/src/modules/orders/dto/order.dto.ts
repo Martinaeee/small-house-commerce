@@ -132,6 +132,7 @@ export const orderQuerySchema = z.object({
       'all',
       'todo',
       'recheck',
+      'tohandover',
       'toship',
       'shipping',
       'exception',
@@ -251,3 +252,41 @@ export const shipOrderSchema = z.object({
     .min(1),
 });
 export type ShipOrderInput = z.infer<typeof shipOrderSchema>;
+
+/** §64-66 a carrier event, either forwarded from a webhook or entered by hand. */
+export const logisticsEventSchema = z.object({
+  normalizedStatus: z.enum([
+    'SHIPPED',
+    'IN_TRANSIT',
+    'OUT_FOR_DELIVERY',
+    'SIGNED',
+    'FAILED_DELIVERY',
+    'RETURNING',
+    'RETURNED',
+  ]),
+  externalStatus: z.string().trim().max(200).optional(),
+  externalEventId: z.string().trim().max(120).optional(),
+  eventTime: z.coerce.date().optional(),
+  province: z.string().trim().max(120).optional(),
+  city: z.string().trim().max(120).optional(),
+  rawPayloadReference: z.string().trim().max(500).optional(),
+});
+export type LogisticsEventInput = z.infer<typeof logisticsEventSchema>;
+
+/** §85 RTO acceptance: what physically came back, split good or damaged. */
+export const acceptReturnSchema = z.object({
+  // The box the goods came back in. Its shipped quantity is the cap.
+  shipmentId: z.string().uuid(),
+  reason: z.string().trim().max(500).optional(),
+  items: z
+    .array(
+      z.object({
+        orderItemId: z.string().uuid(),
+        quantityGood: z.number().int().min(0),
+        quantityDamaged: z.number().int().min(0),
+        conditionNote: z.string().trim().max(300).optional(),
+      }),
+    )
+    .min(1),
+});
+export type AcceptReturnInput = z.infer<typeof acceptReturnSchema>;

@@ -16,8 +16,11 @@ import { CurrentUser } from '../../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from '../orders.service.js';
 import { OrderVerificationService } from '../verification.service.js';
+import { LogisticsEventService } from '../logistics-event.service.js';
+import { ReturnAcceptanceService } from '../return-acceptance.service.js';
 import { PermissionsService } from '../../auth/permissions.service.js';
 import {
+  acceptReturnSchema,
   addCustomerNoteSchema,
   addOrderNoteSchema,
   addRiskFlagSchema,
@@ -26,15 +29,18 @@ import {
   confirmDecisionSchema,
   editOrderSchema,
   mergeOrdersSchema,
+  logisticsEventSchema,
   orderQuerySchema,
   shipOrderSchema,
   updateOrderStatusSchema,
   type AddCustomerNoteInput,
   type AddOrderNoteInput,
   type AddRiskFlagInput,
+  type AcceptReturnInput,
   type AssignOrderInput,
   type CheckoutInput,
   type EditOrderInput,
+  type LogisticsEventInput,
   type MergeOrdersInput,
   type OrderQuery,
   type ShipOrderInput,
@@ -58,6 +64,8 @@ export class AdminOrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly verificationService: OrderVerificationService,
+    private readonly logisticsEvents: LogisticsEventService,
+    private readonly returns: ReturnAcceptanceService,
     private readonly permissions: PermissionsService,
   ) {}
 
@@ -240,6 +248,37 @@ export class AdminOrdersController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.ordersService.ship(id, body, user.userId);
+  }
+
+  /**
+   * §64-66 record one carrier event. Webhooks and manual entry share this
+   * path; a repeated external event id returns the stored event unchanged.
+   */
+  @Post(':id/shipments/:shipmentId/events')
+  @Permissions('SHIPMENT_CREATE')
+  recordLogisticsEvent(
+    @Param('id') id: string,
+    @Param('shipmentId') shipmentId: string,
+    @Body(new ZodValidationPipe(logisticsEventSchema)) body: LogisticsEventInput,
+  ) {
+    return this.logisticsEvents.record(id, shipmentId, body);
+  }
+
+  /** §85 RTO acceptance: good units return to sellable stock, damaged stay recorded. */
+  @Get(':id/returns')
+  @Permissions('ORDER_VIEW_ALL')
+  listReturns(@Param('id') id: string) {
+    return this.returns.list(id);
+  }
+
+  @Post(':id/returns')
+  @Permissions('ORDER_HANDOVER')
+  acceptReturn(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(acceptReturnSchema)) body: AcceptReturnInput,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.returns.accept(id, user.userId, body);
   }
 
   /** §69 sign a shipment; the order becomes SIGNED once all boxes are signed. */

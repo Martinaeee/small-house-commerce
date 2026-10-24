@@ -53,6 +53,10 @@ import {
   OrderRowDialogs,
   type RowDialogKind,
 } from "@/components/admin/orders/workbench/OrderRowDialogs";
+import {
+  FulfillmentDialog,
+  type FulfillmentKind,
+} from "@/components/admin/orders/workbench/FulfillmentDialog";
 
 /**
  * The order workbench (LUWAG Orders V2).
@@ -67,6 +71,7 @@ const QUEUES: { key: AdminOrderQueue; labelKey: TKey }[] = [
   { key: "all", labelKey: "orders_tab_all" },
   { key: "todo", labelKey: "orders_tab_todo" },
   { key: "recheck", labelKey: "orders_tab_recheck" },
+  { key: "tohandover", labelKey: "orders_tab_tohandover" },
   { key: "toship", labelKey: "orders_tab_toship" },
   { key: "shipping", labelKey: "orders_tab_shipping" },
   { key: "exception", labelKey: "orders_tab_exception" },
@@ -115,6 +120,8 @@ function OrdersPageContent() {
   const canNotePerm = hasPermission("ORDER_NOTE_WRITE");
   const canRiskPerm = hasPermission("ORDER_RISK_WRITE");
   const canMergePerm = hasPermission("ORDER_MERGE");
+  const canHandoverPerm = hasPermission("ORDER_HANDOVER");
+  const canShipPerm = hasPermission("SHIPMENT_CREATE");
 
   const router = useRouter();
   const pathname = usePathname();
@@ -138,6 +145,8 @@ function OrdersPageContent() {
         "CANCELLED",
         "DENIED",
         "AFTER_SALES",
+        "RETURNED",
+        "PARTIALLY_RETURNED",
       ].includes(s as AdminOrderListRow["orderStatus"]),
     );
   const statusKey = status.join(",");
@@ -145,6 +154,7 @@ function OrdersPageContent() {
     "all",
     "todo",
     "recheck",
+    "tohandover",
     "toship",
     "shipping",
     "exception",
@@ -555,6 +565,10 @@ function OrdersPageContent() {
     y: number;
   } | null>(null);
   const [rowDialog, setRowDialog] = useState<RowDialogKind>(null);
+  const [fulfillment, setFulfillment] = useState<{
+    kind: FulfillmentKind;
+    row: AdminOrderListRow;
+  } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [dialogRow, setDialogRow] = useState<AdminOrderListRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -657,7 +671,9 @@ function OrdersPageContent() {
             tone: "primary" as const,
           };
         case "CONFIRMED":
-          return { label: t("orders_action_handover"), tone: "primary" as const };
+          return row.handoverCompletedAt
+            ? { label: t("orders_action_ship"), tone: "primary" as const }
+            : { label: t("orders_action_handover"), tone: "primary" as const };
         case "SHIPPING":
           return { label: t("orders_action_sign"), tone: "primary" as const };
         case "ABNORMAL":
@@ -1060,6 +1076,43 @@ function OrdersPageContent() {
               <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_CANCEL</span>
             </button>
           ) : null}
+          {canHandoverPerm &&
+          rowMenu.row.orderStatus === "CONFIRMED" &&
+          !rowMenu.row.handoverCompletedAt ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                setFulfillment({ kind: "handover", row });
+              }}
+            >
+              {t("orders_action_handover")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">ORDER_HANDOVER</span>
+            </button>
+          ) : null}
+          {canShipPerm &&
+          ((rowMenu.row.orderStatus === "CONFIRMED" && rowMenu.row.handoverCompletedAt) ||
+            rowMenu.row.orderStatus === "SHIPPING") ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm text-ink-secondary hover:bg-background"
+              onClick={() => {
+                const row = rowMenu.row;
+                setRowMenu(null);
+                setFulfillment({
+                  kind: row.orderStatus === "SHIPPING" ? "sign" : "ship",
+                  row,
+                });
+              }}
+            >
+              {rowMenu.row.orderStatus === "SHIPPING"
+                ? t("orders_action_sign")
+                : t("orders_action_ship")}
+              <span className="pointer-events-none float-right text-[11px] text-ink-muted">SHIPMENT_CREATE</span>
+            </button>
+          ) : null}
           {canMergePerm ? (
             <button
               type="button"
@@ -1125,6 +1178,7 @@ function OrdersPageContent() {
 
       {/* The drawer of one order. */}
       <OrderDrawer
+        key={drawerRow?.id ?? "closed"}
         row={drawerRow}
         onClose={() => setDrawerRow(null)}
         staff={assignees}
@@ -1151,6 +1205,18 @@ function OrdersPageContent() {
         confirmBlockedReason={
           (drawerRow?.riskFlags.length ?? 0) > 0 ? t("orders_risk_unresolved") : null
         }
+        canHandover={canHandoverPerm}
+        canShip={canShipPerm}
+        onOpenHandover={() => {
+          if (drawerRow) setFulfillment({ kind: "handover", row: drawerRow });
+        }}
+        onOpenShip={() => {
+          if (drawerRow) setFulfillment({ kind: "ship", row: drawerRow });
+        }}
+        onOpenSign={() => {
+          if (drawerRow) setFulfillment({ kind: "sign", row: drawerRow });
+        }}
+        onChanged={reload}
       />
 
       {/* The checklist of one order. */}
@@ -1221,6 +1287,19 @@ function OrdersPageContent() {
           reload();
         }}
       />
+
+      {fulfillment ? (
+        <FulfillmentDialog
+          key={`${fulfillment.kind}-${fulfillment.row.id}`}
+          kind={fulfillment.kind}
+          row={fulfillment.row}
+          onClose={() => setFulfillment(null)}
+          onDone={() => {
+            setDrawerRow(null);
+            reload();
+          }}
+        />
+      ) : null}
 
       <NewOrderDialog
         open={showCreate}

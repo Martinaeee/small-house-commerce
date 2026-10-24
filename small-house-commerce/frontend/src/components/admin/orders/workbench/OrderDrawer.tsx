@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/admin/Badge";
 import {
   adminApi,
+  type AdminHandoverSummary,
+  type AdminOrderDetail,
   type AdminOrderListRow,
+  type AdminShipment,
   type AdminVerificationState,
 } from "@/lib/admin-api";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
@@ -16,6 +19,9 @@ import {
   waitingAge,
 } from "./format";
 import { useCustomerHistory } from "./useCustomerHistory";
+import { LogisticsEventDialog } from "./LogisticsEventDialog";
+import { ReturnAcceptanceDialog } from "./ReturnAcceptanceDialog";
+import { LOGISTICS_STATUS_KEYS } from "./logistics-labels";
 
 export type DrawerTab = "overview" | "verify" | "customer" | "goods" | "history";
 
@@ -31,6 +37,26 @@ export interface OrderDrawerProps {
   onConfirm: () => void;
   canConfirm: boolean;
   confirmBlockedReason: string | null;
+  canHandover: boolean;
+  canShip: boolean;
+  onOpenHandover: () => void;
+  onOpenShip: () => void;
+  onOpenSign: () => void;
+  /** Called after a write from inside the drawer, so the list can reload. */
+  onChanged?: () => void;
+}
+
+const SHIPMENT_STATUS_KEYS: Record<AdminShipment["status"], TKey> = {
+  SHIPPING: "orders_shipment_in_transit",
+  SIGNED: "orders_shipment_signed",
+  RETURNED: "orders_shipment_status_returned",
+  PARTIALLY_RETURNED: "orders_shipment_status_partially_returned",
+};
+
+function shipmentLabel(shipment: AdminShipment): string {
+  return `${shipment.carrier}${
+    shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ` · ${shipment.id.slice(0, 8)}`
+  }`;
 }
 
 const STATUS_KEY: Record<string, TKey> = {
@@ -62,15 +88,37 @@ export function OrderDrawer({
   onConfirm,
   canConfirm,
   confirmBlockedReason,
+  canHandover,
+  canShip,
+  onOpenHandover,
+  onOpenShip,
+  onOpenSign,
+  onChanged,
 }: OrderDrawerProps) {
   const { t } = useAdminI18n();
-  const [tab, setTab] = useState<DrawerTab>("overview");
+  // A picked-up or shipped order opens on the warehouse actions, not on the
+  // facts the operator already decided. The page remounts the drawer per
+  // order, so a new row starts again from its own first tab.
+  const [tab, setTab] = useState<DrawerTab>(() =>
+    row && (row.orderStatus === "CONFIRMED" || row.orderStatus === "SHIPPING")
+      ? "goods"
+      : "overview",
+  );
   // The checklist belongs to one order: the id keeps a stale answer of the
   // previous order out of the drawer.
   const [verification, setVerification] = useState<{
     orderId: string;
     state: AdminVerificationState;
   } | null>(null);
+  const [fulfillment, setFulfillment] = useState<{
+    orderId: string;
+    summary: AdminHandoverSummary;
+    detail: AdminOrderDetail;
+  } | null>(null);
+  // Bumped after a carrier event is recorded so the timeline refetches.
+  const [fulfillmentVersion, setFulfillmentVersion] = useState(0);
+  const [logisticsShipment, setLogisticsShipment] = useState<AdminShipment | null>(null);
+  const [returnOpen, setReturnOpen] = useState(false);
 
   const orderId = row?.id ?? null;
   const phone = row?.customer?.normalizedPhone ?? null;
@@ -93,6 +141,24 @@ export function OrderDrawer({
   }, [orderId]);
 
   useEffect(() => {
+    if (!orderId || tab !== "goods") return;
+    let active = true;
+    Promise.all([adminApi.handoverSummary(orderId), adminApi.getOrder(orderId)])
+      .then(([summary, detail]) => {
+        if (active) setFulfillment({ orderId, summary, detail });
+      })
+      .catch(() => {
+        // The items still render; the fulfillment block stays empty.
+      });
+    return () => {
+      active = false;
+    };
+  }, [orderId, tab, fulfillmentVersion]);
+
+  const fulfillmentForOrder =
+    fulfillment?.orderId === orderId ? fulfillment : null;
+
+  useEffect(() => {
     if (!row) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -102,6 +168,10 @@ export function OrderDrawer({
   }, [row, onClose]);
 
   if (!row) return null;
+
+  // The fetched detail is newer than the clicked row: after a return the
+  // status changes under the drawer, so the actions must follow it.
+  const displayStatus = fulfillmentForOrder?.detail.orderStatus ?? row.orderStatus;
 
   const address = row.shippingAddress
     ? [
@@ -131,12 +201,14 @@ export function OrderDrawer({
   const first = row.items[0];
 
   const nextStep = (() => {
-    if (row.orderStatus === "CANCELLED" || row.orderStatus === "DENIED") {
+    if (displayStatus === "CANCELLED" || displayStatus === "DENIED") {
       return t("orders_next_cancelled");
     }
-    if (row.orderStatus === "SIGNED") return t("orders_next_signed");
-    if (row.orderStatus === "SHIPPING") return t("orders_next_shipping");
-    if (row.orderStatus === "CONFIRMED") return t("orders_next_confirmed");
+    if (displayStatus === "RETURNED") return t("orders_next_returned");
+    if (displayStatus === "PARTIALLY_RETURNED") return t("orders_next_partially_returned");
+    if (displayStatus === "SIGNED") return t("orders_next_signed");
+    if (displayStatus === "SHIPPING") return t("orders_next_shipping");
+    if (displayStatus === "CONFIRMED") return t("orders_next_confirmed");
     if (!row.verification?.total) return t("orders_next_no_owner");
     return t("orders_next_verify");
   })();
@@ -167,7 +239,7 @@ export function OrderDrawer({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-[17px] font-semibold text-ink">{row.orderNumber}</h2>
-              <Badge value={row.orderStatus} className="text-[11.5px]" />
+              <Badge value={displayStatus} className="text-[11.5px]" />
             </div>
             <p className="mt-1 text-[11.5px] text-ink-muted">
               {t("orders_created")}: {fullDateTime(row.createdAt)}（
@@ -477,6 +549,215 @@ export function OrderDrawer({
                   </tbody>
                 </table>
               </div>
+              <section className="rounded-xl border border-border p-3">
+                <SectionTitle>{t("orders_fulfillment")}</SectionTitle>
+                <p className="mb-2 text-[11.5px] text-ink-muted">
+                  {t("orders_fulfillment_hint")}
+                </p>
+                {fulfillmentForOrder ? (
+                  <div className="space-y-3">
+                    <div>
+                      {fulfillmentForOrder.summary.complete ? (
+                        <p className="text-[12.5px] font-medium text-admin-success">
+                          {t("orders_handover_complete")}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-[12px] font-medium text-ink-secondary">
+                            {t("orders_handover_outstanding")}
+                          </p>
+                          <ul className="mt-1 space-y-0.5">
+                            {fulfillmentForOrder.summary.outstanding.map((line) => (
+                              <li
+                                key={line.orderItemId}
+                                className="flex items-center justify-between gap-3 text-[12.5px] text-ink-secondary"
+                              >
+                                <span className="font-mono text-[11.5px]">
+                                  {line.skuCodeSnapshot}
+                                </span>
+                                <span className="tabular-nums">× {line.quantity}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-[12px] font-medium text-ink-secondary">
+                        {t("orders_handover_events")}
+                      </p>
+                      {fulfillmentForOrder.summary.events.length === 0 ? (
+                        <p className="mt-1 text-[11.5px] text-ink-muted">
+                          {t("orders_handover_empty")}
+                        </p>
+                      ) : (
+                        <ul className="mt-1 space-y-1">
+                          {fulfillmentForOrder.summary.events.slice(0, 5).map((event) => (
+                            <li key={event.id} className="text-[11.5px] text-ink-secondary">
+                              <span className="font-medium text-ink">
+                                {t(
+                                  event.type === "HANDED_OVER"
+                                    ? "orders_handover_event_handed"
+                                    : event.type === "REJECTED"
+                                      ? "orders_handover_event_rejected"
+                                      : "orders_handover_event_withdrawn",
+                                )}
+                              </span>{" "}
+                              · {fullDateTime(event.occurredAt)}
+                              {event.reason ? ` · ${event.reason}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {fulfillmentForOrder.detail.shipments.length > 0 ? (
+                      <div>
+                        <p className="text-[12px] font-medium text-ink-secondary">
+                          {t("orders_shipment_status")}
+                        </p>
+                        <ul className="mt-1 space-y-1">
+                          {fulfillmentForOrder.detail.shipments.map((shipment) => (
+                            <li
+                              key={shipment.id}
+                              className="rounded-lg border border-border px-2.5 py-2 text-[11.5px] text-ink-secondary"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span>
+                                  {shipment.carrier}
+                                  {shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ""}
+                                  {" · "}
+                                  {t(SHIPMENT_STATUS_KEYS[shipment.status])}
+                                </span>
+                                <span className="flex items-center gap-2 tabular-nums">
+                                  {shipment.items.reduce((sum, item) => sum + item.quantity, 0)}{" "}
+                                  {t("orders_shipment_items")}
+                                  {canShip ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLogisticsShipment(shipment)}
+                                      className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-cta hover:bg-primary-light/40"
+                                    >
+                                      {t("orders_logistics_record")}
+                                    </button>
+                                  ) : null}
+                                </span>
+                              </div>
+                              {(shipment.events ?? []).length > 0 ? (
+                                <ul className="mt-1 space-y-0.5">
+                                  {(shipment.events ?? []).slice(0, 3).map((event) => (
+                                    <li key={event.id}>
+                                      {t(LOGISTICS_STATUS_KEYS[event.normalizedStatus])} ·{" "}
+                                      {fullDateTime(event.eventTime)}
+                                      {event.city ? ` · ${event.city}` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-ink-muted">
+                                  {t("orders_logistics_empty")}
+                                </p>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {(fulfillmentForOrder.detail.returnAcceptances ?? []).length > 0 ? (
+                      <div>
+                        <p className="text-[12px] font-medium text-ink-secondary">
+                          {t("orders_returns_received")}
+                        </p>
+                        <ul className="mt-1 space-y-1">
+                          {(fulfillmentForOrder.detail.returnAcceptances ?? []).map((acceptance) => (
+                            <li
+                              key={acceptance.id}
+                              className="rounded-lg border border-border px-2.5 py-2 text-[11.5px] text-ink-secondary"
+                            >
+                              <div>
+                                {fullDateTime(acceptance.receivedAt)}
+                                {acceptance.reason ? ` · ${acceptance.reason}` : ""}
+                                {" · "}
+                                {t("orders_returns_shipment")}{" "}
+                                {(() => {
+                                  const box = fulfillmentForOrder.detail.shipments.find(
+                                    (shipment) => shipment.id === acceptance.shipmentId,
+                                  );
+                                  return box
+                                    ? shipmentLabel(box)
+                                    : acceptance.shipmentId.slice(0, 8);
+                                })()}
+                              </div>
+                              <ul className="mt-0.5 space-y-0.5">
+                                {acceptance.items.map((item) => {
+                                  const line = row.items.find(
+                                    (entry) => entry.id === item.orderItemId,
+                                  );
+                                  return (
+                                    <li key={item.id}>
+                                      {line?.productNameSnapshot ?? item.orderItemId} ·{" "}
+                                      {t("orders_returns_good_count")} {item.quantityGood} ·{" "}
+                                      {t("orders_returns_damaged_count")} {item.quantityDamaged}
+                                      {item.conditionNote ? ` · ${item.conditionNote}` : ""}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap gap-2">
+                      {displayStatus === "CONFIRMED" &&
+                      !fulfillmentForOrder.summary.complete &&
+                      canHandover ? (
+                        <button
+                          type="button"
+                          onClick={onOpenHandover}
+                          className="rounded-lg bg-cta px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-cta-hover"
+                        >
+                          {t("orders_action_handover")}
+                        </button>
+                      ) : null}
+                      {displayStatus === "CONFIRMED" &&
+                      fulfillmentForOrder.summary.complete &&
+                      canShip ? (
+                        <button
+                          type="button"
+                          onClick={onOpenShip}
+                          className="rounded-lg bg-cta px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-cta-hover"
+                        >
+                          {t("orders_action_ship")}
+                        </button>
+                      ) : null}
+                      {displayStatus === "SHIPPING" && canShip ? (
+                        <button
+                          type="button"
+                          onClick={onOpenSign}
+                          className="rounded-lg bg-cta px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-cta-hover"
+                        >
+                          {t("orders_action_sign")}
+                        </button>
+                      ) : null}
+                      {displayStatus === "SHIPPING" && canHandover ? (
+                        <button
+                          type="button"
+                          onClick={() => setReturnOpen(true)}
+                          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-semibold text-cta hover:bg-primary-light/40"
+                        >
+                          {t("orders_returns_action")}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[12.5px] text-ink-muted">…</p>
+                )}
+              </section>
               <div className="rounded-lg border border-border p-3 text-[12.5px]">
                 <SumRow label={t("orders_subtotal")} value={peso(row.subtotal)} />
                 {Number(row.discountTotal) > 0 ? (
@@ -540,17 +821,46 @@ export function OrderDrawer({
           >
             {t("orders_close")}
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={!canConfirm}
-            title={confirmBlockedReason ?? undefined}
-            className="rounded-lg bg-cta px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-cta-hover disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {t("orders_verify_and_confirm")}
-          </button>
+          {row.orderStatus === "NEW" ||
+          row.orderStatus === "PENDING" ||
+          row.orderStatus === "QUESTION" ? (
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={!canConfirm}
+              title={confirmBlockedReason ?? undefined}
+              className="rounded-lg bg-cta px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-cta-hover disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("orders_verify_and_confirm")}
+            </button>
+          ) : null}
         </footer>
       </aside>
+
+      {logisticsShipment ? (
+        <LogisticsEventDialog
+          key={logisticsShipment.id}
+          orderId={row.id}
+          shipment={logisticsShipment}
+          onClose={() => setLogisticsShipment(null)}
+          onDone={() => {
+            setFulfillmentVersion((version) => version + 1);
+            onChanged?.();
+          }}
+        />
+      ) : null}
+
+      {returnOpen && fulfillmentForOrder ? (
+        <ReturnAcceptanceDialog
+          orderId={row.id}
+          detail={fulfillmentForOrder.detail}
+          onClose={() => setReturnOpen(false)}
+          onDone={() => {
+            setFulfillmentVersion((version) => version + 1);
+            onChanged?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

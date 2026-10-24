@@ -148,7 +148,7 @@ describe('DashboardService.overview drill-downs', () => {
 
     expect(params.get('paymentStatus')).toBe('FAILED');
     // The card counts failed payments on orders that still need attention, so
-    // the link must exclude cancelled and denied orders the same way.
+    // the link must exclude cancelled, denied and returned orders the same way.
     expect(params.get('status')?.split(',')).toEqual([
       'NEW',
       'PENDING',

@@ -256,6 +256,12 @@ function fulfilment(
   if (orderStatus === "SIGNED") {
     return <span className="text-admin-success">{t("history_fulfil_signed")}</span>;
   }
+  if (orderStatus === "RETURNED") {
+    return <span className="text-admin-error">{t("history_fulfil_returned")}</span>;
+  }
+  if (orderStatus === "PARTIALLY_RETURNED") {
+    return t("history_fulfil_partially_returned");
+  }
   if (orderStatus === "SHIPPING") {
     return hasRisk ? (
       <span className="text-admin-error">{t("history_fulfil_exception")}</span>

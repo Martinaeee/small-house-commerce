@@ -16,12 +16,22 @@ function createHarness(lines: Row[] = [
   let seq = 0;
   const db = {
     events: [] as Row[],
-    order: { id: ORDER_ID, orderStatus: 'CONFIRMED', items: lines } as Row | null,
+    order: {
+      id: ORDER_ID,
+      orderStatus: 'CONFIRMED',
+      confirmationStatus: 'CONFIRMED',
+      handoverCompletedAt: null,
+      items: lines,
+    } as Row | null,
   };
 
   const tx: Record<string, any> = {
     $queryRaw: vi.fn(async () => []),
-    order: { findUnique: vi.fn(async () => db.order) },
+    order: {
+      findUnique: vi.fn(async () => db.order),
+      update: vi.fn(async () => db.order),
+    },
+    orderStatusHistory: { create: vi.fn(async () => ({})) },
     orderHandoverEvent: {
       findMany: vi.fn(async ({ where }: { where: Row }) =>
         db.events.filter((e) => (where.orderId ? e.orderId === where.orderId : true)),
@@ -89,6 +99,121 @@ describe('OrderHandoverService', () => {
     await expect(
       service.record(ORDER_ID, OPERATOR, handover({ items: [{ orderItemId: LINE_2, quantity: 1 }] })),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('marks the order ready to ship only when every line has arrived', async () => {
+    const { service, tx } = createHarness([
+      { id: LINE_1, skuCodeSnapshot: 'SKU-NG-180-TN', quantity: 2 },
+    ]);
+
+    await service.record(ORDER_ID, OPERATOR, handover({ items: [{ orderItemId: LINE_1, quantity: 1 }] }));
+    expect(tx.order.update).not.toHaveBeenCalled();
+
+    await service.record(ORDER_ID, OPERATOR, handover({ items: [{ orderItemId: LINE_1, quantity: 1 }] }));
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      data: { handoverCompletedAt: expect.any(Date) },
+    });
+  });
+
+  it('cancels the order on a withdrawal without releasing stock', async () => {
+    const { service, tx } = createHarness();
+    await service.record(
+      ORDER_ID,
+      OPERATOR,
+      handover({ type: 'WITHDRAWN', reason: '客户行使撤回权' }),
+    );
+
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      data: { orderStatus: 'CANCELLED', handoverCompletedAt: null },
+    });
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: ORDER_ID,
+        statusDomain: 'ORDER_STATUS',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'CANCELLED',
+        source: 'ADMIN',
+        operatorId: OPERATOR,
+        comment: '客户行使撤回权',
+      }),
+    });
+  });
+
+  it('refuses a rejection after every line is already with the warehouse', async () => {
+    const { service, db } = createHarness();
+    db.order!.handoverCompletedAt = new Date('2026-10-23T09:00:00.000Z');
+    await expect(
+      service.record(
+        ORDER_ID,
+        OPERATOR,
+        handover({ type: 'REJECTED', reason: '外箱破损' }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.events).toHaveLength(0);
+  });
+
+  it('refuses a rejection when the recorded handovers already cover every line', async () => {
+    const { service } = createHarness();
+    await service.record(
+      ORDER_ID,
+      OPERATOR,
+      handover({
+        items: [
+          { orderItemId: LINE_1, quantity: 1 },
+          { orderItemId: LINE_2, quantity: 2 },
+        ],
+      }),
+    );
+    await expect(
+      service.record(
+        ORDER_ID,
+        OPERATOR,
+        handover({ type: 'REJECTED', reason: '外箱破损' }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns the order to review when the warehouse rejects it', async () => {
+    const { service, tx } = createHarness();
+    await service.record(
+      ORDER_ID,
+      OPERATOR,
+      handover({ type: 'REJECTED', reason: '外箱破损，缺 1 件' }),
+    );
+
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      data: {
+        orderStatus: 'PENDING',
+        confirmationStatus: 'UNCONFIRMED',
+        handoverCompletedAt: null,
+      },
+    });
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        statusDomain: 'ORDER_STATUS',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'PENDING',
+        comment: '仓库拒收：外箱破损，缺 1 件',
+      }),
+    });
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        statusDomain: 'CONFIRMATION_STATUS',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'UNCONFIRMED',
+      }),
+    });
+  });
+
+  it('refuses handover events before the order is confirmed', async () => {
+    const { service, db } = createHarness();
+    db.order!.orderStatus = 'PENDING';
+    await expect(service.record(ORDER_ID, OPERATOR, handover())).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('requires a reason when the warehouse refuses', async () => {

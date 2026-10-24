@@ -157,6 +157,40 @@ describe('the workbench list', () => {
     const where = JSON.stringify((prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where);
     expect(where).toContain('skuCodeSnapshot');
   });
+
+  it('separates the orders still waiting for the warehouse from the ones ready to ship', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findMany.mockResolvedValue([]);
+
+    await service.list({ page: 1, pageSize: 20, queue: 'tohandover' });
+    const handoverWhere = JSON.stringify(
+      (prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where,
+    );
+    expect(handoverWhere).toContain('"handoverCompletedAt":null');
+    expect(handoverWhere).toContain('CONFIRMED');
+
+    prisma.order.findMany.mockClear();
+    await service.list({ page: 1, pageSize: 20, queue: 'toship' });
+    const shipWhere = JSON.stringify(
+      (prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where,
+    );
+    expect(shipWhere).toContain('"handoverCompletedAt":{"not":null}');
+    expect(shipWhere).toContain('CONFIRMED');
+  });
+
+  it('treats a failed delivery as an exception until the box is signed', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findMany.mockResolvedValue([]);
+
+    await service.list({ page: 1, pageSize: 20, queue: 'exception' });
+    const where = JSON.stringify(
+      (prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where,
+    );
+    expect(where).toContain('FAILED_DELIVERY');
+    expect(where).toContain('RETURNING');
+    expect(where).toContain('"status":"SHIPPING"');
+    expect(where).toContain('"resolved":false');
+  });
 });
 
 describe('the workbench counters', () => {
@@ -177,6 +211,7 @@ describe('the workbench counters', () => {
     expect(counts.byStatus.NEW).toBe(3);
     expect(counts.queues).toHaveProperty('todo');
     expect(counts.queues).toHaveProperty('recheck');
+    expect(counts.queues).toHaveProperty('tohandover');
     expect(counts.queues).toHaveProperty('toship');
     expect(counts.queues).toHaveProperty('shipping');
     expect(counts.queues).toHaveProperty('exception');

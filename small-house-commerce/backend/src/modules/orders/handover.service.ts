@@ -49,6 +49,11 @@ export class OrderHandoverService {
         include: { items: { select: { id: true, skuCodeSnapshot: true, quantity: true } } },
       });
       if (!order) throw new NotFoundException('Order not found');
+      if (order.orderStatus !== 'CONFIRMED') {
+        throw new BadRequestException(
+          `Only confirmed orders can be handed over (current: ${order.orderStatus})`,
+        );
+      }
 
       if ((input.type === 'REJECTED' || input.type === 'WITHDRAWN') && !input.reason) {
         throw new BadRequestException(
@@ -58,8 +63,18 @@ export class OrderHandoverService {
       if (!input.items.length) {
         throw new BadRequestException('必须写明交仓的订单行与数量');
       }
-
       const alreadyHandedOver = await this.handedOverMap(tx, orderId);
+      // The cached column can lag behind orders recorded before it existed;
+      // the events below are what actually proves the goods arrived.
+      const allLinesReceived = order.items.every(
+        (line) => (alreadyHandedOver.get(line.id) ?? 0) >= line.quantity,
+      );
+      if (input.type === 'REJECTED' && (order.handoverCompletedAt || allLinesReceived)) {
+        throw new BadRequestException(
+          'All goods are already at the warehouse; record a withdrawal or an after-sales case instead',
+        );
+      }
+
       const lineById = new Map(order.items.map((i) => [i.id, i]));
 
       const items = input.items.map((entry) => {
@@ -90,7 +105,7 @@ export class OrderHandoverService {
         };
       });
 
-      return tx.orderHandoverEvent.create({
+      const event = await tx.orderHandoverEvent.create({
         data: {
           orderId,
           type: input.type,
@@ -102,6 +117,79 @@ export class OrderHandoverService {
           items: items as unknown as object,
         },
       });
+
+      if (input.type === 'HANDED_OVER') {
+        const totals = new Map(alreadyHandedOver);
+        for (const item of items) {
+          totals.set(item.orderItemId, (totals.get(item.orderItemId) ?? 0) + item.quantity);
+        }
+        const complete = order.items.every(
+          (line) => (totals.get(line.id) ?? 0) >= line.quantity,
+        );
+        if (complete !== Boolean(order.handoverCompletedAt)) {
+          await tx.order.update({
+            where: { id: orderId },
+            data: { handoverCompletedAt: complete ? new Date() : null },
+          });
+        }
+      }
+
+      if (input.type === 'REJECTED') {
+        // The goods did not enter the warehouse: send the order back to the
+        // review queue so a person decides what happens next.
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            orderStatus: 'PENDING',
+            confirmationStatus: 'UNCONFIRMED',
+            handoverCompletedAt: null,
+          },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'PENDING',
+            source: 'ADMIN',
+            operatorId,
+            comment: `仓库拒收：${input.reason}`,
+          },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'CONFIRMATION_STATUS',
+            oldStatus: order.confirmationStatus,
+            newStatus: 'UNCONFIRMED',
+            source: 'ADMIN',
+            operatorId,
+            comment: '仓库拒收后重新核实',
+          },
+        });
+      }
+
+      if (input.type === 'WITHDRAWN') {
+        // The goods are already with the warehouse: cancelling must not put
+        // them back on sale. This path deliberately does not touch inventory.
+        await tx.order.update({
+          where: { id: orderId },
+          data: { orderStatus: 'CANCELLED', handoverCompletedAt: null },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            statusDomain: 'ORDER_STATUS',
+            oldStatus: order.orderStatus,
+            newStatus: 'CANCELLED',
+            source: 'ADMIN',
+            operatorId,
+            comment: input.reason ?? null,
+          },
+        });
+      }
+
+      return event;
     });
   }
 

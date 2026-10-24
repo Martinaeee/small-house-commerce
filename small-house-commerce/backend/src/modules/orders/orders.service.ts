@@ -35,6 +35,11 @@ import {
   type OrderItemSnapshotWrite,
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
+import {
+  orderStatusAfterSign,
+  quantityByLine,
+  type ShipmentSnapshot,
+} from './return-outcome.js';
 
 /**
  * The verification progress of one order, as the workbench table shows it
@@ -91,10 +96,17 @@ const ORDER_DETAIL_INCLUDE = {
   reservations: true,
   notes: { orderBy: { createdAt: 'desc' as const } },
   riskFlags: { orderBy: { createdAt: 'desc' as const } },
+  returnAcceptances: {
+    include: { items: true },
+    orderBy: { receivedAt: 'desc' as const },
+  },
   mergeRecordsPrimary: { include: { mergedOrder: { select: { id: true, orderNumber: true } } } },
   mergeRecordsMerged: { include: { primaryOrder: { select: { id: true, orderNumber: true } } } },
   shipments: {
-    include: { items: { include: { orderItem: true } } },
+    include: {
+      items: { include: { orderItem: true } },
+      events: { orderBy: [{ eventTime: 'desc' as const }, { receivedAt: 'desc' as const }] },
+    },
     orderBy: { createdAt: 'desc' as const },
   },
   verificationAssignments: {
@@ -853,6 +865,7 @@ export class OrdersService {
       all,
       todo,
       recheck,
+      tohandover,
       toship,
       shipping,
       exception,
@@ -876,6 +889,7 @@ export class OrdersService {
       this.prisma.order.count({ where: base }),
       this.prisma.order.count({ where: { AND: [base, bucket('todo')] } }),
       this.prisma.order.count({ where: { AND: [base, bucket('recheck')] } }),
+      this.prisma.order.count({ where: { AND: [base, bucket('tohandover')] } }),
       this.prisma.order.count({ where: { AND: [base, bucket('toship')] } }),
       this.prisma.order.count({ where: { AND: [base, bucket('shipping')] } }),
       this.prisma.order.count({ where: { AND: [base, bucket('exception')] } }),
@@ -895,6 +909,7 @@ export class OrdersService {
       duplicate,
       todo,
       recheck,
+      tohandover,
       toship,
       shipping,
       exception,
@@ -906,6 +921,7 @@ export class OrdersService {
         all,
         todo,
         recheck,
+        tohandover,
         toship,
         shipping,
         exception,
@@ -1723,12 +1739,33 @@ export class OrdersService {
         };
       case 'recheck':
         return { customerClassification: { in: ['RPT', 'RECHECK'] } };
+      case 'tohandover':
+        return { orderStatus: 'CONFIRMED', handoverCompletedAt: null };
       case 'toship':
-        return { orderStatus: 'CONFIRMED' };
+        return { orderStatus: 'CONFIRMED', handoverCompletedAt: { not: null } };
       case 'shipping':
         return { orderStatus: 'SHIPPING' };
       case 'exception':
-        return { orderStatus: 'SHIPPING', riskFlags: { some: { resolved: false } } };
+        // A box that failed delivery (or is coming back) is an exception until
+        // it is actually signed; unresolved risk flags stay on the same queue.
+        return {
+          orderStatus: 'SHIPPING',
+          OR: [
+            { riskFlags: { some: { resolved: false } } },
+            {
+              shipments: {
+                some: {
+                  status: 'SHIPPING',
+                  events: {
+                    some: {
+                      normalizedStatus: { in: ['FAILED_DELIVERY', 'RETURNING'] },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        };
       case 'signed':
         return { orderStatus: 'SIGNED' };
       case 'cods':
@@ -1838,6 +1875,29 @@ export class OrdersService {
   }
 
   /**
+   * Whether the recorded handover events cover every ordered unit. The
+   * `handover_completed_at` column is a cache of this answer.
+   */
+  private async handoverCoversEveryLine(
+    tx: Pick<Prisma.TransactionClient, 'orderHandoverEvent'>,
+    orderId: string,
+    lines: { id: string; quantity: number }[],
+  ): Promise<boolean> {
+    const events = await tx.orderHandoverEvent.findMany({ where: { orderId } });
+    const totals = new Map<string, number>();
+    for (const event of events) {
+      if (event.type !== 'HANDED_OVER') continue;
+      for (const item of (event.items as { orderItemId: string; quantity: number }[] | null) ??
+        []) {
+        totals.set(item.orderItemId, (totals.get(item.orderItemId) ?? 0) + item.quantity);
+      }
+    }
+    return (
+      lines.length > 0 && lines.every((line) => (totals.get(line.id) ?? 0) >= line.quantity)
+    );
+  }
+
+  /**
    * Warehouse shipping action (API_SPEC §22.3, DATABASE §61-63, §69).
    * Ships a subset of the order's lines as one shipment; partial shipments are
    * allowed, so the order may stay SHIPPING while more boxes are created.
@@ -1870,6 +1930,20 @@ export class OrdersService {
       throw new BadRequestException(
         'Order must be confirmation-confirmed before shipping',
       );
+    }
+    if (order.orderStatus === 'CONFIRMED' && !order.handoverCompletedAt) {
+      // The flag is derived from the append-only handover events, so it can
+      // lag behind rows recorded before it existed. The events decide.
+      const covered = await this.handoverCoversEveryLine(tx, order.id, order.items);
+      if (!covered) {
+        throw new BadRequestException(
+          'Handover is not complete: every order line must be handed over to the warehouse before shipping',
+        );
+      }
+      await tx.order.update({
+        where: { id: order.id },
+        data: { handoverCompletedAt: new Date() },
+      });
     }
     const blocking = order.riskFlags.filter(
       (f) =>
@@ -1981,44 +2055,90 @@ export class OrdersService {
 
   /** §69 sign a shipment: every box signed moves the order to SIGNED. */
   async sign(orderId: string, shipmentId: string, operatorId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { shipments: true },
-    });
-    if (!order) throw new NotFoundException('Order not found');
-    const shipment = order.shipments.find((s) => s.id === shipmentId);
-    if (!shipment) {
-      throw new NotFoundException('Shipment not found on this order');
-    }
-    if (shipment.status === 'SIGNED') {
-      throw new BadRequestException('Shipment is already signed');
-    }
-    if (order.orderStatus !== 'SHIPPING') {
-      throw new BadRequestException(`Order is ${order.orderStatus}; only SHIPPING orders can be signed`);
-    }
-
     return this.prisma.$transaction(async (tx) => {
+      // Serialize with return acceptance on the same order: a box cannot be
+      // signed and accepted back at the same time.
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: true,
+          shipments: { include: { items: true } },
+        },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+      const shipment = order.shipments.find((s) => s.id === shipmentId);
+      if (!shipment) {
+        throw new NotFoundException('Shipment not found on this order');
+      }
+      if (shipment.status === 'SIGNED') {
+        throw new BadRequestException('Shipment is already signed');
+      }
+      if (shipment.status === 'RETURNED' || shipment.status === 'PARTIALLY_RETURNED') {
+        throw new BadRequestException(
+          `Shipment was already returned; its goods cannot be signed (current: ${shipment.status})`,
+        );
+      }
+      if (order.orderStatus !== 'SHIPPING') {
+        throw new BadRequestException(`Order is ${order.orderStatus}; only SHIPPING orders can be signed`);
+      }
+
+      // Some units of this box may already be back in the warehouse. Signing
+      // covers whatever is left; a fully returned box is refused above.
+      const acceptedInBox = new Map<string, number>();
+      for (const item of await tx.returnAcceptanceItem.findMany({
+        where: { acceptance: { orderId, shipmentId } },
+        select: { orderItemId: true, quantityGood: true, quantityDamaged: true },
+      })) {
+        acceptedInBox.set(
+          item.orderItemId,
+          (acceptedInBox.get(item.orderItemId) ?? 0) +
+            item.quantityGood +
+            item.quantityDamaged,
+        );
+      }
+      const hasReturnedUnits = [...acceptedInBox.values()].some((quantity) => quantity > 0);
+      const shipmentStatus = hasReturnedUnits ? 'PARTIALLY_RETURNED' : 'SIGNED';
+
       await tx.shipment.update({
         where: { id: shipmentId },
-        data: { status: 'SIGNED', signedAt: new Date() },
+        data: { status: shipmentStatus, signedAt: new Date() },
       });
 
-      const remaining = await tx.shipment.count({
-        where: { orderId, status: 'SHIPPING' },
+      const shipments: ShipmentSnapshot[] = order.shipments.map((box) => ({
+        id: box.id,
+        status: box.id === shipmentId ? shipmentStatus : box.status,
+        items: box.items,
+      }));
+      const shippedByLine = new Map<string, number>();
+      for (const box of shipments) {
+        for (const [orderItemId, quantity] of quantityByLine(box.items)) {
+          shippedByLine.set(orderItemId, (shippedByLine.get(orderItemId) ?? 0) + quantity);
+        }
+      }
+      // A partial shipment may not cover the whole order yet: only a fully
+      // shipped order can reach a terminal status.
+      const fullyShipped = order.items.every(
+        (line) => (shippedByLine.get(line.id) ?? 0) >= line.quantity,
+      );
+      const orderStatus = orderStatusAfterSign({
+        lines: order.items,
+        shipments,
+        fullyShipped,
       });
-      let orderStatus = order.orderStatus;
-      if (remaining === 0) {
-        orderStatus = 'SIGNED';
+      if (orderStatus !== order.orderStatus) {
         await tx.order.update({ where: { id: orderId }, data: { orderStatus } });
         await tx.orderStatusHistory.create({
           data: {
             orderId,
             statusDomain: 'ORDER_STATUS',
             oldStatus: order.orderStatus,
-            newStatus: 'SIGNED',
+            newStatus: orderStatus,
             source: 'ADMIN',
             operatorId,
-            comment: 'All shipments signed',
+            comment: hasReturnedUnits
+              ? 'Remaining goods signed; some units were returned'
+              : 'All shipments signed',
           },
         });
       }
@@ -2032,7 +2152,7 @@ export class OrdersService {
         },
       });
 
-      return { shipmentId, orderStatus };
+      return { shipmentId, orderStatus, shipmentStatus };
     });
   }
 
