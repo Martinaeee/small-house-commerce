@@ -18,7 +18,7 @@ import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAction";
 import { Toast } from "@/components/ui/Toast";
-import { formatPrice, PriceBox } from "@/components/ui/PriceBox";
+import { PriceBox } from "@/components/ui/PriceBox";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import {
   addToCartEvent,
@@ -37,7 +37,8 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
-import { pdpSolutionBadges } from "./pdp-facts";
+import { pdpSellingPointsVisible, pdpSolutionBadges } from "./pdp-facts";
+import { resolvePdpBanner } from "./pdp-banner";
 import {
   analyzePdpSpecifications,
   formatBundleComponentDimensions,
@@ -166,6 +167,7 @@ export function PdpClient({
   promoSlot,
   purchaseOnly = false,
   preview = false,
+  hideSellingPoints = false,
 }: {
   product: Product;
   category: { name: string; slug: string }[] | null;
@@ -179,6 +181,8 @@ export function PdpClient({
   promoSlot?: ReactNode;
   purchaseOnly?: boolean;
   preview?: boolean;
+  /** Site-wide switch; a product pinned SHOW/HIDE overrides it. */
+  hideSellingPoints?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -255,7 +259,14 @@ export function PdpClient({
         : foldedSummary !== null
           ? { label: "Folded size:", value: foldedSummary }
           : null;
-  const sellingPoints = pdpSolutionBadges(product);
+  const sellingPoints = pdpSellingPointsVisible(product, hideSellingPoints)
+    ? pdpSolutionBadges(product)
+    : [];
+  const banner = resolvePdpBanner(product);
+  // A live campaign banner turns the whole purchase column into one framed
+  // card, the banner being its top strip. Without a banner the column keeps
+  // its original borderless layout.
+  const framed = !purchaseOnly && banner !== null;
   const basePath = productPath ?? `/products/${product.slug}`;
   const urlVariantValues = searchParams.getAll("variant");
   const hasVariantParam = urlVariantValues.length > 0;
@@ -686,8 +697,25 @@ export function PdpClient({
           ref={heroRef}
           id="pdp-purchase"
           data-testid="pdp-purchase"
-          className="flex min-w-0 scroll-mt-32 flex-col gap-3 lg:gap-4"
+          data-framed={framed ? "true" : undefined}
+          className={`flex min-w-0 scroll-mt-32 flex-col ${
+            framed
+              ? "self-start overflow-hidden rounded-xl border border-border bg-card"
+              : "gap-3 lg:gap-4"
+          }`}
         >
+          {framed && banner && (
+            // Campaign banner: the card's top strip. Its colours are authored
+            // per product and fall back to the sale red / readable text.
+            <p
+              data-testid="pdp-banner"
+              className="px-3 py-2 text-center text-sm font-semibold leading-snug"
+              style={{ backgroundColor: banner.background, color: banner.textColor }}
+            >
+              {banner.text}
+            </p>
+          )}
+          <div className={framed ? "flex flex-col gap-3 p-3 lg:gap-4 lg:p-4" : "contents"}>
           {!purchaseOnly && <>
           <div className="flex min-w-0 flex-col gap-2">
             <h1 className="break-words text-xl font-semibold leading-snug text-ink lg:text-product-title lg:leading-snug">
@@ -722,13 +750,8 @@ export function PdpClient({
           </>}
 
           {purchaseOnly ? (
-            <div>
-              <PriceBox price={price} compareAtPrice={compareAt} />
-              {price !== null && compareAt !== null && compareAt > price && (
-                <p className="mt-1 text-sm font-medium text-sale">Save {formatPrice(compareAt - price)}</p>
-              )}
-            </div>
-          ) : <PriceBox price={price} compareAtPrice={compareAt} size="lg" showSavings />}
+            <PriceBox price={price} compareAtPrice={compareAt} />
+          ) : <PriceBox price={price} compareAtPrice={compareAt} size="lg" />}
 
           {stockLabel && (
             <p className="text-sm font-semibold text-sale" data-testid="stock-state">{stockLabel}</p>
@@ -834,7 +857,11 @@ export function PdpClient({
             // estimate is gone, so the assurances stand on their own. They
             // stay on ONE row; a phone that is too narrow scrolls the row
             // sideways instead of stacking the lines.
-            className="flex scroll-mt-32 flex-nowrap items-center gap-x-4 overflow-x-auto overscroll-x-contain text-xs text-ink-secondary [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-x-6 sm:text-sm"
+            className={`flex scroll-mt-32 flex-nowrap items-center gap-x-4 overflow-x-auto overscroll-x-contain text-xs text-ink-secondary [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-x-6 sm:text-sm ${
+              // Inside the campaign card the row must not be clipped by the
+              // card's rounded edge, so it stacks there instead of scrolling.
+              framed ? "sm:flex-wrap sm:overflow-visible" : ""
+            }`}
           >
             {SERVICE_ASSURANCES.map((line) => (
               <li
@@ -852,6 +879,7 @@ export function PdpClient({
               {notice}
             </p>
           )}
+          </div>
         </div>
       </div>
 

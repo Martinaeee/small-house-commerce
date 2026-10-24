@@ -50,6 +50,8 @@ export type PaymentStatus =
   | "PARTIALLY_REFUNDED";
 
 export type ProductStatus = "DRAFT" | "ACTIVE" | "DISABLED";
+/** PDP selling-point pills: INHERIT follows the site-wide switch. */
+export type SellingPointsVisibility = "INHERIT" | "SHOW" | "HIDE";
 
 export type SourceType =
   | "FB_POST"
@@ -847,6 +849,12 @@ export interface AdminProduct {
   /** Structured specifications; features is one entry per line. */
   materials: string | null;
   features: string | null;
+  /** PDP presentation; optional while talking to a pre-migration API. */
+  sellingPointsVisibility?: SellingPointsVisibility;
+  pdpBannerEnabled?: boolean;
+  pdpBannerText?: string | null;
+  pdpBannerBackground?: string | null;
+  pdpBannerTextColor?: string | null;
   createdAt: string;
   updatedAt: string;
   // Product scalar columns are always returned (findUnique/include), even
@@ -1174,6 +1182,7 @@ export interface AdminSiteSettings {
   newsletterFormTitle: string;
   newsletterEmailPlaceholder: string;
   newsletterConsentText: string;
+  hideSellingPoints: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1194,6 +1203,7 @@ export interface UpdateSiteSettingsInput {
   newsletterFormTitle?: string;
   newsletterEmailPlaceholder?: string;
   newsletterConsentText?: string;
+  hideSellingPoints?: boolean;
 }
 
 /** Hero appearance payload (see the backend heroStyle input contract).
@@ -1365,6 +1375,11 @@ export interface CreateProductInput {
   foldedDepth: number | null;
   materials?: string | null;
   features?: string | null;
+  sellingPointsVisibility?: SellingPointsVisibility;
+  pdpBannerEnabled?: boolean;
+  pdpBannerText?: string | null;
+  pdpBannerBackground?: string | null;
+  pdpBannerTextColor?: string | null;
   images: { url: string; type?: "IMAGE" | "VIDEO"; altText?: string; sortOrder?: number; isScene?: boolean }[];
   detailBlocks: {
     type: "IMAGE" | "VIDEO";
@@ -2057,6 +2072,15 @@ export const adminApi = {
     adminAuthedFetch<{ updated: number; notFound: number }>(
       "/api/v1/admin/products/bulk-status",
       { method: "POST", body: JSON.stringify({ ids, status }) },
+    ),
+
+  bulkSetPdpBanner: (
+    ids: string[],
+    banner: { text: string; background: string; textColor?: string | null } | null,
+  ): Promise<{ updated: number; notFound: number }> =>
+    adminAuthedFetch<{ updated: number; notFound: number }>(
+      "/api/v1/admin/products/bulk-pdp-banner",
+      { method: "POST", body: JSON.stringify({ ids, banner }) },
     ),
 
   // --- product reviews (cold-start admin moderation) ----------------------

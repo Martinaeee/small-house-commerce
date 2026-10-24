@@ -25,6 +25,7 @@ import {
   type SavedProductLinkContext,
 } from "./product-form/ProductSeoLinksPanel";
 import { ProductDetailBody } from "@/components/product/ProductDetailBody";
+import { PdpBannerFields } from "./product-form/PdpBannerFields";
 import { ProductSpecs } from "@/components/product/ProductSpecs";
 import {
   formatAmount,
@@ -32,6 +33,7 @@ import {
   type AdminProductFaq,
   type CreateProductInput,
   type ProductStatus,
+  type SellingPointsVisibility,
   type VariantCardMedia,
 } from "@/lib/admin-api";
 import {
@@ -103,6 +105,14 @@ export interface ProductFormValue {
   materials: string;
   /** One feature per array slot (each becomes one line). */
   features: string[];
+  /** PDP selling-point pills; INHERIT follows the site-wide switch. */
+  sellingPointsVisibility: SellingPointsVisibility;
+  /** One promo strip above the PDP title; blank copy means "not authored". */
+  pdpBannerEnabled: boolean;
+  pdpBannerText: string;
+  /** `#rrggbb`; blank falls back to the brand colour / readable text. */
+  pdpBannerBackground: string;
+  pdpBannerTextColor: string;
   images: { id?: string; clientKey?: string; url: string; type: "IMAGE" | "VIDEO"; altText: string; sortOrder: string; isScene?: boolean }[];
   /** PDP description body. Media-only: the supplier detail decks are images
    *  and videos, and `description` already carries the short text intro. */
@@ -270,6 +280,11 @@ const SOLUTIONS = [
   "HIDDEN_STORAGE",
   "RENTAL_FRIENDLY",
 ] as const;
+const SOLUTION_VISIBILITY_OPTIONS: SellingPointsVisibility[] = [
+  "INHERIT",
+  "SHOW",
+  "HIDE",
+];
 
 const ROOM_LABEL_KEYS: Record<string, TKey> = {
   BEDROOM: "product_room_BEDROOM",
@@ -316,6 +331,9 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Standard finite decimal forms incl. scientific notation (Number()-parsable).
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+// Banner colours go into an inline style, so only `#rrggbb` is accepted.
+// Blank is allowed and means "use the storefront default".
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 const DIMENSION_FIELDS: {
   key:
@@ -429,6 +447,11 @@ export function emptyProductFormValue(): ProductFormValue {
     foldedDepth: "",
     materials: "",
     features: [],
+    sellingPointsVisibility: "INHERIT",
+    pdpBannerEnabled: false,
+    pdpBannerText: "",
+    pdpBannerBackground: "",
+    pdpBannerTextColor: "",
     images: [],
     detailBlocks: [],
     variants: [],
@@ -576,6 +599,28 @@ export function serializeFormValue(
   const tagline = v.tagline.trim();
   if (tagline.length > 200)
     addError(errors, "tagline", translate("product_err_tagline_max"));
+
+  const pdpBannerText = v.pdpBannerText.trim();
+  if (pdpBannerText.length > 60)
+    addError(
+      errors,
+      "pdpBannerText",
+      translate("product_err_pdp_banner_text_max"),
+    );
+  const pdpBannerBackground = v.pdpBannerBackground.trim();
+  if (pdpBannerBackground && !HEX_COLOR_RE.test(pdpBannerBackground))
+    addError(
+      errors,
+      "pdpBannerBackground",
+      translate("product_err_pdp_banner_color"),
+    );
+  const pdpBannerTextColor = v.pdpBannerTextColor.trim();
+  if (pdpBannerTextColor && !HEX_COLOR_RE.test(pdpBannerTextColor))
+    addError(
+      errors,
+      "pdpBannerTextColor",
+      translate("product_err_pdp_banner_color"),
+    );
 
   const seoTitle = v.seoTitle.trim();
   if (seoTitle.length > 200)
@@ -784,6 +829,11 @@ export function serializeFormValue(
     ...dimensions,
     materials: materials || null,
     features: features.join("\n") || null,
+    sellingPointsVisibility: v.sellingPointsVisibility,
+    pdpBannerEnabled: v.pdpBannerEnabled,
+    pdpBannerText: pdpBannerText || null,
+    pdpBannerBackground: pdpBannerBackground || null,
+    pdpBannerTextColor: pdpBannerTextColor || null,
     images,
     detailBlocks,
     variants,
@@ -1817,6 +1867,59 @@ export function ProductForm({
                       </li>
                     ))}
                   </ul>
+                </fieldset>
+
+                <Field
+                  label={t("product_basic_solutions_visibility_label")}
+                  htmlFor="pf-solutions-visibility"
+                  hint={t("product_basic_solutions_visibility_hint")}
+                >
+                  <Select
+                    id="pf-solutions-visibility"
+                    value={value.sellingPointsVisibility}
+                    onChange={(e) =>
+                      patch({
+                        sellingPointsVisibility: e.target
+                          .value as SellingPointsVisibility,
+                      })
+                    }
+                  >
+                    {SOLUTION_VISIBILITY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {t(`product_solutions_visibility_${option}`)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="text-sm font-medium text-ink">
+                    {t("product_pdp_banner_legend")}
+                  </legend>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {t("product_pdp_banner_hint")}
+                  </p>
+                  <label className="mt-2 flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={value.pdpBannerEnabled}
+                      onChange={(e) =>
+                        patch({ pdpBannerEnabled: e.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-border accent-cta"
+                    />
+                    {t("product_pdp_banner_enabled_label")}
+                  </label>
+                  <PdpBannerFields
+                    id="pf-pdp-banner"
+                    value={{ text: value.pdpBannerText, background: value.pdpBannerBackground, textColor: value.pdpBannerTextColor }}
+                    onChange={(next) => patch({
+                      ...(next.text !== undefined ? { pdpBannerText: next.text } : {}),
+                      ...(next.background !== undefined ? { pdpBannerBackground: next.background } : {}),
+                      ...(next.textColor !== undefined ? { pdpBannerTextColor: next.textColor } : {}),
+                    })}
+                    errors={{ text: err("pdpBannerText"), background: err("pdpBannerBackground"), textColor: err("pdpBannerTextColor") }}
+                  />
                 </fieldset>
                   </div>
                 </section>

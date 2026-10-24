@@ -22,6 +22,7 @@ import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ProductQuickView } from "@/components/admin/ProductQuickView";
+import { BANNER_DEFAULT_BACKGROUND, BANNER_HEX_COLOR, PdpBannerFields, type PdpBannerDraft } from "@/components/admin/product-form/PdpBannerFields";
 import { Button } from "@/components/ui/Button";
 import {
   ADMIN_PRODUCT_ATTENTION,
@@ -146,6 +147,14 @@ type BulkOutcome =
       updated: number;
       notFound: number;
       error: string | null;
+    }
+  | {
+      kind: "banner";
+      /** True when the batch cleared the banner instead of setting one. */
+      cleared: boolean;
+      updated: number;
+      notFound: number;
+      error: string | null;
     };
 
 type FlatCategory = { id: string; name: string; depth: number };
@@ -208,6 +217,11 @@ function ProductsPageContent() {
     null,
   );
   const [statusPending, setStatusPending] = useState(false);
+  // Bulk PDP banner: one promo strip applied to every selected product.
+  const [bannerOpen, setBannerOpen] = useState(false);
+  const [bannerPending, setBannerPending] = useState(false);
+  const [banner, setBanner] = useState<PdpBannerDraft>({ text: "", background: "", textColor: "" });
+  const [bannerError, setBannerError] = useState<string | null>(null);
   // Read-only peek at one product; never a second editing surface.
   const [quickView, setQuickView] = useState<AdminProduct | null>(null);
 
@@ -596,6 +610,37 @@ function ProductsPageContent() {
     }
   }, [statusAction, selectedOnPage, t]);
 
+  async function submitBanner(clear: boolean) {
+    if (bannerPending || !selectedOnPage.length) return;
+    const text = banner.text.trim();
+    const background = banner.background.trim() || BANNER_DEFAULT_BACKGROUND;
+    const textColor = banner.textColor.trim() || null;
+    if (!clear && (!text || text.length > 60)) {
+      setBannerError(t("products_banner_text_required"));
+      return;
+    }
+    if (!clear && (!BANNER_HEX_COLOR.test(background) || (textColor !== null && !BANNER_HEX_COLOR.test(textColor)))) {
+      setBannerError(t("product_err_pdp_banner_color"));
+      return;
+    }
+    setBannerPending(true);
+    setBannerError(null);
+    try {
+      const result = await adminApi.bulkSetPdpBanner(
+        selectedOnPage.map((row) => row.id),
+        clear ? null : { text, background, textColor },
+      );
+      setBulkResult({ kind: "banner", cleared: clear, ...result, error: null });
+      setBannerOpen(false);
+      setSelectedIds(new Set());
+      setNonce((n) => n + 1);
+    } catch (error) {
+      setBannerError(error instanceof Error ? error.message : t("products_banner_error"));
+    } finally {
+      setBannerPending(false);
+    }
+  }
+
   const bulkResultHasProblems =
     bulkResult !== null &&
     ((bulkResult.kind === "delete" && bulkResult.failures.length > 0) ||
@@ -885,6 +930,14 @@ function ProductsPageContent() {
           >
             {t("products_bulk_unpublish")}
           </Button>
+          <Button variant="secondary" size="md" onClick={() => {
+            setBulkResult(null);
+            setBannerError(null);
+            setBanner({ text: "", background: "", textColor: "" });
+            setBannerOpen(true);
+          }}>
+            {t("products_banner_action")}
+          </Button>
           <Button
             variant="primary"
             size="md"
@@ -912,7 +965,12 @@ function ProductsPageContent() {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              {bulkResult.kind === "delete" ? (
+              {bulkResult.kind === "banner" ? (
+                <>
+                  <p className="font-semibold">{t(bulkResult.cleared ? "products_banner_cleared" : "products_banner_updated", { count: bulkResult.updated })}</p>
+                  {bulkResult.notFound > 0 && <p className="mt-1">{t("products_banner_not_found", { count: bulkResult.notFound })}</p>}
+                </>
+              ) : bulkResult.kind === "delete" ? (
                 bulkResult.failures.length === 0 ? (
                   <p className="font-semibold">
                     {t("products_bulk_result_deleted", {
@@ -1404,6 +1462,29 @@ function ProductsPageContent() {
                 : statusAction === "ACTIVE"
                   ? t("product_form_status_active")
                   : t("product_form_status_disabled")}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog open={bannerOpen} onClose={() => { if (!bannerPending) setBannerOpen(false); }}
+        title={t("products_banner_title")} width="md">
+        <form onSubmit={(event) => { event.preventDefault(); void submitBanner(false); }}>
+          <p className="text-sm text-ink-secondary">{t("products_banner_body", { count: selectedOnPage.length })}</p>
+          <fieldset disabled={bannerPending}>
+            <PdpBannerFields id="bulk-pdp-banner" value={banner} onChange={(patch) => {
+              setBanner((current) => ({ ...current, ...patch }));
+              setBannerError(null);
+            }} />
+          </fieldset>
+          {bannerError && <p role="alert" className="mt-3 text-sm text-admin-error">{bannerError}</p>}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Button type="button" variant="text" size="md" disabled={bannerPending} onClick={() => void submitBanner(true)} className="mr-auto">
+              {t("products_banner_clear")}
+            </Button>
+            <Button type="button" variant="secondary" size="md" disabled={bannerPending} onClick={() => setBannerOpen(false)}>{t("common_back")}</Button>
+            <Button type="submit" size="md" disabled={bannerPending} aria-busy={bannerPending}>
+              {bannerPending ? t("products_working") : t("products_banner_apply")}
             </Button>
           </div>
         </form>

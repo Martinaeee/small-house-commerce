@@ -44,6 +44,20 @@ beforeEach(() => {
 });
 
 describe("SiteSettingsPage newsletter fields", () => {
+  it("loads and saves the site-wide selling-point visibility switch", async () => {
+    apiMock.getSettings.mockResolvedValue({ ...settings, hideSellingPoints: true });
+    apiMock.updateSettings.mockResolvedValue({ ...settings, hideSellingPoints: false });
+    const user = userEvent.setup();
+    render(<SiteSettingsPage />);
+    const toggle = await screen.findByRole("checkbox", { name: "settings_hide_selling_points" });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => expect(apiMock.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ hideSellingPoints: false }),
+    ));
+    expect(toggle).not.toBeChecked();
+  });
   it("loads and saves all newsletter display settings", async () => {
     const user = userEvent.setup();
     render(<SiteSettingsPage />);
@@ -71,6 +85,7 @@ describe("SiteSettingsPage newsletter fields", () => {
     await waitFor(() =>
       expect(apiMock.updateSettings).toHaveBeenCalledWith({
         messengerUrl: "https://m.me/luwag",
+        hideSellingPoints: false,
         newsletterBandEnabled: true,
         newsletterPopupEnabled: true,
         newsletterPopupDelaySeconds: 8,

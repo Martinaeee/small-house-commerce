@@ -61,6 +61,15 @@ enum Solution {
   RENTAL_FRIENDLY
 }
 
+/// Whether the PDP prints the selling-point pill row under the H1.
+/// INHERIT follows the site-wide switch in `site_settings`; SHOW/HIDE pin one
+/// product regardless of it, so a per-product decision always wins.
+enum SellingPointsVisibility {
+  INHERIT
+  SHOW
+  HIDE
+}
+
 /// §26 "Internal Product Role" merchandising dimension.
 enum InternalProductRole {
   HERO
@@ -144,6 +153,13 @@ model Product {
   // Structured specifications rendered from columns, never from description.
   materials               String?
   features                String?
+  // PDP presentation. The banner is a single strip above the H1; colours are
+  // hex strings and the storefront supplies readable defaults when unset.
+  sellingPointsVisibility SellingPointsVisibility @default(INHERIT) @map("selling_points_visibility")
+  pdpBannerEnabled        Boolean                 @default(false) @map("pdp_banner_enabled")
+  pdpBannerText           String?                 @map("pdp_banner_text")
+  pdpBannerBackground     String?                 @map("pdp_banner_background")
+  pdpBannerTextColor      String?                 @map("pdp_banner_text_color")
   catalogGraphVersion     Int                 @default(0) @map("catalog_graph_version")
   defaultDisplayVariantId String?             @map("default_display_variant_id") @db.Uuid
   createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)

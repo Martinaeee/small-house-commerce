@@ -18,6 +18,8 @@ export interface SiteSettings {
   newsletterConsentText: string;
   /** Computed by the server; never infer offer availability from copy. */
   newsletterOfferAvailable: boolean;
+  /** Site-wide default for the PDP selling-point pills. */
+  hideSellingPoints: boolean;
   /** False in production until a real email provider is fully configured. */
   backInStockEnabled: boolean;
 }
@@ -39,6 +41,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   newsletterConsentText:
     "By subscribing, you agree to receive LUWAG offers and updates. Unsubscribe anytime.",
   newsletterOfferAvailable: false,
+  hideSellingPoints: false,
   backInStockEnabled: false,
 };
 
@@ -93,6 +96,10 @@ export function normalizeSiteSettings(
       typeof data?.newsletterOfferAvailable === "boolean"
         ? data.newsletterOfferAvailable
         : DEFAULT_SITE_SETTINGS.newsletterOfferAvailable,
+    hideSellingPoints:
+      typeof data?.hideSellingPoints === "boolean"
+        ? data.hideSellingPoints
+        : DEFAULT_SITE_SETTINGS.hideSellingPoints,
     backInStockEnabled:
       typeof data?.backInStockEnabled === "boolean"
         ? data.backInStockEnabled

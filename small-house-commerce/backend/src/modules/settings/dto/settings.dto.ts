@@ -48,6 +48,9 @@ export const updateSettingsSchema = z.object({
   newsletterFormTitle: z.string().trim().min(1).max(120).optional(),
   newsletterEmailPlaceholder: z.string().trim().min(1).max(120).optional(),
   newsletterConsentText: z.string().trim().min(1).max(500).optional(),
+  // Site-wide default for the PDP selling-point pills; products left on
+  // INHERIT follow it, SHOW/HIDE on a product wins.
+  hideSellingPoints: z.boolean().optional(),
 });
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

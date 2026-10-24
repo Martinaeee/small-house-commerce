@@ -20,6 +20,7 @@ interface SettingsForm {
   newsletterFormTitle: string;
   newsletterEmailPlaceholder: string;
   newsletterConsentText: string;
+  hideSellingPoints: boolean;
 }
 
 /** Published contact values, shown read-only; the footer owns their edits. */
@@ -97,6 +98,7 @@ function toForm(row: AdminSiteSettings): SettingsForm {
     newsletterFormTitle: row.newsletterFormTitle,
     newsletterEmailPlaceholder: row.newsletterEmailPlaceholder,
     newsletterConsentText: row.newsletterConsentText,
+    hideSellingPoints: row.hideSellingPoints ?? false,
   };
 }
 
@@ -170,6 +172,7 @@ export default function SiteSettingsPage(): ReactNode {
         newsletterFormTitle: data.newsletterFormTitle.trim(),
         newsletterEmailPlaceholder: data.newsletterEmailPlaceholder.trim(),
         newsletterConsentText: data.newsletterConsentText.trim(),
+        hideSellingPoints: data.hideSellingPoints,
       })
       .then((row) => {
         setData(toForm(row));
@@ -286,6 +289,20 @@ export default function SiteSettingsPage(): ReactNode {
                 {t("settings_footer_handoff_link")}
               </Link>
             </div>
+
+            <section className="border-t border-border pt-5">
+              <h2 className="text-lg font-semibold text-ink">{t("settings_selling_points_title")}</h2>
+              <label className="mt-3 flex items-start gap-3 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={data.hideSellingPoints}
+                  onChange={(event) => updateField("hideSellingPoints", event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-cta"
+                />
+                <span>{t("settings_hide_selling_points")}</span>
+              </label>
+              <p className="mt-2 text-sm text-ink-muted">{t("settings_hide_selling_points_hint")}</p>
+            </section>
 
             <div className="border-t border-border pt-5">
               <h2 className="text-lg font-semibold text-ink">Newsletter 展示</h2>
