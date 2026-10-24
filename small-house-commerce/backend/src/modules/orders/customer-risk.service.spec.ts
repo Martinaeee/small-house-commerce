@@ -76,6 +76,23 @@ describe('CustomerRiskService.classifyForNewOrder', () => {
     expect(r.classification).toBe('RPT');
   });
 
+  it('returns AGAIN when prior orders exist but none are signed, active or denied', async () => {
+    const { prisma, service } = createHarness();
+    prisma.customer.findUnique.mockResolvedValue(
+      customerWithOrders([order('o1', 'NEW'), order('o2', 'CANCELLED')]),
+    );
+    const r = await service.classifyForNewOrder('+639171234567');
+    expect(r.classification).toBe('AGAIN');
+    expect(r.reason).toBe('Prior order history exists');
+  });
+
+  it('returns NEW when the only history row is the order being created', async () => {
+    const { prisma, service } = createHarness();
+    prisma.customer.findUnique.mockResolvedValue(customerWithOrders([order('new', 'NEW')]));
+    const r = await service.classifyForNewOrder('+639171234567', ['new']);
+    expect(r.classification).toBe('NEW');
+  });
+
   it('excludes the just-created order from history (previousOrderIds)', async () => {
     const { prisma, service } = createHarness();
     prisma.customer.findUnique.mockResolvedValue(

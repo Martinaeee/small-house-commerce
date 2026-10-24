@@ -51,7 +51,18 @@ export function waitingLabel(createdAt: string, now: number = Date.now()): strin
   return waitingAge(createdAt, now);
 }
 
-function ProductThumb() {
+function ProductThumb({ src }: { src?: string | null }) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
+      />
+    );
+  }
   return (
     <span
       aria-hidden
@@ -318,7 +329,7 @@ export function OrderTable({
                       case "product":
                         content = (
                           <div className="flex items-center gap-2">
-                            <ProductThumb />
+                            <ProductThumb src={first?.thumbnailUrl} />
                             <div className="min-w-0">
                               <div
                                 className="truncate text-[13px] font-medium text-ink"
@@ -547,7 +558,7 @@ export function OrderTable({
                         <div className="w-[560px] max-w-full space-y-3">
                           {row.items.map((item) => (
                             <div key={item.id} className="flex items-start gap-2">
-                              <ProductThumb />
+                              <ProductThumb src={item.thumbnailUrl} />
                               <div className="min-w-0">
                                 <div className="truncate text-[13px] font-medium text-ink" title={item.productNameSnapshot}>
                                   {item.productNameSnapshot}

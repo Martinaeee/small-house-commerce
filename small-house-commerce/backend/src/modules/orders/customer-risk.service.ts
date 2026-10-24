@@ -57,7 +57,10 @@ export class CustomerRiskService {
     }
 
     const prior = history.filter((o) => !previousOrderIds.includes(o.id));
-    const last = prior.length > 0 ? prior[prior.length - 1] : null;
+    if (prior.length === 0) {
+      return { classification: 'NEW', reason: 'No prior orders', previousOrderId: null };
+    }
+    const last = prior[prior.length - 1];
 
     const deniedCount = prior.filter((o) => o.orderStatus === 'DENIED').length;
     const failedDelivery = prior.some((o) => o.orderStatus === 'DENIED'); // failed-delivery history maps to DENIED in V1
@@ -87,7 +90,9 @@ export class CustomerRiskService {
         previousOrderId: last?.id ?? null,
       };
     }
-    return { classification: 'NEW', reason: 'No risk factors', previousOrderId: last?.id ?? null };
+    // A customer with history is never new, even when that history is only
+    // unstarted or cancelled orders; NEW is reserved for the first order.
+    return { classification: 'AGAIN', reason: 'Prior order history exists', previousOrderId: last.id };
   }
 
   /**

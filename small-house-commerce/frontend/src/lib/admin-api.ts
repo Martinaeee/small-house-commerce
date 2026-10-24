@@ -284,6 +284,8 @@ export interface AdminOrderListRow extends AdminOrderRow {
     lineTotal: string;
     /** The sold unit price — the table shows it, never a computed total. */
     unitPrice: string;
+    /** The product photo of this line, resolved by the admin API. */
+    thumbnailUrl: string | null;
   }[];
   assignedTo: { id: string; name: string | null } | null;
   riskFlags: {
@@ -586,7 +588,7 @@ export interface AdminStatusHistory {
   createdAt: string;
 }
 
-export interface AdminOrderDetail extends AdminOrderListRow {
+export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
   items: AdminOrderItem[];
   shippingAddress: {
     fullName: string;

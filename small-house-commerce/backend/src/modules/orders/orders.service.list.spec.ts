@@ -57,6 +57,78 @@ describe('OrdersService.list date filter', () => {
   });
 });
 
+describe('OrdersService.list product photos', () => {
+  function listHarness(rows: unknown[]) {
+    const prisma = {
+      order: {
+        findMany: vi.fn(async () => rows),
+        count: vi.fn(async () => rows.length),
+      },
+      user: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    return new OrdersService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  function orderRow(images: unknown[]) {
+    return {
+      id: 'order-1',
+      orderNumber: 'PH100003',
+      customerId: 'cust-1',
+      assignedToId: null,
+      items: [
+        {
+          id: 'line-1',
+          skuCodeSnapshot: 'SKU-FD-140-WN',
+          productNameSnapshot: 'Foldable Desk',
+          variantSnapshot: 'Walnut',
+          variantId: 'variant-1',
+          optionSnapshot: { options: [{ optionValueId: 'value-1' }] },
+          quantity: 1,
+          lineTotal: '1499',
+          unitPrice: '1499',
+          sku: { product: { images } },
+        },
+      ],
+      customer: { id: 'cust-1', name: 'Marisol Reyes' },
+      riskFlags: [],
+      shippingAddress: null,
+      payments: [],
+      verificationAssignments: [],
+    };
+  }
+
+  it('returns the photo of the ordered option value and drops the nested product', async () => {
+    const service = listHarness([
+      orderRow([
+        { url: 'other.jpg', variantId: null, optionValueId: null, isScene: false },
+        { url: 'scene.jpg', variantId: null, optionValueId: 'value-1', isScene: true },
+        { url: 'value.jpg', variantId: null, optionValueId: 'value-1', isScene: false },
+      ]),
+    ]);
+
+    const result = await service.list(orderQuerySchema.parse({}));
+    const line = result.items[0]!.items[0]!;
+
+    expect(line.thumbnailUrl).toBe('value.jpg');
+    expect(line).not.toHaveProperty('sku');
+  });
+
+  it('returns a null photo when the product has no image', async () => {
+    const service = listHarness([orderRow([])]);
+
+    const result = await service.list(orderQuerySchema.parse({}));
+    expect(result.items[0]!.items[0]!.thumbnailUrl).toBeNull();
+  });
+});
+
 describe('OrdersService.list payment status filter', () => {
   it('filters by a single payment status', async () => {
     const { service, where } = harness();

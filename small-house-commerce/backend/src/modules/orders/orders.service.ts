@@ -1817,9 +1817,31 @@ export class OrdersService {
               skuCodeSnapshot: true,
               productNameSnapshot: true,
               variantSnapshot: true,
+              variantId: true,
+              optionSnapshot: true,
               quantity: true,
               lineTotal: true,
               unitPrice: true,
+              // The line's photo, resolved exactly like the guest order page:
+              // current product media, matched to the ordered option value.
+              sku: {
+                select: {
+                  product: {
+                    select: {
+                      images: {
+                        where: { type: 'IMAGE' as const },
+                        orderBy: { sortOrder: 'asc' as const },
+                        select: {
+                          url: true,
+                          variantId: true,
+                          optionValueId: true,
+                          isScene: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
           riskFlags: { where: { resolved: false } },
@@ -1864,6 +1886,12 @@ export class OrdersService {
     const nameById = new Map(operators.map((u) => [u.id, u.name]));
     const enriched = items.map((o) => ({
       ...o,
+      // The table shows a photo per line; the nested product rows never leave
+      // the admin API, only the flat URL below does.
+      items: o.items.map((item) => {
+        const { sku: _sku, ...rest } = item;
+        return { ...rest, thumbnailUrl: guestThumbnail(item) };
+      }),
       // The payment method (COD / online) the table filters on.
       paymentMethod: o.payments?.[0]?.method ?? null,
       assignedTo: o.assignedToId ? { id: o.assignedToId, name: nameById.get(o.assignedToId) ?? null } : null,

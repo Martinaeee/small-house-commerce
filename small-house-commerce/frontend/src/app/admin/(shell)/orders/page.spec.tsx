@@ -202,6 +202,31 @@ describe("the order workbench list", () => {
     expect(screen.queryByRole("columnheader", { name: /^Shipping \(cost\)/ })).toBeNull();
   });
 
+  it("shows the product photo returned with the order line", async () => {
+    const line = row().items[0]!;
+    api.listOrders.mockResolvedValue({
+      items: [
+        row({
+          items: [{ ...line, thumbnailUrl: "https://cdn.example/desk.jpg" }],
+        }),
+      ] as AdminOrderListRow[],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    renderPage();
+
+    await screen.findByText("PH100004");
+    expect(document.querySelector('img[src="https://cdn.example/desk.jpg"]')).not.toBeNull();
+  });
+
+  it("keeps the placeholder when the line has no photo", async () => {
+    renderPage();
+
+    await screen.findByText("PH100004");
+    expect(document.querySelector("img")).toBeNull();
+  });
+
   it("shows the queue tabs with their counters", async () => {
     renderPage();
 
