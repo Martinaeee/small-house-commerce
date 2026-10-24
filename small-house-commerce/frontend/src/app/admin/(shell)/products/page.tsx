@@ -1138,7 +1138,7 @@ function ProductsPageContent() {
                   return (
                     <tr
                       key={row.id}
-                      className="border-b border-border last:border-0"
+                      className="border-b border-border transition-colors last:border-0 hover:bg-primary-light/60"
                     >
                       {canManage ? (
                         <td className="px-3 py-3">

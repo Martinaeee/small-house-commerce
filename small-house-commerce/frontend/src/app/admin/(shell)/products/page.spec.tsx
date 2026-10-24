@@ -267,6 +267,17 @@ describe("AdminProductsPage localization", () => {
     expect(scoped.getByRole("button", { name: "更多操作" })).toBeInTheDocument();
   });
 
+  it("tints each product row green while the pointer is over it", async () => {
+    renderListPage();
+    const table = await screen.findByRole("table", { name: "商品" });
+    const row = within(table)
+      .getByText("Chair", { selector: 'span[title="Chair"]' })
+      .closest("tr");
+    expect(row).not.toBeNull();
+    expect(row).toHaveClass("transition-colors");
+    expect(row).toHaveClass("hover:bg-primary-light/60");
+  });
+
   it("renders a coherent English list through the same provider", async () => {
     setAdminLang("en");
     renderListPage();
