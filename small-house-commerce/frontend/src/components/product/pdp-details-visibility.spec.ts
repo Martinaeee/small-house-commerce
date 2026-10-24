@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Product } from "@/lib/api";
-import { pdpHasDetails } from "./pdp-details-visibility";
+import { pdpHasDetails, pdpHasVisibleHighlights } from "./pdp-details-visibility";
 
 type DetailSource = Pick<
   Product,
@@ -50,5 +50,19 @@ describe("pdpHasDetails", () => {
 
   it("is false when there is nothing to show", () => {
     expect(pdpHasDetails(product())).toBe(false);
+  });
+});
+
+describe("pdpHasVisibleHighlights", () => {
+  it("is true only with a visible switch and at least one visible bullet", () => {
+    expect(pdpHasVisibleHighlights(product({ features: "Folds flat" }))).toBe(true);
+    expect(
+      pdpHasVisibleHighlights(
+        product({ features: "Folds flat", highlightsVisible: false }),
+      ),
+    ).toBe(false);
+    expect(
+      pdpHasVisibleHighlights(product({ features: "[hidden] Internal note" })),
+    ).toBe(false);
   });
 });

@@ -1,6 +1,15 @@
 import type { Product } from "@/lib/api";
 import { visibleFeatureLines } from "@/lib/feature-lines";
 
+export function pdpHasVisibleHighlights(
+  product: Pick<Product, "features" | "highlightsVisible">,
+): boolean {
+  return (
+    product.highlightsVisible !== false &&
+    visibleFeatureLines(product.features).length > 0
+  );
+}
+
 /** Whether the PDP detail section has anything to show and earns its nav link. */
 export function pdpHasDetails(
   product: Pick<
@@ -8,12 +17,9 @@ export function pdpHasDetails(
     "description" | "features" | "highlightsVisible" | "detailBlocks"
   >,
 ): boolean {
-  const highlightsVisible =
-    product.highlightsVisible !== false &&
-    visibleFeatureLines(product.features).length > 0;
   return (
     Boolean(product.description?.trim()) ||
-    highlightsVisible ||
+    pdpHasVisibleHighlights(product) ||
     (product.detailBlocks ?? []).some((block) => block.url.trim() !== "")
   );
 }

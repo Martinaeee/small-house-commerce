@@ -7,6 +7,7 @@ import {
   ProductDetailMedia,
 } from "./ProductDetailBody";
 import { ProductInformation } from "./ProductInformation";
+import { pdpHasVisibleHighlights } from "./pdp-details-visibility";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import {
   partitionDetailBlocks,
@@ -72,12 +73,20 @@ export function PdpDetails({
 
   return (
     <div className="flex flex-col gap-8">
-      <ProductDetailBody
-        description={product.description}
-        features={product.features}
-        highlightsVisible={product.highlightsVisible !== false}
-      />
-      <FoldableDetailMedia featured={featured} blocks={remaining} />
+      {/* With visible highlights the block and the detail deck are one unit:
+          the bullets sit directly above the first image, no module gap. */}
+      <div
+        className={
+          pdpHasVisibleHighlights(product) ? "flex flex-col" : "flex flex-col gap-8"
+        }
+      >
+        <ProductDetailBody
+          description={product.description}
+          features={product.features}
+          highlightsVisible={product.highlightsVisible !== false}
+        />
+        <FoldableDetailMedia featured={featured} blocks={remaining} />
+      </div>
       <ProductInformation product={product} />
     </div>
   );
