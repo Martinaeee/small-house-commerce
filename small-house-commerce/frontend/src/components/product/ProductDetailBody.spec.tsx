@@ -1,11 +1,35 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ProductDetailMedia } from "./ProductDetailBody";
+import { ProductDetailBody, ProductDetailMedia } from "./ProductDetailBody";
 
 const blocks = [
   { type: "IMAGE" as const, url: "/a.jpg", altText: "A" },
   { type: "IMAGE" as const, url: "/b.jpg", altText: "B" },
 ];
+
+describe("ProductDetailBody", () => {
+  it("never renders the Why You’ll Love It highlights on the storefront", () => {
+    render(<ProductDetailBody features={"Folds flat\nLocking frame"} blocks={blocks} />);
+
+    expect(screen.queryByRole("heading", { name: "Why You’ll Love It" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Folds flat")).not.toBeInTheDocument();
+    expect(screen.getByAltText("A")).toBeInTheDocument();
+  });
+
+  it("leaves the description card unchanged when highlights are hidden", () => {
+    render(<ProductDetailBody description="A compact table." features="Folds flat" />);
+
+    const description = screen.getByRole("heading", { name: "Description" }).parentElement!;
+    expect(description).toHaveClass("border", "rounded-lg", "bg-card");
+    expect(screen.getByText("A compact table.")).toBeVisible();
+  });
+
+  it("renders nothing when the product has no description or detail media", () => {
+    const { container } = render(<ProductDetailBody features="Folds flat" />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+});
 
 describe("ProductDetailMedia", () => {
   it("stitches detail images with no frame and no gap on phones", () => {

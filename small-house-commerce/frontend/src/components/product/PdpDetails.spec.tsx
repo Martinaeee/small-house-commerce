@@ -309,12 +309,13 @@ describe("PdpDetails", () => {
 
     expect(contentOrder(container)).toEqual([
       "Description",
-      "Why You’ll Love It",
       "featured.jpg",
       "remaining-1.jpg",
       "remaining-2.mp4",
       "Product information",
     ]);
+    expect(screen.queryByText("Why You’ll Love It")).not.toBeInTheDocument();
+    expect(screen.queryByText("Folds flat")).not.toBeInTheDocument();
 
     for (const id of ["details", "specifications"]) {
       const target = container.querySelector(`#${id}`);
@@ -342,8 +343,6 @@ describe("PdpDetails", () => {
     expect(detailVideo).toHaveAttribute("controls");
     expect(detailVideo).toHaveProperty("muted", true);
     expect(detailVideo).toHaveAttribute("playsinline");
-    expect(screen.getAllByText("Folds flat")).toHaveLength(1);
-    expect(screen.getAllByText("Locking frame")).toHaveLength(1);
   });
 
   it("shows four detail media first and expands or folds the rest", async () => {
