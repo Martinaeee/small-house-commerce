@@ -79,12 +79,12 @@ function PreviewMainNav({ items }: Pick<MainNavProps, "items">) {
       </button>
       <nav
         aria-label="Main navigation preview"
-        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex xl:order-none xl:basis-auto xl:gap-x-2.5 xl:pb-0 xl:pt-0"
+        className="order-6 hidden basis-full flex-wrap items-center justify-center gap-x-6 gap-y-1 pb-2 pt-0.5 lg:flex xl:order-none xl:min-w-0 xl:flex-1 xl:basis-0 xl:pb-0 xl:pt-0 2xl:gap-x-8"
       >
         {items.map((item) => (
           <span
             key={`${item.position}:${item.kind === "link" ? item.href : item.root.id}`}
-            className="shrink-0 py-2 text-sm font-medium text-ink xl:text-[13px]"
+            className="shrink-0 whitespace-nowrap py-2 text-[15px] font-medium text-ink"
           >
             {item.label}
           </span>
@@ -252,14 +252,14 @@ function LiveMainNav({
         aria-label="Main navigation"
         // lg: second row of the wrapping header (order-6/basis-full).
         // xl: inline after the logo on the single merged row.
-        className="order-6 hidden basis-full items-center gap-x-5 pb-2 pt-0.5 lg:flex xl:order-none xl:basis-auto xl:gap-x-2.5 xl:pb-0 xl:pt-0"
+        className="order-6 hidden basis-full flex-wrap items-center justify-center gap-x-6 gap-y-1 pb-2 pt-0.5 lg:flex xl:order-none xl:min-w-0 xl:flex-1 xl:basis-0 xl:pb-0 xl:pt-0 2xl:gap-x-8"
       >
         {items.map((item) =>
           item.kind === "link" ? (
             <Link
               key={item.href}
               href={item.href}
-              className="shrink-0 text-sm font-medium text-ink hover:text-cta xl:text-[13px]"
+              className="shrink-0 whitespace-nowrap py-2 text-[15px] font-medium text-ink hover:text-cta"
             >
               {item.label}
             </Link>
@@ -289,7 +289,7 @@ function LiveMainNav({
                   }
                   aria-expanded={desktopOpen === item.root.slug}
                   aria-controls={`${navId}-mega-panel`}
-                  className="shrink-0 py-2 text-sm font-medium text-ink hover:text-cta xl:text-[13px]"
+                  className="shrink-0 whitespace-nowrap py-2 text-[15px] font-medium text-ink hover:text-cta"
                 >
                   {item.label}
                 </Link>

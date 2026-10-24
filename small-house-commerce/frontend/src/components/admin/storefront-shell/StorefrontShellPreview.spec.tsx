@@ -139,26 +139,23 @@ describe("StorefrontShellPreview", () => {
     expect(screen.getByText("Body")).toBeVisible();
   });
 
-  it("shows the horizontal logo on desktop and the square mark on mobile", () => {
-    const { rerender } = render(
-      <StorefrontShellPreview shell={shell()} device="desktop">
-        <p>Body</p>
-      </StorefrontShellPreview>,
-    );
+  it.each(["desktop", "mobile"] as const)(
+    "shows the horizontal wordmark in the %s header without substituting the favicon asset",
+    (device) => {
+      render(
+        <StorefrontShellPreview shell={shell()} device={device}>
+          <p>Body</p>
+        </StorefrontShellPreview>,
+      );
 
-    const sources = () =>
-      Array.from(canvas().querySelectorAll("img")).map((image) =>
+      const header = canvas().querySelector("header")!;
+      const sources = Array.from(header.querySelectorAll("img")).map((image) =>
         image.getAttribute("src"),
       );
-    expect(sources()).toContain(BRAND_ASSET.url);
-
-    rerender(
-      <StorefrontShellPreview shell={shell()} device="mobile">
-        <p>Body</p>
-      </StorefrontShellPreview>,
-    );
-    expect(sources()).toContain(SQUARE_ASSET.url);
-  });
+      expect(sources).toContain(BRAND_ASSET.url);
+      expect(sources).not.toContain(SQUARE_ASSET.url);
+    },
+  );
 
   it("applies the local draft theme variables to the isolated canvas", () => {
     const draft = shell({
