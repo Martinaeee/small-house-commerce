@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { Field, Select, TextInput } from "@/components/admin/Field";
+import { AdminHelpTip } from "@/components/admin/AdminHelpTip";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
 import { useMediaBatchUpload, type MediaBatchUpload } from "@/components/admin/product-form/useMediaBatchUpload";
@@ -116,12 +117,12 @@ export function SharedMediaWorkspace({
     <section>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-ink">
-            {t("product_media_shared_title")}
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-            {t("product_media_gallery_hint")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-base font-semibold text-ink">
+              {t("product_media_shared_title")}
+            </h2>
+            <AdminHelpTip text={t("product_media_gallery_hint")} />
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5 text-xs text-ink-secondary">
           <span className="rounded-full bg-background px-2.5 py-1">

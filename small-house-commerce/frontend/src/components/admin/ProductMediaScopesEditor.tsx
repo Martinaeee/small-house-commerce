@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { AdminHelpTip } from "./AdminHelpTip";
 import { MediaAddRow } from "./product-form/MediaAddRow";
 import { MediaGallery } from "./product-form/MediaGallery";
 import { useMediaBatchUpload, type MediaBatchUpload, type UploadedMedia } from "./product-form/useMediaBatchUpload";
@@ -355,13 +356,13 @@ export function ProductMediaScopesEditor({
   return (
     <div className="flex flex-col gap-8">
       <section>
-        <h3 className="text-sm font-semibold text-ink">
-          {t("product_media_shared_title")} (
-          {t("product_media_shared_count", { count: shared.length })})
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-          {t("product_media_shared_description")}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-ink">
+            {t("product_media_shared_title")} (
+            {t("product_media_shared_count", { count: shared.length })})
+          </h3>
+          <AdminHelpTip text={t("product_media_shared_description")} />
+        </div>
         {shared.length > 0 ? (
           <ul className="mt-2 flex flex-wrap gap-2">
             {shared
@@ -395,12 +396,12 @@ export function ProductMediaScopesEditor({
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold text-ink">
-          {t("product_media_driver_title")}
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-          {t("product_media_driver_hint")}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-ink">
+            {t("product_media_driver_title")}
+          </h3>
+          <AdminHelpTip text={t("product_media_driver_hint")} />
+        </div>
         <div
           role="group"
           aria-label={t("product_media_driver_aria")}
@@ -530,9 +531,6 @@ export function ProductMediaScopesEditor({
                   </summary>
                   <div className="border-t border-border p-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs leading-relaxed text-ink-muted">
-                        {t("product_media_replace_description")}
-                      </p>
                       {active ? (
                         <button
                           type="button"
@@ -552,6 +550,7 @@ export function ProductMediaScopesEditor({
                           {t("product_media_remove_scope")}
                         </button>
                       )}
+                      <AdminHelpTip text={t("product_media_replace_description")} />
                     </div>
                     {active || uploadTask.results[`value:${valueKey}`]?.length ? <MediaAddRow targetKey={`value:${valueKey}`} disabled={pending || !active} batchUpload={uploadTask} onAddMedia={(media) => addScopedMedia("value", valueKey, media)} /> : null}
                     {renderGallery(rows, valueName)}
@@ -569,12 +568,12 @@ export function ProductMediaScopesEditor({
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold text-ink">
-          {t("product_media_exact_title")}
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-          {t("product_media_exact_description")}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-ink">
+            {t("product_media_exact_title")}
+          </h3>
+          <AdminHelpTip text={t("product_media_exact_description")} />
+        </div>
         {variantSelections.length === 0 ? (
           <p className="mt-2 text-xs text-ink-muted">
             {t("product_media_variant_empty")}

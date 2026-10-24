@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { inputClsCompact } from "@/components/admin/Field";
+import { AdminHelpTip } from "@/components/admin/AdminHelpTip";
 import { DecimalInput } from "@/components/admin/DecimalInput";
 import { inheritNewColorPhysicalSpecifications } from "@/lib/admin-physical-specs";
 import { Dialog } from "@/components/admin/Dialog";
@@ -336,7 +337,7 @@ export function VariantMatrix({
         >
           {t("product_matrix_dimensions_fill")}
         </button>
-        <p className="w-full text-xs text-ink-muted">{t("product_matrix_dimensions_hint")}</p>
+        <AdminHelpTip text={t("product_matrix_dimensions_hint")} />
         {dimensionResult ? (
           <p role="status" className="text-xs text-ink-secondary">
             {t("product_matrix_dimensions_result", {

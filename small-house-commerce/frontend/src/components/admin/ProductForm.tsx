@@ -15,6 +15,7 @@ import {
   TextInput,
   Textarea,
 } from "@/components/admin/Field";
+import { AdminHelpTip } from "./AdminHelpTip";
 import { Button } from "@/components/ui/Button";
 import { ProductFormHeader, PRODUCT_FORM_TABS, type ProductFormTabKey } from "./product-form/ProductFormHeader";
 import { ProductFormErrorRail } from "./product-form/ProductFormErrorRail";
@@ -879,16 +880,22 @@ function flattenCategories(
 function Section({
   title,
   hint,
+  hintDisplay = "tooltip",
   children,
 }: {
   title: string;
   hint?: ReactNode;
+  /** Blocking explanations stay visible; passive guidance moves behind the ?. */
+  hintDisplay?: "tooltip" | "inline";
   children: ReactNode;
 }): ReactNode {
   return (
     <section>
-      <h2 className="text-base font-semibold text-ink">{title}</h2>
-      {hint ? (
+      <div className="flex items-center gap-1.5">
+        <h2 className="text-base font-semibold text-ink">{title}</h2>
+        {hint && hintDisplay === "tooltip" ? <AdminHelpTip text={hint} /> : null}
+      </div>
+      {hint && hintDisplay === "inline" ? (
         <p className="mt-1 text-xs leading-relaxed text-ink-muted">{hint}</p>
       ) : null}
       <div className="mt-4">{children}</div>
@@ -1877,12 +1884,10 @@ export function ProductForm({
                 </Field>
 
                 <fieldset className="md:col-span-2">
-                  <legend className="text-sm font-medium text-ink">
+                  <legend className="flex items-center gap-1.5 text-sm font-medium text-ink">
                     {t("product_basic_solutions_legend")}
+                    <AdminHelpTip text={t("product_basic_solutions_hint")} />
                   </legend>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {t("product_basic_solutions_hint")}
-                  </p>
                   <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {SOLUTIONS.map((s) => (
                       <li key={s}>
@@ -1925,12 +1930,10 @@ export function ProductForm({
                 </Field>
 
                 <fieldset className="md:col-span-2">
-                  <legend className="text-sm font-medium text-ink">
+                  <legend className="flex items-center gap-1.5 text-sm font-medium text-ink">
                     {t("product_pdp_banner_legend")}
+                    <AdminHelpTip text={t("product_pdp_banner_hint")} />
                   </legend>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {t("product_pdp_banner_hint")}
-                  </p>
                   <label className="mt-2 flex items-center gap-2 text-sm text-ink">
                     <input
                       type="checkbox"
@@ -2166,6 +2169,7 @@ export function ProductForm({
           <Section
             title={t("product_variants_locked_title")}
             hint={t("product_variants_locked_hint")}
+            hintDisplay="inline"
           >
             <div
               role="alert"
@@ -2180,6 +2184,7 @@ export function ProductForm({
           <Section
             title={t("product_variants_legacy_title")}
             hint={t("product_variants_legacy_hint")}
+            hintDisplay="inline"
           >
             {value.variants.length === 0 ? (
               <p className="text-sm text-ink-muted">
@@ -2321,12 +2326,12 @@ export function ProductForm({
                             value, so a stale copy cannot corrupt the count the way
                             a client-computed delta would. */}
                         <div className="mt-4">
-                          <p className="text-xs font-semibold text-ink-secondary">
-                            {t("product_stock_title")}
-                          </p>
-                          <p className="mt-0.5 text-xs text-ink-muted">
-                            {t("product_stock_hint")}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-semibold text-ink-secondary">
+                              {t("product_stock_title")}
+                            </p>
+                            <AdminHelpTip text={t("product_stock_hint")} />
+                          </div>
                           <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                             <Field
                               label={t("product_stock_label")}
@@ -2436,6 +2441,7 @@ export function ProductForm({
           <Section
             title={t("product_shipping_title")}
             hint={t("product_shipping_locked_hint")}
+            hintDisplay="inline"
           >
             <div
               role="alert"
@@ -2460,6 +2466,7 @@ export function ProductForm({
           <Section
             title={t("product_shipping_title")}
             hint={t("product_shipping_legacy_hint")}
+            hintDisplay="inline"
           >
             {value.variants.length === 0 ? (
               <p className="text-sm text-ink-muted">
@@ -2509,7 +2516,12 @@ export function ProductForm({
             title={t("product_seo_title")}
             hint={t("product_seo_hint")}
           >
-            <Field label={t("product_seo_slug_label")} htmlFor="pf-slug" error={err("slug")}>
+            <Field
+              label={t("product_seo_slug_label")}
+              htmlFor="pf-slug"
+              error={err("slug")}
+              hint={t("product_seo_slug_stable_hint")}
+            >
               <TextInput
                 id="pf-slug"
                 value={value.slug}
@@ -2528,9 +2540,6 @@ export function ProductForm({
                   {t("product_seo_autogenerate")}
                 </button>
               </div>
-              <p className="text-xs text-ink-muted">
-                {t("product_seo_slug_stable_hint")}
-              </p>
             </Field>
 
             <div className="mt-6">
@@ -2584,6 +2593,7 @@ export function ProductForm({
           <Section
             title={t("product_form_tab_preview")}
             hint={t("product_form_preview_unsaved")}
+            hintDisplay="inline"
           >
             <ProductPreviewPanel
               savedPreview={savedPreview}

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Dialog } from "@/components/admin/Dialog";
 import { newId } from "@/lib/admin-id";
 import { Field, Select, TextInput } from "@/components/admin/Field";
+import { AdminHelpTip } from "@/components/admin/AdminHelpTip";
 import { Button } from "@/components/ui/Button";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { faqApi } from "@/lib/faq-api";
@@ -156,12 +157,12 @@ export function ProductFaqPanel({
     <section className="space-y-5" aria-labelledby={titleId}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id={titleId} className="text-base font-semibold text-ink">
-            {t("product_faq_title")}
-          </h2>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-muted">
-            {t("product_faq_description")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <h2 id={titleId} className="text-base font-semibold text-ink">
+              {t("product_faq_title")}
+            </h2>
+            <AdminHelpTip text={t("product_faq_description")} />
+          </div>
         </div>
         <Button
           variant="text"
@@ -177,12 +178,12 @@ export function ProductFaqPanel({
         className="space-y-3 rounded-lg border border-border bg-background p-4"
         aria-labelledby={productTitleId}
       >
-        <h3 id={productTitleId} className="text-sm font-semibold text-ink">
-          {t("product_faq_product_title")}
-        </h3>
-        <p className="text-xs leading-relaxed text-ink-muted">
-          {t("product_faq_product_description")}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 id={productTitleId} className="text-sm font-semibold text-ink">
+            {t("product_faq_product_title")}
+          </h3>
+          <AdminHelpTip text={t("product_faq_product_description")} />
+        </div>
         <Field
           label={t("product_faq_mode_label")}
           htmlFor={modeId}
@@ -225,9 +226,7 @@ export function ProductFaqPanel({
             >
               {t("product_faq_copy_shared")}
             </Button>
-            <p className="text-xs leading-relaxed text-ink-muted">
-              {t("product_faq_copy_shared_hint")}
-            </p>
+            <AdminHelpTip text={t("product_faq_copy_shared_hint")} />
           </div>
         ) : sharedError ? (
           <p role="alert" className="text-sm text-red-700">
@@ -258,12 +257,12 @@ export function ProductFaqPanel({
         aria-labelledby={previewTitleId}
       >
         <div>
-          <h3 id={previewTitleId} className="text-sm font-semibold text-ink">
-            {previewLabel}
-          </h3>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-            {t("product_faq_preview_description")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <h3 id={previewTitleId} className="text-sm font-semibold text-ink">
+              {previewLabel}
+            </h3>
+            <AdminHelpTip text={t("product_faq_preview_description")} />
+          </div>
         </div>
         {sharedItems === null && faq.mode !== "CUSTOM" ? (
           sharedError ? (
@@ -291,12 +290,12 @@ export function ProductFaqPanel({
 
       <div className="space-y-4" aria-labelledby={itemsTitleId}>
         <div>
-          <h3 id={itemsTitleId} className="text-sm font-semibold text-ink">
-            {t("product_faq_product_items_title")}
-          </h3>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-            {t("product_faq_product_items_description")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <h3 id={itemsTitleId} className="text-sm font-semibold text-ink">
+              {t("product_faq_product_items_title")}
+            </h3>
+            <AdminHelpTip text={t("product_faq_product_items_description")} />
+          </div>
         </div>
         {faq.items.map((item, index) => (
           <article

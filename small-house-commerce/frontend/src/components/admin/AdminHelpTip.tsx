@@ -75,7 +75,19 @@ export function AdminHelpTip({
           if (!pinned.current) setOpen(false);
         }}
       >
-        ?
+        <svg
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          className="h-2.5 w-2.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M6.2 5.8a1.9 1.9 0 1 1 3.2 1.4c-.6.6-1.4 1-1.4 1.9" />
+          <circle cx="8" cy="12" r="0.7" fill="currentColor" stroke="none" />
+        </svg>
       </button>
       <span
         id={tipId}
