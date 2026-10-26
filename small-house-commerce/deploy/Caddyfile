@@ -1,10 +1,20 @@
 {
 	email {$ACME_EMAIL}
+	auto_https off
+}
+
+http://{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+http://www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
 }
 
 {$DOMAIN} {
+	tls /etc/caddy/certs/luwag.shop_bundle.crt /etc/caddy/certs/luwag.shop.key
 	encode zstd gzip
-	# Buffer slow admin uploads before they enter the backend's five-minute window.
+
 	@admin_media_upload path /api/v1/admin/uploads
 	handle @admin_media_upload {
 		request_body {
@@ -14,23 +24,25 @@
 			request_buffers 100MiB
 		}
 	}
-	# API traffic goes straight to the backend. Next 16 bakes rewrites()
-	# destinations at build time, so the frontend's dev-only /api/v1
-	# rewrite cannot be retargeted at runtime and must not sit on this path.
-	# handle accepts a single matcher, so name a path matcher with both
-	# patterns (caddy 2.11 rejects multiple bare path args to handle).
+
 	@api path /api/v1 /api/v1/*
 	handle @api {
 		reverse_proxy backend:3000
 	}
-	# Uploaded images live on the backend (local-disk upload volume).
+
 	@uploads path /uploads /uploads/*
 	handle @uploads {
 		reverse_proxy backend:3000 {
 			header_down Cache-Control "public, max-age=31536000, immutable"
 		}
 	}
+
 	handle {
 		reverse_proxy frontend:3000
 	}
+}
+
+www.{$DOMAIN} {
+	tls /etc/caddy/certs/luwag.shop_bundle.crt /etc/caddy/certs/luwag.shop.key
+	redir https://{$DOMAIN}{uri} permanent
 }
