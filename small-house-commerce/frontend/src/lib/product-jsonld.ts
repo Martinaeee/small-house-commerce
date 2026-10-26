@@ -1,10 +1,9 @@
 import type { Product, StorefrontProductVariant } from "./api";
+import { SITE_URL, absoluteUrl } from "./site-url";
 
-export const SITE_URL = "https://luwag.ph";
-
-export function absoluteUrl(url: string): string {
-  return url.startsWith("/") ? `${SITE_URL}${url}` : url;
-}
+// Re-exported so existing importers keep one stable entry point; the actual
+// value lives in site-url.ts (env-driven, single source of truth).
+export { SITE_URL, absoluteUrl };
 
 /**
  * Product (+ BreadcrumbList) JSON-LD. Omit fields we cannot populate honestly.

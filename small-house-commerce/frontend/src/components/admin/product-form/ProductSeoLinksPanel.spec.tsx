@@ -74,7 +74,7 @@ describe("ProductSeoLinksPanel", () => {
     expect(screen.getByText("36 / 160")).toBeVisible();
     expect(screen.getByText("Compact Chair | LUWAG Living")).toBeVisible();
     expect(screen.getByLabelText(/Canonical（系统生成）/)).toHaveValue(
-      "https://luwag.ph/products/draft-chair",
+      "https://luwag.shop/products/draft-chair",
     );
     expect(screen.getByLabelText(/Canonical（系统生成）/)).toHaveAttribute(
       "readonly",
@@ -89,10 +89,10 @@ describe("ProductSeoLinksPanel", () => {
   it("builds product and variant URLs only from saved truth and real active ids", () => {
     renderPanel();
 
-    expect(screen.getByText("https://luwag.ph/products/saved-chair")).toBeVisible();
+    expect(screen.getByText("https://luwag.shop/products/saved-chair")).toBeVisible();
     expect(
       screen.getByText(
-        "https://luwag.ph/products/saved-chair?variant=00000000-0000-7000-8000-000000000001",
+        "https://luwag.shop/products/saved-chair?variant=00000000-0000-7000-8000-000000000001",
       ),
     ).toBeVisible();
     expect(screen.getByText("Red / Small")).toBeVisible();
@@ -108,7 +108,7 @@ describe("ProductSeoLinksPanel", () => {
     await user.click(screen.getByRole("button", { name: "复制商品链接" }));
 
     expect(clipboard.copyText).toHaveBeenCalledWith(
-      "https://luwag.ph/products/saved-chair",
+      "https://luwag.shop/products/saved-chair",
     );
     expect(screen.getByText("已复制")).toBeVisible();
     expect(alert).not.toHaveBeenCalled();

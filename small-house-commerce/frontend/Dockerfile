@@ -18,6 +18,10 @@ WORKDIR /app
 FROM base AS build
 ARG NEXT_PUBLIC_META_PIXEL_ID=""
 ENV NEXT_PUBLIC_META_PIXEL_ID=$NEXT_PUBLIC_META_PIXEL_ID
+# Public origin baked into metadata/sitemap/robots/JSON-LD. Empty falls back
+# to the production domain in src/lib/site-url.ts.
+ARG NEXT_PUBLIC_SITE_URL=""
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 # pnpm resolves packages against this registry (npmjs by default). A mirror
 # exists for regions where npmjs is unreachable or flaky. Empty = official.
 ARG NPM_CONFIG_REGISTRY=""

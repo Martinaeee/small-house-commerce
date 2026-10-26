@@ -1242,7 +1242,7 @@ describe("ProductForm variants tab modes", () => {
 
     expect(
       screen.getByText(
-        "https://luwag.ph/products/saved-chair?variant=00000000-0000-7000-8000-000000000001",
+        "https://luwag.shop/products/saved-chair?variant=00000000-0000-7000-8000-000000000001",
       ),
     ).toBeVisible();
 

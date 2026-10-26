@@ -98,11 +98,11 @@ describe("CampaignLinkBuilder", () => {
     await user.click(screen.getByRole("button", { name: "Generate links" }));
 
     expect(
-      screen.getByText("https://luwag.ph/products/compact-chair"),
+      screen.getByText("https://luwag.shop/products/compact-chair"),
     ).toBeVisible();
     expect(
       screen.getByText(
-        "https://luwag.ph/products/compact-chair?variant=00000000-0000-7000-8000-000000000002",
+        "https://luwag.shop/products/compact-chair?variant=00000000-0000-7000-8000-000000000002",
       ),
     ).toBeVisible();
     const generated = screen.getByTestId("generated-campaign-url");
@@ -143,7 +143,7 @@ describe("CampaignLinkBuilder", () => {
     await user.click(screen.getByRole("button", { name: "Generate links" }));
 
     const generated = screen.getByTestId("generated-campaign-url");
-    expect(generated).toHaveTextContent("https://luwag.ph/lp/compact-chair-red?");
+    expect(generated).toHaveTextContent("https://luwag.shop/lp/compact-chair-red?");
     expect(generated).not.toHaveTextContent("landingPageId");
     expect(generated).not.toHaveTextContent("landing_page_id");
   });

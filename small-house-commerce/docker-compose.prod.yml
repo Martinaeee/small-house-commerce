@@ -60,6 +60,9 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_META_PIXEL_ID: ${NEXT_PUBLIC_META_PIXEL_ID:-}
+        # Public origin baked into metadata/sitemap/robots/JSON-LD. Empty
+        # falls back to https://luwag.shop in src/lib/site-url.ts.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
         # Same registry-mirror escape hatch as backend (see the Dockerfiles).
         COREPACK_NPM_REGISTRY: ${COREPACK_NPM_REGISTRY:-}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}

@@ -58,11 +58,11 @@ describe("buildCampaignLinks", () => {
     expect(result).toEqual({
       ok: true,
       links: {
-        product: "https://luwag.ph/products/compact-chair",
+        product: "https://luwag.shop/products/compact-chair",
         variant:
-          "https://luwag.ph/products/compact-chair?variant=00000000-0000-7000-8000-000000000002",
+          "https://luwag.shop/products/compact-chair?variant=00000000-0000-7000-8000-000000000002",
         campaign:
-          "https://luwag.ph/products/compact-chair?variant=00000000-0000-7000-8000-000000000002&aid=optimizer-a&campaign_id=campaign-2026&adset_id=adset-7&ad_id=ad-9&utm_source=facebook&utm_medium=paid-social&utm_campaign=condo-chair",
+          "https://luwag.shop/products/compact-chair?variant=00000000-0000-7000-8000-000000000002&aid=optimizer-a&campaign_id=campaign-2026&adset_id=adset-7&ad_id=ad-9&utm_source=facebook&utm_medium=paid-social&utm_campaign=condo-chair",
       },
     });
   });

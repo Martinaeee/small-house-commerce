@@ -1,10 +1,11 @@
 import type { MetadataRoute } from "next";
 import { serverApiUrl, type Category, type Collection, type Paged, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
+import { SITE_URL } from "@/lib/site-url";
 
 /** SEO §23: sitemap from the live storefront categories, collections and products. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = "https://luwag.ph";
+  const base = SITE_URL;
 
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: base, changeFrequency: "weekly", priority: 1 },

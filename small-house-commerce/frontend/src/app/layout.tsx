@@ -3,9 +3,10 @@ import "./globals.css";
 import { BootSplash } from "@/components/layout/BootSplash";
 import { BootSplashAssets } from "@/components/layout/BootSplashAssets";
 import { poppins } from "@/lib/fonts";
+import { SITE_URL } from "@/lib/site-url";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://luwag.ph"),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "LUWAG Living | Small-Space & Condo Furniture Philippines",
     template: "%s | LUWAG Living",
