@@ -3,7 +3,7 @@
 }
 
 {$DOMAIN} {
-	encode gzip
+	encode zstd gzip
 	# Buffer slow admin uploads before they enter the backend's five-minute window.
 	@admin_media_upload path /api/v1/admin/uploads
 	handle @admin_media_upload {
@@ -26,7 +26,9 @@
 	# Uploaded images live on the backend (local-disk upload volume).
 	@uploads path /uploads /uploads/*
 	handle @uploads {
-		reverse_proxy backend:3000
+		reverse_proxy backend:3000 {
+			header_down Cache-Control "public, max-age=31536000, immutable"
+		}
 	}
 	handle {
 		reverse_proxy frontend:3000
