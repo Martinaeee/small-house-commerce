@@ -1,0 +1,6 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Daily certificate check at 09:07 Asia/Manila. Alerts on operational faults
+# always; the expiry countdown alerts when its band changes and then daily
+# inside the final week. See luwag-cert-check.sh.
+7 9 * * * root /usr/local/sbin/luwag-cert-check.sh
