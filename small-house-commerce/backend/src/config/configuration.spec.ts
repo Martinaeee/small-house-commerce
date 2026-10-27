@@ -14,11 +14,13 @@ describe('email application configuration', () => {
     vi.stubEnv('JWT_SECRET', 'x'.repeat(32));
     vi.stubEnv('EMAIL_API_KEY', 're_test');
     vi.stubEnv('EMAIL_FROM', 'support@luwag.ph');
+    vi.stubEnv('EMAIL_REPLY_TO', 'hello@luwag.ph');
     vi.stubEnv('STOREFRONT_BASE_URL', 'https://luwag.ph');
 
     expect(configuration().email).toEqual({
       apiKey: 're_test',
       from: 'support@luwag.ph',
+      replyTo: 'hello@luwag.ph',
       storefrontBaseUrl: 'https://luwag.ph',
     });
   });

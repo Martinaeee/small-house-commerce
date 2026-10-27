@@ -122,6 +122,7 @@ describe('ResendEmailGateway', () => {
     const gateway = new ResendEmailGateway(
       're_test_key',
       'support@luwag.ph',
+      null,
       request,
     );
 
@@ -156,6 +157,7 @@ describe('ResendEmailGateway', () => {
     const gateway = new ResendEmailGateway(
       're_test_key',
       'support@luwag.ph',
+      null,
       request,
     );
 
@@ -182,6 +184,7 @@ describe('ResendEmailGateway', () => {
     const gateway = new ResendEmailGateway(
       're_test_key',
       'support@luwag.ph',
+      null,
       request,
     );
 
@@ -200,6 +203,7 @@ describe('ResendEmailGateway', () => {
     const gateway = new ResendEmailGateway(
       're_test_key',
       'support@luwag.ph',
+      null,
       request,
     );
 
@@ -208,5 +212,50 @@ describe('ResendEmailGateway', () => {
         unsubscribeUrl: 'https://luwag.ph/unsubscribe?token=safe',
       }),
     ).rejects.toThrow('Resend email failed (503)');
+  });
+
+  it('routes replies to the human support inbox', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('{}', { status: 200 }),
+    );
+    const gateway = new ResendEmailGateway(
+      're_test_key',
+      'LUWAG <no-reply@luwag.shop>',
+      'hello@luwag.shop',
+      request,
+    );
+
+    await gateway.sendBackInStock('shopper@example.com', {
+      productName: 'Oak Chair',
+      productUrl: 'https://luwag.shop/products/oak-chair',
+      unsubscribeUrl: 'https://luwag.shop/unsubscribe?token=safe',
+    });
+
+    const body = JSON.parse(
+      String(request.mock.calls[0][1]?.body),
+    ) as Record<string, unknown>;
+    expect(body.reply_to).toEqual(['hello@luwag.shop']);
+    expect(body.from).toBe('LUWAG <no-reply@luwag.shop>');
+  });
+
+  it('omits Reply-To when no support inbox is configured', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('{}', { status: 200 }),
+    );
+    const gateway = new ResendEmailGateway(
+      're_test_key',
+      'no-reply@luwag.shop',
+      null,
+      request,
+    );
+
+    await gateway.sendWelcome('shopper@example.com', {
+      unsubscribeUrl: 'https://luwag.shop/unsubscribe?token=safe',
+    });
+
+    const body = JSON.parse(
+      String(request.mock.calls[0][1]?.body),
+    ) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('reply_to');
   });
 });

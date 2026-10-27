@@ -112,6 +112,11 @@ export const envSchema = z.object({
     blankAsUndefined,
     emailFrom.optional(),
   ),
+  // Replies to an automated email go here instead of to the no-reply sender.
+  EMAIL_REPLY_TO: z.preprocess(
+    blankAsUndefined,
+    EMAIL_ADDRESS.optional(),
+  ),
   STOREFRONT_BASE_URL: z.preprocess(
     blankAsUndefined,
     z.string().url().optional(),

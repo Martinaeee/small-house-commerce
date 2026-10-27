@@ -61,6 +61,7 @@ export function configuration() {
     email: {
       apiKey: env.EMAIL_API_KEY ?? null,
       from: env.EMAIL_FROM ?? null,
+      replyTo: env.EMAIL_REPLY_TO ?? null,
       storefrontBaseUrl: env.STOREFRONT_BASE_URL ?? null,
     },
   };

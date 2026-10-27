@@ -20,6 +20,7 @@ export class ResendEmailGateway implements EmailGateway {
   constructor(
     private readonly apiKey: string,
     private readonly from: string,
+    private readonly replyTo: string | null,
     private readonly request: typeof fetch = fetch,
   ) {}
 
@@ -61,13 +62,20 @@ export class ResendEmailGateway implements EmailGateway {
     subject: string;
     html: string;
   }): Promise<void> {
+    const payload = {
+      ...body,
+      // A reply to an automated message must reach a monitored inbox, not the
+      // no-reply sender.
+      ...(this.replyTo ? { reply_to: [this.replyTo] } : {}),
+    };
+
     const response = await this.request(RESEND_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
     });
 

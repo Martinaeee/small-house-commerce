@@ -76,6 +76,33 @@ describe('email environment validation', () => {
       STOREFRONT_BASE_URL: 'https://luwag.ph',
     });
   });
+  it('accepts an optional Reply-To support inbox', () => {
+    const parsed = parseEnv({
+      ...required,
+      EMAIL_API_KEY: 're_test',
+      EMAIL_FROM: 'LUWAG <no-reply@luwag.shop>',
+      EMAIL_REPLY_TO: 'hello@luwag.shop',
+      STOREFRONT_BASE_URL: 'https://luwag.shop',
+    });
+
+    expect(parsed.EMAIL_REPLY_TO).toBe('hello@luwag.shop');
+  });
+
+  it('rejects an invalid Reply-To address', () => {
+    expect(() =>
+      parseEnv({
+        ...required,
+        EMAIL_API_KEY: 're_test',
+        EMAIL_FROM: 'LUWAG <no-reply@luwag.shop>',
+        EMAIL_REPLY_TO: 'hello@',
+        STOREFRONT_BASE_URL: 'https://luwag.shop',
+      }),
+    ).toThrow(/EMAIL_REPLY_TO/);
+  });
+
+  it('treats a blank Reply-To as unset', () => {
+    expect(parseEnv({ ...required, EMAIL_REPLY_TO: '   ' }).EMAIL_REPLY_TO).toBeUndefined();
+  });
 });
 
 describe('EMAIL_FROM sender format', () => {

@@ -13,6 +13,7 @@ export function createEmailGateway(config: ConfigService): EmailGateway {
   return new ResendEmailGateway(
     apiKey,
     config.getOrThrow<string>('email.from'),
+    config.get<string>('email.replyTo') ?? null,
   );
 }
 
