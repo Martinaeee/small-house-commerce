@@ -3,6 +3,44 @@ import { z } from 'zod';
 const blankAsUndefined = (value: unknown): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
+const EMAIL_ADDRESS = z.string().email();
+
+/**
+ * The sender `From` value, which is forwarded to Resend verbatim.
+ *
+ * Resend takes either a bare address or the RFC 5322 display form
+ * ("LUWAG <no-reply@luwag.shop>"). Validating as a bare email rejects the
+ * display form and stops the process at boot, so both shapes are accepted
+ * while the address itself is still checked.
+ */
+const emailFrom = z.string().superRefine((value, ctx) => {
+  if (/[\r\n]/.test(value)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'EMAIL_FROM must not contain line breaks',
+    });
+    return;
+  }
+
+  const display = /^([^<>]+?)\s*<([^<>]+)>$/.exec(value.trim());
+  if (display && display[1].trim() === '') {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'EMAIL_FROM display name is empty',
+    });
+    return;
+  }
+
+  const address = display ? display[2].trim() : value.trim();
+  if (!EMAIL_ADDRESS.safeParse(address).success) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'EMAIL_FROM must be an email address or "Display Name <address>"',
+    });
+  }
+});
+
 /**
  * Every environment variable the application reads.
  *
@@ -72,7 +110,7 @@ export const envSchema = z.object({
   ),
   EMAIL_FROM: z.preprocess(
     blankAsUndefined,
-    z.string().email().optional(),
+    emailFrom.optional(),
   ),
   STOREFRONT_BASE_URL: z.preprocess(
     blankAsUndefined,

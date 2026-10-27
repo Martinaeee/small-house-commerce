@@ -77,3 +77,36 @@ describe('email environment validation', () => {
     });
   });
 });
+
+describe('EMAIL_FROM sender format', () => {
+  const base = {
+    ...required,
+    EMAIL_API_KEY: 're_test',
+    STOREFRONT_BASE_URL: 'https://luwag.shop',
+  };
+
+  it('accepts the display-name form Resend uses for a branded sender', () => {
+    expect(
+      parseEnv({ ...base, EMAIL_FROM: 'LUWAG <no-reply@luwag.shop>' })
+        .EMAIL_FROM,
+    ).toBe('LUWAG <no-reply@luwag.shop>');
+  });
+
+  it('rejects a display-name form whose address is not an email', () => {
+    expect(() =>
+      parseEnv({ ...base, EMAIL_FROM: 'LUWAG <not-an-address>' }),
+    ).toThrow(/EMAIL_FROM/);
+  });
+
+  it('rejects a display-name form with an empty name', () => {
+    expect(() =>
+      parseEnv({ ...base, EMAIL_FROM: '   <no-reply@luwag.shop>' }),
+    ).toThrow(/EMAIL_FROM/);
+  });
+
+  it('rejects a sender containing line breaks', () => {
+    expect(() =>
+      parseEnv({ ...base, EMAIL_FROM: 'LUWAG\n<no-reply@luwag.shop>' }),
+    ).toThrow(/EMAIL_FROM/);
+  });
+});
