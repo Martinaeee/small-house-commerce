@@ -45,6 +45,20 @@ def run(args: list[str], timeout: int = 20) -> str:
         return ""
 
 
+def run_shell(command: str, timeout: int = 20) -> str:
+    try:
+        return subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
 def certificate_status() -> dict:
     result: dict = {
         "path": str(CERT_FILE),
@@ -85,11 +99,11 @@ def certificate_status() -> dict:
         cert_pub = run(["openssl", "x509", "-in", str(CERT_FILE), "-pubkey", "-noout"])
         result["keyMatches"] = bool(key_pub and key_pub == cert_pub)
 
-    served_end = run(
-        ["openssl", "s_client", "-connect", "127.0.0.1:443", "-servername", "luwag.shop"],
+    served_end = run_shell(
+        "openssl s_client -connect 127.0.0.1:443 -servername luwag.shop "
+        "</dev/null 2>/dev/null | openssl x509 -noout -enddate",
         timeout=15,
     )
-    # openssl s_client writes the certificate to stdout, so parse it directly.
     match = re.search(r"notAfter=(.+)", served_end)
     if match:
         result["served"]["reachable"] = True
