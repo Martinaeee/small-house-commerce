@@ -1,9 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Category } from "@/lib/api";
+import type { AnnouncementBlockView, Category } from "@/lib/api";
 import type { NavItem } from "@/lib/nav";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 import { StorefrontShellPresentation } from "./StorefrontShellPresentation";
+
+vi.mock("./AnnouncementBar", () => ({
+  AnnouncementBar: ({ mode }: { mode: string }) => (
+    <div data-testid="shell-announcement" data-mode={mode} />
+  ),
+}));
 
 vi.mock("./Header", () => ({
   Header: ({ navItems, mode }: { navItems: NavItem[]; mode: string }) => (
@@ -74,7 +80,7 @@ const shell: PublicStorefrontShell = {
 
 describe("StorefrontShellPresentation", () => {
   it.each(["live", "preview"] as const)(
-    "uses one Header/main/Footer landmark order in %s mode",
+    "uses one sticky Header/main/Footer landmark order in %s mode",
     (mode) => {
       const { container } = render(
         <StorefrontShellPresentation
@@ -89,10 +95,13 @@ describe("StorefrontShellPresentation", () => {
 
       const shellRoot = container.firstElementChild!;
       expect([...shellRoot.children].map((node) => node.tagName)).toEqual([
-        "HEADER",
+        "DIV",
         "MAIN",
         "FOOTER",
       ]);
+      const sticky = shellRoot.children[0];
+      expect(sticky).toHaveClass("sticky", "top-0");
+      expect(sticky).toContainElement(screen.getByTestId("shell-header"));
       expect(screen.getByTestId("shell-header")).toHaveAttribute("data-mode", mode);
       expect(screen.getByTestId("shell-header")).toHaveTextContent("New|Lounge");
       expect(screen.getByRole("main")).toContainElement(
@@ -101,4 +110,27 @@ describe("StorefrontShellPresentation", () => {
       expect(screen.getByTestId("shell-footer")).toHaveAttribute("data-mode", mode);
     },
   );
+
+  it("keeps the announcement bar and Header in the same sticky block", () => {
+    render(
+      <StorefrontShellPresentation
+        shell={shell}
+        roots={[root]}
+        collections={[]}
+        announcement={
+          { enabled: true, items: [], rotationMs: 5000 } as unknown as AnnouncementBlockView
+        }
+      >
+        <div />
+      </StorefrontShellPresentation>,
+    );
+
+    const sticky = document.querySelector(".sticky")!;
+    expect(sticky).toContainElement(screen.getByTestId("shell-announcement"));
+    expect(sticky).toContainElement(screen.getByTestId("shell-header"));
+    expect(screen.getByTestId("shell-announcement")).toHaveAttribute(
+      "data-mode",
+      "live",
+    );
+  });
 });

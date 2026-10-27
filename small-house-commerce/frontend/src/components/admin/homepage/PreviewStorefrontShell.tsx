@@ -6,7 +6,6 @@ import type { AnnouncementBlockView, Category, Collection } from "@/lib/api";
 import type { SiteSettings } from "@/lib/site-settings";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 import { themeCssVariables } from "@/lib/storefront-theme";
-import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { StorefrontShellPresentation } from "@/components/layout/StorefrontShellPresentation";
 import type { AnnouncementDevice } from "@/components/layout/AnnouncementCountdown";
 
@@ -113,12 +112,13 @@ export function PreviewStorefrontShell({
       onDragStartCapture={preventPreviewAction}
       onSubmitCapture={preventPreviewAction}
     >
-      <AnnouncementBar data={announcement} mode="preview" device={device} />
       <StorefrontShellPresentation
         shell={shell}
         roots={roots}
         collections={collections}
         mode="preview"
+        announcement={announcement}
+        announcementDevice={device}
         supportPhone={settings.supportPhone}
       >
         {children}

@@ -64,13 +64,16 @@ describe("PreviewStorefrontShell", () => {
     expect(main).not.toBeNull();
     expect(main).toContainElement(sections);
     expect(footer).not.toBeNull();
-    expect(
-      [announcementNode, header, main, footer].map((node) =>
-        Array.from(root!.children).findIndex(
-          (child) => child === node || child.contains(node),
-        ),
-      ),
-    ).toEqual([0, 1, 1, 1]);
+    // The announcement bar and header now share one sticky block, so assert
+    // document order rather than direct-child indexes.
+    const order = [announcementNode!, header!, main!, footer!];
+    for (let i = 1; i < order.length; i += 1) {
+      expect(
+        order[i - 1].compareDocumentPosition(order[i]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(announcementNode!.parentElement).toBe(header!.parentElement);
     expect(root).toHaveAttribute("data-device", "mobile");
     expect(root).toHaveAttribute("data-storefront-shell-mode", "preview");
   });

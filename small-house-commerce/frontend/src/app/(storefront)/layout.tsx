@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { MarketingTouchObserver } from "@/components/tracking/MarketingTouchObserver";
-import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { StorefrontShellPresentation } from "@/components/layout/StorefrontShellPresentation";
@@ -100,12 +99,12 @@ export default async function StorefrontLayout({
       </Suspense>
       <MetaPixelInit />
       <div className="storefront-app flex min-h-full flex-1 flex-col">
-        <AnnouncementBar data={announcement} />
         <StorefrontShellPresentation
           shell={shell}
           roots={roots}
           collections={collections}
           mode="live"
+          announcement={announcement}
           supportPhone={settings.supportPhone}
         >
           {children}

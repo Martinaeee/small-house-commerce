@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
-import type { Category, Collection } from "@/lib/api";
+import type { AnnouncementBlockView, Category, Collection } from "@/lib/api";
 import { buildNav } from "@/lib/nav";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
+import { AnnouncementBar } from "./AnnouncementBar";
+import type { AnnouncementDevice } from "./AnnouncementCountdown";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
 
@@ -11,6 +13,8 @@ type StorefrontShellPresentationProps = {
   collections: Collection[];
   mode?: "live" | "preview";
   supportPhone?: string;
+  announcement?: AnnouncementBlockView | null;
+  announcementDevice?: AnnouncementDevice;
   /** Preview-only focus switches; the live storefront always renders both. */
   showHeader?: boolean;
   showFooter?: boolean;
@@ -27,6 +31,8 @@ export function StorefrontShellPresentation({
   collections,
   mode = "live",
   supportPhone = "",
+  announcement = null,
+  announcementDevice,
   showHeader = true,
   showFooter = true,
   children,
@@ -36,7 +42,14 @@ export function StorefrontShellPresentation({
   return (
     <div data-storefront-shell-mode={mode} className="contents">
       {showHeader ? (
-        <Header navItems={navItems} brand={shell.brand} mode={mode} />
+        <div className="sticky top-0 z-40">
+          <AnnouncementBar
+            data={announcement}
+            mode={mode}
+            device={announcementDevice}
+          />
+          <Header navItems={navItems} brand={shell.brand} mode={mode} />
+        </div>
       ) : null}
       <main id="main-content" className="flex-1">{children}</main>
       {showFooter ? (
