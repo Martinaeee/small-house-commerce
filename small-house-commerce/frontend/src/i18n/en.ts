@@ -147,6 +147,7 @@ export const en: Record<ZhKey, string> = {
   system_status_media: "Media",
   system_status_alert: "Alerts",
   system_status_days_left: "{days} days left",
+  system_status_expires_at: "Expires",
   system_status_healthy: "Healthy",
   system_status_warning: "Warning",
   system_status_critical: "Critical",

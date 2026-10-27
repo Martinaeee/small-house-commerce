@@ -47,6 +47,44 @@ function bytes(value?: number): string {
   return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+const OPENSSL_MONTHS: Record<string, number> = {
+  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+};
+
+// Manila is a fixed +08:00 offset with no daylight saving.
+const MANILA_OFFSET_MINUTES = 8 * 60;
+
+/**
+ * Parses the openssl `-enddate` format, e.g. "Jan 22 04:59:59 2027 GMT".
+ * Returns null for anything else so the caller can fall back to the raw value.
+ */
+function parseOpensslDate(value: string): Date | null {
+  const match = /^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})/.exec(
+    value.trim(),
+  );
+  if (!match) return null;
+  const month = OPENSSL_MONTHS[match[1]];
+  if (month === undefined) return null;
+  const [, , day, hour, minute, second, year] = match;
+  return new Date(
+    Date.UTC(Number(year), month, Number(day), Number(hour), Number(minute), Number(second)),
+  );
+}
+
+/** Formats the expiry as Manila wall-clock time so the operator can act on it. */
+function formatExpiry(notAfter?: string): string {
+  if (!notAfter) return "—";
+  const parsed = parseOpensslDate(notAfter);
+  if (!parsed) return notAfter;
+  const shifted = new Date(parsed.getTime() + MANILA_OFFSET_MINUTES * 60_000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return (
+    `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}` +
+    ` ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())} (GMT+8)`
+  );
+}
+
 function Card({
   title,
   tone,
@@ -127,7 +165,18 @@ export function SystemStatusView({
   }
 
   const cert = data.certificate;
-  const certDays = cert?.daysRemaining;
+  // The served certificate is what browsers get; the on-disk file is the
+  // fallback. Whichever expires first drives both the countdown and the red
+  // state, so the card can never look calm while a certificate is about to die.
+  const fileDays = cert?.daysRemaining;
+  const servedDays = cert?.served?.daysRemaining;
+  const useServed =
+    typeof servedDays === "number" &&
+    (typeof fileDays !== "number" || servedDays <= fileDays);
+  const certDays = useServed ? servedDays : (fileDays ?? servedDays);
+  const certExpiry = useServed
+    ? (cert?.served?.notAfter ?? cert?.notAfter)
+    : (cert?.notAfter ?? cert?.served?.notAfter);
   const certTone: Tone =
     cert?.keyMatches === false || cert?.served?.reachable === false
       ? "critical"
@@ -175,6 +224,7 @@ export function SystemStatusView({
             label={t("system_status_days_left", { days: certDays ?? "—" })}
             value={cert?.subject ?? "—"}
           />
+          <Row label={t("system_status_expires_at")} value={formatExpiry(certExpiry)} />
           <Row label="SAN" value={(cert?.san ?? []).join(", ") || "—"} />
           <Row
             label={t("system_status_healthy")}

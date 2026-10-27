@@ -146,6 +146,7 @@ export const zh = {
   system_status_media: "媒体",
   system_status_alert: "告警",
   system_status_days_left: "剩余 {days} 天",
+  system_status_expires_at: "到期时间",
   system_status_healthy: "正常",
   system_status_warning: "注意",
   system_status_critical: "严重",
