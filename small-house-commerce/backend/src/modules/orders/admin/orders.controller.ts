@@ -7,13 +7,16 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import { Permissions } from '../../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { CurrentUser } from '../../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { checkoutRequestMeta } from '../../meta-capi/request-meta.js';
 import { OrdersService } from '../orders.service.js';
 import { OrderVerificationService } from '../verification.service.js';
 import { LogisticsEventService } from '../logistics-event.service.js';
@@ -105,8 +108,11 @@ export class AdminOrdersController {
   create(
     @Body(new ZodValidationPipe(checkoutSchema)) body: CheckoutInput,
     @CurrentUser() _user: { userId: string },
+    @Req() request: Request,
   ) {
-    return this.ordersService.checkout(body);
+    // Admin-entered orders are recognized by `isAdminSource` and are never
+    // sent to Meta as ad conversions.
+    return this.ordersService.checkout(body, checkoutRequestMeta(request));
   }
 
   /**

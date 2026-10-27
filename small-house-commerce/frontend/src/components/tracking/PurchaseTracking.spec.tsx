@@ -40,6 +40,7 @@ describe("PurchaseTracking", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "Purchase",
       expect.objectContaining({ order_id: "ORD-1", value: 200 }),
+      { eventID: "purchase-ORD-1" },
     );
   });
 
@@ -63,6 +64,7 @@ describe("PurchaseTracking", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "Purchase",
       expect.objectContaining({ order_id: "ORD-1", content_ids: [] }),
+      { eventID: "purchase-ORD-1" },
     );
   });
 
@@ -75,6 +77,7 @@ describe("PurchaseTracking", () => {
     expect(tracking.track).toHaveBeenLastCalledWith(
       "Purchase",
       expect.objectContaining({ order_id: "ORD-2" }),
+      { eventID: "purchase-ORD-2" },
     );
   });
 });

@@ -302,6 +302,7 @@ describe("PlpProductCard", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "AddToCart",
       expect.objectContaining({ content_ids: ["sku-single"] }),
+      expect.objectContaining({ eventID: expect.any(String) }),
     );
   });
 
@@ -337,7 +338,7 @@ describe("PlpProductCard", () => {
     expect(await screen.findByRole("button", { name: "Added" })).toBeInTheDocument();
     expect(cart.addItem).toHaveBeenCalledWith({ skuId: "sku-blue-large", quantity: 1 });
     expect(cart.openPicker).not.toHaveBeenCalled();
-    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["sku-blue-large"], value: 120 }));
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["sku-blue-large"], value: 120 }), expect.objectContaining({ eventID: expect.any(String) }));
   });
 
   it("links to details when no sellable SKU exists", () => {

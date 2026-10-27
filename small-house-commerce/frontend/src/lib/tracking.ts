@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { hasAdsConsent } from "./consent";
 
 export type Attribution = {
   sourceType?: string;
@@ -94,9 +95,14 @@ type FbqCommand = {
   queue: unknown[][];
 };
 
+/** Extra Pixel arguments. `eventID` is how Meta dedupes Pixel vs CAPI. */
+export type MetaTrackOptions = { eventID?: string };
+
 /** Loads the Meta Pixel base script once. Safe to call on every page. */
 export function initMetaPixel(): void {
   if (typeof window === "undefined" || !PIXEL_ID || window.fbq) return;
+  // Optional advertising measurement runs only after an explicit opt-in.
+  if (!hasAdsConsent()) return;
 
   // This mirrors the official snippet exactly. The loader replays `_fbq.queue`
   // and reads `version`/`loaded`; handing it a bare array (or a function
@@ -128,21 +134,32 @@ export function initMetaPixel(): void {
 }
 
 /**
- * Fires a Meta Pixel event when a pixel id is configured; no-op otherwise.
+ * Fires a Meta Pixel event when a pixel id is configured and ads consent was
+ * granted; no-op otherwise.
  *
  * The bootstrap is ensured first: React runs child effects before the layout's
  * MetaPixelInit, so a product page can emit ViewContent before the pixel
  * exists. The stub queues the command and fbevents.js replays it on load.
  */
-export function track(event: string, data?: Record<string, unknown>): void {
-  if (typeof window === "undefined" || !PIXEL_ID) return;
+export function track(
+  event: string,
+  data?: Record<string, unknown>,
+  options?: MetaTrackOptions,
+): void {
+  if (typeof window === "undefined" || !PIXEL_ID || !hasAdsConsent()) return;
   initMetaPixel();
-  window.fbq?.("track", event, data);
+  if (options) window.fbq?.("track", event, data, options);
+  else window.fbq?.("track", event, data);
 }
 
 /** Fires a custom Meta Pixel event (homepage funnel), same guards as track(). */
-export function trackCustom(event: string, data?: Record<string, unknown>): void {
-  if (typeof window === "undefined" || !PIXEL_ID) return;
+export function trackCustom(
+  event: string,
+  data?: Record<string, unknown>,
+  options?: MetaTrackOptions,
+): void {
+  if (typeof window === "undefined" || !PIXEL_ID || !hasAdsConsent()) return;
   initMetaPixel();
-  window.fbq?.("trackCustom", event, data);
+  if (options) window.fbq?.("trackCustom", event, data, options);
+  else window.fbq?.("trackCustom", event, data);
 }

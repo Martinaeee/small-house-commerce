@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
@@ -22,6 +23,8 @@ import {
 } from '../inventory/bundle-inventory.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
+import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
@@ -268,6 +271,8 @@ export class OrdersService {
     private readonly marketingTouch: MarketingTouchService,
     private readonly promotions: PromotionService,
     private readonly backInStock: BackInStockService,
+    // Optional so direct unit constructions keep working; Nest injects it.
+    @Optional() private readonly metaCapi?: MetaCapiService,
   ) {}
 
   /**
@@ -277,7 +282,7 @@ export class OrdersService {
    * - match/create the customer by normalized phone
    * - create the order with snapshots (DB-003), then reserve stock (§30)
    */
-  async checkout(input: CheckoutInput) {
+  async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta) {
     const normalizedPhone = this.normalizePhone(input.customer.phone);
 
     // Resolve customer by canonical phone (§9: phone is the identity key).
@@ -291,7 +296,7 @@ export class OrdersService {
     // the new order from prior history; stored on the order, never recomputed.
     const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
-    const { order, orderNumber, offerAvailabilityChanged } = await this.prisma.$transaction(async (tx) => {
+    const { order, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = await this.prisma.$transaction(async (tx) => {
     for (const skuId of [...new Set(input.items.map(item => item.skuId))].sort()) {
       await tx.$queryRaw`SELECT id FROM skus WHERE id = ${skuId}::uuid AND is_bundle = TRUE FOR UPDATE`;
     }
@@ -575,6 +580,14 @@ export class OrdersService {
         order: created,
         orderNumber,
         offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
+        // Meta Purchase facts travel out of the transaction so the outbox
+        // write happens after the order is committed.
+        purchaseLines: lines.map((line) => ({
+          skuId: line.skuId,
+          quantity: line.quantity,
+          unitPrice: Number(line.unitPrice),
+        })),
+        amount: grandTotal,
       };
       },
     );
@@ -602,6 +615,27 @@ export class OrdersService {
 
     // Duplicate detection (§14): mark, never delete.
     await this.customerRisk.markDuplicates(normalizedPhone);
+
+    // Meta Purchase through the durable outbox. The order is already
+    // committed; a measurement hiccup must never surface as a checkout error.
+    if (requestMeta?.eventSourceUrl) {
+      try {
+        await this.metaCapi?.enqueuePurchase({
+          orderNumber,
+          items: purchaseLines,
+          value: amount,
+          phone: normalizedPhone,
+          consent: input.metaConsent === true,
+          fbp: input.fbp ?? null,
+          fbc: input.fbc ?? null,
+          clientIp: requestMeta.clientIp,
+          clientUserAgent: requestMeta.clientUserAgent,
+          eventSourceUrl: requestMeta.eventSourceUrl,
+        });
+      } catch {
+        // Best effort; the row (when written) is retried by the worker.
+      }
+    }
 
     const requiresReview = classification.classification === 'RPT' || classification.classification === 'RECHECK';
     return {

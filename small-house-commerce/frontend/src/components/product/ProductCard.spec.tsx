@@ -217,7 +217,7 @@ describe("ProductCard inline purchase", () => {
     expect(api.addToCart).toHaveBeenCalledWith(expect.objectContaining({ skuId: "blue-sku", quantity: 1 }));
     expect(screen.getByTestId("card-cart-open")).toHaveTextContent("true");
     expect(tracking.track).toHaveBeenCalledTimes(1);
-    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"], value: 120 }));
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"], value: 120 }), expect.objectContaining({ eventID: expect.any(String) }));
     expect(tracking.trackCustom).toHaveBeenCalledWith("variant_confirm", expect.objectContaining({ sku_id: "blue-sku", source: "QUICK_ADD" }));
     expect(tracking.trackCustom.mock.calls.filter(([name]) => name === "variant_confirm")).toHaveLength(1);
     expect(location.href).toBe(href);
@@ -445,7 +445,7 @@ describe("ProductCard inline purchase", () => {
     await user.click(screen.getByRole("button", { name: "Add to Cart" }));
     expect(await screen.findByRole("button", { name: "Added" })).toBeInTheDocument();
     expect(api.addToCart).toHaveBeenCalledWith(expect.objectContaining({ skuId: "red-sku", quantity: 1 }));
-    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ value: 0 }));
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ value: 0 }), expect.objectContaining({ eventID: expect.any(String) }));
     expect(tracking.trackCustom).not.toHaveBeenCalledWith("variant_confirm", expect.anything());
   });
 
@@ -503,7 +503,7 @@ describe("ProductCard inline purchase", () => {
     await act(async () => resolve(cartSummary));
     expect(screen.getByRole("button", { name: "Add to Cart" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Added" })).not.toBeInTheDocument();
-    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"], content_name: "Oak Side Table", value: 120 }));
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"], content_name: "Oak Side Table", value: 120 }), expect.objectContaining({ eventID: expect.any(String) }));
     expect(tracking.trackCustom).toHaveBeenCalledWith("variant_confirm", expect.objectContaining({ product_id: "product-1", variant_id: "blue-variant" }));
   });
 

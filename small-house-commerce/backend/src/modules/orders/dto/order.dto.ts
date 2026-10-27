@@ -26,6 +26,21 @@ export const checkoutSchema = z.object({
   // first-party events, so the dashboard's conversion rate divides ordering
   // sessions by all sessions. Never a customer identity.
   trackingSessionId: z.string().min(8).max(100).nullable().optional(),
+  // Meta browser cookies and the shopper's ads-cookie choice at checkout.
+  // Only forwarded to Meta when metaConsent is true.
+  fbp: z
+    .string()
+    .max(200)
+    .regex(/^fb\.\d+\.\d+\.[\w.-]+$/)
+    .nullable()
+    .optional(),
+  fbc: z
+    .string()
+    .max(300)
+    .regex(/^fb\.\d+\.\d+\.[\w.-]+$/)
+    .nullable()
+    .optional(),
+  metaConsent: z.boolean().optional().default(false),
   attribution: z.object({
     sourceType: z.nativeEnum(SourceType).default('ORGANIC'),
     aid: z.string().max(64).nullable().optional(),

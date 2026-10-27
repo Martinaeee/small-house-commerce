@@ -158,6 +158,18 @@ export const en: Record<ZhKey, string> = {
   system_status_backup_age: "Last backup {hours}h ago",
   system_status_no_backup: "No backup",
   system_status_not_available: "Unavailable",
+  meta_capi_title: "Meta Conversions API",
+  meta_capi_subtitle:
+    "Server-side event queue (consented visitors only)",
+  meta_capi_disabled: "Disabled (no access token configured)",
+  meta_capi_enabled: "Enabled",
+  meta_capi_pending: "{count} pending",
+  meta_capi_failed: "{count} failed",
+  meta_capi_sent_24h: "{count} sent in 24h",
+  meta_capi_last_sent: "Last sent {time}",
+  meta_capi_never_sent: "Nothing sent yet",
+  meta_capi_last_error: "Last error ({time}): {message}",
+  meta_capi_load_error: "Could not read the Meta queue status",
   storefront_shell_title: "Header, Footer & Brand",
   storefront_shell_subtitle:
     "Edit storefront navigation, footer content, brand marks and the site theme, then publish them together.",

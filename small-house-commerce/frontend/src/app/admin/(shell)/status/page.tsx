@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SystemStatusView } from "@/components/admin/system-status/SystemStatusView";
+import { MetaCapiHealthCard } from "@/components/admin/system-status/MetaCapiHealthCard";
 import { Button } from "@/components/ui/Button";
 import { adminApi, type AdminSystemStatus } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
@@ -73,6 +74,7 @@ export default function SystemStatusPage() {
           onRefresh={() => void load()}
           t={t}
         />
+        <MetaCapiHealthCard t={t} />
       </div>
     </div>
   );

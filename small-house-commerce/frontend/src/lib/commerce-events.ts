@@ -13,6 +13,7 @@
  */
 
 import { trackFirstParty, type FirstPartyEventName } from "./analytics";
+import { sendMetaServerEvent } from "./meta-capi";
 import { track, trackCustom } from "./tracking";
 
 export interface CommerceEvent {
@@ -21,11 +22,32 @@ export interface CommerceEvent {
   /** true → Meta custom event (trackCustom); false → standard event (track). */
   custom: boolean;
   /**
+   * One id per event occurrence. The Pixel receives it as `eventID` and the
+   * server-side mirror reuses it, so Meta records the event exactly once.
+   * Purchase uses a deterministic `purchase-<orderNumber>` id because the
+   * backend outbox sends its own copy of the same event.
+   */
+  eventId: string;
+  /**
    * Product UUID for the first-party funnel. Set only where the builder can
    * honestly name the product; the dashboard's per-product view report joins
    * on it.
    */
   productId?: string;
+}
+
+/** Standard events whose server-side copy comes from the browser bridge. */
+const SERVER_MIRRORED_EVENTS = new Set([
+  "ViewContent",
+  "AddToCart",
+  "InitiateCheckout",
+]);
+
+function newEventId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `m-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export interface CommerceCheckoutItem {
@@ -55,6 +77,7 @@ export function viewContentEvent(input: {
   return {
     name: "ViewContent",
     custom: false,
+    eventId: newEventId(),
     productId: input.productId,
     data: {
       content_ids: [input.skuId ?? input.productId],
@@ -78,6 +101,7 @@ export function addToCartEvent(input: {
   return {
     name: "AddToCart",
     custom: false,
+    eventId: newEventId(),
     productId: input.productId,
     data: {
       content_ids: [input.skuId],
@@ -100,6 +124,7 @@ export function initiateCheckoutEvent(input: {
   return {
     name: "InitiateCheckout",
     custom: false,
+    eventId: newEventId(),
     data: {
       content_ids: input.items.map((item) => item.skuId),
       content_type: "product",
@@ -126,6 +151,7 @@ export function purchaseEvent(input: {
   return {
     name: "Purchase",
     custom: false,
+    eventId: `purchase-${input.orderId}`,
     data: {
       content_type: "product",
       order_id: input.orderId,
@@ -150,6 +176,7 @@ export function optionSelectEvent(input: {
   return {
     name: "option_select",
     custom: true,
+    eventId: newEventId(),
     data: {
       product_id: input.productId,
       option_kind: input.optionKind,
@@ -171,6 +198,7 @@ export function variantConfirmEvent(input: {
   return {
     name: "variant_confirm",
     custom: true,
+    eventId: newEventId(),
     data: {
       product_id: input.productId,
       variant_id: input.variantId,
@@ -189,6 +217,7 @@ export function variantUnavailableEvent(input: {
   return {
     name: "variant_unavailable",
     custom: true,
+    eventId: newEventId(),
     data: {
       product_id: input.productId,
       selected_value_ids: { ...input.selectedValueIds },
@@ -218,8 +247,20 @@ const FIRST_PARTY_EVENT: Record<string, FirstPartyEventName> = {
  */
 export function emitCommerceEvent(event: CommerceEvent | null): void {
   if (event === null) return;
-  if (event.custom) trackCustom(event.name, event.data);
-  else track(event.name, event.data);
+  if (event.custom) {
+    // Custom funnel events have no server-side twin, so they need no dedupe id.
+    trackCustom(event.name, event.data);
+  } else {
+    track(event.name, event.data, { eventID: event.eventId });
+  }
+
+  if (SERVER_MIRRORED_EVENTS.has(event.name)) {
+    sendMetaServerEvent({
+      name: event.name,
+      eventId: event.eventId,
+      data: event.data,
+    });
+  }
 
   const firstPartyName = FIRST_PARTY_EVENT[event.name];
   if (!firstPartyName) return;
@@ -242,7 +283,11 @@ export function storePurchasePayload(event: CommerceEvent): boolean {
   try {
     window.sessionStorage.setItem(
       PURCHASE_PAYLOAD_STORAGE_KEY,
-      JSON.stringify({ name: event.name, data: event.data }),
+      JSON.stringify({
+        name: event.name,
+        data: event.data,
+        eventId: event.eventId,
+      }),
     );
     return true;
   } catch {
@@ -271,12 +316,23 @@ export function consumePurchasePayload(orderId: string): CommerceEvent | null {
     // Consume-once is best effort; a leftover payload is refused by order id.
   }
   try {
-    const parsed = JSON.parse(raw) as { name?: unknown; data?: unknown };
+    const parsed = JSON.parse(raw) as {
+      name?: unknown;
+      data?: unknown;
+      eventId?: unknown;
+    };
     if (parsed.name !== "Purchase") return null;
     if (typeof parsed.data !== "object" || parsed.data === null) return null;
     const data = parsed.data as Record<string, unknown>;
     if (data.order_id !== orderId) return null;
-    return { name: "Purchase", custom: false, data };
+    // Older stash entries lack an id; the order-keyed id is the same one the
+    // backend outbox used, so dedupe still works.
+    const eventId =
+      typeof parsed.eventId === "string" &&
+      /^[A-Za-z0-9_-]{8,100}$/.test(parsed.eventId)
+        ? parsed.eventId
+        : `purchase-${orderId}`;
+    return { name: "Purchase", custom: false, eventId, data };
   } catch {
     return null;
   }

@@ -121,6 +121,26 @@ export const envSchema = z.object({
     blankAsUndefined,
     z.string().url().optional(),
   ),
+  // Meta advertising measurement. The Pixel id is the dataset id; a blank
+  // access token simply keeps the server-side Conversions API switched off
+  // (the browser Pixel is independent and consent-gated).
+  META_PIXEL_ID: z.preprocess(
+    blankAsUndefined,
+    z.string().regex(/^\d{10,20}$/, 'META_PIXEL_ID must be a numeric dataset id').optional(),
+  ),
+  META_CAPI_ACCESS_TOKEN: z.preprocess(
+    blankAsUndefined,
+    z.string().min(20).optional(),
+  ),
+  // Optional: routes test traffic to Events Manager's Test Events stream.
+  META_CAPI_TEST_EVENT_CODE: z.preprocess(
+    blankAsUndefined,
+    z.string().min(4).max(40).optional(),
+  ),
+  META_CAPI_API_VERSION: z.preprocess(
+    blankAsUndefined,
+    z.string().regex(/^v\d+\.\d+$/, 'META_CAPI_API_VERSION must look like v23.0').optional(),
+  ),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
     ctx.addIssue({
@@ -134,6 +154,13 @@ export const envSchema = z.object({
       code: 'custom',
       path: ['STOREFRONT_BASE_URL'],
       message: 'STOREFRONT_BASE_URL is required when EMAIL_API_KEY is set',
+    });
+  }
+  if (env.META_CAPI_ACCESS_TOKEN && !env.META_PIXEL_ID) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['META_PIXEL_ID'],
+      message: 'META_PIXEL_ID is required when META_CAPI_ACCESS_TOKEN is set',
     });
   }
 });

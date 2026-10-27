@@ -1628,13 +1628,23 @@ export interface AdminSystemStatusCertificate {
   };
 }
 
+/** Meta Conversions API outbox health (admin status page). */
+export interface AdminMetaCapiStatus {
+  enabled: boolean;
+  pending: number;
+  failed: number;
+  sent24h: number;
+  lastSentAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+}
+
 export interface AdminSystemStatus {
   generatedAt: string;
   stale: boolean;
   hostname?: string;
   certificate?: AdminSystemStatusCertificate;
-  services?: AdminSystemStatusService[];
-  disk?: {
+  services?: AdminSystemStatusService[];  disk?: {
     totalBytes?: number;
     usedBytes?: number;
     availableBytes?: number;
@@ -2697,4 +2707,8 @@ export const adminApi = {
   /** Host/system snapshot for the admin status page (read-only). */
   systemStatus: (): Promise<AdminSystemStatus> =>
     adminAuthedFetch<AdminSystemStatus>("/api/v1/admin/system-status"),
+
+  /** Meta CAPI queue depth and last failure (read-only). */
+  metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>
+    adminAuthedFetch<AdminMetaCapiStatus>("/api/v1/admin/meta-capi/status"),
 };

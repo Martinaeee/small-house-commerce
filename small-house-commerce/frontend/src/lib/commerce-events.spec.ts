@@ -34,6 +34,9 @@ vi.mock("@/lib/analytics", () => ({
   trackFirstParty: analytics.trackFirstParty,
 }));
 
+const metaCapi = vi.hoisted(() => ({ sendMetaServerEvent: vi.fn() }));
+vi.mock("./meta-capi", () => metaCapi);
+
 function eventNames(events: CommerceEvent[]): string[] {
   return events.map((event) => event.name);
 }
@@ -253,12 +256,15 @@ describe("emitCommerceEvent", () => {
     tracking.track.mockReset();
     tracking.trackCustom.mockReset();
     analytics.trackFirstParty.mockReset();
+    metaCapi.sendMetaServerEvent.mockReset();
   });
 
-  it("routes standard events through track", () => {
+  it("routes standard events through track with the shared event id", () => {
     emitCommerceEvent(purchaseEvent({ orderId: "LW-1", items: [], value: null }));
     expect(tracking.track).toHaveBeenCalledTimes(1);
-    expect(tracking.track).toHaveBeenCalledWith("Purchase", expect.any(Object));
+    expect(tracking.track).toHaveBeenCalledWith("Purchase", expect.any(Object), {
+      eventID: "purchase-LW-1",
+    });
     expect(tracking.trackCustom).not.toHaveBeenCalled();
   });
 
@@ -340,6 +346,64 @@ describe("emitCommerceEvent", () => {
     );
     expect(analytics.trackFirstParty).not.toHaveBeenCalled();
   });
+
+  it("mirrors the upper funnel to the server-side API with the same event id", () => {
+    const event = viewContentEvent({
+      productId: "prod-1",
+      productName: "Oak Chair",
+      skuId: "sku-1",
+      price: 100,
+    });
+    emitCommerceEvent(event);
+    expect(metaCapi.sendMetaServerEvent).toHaveBeenCalledWith({
+      name: "ViewContent",
+      eventId: event.eventId,
+      data: event.data,
+    });
+  });
+
+  it("leaves Purchase to the backend outbox instead of the browser bridge", () => {
+    emitCommerceEvent(purchaseEvent({ orderId: "LW-9", items: [], value: null }));
+    expect(metaCapi.sendMetaServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps custom funnel events pixel-only", () => {
+    emitCommerceEvent(
+      optionSelectEvent({
+        productId: "prod-1",
+        optionKind: "COLOR",
+        optionValueId: "value-red",
+        selectionSource: "USER",
+      }),
+    );
+    expect(metaCapi.sendMetaServerEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("event identity", () => {
+  it("gives every occurrence its own id so Pixel and CAPI dedupe by event", () => {
+    const first = viewContentEvent({
+      productId: "prod-1",
+      productName: "Rattan Chair",
+      skuId: "sku-blue",
+      price: 1299,
+    });
+    const second = viewContentEvent({
+      productId: "prod-1",
+      productName: "Rattan Chair",
+      skuId: "sku-blue",
+      price: 1299,
+    });
+    expect(first.eventId).toMatch(/^[A-Za-z0-9_-]{8,100}$/);
+    expect(second.eventId).toMatch(/^[A-Za-z0-9_-]{8,100}$/);
+    expect(first.eventId).not.toBe(second.eventId);
+  });
+
+  it("keys Purchase by order number so the browser and the backend agree", () => {
+    expect(
+      purchaseEvent({ orderId: "LW-1001", items: [], value: null }).eventId,
+    ).toBe("purchase-LW-1001");
+  });
 });
 
 describe("tab-scoped purchase payload", () => {
@@ -359,9 +423,19 @@ describe("tab-scoped purchase payload", () => {
     expect(storePurchasePayload(event)).toBe(true);
     const consumed = consumePurchasePayload("LW-1003");
     expect(consumed).toEqual(event);
+    expect(consumed?.eventId).toBe("purchase-LW-1003");
     // Consumed once: a second read (page refresh) finds nothing.
     expect(consumePurchasePayload("LW-1003")).toBeNull();
     expect(window.sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
+  });
+
+  it("restores a legacy payload without an id under the order-keyed id", () => {
+    window.sessionStorage.setItem(
+      "luwag_purchase_payload",
+      JSON.stringify({ name: "Purchase", data: { order_id: "LW-2002" } }),
+    );
+    const consumed = consumePurchasePayload("LW-2002");
+    expect(consumed?.eventId).toBe("purchase-LW-2002");
   });
 
   it("refuses a payload that belongs to a different order", () => {

@@ -8,6 +8,7 @@ import { PageViewTracker } from "@/components/tracking/PageViewTracker";
 import { Providers } from "@/components/auth/Providers";
 import { MessengerChat } from "@/components/chat/MessengerChat";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { CookieConsentBar } from "@/components/consent/CookieConsentBar";
 import { NewsletterPopup } from "@/components/newsletter/NewsletterPopup";
 import { serverApiUrl, getAnnouncement, type AnnouncementBlockView, type Category, type Collection } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
@@ -114,6 +115,7 @@ export default async function StorefrontLayout({
         <MessengerChat />
         <MobileTabBar />
         <BackToTop />
+        <CookieConsentBar />
       </div>
     </Providers>
   );

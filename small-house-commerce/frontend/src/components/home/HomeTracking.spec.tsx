@@ -38,7 +38,7 @@ describe("HomeTracking with inline product cards", () => {
     await user.click(within(article).getByRole("button", { name: "Add to Cart" }));
     await within(article).findByRole("button", { name: "Added" });
     expect(tracking.trackCustom.mock.calls.filter(([name]) => name === "ProductClick")).toHaveLength(0);
-    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"] }));
+    expect(tracking.track).toHaveBeenCalledWith("AddToCart", expect.objectContaining({ content_ids: ["blue-sku"] }), expect.objectContaining({ eventID: expect.any(String) }));
     const title = within(screen.getByRole("heading", { name: "Oak Side Table" })).getByRole("link");
     title.addEventListener("click", event => event.preventDefault());
     await user.click(title);

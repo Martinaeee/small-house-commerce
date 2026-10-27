@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useId, useState, type ReactNode } from "react";
+import { CookieSettingsButton } from "@/components/consent/CookieSettingsButton";
 import { SubscribeBand } from "@/components/newsletter/SubscribeBand";
 import type {
   PublicStorefrontShell,
@@ -359,24 +360,43 @@ export function Footer({
             reserved.
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            {footer.legal.length > 0 ? (
-              <ul className="flex flex-wrap items-center gap-4">
-                {footer.legal.map((link) => (
-                  <li key={link.id}>
-                    {mode === "live" ? (
-                      <Link
-                        href={link.href}
-                        className="transition hover:text-footer-foreground"
-                      >
-                        {link.label}
-                      </Link>
-                    ) : (
-                      <span>{link.label}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            <ul className="flex flex-wrap items-center gap-4">
+              {footer.legal.map((link) => (
+                <li key={link.id}>
+                  {mode === "live" ? (
+                    <Link
+                      href={link.href}
+                      className="transition hover:text-footer-foreground"
+                    >
+                      {link.label}
+                    </Link>
+                  ) : (
+                    <span>{link.label}</span>
+                  )}
+                </li>
+              ))}
+              {footer.legal.some((link) => link.href === "/privacy") ? null : (
+                <li>
+                  {mode === "live" ? (
+                    <Link
+                      href="/privacy"
+                      className="transition hover:text-footer-foreground"
+                    >
+                      Privacy Policy
+                    </Link>
+                  ) : (
+                    <span>Privacy Policy</span>
+                  )}
+                </li>
+              )}
+              <li>
+                {mode === "live" ? (
+                  <CookieSettingsButton className="transition hover:text-footer-foreground" />
+                ) : (
+                  <span>Cookie Settings</span>
+                )}
+              </li>
+            </ul>
             {footer.payments.length > 0 ? (
               <ul className="flex flex-wrap items-center gap-2">
                 {footer.payments.map((payment) => (

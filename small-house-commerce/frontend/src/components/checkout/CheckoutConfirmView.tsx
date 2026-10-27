@@ -12,6 +12,8 @@ import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { readAttribution } from "@/lib/tracking";
 import { analyticsSessionId } from "@/lib/analytics";
 import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
+import { hasAdsConsent } from "@/lib/consent";
+import { readMetaBrowserIds } from "@/lib/meta-capi";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
 import {
   readCheckoutDraft,
@@ -185,6 +187,10 @@ export function CheckoutConfirmView({
         customerNote: draft.customerNote ?? null,
         // Analytics-only: links this order to the visit that produced it.
         trackingSessionId: analyticsSessionId(),
+        // Meta matching data, only meaningful (and only accepted by the
+        // backend) when the shopper accepted optional cookies.
+        ...readMetaBrowserIds(),
+        metaConsent: hasAdsConsent(),
       };
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);

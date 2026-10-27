@@ -1811,6 +1811,7 @@ describe("browser history navigation", () => {
           value: 100,
           currency: "PHP",
         }),
+        expect.objectContaining({ eventID: expect.any(String) }),
       ),
     );
 
@@ -1869,6 +1870,7 @@ describe("browser history navigation", () => {
         value: 100,
         currency: "PHP",
       }),
+      expect.objectContaining({ eventID: expect.any(String) }),
     );
     expect(tracking.trackCustom.mock.calls.map(([name]) => name)).toEqual([
       "variant_confirm",

@@ -50,6 +50,12 @@ services:
       # Replies to automated mail go here; blank omits the Reply-To header.
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       STOREFRONT_BASE_URL: ${STOREFRONT_BASE_URL:-}
+      # Meta Conversions API (server-side). Blank token keeps it disabled;
+      # the browser Pixel is independent and consent-gated.
+      META_PIXEL_ID: ${META_PIXEL_ID:-}
+      META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
+      META_CAPI_TEST_EVENT_CODE: ${META_CAPI_TEST_EVENT_CODE:-}
+      META_CAPI_API_VERSION: ${META_CAPI_API_VERSION:-v23.0}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
       UPLOAD_DIR: /app/uploads

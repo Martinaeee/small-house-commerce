@@ -64,6 +64,13 @@ export function configuration() {
       replyTo: env.EMAIL_REPLY_TO ?? null,
       storefrontBaseUrl: env.STOREFRONT_BASE_URL ?? null,
     },
+    // Server-side Meta Conversions API. Null values keep it disabled.
+    meta: {
+      pixelId: env.META_PIXEL_ID ?? null,
+      accessToken: env.META_CAPI_ACCESS_TOKEN ?? null,
+      testEventCode: env.META_CAPI_TEST_EVENT_CODE ?? null,
+      apiVersion: env.META_CAPI_API_VERSION ?? 'v23.0',
+    },
   };
 }
 

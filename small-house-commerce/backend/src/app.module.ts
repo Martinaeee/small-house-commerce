@@ -21,6 +21,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module.js';
 import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { SystemStatusModule } from './modules/system-status/system-status.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
+import { MetaCapiModule } from './modules/meta-capi/meta-capi.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -56,6 +57,7 @@ import { UsersModule } from './modules/users/users.module.js';
     DashboardModule,
     SystemStatusModule,
     AnalyticsModule,
+    MetaCapiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

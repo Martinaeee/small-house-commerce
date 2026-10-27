@@ -1,0 +1,47 @@
+// Meta Conversions API outbox.
+//
+// Every server-side Meta event is first written here, then delivered by a
+// small in-process worker with retries. Keeping the row in our own database
+// means a Meta or network outage cannot lose a Purchase — the money event is
+// enqueued inside the order flow and retried after failures.
+//
+// Dedupe with the browser Pixel is by `eventId` (Meta `event_id`): the Pixel
+// receives the same value as its `eventID`. Purchase ids are deterministic
+// (`purchase-<orderNumber>`), everything else is a per-occurrence UUID.
+//
+// `phoneHash` is the SHA-256 of the E.164 digits of the customer's mobile
+// number. It is only written when the shopper accepted optional cookies.
+
+enum MetaConversionStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model MetaConversionEvent {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  /// Meta standard event name (ViewContent, AddToCart, InitiateCheckout, Purchase).
+  eventName       String                @map("event_name") @db.VarChar(40)
+  /// Shared with the Pixel `eventID` so Meta counts the event once.
+  eventId         String                @unique @map("event_id") @db.VarChar(120)
+  eventTime       DateTime              @map("event_time") @db.Timestamptz(3)
+  actionSource    String                @default("website") @map("action_source") @db.VarChar(20)
+  eventSourceUrl  String                @map("event_source_url") @db.VarChar(1024)
+  customData      Json?                 @map("custom_data")
+  fbp             String?               @db.VarChar(200)
+  fbc             String?               @db.VarChar(300)
+  clientIp        String?               @map("client_ip") @db.VarChar(60)
+  clientUserAgent String?               @map("client_user_agent") @db.VarChar(512)
+  /// SHA-256 (hex) of E.164 digits, e.g. 639171234567.
+  phoneHash       String?               @map("phone_hash") @db.VarChar(64)
+  status          MetaConversionStatus  @default(PENDING)
+  attempts        Int                   @default(0)
+  lastError       String?               @map("last_error") @db.VarChar(1024)
+  nextAttemptAt   DateTime              @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  sentAt          DateTime?             @map("sent_at") @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+  @@map("meta_conversion_events")
+}

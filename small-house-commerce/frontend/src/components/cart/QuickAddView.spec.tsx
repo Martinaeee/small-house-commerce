@@ -373,6 +373,7 @@ describe("QuickAddView", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "AddToCart",
       expect.objectContaining({ content_ids: ["sku-red-small"] }),
+      expect.objectContaining({ eventID: expect.any(String) }),
     );
     expect(onAdded).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
@@ -477,6 +478,7 @@ describe("QuickAddView", () => {
     expect(tracking.track).toHaveBeenCalledWith(
       "AddToCart",
       expect.objectContaining({ content_ids: ["sku-red-small"] }),
+      expect.objectContaining({ eventID: expect.any(String) }),
     );
     expect(onAdded).toHaveBeenCalledTimes(1);
   });
