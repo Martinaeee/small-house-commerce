@@ -428,7 +428,7 @@ describe('StorefrontShellService.getPublic', () => {
     expect(shell.theme).toMatchObject({ primary: '#c9a77b', action: '#244c3c' });
     expect(shell.footer.columns[1]).toMatchObject({
       kind: 'CONTACT',
-      supportEmail: 'support@luwag.ph',
+      supportEmail: 'hello@luwag.shop',
     });
   });
 

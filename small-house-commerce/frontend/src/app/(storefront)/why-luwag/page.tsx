@@ -23,7 +23,7 @@ const SERVICE = [
   },
   {
     title: "Support you can actually reach",
-    body: "Monday to Saturday, 9am to 6pm Philippine time, at support@luwag.ph. A real person reads every message.",
+    body: "Monday to Saturday, 9am to 6pm Philippine time, at hello@luwag.shop. A real person reads every message.",
   },
 ];
 

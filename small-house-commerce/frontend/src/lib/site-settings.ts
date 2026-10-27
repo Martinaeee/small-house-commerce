@@ -27,7 +27,7 @@ export interface SiteSettings {
 /** Fallback values when the backend/settings endpoint is unavailable. */
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   messengerUrl: "",
-  supportEmail: "support@luwag.ph",
+  supportEmail: "hello@luwag.shop",
   supportPhone: "",
   supportHours: "Mon–Sat, 9am–6pm (PHT)",
   newsletterBandEnabled: true,

@@ -36,7 +36,7 @@ import {
 
 export const STOREFRONT_SHELL_ID = '00000000-0000-0000-0000-000000000002';
 
-const FALLBACK_SUPPORT_EMAIL = 'support@luwag.ph';
+const FALLBACK_SUPPORT_EMAIL = 'hello@luwag.shop';
 const FALLBACK_SUPPORT_HOURS = 'Mon–Sat, 9am–6pm (PHT)';
 
 export type AdminShellAsset = {

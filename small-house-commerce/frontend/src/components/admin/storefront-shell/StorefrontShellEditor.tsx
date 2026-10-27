@@ -73,7 +73,7 @@ export type ShellEditorState = {
 const DEFAULT_EDITOR_DOCUMENT = createCurrentLuwagShellDocument({
   rootCategories: [],
   navigationCollections: [],
-  supportEmail: "support@luwag.ph",
+  supportEmail: "hello@luwag.shop",
   supportHours: "Mon–Sat, 9am–6pm (PHT)",
 });
 
