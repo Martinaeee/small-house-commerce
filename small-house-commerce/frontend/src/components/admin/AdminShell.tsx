@@ -142,6 +142,12 @@ const NAV_ITEMS: NavEntry[] = [
         labelKey: "nav_settings",
         permission: "SYSTEM_SETTINGS_EDIT",
       },
+      {
+        kind: "item",
+        href: "/admin/status",
+        labelKey: "nav_system_status",
+        permission: "SYSTEM_SETTINGS_EDIT",
+      },
     ],
   },
   {
@@ -199,6 +205,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   "/admin/homepage": "m3 10 9-7 9 7v11h-6v-7H9v7H3V10Z",
   "/admin/storefront-shell": "M3 3h18v18H3V3Zm0 5h18M3 17h18",
   "/admin/settings": "M4 7h16M4 17h16M8 4v6m8 4v6",
+  "/admin/status": "M12 3a9 9 0 1 0 9 9h-9V3Zm3 0a9 9 0 0 1 6 6h-6V3Z",
   "/admin/marketing": "m3 9 17-6v18L3 15V9Zm4 7 2 6h4l-2-5",
   "/admin/newsletter": "M3 5h18v14H3V5Zm0 0 9 8 9-8",
 };

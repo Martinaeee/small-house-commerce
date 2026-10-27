@@ -1609,6 +1609,58 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return qs ? `?${qs}` : "";
 }
 
+export interface AdminSystemStatusService {
+  name: string;
+  status: string;
+  restarts: number;
+}
+
+export interface AdminSystemStatusCertificate {
+  subject?: string;
+  san?: string[];
+  notAfter?: string;
+  daysRemaining?: number;
+  keyMatches?: boolean;
+  served?: {
+    reachable?: boolean;
+    notAfter?: string;
+    daysRemaining?: number;
+  };
+}
+
+export interface AdminSystemStatus {
+  generatedAt: string;
+  stale: boolean;
+  hostname?: string;
+  certificate?: AdminSystemStatusCertificate;
+  services?: AdminSystemStatusService[];
+  disk?: {
+    totalBytes?: number;
+    usedBytes?: number;
+    availableBytes?: number;
+    usedPercent?: number;
+  };
+  backup?: {
+    latestFile?: string | null;
+    latestAt?: string | null;
+    ageHours?: number | null;
+    ok?: boolean;
+  };
+  database?: {
+    reachable?: boolean;
+    sizePretty?: string;
+    migrations?: number;
+  };
+  uploads?: {
+    files?: number;
+    pretty?: string;
+  };
+  alert?: {
+    lastCheckAt?: string | null;
+    lastResult?: string | null;
+  };
+}
+
 export const adminApi = {
   searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
     adminAuthedFetch<AdminBundleSkuCandidate[]>(
@@ -2641,4 +2693,8 @@ export const adminApi = {
       "/api/v1/admin/homepage/preview-token",
       { method: "POST" },
     ),
+
+  /** Host/system snapshot for the admin status page (read-only). */
+  systemStatus: (): Promise<AdminSystemStatus> =>
+    adminAuthedFetch<AdminSystemStatus>("/api/v1/admin/system-status"),
 };

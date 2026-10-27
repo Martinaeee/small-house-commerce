@@ -54,6 +54,8 @@ services:
       UPLOAD_STORAGE_DURABLE: "true"
     volumes:
       - uploads_data:/app/uploads
+      # Host-collected read-only status snapshot for the admin status page.
+      - /var/lib/luwag:/app/status:ro
 
   frontend:
     build:
