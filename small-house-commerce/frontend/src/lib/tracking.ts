@@ -84,16 +84,40 @@ export async function recordMarketingTouch(context: { path: string; search: stri
 }
 
 
+/** The command object fbevents.js expects to find on `window._fbq`. */
+type FbqCommand = {
+  (...args: unknown[]): void;
+  callMethod?: (...args: unknown[]) => void;
+  push: FbqCommand;
+  loaded: boolean;
+  version: string;
+  queue: unknown[][];
+};
+
 /** Loads the Meta Pixel base script once. Safe to call on every page. */
 export function initMetaPixel(): void {
   if (typeof window === "undefined" || !PIXEL_ID || window.fbq) return;
 
+  // This mirrors the official snippet exactly. The loader replays `_fbq.queue`
+  // and reads `version`/`loaded`; handing it a bare array (or a function
+  // without those properties) makes fbevents.js throw and no event is ever
+  // sent.
+  function fbq(...args: unknown[]): void {
+    const self = fbq as unknown as FbqCommand;
+    if (self.callMethod) self.callMethod(...args);
+    else self.queue.push(args);
+  }
+  const command = fbq as unknown as FbqCommand;
+  command.push = command;
+  command.loaded = true;
+  command.version = "2.0";
+  command.queue = [];
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
-  w._fbq = w._fbq || [];
-  w.fbq = (...args: unknown[]) => {
-    w._fbq.push(args);
-  };
+  w.fbq = command;
+  if (!w._fbq) w._fbq = command;
+
   const script = document.createElement("script");
   script.async = true;
   script.src = "https://connect.facebook.net/en_US/fbevents.js";

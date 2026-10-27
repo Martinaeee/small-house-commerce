@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAttribution } from "./tracking";
 
 const KEY = "sh:marketing-touch";
@@ -23,5 +23,52 @@ describe("server credential checkout contract", () => {
       window.localStorage.setItem(KEY, value);
       expect(readAttribution()).toEqual({});
     }
+  });
+});
+
+describe("Meta pixel bootstrap", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_META_PIXEL_ID", "1143788914761743");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    delete w.fbq;
+    delete w._fbq;
+    document.head.innerHTML = "";
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("installs the Meta-compatible command stub the loader expects", async () => {
+    const { initMetaPixel } = await import("./tracking");
+    initMetaPixel();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    expect(typeof w.fbq).toBe("function");
+    // Meta's snippet aliases _fbq to the fbq function itself; an array breaks
+    // fbevents.js while it replays the queue.
+    expect(w._fbq).toBe(w.fbq);
+    expect(w.fbq.loaded).toBe(true);
+    expect(w.fbq.version).toBe("2.0");
+    expect(Array.isArray(w.fbq.queue)).toBe(true);
+    expect(w.fbq.queue).toEqual([
+      ["init", "1143788914761743"],
+      ["track", "PageView"],
+    ]);
+    expect(document.querySelector('script[src*="fbevents.js"]')).not.toBeNull();
+  });
+
+  it("is idempotent so a second mount does not duplicate the pixel", async () => {
+    const { initMetaPixel } = await import("./tracking");
+    initMetaPixel();
+    initMetaPixel();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    expect(w.fbq.queue).toHaveLength(2);
+    expect(document.querySelectorAll('script[src*="fbevents.js"]')).toHaveLength(1);
   });
 });
