@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /** One outbox row as the Graph API sees it. */
@@ -39,7 +39,9 @@ export class MetaCapiClient {
 
   constructor(
     config: ConfigService,
-    private readonly request: typeof fetch = fetch,
+    // Not a provider: optional keeps Nest from resolving it, and the default
+    // applies so tests can still inject a fake fetch.
+    @Optional() private readonly request: typeof fetch = fetch,
   ) {
     this.pixelId = config.get<string>('meta.pixelId') ?? '';
     this.accessToken = config.get<string>('meta.accessToken') ?? '';
