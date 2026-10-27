@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# One-shot: 2026-10-28 02:00 Asia/Manila (UTC+8). The script removes this file
+# before rebooting, so it never runs twice.
+0 2 28 10 * root /usr/local/sbin/luwag-update.sh
