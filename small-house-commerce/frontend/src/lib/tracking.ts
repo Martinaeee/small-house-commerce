@@ -127,14 +127,22 @@ export function initMetaPixel(): void {
   w.fbq("track", "PageView");
 }
 
-/** Fires a Meta Pixel event when a pixel id is configured; no-op otherwise. */
+/**
+ * Fires a Meta Pixel event when a pixel id is configured; no-op otherwise.
+ *
+ * The bootstrap is ensured first: React runs child effects before the layout's
+ * MetaPixelInit, so a product page can emit ViewContent before the pixel
+ * exists. The stub queues the command and fbevents.js replays it on load.
+ */
 export function track(event: string, data?: Record<string, unknown>): void {
-  if (typeof window === "undefined" || !PIXEL_ID || !window.fbq) return;
-  window.fbq("track", event, data);
+  if (typeof window === "undefined" || !PIXEL_ID) return;
+  initMetaPixel();
+  window.fbq?.("track", event, data);
 }
 
-/** Fires a custom Meta Pixel event (homepage funnel), same no-op guards as track(). */
+/** Fires a custom Meta Pixel event (homepage funnel), same guards as track(). */
 export function trackCustom(event: string, data?: Record<string, unknown>): void {
-  if (typeof window === "undefined" || !PIXEL_ID || !window.fbq) return;
-  window.fbq("trackCustom", event, data);
+  if (typeof window === "undefined" || !PIXEL_ID) return;
+  initMetaPixel();
+  window.fbq?.("trackCustom", event, data);
 }

@@ -61,6 +61,21 @@ describe("Meta pixel bootstrap", () => {
     expect(document.querySelector('script[src*="fbevents.js"]')).not.toBeNull();
   });
 
+  it("queues an event fired before the layout mounted the pixel", async () => {
+    // React runs child effects first, so a product page can emit ViewContent
+    // before the layout's pixel bootstrap runs. It must not be dropped.
+    const { track } = await import("./tracking");
+    track("ViewContent", { content_ids: ["sku-1"] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    expect(w.fbq.queue).toContainEqual([
+      "track",
+      "ViewContent",
+      { content_ids: ["sku-1"] },
+    ]);
+  });
+
   it("is idempotent so a second mount does not duplicate the pixel", async () => {
     const { initMetaPixel } = await import("./tracking");
     initMetaPixel();
