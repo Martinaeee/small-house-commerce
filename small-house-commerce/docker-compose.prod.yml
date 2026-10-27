@@ -47,6 +47,8 @@ services:
       # gateway; when EMAIL_API_KEY is set, boot validation requires all three.
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Replies to automated mail go here; blank omits the Reply-To header.
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       STOREFRONT_BASE_URL: ${STOREFRONT_BASE_URL:-}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
