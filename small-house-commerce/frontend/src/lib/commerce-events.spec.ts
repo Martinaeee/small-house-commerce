@@ -29,6 +29,11 @@ vi.mock("@/lib/tracking", () => ({
   trackCustom: tracking.trackCustom,
 }));
 
+const analytics = vi.hoisted(() => ({ trackFirstParty: vi.fn() }));
+vi.mock("@/lib/analytics", () => ({
+  trackFirstParty: analytics.trackFirstParty,
+}));
+
 function eventNames(events: CommerceEvent[]): string[] {
   return events.map((event) => event.name);
 }
@@ -247,6 +252,7 @@ describe("emitCommerceEvent", () => {
   beforeEach(() => {
     tracking.track.mockReset();
     tracking.trackCustom.mockReset();
+    analytics.trackFirstParty.mockReset();
   });
 
   it("routes standard events through track", () => {
@@ -277,6 +283,62 @@ describe("emitCommerceEvent", () => {
     emitCommerceEvent(null);
     expect(tracking.track).not.toHaveBeenCalled();
     expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(analytics.trackFirstParty).not.toHaveBeenCalled();
+  });
+
+  it("records a product view in first-party analytics with the product id", () => {
+    emitCommerceEvent(
+      viewContentEvent({
+        productId: "prod-1",
+        productName: "Oak Chair",
+        skuId: "sku-1",
+        price: 100,
+      }),
+    );
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("PRODUCT_VIEW", {
+      productId: "prod-1",
+    });
+  });
+
+  it("records an add to cart in first-party analytics with the product id", () => {
+    emitCommerceEvent(
+      addToCartEvent({
+        productId: "prod-1",
+        productName: "Oak Chair",
+        skuId: "sku-1",
+        quantity: 2,
+        price: 100,
+      }),
+    );
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("ADD_TO_CART", {
+      productId: "prod-1",
+    });
+  });
+
+  it("records the start of checkout in first-party analytics", () => {
+    emitCommerceEvent(
+      initiateCheckoutEvent({ items: [{ skuId: "sku-1", quantity: 1 }], value: 100 }),
+    );
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {});
+  });
+
+  it("records a purchase in first-party analytics keyed by order number", () => {
+    emitCommerceEvent(purchaseEvent({ orderId: "LW-1", items: [], value: null }));
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("PURCHASE", {
+      entityId: "LW-1",
+    });
+  });
+
+  it("does not record custom funnel events in the first-party funnel", () => {
+    emitCommerceEvent(
+      variantConfirmEvent({
+        productId: "prod-1",
+        variantId: "var-1",
+        skuId: "sku-1",
+        source: "PDP",
+      }),
+    );
+    expect(analytics.trackFirstParty).not.toHaveBeenCalled();
   });
 });
 
@@ -284,6 +346,7 @@ describe("tab-scoped purchase payload", () => {
   beforeEach(() => {
     tracking.track.mockReset();
     tracking.trackCustom.mockReset();
+    analytics.trackFirstParty.mockReset();
     window.sessionStorage.clear();
   });
 

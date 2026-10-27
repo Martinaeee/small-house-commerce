@@ -12,6 +12,7 @@
  * emitted after the underlying action succeeded.
  */
 
+import { trackFirstParty, type FirstPartyEventName } from "./analytics";
 import { track, trackCustom } from "./tracking";
 
 export interface CommerceEvent {
@@ -19,6 +20,12 @@ export interface CommerceEvent {
   data: Record<string, unknown>;
   /** true → Meta custom event (trackCustom); false → standard event (track). */
   custom: boolean;
+  /**
+   * Product UUID for the first-party funnel. Set only where the builder can
+   * honestly name the product; the dashboard's per-product view report joins
+   * on it.
+   */
+  productId?: string;
 }
 
 export interface CommerceCheckoutItem {
@@ -48,6 +55,7 @@ export function viewContentEvent(input: {
   return {
     name: "ViewContent",
     custom: false,
+    productId: input.productId,
     data: {
       content_ids: [input.skuId ?? input.productId],
       content_name: input.productName,
@@ -70,6 +78,7 @@ export function addToCartEvent(input: {
   return {
     name: "AddToCart",
     custom: false,
+    productId: input.productId,
     data: {
       content_ids: [input.skuId],
       content_name: input.productName,
@@ -189,10 +198,37 @@ export function variantUnavailableEvent(input: {
 }
 
 /** Fires through the right Meta channel; null-safe so callers can pass builders' refusals. */
+/**
+ * Meta standard event → the first-party funnel event it stands for.
+ * Custom events (option_select, variant_confirm, …) are Meta-only.
+ */
+const FIRST_PARTY_EVENT: Record<string, FirstPartyEventName> = {
+  ViewContent: "PRODUCT_VIEW",
+  AddToCart: "ADD_TO_CART",
+  InitiateCheckout: "BEGIN_CHECKOUT",
+  Purchase: "PURCHASE",
+};
+
+/**
+ * Sends one commerce event to every measurement channel.
+ *
+ * The Meta pixel no-ops without a configured pixel id, but the first-party
+ * funnel must keep recording regardless: it is what the dashboard's
+ * conversion and per-product reports are built from.
+ */
 export function emitCommerceEvent(event: CommerceEvent | null): void {
   if (event === null) return;
   if (event.custom) trackCustom(event.name, event.data);
   else track(event.name, event.data);
+
+  const firstPartyName = FIRST_PARTY_EVENT[event.name];
+  if (!firstPartyName) return;
+
+  const orderId = event.data.order_id;
+  trackFirstParty(firstPartyName, {
+    ...(event.productId ? { productId: event.productId } : {}),
+    ...(typeof orderId === "string" && orderId ? { entityId: orderId } : {}),
+  });
 }
 
 /**
