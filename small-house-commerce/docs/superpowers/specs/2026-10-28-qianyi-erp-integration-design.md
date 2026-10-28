@@ -32,8 +32,8 @@
 | 本站 SKU | 62 个 |
 | 编码匹配结果 | **0 个匹配**（我们的 `skuCode` 与千易现有编码完全不同） |
 | 本站建档资料完整度 | 62 个中 49 个毛重 + 包装长宽高齐全；13 个缺尺寸；净重只有 23 个 |
-| PH 可用仓库 | `PH-BULACAN-02`(70986)、`PH-DAVAO-01`(71537)、`A3-AYOU-PH-0611`(36135)、`OSW_PH02`(14349) |
-| PH 可用物流 | Bulacan/Davao：Lazada、Shopee、TEMU、TikTok、**`SHIPDOC-STD`**；AYOU 只有 GWMS + 平台物流；OSW 只有 TikTok + SPX |
+| PH 可用仓库 | `PH-BULACAN-02`(70986)、`PH-DAVAO-01`(71537)、`A3-AYOU-PH-0611`(36135)、`OSW_PH02`(14349)；**已选定 `PH-DAVAO-01`** |
+| PH 可用物流 | Bulacan/Davao：Lazada、Shopee、TEMU、TikTok、**`SHIPDOC-STD`**；AYOU 只有 GWMS + 平台物流；OSW 只有 TikTok + SPX；**已选定 `SHIPDOC-STD`** |
 
 协议约定（来自官方文档）：
 
@@ -108,8 +108,8 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 | `payTime` | `order.createdAt` 转 `+08:00` | **不代表已收款**；这是 COD 无支付时间时的既定口径 |
 | `buyerMessage` | `customerNote` | |
 | `buyer.*` | 收货地址 + 客户 | `receiverName/phone/email/country/province/city/district/address1/postCode` |
-| `warehouse` / `warehouseId` | 仓库名 + 数字 ID | 二选一以外两个都传，按 ID 优先 |
-| `logistics` | `SHIPDOC-STD` | |
+| `warehouse` / `warehouseId` | `PH-DAVAO-01` / `71537` | 已选定；两个都传，按 ID 优先 |
+| `logistics` | `SHIPDOC-STD` | 已选定，Davao 仓可用 |
 | `skuList[].sku` | `qianyiSkuCode` | **空则整单不推**，进「未匹配」清单 |
 | `skuList[].quantity` | `OrderItem.quantity` | |
 | `skuList[].paymentPrice` | 行单价（不含运费） | |
@@ -146,12 +146,13 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 
 ## 8. SKU 建档与映射
 
-因为 0 个编码能对上，本期必须先把商品建到千易：
+因为 0 个编码能对上，本期必须先把商品建到千易。**建档动作由系统执行，但哪些商品进千易由人在后台逐项勾选决定**：
 
-1. 后台生成**建档预览清单**：本站 SKU、建议千易编码、标题、图片、毛重、净重、长宽高、单位、保质期
-2. 人工确认后才逐个 `INSERT_SKU_INFO`
-3. 建档成功回写 `Sku.qianyiSkuCode`
-4. 资料缺口列在清单里，不填假数
+1. 后台生成**建档预览清单**：62 个 SKU 全列出来，每行显示建议千易编码、标题、图片、毛重、净重、长宽高、单位、保质期，以及该行能否建档（资料齐/缺尺寸/缺净重）
+2. 清单每行有勾选状态，默认**全不勾**；只有被勾选的行才会被提交建档
+3. 确认提交后，系统对勾选行逐个调 `INSERT_SKU_INFO`，成功的回写 `Sku.qianyiSkuCode`
+4. 未勾选、或勾选了但建档失败的行，**保持无映射，永不推单**，留在清单里等下轮处理
+5. 资料缺口只提示不补齐，不填假数
 
 `INSERT_SKU_INFO` 的必填项：`sku / title / type / weight / netWeight / weightUnit / length / width / height / dimensionUnit / enable / shelfLife`。本站现状：49 个毛重 + 包装尺寸齐全可直接建；13 个缺尺寸；净重只有 23 个。
 
@@ -168,7 +169,7 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 - 待推送 / 失败 / 24 小时成功数
 - 失败任务列表 + 重推
 - 未匹配 SKU 清单（有订单但无千易编码）
-- 建档预览清单与建档进度
+- 建档预览清单（逐行勾选，默认全不勾）与建档进度
 - 最近回调记录（含验签失败）
 - 出库差异列表
 
@@ -184,8 +185,8 @@ QIANYI_BASE_URL=https://www.qianyierp.com
 QIANYI_APP_ID=...
 QIANYI_APP_SECRET=...
 QIANYI_SHOP=LUWAG- PH
-QIANYI_WAREHOUSE_ID=...
-QIANYI_WAREHOUSE=...
+QIANYI_WAREHOUSE_ID=71537
+QIANYI_WAREHOUSE=PH-DAVAO-01
 QIANYI_LOGISTICS=SHIPDOC-STD
 ```
 
@@ -206,6 +207,7 @@ QIANYI_LOGISTICS=SHIPDOC-STD
 - `qianyi.client`：用文档中的签名样例复现签名结果；HTTP 错误/业务错误/超时分别归类
 - `qianyi-order.mapper`：普通单、Bundle 行、折扣分摊、运费分摊、缺映射、缺净重
 - `qianyi-sku.mapper`：资料齐全 / 缺尺寸 / 缺净重三种输入
+- 建档勾选：未勾选的行不提交、勾选失败的行不回写编码、已映射的行不会被重复建档
 - outbox：入队即试、失败退避、第 5 次转 FAILED、手动重推、重复入队不重复建行
 - webhook：验签成功/失败、时间窗、重复回调幂等、乱序到达（SHIPPING_INFO 先于 ODO）
 - 集成：确认订单 → 生成任务 → 假客户端推单 → 回推 ODO → 订单 `SHIPPING` + `Shipment` + 库存扣减 + 轨迹
@@ -224,9 +226,9 @@ QIANYI_LOGISTICS=SHIPDOC-STD
 
 | 编号 | 事项 | 影响 |
 |---|---|---|
-| 1 | 发货仓选 `PH-BULACAN-02`(70986) 还是 `PH-DAVAO-01`(71537) | 决定 `warehouseId`；两者物流相同 |
-| 2 | `SHIPDOC-STD` 是否支持 COD 代收，面单由谁出 | 若不支持，需要改用其他物流或走平台物流 |
-| 3 | Webhook 的 `sign` 算法（文档只给了请求侧） | 先按同一算法实现，验签失败率在后台可见 |
-| 4 | 千易是否接受 COD 单 `payTime` 取下单时间 | 已按此设计，需千易确认不被拒单 |
-| 5 | 净重缺失时用毛重兜底是否可接受 | 已按此设计并标注，需确认 |
-| 6 | 千易是否愿意为我们新建 62 个 SKU（或已有对应品需要人工指定映射） | 决定建档由系统做还是人工做 |
+| 1 | `SHIPDOC-STD` 是否支持 COD 代收，面单由谁出 | 若不支持，需要改用其他物流或走平台物流 |
+| 2 | Webhook 的 `sign` 算法（文档只给了请求侧） | 先按同一算法实现，验签失败率在后台可见 |
+| 3 | 千易是否接受 COD 单 `payTime` 取下单时间 | 已按此设计，需千易确认不被拒单 |
+| 4 | 净重缺失时用毛重兜底是否可接受 | 已按此设计并标注，需确认 |
+
+已定：发货仓 `PH-DAVAO-01`(71537) + `SHIPDOC-STD`；建档由系统执行、商品范围由后台勾选决定。
