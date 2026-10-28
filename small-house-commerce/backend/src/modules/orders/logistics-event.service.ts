@@ -19,6 +19,12 @@ export interface RecordLogisticsEventInput {
   province?: string | null;
   city?: string | null;
   rawPayloadReference?: string | null;
+  /** The carrier's own wording, kept verbatim for the guest timeline. */
+  description?: string | null;
+  /** Rider phone from the scan; shown to phone-verified guests only. */
+  staffContact?: string | null;
+  /** Delivery or problem photo; admin only. */
+  signatureImageUrl?: string | null;
 }
 
 /**
@@ -71,6 +77,9 @@ export class LogisticsEventService {
         province: input.province ?? null,
         city: input.city ?? null,
         rawPayloadReference: input.rawPayloadReference ?? null,
+        externalDescription: input.description ?? null,
+        staffContact: input.staffContact ?? null,
+        signatureImageUrl: input.signatureImageUrl ?? null,
       },
     });
   }

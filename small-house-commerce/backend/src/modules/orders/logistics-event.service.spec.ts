@@ -155,3 +155,26 @@ describe('LogisticsEventService.record inside a caller transaction', () => {
     expect(prisma.logisticsEvent.create).not.toHaveBeenCalled();
   });
 });
+
+describe('LogisticsEventService carrier detail', () => {
+  it('stores the carrier wording, rider phone and signature url', async () => {
+    const { service } = createHarness();
+    const saved = await service.record(
+      ORDER_ID,
+      SHIPMENT_ID,
+      event({
+        normalizedStatus: 'SIGNED',
+        externalEventId: '113:2026-05-09 09:57:32',
+        description: 'Your package has been Delivered',
+        staffContact: '9684746842',
+        signatureImageUrl: 'https://example.test/sign.jpg',
+      }),
+    );
+
+    expect(saved).toMatchObject({
+      externalDescription: 'Your package has been Delivered',
+      staffContact: '9684746842',
+      signatureImageUrl: 'https://example.test/sign.jpg',
+    });
+  });
+});
