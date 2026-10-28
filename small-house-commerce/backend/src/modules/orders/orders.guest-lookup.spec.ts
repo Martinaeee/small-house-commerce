@@ -342,8 +342,18 @@ describe('OrdersService.lookup — carrier tracking', () => {
       shippedAt: '2026-10-28T02:00:00.000Z',
       signedAt: null,
       tracking: [
-        { status: 'SHIPPED', at: '2026-10-28T02:00:00.000Z' },
-        { status: 'IN_TRANSIT', at: '2026-10-29T02:00:00.000Z' },
+        {
+          status: 'SHIPPED',
+          at: '2026-10-28T02:00:00.000Z',
+          description: null,
+          riderPhone: null,
+        },
+        {
+          status: 'IN_TRANSIT',
+          at: '2026-10-29T02:00:00.000Z',
+          description: null,
+          riderPhone: null,
+        },
       ],
     });
     // Internal ids must not reach the shopper.
@@ -358,5 +368,49 @@ describe('OrdersService.lookup — carrier tracking', () => {
     const result = await service.lookup('PH100001', '0917 123 4567');
 
     expect(result.orders[0]!.shipment).toBeNull();
+  });
+});
+
+describe('OrdersService.lookup — carrier wording', () => {
+  const shipment = {
+    carrier: 'J&T Express',
+    trackingNumber: 'JT1',
+    shippedAt: '2026-10-27T02:00:00.000Z',
+    signedAt: null,
+    events: [
+      {
+        normalizedStatus: 'OUT_FOR_DELIVERY',
+        eventTime: '2026-10-28T01:00:00.000Z',
+        externalDescription: 'Your package Out for Delivery',
+        staffContact: '9684746842',
+      },
+    ],
+  };
+
+  it('hides the carrier wording and rider phone when only the order number is given', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord({ shipments: [shipment] }));
+
+    const result = await service.lookup('PH100001', null);
+    const tracking = result.orders[0]!.shipment?.tracking ?? [];
+
+    expect(tracking[0]).toMatchObject({
+      status: 'OUT_FOR_DELIVERY',
+      description: null,
+      riderPhone: null,
+    });
+  });
+
+  it('returns the carrier wording once the phone matches', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord({ shipments: [shipment] }));
+
+    const result = await service.lookup('PH100001', '09171234567');
+    const tracking = result.orders[0]!.shipment?.tracking ?? [];
+
+    expect(tracking[0]).toMatchObject({
+      description: 'Your package Out for Delivery',
+      riderPhone: '9684746842',
+    });
   });
 });

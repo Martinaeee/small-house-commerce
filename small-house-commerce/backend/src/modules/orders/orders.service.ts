@@ -197,7 +197,12 @@ const GUEST_ORDER_INCLUDE = {
       signedAt: true,
       events: {
         orderBy: { eventTime: 'asc' as const },
-        select: { normalizedStatus: true, eventTime: true },
+        select: {
+          normalizedStatus: true,
+          eventTime: true,
+          externalDescription: true,
+          staffContact: true,
+        },
       },
     },
   },
@@ -2444,7 +2449,7 @@ export class OrdersService {
           personalDetailsIncluded: false,
           orders: [
             {
-              ...this.guestOrder(order),
+              ...this.guestOrder(order, false),
               customer: {
                 id: order.customer.id,
                 name: null,
@@ -2462,7 +2467,7 @@ export class OrdersService {
       return {
         matchedBy: 'orderNumber' as const,
         personalDetailsIncluded: true,
-        orders: [this.guestOrder(order)],
+        orders: [this.guestOrder(order, true)],
       };
     }
 
@@ -2483,7 +2488,7 @@ export class OrdersService {
     return {
       matchedBy: 'phone' as const,
       personalDetailsIncluded: true,
-      orders: orders.map((order) => this.guestOrder(order)),
+      orders: orders.map((order) => this.guestOrder(order, true)),
     };
   }
 
@@ -2500,6 +2505,8 @@ export class OrdersService {
       events?: Array<{
         normalizedStatus: string;
         eventTime: Date | string;
+        externalDescription: string | null;
+        staffContact: string | null;
       }>;
     }>;
     items: Array<{
@@ -2518,14 +2525,19 @@ export class OrdersService {
         } | null;
       } | null;
     }>;
-  }>(order: T) {
+  }>(order: T, personalDetailsIncluded: boolean) {
     const { shipments, ...rest } = order as T & {
       shipments?: Array<{
         carrier: string;
         trackingNumber: string | null;
         shippedAt: Date | string;
         signedAt: Date | string | null;
-        events?: Array<{ normalizedStatus: string; eventTime: Date | string }>;
+        events?: Array<{
+          normalizedStatus: string;
+          eventTime: Date | string;
+          externalDescription: string | null;
+          staffContact: string | null;
+        }>;
       }>;
     };
     const iso = (value: Date | string) => new Date(value).toISOString();
@@ -2540,6 +2552,10 @@ export class OrdersService {
           tracking: (shipments[0].events ?? []).map((event) => ({
             status: event.normalizedStatus,
             at: iso(event.eventTime),
+            description: personalDetailsIncluded
+              ? (event.externalDescription ?? null)
+              : null,
+            riderPhone: personalDetailsIncluded ? (event.staffContact ?? null) : null,
           })),
         }
       : null;
