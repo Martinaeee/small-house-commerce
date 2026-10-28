@@ -6,6 +6,7 @@ import { QianyiSyncService } from './qianyi-sync.service.js';
 import { QianyiInboundService } from './qianyi-inbound.service.js';
 import { QianyiWebhookService } from './qianyi-webhook.service.js';
 import { QianyiWebhookController } from './qianyi-webhook.controller.js';
+import { QianyiAdminController } from './qianyi-admin.controller.js';
 
 /**
  * Qianyi ERP integration.
@@ -17,7 +18,7 @@ import { QianyiWebhookController } from './qianyi-webhook.controller.js';
  */
 @Module({
   imports: [AuthModule],
-  controllers: [QianyiWebhookController],
+  controllers: [QianyiWebhookController, QianyiAdminController],
   providers: [
     QianyiClient,
     QianyiSyncService,
