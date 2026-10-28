@@ -36,5 +36,8 @@ import { ReturnAcceptanceService } from './return-acceptance.service.js';
     LogisticsEventService,
     ReturnAcceptanceService,
   ],
+  // The J&T tracking worker signs deliveries through this service, so the
+  // dependency flows one way: JtModule imports OrdersModule.
+  exports: [OrdersService],
 })
 export class OrdersModule {}
