@@ -280,6 +280,12 @@ function guestThumbnail(item: {
   return shared?.url ?? null;
 }
 
+export interface SignShipmentOptions {
+  /** Who drove the signature: a carrier scan or a human click must stay distinguishable. */
+  source?: 'ADMIN' | 'CARRIER';
+  comment?: string;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -2212,7 +2218,12 @@ export class OrdersService {
   }
 
   /** §69 sign a shipment: every box signed moves the order to SIGNED. */
-  async sign(orderId: string, shipmentId: string, operatorId: string) {
+  async sign(
+    orderId: string,
+    shipmentId: string,
+    operatorId: string | null,
+    options: SignShipmentOptions = {},
+  ) {
     return this.prisma.$transaction(async (tx) => {
       // Serialize with return acceptance on the same order: a box cannot be
       // signed and accepted back at the same time.
@@ -2292,11 +2303,13 @@ export class OrdersService {
             statusDomain: 'ORDER_STATUS',
             oldStatus: order.orderStatus,
             newStatus: orderStatus,
-            source: 'ADMIN',
+            source: options.source ?? 'ADMIN',
             operatorId,
-            comment: hasReturnedUnits
-              ? 'Remaining goods signed; some units were returned'
-              : 'All shipments signed',
+            comment:
+              options.comment ??
+              (hasReturnedUnits
+                ? 'Remaining goods signed; some units were returned'
+                : 'All shipments signed'),
           },
         });
       }
@@ -2306,7 +2319,7 @@ export class OrdersService {
           orderId,
           userId: operatorId,
           noteType: 'WAREHOUSE',
-          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})`,
+          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})${options.source === 'CARRIER' ? ' · reported by carrier' : ''}`,
         },
       });
 

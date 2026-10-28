@@ -867,6 +867,39 @@ describe('OrdersService.sign (§69)', () => {
       /already signed/,
     );
   });
+
+  it('records a carrier-driven signature with source CARRIER and no operator', async () => {
+    const { service, prisma, tx } = createHarness();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderStatus: 'SHIPPING',
+      items: [{ id: 'line-1', quantity: 1 }],
+      shipments: [
+        {
+          id: 'ship-1',
+          status: 'SHIPPING',
+          carrier: 'J&T Express',
+          trackingNumber: 'JT-1',
+          items: [{ orderItemId: 'line-1', quantity: 1 }],
+        },
+      ],
+    });
+    tx.shipment = {
+      update: vi.fn(async () => ({ status: 'SIGNED' })),
+      count: vi.fn(async () => 0),
+    };
+    tx.orderNote = { create: vi.fn(async () => ({})) };
+
+    const out = await service.sign('order-1', 'ship-1', null, { source: 'CARRIER' });
+
+    expect(out.orderStatus).toBe('SIGNED');
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ source: 'CARRIER', operatorId: null }),
+    });
+    expect(tx.orderNote.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: null }),
+    });
+  });
 });
 
 const CHAIR_SKU_ID = '00000000-0000-4000-8000-0000000000d1';
