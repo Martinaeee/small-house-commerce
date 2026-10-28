@@ -30,6 +30,7 @@ const ORDER_INCLUDE = {
 export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(QianyiSyncService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private readonly config: QianyiConfig;
 
@@ -47,11 +48,17 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       void this.processPending().catch(() => undefined);
     }, WORKER_INTERVAL_MS);
     this.timer.unref?.();
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcile().catch(() => undefined);
+    }, 24 * 60 * 60 * 1000);
+    this.reconcileTimer.unref?.();
   }
 
   onApplicationShutdown(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
     this.timer = null;
+    this.reconcileTimer = null;
   }
 
   /** Queues the push for a freshly confirmed order. Call inside the tx. */
@@ -161,6 +168,66 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       data: { status: 'PENDING', attempts: 0, nextAttemptAt: new Date(), lastError: null },
     });
     void this.processPending().catch(() => undefined);
+  }
+
+  /**
+   * Daily safety net. Qianyi is the source of truth for outbound numbers, but
+   * reconciliation only *flags*: writing a note lets the operator confirm
+   * before anything moves, and stops another channel's tracking number being
+   * attached to our order.
+   */
+  async reconcile(now = new Date()): Promise<{ checked: number; repaired: number }> {
+    if (!this.client.enabled) return { checked: 0, repaired: 0 };
+    const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const fmt = (date: Date) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+        .format(date)
+        .replace(',', '');
+
+    let page = 1;
+    let checked = 0;
+    for (;;) {
+      const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+        updateTimeFrom: fmt(from),
+        updateTimeTo: fmt(now),
+        page,
+        pageSize: 100,
+      })) as Array<Record<string, unknown>> | null;
+      if (!Array.isArray(rows) || rows.length === 0) break;
+      checked += rows.length;
+      for (const row of rows) {
+        const online = String(row.onlineOrderNumber ?? '');
+        const tracking = row.trackingNumber ? String(row.trackingNumber) : '';
+        if (!online || !tracking) continue;
+        const order = await this.prisma.order.findUnique({
+          where: { orderNumber: online },
+          include: { shipments: true },
+        });
+        if (!order || order.shipments.some((shipment) => shipment.trackingNumber === tracking)) {
+          continue;
+        }
+        await this.prisma.orderNote.create({
+          data: {
+            orderId: order.id,
+            noteType: 'WAREHOUSE',
+            content: `Reconciliation: Qianyi reports tracking ${tracking} not present locally`,
+          },
+        });
+      }
+      if (rows.length < 100) break;
+      page += 1;
+      if (page > 30) break;
+    }
+    return { checked, repaired: 0 };
   }
 
   async health(): Promise<{

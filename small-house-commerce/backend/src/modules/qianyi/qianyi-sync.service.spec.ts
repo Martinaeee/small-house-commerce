@@ -115,3 +115,61 @@ describe('QianyiSyncService.processPending', () => {
     expect(prisma.qianyiSyncJob.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe('QianyiSyncService.reconcile', () => {
+  it('asks for the last three days, which satisfies the one-condition rule', async () => {
+    const prisma = {
+      qianyiSyncJob: { findMany: vi.fn(async () => []), update: vi.fn(), count: vi.fn(async () => 0) },
+      order: { update: vi.fn(), findUnique: vi.fn(async () => null) },
+      orderNote: { create: vi.fn(async () => undefined) },
+    };
+    const client = { enabled: true, call: vi.fn(async () => []) };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    await service.reconcile(new Date('2026-10-28T03:00:00Z'));
+
+    const [, , biz] = client.call.mock.calls[0];
+    expect(client.call.mock.calls[0][0]).toBe('QUERY_SALES_ORDER_LIST');
+    expect(biz).toEqual(
+      expect.objectContaining({
+        updateTimeFrom: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+        updateTimeTo: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+        page: 1,
+      }),
+    );
+  });
+
+  it('flags a tracking number the local order does not have', async () => {
+    const prisma = {
+      qianyiSyncJob: { findMany: vi.fn(), update: vi.fn(), count: vi.fn(async () => 0) },
+      order: {
+        update: vi.fn(),
+        findUnique: vi.fn(async () => ({ id: 'order-1', shipments: [] })),
+      },
+      orderNote: { create: vi.fn(async () => undefined) },
+    };
+    const client = {
+      enabled: true,
+      call: vi.fn(async () => [
+        { onlineOrderNumber: 'PH100012', trackingNumber: 'TRACK999', status: 'WAIT_SHIP' },
+      ]),
+    };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    await service.reconcile(new Date('2026-10-28T03:00:00Z'));
+
+    expect(prisma.orderNote.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ content: expect.stringContaining('TRACK999') }),
+      }),
+    );
+  });
+
+  it('does nothing while disabled', async () => {
+    const prisma = { qianyiSyncJob: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() } };
+    const client = { enabled: false, call: vi.fn() };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+    await expect(service.reconcile()).resolves.toEqual({ checked: 0, repaired: 0 });
+    expect(client.call).not.toHaveBeenCalled();
+  });
+});
