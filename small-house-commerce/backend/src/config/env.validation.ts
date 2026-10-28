@@ -160,6 +160,19 @@ export const envSchema = z.object({
     z.string().uuid('QIANYI_LOCAL_WAREHOUSE_ID must be a uuid').optional(),
   ),
   QIANYI_LOGISTICS: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  // J&T Express PH open platform. Optional so an unconfigured deployment boots
+  // unchanged; the superRefine below refuses a half-configured switch-on.
+  JT_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false']).optional()),
+  JT_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
+  JT_API_ACCOUNT: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
+  JT_PRIVATE_KEY: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
+  JT_CUSTOMER_CODE: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
+  JT_CUSTOMER_PASSWORD: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  JT_POLL_MINUTES: z.preprocess(
+    blankAsUndefined,
+    z.coerce.number().int().positive().max(1440).optional(),
+  ),
+  JT_CARRIER_NAME: z.preprocess(blankAsUndefined, z.string().min(1).max(60).optional()),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
     ctx.addIssue({
@@ -197,6 +210,23 @@ export const envSchema = z.object({
           code: 'custom',
           path: [key],
           message: `${key} is required when QIANYI_ENABLED is true`,
+        });
+      }
+    }
+  }
+  if (env.JT_ENABLED === 'true') {
+    const required = [
+      'JT_API_ACCOUNT',
+      'JT_PRIVATE_KEY',
+      'JT_CUSTOMER_CODE',
+      'JT_CUSTOMER_PASSWORD',
+    ] as const;
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} is required when JT_ENABLED is true`,
         });
       }
     }
