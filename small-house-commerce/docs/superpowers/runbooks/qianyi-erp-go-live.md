@@ -32,6 +32,8 @@ QIANYI_APP_SECRET=<三方应用对接页的 secretKey>
 QIANYI_SHOP=LUWAG- PH
 QIANYI_WAREHOUSE_ID=71537
 QIANYI_WAREHOUSE=PH-DAVAO-01
+# 可选：本地记账仓库。不填则沿用"第一个启用仓库"（生产目前是 Manila Central）
+# QIANYI_LOCAL_WAREHOUSE_ID=<warehouses.id 的 uuid>
 QIANYI_LOGISTICS=SHIPDOC-STD
 ```
 
