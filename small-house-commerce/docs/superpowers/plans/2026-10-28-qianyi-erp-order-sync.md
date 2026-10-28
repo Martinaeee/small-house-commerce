@@ -63,7 +63,7 @@ function configOf(values: Record<string, unknown>): ConfigService {
 const COMPLETE = {
   qianyi: {
     enabled: 'true',
-    appId: '1793177155241-8695',
+    appId: 'test-app-id-0001',
     appSecret: 'x'.repeat(32),
     shop: 'LUWAG- PH',
     warehouseId: 71537,
