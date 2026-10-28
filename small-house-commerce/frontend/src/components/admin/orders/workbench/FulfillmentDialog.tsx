@@ -419,6 +419,17 @@ export function FulfillmentDialog({
                 </table>
               </div>
             )}
+            {kind === "ship" ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCarrier("J&T Express")}
+                  className="rounded-md border border-border px-2 py-1 text-[11.5px] font-semibold text-cta hover:bg-primary-light/40"
+                >
+                  {t("orders_ship_carrier_jt")}
+                </button>
+              </div>
+            ) : null}
             <Field label={t("orders_ship_carrier")} htmlFor="ship-carrier">
               <TextInput
                 id="ship-carrier"

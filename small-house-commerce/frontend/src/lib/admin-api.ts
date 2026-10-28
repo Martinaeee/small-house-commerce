@@ -541,6 +541,9 @@ export interface AdminLogisticsEvent {
   province: string | null;
   city: string | null;
   rawPayloadReference: string | null;
+  externalDescription: string | null;
+  staffContact: string | null;
+  signatureImageUrl: string | null;
   createdAt: string;
 }
 
@@ -1637,6 +1640,16 @@ export interface AdminMetaCapiStatus {
   lastSentAt: string | null;
   lastError: string | null;
   lastErrorAt: string | null;
+}
+
+/** J&T tracking worker health (admin status page). */
+export interface AdminJtTrackingStatus {
+  enabled: boolean;
+  lastTickAt: string | null;
+  lastFetched: number;
+  lastFailed: number;
+  pendingShipments: number;
+  lastError: string | null;
 }
 
 export interface AdminQianyiStatus {
@@ -2746,6 +2759,18 @@ export const adminApi = {
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>
     adminAuthedFetch<AdminMetaCapiStatus>("/api/v1/admin/meta-capi/status"),
+
+  jtTrackingStatus: (): Promise<AdminJtTrackingStatus> =>
+    adminAuthedFetch<AdminJtTrackingStatus>("/api/v1/admin/jt/status"),
+
+  refreshJtTracking: (
+    orderId: string,
+    shipmentId: string,
+  ): Promise<{ appended: number; skipped: number; signed: boolean }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/orders/${orderId}/shipments/${shipmentId}/tracking/refresh`,
+      { method: "POST" },
+    ),
 
   qianyiStatus: (): Promise<AdminQianyiStatus> =>
     adminAuthedFetch<AdminQianyiStatus>("/api/v1/admin/qianyi/status"),

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SystemStatusView } from "@/components/admin/system-status/SystemStatusView";
 import { MetaCapiHealthCard } from "@/components/admin/system-status/MetaCapiHealthCard";
+import { JtTrackingHealthCard } from "@/components/admin/system-status/JtTrackingHealthCard";
 import { Button } from "@/components/ui/Button";
 import { adminApi, type AdminSystemStatus } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
@@ -75,6 +76,7 @@ export default function SystemStatusPage() {
           t={t}
         />
         <MetaCapiHealthCard t={t} />
+        <JtTrackingHealthCard t={t} />
       </div>
     </div>
   );
