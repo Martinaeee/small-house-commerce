@@ -47,7 +47,7 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
 
 **必须带 `--env-file .env.deploy`**，否则 `DATABASE_URL` 为空，后端会以 Prisma `P1010` 反复重启。
 
-迁移 `20261028120000_add_qianyi_order_sync` 由后端容器入口的 `prisma migrate deploy` 自动应用（加性：两张新表 + 四个可空列）。
+迁移 `20261028160000_add_qianyi_order_sync` 由后端容器入口的 `prisma migrate deploy` 自动应用（加性：两张新表 + 四个可空列）。时间戳排在已应用的 `20261028150000_add_order_idempotency` 之后，不会出现乱序应用。
 
 ## 4. 打开开关后的第一轮检查
 
