@@ -4,6 +4,8 @@ import { LogisticsEventService } from '../orders/logistics-event.service.js';
 import { QianyiClient } from './qianyi.client.js';
 import { QianyiSyncService } from './qianyi-sync.service.js';
 import { QianyiInboundService } from './qianyi-inbound.service.js';
+import { QianyiWebhookService } from './qianyi-webhook.service.js';
+import { QianyiWebhookController } from './qianyi-webhook.controller.js';
 
 /**
  * Qianyi ERP integration.
@@ -15,7 +17,14 @@ import { QianyiInboundService } from './qianyi-inbound.service.js';
  */
 @Module({
   imports: [AuthModule],
-  providers: [QianyiClient, QianyiSyncService, QianyiInboundService, LogisticsEventService],
+  controllers: [QianyiWebhookController],
+  providers: [
+    QianyiClient,
+    QianyiSyncService,
+    QianyiInboundService,
+    QianyiWebhookService,
+    LogisticsEventService,
+  ],
   exports: [QianyiClient, QianyiSyncService, QianyiInboundService],
 })
 export class QianyiModule {}
