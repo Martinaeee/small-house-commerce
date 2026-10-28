@@ -4,7 +4,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { signQianyiRequest } from './qianyi.client.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
-import type { QianyiInboundService } from './qianyi-inbound.service.js';
+import { QianyiInboundService } from './qianyi-inbound.service.js';
 
 /**
  * How far a callback timestamp may drift.
