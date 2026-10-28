@@ -1639,6 +1639,41 @@ export interface AdminMetaCapiStatus {
   lastErrorAt: string | null;
 }
 
+export interface AdminQianyiStatus {
+  enabled: boolean;
+  pending: number;
+  failed: number;
+  sent24h: number;
+}
+
+/** One catalog SKU as the Qianyi creation preview lists it. */
+export interface AdminQianyiSkuRow {
+  id: string;
+  skuCode: string;
+  qianyiSkuCode: string | null;
+  suggestedCode: string;
+  title: string;
+  ready: boolean;
+  gaps: string[];
+}
+
+export interface AdminQianyiCreateResult {
+  skuCode: string;
+  ok: boolean;
+  error?: string;
+}
+
+export interface AdminQianyiJob {
+  id: string;
+  kind: "PUSH_ORDER" | "CLOSE_ORDER";
+  status: "PENDING" | "SENT" | "FAILED" | "SKIPPED";
+  attempts: number;
+  lastError: string | null;
+  externalOrderNumber: string | null;
+  updatedAt: string;
+  order?: { orderNumber: string } | null;
+}
+
 export interface AdminSystemStatus {
   generatedAt: string;
   stale: boolean;
@@ -2711,4 +2746,36 @@ export const adminApi = {
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>
     adminAuthedFetch<AdminMetaCapiStatus>("/api/v1/admin/meta-capi/status"),
+
+  qianyiStatus: (): Promise<AdminQianyiStatus> =>
+    adminAuthedFetch<AdminQianyiStatus>("/api/v1/admin/qianyi/status"),
+
+  qianyiSkus: (): Promise<AdminQianyiSkuRow[]> =>
+    adminAuthedFetch<AdminQianyiSkuRow[]>("/api/v1/admin/qianyi/skus"),
+
+  createQianyiSkus: (
+    skuIds: string[],
+  ): Promise<{ results: AdminQianyiCreateResult[] }> =>
+    adminAuthedFetch<{ results: AdminQianyiCreateResult[] }>(
+      "/api/v1/admin/qianyi/skus/create",
+      { method: "POST", body: JSON.stringify({ skuIds }) },
+    ),
+
+  setQianyiMapping: (
+    skuId: string,
+    qianyiSkuCode: string | null,
+  ): Promise<{ qianyiSkuCode: string | null }> =>
+    adminAuthedFetch<{ qianyiSkuCode: string | null }>(
+      `/api/v1/admin/qianyi/skus/${encodeURIComponent(skuId)}/mapping`,
+      { method: "PUT", body: JSON.stringify({ qianyiSkuCode }) },
+    ),
+
+  qianyiJobs: (): Promise<AdminQianyiJob[]> =>
+    adminAuthedFetch<AdminQianyiJob[]>("/api/v1/admin/qianyi/jobs"),
+
+  retryQianyiJob: (id: string): Promise<{ retried: boolean }> =>
+    adminAuthedFetch<{ retried: boolean }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/retry`,
+      { method: "POST" },
+    ),
 };
