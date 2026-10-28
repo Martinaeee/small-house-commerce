@@ -75,25 +75,43 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     if (!order) return;
 
     const { shop, warehouseId, warehouse, logistics } = this.config;
-    const payload =
-      kind === 'PUSH_ORDER'
-        ? buildCreateOrderPayload(order as unknown as QianyiOrderSource, {
-            shop,
-            warehouseId,
-            warehouse,
-            logistics,
-          })
-        : { shop, onlineOrderNumber: order.orderNumber };
+    // A missing mapping must never break the confirmation the operator just
+    // made: the order is confirmed, the push is recorded as SKIPPED, and the
+    // admin shows it in the unmatched list.
+    let skipped: string | null = null;
+    let payload: Record<string, unknown>;
+    try {
+      payload =
+        kind === 'PUSH_ORDER'
+          ? buildCreateOrderPayload(order as unknown as QianyiOrderSource, {
+              shop,
+              warehouseId,
+              warehouse,
+              logistics,
+            })
+          : { shop, onlineOrderNumber: order.orderNumber };
+    } catch (error) {
+      if (!(error instanceof MissingMappingError)) throw error;
+      skipped = error.message;
+      payload = { shop, onlineOrderNumber: order.orderNumber };
+    }
+    const lastError = skipped ? skipped.slice(0, 1024) : null;
 
     await tx.qianyiSyncJob.upsert({
       where: { orderId_kind: { orderId, kind } },
-      create: { orderId, kind, requestPayload: payload as Prisma.InputJsonValue },
+      create: {
+        orderId,
+        kind,
+        requestPayload: payload as Prisma.InputJsonValue,
+        status: skipped ? 'SKIPPED' : undefined,
+        lastError,
+      },
       update: {
-        status: 'PENDING',
+        status: skipped ? 'SKIPPED' : 'PENDING',
         attempts: 0,
         nextAttemptAt: new Date(),
         requestPayload: payload as Prisma.InputJsonValue,
-        lastError: null,
+        lastError,
       },
     });
   }
@@ -176,8 +194,10 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
    * before anything moves, and stops another channel's tracking number being
    * attached to our order.
    */
-  async reconcile(now = new Date()): Promise<{ checked: number; repaired: number }> {
-    if (!this.client.enabled) return { checked: 0, repaired: 0 };
+  async reconcile(
+    now = new Date(),
+  ): Promise<{ checked: number; repaired: number; unmatched: number }> {
+    if (!this.client.enabled) return { checked: 0, repaired: 0, unmatched: 0 };
     const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
     const fmt = (date: Date) =>
       new Intl.DateTimeFormat('en-CA', {
@@ -195,6 +215,7 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
 
     let page = 1;
     let checked = 0;
+    let unmatched = 0;
     for (;;) {
       const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
         updateTimeFrom: fmt(from),
@@ -212,7 +233,16 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
           where: { orderNumber: online },
           include: { shipments: true },
         });
-        if (!order || order.shipments.some((shipment) => shipment.trackingNumber === tracking)) {
+        if (!order) {
+          // Qianyi has a shipment for an order we do not know about — either a
+          // typo on their side or a local deletion. Say so instead of skipping.
+          unmatched += 1;
+          this.logger.warn(
+            `qianyi reconcile: ${online} exists in Qianyi but not locally (tracking ${tracking})`,
+          );
+          continue;
+        }
+        if (order.shipments.some((shipment) => shipment.trackingNumber === tracking)) {
           continue;
         }
         await this.prisma.orderNote.create({
@@ -227,7 +257,7 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       page += 1;
       if (page > 30) break;
     }
-    return { checked, repaired: 0 };
+    return { checked, repaired: 0, unmatched };
   }
 
   async health(): Promise<{

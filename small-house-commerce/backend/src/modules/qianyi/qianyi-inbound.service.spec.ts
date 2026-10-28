@@ -70,6 +70,8 @@ describe('QianyiInboundService', () => {
       'order-1',
       'ship-1',
       expect.objectContaining({ normalizedStatus: 'SHIPPED' }),
+      // Must be the transaction client: the shipment is not committed yet.
+      client,
     );
   });
 
@@ -148,5 +150,106 @@ describe('QianyiInboundService', () => {
 
     expect(client.shipment.create).not.toHaveBeenCalled();
     expect(inventory.consumeForOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('QianyiInboundService — partial shipments', () => {
+  it('treats a line missing from the outbound list as not shipped', async () => {
+    const client = tx();
+    const { service, inventory } = serviceWith(client);
+
+    await service.handle('PUSH_ODO_ORDER', {
+      onlineOrderNumber: 'PH100012',
+      trackNumber: 'TRACK123',
+      carrier: 'SHIPDOC',
+      status: 'SHIPPED',
+      // The warehouse listed a different SKU: our line did not leave.
+      skuList: [{ sku: 'SOMETHING-ELSE', quantity: 1 }],
+    });
+
+    expect(inventory.consumeForOrder).not.toHaveBeenCalled();
+    expect(client.orderNote.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ content: expect.stringContaining('not shipped') }),
+      }),
+    );
+  });
+
+  it('reads trackingNumber when the callback uses that name', async () => {
+    const client = tx();
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_ODO_ORDER', {
+      onlineOrderNumber: 'PH100012',
+      trackingNumber: 'TRACK777',
+      carrier: 'SHIPDOC',
+      status: 'SHIPPED',
+      skuList: [{ sku: 'YD003760CMHT', quantity: 1 }],
+    });
+
+    expect(client.shipment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ trackingNumber: 'TRACK777' }),
+      }),
+    );
+  });
+
+  it('does not treat a manually shipped order as a duplicate outbound', async () => {
+    const client = tx({
+      order: {
+        findUnique: vi.fn(async () => ({
+          id: 'order-1',
+          orderNumber: 'PH100012',
+          orderStatus: 'SHIPPING',
+          confirmationStatus: 'CONFIRMED',
+          items: [
+            { id: 'line-1', skuCodeSnapshot: 'TB001-Wa', quantity: 1, skuId: 'sku-1', bundleSnapshot: null },
+          ],
+          // Shipped from the admin workbench: no Qianyi outbound number yet.
+          shipments: [{ id: 'ship-1', qianyiOutboundNumber: null }],
+          riskFlags: [],
+          customerId: 'cust-1',
+        })),
+        update: vi.fn(async () => undefined),
+      },
+    });
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_ODO_ORDER', {
+      orderNumber: 'A20220905',
+      onlineOrderNumber: 'PH100012',
+      trackNumber: 'TRACK123',
+      status: 'SHIPPED',
+      skuList: [{ sku: 'YD003760CMHT', quantity: 1 }],
+    });
+
+    expect(client.shipment.create).toHaveBeenCalled();
+  });
+});
+
+describe('QianyiInboundService — tracking arriving first', () => {
+  it('adopts the tracking number archived from an earlier SHIPPING_INFO', async () => {
+    const client = tx({
+      qianyiWebhookEvent: {
+        findMany: vi.fn(async () => [
+          { payload: { onlineOrderNumber: 'PH100012', trackingNumber: 'TRACK999' } },
+        ]),
+      },
+    });
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_ODO_ORDER', {
+      orderNumber: 'S2610288955080',
+      onlineOrderNumber: 'PH100012',
+      carrier: 'SHIPDOC',
+      status: 'SHIPPED',
+      skuList: [{ sku: 'YD003760CMHT', quantity: 1 }],
+    });
+
+    expect(client.shipment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ trackingNumber: 'TRACK999' }),
+      }),
+    );
   });
 });

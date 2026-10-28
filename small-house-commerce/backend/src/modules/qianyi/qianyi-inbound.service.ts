@@ -72,14 +72,28 @@ export class QianyiInboundService {
         this.logger.warn(`qianyi outbound for unknown order ${orderNumber}`);
         return;
       }
-      // A repeated outbound callback must not create a second box.
-      if (order.shipments.length > 0) return;
+      // A repeated outbound must not create a second box. The outbound number
+      // is the only safe identity: an order shipped by hand has a Shipment
+      // already, and its Qianyi callback still has to be applied.
+      const outbound = payload.orderNumber ?? null;
+      const duplicate = outbound
+        ? order.shipments.some(
+            (shipment) => shipment.qianyiOutboundNumber === outbound,
+          )
+        : order.shipments.length > 0;
+      if (duplicate) return;
 
       // Resolve what actually left the warehouse BEFORE touching inventory:
       // a short shipment must consume only what was sent.
-      const shippedByCode = new Map(
-        (payload.skuList ?? []).map((line) => [line.sku ?? '', Number(line.quantity ?? 0)]),
-      );
+      const shippedByCode = new Map<string, number>();
+      for (const line of payload.skuList ?? []) {
+        const code = line.sku ?? '';
+        shippedByCode.set(code, (shippedByCode.get(code) ?? 0) + Number(line.quantity ?? 0));
+      }
+      // An outbound that lists lines is a complete statement of what shipped,
+      // so a mapped line that is missing from it did not go out. Only a
+      // payload with no line list at all falls back to "everything shipped".
+      const hasSkuList = shippedByCode.size > 0;
       const mapped = await tx.sku.findMany({
         where: { id: { in: order.items.map((item) => item.skuId) } },
         select: { id: true, qianyiSkuCode: true },
@@ -92,7 +106,11 @@ export class QianyiInboundService {
       for (const item of order.items) {
         const code = codeById.get(item.skuId) ?? null;
         const sent = code ? shippedByCode.get(code) : undefined;
-        const quantity = sent === undefined ? item.quantity : Math.min(sent, item.quantity);
+        const quantity = !hasSkuList
+          ? item.quantity
+          : sent === undefined
+            ? 0
+            : Math.min(sent, item.quantity);
         if (quantity === 0) {
           notes.push(`${item.skuCodeSnapshot}: not shipped (ordered ${item.quantity})`);
           continue;
@@ -108,13 +126,20 @@ export class QianyiInboundService {
         notes.push('Qianyi reported a shipment with no matching line; nothing was consumed');
       }
 
+      // 千易 在两个回调里用了不同的字段名（出库 `trackNumber`、物流 `trackingNumber`），
+      // 而且 SHIPPING_INFO 常常先到，所以这里三处都兜住。
+      const trackingNumber =
+        payload.trackNumber ??
+        payload.trackingNumber ??
+        (await this.archivedTracking(tx, orderNumber));
+
       const warehouse = await this.inventory.defaultWarehouse(tx);
       const shipment = await tx.shipment.create({
         data: {
           orderId: order.id,
           warehouseId: warehouse.id,
           carrier: payload.carrier?.slice(0, 100) ?? 'SHIPDOC',
-          trackingNumber: payload.trackNumber ?? null,
+          trackingNumber,
           shippedAt: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
           qianyiOutboundNumber: payload.orderNumber ?? null,
           items: {
@@ -135,7 +160,7 @@ export class QianyiInboundService {
           data: {
             orderId: order.id,
             noteType: 'WAREHOUSE',
-            content: `Qianyi outbound ${payload.orderNumber ?? payload.trackNumber ?? ''}: ${notes.join('; ')}`.slice(0, 2000),
+            content: `Qianyi outbound ${payload.orderNumber ?? trackingNumber ?? ''}: ${notes.join('; ')}`.slice(0, 2000),
           },
         });
       }
@@ -157,18 +182,54 @@ export class QianyiInboundService {
         });
       }
 
-      await this.logistics.record(order.id, shipment.id, {
-        normalizedStatus: 'SHIPPED',
-        externalStatus: payload.status ?? null,
-        externalEventId: payload.orderNumber ?? payload.trackNumber ?? null,
-        eventTime: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
-      });
+      await this.logistics.record(
+        order.id,
+        shipment.id,
+        {
+          normalizedStatus: 'SHIPPED',
+          externalStatus: payload.status ?? null,
+          externalEventId: payload.orderNumber ?? trackingNumber,
+          eventTime: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
+        },
+        // The shipment was created in this very transaction and is not visible
+        // on another connection until commit.
+        tx,
+      );
     });
+  }
+
+  /**
+   * `PUSH_SALES_ORDER_SHIPPING_INFO` often arrives before the outbound. Its
+   * number is archived, so the outbound can adopt it instead of leaving the
+   * shipment without a tracking number.
+   */
+  private async archivedTracking(
+    tx: Prisma.TransactionClient,
+    orderNumber: string,
+  ): Promise<string | null> {
+    const events = tx.qianyiWebhookEvent;
+    if (!events?.findMany) return null;
+    const rows = await events.findMany({
+      where: { serviceType: 'PUSH_SALES_ORDER_SHIPPING_INFO' },
+      orderBy: { receivedAt: 'desc' },
+      take: 20,
+      select: { payload: true },
+    });
+    for (const row of rows) {
+      const value = row.payload as {
+        onlineOrderNumber?: string;
+        trackingNumber?: string;
+      };
+      if (value.onlineOrderNumber === orderNumber && value.trackingNumber) {
+        return value.trackingNumber;
+      }
+    }
+    return null;
   }
 
   private async applyShippingInfo(payload: OutboundPayload): Promise<void> {
     const orderNumber = payload.onlineOrderNumber;
-    const trackingNumber = payload.trackingNumber;
+    const trackingNumber = payload.trackingNumber ?? payload.trackNumber;
     if (!orderNumber || !trackingNumber) return;
 
     await this.prisma.$transaction(async (tx) => {
@@ -213,11 +274,16 @@ export class QianyiInboundService {
       });
       const shipment = order?.shipments[0];
       if (!order || !shipment) return;
-      await this.logistics.record(order.id, shipment.id, {
-        normalizedStatus: status,
-        externalStatus: payload.status ?? null,
-        externalEventId: `${payload.status}:${payload.shippingTime ?? ''}`,
-      });
+      await this.logistics.record(
+        order.id,
+        shipment.id,
+        {
+          normalizedStatus: status,
+          externalStatus: payload.status ?? null,
+          externalEventId: `${payload.status}:${payload.shippingTime ?? ''}`,
+        },
+        tx,
+      );
       if (status === 'SIGNED') {
         await tx.shipment.update({
           where: { id: shipment.id },

@@ -48,6 +48,12 @@ export interface QianyiOrderSource {
   orderNumber: string;
   currency: string;
   shippingTotal: Decimalish;
+  /**
+   * Order-level discount (promo code / subscription code). The checkout keeps
+   * line-level discounts at 0, so this is where the money actually lives and
+   * it must be spread across the lines for the amounts to add up.
+   */
+  discountTotal?: Decimalish;
   grandTotal: Decimalish;
   customerNote: string | null;
   createdAt: Date;
@@ -112,17 +118,33 @@ export function buildCreateOrderPayload(
   if (missing.length > 0) throw new MissingMappingError(missing);
 
   const address = order.shippingAddress;
-  const netLines = order.items.map(
-    (item) =>
-      (toUnits(item.unitPrice) - toUnits(item.unitDiscount)) * BigInt(item.quantity),
+  const grossLines = order.items.map(
+    (item) => toUnits(item.unitPrice) * BigInt(item.quantity),
   );
-  const shippingShares = allocate(toUnits(order.shippingTotal), netLines);
+  const lineDiscounts = order.items.map(
+    (item) => toUnits(item.unitDiscount) * BigInt(item.quantity),
+  );
+  const lineDiscountTotal = lineDiscounts.reduce((acc, value) => acc + value, 0n);
+
+  // Whatever the lines did not already account for is the order-level
+  // discount (promo codes). Spread it the same way as freight so the line
+  // amounts still sum to the order total.
+  const orderDiscountTotal = toUnits(order.discountTotal ?? '0');
+  const orderDiscount =
+    orderDiscountTotal > lineDiscountTotal ? orderDiscountTotal - lineDiscountTotal : 0n;
+  const orderShares = allocate(orderDiscount, grossLines);
+
+  const netLines = order.items.map(
+    (item, index) => grossLines[index] - lineDiscounts[index] - orderShares[index],
+  );
+  const shippingShares = allocate(toUnits(order.shippingTotal), grossLines);
 
   // The order-level freight is the source of truth; line shares only explain
   // how it was distributed, so the last line absorbs the rounding.
   let shippedSoFar = 0n;
   const skuList = order.items.map((item, index) => {
-    const unitNet = toUnits(item.unitPrice) - toUnits(item.unitDiscount);
+    const unitNet =
+      item.quantity > 0 ? netLines[index] / BigInt(item.quantity) : 0n;
     const shippingShare =
       index === order.items.length - 1
         ? toUnits(order.shippingTotal) - shippedSoFar
@@ -134,7 +156,7 @@ export function buildCreateOrderPayload(
       paymentPrice: fromUnits(unitNet),
       shippingPrice: fromUnits(shippingShare),
       payAmount: fromUnits(netLines[index] + shippingShare),
-      promotionDiscount: fromUnits(toUnits(item.unitDiscount) * BigInt(item.quantity)),
+      promotionDiscount: fromUnits(lineDiscounts[index] + orderShares[index]),
       originalPrice: fromUnits(toUnits(item.unitPrice)),
     };
   });

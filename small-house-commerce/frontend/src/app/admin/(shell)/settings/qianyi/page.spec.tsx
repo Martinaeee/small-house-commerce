@@ -55,3 +55,18 @@ describe("QianyiSettingsPage", () => {
     expect(apiMock.createQianyiSkus).toHaveBeenCalledWith(["sku-1"]);
   });
 });
+
+describe("QianyiSettingsPage mapping", () => {
+  it("saves a manually entered Qianyi code", async () => {
+    apiMock.qianyiSkus.mockResolvedValue(ROWS);
+    apiMock.setQianyiMapping.mockResolvedValue({ qianyiSkuCode: "YD003760CMHT" });
+    render(<QianyiSettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("TB001-Wa")).toBeInTheDocument());
+
+    const input = screen.getByLabelText("qianyi code for TB001-Wa");
+    await userEvent.type(input, "YD003760CMHT");
+    await userEvent.tab();
+
+    expect(apiMock.setQianyiMapping).toHaveBeenCalledWith("sku-1", "YD003760CMHT");
+  });
+});

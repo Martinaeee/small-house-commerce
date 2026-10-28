@@ -1,4 +1,12 @@
-import { Controller, HttpCode, HttpStatus, Post, Req, UseInterceptors } from '@nestjs/common';
+import {
+  Controller,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Post,
+  Req,
+  UseInterceptors,
+} from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { QianyiWebhookService } from './qianyi-webhook.service.js';
@@ -30,7 +38,12 @@ export class QianyiWebhookController {
       timestamp: field('timestamp'),
       sign: field('sign'),
     });
-    // Always 200 unless the signature is wrong: Qianyi retries on failure.
+    if (result.retryable) {
+      // A non-2xx is what makes Qianyi resend; the archived row keeps the
+      // error so the failure is still inspectable.
+      throw new HttpException('dispatch failed, retry', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    // Always 200 otherwise: Qianyi retries on failure.
     return { ok: result.ok };
   }
 }

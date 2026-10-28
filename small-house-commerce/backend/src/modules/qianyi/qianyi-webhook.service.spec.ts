@@ -95,6 +95,7 @@ describe('QianyiWebhookService', () => {
     const prisma = prismaWith();
     (prisma.qianyiWebhookEvent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'seen',
+      processedAt: new Date('2026-10-28T00:00:00Z'),
     });
     const inbound = { handle: vi.fn() };
     const service = new QianyiWebhookService(
@@ -107,6 +108,48 @@ describe('QianyiWebhookService', () => {
 
     expect(result).toEqual({ ok: true, duplicated: true });
     expect(inbound.handle).not.toHaveBeenCalled();
+  });
+
+  it('re-dispatches a callback whose previous dispatch failed', async () => {
+    const prisma = prismaWith();
+    (prisma.qianyiWebhookEvent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'seen',
+      processedAt: null,
+    });
+    const inbound = { handle: vi.fn(async () => undefined) };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+
+    const result = await service.ingest(signedFields() as never);
+
+    expect(inbound.handle).toHaveBeenCalledTimes(1);
+    expect(result.duplicated).toBe(false);
+  });
+
+  it('reports a failed dispatch as retryable instead of acknowledging it', async () => {
+    const prisma = prismaWith();
+    const inbound = {
+      handle: vi.fn(async () => {
+        throw new Error('insufficient reservation');
+      }),
+    };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+
+    const result = await service.ingest(signedFields() as never);
+
+    expect(result).toEqual({ ok: false, duplicated: false, retryable: true });
+    expect(prisma.qianyiWebhookEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ error: expect.stringContaining('insufficient') }),
+      }),
+    );
   });
 
   it('rejects a stale timestamp', async () => {

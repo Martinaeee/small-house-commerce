@@ -54,7 +54,7 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
 1. 后台 `/admin/settings/qianyi`：应显示「已启用」，待推送 0 / 失败 0。
 2. 列表里 62 个 SKU 中，可建档的应约 49 个（缺尺寸/毛重的会显示「缺 …」且无法勾选）。
 3. **只勾选首批要上架的商品**，点「建档选中的 N 个」；结果里 `Created x / y`。
-4. 建档成功的行会显示千易编码；其余行保持空白，**空白行永不推单**。
+4. 建档成功的行会显示千易编码；其余行保持空白，**空白行永不推单**。已有千易编码的商品可以在列表里直接改写（失焦即保存）。
 
 ## 5. 推单验收（用一笔真实订单）
 
@@ -71,7 +71,7 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
 - 任务列表里 `FAILED` 的行有「重推」按钮；重推会把该行拉回队列并立刻尝试。
 - 失败原因写在任务行下方（形如 `SERVICE_TYPE_NOT_ALLOW: 权限不足`），据此去千易补权限或改映射。
 - 超过 5 次自动转 `FAILED`，不会无限重试。
-- 缺 SKU 映射的订单 `enqueue` 阶段就会失败并直接标 `FAILED`（不会重试 5 次），补齐映射后重推。
+- **缺 SKU 映射不会阻断客服确认**：订单照常确认成功，同步任务记为 `SKIPPED` 并写明缺哪个 SKU。在列表里直接填写千易编码（失焦即保存），再点该任务行的「重推」即可。
 
 ## 7. 回滚
 

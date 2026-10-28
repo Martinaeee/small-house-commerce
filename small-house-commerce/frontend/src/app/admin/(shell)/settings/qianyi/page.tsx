@@ -70,6 +70,14 @@ export default function QianyiSettingsPage() {
     setJobs(await adminApi.qianyiJobs());
   };
 
+  // The only place a mapping can be set: without it a SKU never reaches Qianyi.
+  const saveMapping = async (id: string, current: string | null, next: string) => {
+    const value = next.trim();
+    if (value === (current ?? "")) return;
+    await adminApi.setQianyiMapping(id, value || null);
+    setRows(await adminApi.qianyiSkus());
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader title={t("qianyi_title")} subtitle={t("qianyi_description")} />
@@ -118,7 +126,17 @@ export default function QianyiSettingsPage() {
                 </td>
                 <td>{row.skuCode}</td>
                 <td>{row.title}</td>
-                <td>{row.qianyiSkuCode ?? "—"}</td>
+                <td>
+                  <input
+                    aria-label={`qianyi code for ${row.skuCode}`}
+                    defaultValue={row.qianyiSkuCode ?? ""}
+                    placeholder="—"
+                    onBlur={(event) =>
+                      void saveMapping(row.id, row.qianyiSkuCode, event.currentTarget.value)
+                    }
+                    className="w-36 rounded border border-border bg-surface px-2 py-1 text-sm"
+                  />
+                </td>
                 <td className={row.ready ? "text-primary" : "text-red-600"}>
                   {row.ready ? t("qianyi_ready") : t("qianyi_missing", { gaps: row.gaps.join(", ") })}
                 </td>

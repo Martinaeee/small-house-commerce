@@ -44,7 +44,9 @@ export class QianyiWebhookService {
     this.config = readQianyiConfig(config);
   }
 
-  async ingest(fields: QianyiWebhookFields): Promise<{ ok: boolean; duplicated: boolean }> {
+  async ingest(
+    fields: QianyiWebhookFields,
+  ): Promise<{ ok: boolean; duplicated: boolean; retryable?: boolean }> {
     const expected = signQianyiRequest(
       {
         appId: fields.appId,
@@ -82,27 +84,51 @@ export class QianyiWebhookService {
     }
 
     const seen = await this.prisma.qianyiWebhookEvent.findUnique({ where: { externalKey } });
-    if (seen) return { ok: true, duplicated: true };
+    // Only a callback we actually FINISHED counts as a duplicate. A row left
+    // with `processedAt = null` is a failed dispatch, and Qianyi's retry must
+    // be allowed to run it again.
+    if (seen?.processedAt) return { ok: true, duplicated: true };
 
-    await this.prisma.qianyiWebhookEvent.create({
-      data: {
-        serviceType: fields.serviceType,
-        signValid: true,
-        externalKey,
-        payload: payload as Prisma.InputJsonValue,
-      },
-    });
+    if (!seen) {
+      await this.prisma.qianyiWebhookEvent.create({
+        data: {
+          serviceType: fields.serviceType,
+          signValid: true,
+          externalKey,
+          payload: payload as Prisma.InputJsonValue,
+        },
+      });
+    }
 
     if (!HANDLED.has(fields.serviceType)) {
       // Unknown types are archived and acknowledged: a non-2xx would make
       // Qianyi retry a callback we will never understand.
+      await this.prisma.qianyiWebhookEvent.update({
+        where: { externalKey },
+        data: { processedAt: new Date() },
+      });
       return { ok: true, duplicated: false };
     }
 
-    await this.inbound.handle(fields.serviceType, payload);
+    try {
+      await this.inbound.handle(fields.serviceType, payload);
+    } catch (error) {
+      // Keep the row (so the payload is still inspectable) but leave it
+      // unfinished, and tell the caller to retry: swallowing this would lose
+      // the shipment permanently.
+      await this.prisma.qianyiWebhookEvent.update({
+        where: { externalKey },
+        data: { error: (error as Error).message.slice(0, 1024) },
+      });
+      this.logger.error(
+        `qianyi ${fields.serviceType} dispatch failed: ${(error as Error).message}`,
+      );
+      return { ok: false, duplicated: false, retryable: true };
+    }
+
     await this.prisma.qianyiWebhookEvent.update({
       where: { externalKey },
-      data: { processedAt: new Date() },
+      data: { processedAt: new Date(), error: null },
     });
     return { ok: true, duplicated: false };
   }

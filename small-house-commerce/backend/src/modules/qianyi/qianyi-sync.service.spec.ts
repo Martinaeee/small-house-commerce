@@ -116,6 +116,69 @@ describe('QianyiSyncService.processPending', () => {
   });
 });
 
+describe('QianyiSyncService.enqueue', () => {
+  function txWith(mapping: string | null) {
+    return {
+      order: {
+        findUnique: vi.fn(async () => ({
+          id: 'order-1',
+          orderNumber: 'PH100012',
+          currency: 'PHP',
+          shippingTotal: '0.00',
+          discountTotal: '0.00',
+          grandTotal: '100.00',
+          customerNote: null,
+          createdAt: new Date('2026-10-28T02:30:00Z'),
+          customer: { name: 'Maria', email: null },
+          shippingAddress: null,
+          items: [
+            {
+              skuCodeSnapshot: 'TB001-Wa',
+              quantity: 1,
+              unitPrice: '100.00',
+              unitDiscount: '0.00',
+              lineTotal: '100.00',
+              sku: { skuCode: 'TB001-Wa', qianyiSkuCode: mapping },
+            },
+          ],
+        })),
+      },
+      qianyiSyncJob: { upsert: vi.fn(async () => undefined) },
+    };
+  }
+
+  it('queues a pending push when every line is mapped', async () => {
+    const tx = txWith('YD003760CMHT');
+    const service = new QianyiSyncService(
+      {} as never,
+      { enabled: true, call: vi.fn() } as never,
+      CONFIG,
+    );
+
+    await service.enqueue(tx as never, 'PUSH_ORDER', 'order-1');
+
+    const call = tx.qianyiSyncJob.upsert.mock.calls[0][0];
+    expect(call.create.status).toBeUndefined(); // default PENDING
+    expect(call.create.requestPayload).toMatchObject({ onlineOrderNumber: 'PH100012' });
+  });
+
+  it('records a SKIPPED job instead of failing the confirmation when a SKU has no mapping', async () => {
+    const tx = txWith(null);
+    const service = new QianyiSyncService(
+      {} as never,
+      { enabled: true, call: vi.fn() } as never,
+      CONFIG,
+    );
+
+    // Confirming must never 500 because of a missing mapping.
+    await expect(service.enqueue(tx as never, 'PUSH_ORDER', 'order-1')).resolves.toBeUndefined();
+
+    const call = tx.qianyiSyncJob.upsert.mock.calls[0][0];
+    expect(call.create.status).toBe('SKIPPED');
+    expect(call.create.lastError).toContain('TB001-Wa');
+  });
+});
+
 describe('QianyiSyncService.reconcile', () => {
   it('asks for the last three days, which satisfies the one-condition rule', async () => {
     const prisma = {
@@ -165,11 +228,35 @@ describe('QianyiSyncService.reconcile', () => {
     );
   });
 
+  it('flags a Qianyi order that has no local counterpart', async () => {
+    const prisma = {
+      qianyiSyncJob: { findMany: vi.fn(), update: vi.fn(), count: vi.fn(async () => 0) },
+      order: { update: vi.fn(), findUnique: vi.fn(async () => null) },
+      orderNote: { create: vi.fn(async () => undefined) },
+    };
+    const client = {
+      enabled: true,
+      call: vi.fn(async () => [
+        { onlineOrderNumber: 'PH999999', trackingNumber: 'TRACK1', status: 'WAIT_SHIP' },
+      ]),
+    };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    const result = await service.reconcile(new Date('2026-10-28T03:00:00Z'));
+
+    expect(result.unmatched).toBe(1);
+    expect(prisma.orderNote.create).not.toHaveBeenCalled();
+  });
+
   it('does nothing while disabled', async () => {
     const prisma = { qianyiSyncJob: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() } };
     const client = { enabled: false, call: vi.fn() };
     const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
-    await expect(service.reconcile()).resolves.toEqual({ checked: 0, repaired: 0 });
+    await expect(service.reconcile()).resolves.toEqual({
+      checked: 0,
+      repaired: 0,
+      unmatched: 0,
+    });
     expect(client.call).not.toHaveBeenCalled();
   });
 });

@@ -35,4 +35,12 @@ describe('QianyiWebhookController.receive', () => {
 
     await expect(controller.receive({ body: {} } as never)).resolves.toEqual({ ok: false });
   });
+
+  it('answers 500 when the dispatch failed so Qianyi resends', async () => {
+    const controller = new QianyiWebhookController({
+      ingest: vi.fn(async () => ({ ok: false, duplicated: false, retryable: true })),
+    } as never);
+
+    await expect(controller.receive({ body: {} } as never)).rejects.toMatchObject({ status: 500 });
+  });
 });

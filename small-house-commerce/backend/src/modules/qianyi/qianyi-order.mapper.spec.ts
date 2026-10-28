@@ -120,6 +120,35 @@ describe('buildCreateOrderPayload', () => {
     expect(lines.map((l) => l.shippingPrice)).toEqual(['33.3333', '66.6667']);
   });
 
+  it('spreads an order-level promo discount across the lines', () => {
+    // The real checkout writes unitDiscount = 0 and keeps the promo code's
+    // money on the order, so the allocation has to happen here.
+    const order = {
+      ...BASE_ORDER,
+      discountTotal: '400.00',
+      grandTotal: '3597.00',
+      items: [
+        { ...BASE_ORDER.items[0], unitDiscount: '0.00', lineTotal: '2999.00' },
+        { ...BASE_ORDER.items[1], unitDiscount: '0.00', lineTotal: '998.00' },
+      ],
+    };
+    const payload = buildCreateOrderPayload(order as never, CONFIG) as Record<string, any>;
+    const lines = payload.skuList as Array<Record<string, string>>;
+
+    // Qianyi takes 4 decimals, so the invariant is the 0.0001 sum, not a
+    // per-line rounding to cents (half-cent lines would drift by a cent).
+    const paid = lines.reduce(
+      (acc, line) => acc + Math.round(Number(line.payAmount) * 10_000),
+      0,
+    );
+    const discounted = lines.reduce(
+      (acc, line) => acc + Number(line.promotionDiscount),
+      0,
+    );
+    expect(paid).toBe(35_970_000);
+    expect(discounted).toBeCloseTo(400, 3);
+  });
+
   it('refuses to build when a line has no Qianyi code', () => {
     const order = {
       ...BASE_ORDER,
