@@ -324,6 +324,12 @@ model Shipment {
   createdBy      String?        @map("created_by") @db.Uuid
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Last time the tracking worker asked the carrier about this box.
+  trackingCheckedAt DateTime? @map("tracking_checked_at") @db.Timestamptz(3)
+  /// Last tracking failure, truncated; null once a poll succeeds.
+  trackingError     String?   @map("tracking_error") @db.VarChar(300)
+  /// Consecutive failures, drives the polling backoff.
+  trackingFailures  Int       @default(0) @map("tracking_failures")
 
   order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
   warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
@@ -332,6 +338,7 @@ model Shipment {
   returnAcceptances ReturnAcceptance[]
 
   @@index([orderId])
+  @@index([status, trackingCheckedAt])
   @@map("shipments")
 }
 
@@ -362,6 +369,12 @@ model LogisticsEvent {
   province            String?
   city                String?
   rawPayloadReference String?              @map("raw_payload_reference")
+  /// J&T's own wording for the scan, kept verbatim for the guest timeline.
+  externalDescription  String?             @map("external_description")
+  /// Rider phone from the scan, shown to phone-verified guests only.
+  staffContact         String?             @map("staff_contact") @db.VarChar(40)
+  /// Delivery / problem photo URL. Admin only, never sent to the storefront.
+  signatureImageUrl    String?             @map("signature_image_url")
   createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
