@@ -24,6 +24,7 @@ import {
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
+import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
@@ -274,6 +275,9 @@ export class OrdersService {
     private readonly backInStock: BackInStockService,
     // Optional so direct unit constructions keep working; Nest injects it.
     @Optional() private readonly metaCapi?: MetaCapiService,
+    // Optional for the same reason: every spec that builds OrdersService by
+    // hand keeps working without a Qianyi stub.
+    @Optional() private readonly qianyi?: QianyiSyncService,
   ) {}
 
   /**
@@ -830,6 +834,9 @@ export class OrdersService {
           },
         });
       }
+      // Push happens through the outbox, inside this transaction: a rolled
+      // back confirmation must not leave a queued push behind.
+      await this.qianyi?.enqueue(tx, 'PUSH_ORDER', orderId);
       return { updated, promoReleased: false, backInStockClaims: [] };
     });
     await this.backInStock.deliverClaims(backInStockClaims);
@@ -915,6 +922,15 @@ export class OrdersService {
             operatorId,
           },
         });
+        // Only an order that actually reached Qianyi can be closed there.
+        if (this.qianyi) {
+          const pushed = await tx.qianyiSyncJob.findUnique({
+            where: { orderId_kind: { orderId, kind: 'PUSH_ORDER' } },
+          });
+          if (pushed?.status === 'SENT') {
+            await this.qianyi.enqueue(tx, 'CLOSE_ORDER', orderId);
+          }
+        }
         return { updated, promoReleased, backInStockClaims };
       },
     );
