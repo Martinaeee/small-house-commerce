@@ -71,6 +71,17 @@ export function configuration() {
       testEventCode: env.META_CAPI_TEST_EVENT_CODE ?? null,
       apiVersion: env.META_CAPI_API_VERSION ?? 'v23.0',
     },
+    // J&T Express tracking. Empty values keep the worker switched off.
+    jt: {
+      enabled: env.JT_ENABLED ?? 'false',
+      baseUrl: env.JT_BASE_URL ?? 'https://openapi.jtexpress.ph/webopenplatformapi/api',
+      apiAccount: env.JT_API_ACCOUNT ?? '',
+      privateKey: env.JT_PRIVATE_KEY ?? '',
+      customerCode: env.JT_CUSTOMER_CODE ?? '',
+      customerPassword: env.JT_CUSTOMER_PASSWORD ?? '',
+      pollMinutes: env.JT_POLL_MINUTES ?? 30,
+      carrierName: env.JT_CARRIER_NAME ?? 'J&T Express',
+    },
   };
 }
 
