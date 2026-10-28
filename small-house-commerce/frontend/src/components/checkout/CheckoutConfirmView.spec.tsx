@@ -163,6 +163,29 @@ beforeEach(() => {
 });
 
 describe("CheckoutConfirmView order notes", () => {
+  it("reuses one idempotency key when a timed-out submission is retried", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockRejectedValueOnce(new Error("Network timeout"))
+      .mockResolvedValueOnce({
+        orderNumber: "PH2001",
+        orderStatus: "NEW",
+        confirmationStatus: "UNCONFIRMED",
+      });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    const button = await screen.findByTestId("confirm-place-order");
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+
+    const first = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    const second = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(first).toMatch(/^[A-Za-z0-9_-]{8,120}$/);
+    expect(second).toBe(first);
+  });
+
   it("shows the order note and submits it with the order", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder.mockResolvedValue({

@@ -887,6 +887,8 @@ export const api = {
      * ordering sessions by all sessions. Never a customer identity.
      */
     trackingSessionId?: string | null;
+    /** Client-generated retry key; a replay returns the original order. */
+    idempotencyKey?: string | null;
   }) =>
     request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
       "/api/v1/storefront/orders",
@@ -901,6 +903,7 @@ export const api = {
           customerNote: input.customerNote ?? null,
           promoCode: input.promoCode ?? null,
           trackingSessionId: input.trackingSessionId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         }),
       },
     ),

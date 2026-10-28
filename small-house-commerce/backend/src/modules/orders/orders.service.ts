@@ -38,6 +38,7 @@ import {
   type OrderItemSnapshotWrite,
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
+import { idempotencyFingerprint } from './order-idempotency.js';
 import {
   orderStatusAfterSign,
   quantityByLine,
@@ -283,6 +284,15 @@ export class OrdersService {
    * - create the order with snapshots (DB-003), then reserve stock (§30)
    */
   async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta) {
+    // A retry (timeout, lost response, double click) must return the order the
+    // first attempt created instead of creating another one. The pre-check
+    // also covers the common replay before touching the customer table.
+    const idempotencyHash = input.idempotencyKey ? idempotencyFingerprint(input) : null;
+    if (input.idempotencyKey && idempotencyHash) {
+      const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash);
+      if (replay) return replay;
+    }
+
     const normalizedPhone = this.normalizePhone(input.customer.phone);
 
     // Resolve customer by canonical phone (§9: phone is the identity key).
@@ -296,7 +306,8 @@ export class OrdersService {
     // the new order from prior history; stored on the order, never recomputed.
     const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
-    const { order, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = await this.prisma.$transaction(async (tx) => {
+    const runCheckoutTransaction = () =>
+      this.prisma.$transaction(async (tx) => {
     for (const skuId of [...new Set(input.items.map(item => item.skuId))].sort()) {
       await tx.$queryRaw`SELECT id FROM skus WHERE id = ${skuId}::uuid AND is_bundle = TRUE FOR UPDATE`;
     }
@@ -471,6 +482,8 @@ export class OrdersService {
           customerNote: input.customerNote ?? null,
           promoCode: promo?.code ?? null,
           trackingSessionId: input.trackingSessionId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          idempotencyHash,
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,
@@ -589,8 +602,21 @@ export class OrdersService {
         })),
         amount: grandTotal,
       };
+      });
+
+    const transactionOutcome = await runCheckoutTransaction().catch(
+      async (error: unknown) => {
+        // Two concurrent retries can both pass the pre-check; the unique key
+        // makes one transaction lose. Read the winner back instead of failing.
+        if (input.idempotencyKey && idempotencyHash && this.isUniqueViolation(error)) {
+          const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash);
+          if (replay) return { replay } as const;
+        }
+        throw error;
       },
     );
+    if ('replay' in transactionOutcome) return transactionOutcome.replay;
+    const { order, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
 
     if (offerAvailabilityChanged) {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
@@ -645,6 +671,42 @@ export class OrdersService {
       riskType: requiresReview ? classification.classification : null,
       requiresReview,
     };
+  }
+
+  /** Replays a checkout retry, or rejects a key reused with other details. */
+  private async findIdempotentOrder(key: string, fingerprint: string) {
+    const existing = await this.prisma.order.findUnique({
+      where: { idempotencyKey: key },
+      select: {
+        orderNumber: true,
+        orderStatus: true,
+        confirmationStatus: true,
+        customerClassification: true,
+        idempotencyHash: true,
+      },
+    });
+    if (!existing) return null;
+    if (existing.idempotencyHash !== fingerprint) {
+      throw new ConflictException(
+        `This checkout was already submitted as order ${existing.orderNumber} with different details. Open that order or start a new checkout.`,
+      );
+    }
+    const requiresReview = existing.confirmationStatus === 'NEEDS_REVIEW';
+    return {
+      orderNumber: existing.orderNumber,
+      orderStatus: existing.orderStatus,
+      confirmationStatus: existing.confirmationStatus,
+      riskType: requiresReview ? existing.customerClassification : null,
+      requiresReview,
+    };
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: string }).code === 'P2002'
+    );
   }
 
   /** §22.1 confirm: only while still unconfirmed and not cancelled. */

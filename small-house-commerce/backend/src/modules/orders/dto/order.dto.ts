@@ -26,6 +26,16 @@ export const checkoutSchema = z.object({
   // first-party events, so the dashboard's conversion rate divides ordering
   // sessions by all sessions. Never a customer identity.
   trackingSessionId: z.string().min(8).max(100).nullable().optional(),
+  // Client-generated retry key. Optional so admin/manual order entry and
+  // older clients keep working unchanged.
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(8)
+    .max(120)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .nullable()
+    .optional(),
   // Meta browser cookies and the shopper's ads-cookie choice at checkout.
   // Only forwarded to Meta when metaConsent is true.
   fbp: z

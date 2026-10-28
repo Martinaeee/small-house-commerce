@@ -208,6 +208,12 @@ model Order {
   /// The dashboard's conversion rate divides ordering sessions by all
   /// sessions; the order row — not the PURCHASE pixel event — is the fact.
   trackingSessionId      String?   @map("tracking_session_id") @db.VarChar(100)
+  /// Client-generated checkout retry key. Unique when present; NULL for
+  /// admin/manual orders and for orders created before idempotency existed.
+  idempotencyKey         String?   @unique @map("idempotency_key") @db.VarChar(120)
+  /// sha256 of the order-defining request content, used to reject key reuse
+  /// with different order details.
+  idempotencyHash        String?   @map("idempotency_hash") @db.VarChar(64)
   // Manual COD verification (stage 1A): the checklist a handler works through.
   verificationRequired Boolean  @default(false) @map("verification_required")
   // When the handler should come back to this order (follow-up callback).

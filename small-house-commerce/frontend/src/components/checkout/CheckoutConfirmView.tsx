@@ -15,6 +15,7 @@ import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { hasAdsConsent } from "@/lib/consent";
 import { readMetaBrowserIds } from "@/lib/meta-capi";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
+import { checkoutIdempotencyKey } from "@/lib/checkout-idempotency";
 import {
   readCheckoutDraft,
   clearCheckoutDraft,
@@ -93,6 +94,9 @@ export function CheckoutConfirmView({
   // Buy Now product cover) — no product-by-slug image recovery here either.
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
+  // Stable across retries of this checkout; the backend replays the original
+  // order instead of creating a second one.
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
@@ -172,6 +176,9 @@ export function CheckoutConfirmView({
     inFlightRef.current = true;
     setSubmitting(true);
     try {
+      const idempotencyKey =
+        idempotencyKeyRef.current ?? checkoutIdempotencyKey(checkoutHref);
+      idempotencyKeyRef.current = idempotencyKey;
       const payload = {
         customer: {
           ...draft.customer,
@@ -187,6 +194,7 @@ export function CheckoutConfirmView({
         customerNote: draft.customerNote ?? null,
         // Analytics-only: links this order to the visit that produced it.
         trackingSessionId: analyticsSessionId(),
+        idempotencyKey,
         // Meta matching data, only meaningful (and only accepted by the
         // backend) when the shopper accepted optional cookies.
         ...readMetaBrowserIds(),
