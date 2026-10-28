@@ -129,6 +129,19 @@ function ContactRows({
   );
 }
 
+/**
+ * Desktop grid tracks: the brand block plus one track per footer column.
+ * A footer that grows a column (for example a Contact column) must not push
+ * the last column onto a second row, so the track count follows the document.
+ */
+const GRID_BY_COLUMN_COUNT: Record<number, string> = {
+  1: "lg:grid-cols-[1.35fr_minmax(0,1fr)]",
+  2: "lg:grid-cols-[1.35fr_repeat(2,minmax(0,1fr))]",
+  3: "lg:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]",
+  4: "lg:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))]",
+  5: "lg:grid-cols-[1.35fr_repeat(5,minmax(0,1fr))]",
+};
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -267,6 +280,8 @@ export function Footer({
 }: FooterProps) {
   const footer =
     shell?.footer ?? legacyFooter(collections, supportEmail, supportHours);
+  const gridClass =
+    GRID_BY_COLUMN_COUNT[footer.columns.length] ?? GRID_BY_COLUMN_COUNT[5];
   const [openColumn, setOpenColumn] = useState<string | null>(null);
 
   return (
@@ -276,7 +291,7 @@ export function Footer({
       <div className="mx-auto w-full max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
         <div
           data-testid="footer-column-grid"
-          className="grid grid-cols-1 gap-x-8 lg:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]"
+          className={`grid grid-cols-1 gap-x-8 ${gridClass}`}
         >
           <div className="flex items-center justify-between gap-6 pb-4 lg:block lg:pb-0">
             <div>

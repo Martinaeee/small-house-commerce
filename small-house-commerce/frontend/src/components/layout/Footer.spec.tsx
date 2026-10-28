@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
@@ -235,6 +235,59 @@ describe("Footer published shell content", () => {
     expect(screen.getByTestId("footer-column-grid").className).toContain(
       "lg:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]",
     );
+  });
+
+  it("sizes the desktop grid for the brand block and four content columns", () => {
+    const fourColumns = {
+      ...shell,
+      footer: {
+        ...shell.footer,
+        columns: [
+          shell.footer.columns[0],
+          shell.footer.columns[2],
+          shell.footer.columns[1],
+          { ...shell.footer.columns[2], id: "about-luwag", title: "About LUWAG" },
+        ],
+      },
+    } as unknown as PublicStorefrontShell;
+
+    renderFooter({ shell: fourColumns, mode: "live" });
+
+    expect(screen.getByTestId("footer-column-grid").className).toContain(
+      "lg:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))]",
+    );
+  });
+
+  it("renders the Contact column with a callable phone and a mailto email", () => {
+    const withContact = {
+      ...shell,
+      footer: {
+        ...shell.footer,
+        columns: [
+          ...shell.footer.columns,
+          {
+            id: "contact-luwag",
+            kind: "CONTACT" as const,
+            title: "Contact",
+            supportEmail: "hello@luwag.shop",
+            supportHours: "Mon–Sat, 9am–6pm (PHT)",
+            trackOrderLabel: "Track Order",
+            trackOrderHref: "/track-order",
+          },
+        ],
+      },
+    } as unknown as PublicStorefrontShell;
+
+    renderFooter({ shell: withContact, mode: "live", supportPhone: "0935 977 7504" });
+
+    const contact = document.querySelector('[data-footer-column-id="contact-luwag"]');
+    expect(contact?.querySelectorAll("li")).toHaveLength(4);
+    expect(
+      within(contact as HTMLElement).getByRole("link", { name: "0935 977 7504" }),
+    ).toHaveAttribute("href", "tel:09359777504");
+    expect(
+      within(contact as HTMLElement).getByRole("link", { name: "hello@luwag.shop" }),
+    ).toHaveAttribute("href", "mailto:hello@luwag.shop");
   });
 
   it("keeps Contact details but omits Track Order when its target is unavailable", () => {
