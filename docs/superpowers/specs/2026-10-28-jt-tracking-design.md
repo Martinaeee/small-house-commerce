@@ -207,7 +207,7 @@ No new tables, no changes to `orders`. All writes are additive; disabling the in
 
 ## Admin surface
 
-- `POST /admin/orders/:id/shipments/:shipmentId/tracking/refresh` — permission `SHIPMENT_CREATE`, same path style as the existing `…/events` and `…/sign` routes. Ignores backoff, performs one fetch, returns `{ appended, skipped, signed, error }`. Returns `409` when the integration is disabled so the button can explain why nothing happened.
+- `POST /admin/orders/:id/shipments/:shipmentId/tracking/refresh` — permission `SHIPMENT_CREATE`, same path style as the existing `…/events` and `…/sign` routes. Ignores backoff, performs one fetch, returns `{ appended, skipped, signed }`; a carrier or network failure surfaces as an HTTP error. Returns `409` when the integration is disabled so the button can explain why nothing happened.
 - `GET /admin/jt/status` — `{ enabled, lastTickAt, lastFetched, lastFailed, pendingShipments, lastError }`, rendered as a `JtTrackingHealthCard` next to the existing `MetaCapiHealthCard` on `/admin/status`. Reuses the system-status permission.
 - `FulfillmentDialog` ship form gets a `J&T Express` preset button for the carrier field; the free-text field stays, and the tracking number stays manual.
 - `LogisticsEventDialog` shows, per event, J&T's raw description, the rider phone and a link to the signature photo — admin only.
