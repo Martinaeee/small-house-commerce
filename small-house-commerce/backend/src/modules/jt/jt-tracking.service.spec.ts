@@ -36,7 +36,8 @@ function createHarness(details = [delivered, inTransit]) {
     {
       id: S1,
       orderId: O1,
-      carrier: 'J&T Express',
+      // Lowercase on purpose: the poll query must match case-insensitively.
+      carrier: 'j&t express',
       status: 'SHIPPING',
       trackingNumber: 'JT1',
       shippedAt: new Date('2026-10-27T02:00:00.000Z'),
@@ -78,8 +79,13 @@ function createHarness(details = [delivered, inTransit]) {
     if (where.status && row.status !== where.status) return false;
     if (where.trackingNumber?.not === null && row.trackingNumber == null) return false;
     if (where.carrier?.equals) {
-      const want = String(where.carrier.equals).toLowerCase();
-      if (String(row.carrier).toLowerCase() !== want) return false;
+      // Mirror Prisma: `mode: 'insensitive'` is opt-in, a bare equals is exact.
+      const want = String(where.carrier.equals);
+      const have = String(row.carrier);
+      const caseInsensitive = where.carrier.mode === 'insensitive';
+      if (caseInsensitive ? have.toLowerCase() !== want.toLowerCase() : have !== want) {
+        return false;
+      }
     }
     return true;
   };
