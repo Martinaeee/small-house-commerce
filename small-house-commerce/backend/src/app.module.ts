@@ -22,6 +22,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { SystemStatusModule } from './modules/system-status/system-status.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { MetaCapiModule } from './modules/meta-capi/meta-capi.module.js';
+import { QianyiModule } from './modules/qianyi/qianyi.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -58,6 +59,7 @@ import { UsersModule } from './modules/users/users.module.js';
     SystemStatusModule,
     AnalyticsModule,
     MetaCapiModule,
+    QianyiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
