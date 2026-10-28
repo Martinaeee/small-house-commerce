@@ -104,6 +104,25 @@ describe('QianyiSyncService.processPending', () => {
     expect(prisma.qianyiSyncJob.update.mock.calls[0][0].data.status).toBe('FAILED');
   });
 
+  it('adopts an order Qianyi already has instead of creating a duplicate', async () => {
+    const prisma = prismaWith([job({ attempts: 1 })]);
+    const client = {
+      enabled: true,
+      call: vi.fn(async (serviceType: string) =>
+        serviceType === 'QUERY_SALES_ORDER_LIST' ? [{ orderNumber: 'S2610288955080' }] : null,
+      ),
+    };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    await service.processPending(new Date('2026-10-28T01:00:00Z'));
+
+    const calls = client.call.mock.calls.map((call) => call[0]);
+    expect(calls).toEqual(['QUERY_SALES_ORDER_LIST']);
+    const update = prisma.qianyiSyncJob.update.mock.calls[0][0];
+    expect(update.data.status).toBe('SENT');
+    expect(update.data.externalOrderNumber).toBe('S2610288955080');
+  });
+
   it('does nothing while the integration is disabled', async () => {
     const prisma = prismaWith([job()]);
     const service = new QianyiSyncService(

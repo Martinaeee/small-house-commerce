@@ -25,6 +25,10 @@ describe('skuReadiness', () => {
       gaps: ['packageWidth', 'packageHeight'],
     });
   });
+  it('is not ready when the net weight is missing, rather than guessing it', () => {
+    const readiness = skuReadiness({ ...SKU, productWeight: null });
+    expect(readiness).toEqual({ ready: false, gaps: ['productWeight'] });
+  });
 });
 
 describe('buildSkuPayload', () => {
@@ -43,13 +47,14 @@ describe('buildSkuPayload', () => {
       dimensionUnit: 'cm',
       enable: 1,
     });
-    expect(payload.notes).toEqual([]);
+    expect(payload.notes).toEqual([expect.stringContaining('shelfLife')]);
   });
 
-  it('falls back to gross weight for net weight but says so in the notes', () => {
-    const payload = buildSkuPayload({ ...SKU, productWeight: null }, 'TB001-Wa');
-    expect(payload.netWeight).toBe(12.5);
-    expect(payload.notes).toContain('netWeight defaults to package weight, confirm manually');
+  it('sends KG and cm, the units our catalog stores', () => {
+    const payload = buildSkuPayload(SKU, 'TB001-Wa');
+    expect(payload.weightUnit).toBe('KG');
+    expect(payload.dimensionUnit).toBe('cm');
+    expect(payload.shelfLife).toBeGreaterThan(0);
   });
 
   it('maps our width/depth onto Qianyi length/width', () => {

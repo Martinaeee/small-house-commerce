@@ -153,6 +153,12 @@ export const envSchema = z.object({
     z.coerce.number().int().positive().optional(),
   ),
   QIANYI_WAREHOUSE: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  // Optional: the local Warehouse row that books Qianyi's shipments. Unset
+  // falls back to the existing "first active warehouse" rule.
+  QIANYI_LOCAL_WAREHOUSE_ID: z.preprocess(
+    blankAsUndefined,
+    z.string().uuid('QIANYI_LOCAL_WAREHOUSE_ID must be a uuid').optional(),
+  ),
   QIANYI_LOGISTICS: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {

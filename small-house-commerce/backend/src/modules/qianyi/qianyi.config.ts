@@ -14,6 +14,8 @@ export interface QianyiConfig {
   shop: string;
   warehouseId: number;
   warehouse: string;
+  /** Local Warehouse row that books Qianyi's shipments; null = first active. */
+  localWarehouseId: string | null;
   logistics: string;
 }
 
@@ -24,6 +26,7 @@ export function readQianyiConfig(config: ConfigService): QianyiConfig {
   const warehouseId = config.get<number>('qianyi.warehouseId') ?? 0;
   const warehouse = config.get<string>('qianyi.warehouse') ?? '';
   const logistics = config.get<string>('qianyi.logistics') ?? '';
+  const localWarehouseId = config.get<string>('qianyi.localWarehouseId') ?? null;
   const flag = config.get<string>('qianyi.enabled') ?? 'false';
   const complete = Boolean(
     appId && secret && shop && warehouseId > 0 && warehouse && logistics,
@@ -36,6 +39,7 @@ export function readQianyiConfig(config: ConfigService): QianyiConfig {
     shop,
     warehouseId,
     warehouse,
+    localWarehouseId,
     logistics,
   };
 }

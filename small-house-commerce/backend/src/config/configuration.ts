@@ -80,6 +80,7 @@ export function configuration() {
       shop: env.QIANYI_SHOP ?? '',
       warehouseId: env.QIANYI_WAREHOUSE_ID ?? 0,
       warehouse: env.QIANYI_WAREHOUSE ?? '',
+      localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
       logistics: env.QIANYI_LOGISTICS ?? '',
     },
   };

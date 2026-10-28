@@ -6,8 +6,15 @@ import { signQianyiRequest } from './qianyi.client.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
 import type { QianyiInboundService } from './qianyi-inbound.service.js';
 
-/** How far a callback timestamp may drift before we treat it as a replay. */
-const MAX_CLOCK_SKEW_MS = 15 * 60 * 1000;
+/**
+ * How far a callback timestamp may drift.
+ *
+ * 千易 retries land hours after the event, so a 15-minute window would drop
+ * legitimate business callbacks. The signature is the security boundary; this
+ * window only bounds how long a captured request stays replayable, and every
+ * business write is idempotent.
+ */
+const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 
 const HANDLED = new Set([
   'PUSH_ODO_ORDER',
@@ -90,14 +97,23 @@ export class QianyiWebhookService {
     if (seen?.processedAt) return { ok: true, duplicated: true };
 
     if (!seen) {
-      await this.prisma.qianyiWebhookEvent.create({
-        data: {
-          serviceType: fields.serviceType,
-          signValid: true,
-          externalKey,
-          payload: payload as Prisma.InputJsonValue,
-        },
-      });
+      try {
+        await this.prisma.qianyiWebhookEvent.create({
+          data: {
+            serviceType: fields.serviceType,
+            signValid: true,
+            externalKey,
+            payload: payload as Prisma.InputJsonValue,
+          },
+        });
+      } catch (error) {
+        // A concurrent copy of the same callback won the insert. It owns the
+        // dispatch, so we acknowledge and stop rather than run it twice.
+        if ((error as { code?: string }).code === 'P2002') {
+          return { ok: true, duplicated: true };
+        }
+        throw error;
+      }
     }
 
     if (!HANDLED.has(fields.serviceType)) {
@@ -133,14 +149,29 @@ export class QianyiWebhookService {
     return { ok: true, duplicated: false };
   }
 
+  /**
+   * Identity + state + when + where.
+   *
+   * Status alone is not enough: a parcel passes the same status twice at
+   * different times and places (two "in transit" scans, a re-delivery), and
+   * collapsing them loses real tracking history.
+   */
   private externalKey(serviceType: string, payload: Record<string, unknown>): string {
-    const identity =
+    const identity = String(
       payload.orderNumber ??
-      payload.onlineOrderNumber ??
-      payload.onlineOrderId ??
-      payload.trackingNumber ??
-      'unknown';
-    const state = payload.status ?? payload.erpStatus ?? '';
-    return `${serviceType}:${String(identity)}:${String(state)}`.slice(0, 200);
+        payload.onlineOrderNumber ??
+        payload.onlineOrderId ??
+        payload.trackingNumber ??
+        'unknown',
+    ).slice(0, 60);
+    const state = String(payload.status ?? payload.erpStatus ?? '');
+    const occurred = String(
+      payload.shippingTime ?? payload.eventTime ?? payload.finishedTime ?? '',
+    );
+    const place = [payload.city, payload.province, payload.warehouseName]
+      .filter((value) => typeof value === 'string' && value.length > 0)
+      .join('/')
+      .slice(0, 60);
+    return `${serviceType}:${identity}:${state}:${occurred}:${place}`.slice(0, 200);
   }
 }

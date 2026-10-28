@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { LogisticsEventService, type LogisticsStatus } from '../orders/logistics-event.service.js';
+import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
 
 /** 千易物流状态 → 我们归一的物流状态。未知状态不猜，返回 null。 */
 const TRACKING_STATUS: Record<string, LogisticsStatus> = {
@@ -34,12 +36,16 @@ interface OutboundPayload {
 @Injectable()
 export class QianyiInboundService {
   private readonly logger = new Logger(QianyiInboundService.name);
+  private readonly config: QianyiConfig;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
     private readonly logistics: LogisticsEventService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.config = readQianyiConfig(config);
+  }
 
   async handle(serviceType: string, payload: Record<string, unknown>): Promise<void> {
     switch (serviceType) {
@@ -66,7 +72,7 @@ export class QianyiInboundService {
     await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { orderNumber },
-        include: { items: true, shipments: true, riskFlags: true },
+        include: { items: true, shipments: { include: { items: true } }, riskFlags: true },
       });
       if (!order) {
         this.logger.warn(`qianyi outbound for unknown order ${orderNumber}`);
@@ -99,6 +105,16 @@ export class QianyiInboundService {
         select: { id: true, qianyiSkuCode: true },
       });
       const codeById = new Map(mapped.map((row) => [row.id, row.qianyiSkuCode]));
+      // What previous parcels (ours or Qianyi's) already boxed for each line.
+      const shippedAlready = new Map<string, number>();
+      for (const previous of order.shipments) {
+        for (const item of previous.items ?? []) {
+          shippedAlready.set(
+            item.orderItemId,
+            (shippedAlready.get(item.orderItemId) ?? 0) + item.quantity,
+          );
+        }
+      }
       const lines: Array<{ orderItemId: string; quantity: number }> = [];
       const notes: string[] = [];
       const requirements = new Map<string, number>();
@@ -106,11 +122,18 @@ export class QianyiInboundService {
       for (const item of order.items) {
         const code = codeById.get(item.skuId) ?? null;
         const sent = code ? shippedByCode.get(code) : undefined;
-        const quantity = !hasSkuList
+        const announced = !hasSkuList
           ? item.quantity
           : sent === undefined
             ? 0
             : Math.min(sent, item.quantity);
+        const remaining = Math.max(0, item.quantity - (shippedAlready.get(item.id) ?? 0));
+        if (remaining === 0) {
+          notes.push(`${item.skuCodeSnapshot}: already fully shipped, nothing consumed`);
+          continue;
+        }
+        // A later parcel can never push a line past what was ordered.
+        const quantity = Math.min(announced, remaining);
         if (quantity === 0) {
           notes.push(`${item.skuCodeSnapshot}: not shipped (ordered ${item.quantity})`);
           continue;
@@ -133,7 +156,7 @@ export class QianyiInboundService {
         payload.trackingNumber ??
         (await this.archivedTracking(tx, orderNumber));
 
-      const warehouse = await this.inventory.defaultWarehouse(tx);
+      const warehouse = await this.resolveWarehouse(tx);
       const shipment = await tx.shipment.create({
         data: {
           orderId: order.id,
@@ -195,7 +218,42 @@ export class QianyiInboundService {
         // on another connection until commit.
         tx,
       );
+
+      // Tracking scans often arrive before the parcel record. They were archived
+      // and could not attach to anything; now there is a shipment to hold them.
+      for (const event of await this.archivedTrackingEvents(tx, orderNumber)) {
+        const normalized = TRACKING_STATUS[event.status];
+        if (!normalized || normalized === 'SHIPPED') continue;
+        await this.logistics.record(
+          order.id,
+          shipment.id,
+          {
+            normalizedStatus: normalized,
+            externalStatus: event.status,
+            externalEventId: `${event.status}:${event.shippingTime ?? ''}`,
+            eventTime: event.shippingTime ? new Date(event.shippingTime) : new Date(),
+          },
+          tx,
+        );
+      }
     });
+  }
+
+  /**
+   * Which local Warehouse row books the shipment.
+   *
+   * 千易 fulfils from `PH-DAVAO-01`, which has no local counterpart by
+   * default, so an unset pin keeps the historical "first active warehouse"
+   * behaviour instead of inventing a row.
+   */
+  private async resolveWarehouse(tx: Prisma.TransactionClient) {
+    const pinned = this.config.localWarehouseId;
+    if (pinned) {
+      const row = await tx.warehouse.findUnique({ where: { id: pinned } });
+      if (row) return row;
+      this.logger.warn(`qianyi local warehouse ${pinned} missing; using the default`);
+    }
+    return this.inventory.defaultWarehouse(tx);
   }
 
   /**
@@ -225,6 +283,36 @@ export class QianyiInboundService {
       }
     }
     return null;
+  }
+
+  /** Tracking scans archived before the parcel record existed. */
+  private async archivedTrackingEvents(
+    tx: Prisma.TransactionClient,
+    orderNumber: string,
+  ): Promise<Array<{ status: string; shippingTime?: number }>> {
+    const events = tx.qianyiWebhookEvent;
+    if (!events?.findMany) return [];
+    const rows = await events.findMany({
+      where: { serviceType: 'PUSH_TRACKING_PACKAGE' },
+      orderBy: { receivedAt: 'asc' },
+      take: 50,
+      select: { payload: true },
+    });
+    const out: Array<{ status: string; shippingTime?: number }> = [];
+    for (const row of rows) {
+      const value = row.payload as {
+        onlineOrderNumber?: string;
+        onlineOrderId?: string;
+        status?: string;
+        shippingTime?: number;
+      };
+      const matches =
+        value.onlineOrderNumber === orderNumber || value.onlineOrderId === orderNumber;
+      if (matches && value.status) {
+        out.push({ status: value.status, shippingTime: value.shippingTime });
+      }
+    }
+    return out;
   }
 
   private async applyShippingInfo(payload: OutboundPayload): Promise<void> {

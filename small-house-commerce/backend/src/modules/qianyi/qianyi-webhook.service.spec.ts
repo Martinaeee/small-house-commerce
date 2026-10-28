@@ -38,6 +38,44 @@ function signedFields(overrides: Record<string, string> = {}) {
   };
 }
 
+/**
+ * In-memory stand-in for `qianyi_webhook_events` so the duplicate check is
+ * actually exercised (the plain mock always returns null and would let every
+ * callback through).
+ */
+function statefulPrisma() {
+  const rows = new Map<string, Record<string, unknown>>();
+  return {
+    qianyiWebhookEvent: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const key = String(data.externalKey);
+        if (rows.has(key)) {
+          throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+        }
+        rows.set(key, { ...data, processedAt: null });
+        return data;
+      }),
+      findUnique: vi.fn(
+        async ({ where }: { where: { externalKey: string } }) =>
+          rows.get(where.externalKey) ?? null,
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { externalKey: string };
+          data: Record<string, unknown>;
+        }) => {
+          const row = rows.get(where.externalKey);
+          if (row) Object.assign(row, data);
+          return row;
+        },
+      ),
+    },
+  };
+}
+
 function prismaWith() {
   return {
     qianyiWebhookEvent: {
@@ -152,8 +190,94 @@ describe('QianyiWebhookService', () => {
     );
   });
 
-  it('rejects a stale timestamp', async () => {
-    const stale = signedFields({ timestamp: String(Date.now() - 60 * 60 * 1000) });
+  it('does not collapse two same-status events at different times or places', async () => {
+    const prisma = statefulPrisma();
+    const inbound = { handle: vi.fn(async () => undefined) };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+
+    const first = signedFields({
+      serviceType: 'PUSH_TRACKING_PACKAGE',
+      bizParam: JSON.stringify({
+        onlineOrderId: 'PH100012',
+        trackingNumber: 'TRACK123',
+        status: 'IN_TRANSIT',
+        shippingTime: 1754014435000,
+        city: 'Quezon City',
+      }),
+    });
+    const second = signedFields({
+      serviceType: 'PUSH_TRACKING_PACKAGE',
+      bizParam: JSON.stringify({
+        onlineOrderId: 'PH100012',
+        trackingNumber: 'TRACK123',
+        status: 'IN_TRANSIT',
+        shippingTime: 1754100835000,
+        city: 'Cebu City',
+      }),
+    });
+
+    await service.ingest(first as never);
+    await service.ingest(second as never);
+
+    expect(inbound.handle).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats a concurrent duplicate (unique violation) as already handled', async () => {
+    const prisma = prismaWith();
+    (prisma.qianyiWebhookEvent.create as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+    const inbound = { handle: vi.fn() };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+
+    const result = await service.ingest(signedFields() as never);
+
+    expect(result).toEqual({ ok: true, duplicated: true });
+    expect(inbound.handle).not.toHaveBeenCalled();
+  });
+
+  it('still rejects a callback whose signature does not match, however old', async () => {
+    const prisma = prismaWith();
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      { handle: vi.fn() } as never,
+    );
+    const tampered = {
+      ...signedFields({ timestamp: String(Date.now() - 3 * 24 * 60 * 60 * 1000) }),
+      sign: 'f'.repeat(32),
+    };
+
+    await expect(service.ingest(tampered as never)).resolves.toMatchObject({ ok: false });
+  });
+
+  it('accepts a delayed but correctly signed callback inside the extended window', async () => {
+    const prisma = prismaWith();
+    const inbound = { handle: vi.fn(async () => undefined) };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+    // 千易 retries land hours later; a 15-minute window would drop them.
+    const delayed = signedFields({ timestamp: String(Date.now() - 6 * 60 * 60 * 1000) });
+
+    const result = await service.ingest(delayed as never);
+
+    expect(result.ok).toBe(true);
+    expect(inbound.handle).toHaveBeenCalled();
+  });
+
+  it('refuses a callback older than the replay window', async () => {
+    const stale = signedFields({ timestamp: String(Date.now() - 48 * 60 * 60 * 1000) });
     const prisma = prismaWith();
     const service = new QianyiWebhookService(
       new ConfigService(ENV),

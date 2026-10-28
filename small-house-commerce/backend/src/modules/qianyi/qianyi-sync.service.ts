@@ -128,29 +128,22 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       });
       for (const job of due) {
         try {
+          // A retry can follow a timeout where Qianyi DID create the order.
+          // Ask first, so the retry adopts it instead of creating a second one.
+          const existing =
+            job.kind === 'PUSH_ORDER' && job.attempts > 0
+              ? await this.findExistingOrder(job.requestPayload)
+              : null;
+          if (existing) {
+            await this.markSent(job, existing);
+            continue;
+          }
           const result = await this.client.call(
             job.kind === 'PUSH_ORDER' ? 'CREATE_AND_AUDIT_SALES_ORDER' : 'CLOSE_SALES_ORDER',
             'salesOrder',
             job.requestPayload as Record<string, unknown>,
           );
-          const external = (result as { orderNumber?: string } | null)?.orderNumber ?? null;
-          await this.prisma.qianyiSyncJob.update({
-            where: { id: job.id },
-            data: {
-              status: 'SENT',
-              attempts: { increment: 1 },
-              sentAt: new Date(),
-              lastError: null,
-              responsePayload: (result ?? null) as Prisma.InputJsonValue,
-              externalOrderNumber: external,
-            },
-          });
-          if (external) {
-            await this.prisma.order.update({
-              where: { id: job.orderId },
-              data: { qianyiOrderNumber: external },
-            });
-          }
+          await this.markSent(job, result);
         } catch (error) {
           const attempts = job.attempts + 1;
           const failed = attempts >= MAX_ATTEMPTS || error instanceof MissingMappingError;
@@ -176,6 +169,41 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       return due.length;
     } finally {
       this.running = false;
+    }
+  }
+
+  /** Which Qianyi order number, if any, already exists for this online order. */
+  private async findExistingOrder(payload: unknown): Promise<{ orderNumber?: string } | null> {
+    const onlineOrderNumber = String(
+      (payload as { onlineOrderNumber?: string } | null)?.onlineOrderNumber ?? '',
+    );
+    if (!onlineOrderNumber) return null;
+    const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+      onlineOrderNumber,
+      page: 1,
+      pageSize: 1,
+    })) as Array<{ orderNumber?: string }> | null;
+    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  }
+
+  private async markSent(job: { id: string; orderId: string }, result: unknown): Promise<void> {
+    const external = (result as { orderNumber?: string } | null)?.orderNumber ?? null;
+    await this.prisma.qianyiSyncJob.update({
+      where: { id: job.id },
+      data: {
+        status: 'SENT',
+        attempts: { increment: 1 },
+        sentAt: new Date(),
+        lastError: null,
+        responsePayload: (result ?? null) as Prisma.InputJsonValue,
+        externalOrderNumber: external,
+      },
+    });
+    if (external) {
+      await this.prisma.order.update({
+        where: { id: job.orderId },
+        data: { qianyiOrderNumber: external },
+      });
     }
   }
 
