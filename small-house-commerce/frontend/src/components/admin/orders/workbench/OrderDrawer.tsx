@@ -118,7 +118,20 @@ export function OrderDrawer({
   // Bumped after a carrier event is recorded so the timeline refetches.
   const [fulfillmentVersion, setFulfillmentVersion] = useState(0);
   const [logisticsShipment, setLogisticsShipment] = useState<AdminShipment | null>(null);
+  const [trackingBusy, setTrackingBusy] = useState<string | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
+
+  async function refreshTracking(orderIdForRefresh: string, shipmentId: string) {
+    setTrackingBusy(shipmentId);
+    try {
+      await adminApi.refreshJtTracking(orderIdForRefresh, shipmentId);
+      setFulfillmentVersion((version) => version + 1);
+    } catch {
+      // The drawer keeps the previous data; the status card explains why.
+    } finally {
+      setTrackingBusy(null);
+    }
+  }
 
   const orderId = row?.id ?? null;
   const phone = row?.customer?.normalizedPhone ?? null;
@@ -642,6 +655,21 @@ export function OrderDrawer({
                                       {t("orders_logistics_record")}
                                     </button>
                                   ) : null}
+                                  {shipment.status === "SHIPPING" && shipment.trackingNumber ? (
+                                    <button
+                                      type="button"
+                                      disabled={trackingBusy === shipment.id}
+                                      onClick={() =>
+                                        void refreshTracking(
+                                          fulfillmentForOrder.orderId,
+                                          shipment.id,
+                                        )
+                                      }
+                                      className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-cta hover:bg-primary-light/40 disabled:opacity-60"
+                                    >
+                                      {t("orders_jt_refresh")}
+                                    </button>
+                                  ) : null}
                                 </span>
                               </div>
                               {(shipment.events ?? []).length > 0 ? (
@@ -651,6 +679,23 @@ export function OrderDrawer({
                                       {t(LOGISTICS_STATUS_KEYS[event.normalizedStatus])} ·{" "}
                                       {fullDateTime(event.eventTime)}
                                       {event.city ? ` · ${event.city}` : ""}
+                                      {event.externalDescription
+                                        ? ` · ${event.externalDescription}`
+                                        : ""}
+                                      {event.staffContact ? ` · ${event.staffContact}` : ""}
+                                      {event.signatureImageUrl ? (
+                                        <>
+                                          {" · "}
+                                          <a
+                                            href={event.signatureImageUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="underline"
+                                          >
+                                            {t("orders_jt_signature")}
+                                          </a>
+                                        </>
+                                      ) : null}
                                     </li>
                                   ))}
                                 </ul>
