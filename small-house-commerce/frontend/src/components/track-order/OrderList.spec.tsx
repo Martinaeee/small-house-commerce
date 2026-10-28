@@ -323,4 +323,65 @@ describe("carrier tracking", () => {
     renderList(result({ orders: [order({ shipment: null })] }));
     expect(screen.queryByText("Tracking")).not.toBeInTheDocument();
   });
+
+  it("shows the carrier wording and rider phone under the node", () => {
+    renderList(
+      result({
+        orders: [
+          order({
+            orderStatus: "SHIPPING",
+            shipment: {
+              carrier: "J&T Express",
+              trackingNumber: "JT0000008101561",
+              shippedAt: "2026-10-28T02:00:00.000Z",
+              signedAt: null,
+              tracking: [
+                {
+                  status: "OUT_FOR_DELIVERY",
+                  at: "2026-10-29T02:00:00.000Z",
+                  description: "Your package Out for Delivery - prepare exact amount",
+                  riderPhone: "9684746842",
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByText("Your package Out for Delivery - prepare exact amount"),
+    ).toBeInTheDocument();
+    const call = screen.getByRole("link", { name: "9684746842" });
+    expect(call).toHaveAttribute("href", "tel:9684746842");
+  });
+
+  it("renders a node with no carrier wording without an empty line", () => {
+    renderList(
+      result({
+        orders: [
+          order({
+            orderStatus: "SHIPPING",
+            shipment: {
+              carrier: "J&T Express",
+              trackingNumber: "JT1",
+              shippedAt: "2026-10-28T02:00:00.000Z",
+              signedAt: null,
+              tracking: [
+                {
+                  status: "IN_TRANSIT",
+                  at: "2026-10-29T02:00:00.000Z",
+                  description: null,
+                  riderPhone: null,
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(screen.getByText("In transit")).toBeInTheDocument();
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull();
+  });
 });

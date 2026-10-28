@@ -131,7 +131,14 @@ export interface GuestOrderShipment {
   trackingNumber: string | null;
   shippedAt: string;
   signedAt: string | null;
-  tracking: Array<{ status: string; at: string }>;
+  tracking: Array<{
+    status: string;
+    at: string;
+    /** J&T's own wording; null until the shopper verifies the phone. */
+    description?: string | null;
+    /** Rider phone; null until the shopper verifies the phone. */
+    riderPhone?: string | null;
+  }>;
 }
 
 /** The guest lookup response: one or more orders and how they were found. */

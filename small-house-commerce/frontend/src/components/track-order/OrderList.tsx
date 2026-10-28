@@ -507,6 +507,19 @@ function OrderCard({
                       {TRACKING_LABELS[event.status] ?? event.status}
                     </span>
                     <span className="ml-2 text-ink-secondary">{formatDate(event.at)}</span>
+                    {event.description ? (
+                      <p className="mt-0.5 text-[12px] leading-5 text-ink-muted">
+                        {event.description}
+                      </p>
+                    ) : null}
+                    {event.riderPhone ? (
+                      <a
+                        href={`tel:${event.riderPhone}`}
+                        className="mt-0.5 block text-[12px] font-medium text-cta underline-offset-2 hover:underline"
+                      >
+                        {event.riderPhone}
+                      </a>
+                    ) : null}
                   </li>
                 ))}
               </ol>
