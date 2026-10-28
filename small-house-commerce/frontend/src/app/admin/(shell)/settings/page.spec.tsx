@@ -85,6 +85,7 @@ describe("SiteSettingsPage newsletter fields", () => {
     await waitFor(() =>
       expect(apiMock.updateSettings).toHaveBeenCalledWith({
         messengerUrl: "https://m.me/luwag",
+        supportPhone: "+63 917 123 4567",
         hideSellingPoints: false,
         newsletterBandEnabled: true,
         newsletterPopupEnabled: true,
@@ -100,17 +101,28 @@ describe("SiteSettingsPage newsletter fields", () => {
     );
   });
 
-  it("shows published support contacts read-only and routes edits to the footer workspace", async () => {
+  it("keeps email and hours read-only while the support phone is edited and saved here", async () => {
+    const user = userEvent.setup();
     render(<SiteSettingsPage />);
 
     expect(await screen.findByText("help@luwag.test")).toBeVisible();
-    expect(screen.getByText("+63 917 123 4567")).toBeVisible();
     expect(screen.getByText("Mon-Sat")).toBeVisible();
-    expect(screen.queryByLabelText(/客服电话/)).not.toBeInTheDocument();
+
+    const phone = screen.getByLabelText(/客服电话/);
+    expect(phone).toHaveValue("+63 917 123 4567");
+    await user.clear(phone);
+    await user.type(phone, "0935 977 7504");
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => {
+      expect(apiMock.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ supportPhone: "0935 977 7504" }),
+      );
+    });
+
     expect(
       screen.getByRole("link", { name: "settings_footer_handoff_link" }),
     ).toHaveAttribute("href", "/admin/storefront-shell?tab=footer");
-    expect(apiMock.updateSettings).not.toHaveBeenCalled();
   });
 
   it("rejects blank required newsletter copy before calling the API", async () => {

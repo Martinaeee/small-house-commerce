@@ -61,7 +61,6 @@ const shell: PublicStorefrontShell = {
         title: "Talk to us",
         supportEmail: "hello@roomy.ph",
         supportHours: "Daily, 9am–7pm",
-        codText: "Cash on Delivery available",
         trackOrderLabel: "Track a delivery",
         trackOrderHref: "/track-order",
       },
@@ -217,10 +216,17 @@ describe("Footer published shell content", () => {
       "href",
       "/pages/story",
     );
-    expect(screen.getByText("Cash on Delivery available")).toBeVisible();
     expect(screen.getByText("Daily, 9am–7pm")).toBeVisible();
     expect(screen.getByText(new RegExp(`© ${new Date().getFullYear()} Roomy Co Living`))).toBeVisible();
     expect(screen.getByTestId("newsletter-band")).toBeInTheDocument();
+  });
+
+  it("renders only Track Order, phone, hours and email in the Contact column", () => {
+    renderFooter({ shell, mode: "live" });
+
+    const contact = document.querySelector('[data-footer-column-id="contact"]');
+    expect(contact?.querySelectorAll("li")).toHaveLength(4);
+    expect(screen.queryByText(/cash on delivery/i)).toBeNull();
   });
 
   it("uses a desktop grid sized for the brand block and three content columns", () => {
@@ -247,7 +253,6 @@ describe("Footer published shell content", () => {
     renderFooter({ shell: withoutTrackOrder, mode: "live" });
 
     expect(screen.getByText("hello@roomy.ph")).toBeVisible();
-    expect(screen.getByText("Cash on Delivery available")).toBeVisible();
     expect(screen.queryByRole("link", { name: "Track a delivery" })).toBeNull();
   });
 

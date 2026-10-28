@@ -69,7 +69,6 @@ const CUSTOM_SHELL: PublicStorefrontShell = {
         title: "Contact",
         supportEmail: "support@luwag.ph",
         supportHours: "Mon–Sat, 9am–6pm (PHT)",
-        codText: "Cash on Delivery nationwide",
         trackOrderLabel: "Track Order",
         trackOrderHref: "/track-order",
       },

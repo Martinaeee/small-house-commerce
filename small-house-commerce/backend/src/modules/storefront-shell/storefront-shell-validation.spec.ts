@@ -210,7 +210,7 @@ describe('validateShellForPublish', () => {
       expect.objectContaining({ code: 'SHELL_CONTACT_COLUMN_MISSING' }),
     );
 
-    const contact = doc.footer.columns[1];
+    const contact = doc.footer.columns.find((column) => column.kind === 'CONTACT')!;
     const duplicated = { ...doc, footer: { ...doc.footer, columns: [...doc.footer.columns, { ...contact, id: 'contact-2' }] } };
 
     expect(validateShellForPublish(duplicated, context(duplicated))).toContainEqual(
@@ -229,7 +229,12 @@ describe('validateShellForPublish', () => {
     expect(issues).toContainEqual(
       expect.objectContaining({
         code: 'SHELL_INVALID_SUPPORT_EMAIL',
-        path: ['footer', 'columns', doc.footer.columns[1].id, 'supportEmail'],
+        path: [
+          'footer',
+          'columns',
+          doc.footer.columns.find((column) => column.kind === 'CONTACT')!.id,
+          'supportEmail',
+        ],
       }),
     );
   });
@@ -317,10 +322,10 @@ describe('publicProjection', () => {
       kind: 'CONTACT',
       supportEmail: contact.supportEmail,
       supportHours: contact.supportHours,
-      codText: contact.codText,
       trackOrderLabel: contact.trackOrderLabel,
       trackOrderHref: null,
     });
+    expect(projectedContact).not.toHaveProperty('codText');
   });
 
   it('never leaks draft-only, audit or storage fields', () => {

@@ -80,7 +80,6 @@ const publicShell = {
         title: "Contact",
         supportEmail: "support@luwag.ph",
         supportHours: "Mon–Sat, 9am–6pm (PHT)",
-        codText: "Cash on Delivery nationwide",
         trackOrderLabel: "Track Order",
         trackOrderHref: "/track-order",
       },
@@ -249,6 +248,12 @@ describe("storefront shell exact response schemas", () => {
       supportEmail: "support@luwag.ph",
       trackOrderHref: null,
     });
+  });
+
+  it("parses a public Contact column that no longer carries the COD note", () => {
+    expect(
+      parsePublicStorefrontShell(publicShell).footer.columns[0],
+    ).not.toHaveProperty("codText");
   });
 
   it("parses the exact public projection and rejects draft/audit leakage", () => {

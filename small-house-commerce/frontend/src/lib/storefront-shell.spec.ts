@@ -176,11 +176,29 @@ describe("fetchStorefrontShell", () => {
         },
       ],
     });
-    expect(fallback.footer.columns[1]).toMatchObject({
+    expect(
+      fallback.footer.columns.find((column) => column.kind === "CONTACT"),
+    ).toMatchObject({
       kind: "CONTACT",
       supportEmail: "care@luwag.ph",
       supportHours: "Daily, 9am–7pm",
     });
+    expect(
+      fallback.footer.columns.find(
+        (column) => column.kind === "LINKS" && column.title === "Help",
+      ),
+    ).toMatchObject({
+      rows: expect.arrayContaining([
+        expect.objectContaining({ label: "Returns & Refunds", href: "/returns-refunds" }),
+        expect.objectContaining({ label: "Contact Us", href: "/contact" }),
+        expect.objectContaining({ label: "Terms of Service", href: "/terms" }),
+      ]),
+    });
+    expect(fallback.footer.legal.map((link) => link.href)).toEqual([
+      "/privacy",
+      "/returns-refunds",
+      "/terms",
+    ]);
     expect(fallback.theme).toEqual(DEFAULT_PUBLIC_STOREFRONT_SHELL.theme);
   });
 

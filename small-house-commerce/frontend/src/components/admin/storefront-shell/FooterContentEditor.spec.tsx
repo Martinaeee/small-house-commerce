@@ -29,7 +29,6 @@ function contactColumn(id = "col-contact", title = "Contact"): FooterColumn {
     title,
     supportEmail: "help@luwag.test",
     supportHours: "Mon–Sat",
-    codText: "Cash on delivery",
     trackOrderLabel: "Track order",
     trackOrderLink: { type: "INTERNAL", path: "/track-order" },
   };
@@ -126,6 +125,16 @@ afterEach(() => {
 });
 
 describe("FooterContentEditor copy", () => {
+  it("no longer offers the legacy COD note field", async () => {
+    await renderSettled(<Harness />);
+
+    expect(
+      within(column("col-contact")).queryByRole("textbox", {
+        name: "storefront_shell_footer_cod_text",
+      }),
+    ).toBeNull();
+  });
+
   it("bounds tagline, description, column title and row text", async () => {
     await renderSettled(<Harness />);
 
@@ -292,12 +301,6 @@ describe("FooterContentEditor columns", () => {
     );
     fireEvent.change(
       within(contact).getByRole("textbox", {
-        name: "storefront_shell_footer_cod_text",
-      }),
-      { target: { value: "COD available nationwide" } },
-    );
-    fireEvent.change(
-      within(contact).getByRole("textbox", {
         name: "storefront_shell_footer_track_label",
       }),
       { target: { value: "Find my order" } },
@@ -319,7 +322,6 @@ describe("FooterContentEditor columns", () => {
         title: "Contact",
         supportEmail: "care@luwag.test",
         supportHours: "Mon–Sun, 9am–9pm",
-        codText: "COD available nationwide",
         trackOrderLabel: "Find my order",
         trackOrderLink: { type: "INTERNAL", path: "/orders/find" },
       });
