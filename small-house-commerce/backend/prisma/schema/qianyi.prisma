@@ -1,0 +1,59 @@
+// Qianyi ERP order sync.
+//
+// Orders leave for Qianyi through a transactional outbox: the job row is
+// written inside the same transaction that confirms the order, then a small
+// in-process worker delivers it with retries. Nothing is pushed unless the
+// SKU carries a `qianyiSkuCode` mapping.
+//
+// Callbacks are archived verbatim in `qianyi_webhook_events` before dispatch so
+// a rejected signature or an unknown service type is still inspectable.
+
+enum QianyiSyncKind {
+  PUSH_ORDER
+  CLOSE_ORDER
+}
+
+enum QianyiSyncStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model QianyiSyncJob {
+  id                  String            @id @default(uuid(7)) @db.Uuid
+  orderId             String            @map("order_id") @db.Uuid
+  kind                QianyiSyncKind
+  status              QianyiSyncStatus @default(PENDING)
+  attempts            Int               @default(0)
+  nextAttemptAt       DateTime          @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lastError           String?           @map("last_error") @db.VarChar(1024)
+  requestPayload      Json              @map("request_payload")
+  responsePayload     Json?             @map("response_payload")
+  externalOrderNumber String?           @map("external_order_number") @db.VarChar(64)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt              DateTime?         @map("sent_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, kind])
+  @@index([status, nextAttemptAt])
+  @@map("qianyi_sync_jobs")
+}
+
+model QianyiWebhookEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  serviceType String    @map("service_type") @db.VarChar(60)
+  signValid   Boolean   @default(false) @map("sign_valid")
+  /// `serviceType` + 业务主键 + 状态，重复回调靠它去重。
+  externalKey String    @map("external_key") @db.VarChar(200)
+  payload     Json
+  error       String?   @db.VarChar(1024)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@unique([externalKey])
+  @@index([receivedAt])
+  @@map("qianyi_webhook_events")
+}

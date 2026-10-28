@@ -390,6 +390,9 @@ model Sku {
   // §22 supplier data
   supplierId      String?   @map("supplier_id") @db.Uuid
   supplierSku     String?   @map("supplier_sku")
+  /// Qianyi product code. Required before an order line may be pushed; there
+  /// is deliberately no fallback to `skuCode` (the catalogues do not overlap).
+  qianyiSkuCode   String?   @map("qianyi_sku_code") @db.VarChar(255)
   supplierCost    Decimal?  @map("supplier_cost") @db.Decimal(10, 2)
   costCurrency    String?   @map("cost_currency")
   landedCost      Decimal?  @map("landed_cost") @db.Decimal(10, 2)
