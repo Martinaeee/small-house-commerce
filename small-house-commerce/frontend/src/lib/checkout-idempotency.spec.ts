@@ -83,4 +83,19 @@ describe("checkout idempotency key", () => {
       set.mockRestore();
     }
   });
+
+  it("keeps the no-crypto fallback at the backend minimum length", () => {
+    // The third fallback is the only branch that can be shorter than the
+    // backend's 16-character minimum when Math.random() returns exactly 0.
+    vi.stubGlobal("crypto", {});
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const key = checkoutIdempotencyKey("/checkout?items=abc");
+      expect(key.length).toBeGreaterThanOrEqual(16);
+      expect(key).toMatch(SAFE);
+    } finally {
+      random.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
 });

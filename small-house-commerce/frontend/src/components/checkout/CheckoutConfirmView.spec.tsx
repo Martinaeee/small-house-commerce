@@ -210,6 +210,27 @@ describe("CheckoutConfirmView order notes", () => {
     expect(sessionStorage.getItem(storedIdempotencyKeys()[0]!)).toBe(key);
   });
 
+  it("does not carry a failed selection's key into a different selection", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockRejectedValueOnce(new Error("Network timeout"))
+      .mockResolvedValueOnce({ orderNumber: "PH2002" });
+    const view = render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+
+    // Same confirm route, new quantity: the in-memory retry key belongs to the
+    // old scope and must not leak into the new checkout.
+    view.rerender(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+
+    const firstKey = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    const secondKey = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
+  });
+
   it("clears the Buy Now key only after success so the next purchase gets a new key", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder

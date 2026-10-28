@@ -95,8 +95,10 @@ export function CheckoutConfirmView({
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
   // Stable across retries of this checkout; the backend replays the original
-  // order instead of creating a second one.
-  const idempotencyKeyRef = useRef<string | null>(null);
+  // order instead of creating a second one. Scoped to this checkout URL: the
+  // confirm route can be reused for a different selection without unmounting,
+  // and a key from the old selection must never leak into the new one.
+  const idempotencyKeyRef = useRef<{ scope: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
@@ -177,8 +179,10 @@ export function CheckoutConfirmView({
     setSubmitting(true);
     try {
       const idempotencyKey =
-        idempotencyKeyRef.current ?? checkoutIdempotencyKey(checkoutHref);
-      idempotencyKeyRef.current = idempotencyKey;
+        idempotencyKeyRef.current?.scope === checkoutHref
+          ? idempotencyKeyRef.current.key
+          : checkoutIdempotencyKey(checkoutHref);
+      idempotencyKeyRef.current = { scope: checkoutHref, key: idempotencyKey };
       const payload = {
         customer: {
           ...draft.customer,

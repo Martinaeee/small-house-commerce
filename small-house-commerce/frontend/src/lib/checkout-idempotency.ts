@@ -51,6 +51,7 @@ function newKey(): string {
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
   // Last resort: unique within a tab, which is all the server needs to match
-  // retries. The key is not a secret.
-  return `ck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  // retries. The key is not a secret. The random suffix is padded so the key
+  // always clears the backend's 16-character minimum.
+  return `ck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12).padEnd(10, "0")}`;
 }
