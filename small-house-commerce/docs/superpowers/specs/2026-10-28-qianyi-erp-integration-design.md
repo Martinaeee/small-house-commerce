@@ -84,7 +84,7 @@
 | `Order.qianyiOrderNumber` | `String? @map("qianyi_order_number")` | 千易系统单号（`S…`），Webhook 反查用 |
 | `QianyiSyncJob` | `id, orderId, kind(PUSH_ORDER/CLOSE_ORDER), status(PENDING/SENT/FAILED/SKIPPED), attempts, nextAttemptAt, lastError, requestPayload Json, responsePayload Json?, createdAt, sentAt, updatedAt` | 事务性 outbox |
 | `QianyiWebhookEvent` | `id, serviceType, signValid Bool, externalKey, payload Json, processedAt?, error?, receivedAt` | 原始回调留档，可重放排查 |
-| `ShipmentTrackingEvent` | `id, shipmentId, code, description, eventAt, raw Json` | 轨迹节点 |
+| ~~轨迹表~~ | **复用现有 `LogisticsEvent`**（`(shipmentId, externalEventId)` 已是幂等键） | 轨迹节点不另建表 |
 | `Shipment.qianyiOutboundNumber` / `Shipment.qianyiStatus` | `String?` ×2 | 出库单号与千易侧状态 |
 
 约束：`QianyiSyncJob` 上 `@@unique([orderId, kind])` —— 同一订单同一动作只允许一条任务，重推是更新该行而不是新建。`QianyiWebhookEvent` 上 `@@unique([serviceType, externalKey, statusKey])` 用于幂等，重复回调直接返回 200。
@@ -123,7 +123,7 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 
 ## 6. 入站：Webhook
 
-路由 `POST /api/qianyi/webhook`，公开、不走 JWT，只接受已知 `serviceType`。
+路由 `POST /api/v1/qianyi/webhook`（全局前缀 `api/v1`），公开、不走 JWT，只接受已知 `serviceType`。
 
 - 同时接受 `multipart/form-data`（千易默认）与 `application/x-www-form-urlencoded`
 - 验签失败：返回 401，写 `QianyiWebhookEvent(signValid=false)`，**不执行业务**
@@ -134,7 +134,7 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 |---|---|
 | `PUSH_ODO_ORDER`（`status=SHIPPED`） | 建 `Shipment`（carrier、trackNumber）、扣本地库存、订单转 `SHIPPING`、写首条轨迹；逐 SKU 比对数量 |
 | `PUSH_SALES_ORDER_SHIPPING_INFO` | 只补运单号/承运商；比 ODO 先到也不丢 |
-| `PUSH_TRACKING_PACKAGE` | 追加轨迹；`DELIVERED` 置 `Shipment` 已签收 |
+| `PUSH_TRACKING_PACKAGE` | 追加 `LogisticsEvent`（复用 `LogisticsEventService.record`，`externalEventId` = 千易状态+时间）；`DELIVERED` 置 `Shipment` 已签收 |
 | `PUSH_RETURN_ORDER_INFO` | 只留档，不动库存 |
 | 未知类型 | 200 + 留档，避免千易无限重试 |
 
@@ -165,7 +165,7 @@ worker 沿用 `origin/main` 上 Meta CAPI 的形态（`setInterval` + `unref`，
 新增 `/admin/settings/qianyi`：
 
 - 连接状态：开关、`appId` 掩码、域名、店铺、仓库、物流编码
-- 可复制的 Webhook 地址（`https://luwag.shop/api/qianyi/webhook`）
+- 可复制的 Webhook 地址（`https://luwag.shop/api/v1/qianyi/webhook`）
 - 待推送 / 失败 / 24 小时成功数
 - 失败任务列表 + 重推
 - 未匹配 SKU 清单（有订单但无千易编码）
