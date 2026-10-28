@@ -157,6 +157,7 @@ describe.skipIf(!database)('OrdersService promo checkout', () => {
     attribution: { sourceType: 'ORGANIC' },
     customerNote: null,
     promoCode,
+    metaConsent: false,
   });
 
   const livePromotion = (overrides: Record<string, unknown> = {}) =>

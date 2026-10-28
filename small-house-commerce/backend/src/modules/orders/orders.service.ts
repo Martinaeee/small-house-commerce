@@ -295,19 +295,20 @@ export class OrdersService {
 
     const normalizedPhone = this.normalizePhone(input.customer.phone);
 
-    // Resolve customer by canonical phone (§9: phone is the identity key).
-    const customer = await this.prisma.customer.upsert({
-      where: { normalizedPhone },
-      update: { name: input.customer.name },
-      create: { name: input.customer.name, normalizedPhone },
-    });
-
     // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
     // the new order from prior history; stored on the order, never recomputed.
     const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
     const runCheckoutTransaction = () =>
       this.prisma.$transaction(async (tx) => {
+    // Resolve customer by canonical phone (§9: phone is the identity key)
+    // inside the order transaction, so a failed or conflicting attempt does
+    // not leave a customer record behind.
+    const customer = await tx.customer.upsert({
+      where: { normalizedPhone },
+      update: { name: input.customer.name },
+      create: { name: input.customer.name, normalizedPhone },
+    });
     for (const skuId of [...new Set(input.items.map(item => item.skuId))].sort()) {
       await tx.$queryRaw`SELECT id FROM skus WHERE id = ${skuId}::uuid AND is_bundle = TRUE FOR UPDATE`;
     }
@@ -591,6 +592,7 @@ export class OrdersService {
 
       return {
         order: created,
+        customer,
         orderNumber,
         offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
         // Meta Purchase facts travel out of the transaction so the outbox
@@ -616,7 +618,7 @@ export class OrdersService {
       },
     );
     if ('replay' in transactionOutcome) return transactionOutcome.replay;
-    const { order, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
+    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
 
     if (offerAvailabilityChanged) {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);

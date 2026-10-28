@@ -215,6 +215,7 @@ describe.skipIf(!database)('OrdersService back-in-stock release', () => {
       attribution: { sourceType: 'ORGANIC' },
       customerNote: null,
       promoCode: null,
+      metaConsent: false,
     };
   }
 

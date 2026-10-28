@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = "luwag_checkout_idem:";
 // Must match the backend's checkoutSchema.idempotencyKey validation.
-const KEY_PATTERN = /^[A-Za-z0-9_-]{8,120}$/;
+const KEY_PATTERN = /^[A-Za-z0-9_-]{16,120}$/;
 
 /**
  * One key per checkout attempt, reused across retries. The backend answers a

@@ -56,6 +56,7 @@ function createHarness(options: { skus?: Record<string, unknown>; metaCapi?: { e
   const tx: Record<string, any> = {
     $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
     $executeRaw: vi.fn(async () => 0),
+    customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
     order: {
       create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
       findUnique: vi.fn(),
@@ -1295,7 +1296,7 @@ describe('OrdersService.checkout idempotency', () => {
       'riskType',
     ]);
     expect(harness.prisma.$transaction).not.toHaveBeenCalled();
-    expect(harness.prisma.customer.upsert).not.toHaveBeenCalled();
+    expect(harness.tx.customer.upsert).not.toHaveBeenCalled();
     expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
     expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
   });
@@ -1312,6 +1313,16 @@ describe('OrdersService.checkout idempotency', () => {
     expect(error).toBeInstanceOf(ConflictException);
     expect((error as Error).message).toContain('PH1001');
     expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(harness.tx.customer.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates the customer inside the order transaction', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValueOnce(null);
+
+    await harness.service.checkout(checkoutOverrides({ idempotencyKey: KEY }), REQUEST_META);
+
+    expect(harness.tx.customer.upsert).toHaveBeenCalledTimes(1);
     expect(harness.prisma.customer.upsert).not.toHaveBeenCalled();
   });
 

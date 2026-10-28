@@ -25,6 +25,7 @@ function setup() {
   const sku = { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, skuCode: where.id === SKU ? 'SKU-A' : 'SKU-B', status: 'ACTIVE', price: new Prisma.Decimal(where.id === SKU ? '199' : '49'), landedCost: null, isBundle: false, bundleComponents: [], variant: { id: PAGE, name: 'Standard', productId: where.id === SKU ? PRODUCT : PROFILE, product: { id: where.id === SKU ? PRODUCT : PROFILE, name: 'Bought product', status: 'ACTIVE' } } })) };
   const tx = {
     sku,
+    customer: { upsert: vi.fn(async () => ({ id: 'customer-1' })) },
     $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
     order: { create: vi.fn(async ({ data }: { data: Prisma.OrderCreateInput }) => { writes.push(data); return { id: 'order-1' }; }) },
     orderStatusHistory: { create: vi.fn(async () => ({})) },

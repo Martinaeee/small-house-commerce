@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkoutIdempotencyKey } from "./checkout-idempotency";
 
-const SAFE = /^[A-Za-z0-9_-]{8,120}$/;
+const SAFE = /^[A-Za-z0-9_-]{16,120}$/;
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -25,6 +25,14 @@ describe("checkout idempotency key", () => {
     window.sessionStorage.setItem("luwag_checkout_idem:/checkout?items=abc", "bad key");
     const key = checkoutIdempotencyKey("/checkout?items=abc");
     expect(key).not.toBe("bad key");
+    expect(key).toMatch(SAFE);
+  });
+
+  it("replaces a stored key shorter than the backend minimum", () => {
+    const short = "x".repeat(15);
+    window.sessionStorage.setItem("luwag_checkout_idem:/checkout?items=abc", short);
+    const key = checkoutIdempotencyKey("/checkout?items=abc");
+    expect(key).not.toBe(short);
     expect(key).toMatch(SAFE);
   });
 
