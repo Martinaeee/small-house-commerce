@@ -37,6 +37,31 @@ describe("storefrontShellDocumentSchemaParse", () => {
     expect(storefrontShellDocumentSchemaParse(validDocument()).success).toBe(true);
   });
 
+  it("accepts a Contact column without the legacy COD note", () => {
+    const doc = validDocument();
+    const withoutCodText = {
+      ...doc,
+      footer: {
+        ...doc.footer,
+        columns: doc.footer.columns.map((column) =>
+          column.kind === "CONTACT"
+            ? {
+                id: column.id,
+                kind: "CONTACT" as const,
+                title: column.title,
+                supportEmail: column.supportEmail,
+                supportHours: column.supportHours,
+                trackOrderLabel: column.trackOrderLabel,
+                trackOrderLink: column.trackOrderLink,
+              }
+            : column,
+        ),
+      },
+    };
+
+    expect(storefrontShellDocumentSchemaParse(withoutCodText).success).toBe(true);
+  });
+
   it("rejects a CSS fragment smuggled into a theme color", () => {
     const doc = validDocument();
     expect(
@@ -98,6 +123,33 @@ describe("storefrontShellDocumentSchemaParse", () => {
         theme: { ...doc.theme, derivedTheme: { primaryDark: "#000000" } },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("createCurrentLuwagShellDocument footer policy links", () => {
+  it("ships a Help column with the policy pages and three legal links", () => {
+    const doc = validDocument();
+    const help = doc.footer.columns.find(
+      (column) => column.kind === "LINKS" && column.title === "Help",
+    );
+
+    expect(
+      help?.kind === "LINKS"
+        ? help.rows.map((row) =>
+            row.kind === "LINK" ? [row.label, row.link] : row.text,
+          )
+        : [],
+    ).toEqual([
+      ["Shipping & Delivery", { type: "INTERNAL", path: "/shipping-delivery" }],
+      ["Returns & Refunds", { type: "INTERNAL", path: "/returns-refunds" }],
+      ["Contact Us", { type: "INTERNAL", path: "/contact" }],
+      ["Terms of Service", { type: "INTERNAL", path: "/terms" }],
+    ]);
+    expect(doc.footer.legal.map((link) => [link.label, link.href])).toEqual([
+      ["Privacy Policy", "/privacy"],
+      ["Returns & Refunds", "/returns-refunds"],
+      ["Terms of Service", "/terms"],
+    ]);
   });
 });
 

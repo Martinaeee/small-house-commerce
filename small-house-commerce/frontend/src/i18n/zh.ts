@@ -269,7 +269,6 @@ export const zh = {
   storefront_shell_footer_support_email: "客服邮箱",
   storefront_shell_footer_support_email_invalid: "请输入有效的客服邮箱。",
   storefront_shell_footer_support_hours: "服务时间",
-  storefront_shell_footer_cod_text: "货到付款说明",
   storefront_shell_footer_track_label: "查单链接文字",
   storefront_shell_footer_track_link: "查单链接",
   storefront_shell_footer_rows: "列内条目",

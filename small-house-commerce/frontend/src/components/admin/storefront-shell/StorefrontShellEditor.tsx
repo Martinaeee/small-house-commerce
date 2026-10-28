@@ -550,7 +550,6 @@ function previewShell(
               title: column.title,
               supportEmail: column.supportEmail,
               supportHours: column.supportHours,
-              codText: column.codText,
               trackOrderLabel: column.trackOrderLabel,
               trackOrderHref: hrefForLink(column.trackOrderLink),
             },

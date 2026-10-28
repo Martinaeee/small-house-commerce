@@ -46,7 +46,6 @@ function legacyFooter(
         title: "Contact",
         supportEmail,
         supportHours,
-        codText: "Cash on Delivery nationwide",
         trackOrderLabel: "Track Order",
         trackOrderHref: "/track-order",
       },
@@ -99,7 +98,6 @@ function ContactRows({
           </ShellLink>
         </li>
       ) : null}
-      <li>{column.codText}</li>
       {phone ? (
         <li>
           {mode === "live" ? (

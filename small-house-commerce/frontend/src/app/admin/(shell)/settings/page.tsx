@@ -11,6 +11,7 @@ import { errorStatus } from "@/lib/admin-auth";
 
 interface SettingsForm {
   messengerUrl: string;
+  supportPhone: string;
   newsletterBandEnabled: boolean;
   newsletterPopupEnabled: boolean;
   newsletterPopupDelaySeconds: string;
@@ -52,6 +53,11 @@ function validateSettings(values: SettingsForm): SettingsErrors {
     errors.messengerUrl =
       "Messenger 链接需留空，或以 https:// 开头的有效网址（不超过 500 个字符）。";
   }
+  const supportPhone = values.supportPhone.trim();
+  if (supportPhone !== "" && !/^[0-9+()\- ]{7,20}$/.test(supportPhone)) {
+    errors.supportPhone =
+      "客服电话需留空，或为 7–20 位数字（可含 +、空格、括号、短横线）。";
+  }
   const delay = Number(values.newsletterPopupDelaySeconds);
   if (
     values.newsletterPopupDelaySeconds.trim() === "" ||
@@ -89,6 +95,7 @@ function validateSettings(values: SettingsForm): SettingsErrors {
 function toForm(row: AdminSiteSettings): SettingsForm {
   return {
     messengerUrl: row.messengerUrl,
+    supportPhone: row.supportPhone,
     newsletterBandEnabled: row.newsletterBandEnabled,
     newsletterPopupEnabled: row.newsletterPopupEnabled,
     newsletterPopupDelaySeconds: String(row.newsletterPopupDelaySeconds),
@@ -163,6 +170,7 @@ export default function SiteSettingsPage(): ReactNode {
     adminApi
       .updateSettings({
         messengerUrl: data.messengerUrl.trim(),
+        supportPhone: data.supportPhone.trim(),
         newsletterBandEnabled: data.newsletterBandEnabled,
         newsletterPopupEnabled: data.newsletterPopupEnabled,
         newsletterPopupDelaySeconds: Number(data.newsletterPopupDelaySeconds),
@@ -255,21 +263,13 @@ export default function SiteSettingsPage(): ReactNode {
                 {t("settings_footer_handoff_hint")}
               </p>
               {contact ? (
-                <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+                <dl className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div>
                     <dt className="text-xs font-medium text-ink-muted">
                       {t("settings_contact_email")}
                     </dt>
                     <dd className="mt-1 text-sm text-ink">
                       {contact.supportEmail}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-ink-muted">
-                      {t("settings_contact_phone")}
-                    </dt>
-                    <dd className="mt-1 text-sm text-ink">
-                      {contact.supportPhone}
                     </dd>
                   </div>
                   <div>
@@ -282,6 +282,25 @@ export default function SiteSettingsPage(): ReactNode {
                   </div>
                 </dl>
               ) : null}
+              <div className="mt-4">
+                <Field
+                  label="客服电话"
+                  htmlFor="settings-support-phone"
+                  error={errors.supportPhone}
+                  hint="显示在页脚 Contact 列与聊天浮窗；留空则全站不显示电话。例如 0935 977 7504。"
+                >
+                  <TextInput
+                    id="settings-support-phone"
+                    value={data.supportPhone}
+                    onChange={(event) =>
+                      updateField("supportPhone", event.target.value)
+                    }
+                    placeholder="0935 977 7504"
+                    autoComplete="tel"
+                    maxLength={20}
+                  />
+                </Field>
+              </div>
               <Link
                 href="/admin/storefront-shell?tab=footer"
                 className="mt-3 inline-block text-sm font-semibold text-cta underline"

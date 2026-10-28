@@ -42,6 +42,44 @@ const FALLBACK_LINKS: PublicStorefrontShell["header"]["items"] = [
   },
 ];
 
+const FALLBACK_HELP_COLUMN: PublicStorefrontShell["footer"]["columns"][number] = {
+  id: "fallback-help",
+  kind: "LINKS",
+  title: "Help",
+  rows: [
+    {
+      id: "fallback-shipping",
+      kind: "LINK",
+      label: "Shipping & Delivery",
+      href: "/shipping-delivery",
+    },
+    {
+      id: "fallback-returns",
+      kind: "LINK",
+      label: "Returns & Refunds",
+      href: "/returns-refunds",
+    },
+    {
+      id: "fallback-contact-us",
+      kind: "LINK",
+      label: "Contact Us",
+      href: "/contact",
+    },
+    {
+      id: "fallback-terms",
+      kind: "LINK",
+      label: "Terms of Service",
+      href: "/terms",
+    },
+  ],
+};
+
+const FALLBACK_LEGAL_LINKS: PublicStorefrontShell["footer"]["legal"] = [
+  { id: "fallback-privacy", label: "Privacy Policy", href: "/privacy" },
+  { id: "fallback-returns", label: "Returns & Refunds", href: "/returns-refunds" },
+  { id: "fallback-terms", label: "Terms of Service", href: "/terms" },
+];
+
 /** Compile-time fallback used when the public shell request itself is unavailable. */
 export const DEFAULT_PUBLIC_STOREFRONT_SHELL: PublicStorefrontShell = {
   publishedRevision: 0,
@@ -62,20 +100,20 @@ export const DEFAULT_PUBLIC_STOREFRONT_SHELL: PublicStorefrontShell = {
         title: "Shop",
         rows: [],
       },
+      FALLBACK_HELP_COLUMN,
       {
         id: "fallback-contact",
         kind: "CONTACT",
         title: "Contact",
         supportEmail: DEFAULT_SITE_SETTINGS.supportEmail,
         supportHours: DEFAULT_SITE_SETTINGS.supportHours,
-        codText: "Cash on Delivery nationwide",
         trackOrderLabel: "Track Order",
         trackOrderHref: "/track-order",
       },
     ],
     copyrightBrand: "LUWAG Living",
     socials: [],
-    legal: [],
+    legal: FALLBACK_LEGAL_LINKS,
     payments: [],
   },
   theme: { ...CURRENT_LUWAG_THEME_SOURCE },
@@ -154,13 +192,13 @@ export function materializeDefaultStorefrontShell(
             href: `/collections/${collection.slug}`,
           })),
         },
+        FALLBACK_HELP_COLUMN,
         {
           id: "fallback-contact",
           kind: "CONTACT",
           title: "Contact",
           supportEmail: settings.supportEmail,
           supportHours: settings.supportHours,
-          codText: "Cash on Delivery nationwide",
           trackOrderLabel: "Track Order",
           trackOrderHref: "/track-order",
         },

@@ -51,7 +51,7 @@ const FAQ = [
   {
     question: "What if the parcel arrives damaged?",
     answer:
-      "Please check the box in front of the courier before paying. If something is broken or missing, refuse the parcel or accept it and tell us within 24 hours with a photo, and we will make it right.",
+      "Please check the box in front of the courier before paying. If something is broken or missing, refuse the parcel or accept it and tell us within 48 hours with a photo, and we will make it right — the full rules are on our Returns & Refunds page.",
   },
   {
     question: "How do I track my order?",
@@ -139,6 +139,12 @@ export default function ShippingDeliveryPage() {
               className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-ink"
             >
               Track my order
+            </Link>
+            <Link
+              href="/returns-refunds"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-ink"
+            >
+              Returns &amp; Refunds
             </Link>
           </div>
         </div>

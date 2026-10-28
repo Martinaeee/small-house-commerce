@@ -605,23 +605,6 @@ function FooterColumnCard({
             />
           </label>
           <label className="block min-w-0 text-sm font-medium text-ink sm:col-span-2">
-            {t("storefront_shell_footer_cod_text")}
-            <input
-              type="text"
-              value={column.codText}
-              maxLength={SHELL_LIMITS.codText}
-              aria-label={t("storefront_shell_footer_cod_text")}
-              onChange={(event) =>
-                onUpdate((current) =>
-                  current.kind === "CONTACT"
-                    ? { ...current, codText: event.target.value }
-                    : current,
-                )
-              }
-              className="mt-1 block w-full min-w-0 rounded-lg border border-admin-border px-3 py-2"
-            />
-          </label>
-          <label className="block min-w-0 text-sm font-medium text-ink sm:col-span-2">
             {t("storefront_shell_footer_track_label")}
             <input
               type="text"

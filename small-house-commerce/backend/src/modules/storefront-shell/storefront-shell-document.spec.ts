@@ -112,9 +112,18 @@ describe('storefrontShellDocumentSchema', () => {
 describe('footer extras (socials, legal links, payment labels)', () => {
   it('defaults the three optional arrays to empty', () => {
     const doc = validDocument();
-    expect(doc.footer.socials).toEqual([]);
-    expect(doc.footer.legal).toEqual([]);
-    expect(doc.footer.payments).toEqual([]);
+    const parsed = storefrontShellDocumentSchema.parse({
+      ...doc,
+      footer: {
+        tagline: doc.footer.tagline,
+        description: doc.footer.description,
+        columns: doc.footer.columns,
+        copyrightBrand: doc.footer.copyrightBrand,
+      },
+    });
+    expect(parsed.footer.socials).toEqual([]);
+    expect(parsed.footer.legal).toEqual([]);
+    expect(parsed.footer.payments).toEqual([]);
   });
 
   it('accepts https socials, internal or https legal links and payment labels', () => {
@@ -293,7 +302,6 @@ describe('createCurrentLuwagShellDocument', () => {
     expect(contact[0]).toMatchObject({
       supportEmail: 'support@luwag.ph',
       supportHours: 'Mon–Sat, 9am–6pm (PHT)',
-      codText: 'Cash on Delivery nationwide',
       trackOrderLabel: 'Track Order',
       trackOrderLink: { type: 'INTERNAL', path: '/track-order' },
     });
@@ -308,6 +316,48 @@ describe('createCurrentLuwagShellDocument', () => {
     );
     expect(doc.footer.copyrightBrand).toBe('LUWAG Living');
     expect(JSON.stringify(doc)).not.toContain(String(new Date().getFullYear()));
+  });
+
+  it('drops the legacy COD note from a Contact column that still carries it', () => {
+    const doc = validDocument();
+    const legacy = {
+      ...doc,
+      footer: {
+        ...doc.footer,
+        columns: doc.footer.columns.map((column) =>
+          column.kind === 'CONTACT'
+            ? ({ ...column, codText: 'Cash on Delivery nationwide' } as unknown as typeof column)
+            : column,
+        ),
+      },
+    };
+
+    const parsed = normalizeStorefrontShellDocument(legacy);
+
+    expect(
+      parsed.footer.columns.find((column) => column.kind === 'CONTACT'),
+    ).not.toHaveProperty('codText');
+  });
+
+  it('ships the policy Help links and the three-link legal row', () => {
+    const doc = validDocument();
+    const help = doc.footer.columns.find(
+      (column) => column.kind === 'LINKS' && column.title === 'Help',
+    );
+
+    expect(
+      help?.kind === 'LINKS' ? help.rows.map((row) => (row.kind === 'LINK' ? row.link : row.text)) : [],
+    ).toEqual([
+      { type: 'INTERNAL', path: '/shipping-delivery' },
+      { type: 'INTERNAL', path: '/returns-refunds' },
+      { type: 'INTERNAL', path: '/contact' },
+      { type: 'INTERNAL', path: '/terms' },
+    ]);
+    expect(doc.footer.legal.map((link) => link.href)).toEqual([
+      '/privacy',
+      '/returns-refunds',
+      '/terms',
+    ]);
   });
 
   it('lists the active NAVIGATION collections in the Shop column', () => {

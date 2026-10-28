@@ -281,7 +281,6 @@ export type ResolvedFooterColumn =
       title: string;
       supportEmail: string;
       supportHours: string;
-      codText: string;
       trackOrderLabel: string;
       trackOrderHref: string | null;
     };
@@ -375,7 +374,6 @@ export function publicProjection(
       title: column.title,
       supportEmail: column.supportEmail,
       supportHours: column.supportHours,
-      codText: column.codText,
       trackOrderLabel: column.trackOrderLabel,
       trackOrderHref:
         trackOrder && trackOrder.available ? trackOrder.href : null,

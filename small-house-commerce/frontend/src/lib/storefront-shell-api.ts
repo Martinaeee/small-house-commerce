@@ -60,7 +60,6 @@ export type ResolvedFooterView = {
         title: string;
         supportEmail: string;
         supportHours: string;
-        codText: string;
         trackOrderLabel: string;
         trackOrderHref: string | null;
       }
@@ -559,7 +558,6 @@ function parseFooterColumn(
       "title",
       "supportEmail",
       "supportHours",
-      "codText",
       "trackOrderLabel",
       "trackOrderHref",
     ]);
@@ -569,7 +567,6 @@ function parseFooterColumn(
       title: stringValue(source.title, `${path}.title`),
       supportEmail: stringValue(source.supportEmail, `${path}.supportEmail`),
       supportHours: stringValue(source.supportHours, `${path}.supportHours`),
-      codText: stringValue(source.codText, `${path}.codText`),
       trackOrderLabel: stringValue(
         source.trackOrderLabel,
         `${path}.trackOrderLabel`,

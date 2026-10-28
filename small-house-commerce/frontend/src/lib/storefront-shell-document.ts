@@ -25,7 +25,6 @@ export const SHELL_LIMITS = {
   columnTitle: 40,
   supportEmail: 200,
   supportHours: 100,
-  codText: 120,
   trackOrderLabel: 40,
   internalPath: 2048,
   externalUrl: 2048,
@@ -63,7 +62,6 @@ export type FooterColumn =
       title: string;
       supportEmail: string;
       supportHours: string;
-      codText: string;
       trackOrderLabel: string;
       trackOrderLink: StructuredLink;
     };
@@ -280,7 +278,6 @@ function parseFooterColumn(value: unknown, path: string[]): FooterColumn {
     "rows",
     "supportEmail",
     "supportHours",
-    "codText",
     "trackOrderLabel",
     "trackOrderLink",
   ]);
@@ -306,7 +303,6 @@ function parseFooterColumn(value: unknown, path: string[]): FooterColumn {
       title,
       supportEmail: str(record.supportEmail, [...path, "supportEmail"], SHELL_LIMITS.supportEmail),
       supportHours: str(record.supportHours, [...path, "supportHours"], SHELL_LIMITS.supportHours),
-      codText: str(record.codText, [...path, "codText"], SHELL_LIMITS.codText),
       trackOrderLabel: str(record.trackOrderLabel, [...path, "trackOrderLabel"], SHELL_LIMITS.trackOrderLabel),
       trackOrderLink: parseStructuredLink(record.trackOrderLink, [...path, "trackOrderLink"]),
     };
@@ -493,6 +489,53 @@ const LEGACY_FLAT_LINKS = [
 ] as const;
 
 /** Frontend mirror of the backend factory; used by editor defaults and tests. */
+/** Policy pages every fresh document ships in the Help column. */
+const POLICY_HELP_ROWS: FooterRow[] = [
+  {
+    id: "00000000-0000-7000-8000-000000000231",
+    kind: "LINK",
+    label: "Shipping & Delivery",
+    link: { type: "INTERNAL", path: "/shipping-delivery" },
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000232",
+    kind: "LINK",
+    label: "Returns & Refunds",
+    link: { type: "INTERNAL", path: "/returns-refunds" },
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000233",
+    kind: "LINK",
+    label: "Contact Us",
+    link: { type: "INTERNAL", path: "/contact" },
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000234",
+    kind: "LINK",
+    label: "Terms of Service",
+    link: { type: "INTERNAL", path: "/terms" },
+  },
+];
+
+/** The bottom-row policy links; the Footer itself also injects Privacy. */
+const POLICY_LEGAL_LINKS: FooterLegalLink[] = [
+  {
+    id: "00000000-0000-7000-8000-000000000241",
+    label: "Privacy Policy",
+    href: "/privacy",
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000242",
+    label: "Returns & Refunds",
+    href: "/returns-refunds",
+  },
+  {
+    id: "00000000-0000-7000-8000-000000000243",
+    label: "Terms of Service",
+    href: "/terms",
+  },
+];
+
 export function createCurrentLuwagShellDocument(
   input: CurrentLuwagShellSeedInput,
 ): StorefrontShellDocument {
@@ -540,12 +583,17 @@ export function createCurrentLuwagShellDocument(
   const columns: FooterColumn[] = [
     { id: "00000000-0000-7000-8000-000000000210", kind: "LINKS", title: "Shop", rows: shopRows },
     {
+      id: "00000000-0000-7000-8000-000000000230",
+      kind: "LINKS",
+      title: "Help",
+      rows: POLICY_HELP_ROWS,
+    },
+    {
       id: "00000000-0000-7000-8000-000000000220",
       kind: "CONTACT",
       title: "Contact",
       supportEmail: input.supportEmail,
       supportHours: input.supportHours,
-      codText: "Cash on Delivery nationwide",
       trackOrderLabel: "Track Order",
       trackOrderLink: { type: "INTERNAL", path: "/track-order" },
     },
@@ -560,6 +608,7 @@ export function createCurrentLuwagShellDocument(
       description: "Furniture for Filipino condos and rentals. Cash on delivery, nationwide.",
       columns,
       copyrightBrand: "LUWAG Living",
+      legal: POLICY_LEGAL_LINKS,
     },
     theme: CURRENT_LUWAG_THEME_SOURCE,
   });

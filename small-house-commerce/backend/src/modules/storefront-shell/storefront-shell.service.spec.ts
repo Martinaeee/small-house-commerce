@@ -391,7 +391,9 @@ describe('StorefrontShellService.getPublic', () => {
     ]);
     expect(shell.publishedRevision).toBe(1);
     expect(shell.derivedTheme.primaryDark).toBe('#b8946a');
-    expect(shell.footer.columns[1]).toMatchObject({ kind: 'CONTACT', trackOrderHref: '/track-order' });
+    expect(
+      shell.footer.columns.find((column) => column.kind === 'CONTACT'),
+    ).toMatchObject({ kind: 'CONTACT', trackOrderHref: '/track-order' });
     expect(shell.theme.primary).toBe('#c9a77b');
   });
 
@@ -426,7 +428,9 @@ describe('StorefrontShellService.getPublic', () => {
 
     expect(shell.brand.brandName).toBe('LUWAG');
     expect(shell.theme).toMatchObject({ primary: '#c9a77b', action: '#244c3c' });
-    expect(shell.footer.columns[1]).toMatchObject({
+    expect(
+      shell.footer.columns.find((column) => column.kind === 'CONTACT'),
+    ).toMatchObject({
       kind: 'CONTACT',
       supportEmail: 'hello@luwag.shop',
     });

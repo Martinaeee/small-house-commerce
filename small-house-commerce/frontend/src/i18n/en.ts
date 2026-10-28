@@ -274,7 +274,6 @@ export const en: Record<ZhKey, string> = {
   storefront_shell_footer_support_email: "Support email",
   storefront_shell_footer_support_email_invalid: "Enter a valid support email.",
   storefront_shell_footer_support_hours: "Support hours",
-  storefront_shell_footer_cod_text: "Cash-on-delivery note",
   storefront_shell_footer_track_label: "Track order link text",
   storefront_shell_footer_track_link: "Track order link",
   storefront_shell_footer_rows: "Rows in this column",
