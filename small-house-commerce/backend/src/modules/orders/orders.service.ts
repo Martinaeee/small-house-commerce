@@ -185,6 +185,22 @@ const GUEST_ORDER_INCLUDE = {
     },
   },
   shippingAddress: true,
+  // The shopper's carrier timeline. Only the fields the guest projection
+  // forwards are selected here, so warehouse ids and operator ids never leave
+  // the database.
+  shipments: {
+    orderBy: { shippedAt: 'asc' as const },
+    select: {
+      carrier: true,
+      trackingNumber: true,
+      shippedAt: true,
+      signedAt: true,
+      events: {
+        orderBy: { eventTime: 'asc' as const },
+        select: { normalizedStatus: true, eventTime: true },
+      },
+    },
+  },
   statusHistory: {
     orderBy: { createdAt: 'asc' as const },
     select: {
@@ -2463,6 +2479,16 @@ export class OrdersService {
    * bought, and the product rows behind them are dropped from the response.
    */
   private guestOrder<T extends {
+    shipments?: Array<{
+      carrier: string;
+      trackingNumber: string | null;
+      shippedAt: Date | string;
+      signedAt: Date | string | null;
+      events?: Array<{
+        normalizedStatus: string;
+        eventTime: Date | string;
+      }>;
+    }>;
     items: Array<{
       optionSnapshot: unknown;
       variantId: string | null;
@@ -2480,8 +2506,33 @@ export class OrdersService {
       } | null;
     }>;
   }>(order: T) {
+    const { shipments, ...rest } = order as T & {
+      shipments?: Array<{
+        carrier: string;
+        trackingNumber: string | null;
+        shippedAt: Date | string;
+        signedAt: Date | string | null;
+        events?: Array<{ normalizedStatus: string; eventTime: Date | string }>;
+      }>;
+    };
+    const iso = (value: Date | string) => new Date(value).toISOString();
+    // Only the carrier-facing fields reach the shopper; the row's internal ids
+    // (warehouse, operator, cost) stay inside the admin.
+    const shipment = shipments?.[0]
+      ? {
+          carrier: shipments[0].carrier,
+          trackingNumber: shipments[0].trackingNumber,
+          shippedAt: iso(shipments[0].shippedAt),
+          signedAt: shipments[0].signedAt ? iso(shipments[0].signedAt) : null,
+          tracking: (shipments[0].events ?? []).map((event) => ({
+            status: event.normalizedStatus,
+            at: iso(event.eventTime),
+          })),
+        }
+      : null;
     return {
-      ...order,
+      ...rest,
+      shipment,
       items: order.items.map((item) => {
         // The nested product rows never reach the guest - only the flat
         // fields below do.
