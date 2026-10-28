@@ -1286,6 +1286,14 @@ describe('OrdersService.checkout idempotency', () => {
       riskType: null,
       requiresReview: false,
     });
+    // Replay exposes order status only: never customer, items or address.
+    expect(Object.keys(result).sort()).toEqual([
+      'confirmationStatus',
+      'orderNumber',
+      'orderStatus',
+      'requiresReview',
+      'riskType',
+    ]);
     expect(harness.prisma.$transaction).not.toHaveBeenCalled();
     expect(harness.prisma.customer.upsert).not.toHaveBeenCalled();
     expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
@@ -1359,5 +1367,21 @@ describe('OrdersService.checkout idempotency', () => {
     const data = harness.tx.order.create.mock.calls[0]![0].data as Record<string, unknown>;
     expect(data.idempotencyKey).toBeNull();
     expect(data.idempotencyHash).toBeNull();
+  });
+
+  it('lets a failed attempt be retried with the same key', async () => {
+    const harness = createHarness();
+    // qty 6 exceeds the harness's available 5: the transaction rejects before
+    // creating anything and the key is never stored.
+    await expect(
+      harness.service.checkout(
+        checkoutOverrides({ idempotencyKey: KEY, items: [{ skuId: SKU_ID, quantity: 6 }] }),
+      ),
+    ).rejects.toThrow(/Insufficient stock/);
+    expect(harness.tx.order.create).not.toHaveBeenCalled();
+
+    harness.prisma.order.findUnique.mockResolvedValue(null);
+    await harness.service.checkout(checkoutOverrides({ idempotencyKey: KEY }));
+    expect(harness.tx.order.create).toHaveBeenCalledTimes(1);
   });
 });

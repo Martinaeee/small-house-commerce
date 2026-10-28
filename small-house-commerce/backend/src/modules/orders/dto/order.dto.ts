@@ -31,7 +31,7 @@ export const checkoutSchema = z.object({
   idempotencyKey: z
     .string()
     .trim()
-    .min(8)
+    .min(16)
     .max(120)
     .regex(/^[A-Za-z0-9_-]+$/)
     .nullable()

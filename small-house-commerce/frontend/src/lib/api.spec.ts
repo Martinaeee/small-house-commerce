@@ -154,3 +154,45 @@ describe("idempotency key transport", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).idempotencyKey).toBeNull();
   });
 });
+
+describe("Meta checkout forwarding", () => {
+  it("sends Meta ids, consent and the idempotency key together", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        jsonResponse({ orderNumber: "PH1", orderStatus: "NEW", confirmationStatus: "UNCONFIRMED" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const key = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+      fbp: "fb.1.1753000000000.1098115397",
+      fbc: "fb.1.1753000000000.2098115397",
+      metaConsent: true,
+      idempotencyKey: key,
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.fbp).toBe("fb.1.1753000000000.1098115397");
+    expect(body.fbc).toBe("fb.1.1753000000000.2098115397");
+    expect(body.metaConsent).toBe(true);
+    expect(body.idempotencyKey).toBe(key);
+  });
+
+  it("sends false and nulls when the shopper has not opted in", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        jsonResponse({ orderNumber: "PH1", orderStatus: "NEW", confirmationStatus: "UNCONFIRMED" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createOrder({
+      customer: { name: "Jane", phone: "09171234567", province: "Metro Manila", city: "Manila", streetAddress: "1 Main St" },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.fbp).toBeNull();
+    expect(body.fbc).toBeNull();
+    expect(body.metaConsent).toBe(false);
+  });
+});

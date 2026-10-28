@@ -107,7 +107,7 @@ describe('checkout idempotency key validation', () => {
   });
 
   it('rejects keys that are too short or contain unsafe characters', () => {
-    for (const key of ['short', 'has space', 'x'.repeat(121), 'key/with/slash']) {
+    for (const key of ['short', '123456789012345', 'has space', 'x'.repeat(121), 'key/with/slash']) {
       const result = checkoutSchema.safeParse({
         customer: { name: 'Jane', phone: '09171234567', province: 'Metro Manila', city: 'Manila', streetAddress: '1 Main St' },
         items: [{ skuId: SKU_A, quantity: 1 }],

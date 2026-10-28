@@ -887,6 +887,10 @@ export const api = {
      * ordering sessions by all sessions. Never a customer identity.
      */
     trackingSessionId?: string | null;
+    /** Meta browser cookies and the shopper's ads-cookie choice. */
+    fbp?: string | null;
+    fbc?: string | null;
+    metaConsent?: boolean;
     /** Client-generated retry key; a replay returns the original order. */
     idempotencyKey?: string | null;
   }) =>
@@ -903,6 +907,9 @@ export const api = {
           customerNote: input.customerNote ?? null,
           promoCode: input.promoCode ?? null,
           trackingSessionId: input.trackingSessionId ?? null,
+          fbp: input.fbp ?? null,
+          fbc: input.fbc ?? null,
+          metaConsent: input.metaConsent === true,
           idempotencyKey: input.idempotencyKey ?? null,
         }),
       },
