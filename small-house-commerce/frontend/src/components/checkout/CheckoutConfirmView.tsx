@@ -15,7 +15,7 @@ import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { hasAdsConsent } from "@/lib/consent";
 import { readMetaBrowserIds } from "@/lib/meta-capi";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
-import { checkoutIdempotencyKey } from "@/lib/checkout-idempotency";
+import { checkoutIdempotencyKey, clearCheckoutIdempotencyKey } from "@/lib/checkout-idempotency";
 import {
   readCheckoutDraft,
   clearCheckoutDraft,
@@ -230,6 +230,10 @@ export function CheckoutConfirmView({
       // The revealed code is spent with this order — a later order in the same
       // browser must not inherit it.
       clearStoredNewsletterCode();
+      // The server has created (or replayed) the order and the draft is gone:
+      // a later purchase from the same Buy Now / Quick COD scope must get a
+      // fresh key. The ref above still protects a retry on this mounted page.
+      clearCheckoutIdempotencyKey(checkoutHref);
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
       inFlightRef.current = false;

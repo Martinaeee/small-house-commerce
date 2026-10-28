@@ -27,6 +27,20 @@ export function checkoutIdempotencyKey(scope: string): string {
   return key;
 }
 
+/**
+ * A successful order ends this checkout attempt. Clearing after success means
+ * a later purchase from the same Buy Now / Quick COD scope gets a fresh key;
+ * failures, timeouts and lost responses never call this, so their retries
+ * still replay the original order.
+ */
+export function clearCheckoutIdempotencyKey(scope: string): void {
+  try {
+    window.sessionStorage.removeItem(`${STORAGE_PREFIX}${scope}`);
+  } catch {
+    // Storage can be denied; there is nothing persisted to clear.
+  }
+}
+
 function newKey(): string {
   const webCrypto = globalThis.crypto;
   if (webCrypto && typeof webCrypto.randomUUID === "function") {

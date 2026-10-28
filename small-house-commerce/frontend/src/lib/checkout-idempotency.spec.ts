@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutIdempotencyKey } from "./checkout-idempotency";
+import {
+  checkoutIdempotencyKey,
+  clearCheckoutIdempotencyKey,
+} from "./checkout-idempotency";
 
 const SAFE = /^[A-Za-z0-9_-]{16,120}$/;
 
@@ -34,6 +37,36 @@ describe("checkout idempotency key", () => {
     const key = checkoutIdempotencyKey("/checkout?items=abc");
     expect(key).not.toBe(short);
     expect(key).toMatch(SAFE);
+  });
+
+  it("clears the completed scope so the next purchase gets a new key", () => {
+    const scope = "/checkout?skuId=sku-1&qty=1&slug=chair";
+    const first = checkoutIdempotencyKey(scope);
+    clearCheckoutIdempotencyKey(scope);
+    const second = checkoutIdempotencyKey(scope);
+    expect(second).not.toBe(first);
+    expect(second).toMatch(SAFE);
+  });
+
+  it("clears only the scope that completed", () => {
+    const completed = "/checkout?skuId=sku-1&qty=1&slug=chair";
+    const other = "/checkout?skuId=sku-2&qty=1&slug=chair";
+    const firstCompleted = checkoutIdempotencyKey(completed);
+    const firstOther = checkoutIdempotencyKey(other);
+    clearCheckoutIdempotencyKey(completed);
+    expect(checkoutIdempotencyKey(completed)).not.toBe(firstCompleted);
+    expect(checkoutIdempotencyKey(other)).toBe(firstOther);
+  });
+
+  it("does not throw when storage denies removal", () => {
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    try {
+      expect(() => clearCheckoutIdempotencyKey("/checkout")).not.toThrow();
+    } finally {
+      remove.mockRestore();
+    }
   });
 
   it("still returns a key when sessionStorage is unavailable", () => {
