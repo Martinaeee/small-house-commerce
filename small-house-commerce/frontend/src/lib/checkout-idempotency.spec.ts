@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  checkoutIdempotencyKey,
+  checkoutIdempotencyAttempt,
   clearCheckoutIdempotencyKey,
 } from "./checkout-idempotency";
 
@@ -10,52 +10,88 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
-describe("checkout idempotency key", () => {
-  it("reuses the key for a retry of the same checkout", () => {
-    const first = checkoutIdempotencyKey("/checkout?items=abc");
-    const second = checkoutIdempotencyKey("/checkout?items=abc");
-    expect(second).toBe(first);
-    expect(first).toMatch(SAFE);
+describe("checkout idempotency attempt", () => {
+  it("reuses the key and submit-time consent for a retry of the same checkout", () => {
+    const first = checkoutIdempotencyAttempt("/checkout?items=abc", false);
+    const second = checkoutIdempotencyAttempt("/checkout?items=abc", true);
+
+    expect(second).toEqual(first);
+    expect(first.key).toMatch(SAFE);
+    expect(first.metaConsent).toBe(false);
   });
 
-  it("uses a different key for a different checkout", () => {
-    expect(checkoutIdempotencyKey("/checkout?items=abc")).not.toBe(
-      checkoutIdempotencyKey("/checkout?items=xyz"),
+  it("uses a different key and its own consent for a different checkout", () => {
+    const first = checkoutIdempotencyAttempt("/checkout?items=abc", false);
+    const second = checkoutIdempotencyAttempt("/checkout?items=xyz", true);
+
+    expect(second.key).not.toBe(first.key);
+    expect(first.metaConsent).toBe(false);
+    expect(second.metaConsent).toBe(true);
+  });
+
+  it("persists the key and consent atomically as one attempt", () => {
+    const scope = "/checkout?items=abc";
+    const attempt = checkoutIdempotencyAttempt(scope, true);
+    expect(JSON.parse(sessionStorage.getItem(`luwag_checkout_idem:${scope}`)!)).toEqual(
+      attempt,
+    );
+  });
+
+  it("migrates a valid legacy raw key using the current consent once", () => {
+    const scope = "/checkout?items=abc";
+    const legacy = "legacy-key-123456789";
+    window.sessionStorage.setItem(`luwag_checkout_idem:${scope}`, legacy);
+
+    const migrated = checkoutIdempotencyAttempt(scope, true);
+    const replay = checkoutIdempotencyAttempt(scope, false);
+
+    expect(migrated).toEqual({ key: legacy, metaConsent: true });
+    expect(replay).toEqual(migrated);
+    expect(JSON.parse(sessionStorage.getItem(`luwag_checkout_idem:${scope}`)!)).toEqual(
+      migrated,
     );
   });
 
   it("replaces a stored value the backend would reject", () => {
     window.sessionStorage.setItem("luwag_checkout_idem:/checkout?items=abc", "bad key");
-    const key = checkoutIdempotencyKey("/checkout?items=abc");
-    expect(key).not.toBe("bad key");
-    expect(key).toMatch(SAFE);
+    const attempt = checkoutIdempotencyAttempt("/checkout?items=abc", true);
+    expect(attempt.key).not.toBe("bad key");
+    expect(attempt.key).toMatch(SAFE);
+    expect(attempt.metaConsent).toBe(true);
   });
 
-  it("replaces a stored key shorter than the backend minimum", () => {
+  it("replaces a structured attempt with a key shorter than the backend minimum", () => {
     const short = "x".repeat(15);
-    window.sessionStorage.setItem("luwag_checkout_idem:/checkout?items=abc", short);
-    const key = checkoutIdempotencyKey("/checkout?items=abc");
-    expect(key).not.toBe(short);
-    expect(key).toMatch(SAFE);
+    window.sessionStorage.setItem(
+      "luwag_checkout_idem:/checkout?items=abc",
+      JSON.stringify({ key: short, metaConsent: false }),
+    );
+    const attempt = checkoutIdempotencyAttempt("/checkout?items=abc", true);
+    expect(attempt.key).not.toBe(short);
+    expect(attempt.key).toMatch(SAFE);
+    expect(attempt.metaConsent).toBe(true);
   });
 
-  it("clears the completed scope so the next purchase gets a new key", () => {
+  it("clears the completed scope so the next purchase gets a new attempt", () => {
     const scope = "/checkout?skuId=sku-1&qty=1&slug=chair";
-    const first = checkoutIdempotencyKey(scope);
+    const first = checkoutIdempotencyAttempt(scope, false);
     clearCheckoutIdempotencyKey(scope);
-    const second = checkoutIdempotencyKey(scope);
-    expect(second).not.toBe(first);
-    expect(second).toMatch(SAFE);
+    const second = checkoutIdempotencyAttempt(scope, true);
+    expect(second.key).not.toBe(first.key);
+    expect(second.key).toMatch(SAFE);
+    expect(second.metaConsent).toBe(true);
   });
 
   it("clears only the scope that completed", () => {
     const completed = "/checkout?skuId=sku-1&qty=1&slug=chair";
     const other = "/checkout?skuId=sku-2&qty=1&slug=chair";
-    const firstCompleted = checkoutIdempotencyKey(completed);
-    const firstOther = checkoutIdempotencyKey(other);
+    const firstCompleted = checkoutIdempotencyAttempt(completed, false);
+    const firstOther = checkoutIdempotencyAttempt(other, true);
     clearCheckoutIdempotencyKey(completed);
-    expect(checkoutIdempotencyKey(completed)).not.toBe(firstCompleted);
-    expect(checkoutIdempotencyKey(other)).toBe(firstOther);
+    expect(checkoutIdempotencyAttempt(completed, true).key).not.toBe(
+      firstCompleted.key,
+    );
+    expect(checkoutIdempotencyAttempt(other, false)).toEqual(firstOther);
   });
 
   it("does not throw when storage denies removal", () => {
@@ -69,7 +105,7 @@ describe("checkout idempotency key", () => {
     }
   });
 
-  it("still returns a key when sessionStorage is unavailable", () => {
+  it("still returns an attempt when sessionStorage is unavailable", () => {
     const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("denied");
     });
@@ -77,7 +113,10 @@ describe("checkout idempotency key", () => {
       throw new Error("denied");
     });
     try {
-      expect(checkoutIdempotencyKey("/checkout?items=abc")).toMatch(SAFE);
+      expect(checkoutIdempotencyAttempt("/checkout?items=abc", true)).toEqual({
+        key: expect.stringMatching(SAFE),
+        metaConsent: true,
+      });
     } finally {
       get.mockRestore();
       set.mockRestore();
@@ -85,14 +124,12 @@ describe("checkout idempotency key", () => {
   });
 
   it("keeps the no-crypto fallback at the backend minimum length", () => {
-    // The third fallback is the only branch that can be shorter than the
-    // backend's 16-character minimum when Math.random() returns exactly 0.
     vi.stubGlobal("crypto", {});
     const random = vi.spyOn(Math, "random").mockReturnValue(0);
     try {
-      const key = checkoutIdempotencyKey("/checkout?items=abc");
-      expect(key.length).toBeGreaterThanOrEqual(16);
-      expect(key).toMatch(SAFE);
+      const attempt = checkoutIdempotencyAttempt("/checkout?items=abc", false);
+      expect(attempt.key.length).toBeGreaterThanOrEqual(16);
+      expect(attempt.key).toMatch(SAFE);
     } finally {
       random.mockRestore();
       vi.unstubAllGlobals();

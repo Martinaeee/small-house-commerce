@@ -173,7 +173,7 @@ beforeEach(() => {
 });
 
 describe("CheckoutConfirmView order notes", () => {
-  it("reuses one idempotency key when a timed-out submission is retried", async () => {
+  it("reuses one idempotency key and consent snapshot when a timed-out submission is retried", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder
       .mockRejectedValueOnce(new Error("Network timeout"))
@@ -181,21 +181,30 @@ describe("CheckoutConfirmView order notes", () => {
         orderNumber: "PH2001",
         orderStatus: "NEW",
         confirmationStatus: "UNCONFIRMED",
+        grandTotal: 100,
       });
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
 
     const button = await screen.findByTestId("confirm-place-order");
     await userEvent.setup().click(button);
     await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
-    // The timeout keeps the stored key: the retry must replay, not create.
+    // The timeout keeps the attempt: the retry must replay the original order
+    // under both the same key and the same submit-time consent.
     expect(storedIdempotencyKeys()).toHaveLength(1);
+    consentMock.hasAdsConsent.mockReturnValue(true);
     await userEvent.setup().click(button);
     await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
 
-    const first = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
-    const second = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
-    expect(first).toMatch(/^[A-Za-z0-9_-]{16,120}$/);
-    expect(second).toBe(first);
+    const first = apiMock.createOrder.mock.calls[0]![0];
+    const second = apiMock.createOrder.mock.calls[1]![0];
+    expect(first.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{16,120}$/);
+    expect(second.idempotencyKey).toBe(first.idempotencyKey);
+    expect(first.metaConsent).toBe(false);
+    expect(second.metaConsent).toBe(false);
+    const purchasePayload = JSON.parse(
+      sessionStorage.getItem("luwag_purchase_payload")!,
+    );
+    expect(purchasePayload.consent).toBe(false);
     // The successful retry ends the attempt and clears the stored key.
     expect(storedIdempotencyKeys()).toHaveLength(0);
   });
@@ -211,7 +220,9 @@ describe("CheckoutConfirmView order notes", () => {
 
     const key = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
     expect(storedIdempotencyKeys()).toHaveLength(1);
-    expect(sessionStorage.getItem(storedIdempotencyKeys()[0]!)).toBe(key);
+    expect(
+      JSON.parse(sessionStorage.getItem(storedIdempotencyKeys()[0]!)!),
+    ).toEqual({ key, metaConsent: false });
   });
 
   it("does not carry a failed selection's key into a different selection", async () => {

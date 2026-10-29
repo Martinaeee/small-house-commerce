@@ -15,7 +15,10 @@ import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { hasAdsConsent } from "@/lib/consent";
 import { readMetaBrowserIds } from "@/lib/meta-capi";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
-import { checkoutIdempotencyKey, clearCheckoutIdempotencyKey } from "@/lib/checkout-idempotency";
+import {
+  checkoutIdempotencyAttempt,
+  clearCheckoutIdempotencyKey,
+} from "@/lib/checkout-idempotency";
 import {
   readCheckoutDraft,
   clearCheckoutDraft,
@@ -95,10 +98,15 @@ export function CheckoutConfirmView({
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
   // Stable across retries of this checkout; the backend replays the original
-  // order instead of creating a second one. Scoped to this checkout URL: the
-  // confirm route can be reused for a different selection without unmounting,
-  // and a key from the old selection must never leak into the new one.
-  const idempotencyKeyRef = useRef<{ scope: string; key: string } | null>(null);
+  // order instead of creating a second one. The consent snapshot belongs to
+  // that same attempt: a retry cannot acquire a newer consent choice than the
+  // request that may already have created the order and CAPI outbox row.
+  // Scoped to this checkout URL so another selection cannot inherit either.
+  const idempotencyKeyRef = useRef<{
+    scope: string;
+    key: string;
+    metaConsent: boolean;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
@@ -178,15 +186,19 @@ export function CheckoutConfirmView({
     inFlightRef.current = true;
     setSubmitting(true);
     try {
-      const idempotencyKey =
+      const attempt =
         idempotencyKeyRef.current?.scope === checkoutHref
-          ? idempotencyKeyRef.current.key
-          : checkoutIdempotencyKey(checkoutHref);
-      idempotencyKeyRef.current = { scope: checkoutHref, key: idempotencyKey };
-      // One consent read for both channels: the backend receives it as
-      // metaConsent and the success page receives the same snapshot, so the
-      // browser and server Purchase copies can never disagree about it.
-      const adsConsent = hasAdsConsent();
+          ? idempotencyKeyRef.current
+          : {
+              scope: checkoutHref,
+              ...checkoutIdempotencyAttempt(checkoutHref, hasAdsConsent()),
+            };
+      idempotencyKeyRef.current = attempt;
+      const idempotencyKey = attempt.key;
+      // One attempt snapshot for both channels: every retry sends the same
+      // metaConsent the first request used, and the success page receives it
+      // too, so a replay can never change the Browser/CAPI consent pairing.
+      const adsConsent = attempt.metaConsent;
       const payload = {
         customer: {
           ...draft.customer,
