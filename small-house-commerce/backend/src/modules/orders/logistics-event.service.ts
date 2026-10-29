@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
 
 export type LogisticsStatus =
   | 'SHIPPED'
@@ -55,21 +56,38 @@ export class LogisticsEventService {
     });
     if (existing) return existing;
 
-    return this.prisma.logisticsEvent.create({
-      data: {
-        shipmentId,
-        carrier: shipment.carrier,
-        externalEventId,
-        externalStatus: input.externalStatus ?? input.normalizedStatus,
-        normalizedStatus: input.normalizedStatus,
-        eventTime,
-        province: input.province ?? null,
-        city: input.city ?? null,
-        rawPayloadReference: input.rawPayloadReference ?? null,
-        externalDescription: input.description ?? null,
-        staffContact: input.staffContact ?? null,
-        signatureImageUrl: input.signatureImageUrl ?? null,
-      },
-    });
+    try {
+      return await this.prisma.logisticsEvent.create({
+        data: {
+          shipmentId,
+          carrier: shipment.carrier,
+          externalEventId,
+          externalStatus: input.externalStatus ?? input.normalizedStatus,
+          normalizedStatus: input.normalizedStatus,
+          eventTime,
+          province: input.province ?? null,
+          city: input.city ?? null,
+          rawPayloadReference: input.rawPayloadReference ?? null,
+          externalDescription: input.description ?? null,
+          staffContact: input.staffContact ?? null,
+          signatureImageUrl: input.signatureImageUrl ?? null,
+        },
+      });
+    } catch (error) {
+      // Two writers can pass the lookup above at the same time (a poll and a
+      // manual refresh). Losing the unique constraint is not a failure: the
+      // other writer stored exactly this fact, so read it back.
+      if (
+        externalEventId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const raced = await this.prisma.logisticsEvent.findFirst({
+          where: { shipmentId, externalEventId },
+        });
+        if (raced) return raced;
+      }
+      throw error;
+    }
   }
 }
