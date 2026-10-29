@@ -34,6 +34,9 @@ const draftMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/checkoutDraft", () => draftMock);
 
+const consentMock = vi.hoisted(() => ({ hasAdsConsent: vi.fn(() => false) }));
+vi.mock("@/lib/consent", () => ({ hasAdsConsent: consentMock.hasAdsConsent }));
+
 const cover = {
   id: "cover",
   url: "/cover.jpg",
@@ -160,6 +163,7 @@ function storedIdempotencyKeys(): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  consentMock.hasAdsConsent.mockReturnValue(false);
   useCartMock.mockReturnValue({
     removeItems: vi.fn().mockResolvedValue(undefined),
   });
@@ -592,6 +596,34 @@ describe("CheckoutConfirmView", () => {
       currency: "PHP",
     });
     expect(payload.data.value).not.toBe(200);
+    // The same consent value the backend received rides with the payload, so
+    // the success page can hold the browser event to the submit-time choice.
+    expect(payload.consent).toBe(false);
+  });
+
+  it("stashes the submit-time consent snapshot with the Purchase payload", async () => {
+    consentMock.hasAdsConsent.mockReturnValue(true);
+    const user = userEvent.setup();
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+      grandTotal: 100,
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    expect(await screen.findByText("Confirm your order")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("confirm-place-order"));
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+
+    const payload = JSON.parse(sessionStorage.getItem("luwag_purchase_payload")!);
+    expect(payload.consent).toBe(true);
+    expect(apiMock.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ metaConsent: true }),
+    );
   });
 });
 

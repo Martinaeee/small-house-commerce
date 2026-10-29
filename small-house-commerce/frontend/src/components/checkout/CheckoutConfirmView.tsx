@@ -183,6 +183,10 @@ export function CheckoutConfirmView({
           ? idempotencyKeyRef.current.key
           : checkoutIdempotencyKey(checkoutHref);
       idempotencyKeyRef.current = { scope: checkoutHref, key: idempotencyKey };
+      // One consent read for both channels: the backend receives it as
+      // metaConsent and the success page receives the same snapshot, so the
+      // browser and server Purchase copies can never disagree about it.
+      const adsConsent = hasAdsConsent();
       const payload = {
         customer: {
           ...draft.customer,
@@ -202,7 +206,7 @@ export function CheckoutConfirmView({
         // Meta matching data, only meaningful (and only accepted by the
         // backend) when the shopper accepted optional cookies.
         ...readMetaBrowserIds(),
-        metaConsent: hasAdsConsent(),
+        metaConsent: adsConsent,
       };
       const order = await api.createOrder(payload);
       if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
@@ -212,12 +216,15 @@ export function CheckoutConfirmView({
         // BEFORE navigation; PurchaseTracking consumes it exactly once.
         // value is the server's authoritative order total, not the checkout
         // preview: the preview can go stale or use a different promo result.
+        // The consent snapshot rides along so the success page holds the
+        // browser event to the choice in force at submit.
         storePurchasePayload(
           purchaseEvent({
             orderId: order.orderNumber,
             items: checkout.orderItems,
             value: order.grandTotal,
           }),
+          adsConsent,
         );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
         // Carried to /track-order so the shopper does not retype the number they

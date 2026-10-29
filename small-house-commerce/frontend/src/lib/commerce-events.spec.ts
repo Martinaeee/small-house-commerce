@@ -8,6 +8,7 @@ import {
   initiateCheckoutEvent,
   optionSelectEvent,
   purchaseEvent,
+  recordPurchaseFirstParty,
   storePurchasePayload,
   variantConfirmEvent,
   variantUnavailableEvent,
@@ -469,40 +470,53 @@ describe("event identity", () => {
   });
 });
 
-describe("tab-scoped purchase payload", () => {
+describe("tab-scoped purchase payload and consent snapshot", () => {
   beforeEach(() => {
     tracking.track.mockReset();
     tracking.trackCustom.mockReset();
     analytics.trackFirstParty.mockReset();
+    metaCapi.sendMetaServerEvent.mockReset();
     window.sessionStorage.clear();
   });
 
-  it("stores the Purchase event before navigation and consumes it exactly once", () => {
+  it("stores the Purchase event with the submit-time consent and consumes it exactly once", () => {
     const event = purchaseEvent({
       orderId: "LW-1003",
       items: [{ skuId: "sku-a", quantity: 1 }],
       value: 1299,
     });
-    expect(storePurchasePayload(event)).toBe(true);
+    expect(storePurchasePayload(event, true)).toBe(true);
     const consumed = consumePurchasePayload("LW-1003");
-    expect(consumed).toEqual(event);
-    expect(consumed?.eventId).toBe("purchase-LW-1003");
+    expect(consumed?.event).toEqual(event);
+    expect(consumed?.event.eventId).toBe("purchase-LW-1003");
+    expect(consumed?.consent).toBe(true);
     // Consumed once: a second read (page refresh) finds nothing.
     expect(consumePurchasePayload("LW-1003")).toBeNull();
     expect(window.sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
   });
 
-  it("restores a legacy payload without an id under the order-keyed id", () => {
+  it("keeps a denied submit-time consent with the payload", () => {
+    const event = purchaseEvent({ orderId: "LW-1006", items: [], value: 99 });
+    expect(storePurchasePayload(event, false)).toBe(true);
+    expect(consumePurchasePayload("LW-1006")?.consent).toBe(false);
+  });
+
+  it("restores a legacy payload without an id or consent snapshot", () => {
     window.sessionStorage.setItem(
       "luwag_purchase_payload",
       JSON.stringify({ name: "Purchase", data: { order_id: "LW-2002" } }),
     );
     const consumed = consumePurchasePayload("LW-2002");
-    expect(consumed?.eventId).toBe("purchase-LW-2002");
+    expect(consumed?.event.eventId).toBe("purchase-LW-2002");
+    // Pre-snapshot payloads leave the decision to the live consent choice.
+    expect(consumed?.consent).toBeUndefined();
   });
 
   it("refuses a payload that belongs to a different order", () => {
-    storePurchasePayload(purchaseEvent({ orderId: "LW-1", items: [], value: 99 }));
+    storePurchasePayload(
+      purchaseEvent({ orderId: "LW-1", items: [], value: 99 }),
+      true,
+    );
     expect(consumePurchasePayload("LW-OTHER")).toBeNull();
     expect(window.sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
   });
@@ -524,9 +538,23 @@ describe("tab-scoped purchase payload", () => {
         throw new Error("quota");
       });
     expect(
-      storePurchasePayload(purchaseEvent({ orderId: "LW-1", items: [], value: null })),
+      storePurchasePayload(
+        purchaseEvent({ orderId: "LW-1", items: [], value: null }),
+        true,
+      ),
     ).toBe(false);
     setItem.mockRestore();
+  });
+
+  it("records the first-party PURCHASE on its own, without any Meta channel", () => {
+    recordPurchaseFirstParty("LW-1007");
+    expect(analytics.trackFirstParty).toHaveBeenCalledTimes(1);
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("PURCHASE", {
+      entityId: "LW-1007",
+    });
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(metaCapi.sendMetaServerEvent).not.toHaveBeenCalled();
   });
 });
 

@@ -6,31 +6,42 @@ import {
   emitCommerceEvent,
   markPurchaseFired,
   purchaseAlreadyFired,
-  purchaseEvent,
+  recordPurchaseFirstParty,
 } from "@/lib/commerce-events";
+import { hasAdsConsent } from "@/lib/consent";
 
 /**
  * TRACKING_SPEC §12 Purchase: COD order creation IS the purchase event.
- * CheckoutConfirmView stashes the full event payload (final SKU list + order
- * value) tab-scoped in sessionStorage BEFORE navigating here, because the
- * success page only receives the order number. That payload is consumed
- * exactly once; when it is absent (storage unavailable, a refreshed older
- * success page, a different order's payload) the event still fires, keyed
- * by this page's order number alone.
+ * CheckoutConfirmView stashes the full event payload (final SKU list, server
+ * value and the submit-time consent) tab-scoped in sessionStorage BEFORE
+ * navigating here, because the success page only receives the order number.
+ * That payload is consumed exactly once.
+ *
+ * The Meta event only fires while that payload is held and both the stashed
+ * and the live consent say yes: the backend outbox already sent its copy
+ * under the same event id for every consented order, and a payload-less
+ * fire would add a valueless twin (a refresh after consumption, another
+ * tab, unavailable storage, or a success link opened later all land here).
+ * The first-party PURCHASE is recorded either way — it must never depend on
+ * the ad channels.
  *
  * The emit is once per order number per tab: a refresh consumes no payload
- * and must not re-fire a valueless Purchase, so the fail-open emit is
- * guarded by a per-order marker. Storage-unavailable stays fully fail-open.
+ * and must not re-record the order, so both branches are guarded by a
+ * per-order marker.
  */
 export function PurchaseTracking({ orderNumber }: { orderNumber: string }) {
   useEffect(() => {
-    const stored = consumePurchasePayload(orderNumber);
+    const stashed = consumePurchasePayload(orderNumber);
     if (purchaseAlreadyFired(orderNumber)) return;
-    emitCommerceEvent(
-      stored ??
-        purchaseEvent({ orderId: orderNumber, items: [], value: null }),
-    );
-    markPurchaseFired(orderNumber);
+    try {
+      if (stashed !== null && stashed.consent !== false && hasAdsConsent()) {
+        emitCommerceEvent(stashed.event);
+      } else {
+        recordPurchaseFirstParty(orderNumber);
+      }
+    } finally {
+      markPurchaseFired(orderNumber);
+    }
   }, [orderNumber]);
 
   return null;
