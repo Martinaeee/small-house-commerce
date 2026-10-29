@@ -37,6 +37,10 @@ export const analyticsEventSchema = z
     productId: z.uuid().nullable().optional(),
     campaignId: z.string().max(120).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    /** Signed marketing-touch credential. The server verifies the HMAC and
+     *  keeps only the resolved campaign link id; the credential itself is
+     *  never stored. */
+    marketingCredential: z.string().max(8192).optional(),
   })
   .strict();
 
