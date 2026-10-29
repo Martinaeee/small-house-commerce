@@ -35,6 +35,7 @@ describe("report tree table", () => {
     expect(screen.getAllByText("Meta 广告")).toHaveLength(2);
     expect(screen.getAllByText("Facebook 帖子")).toHaveLength(1);
     expect(screen.getByText("Ad A")).toBeInTheDocument();
+    expect(screen.getAllByText("Optimizer · OP-1").length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText("Table ad")).toBeInTheDocument();
     // every level carries aligned metric cells: 2 products + 3 sources + 4 links
     expect(screen.getAllByRole("cell", { name: "PHP 12000.00" }).length).toBe(9);

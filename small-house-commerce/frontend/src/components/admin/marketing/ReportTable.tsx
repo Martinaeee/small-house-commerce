@@ -36,6 +36,10 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
   const scopeKey = JSON.stringify([admin?.id, admin?.permissions, productId, landingPageId, linkId]);
   const queryKey = JSON.stringify([scopeKey, filters, productFilter, mode, sortBy, sortDirection, page, revision]);
   const [loaded, setLoaded] = useState<{ key: string; data: MarketingReport } | null>(null);
+  // Spec §5.4: a filter/sort/mode change keeps the previous table on screen
+  // instead of flashing a loading state; only a scope with no data yet
+  // shows the loading row, and errors replace the data with the error copy.
+  const [staleSnapshot, setStaleSnapshot] = useState<MarketingReport | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [owners, setOwners] = useState<{ key: string; items: Awaited<ReturnType<typeof marketingApi.ownerOptions>>; error?: string } | null>(null);
   const all = Boolean(admin?.permissions.includes("MARKETING_VIEW_ALL"));
@@ -44,7 +48,7 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     if (!admin) return;
     let alive = true;
     marketingApi.report({ from: filters.from, to: filters.to, groupBy: filters.groupBy, mode, sortBy, sortDirection, ownerUserId: all ? filters.ownerUserId || undefined : undefined, productId: productFilter || undefined, landingPageId, linkIds: linkId ? [linkId] : undefined, page: mode === "FLAT" ? page : 1, pageSize: 20 })
-      .then(data => { if (alive) { setLoaded({ key: queryKey, data }); setError(null); } })
+      .then(freshData => { if (alive) { setLoaded({ key: queryKey, data: freshData }); setStaleSnapshot(freshData); setError(null); } })
       .catch((reason: unknown) => { if (alive) setError({ key: queryKey, message: reason instanceof Error ? reason.message : String(reason) }); });
     return () => { alive = false; };
   }, [admin, queryKey, filters, productFilter, mode, sortBy, sortDirection, all, landingPageId, linkId, page, revision]);
@@ -68,7 +72,7 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     return () => { alive = false; };
   }, [admin, all, scopeKey]);
 
-  const data = loaded?.key === queryKey ? loaded.data : null;
+  const data = loaded?.key === queryKey ? loaded.data : staleSnapshot;
   const loadError = error?.key === queryKey ? error.message : null;
   const ownerData = owners?.key === scopeKey ? owners : null;
 

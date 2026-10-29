@@ -62,7 +62,10 @@ export function ReportTreeTable({ tree, sortBy, sortDirection, onSort }: {
           </tr>
           {open(`${group.product.id}:${source.sourceType}`) && source.links.map(link => (
             <tr key={link.id} className="align-top">
-              <td className="px-3 py-3 pl-20 text-admin-muted"><p>{link.label}</p><p className="text-xs text-admin-muted">{link.productName ?? ""}</p></td>
+              <td className="px-3 py-3 pl-20 text-admin-muted">
+                <p>{link.label}</p>
+                {link.ownerName && <p className="text-xs text-admin-muted">{link.ownerName} · {link.aid ?? "—"}</p>}
+              </td>
               <ReportMetricCells row={link} />
             </tr>
           ))}

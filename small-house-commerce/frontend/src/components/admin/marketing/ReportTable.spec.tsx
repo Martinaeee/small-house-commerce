@@ -120,6 +120,15 @@ describe("workbench report filters, sorting and tree view", () => {
     expect(screen.getByText(/加购 \/ 发起购物为事件次数/)).toBeInTheDocument();
   });
 
+  it("keeps the previous table on screen while a new query is in flight", async () => {
+    mount();
+    await screen.findByText("Ad A");
+    // The sorted request is not settled yet; the screen must not flash empty.
+    fireEvent.click(screen.getAllByRole("button", { name: /^有效订单/ })[0]!);
+    expect(screen.getByText("Ad A")).toBeInTheDocument();
+    expect(screen.queryByText("加载中")).not.toBeInTheDocument();
+  });
+
   it("renders a rows-less tree payload without touching the flat table", async () => {
     vi.mocked(marketingApi.report).mockResolvedValue({ ...result, mode: "TREE", linkCount: 1, rows: undefined as unknown as MarketingReport["rows"], tree: [{ product: { id: "p1", name: "Chair", productCode: "C1", thumbnailUrl: null }, totals: row, sources: [{ sourceType: "META_AD", totals: row, links: [row] }] }] });
     mount();
