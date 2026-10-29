@@ -27,37 +27,42 @@ enum AnalyticsEventName {
 }
 
 model AnalyticsEvent {
-  id          String             @id @default(uuid(7)) @db.Uuid
-  eventName   AnalyticsEventName @map("event_name")
+  id             String             @id @default(uuid(7)) @db.Uuid
+  eventName      AnalyticsEventName @map("event_name")
   /// Per-tab browser session id (crypto.randomUUID, sessionStorage). Never a
   /// customer identity; a returning shopper gets a new session per tab.
-  sessionId   String             @map("session_id") @db.VarChar(100)
-  customerId  String?            @map("customer_id") @db.Uuid
-  pageUrl     String             @map("page_url") @db.VarChar(1024)
-  pagePath    String             @map("page_path") @db.VarChar(512)
-  deviceType  String             @map("device_type") @db.VarChar(16)
-  referrer    String?            @db.VarChar(1024)
-  utmSource   String?            @map("utm_source") @db.VarChar(120)
-  utmMedium   String?            @map("utm_medium") @db.VarChar(120)
-  utmCampaign String?            @map("utm_campaign") @db.VarChar(120)
+  sessionId      String             @map("session_id") @db.VarChar(100)
+  customerId     String?            @map("customer_id") @db.Uuid
+  pageUrl        String             @map("page_url") @db.VarChar(1024)
+  pagePath       String             @map("page_path") @db.VarChar(512)
+  deviceType     String             @map("device_type") @db.VarChar(16)
+  referrer       String?            @db.VarChar(1024)
+  utmSource      String?            @map("utm_source") @db.VarChar(120)
+  utmMedium      String?            @map("utm_medium") @db.VarChar(120)
+  utmCampaign    String?            @map("utm_campaign") @db.VarChar(120)
   /// Free-form subject: product slug, search term, order number…
-  entityId    String?            @map("entity_id") @db.VarChar(120)
+  entityId       String?            @map("entity_id") @db.VarChar(120)
   /// Homepage section the event belongs to (document section id).
-  sectionId   String?            @map("section_id") @db.VarChar(120)
-  sectionType String?            @map("section_type") @db.VarChar(40)
-  destination String?            @db.VarChar(1024)
-  productId   String?            @map("product_id") @db.Uuid
-  campaignId  String?            @map("campaign_id") @db.VarChar(120)
-  metadata    Json?
+  sectionId      String?            @map("section_id") @db.VarChar(120)
+  sectionType    String?            @map("section_type") @db.VarChar(40)
+  destination    String?            @db.VarChar(1024)
+  productId      String?            @map("product_id") @db.Uuid
+  campaignId     String?            @map("campaign_id") @db.VarChar(120)
+  /// Campaign link that produced this event. Resolved server-side from the
+  /// signed marketing-touch credential the batch carries; null for organic or
+  /// invalid touches. Never a copy of client-supplied ids.
+  campaignLinkId String?            @map("campaign_link_id") @db.Uuid
+  metadata       Json?
   /// Asia/Manila calendar day. Indexed and used for impression dedupe.
-  eventDay    DateTime           @map("event_day") @db.Date
-  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  eventDay       DateTime           @map("event_day") @db.Date
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([eventName, createdAt])
   @@index([eventName, eventDay])
   @@index([sessionId, createdAt])
   @@index([sectionId, eventName, eventDay])
   @@index([productId, eventName, eventDay])
+  @@index([campaignLinkId, eventName, eventDay])
   @@index([createdAt])
   @@map("analytics_events")
 }

@@ -62,6 +62,7 @@ vi.mock("@/components/site/SiteSettingsProvider", () => ({
   }),
 }));
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   track: tracking.track,
   trackCustom: tracking.trackCustom,
 }));

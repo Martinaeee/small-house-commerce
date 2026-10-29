@@ -9,7 +9,7 @@ import { HomeTracking } from "./HomeTracking";
 import { ProductGridSection } from "./ProductGridSection";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 const section: HomepageSection = {
   id: "10000000-0000-7000-8000-000000000001", type: "PRODUCT_GRID",

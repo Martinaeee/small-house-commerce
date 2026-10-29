@@ -8,7 +8,7 @@ import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductCardVariantSelector } from "./ProductCardVariantSelector";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 let resize: (() => void) | undefined;
 let width = 144;

@@ -18,7 +18,7 @@ import {
 
 const getProduct = vi.hoisted(() => vi.fn());
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 vi.mock("@/lib/fonts", () => ({
   poppins: { className: "font-poppins", variable: "--font-poppins" },
 }));

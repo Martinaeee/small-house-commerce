@@ -58,12 +58,12 @@ model CampaignLink {
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  owner       User                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  product     Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
-  landingPage ProductLandingPage? @relation(fields: [landingPageId], references: [id], onDelete: Restrict)
-  visits      CampaignLinkVisit[]
+  owner             User                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  product           Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  landingPage       ProductLandingPage? @relation(fields: [landingPageId], references: [id], onDelete: Restrict)
+  visits            CampaignLinkVisit[]
   orderAttributions OrderAttribution[]
-  adCosts     AdCostEntry[]
+  adCosts           AdCostEntry[]
 
   @@index([ownerUserId, createdAt])
   @@index([productId])
@@ -86,28 +86,28 @@ model CampaignLinkVisit {
 }
 
 model AdCostEntry {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  linkId      String   @map("link_id") @db.Uuid
-  ownerUserId String   @map("owner_user_id") @db.Uuid
-  costDate    DateTime @map("cost_date") @db.Date
-  costType    String   @default("ADS_COST") @map("cost_type")
-  entrySource String   @default("MANUAL") @map("entry_source")
-  currency    String   @default("USD")
-  amountUsd   Decimal  @map("amount_usd") @db.Decimal(12, 2)
-  phpPerUsd   Decimal? @map("php_per_usd") @db.Decimal(12, 6)
-  amountPhp   Decimal  @map("amount_php") @db.Decimal(14, 2)
+  id          String    @id @default(uuid(7)) @db.Uuid
+  linkId      String    @map("link_id") @db.Uuid
+  ownerUserId String    @map("owner_user_id") @db.Uuid
+  costDate    DateTime  @map("cost_date") @db.Date
+  costType    String    @default("ADS_COST") @map("cost_type")
+  entrySource String    @default("MANUAL") @map("entry_source")
+  currency    String    @default("USD")
+  amountUsd   Decimal   @map("amount_usd") @db.Decimal(12, 2)
+  phpPerUsd   Decimal?  @map("php_per_usd") @db.Decimal(12, 6)
+  amountPhp   Decimal   @map("amount_php") @db.Decimal(14, 2)
   note        String?
   voidedAt    DateTime? @map("voided_at") @db.Timestamptz(3)
-  version     Int      @default(0)
-  createdById String   @map("created_by_id") @db.Uuid
-  updatedById String   @map("updated_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version     Int       @default(0)
+  createdById String    @map("created_by_id") @db.Uuid
+  updatedById String    @map("updated_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  link      CampaignLink @relation(fields: [linkId], references: [id], onDelete: Restrict)
-  owner     User @relation("AdCostOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
-  createdBy User @relation("AdCostCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy User @relation("AdCostUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  link      CampaignLink  @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  owner     User          @relation("AdCostOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  createdBy User          @relation("AdCostCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User          @relation("AdCostUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
   audit     AdCostAudit[]
 
   @@unique([linkId, costDate])
@@ -116,16 +116,16 @@ model AdCostEntry {
 }
 
 model AdCostAudit {
-  id          String @id @default(uuid(7)) @db.Uuid
-  costEntryId String @map("cost_entry_id") @db.Uuid
-  actorUserId String @map("actor_user_id") @db.Uuid
+  id          String            @id @default(uuid(7)) @db.Uuid
+  costEntryId String            @map("cost_entry_id") @db.Uuid
+  actorUserId String            @map("actor_user_id") @db.Uuid
   action      AdCostAuditAction
   before      Json?
   after       Json
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
   cost  AdCostEntry @relation(fields: [costEntryId], references: [id], onDelete: Restrict)
-  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  actor User        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
 
   @@index([costEntryId, createdAt])
   @@map("ad_cost_audit")

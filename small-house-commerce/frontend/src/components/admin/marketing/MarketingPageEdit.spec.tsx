@@ -23,7 +23,7 @@ vi.mock("next/dynamic", () => ({ default: () => (props: { content: LandingConten
     <button onClick={() => edit("<p>Second draft</p>")}>Edit again</button>
   </div>;
 } }));
-vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { getPage: vi.fn(), getPreview: vi.fn(), saveDraft: vi.fn(), publish: vi.fn(), disable: vi.fn(), listLinks: vi.fn(), listCosts: vi.fn(), report: vi.fn(), ownerOptions: vi.fn(), validate: vi.fn(), source: vi.fn(), sync: vi.fn(), performance: vi.fn(), performanceOptions: vi.fn() } }));
+vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { getPage: vi.fn(), getPreview: vi.fn(), saveDraft: vi.fn(), publish: vi.fn(), disable: vi.fn(), listLinks: vi.fn(), listCosts: vi.fn(), report: vi.fn(), ownerOptions: vi.fn(), linkContext: vi.fn(async () => ({ products: [] })), validate: vi.fn(), source: vi.fn(), sync: vi.fn(), performance: vi.fn(), performanceOptions: vi.fn() } }));
 vi.mock("./PerformanceTrendChart", () => ({ default: () => null }));
 const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null, blocks: [{ id: "buy", type: "buy", sourceKey: null, props: {} }, { id: "body", type: "richText", sourceKey: null, props: { html: "<p>Saved body</p>" } }] };
 const cleaned = (html: string): LandingContent => ({ ...content, blocks: [content.blocks[0], { id: "body", type: "richText", sourceKey: null, props: { html } }] });
@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.mocked(marketingApi.listLinks).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
   vi.mocked(marketingApi.listCosts).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
   vi.mocked(marketingApi.ownerOptions).mockResolvedValue([]);
-  vi.mocked(marketingApi.report).mockResolvedValue({ from: "2026-10-01", to: "2026-10-03", groupBy: "LINK", asOf: "2026-10-11T01:00:00Z", rows: [], otherSources: [], total: 0, page: 1, pageSize: 20 });
+  vi.mocked(marketingApi.report).mockResolvedValue({ from: "2026-10-01", to: "2026-10-03", groupBy: "LINK", mode: "FLAT", sortBy: "NAME", sortDirection: "ASC", asOf: "2026-10-11T01:00:00Z", rows: [], otherSources: [], total: 0, page: 1, pageSize: 20 });
   vi.mocked(marketingApi.performanceOptions).mockResolvedValue({ onlyOwn: false, products: [{ id: "product-1", name: "Chair", productCode: "LUW-001", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg", pageCount: 1 }], owners: [] });
   vi.mocked(marketingApi.performance).mockResolvedValue(perfReport);
 });

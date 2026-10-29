@@ -44,6 +44,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
       await prisma.adCostAudit.deleteMany({ where: { cost: { link: { productId } } } });
       await prisma.adCostEntry.deleteMany({ where: { link: { productId } } });
       await prisma.campaignLinkVisit.deleteMany({ where: { link: { productId } } });
+      await prisma.analyticsEvent.deleteMany({ where: { campaignLinkId: { not: null } } });
       await prisma.campaignLink.deleteMany({ where: { productId } });
       await prisma.landingPageVisit.deleteMany({ where: { landingPage: { productId } } });
       await prisma.productLandingPage.deleteMany({ where: { productId } });
@@ -143,6 +144,44 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     const pages = await report.report(query({ ...selected, groupBy: 'PAGE' }), own());
     expect(pages.rows).toHaveLength(1); expect(pages.rows[0]).toMatchObject({ visits: 1, pageTotalVisits: 2 });
     for (const groupBy of ['PRODUCT', 'OWNER']) expect((await report.report(query({ ...selected, groupBy }), own())).rows[0]).toMatchObject({ visits: 1 });
+  });
+
+  it('attributes first-party funnel events to their registered links and ignores unattributed ones', async () => {
+    const t = await target();
+    const second = await prisma.campaignLink.create({ data: { productId, landingPageId: t.page.id, ownerUserId: ownerId, aidSnapshot: 'REPORT-OWNER', name: 'Report ad funnel B', code: randomUUID().replaceAll('-', '').slice(0, 16), sourceType: 'FB_POST', createdAt: new Date('2026-10-03T16:00:00Z') } });
+    const day = new Date('2026-10-05T00:00:00Z');
+    const eventId = (name: string) => ({ eventName: name as never, sessionId: `funnel-${tag}`, pageUrl: 'https://luwag.ph/x', pagePath: '/lp/x', deviceType: 'mobile', eventDay: day });
+    await prisma.analyticsEvent.createMany({ data: [
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id },
+      { ...eventId('BEGIN_CHECKOUT'), campaignLinkId: t.link.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: second.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: null },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id, eventDay: new Date('2026-10-06T00:00:00Z') },
+    ] });
+    const selected = { linkIds: [t.link.id, second.id] };
+    const flat = await report.report(query({ ...selected, sortBy: 'ADD_TO_CARTS' as const, sortDirection: 'DESC' as const }), own());
+    expect(flat.rows.map(row => [row.label, row.addToCarts, row.checkouts])).toEqual([['Report ad', 2, 1], ['Report ad funnel B', 1, 0]]);
+    expect(flat.rows.every(row => row.visits === 0)).toBe(true);
+    await prisma.campaignLinkVisit.createMany({ data: [t.link.id, second.id].map(linkId => ({ linkId, visitKey: `funnel-tab-${tag}`, visitDay: day })) });
+    const tree = await report.report(query({ ...selected, mode: 'TREE' as const, groupBy: 'PRODUCT' as const }), own());
+    expect(tree.linkCount).toBe(2);
+    expect(tree.tree[0].sources.map(source => [source.sourceType, source.totals.addToCarts])).toEqual(expect.arrayContaining([['META_AD', 2], ['FB_POST', 1]]));
+    expect(JSON.stringify(tree.tree[0].sources.map(s => s.links))).toContain('Report ad');
+  });
+
+  it('dedupes one session across two links of one product in the tree while the flat table counts both', async () => {
+    const t = await target();
+    const second = await prisma.campaignLink.create({ data: { productId, landingPageId: t.page.id, ownerUserId: ownerId, aidSnapshot: 'REPORT-OWNER', name: 'Report ad dedupe B', code: randomUUID().replaceAll('-', '').slice(0, 16), sourceType: 'FB_POST', createdAt: new Date('2026-10-03T16:00:00Z') } });
+    const day = new Date('2026-10-05T00:00:00Z');
+    await prisma.campaignLinkVisit.createMany({ data: [t.link.id, second.id].map(linkId => ({ linkId, visitKey: `dedupe-tab-${tag}`, visitDay: day })) });
+    const selected = { linkIds: [t.link.id, second.id] };
+    expect((await report.report(query(selected), own())).rows.every(row => row.visits === 1)).toBe(true);
+    const tree = await report.report(query({ ...selected, mode: 'TREE' as const }), own());
+    expect(tree.tree).toHaveLength(1);
+    expect(tree.tree[0].totals.visits).toBe(1); // deduped, not summed (2)
+    expect(tree.tree[0].sources).toHaveLength(2);
+    expect(tree.tree[0].sources.every(source => source.totals.visits === 1)).toBe(true);
   });
 
   it('uses Manila touch boundaries rather than order creation and keeps owner scopes private', async () => {

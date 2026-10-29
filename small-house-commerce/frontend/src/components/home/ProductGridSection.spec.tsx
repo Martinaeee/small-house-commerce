@@ -5,7 +5,7 @@ import { cardTestProduct } from "@/test/product-card-fixtures";
 import { ProductGridSection } from "./ProductGridSection";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 const section: HomepageSection = {
   id: "grid-preview", type: "PRODUCT_GRID", title: "Selected tables", subtitle: null, sortOrder: 0, payload: {},
