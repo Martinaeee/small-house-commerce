@@ -14,8 +14,6 @@
  *   - the server dedupes impressions per session, section and Manila day.
  */
 
-import { currentMarketingCredential } from "./tracking";
-
 export type FirstPartyEventName =
   | "PAGE_VIEW"
   | "PRODUCT_VIEW"
@@ -44,12 +42,6 @@ export interface FirstPartyEvent {
   destination?: string | null;
   productId?: string | null;
   campaignId?: string | null;
-  /**
-   * The signed marketing-touch credential, attached to every event so the
-   * server resolves and stores the campaign link behind the action. Same
-   * last-touch credential checkout uses; null budget for organic traffic.
-   */
-  marketingCredential?: string;
 }
 
 const SESSION_KEY = "sh:fsid";
@@ -110,7 +102,6 @@ function baseEvent(eventName: FirstPartyEventName): FirstPartyEvent | null {
   const path = window.location.pathname;
   // Admin and preview traffic is not storefront traffic.
   if (path.startsWith("/admin") || path.startsWith("/preview")) return null;
-  const credential = currentMarketingCredential();
   return {
     eventName,
     sessionId: analyticsSessionId(),
@@ -119,7 +110,6 @@ function baseEvent(eventName: FirstPartyEventName): FirstPartyEvent | null {
     deviceType: detectDeviceType(),
     referrer: document.referrer ? document.referrer.slice(0, 1024) : null,
     ...utmParams(),
-    ...(credential ? { marketingCredential: credential } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { currentMarketingCredential, readAttribution } from "./tracking";
+import { readAttribution } from "./tracking";
 
 const KEY = "sh:marketing-touch";
 
@@ -152,27 +152,5 @@ describe("Meta pixel consent gate", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
     expect(w.fbq.queue).toContainEqual(["track", "PageView"]);
-  });
-});
-
-describe("currentMarketingCredential", () => {
-  it("returns the stored valid credential", () => {
-    window.localStorage.setItem(KEY, JSON.stringify({ credential: "server.credential", expiresAt: "2099-01-01T00:00:00Z" }));
-    expect(currentMarketingCredential()).toBe("server.credential");
-  });
-
-  it("returns null without a stored credential and after the storage is cleared", () => {
-    window.localStorage.clear();
-    expect(currentMarketingCredential()).toBeNull();
-  });
-
-  it("returns null for an expired or malformed stored credential", () => {
-    for (const value of [
-      JSON.stringify({ credential: "expired.credential", expiresAt: "2000-01-01T00:00:00Z" }),
-      "not-json",
-    ]) {
-      window.localStorage.setItem(KEY, value);
-      expect(currentMarketingCredential()).toBeNull();
-    }
   });
 });

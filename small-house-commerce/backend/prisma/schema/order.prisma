@@ -176,71 +176,71 @@ model InventoryMovement {
 /// §38 orders. Status is split into three domains (§39): order, confirmation
 /// and payment each get their own column instead of one overloaded field.
 model Order {
-  id            String   @id @default(uuid(7)) @db.Uuid
-  orderNumber   String   @unique @map("order_number")
-  customerId    String   @map("customer_id") @db.Uuid
-  orderStatus   OrderStatus @default(NEW) @map("order_status")
-  confirmationStatus ConfirmationStatus @default(UNCONFIRMED) @map("confirmation_status")
-  paymentStatus PaymentStatus @default(COD_PENDING) @map("payment_status")
-  currency      String   @default("PHP")
-  subtotal      Decimal  @db.Decimal(10, 2)
-  discountTotal Decimal  @map("discount_total") @db.Decimal(10, 2)
-  shippingTotal Decimal  @map("shipping_total") @db.Decimal(10, 2)
-  grandTotal    Decimal  @map("grand_total") @db.Decimal(10, 2)
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  orderNumber            String             @unique @map("order_number")
+  customerId             String             @map("customer_id") @db.Uuid
+  orderStatus            OrderStatus        @default(NEW) @map("order_status")
+  confirmationStatus     ConfirmationStatus @default(UNCONFIRMED) @map("confirmation_status")
+  paymentStatus          PaymentStatus      @default(COD_PENDING) @map("payment_status")
+  currency               String             @default("PHP")
+  subtotal               Decimal            @db.Decimal(10, 2)
+  discountTotal          Decimal            @map("discount_total") @db.Decimal(10, 2)
+  shippingTotal          Decimal            @map("shipping_total") @db.Decimal(10, 2)
+  grandTotal             Decimal            @map("grand_total") @db.Decimal(10, 2)
   // AID snapshot (§53): copied at order creation, never recomputed.
-  optimizerId         String? @map("optimizer_id") @db.Uuid
-  optimizerAidSnapshot String? @map("optimizer_aid_snapshot")
-  optimizerNameSnapshot String? @map("optimizer_name_snapshot")
-  customerClassification String? @map("customer_classification")
-  confirmedBy   String?  @map("confirmed_by") @db.Uuid
-  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(3)
-  confirmationNote String? @map("confirmation_note")
+  optimizerId            String?            @map("optimizer_id") @db.Uuid
+  optimizerAidSnapshot   String?            @map("optimizer_aid_snapshot")
+  optimizerNameSnapshot  String?            @map("optimizer_name_snapshot")
+  customerClassification String?            @map("customer_classification")
+  confirmedBy            String?            @map("confirmed_by") @db.Uuid
+  confirmedAt            DateTime?          @map("confirmed_at") @db.Timestamptz(3)
+  confirmationNote       String?            @map("confirmation_note")
   // Customer-service assignment (order workbench): who is handling this order.
-  assignedToId String?  @map("assigned_to_id") @db.Uuid
-  assignedBy   String?  @map("assigned_by") @db.Uuid
-  assignedAt   DateTime? @map("assigned_at") @db.Timestamptz(3)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  preferredDeliveryDate DateTime? @map("preferred_delivery_date") @db.Date
-  customerNote           String?   @map("customer_note")
-  promoCode              String?   @map("promo_code")
+  assignedToId           String?            @map("assigned_to_id") @db.Uuid
+  assignedBy             String?            @map("assigned_by") @db.Uuid
+  assignedAt             DateTime?          @map("assigned_at") @db.Timestamptz(3)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  preferredDeliveryDate  DateTime?          @map("preferred_delivery_date") @db.Date
+  customerNote           String?            @map("customer_note")
+  promoCode              String?            @map("promo_code")
   /// Browser session that placed the order (analytics_events.session_id).
   /// The dashboard's conversion rate divides ordering sessions by all
   /// sessions; the order row — not the PURCHASE pixel event — is the fact.
-  trackingSessionId      String?   @map("tracking_session_id") @db.VarChar(100)
+  trackingSessionId      String?            @map("tracking_session_id") @db.VarChar(100)
   /// Client-generated checkout retry key. Unique when present; NULL for
   /// admin/manual orders and for orders created before idempotency existed.
-  idempotencyKey         String?   @unique @map("idempotency_key") @db.VarChar(120)
+  idempotencyKey         String?            @unique @map("idempotency_key") @db.VarChar(120)
   /// sha256 of the order-defining request content, used to reject key reuse
   /// with different order details.
-  idempotencyHash        String?   @map("idempotency_hash") @db.VarChar(64)
+  idempotencyHash        String?            @map("idempotency_hash") @db.VarChar(64)
   // Manual COD verification (stage 1A): the checklist a handler works through.
-  verificationRequired Boolean  @default(false) @map("verification_required")
+  verificationRequired   Boolean            @default(false) @map("verification_required")
   // When the handler should come back to this order (follow-up callback).
-  nextFollowUpAt DateTime? @map("next_follow_up_at") @db.Timestamptz(3)
+  nextFollowUpAt         DateTime?          @map("next_follow_up_at") @db.Timestamptz(3)
   // Derived from the handover events: the moment every ordered unit has
   // arrived at the warehouse. The events stay the source of truth.
-  handoverCompletedAt DateTime? @map("handover_completed_at") @db.Timestamptz(3)
+  handoverCompletedAt    DateTime?          @map("handover_completed_at") @db.Timestamptz(3)
 
-  customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  items           OrderItem[]
-  shippingAddress OrderShippingAddress?
-  statusHistory   OrderStatusHistory[]
-  notes           OrderNote[]
-  riskFlags       OrderRiskFlag[]
-  mergeRecordsPrimary  OrderMergeRecord[] @relation("PrimaryOrder")
-  mergeRecordsMerged   OrderMergeRecord[] @relation("MergedOrder")
-  attribution     OrderAttribution?
-  payments        Payment[]
-  reservations    InventoryReservation[]
-  shipments       Shipment[]
-  promoRedemption PromoCodeRedemption?
+  customer                Customer                      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items                   OrderItem[]
+  shippingAddress         OrderShippingAddress?
+  statusHistory           OrderStatusHistory[]
+  notes                   OrderNote[]
+  riskFlags               OrderRiskFlag[]
+  mergeRecordsPrimary     OrderMergeRecord[]            @relation("PrimaryOrder")
+  mergeRecordsMerged      OrderMergeRecord[]            @relation("MergedOrder")
+  attribution             OrderAttribution?
+  payments                Payment[]
+  reservations            InventoryReservation[]
+  shipments               Shipment[]
+  promoRedemption         PromoCodeRedemption?
   verificationAssignments OrderVerificationAssignment[]
-  verificationItems      OrderVerificationItem[]
-  verificationEvents     OrderVerificationEvent[]
-  verificationApprovals  OrderVerificationApproval[]
-  handoverEvents         OrderHandoverEvent[]
-  returnAcceptances      ReturnAcceptance[]
+  verificationItems       OrderVerificationItem[]
+  verificationEvents      OrderVerificationEvent[]
+  verificationApprovals   OrderVerificationApproval[]
+  handoverEvents          OrderHandoverEvent[]
+  returnAcceptances       ReturnAcceptance[]
 
   @@index([customerId])
   @@index([orderStatus])
@@ -270,13 +270,13 @@ model OrderNote {
 
 /// §47 order risk flags — detection marks, never auto-delete the order.
 model OrderRiskFlag {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  orderId    String   @map("order_id") @db.Uuid
-  flagType   String   @map("flag_type") // POSSIBLE_DUPLICATE / CUSTOMER_RECHECK / CUSTOMER_BLOCKED
+  id         String    @id @default(uuid(7)) @db.Uuid
+  orderId    String    @map("order_id") @db.Uuid
+  flagType   String    @map("flag_type") // POSSIBLE_DUPLICATE / CUSTOMER_RECHECK / CUSTOMER_BLOCKED
   reason     String?
-  resolved   Boolean  @default(false)
-  createdBy  String?  @map("created_by") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolved   Boolean   @default(false)
+  createdBy  String?   @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -320,10 +320,10 @@ model Shipment {
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  items     ShipmentItem[]
-  events    LogisticsEvent[]
+  order             Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items             ShipmentItem[]
+  events            LogisticsEvent[]
   returnAcceptances ReturnAcceptance[]
 
   @@index([orderId])
@@ -382,8 +382,8 @@ model ReturnAcceptance {
   receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  order    Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  shipment Shipment            @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  order    Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  shipment Shipment               @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
   items    ReturnAcceptanceItem[]
 
   @@index([orderId, receivedAt])
@@ -409,9 +409,9 @@ model ReturnAcceptanceItem {
 
 /// §63 shipment items — which order lines (and how much) went in each box.
 model ShipmentItem {
-  id          String    @id @default(uuid(7)) @db.Uuid
-  shipmentId  String    @map("shipment_id") @db.Uuid
-  orderItemId String    @map("order_item_id") @db.Uuid
+  id          String @id @default(uuid(7)) @db.Uuid
+  shipmentId  String @map("shipment_id") @db.Uuid
+  orderItemId String @map("order_item_id") @db.Uuid
   quantity    Int
 
   shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
@@ -424,27 +424,27 @@ model ShipmentItem {
 /// §43 order items with historical snapshots (DB-003): catalog changes never
 /// alter past orders.
 model OrderItem {
-  id                  String  @id @default(uuid(7)) @db.Uuid
-  orderId             String  @map("order_id") @db.Uuid
-  productId           String? @map("product_id") @db.Uuid
-  variantId           String? @map("variant_id") @db.Uuid
-  skuId               String  @map("sku_id") @db.Uuid
-  productNameSnapshot String  @map("product_name_snapshot")
-  skuCodeSnapshot     String  @map("sku_code_snapshot")
-  variantSnapshot     String  @map("variant_snapshot")
-  optionSnapshot      Json?   @map("option_snapshot")
-  bundleSnapshot      Json?   @map("bundle_snapshot") @db.JsonB
+  id                  String   @id @default(uuid(7)) @db.Uuid
+  orderId             String   @map("order_id") @db.Uuid
+  productId           String?  @map("product_id") @db.Uuid
+  variantId           String?  @map("variant_id") @db.Uuid
+  skuId               String   @map("sku_id") @db.Uuid
+  productNameSnapshot String   @map("product_name_snapshot")
+  skuCodeSnapshot     String   @map("sku_code_snapshot")
+  variantSnapshot     String   @map("variant_snapshot")
+  optionSnapshot      Json?    @map("option_snapshot")
+  bundleSnapshot      Json?    @map("bundle_snapshot") @db.JsonB
   quantity            Int
-  unitPrice           Decimal @map("unit_price") @db.Decimal(10, 2)
-  unitDiscount        Decimal @map("unit_discount") @db.Decimal(10, 2)
+  unitPrice           Decimal  @map("unit_price") @db.Decimal(10, 2)
+  unitDiscount        Decimal  @map("unit_discount") @db.Decimal(10, 2)
   unitCostSnapshot    Decimal? @map("unit_cost_snapshot") @db.Decimal(10, 2)
-  lineTotal           Decimal @map("line_total") @db.Decimal(10, 2)
+  lineTotal           Decimal  @map("line_total") @db.Decimal(10, 2)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku   Sku   @relation(fields: [skuId], references: [id], onDelete: Restrict)
 
-  shipmentItems ShipmentItem[]
+  shipmentItems         ShipmentItem[]
   returnAcceptanceItems ReturnAcceptanceItem[]
 
   @@index([orderId])
@@ -456,15 +456,15 @@ model OrderItem {
 
 /// §44 address snapshot, independent from the customer's current addresses.
 model OrderShippingAddress {
-  id            String  @id @default(uuid(7)) @db.Uuid
-  orderId       String  @unique @map("order_id") @db.Uuid
-  fullName      String  @map("full_name")
+  id            String   @id @default(uuid(7)) @db.Uuid
+  orderId       String   @unique @map("order_id") @db.Uuid
+  fullName      String   @map("full_name")
   phone         String
   province      String
   city          String
   barangay      String?
-  postalCode    String? @map("postal_code")
-  streetAddress String  @map("street_address")
+  postalCode    String?  @map("postal_code")
+  streetAddress String   @map("street_address")
   landmark      String?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -476,15 +476,15 @@ model OrderShippingAddress {
 
 /// §45 every important state change is recorded.
 model OrderStatusHistory {
-  id          String  @id @default(uuid(7)) @db.Uuid
-  orderId     String  @map("order_id") @db.Uuid
-  statusDomain String @map("status_domain")
-  oldStatus   String? @map("old_status")
-  newStatus   String  @map("new_status")
-  source      String
-  operatorId  String? @map("operator_id") @db.Uuid
-  comment     String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id           String   @id @default(uuid(7)) @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  statusDomain String   @map("status_domain")
+  oldStatus    String?  @map("old_status")
+  newStatus    String   @map("new_status")
+  source       String
+  operatorId   String?  @map("operator_id") @db.Uuid
+  comment      String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -496,35 +496,35 @@ model OrderStatusHistory {
 /// the AID is frozen at order creation (§53). Facebook/landing fields stay
 /// plain columns until those modules land (Phase 4), then FKs can be added.
 model OrderAttribution {
-  id                     String     @id @default(uuid(7)) @db.Uuid
-  orderId                String     @unique @map("order_id") @db.Uuid
-  sourceType             SourceType @map("source_type")
-  optimizerId            String?    @map("optimizer_id") @db.Uuid
-  aidSnapshot            String?    @map("aid_snapshot")
-  ownerNameSnapshot      String?    @map("owner_name_snapshot")
-  linkId                 String?    @map("link_id") @db.Uuid
-  productId              String?    @map("product_id") @db.Uuid
-  productNameSnapshot    String?    @map("product_name_snapshot")
-  productCodeSnapshot    String?    @map("product_code_snapshot")
-  publishedRevision      Int?       @map("published_revision")
-  touchedAt              DateTime?  @map("touched_at") @db.Timestamptz(3)
-  legacy                 Boolean?
-  facebookPageId         String?    @map("facebook_page_id")
-  facebookPostId         String?    @map("facebook_post_id")
-  facebookPostTrackingCode String?  @map("facebook_post_tracking_code")
-  campaignId             String?    @map("campaign_id")
-  adsetId                String?    @map("adset_id")
-  adId                   String?    @map("ad_id")
-  landingPageId          String?    @map("landing_page_id")
-  utmSource              String?    @map("utm_source")
-  utmMedium              String?    @map("utm_medium")
-  utmCampaign            String?    @map("utm_campaign")
-  utmContent             String?    @map("utm_content")
-  utmTerm                String?    @map("utm_term")
-  fbclid                 String?
-  attributedAt           DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
+  id                       String     @id @default(uuid(7)) @db.Uuid
+  orderId                  String     @unique @map("order_id") @db.Uuid
+  sourceType               SourceType @map("source_type")
+  optimizerId              String?    @map("optimizer_id") @db.Uuid
+  aidSnapshot              String?    @map("aid_snapshot")
+  ownerNameSnapshot        String?    @map("owner_name_snapshot")
+  linkId                   String?    @map("link_id") @db.Uuid
+  productId                String?    @map("product_id") @db.Uuid
+  productNameSnapshot      String?    @map("product_name_snapshot")
+  productCodeSnapshot      String?    @map("product_code_snapshot")
+  publishedRevision        Int?       @map("published_revision")
+  touchedAt                DateTime?  @map("touched_at") @db.Timestamptz(3)
+  legacy                   Boolean?
+  facebookPageId           String?    @map("facebook_page_id")
+  facebookPostId           String?    @map("facebook_post_id")
+  facebookPostTrackingCode String?    @map("facebook_post_tracking_code")
+  campaignId               String?    @map("campaign_id")
+  adsetId                  String?    @map("adset_id")
+  adId                     String?    @map("ad_id")
+  landingPageId            String?    @map("landing_page_id")
+  utmSource                String?    @map("utm_source")
+  utmMedium                String?    @map("utm_medium")
+  utmCampaign              String?    @map("utm_campaign")
+  utmContent               String?    @map("utm_content")
+  utmTerm                  String?    @map("utm_term")
+  fbclid                   String?
+  attributedAt             DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   link  CampaignLink? @relation(fields: [linkId], references: [id], onDelete: Restrict)
 
   @@index([linkId, touchedAt])
@@ -608,21 +608,21 @@ enum VerificationTemplateScope {
 /// One current assignment per order. Reassignment closes the old row and
 /// opens a new one, so the checklist and its history are never lost.
 model OrderVerificationAssignment {
-  id              String               @id @default(uuid(7)) @db.Uuid
-  orderId         String               @map("order_id") @db.Uuid
-  assigneeId      String?              @map("assignee_id") @db.Uuid
-  assignedById    String               @map("assigned_by_id") @db.Uuid
-  assignedAt      DateTime             @default(now()) @map("assigned_at") @db.Timestamptz(3)
-  closedAt        DateTime?            @map("closed_at") @db.Timestamptz(3)
-  priority        VerificationPriority @default(NORMAL)
-  nextFollowUpAt  DateTime?            @map("next_follow_up_at") @db.Timestamptz(3)
-  note            String?
+  id             String               @id @default(uuid(7)) @db.Uuid
+  orderId        String               @map("order_id") @db.Uuid
+  assigneeId     String?              @map("assignee_id") @db.Uuid
+  assignedById   String               @map("assigned_by_id") @db.Uuid
+  assignedAt     DateTime             @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  closedAt       DateTime?            @map("closed_at") @db.Timestamptz(3)
+  priority       VerificationPriority @default(NORMAL)
+  nextFollowUpAt DateTime?            @map("next_follow_up_at") @db.Timestamptz(3)
+  note           String?
   /// Optimistic lock: a stale write is rejected instead of overwriting.
-  rev             Int                  @default(1)
-  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  rev            Int                  @default(1)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order     Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order                       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items     OrderVerificationItem[]
   events    OrderVerificationEvent[]
   approvals OrderVerificationApproval[]
@@ -636,34 +636,34 @@ model OrderVerificationAssignment {
 /// One verification question on an order. itemKey is the stable identity
 /// (e.g. "addr_area"); business rules never key off the display title.
 model OrderVerificationItem {
-  id             String                  @id @default(uuid(7)) @db.Uuid
-  orderId        String                  @map("order_id") @db.Uuid
-  assignmentId   String?                 @map("assignment_id") @db.Uuid
-  itemKey        String                  @map("item_key")
-  category       VerificationCategory
-  titleSnapshot  String                  @map("title_snapshot")
-  required       Boolean                 @default(true)
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  orderId            String                 @map("order_id") @db.Uuid
+  assignmentId       String?                @map("assignment_id") @db.Uuid
+  itemKey            String                 @map("item_key")
+  category           VerificationCategory
+  titleSnapshot      String                 @map("title_snapshot")
+  required           Boolean                @default(true)
   // The person who checks this question. It can differ from the owner of the
   // order, so a question can be handed to somebody else.
-  assigneeId     String?                 @map("assignee_id") @db.Uuid
-  status         VerificationItemStatus  @default(PENDING)
-  result         String?
-  note           String?
-  operatorId     String?                 @map("operator_id") @db.Uuid
-  completedAt    DateTime?               @map("completed_at") @db.Timestamptz(3)
-  nextFollowUpAt DateTime?               @map("next_follow_up_at") @db.Timestamptz(3)
-  skippedReason  String?                 @map("skipped_reason")
+  assigneeId         String?                @map("assignee_id") @db.Uuid
+  status             VerificationItemStatus @default(PENDING)
+  result             String?
+  note               String?
+  operatorId         String?                @map("operator_id") @db.Uuid
+  completedAt        DateTime?              @map("completed_at") @db.Timestamptz(3)
+  nextFollowUpAt     DateTime?              @map("next_follow_up_at") @db.Timestamptz(3)
+  skippedReason      String?                @map("skipped_reason")
   /// Fingerprint of the fields this question depends on. When the order is
   /// edited and the fingerprint no longer matches, the result is invalidated
   /// and has to be verified again.
-  subjectFingerprint String?              @map("subject_fingerprint")
-  invalidatedAt  DateTime?               @map("invalidated_at") @db.Timestamptz(3)
-  invalidatedReason String?               @map("invalidated_reason")
-  rev            Int                     @default(1)
-  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  subjectFingerprint String?                @map("subject_fingerprint")
+  invalidatedAt      DateTime?              @map("invalidated_at") @db.Timestamptz(3)
+  invalidatedReason  String?                @map("invalidated_reason")
+  rev                Int                    @default(1)
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order      Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order                        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
   events     OrderVerificationEvent[]
 
@@ -686,8 +686,8 @@ model OrderVerificationEvent {
   operatorId   String?                 @map("operator_id") @db.Uuid
   createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  order      Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  item       OrderVerificationItem?     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  order      Order                        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item       OrderVerificationItem?       @relation(fields: [itemId], references: [id], onDelete: Cascade)
   assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
 
   @@index([orderId, createdAt])
@@ -706,7 +706,7 @@ model OrderVerificationApproval {
   approvedById String   @map("approved_by_id") @db.Uuid
   approvedAt   DateTime @default(now()) @map("approved_at") @db.Timestamptz(3)
 
-  order      Order                       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order                        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   assignment OrderVerificationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
 
   @@index([orderId, approvedAt])
