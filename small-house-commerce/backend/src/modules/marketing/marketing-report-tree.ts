@@ -32,8 +32,13 @@ const zero = (): Totals => ({
   spendUsd: new Prisma.Decimal(0), spendPhp: new Prisma.Decimal(0),
   expectedCostDays: 0n, recordedCostDays: 0n,
 });
+/** Column types of `addKeys` on both a Totals shard and a raw row. */
+type CountingTotals = { [K in typeof addKeys[number]]: bigint };
+type RawWithIntegralCounts = Omit<MarketingReportRawRow, typeof addKeys[number]> & CountingTotals;
+
 function add(target: Totals, row: MarketingReportRawRow): void {
-  for (const key of addKeys) target[key] += row[key];
+  const counts = row as unknown as RawWithIntegralCounts;
+  for (const key of addKeys) target[key] += counts[key];
   target.validOrderValuePhp = target.validOrderValuePhp.plus(row.validOrderValuePhp);
   target.signedGrossPhp = target.signedGrossPhp.plus(row.signedGrossPhp);
   target.spendUsd = target.spendUsd.plus(row.spendUsd);

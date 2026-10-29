@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { assertVisible, scopeFor, type MarketingAccount } from './marketing-access.js';
-import type { MarketingReportQuery, MarketingReportSort, MarketingReportSortDirection } from './dto/marketing-report.dto.js';
+import type { MarketingReportQuery } from './dto/marketing-report.dto.js';
 import { marketingOrderFactsSql, marketingOrderTotalsSql, verifiedAttributionSql } from './marketing-report-facts.js';
 import { serializeMarketingReportRow, type MarketingReportRawRow } from './marketing-report-metrics.js';
 import { sortMarketingReportRows } from './marketing-report-sort.js';
@@ -20,7 +20,7 @@ export class MarketingReportService {
       const visible = await this.prisma.campaignLink.findMany({ where: { id: { in: ids }, ...(scope.all ? {} : { ownerUserId: account.id }) }, select: { id: true } });
       if (visible.length !== ids.length) throw new NotFoundException('Marketing record not found.');
     }
-    const owner = scope.all ? query.ownerUserId : account.id;
+    const owner = scope.all ? query.ownerUserId ?? null : account.id;
     const from = new Date(new Date(`${query.from}T00:00:00.000Z`).getTime() - 8 * 3600_000);
     const end = new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + 16 * 3600_000);
     const linkIds = query.linkIds?.map(id => Prisma.sql`${id}::uuid`);
@@ -138,7 +138,7 @@ export class MarketingReportService {
 
   /** WHERE fragment every scoped-links read must keep identical (orders,
    *  coverage and the tree's grouped visits join the same link set). */
-  private scopedLinksWhere(query: MarketingReportQuery, owner: string | null, linkIds: Prisma.Sql[] | undefined, end: Date): Prisma.Sql {
+  private scopedLinksWhere(query: MarketingReportQuery, owner: string | null, linkIds: readonly Prisma.Sql[] | undefined, end: Date): Prisma.Sql {
     return Prisma.sql`l.created_at < ${end}::timestamptz
       ${owner ? Prisma.sql`AND l.owner_user_id = ${owner}::uuid` : Prisma.empty}
       ${query.productId ? Prisma.sql`AND l.product_id = ${query.productId}::uuid` : Prisma.empty}

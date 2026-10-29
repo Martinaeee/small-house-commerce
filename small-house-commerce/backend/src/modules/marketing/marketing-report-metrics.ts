@@ -18,10 +18,14 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
 /** The sortable/serializable contract shared by the flat report and the tree. */
 export type MarketingReportSerializedRow = SortableReportRow & {
   kind: MarketingReportRawRow['kind']; ownerUserId: string | null; aid: string | null;
+  productId: string | null;
+  duplicateOrders: number; riskOrders: number; afterSalesOrders: number; refundStatusOrders: number;
+  validOrderValuePhp: string; signedGrossPhp: string; spendUsd: string; spendPhp: string;
+  expectedCostDays: number; recordedCostDays: number; costCoverageComplete: boolean;
+  orderCpaUsd: string | null; signedCpaUsd: string | null; orderRoas: string | null; signedRoas: string | null;
+  conversionRate: string | null; periodBasis: 'TOUCH' | 'ORDER_CREATED';
   productCode: string | null; landingPageId: string | null; sourceType: string | null;
   productThumbnailUrl: string | null; pageTotalVisits: number | null;
-  expectedCostDays: number; recordedCostDays: number;
-  costCoverageComplete: boolean; periodBasis: 'TOUCH' | 'ORDER_CREATED';
 };
 
 export function serializeMarketingReportRow(row: MarketingReportRawRow, productThumbnailUrl: string | null = null): MarketingReportSerializedRow {
