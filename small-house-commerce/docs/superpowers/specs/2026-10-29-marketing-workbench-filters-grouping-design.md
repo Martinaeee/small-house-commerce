@@ -83,7 +83,7 @@ model AnalyticsEvent {
 | 参数 | 取值 | 默认 |
 | --- | --- | --- |
 | `mode` | `FLAT` / `TREE` | `FLAT` |
-| `sortBy` | `NAME` `PRODUCT` `OWNER` `VISITS` `ADD_TO_CARTS` `CHECKOUTS` `SUBMITTED` `VALID` `CONFIRMED` `SIGNED` `VALID_VALUE` `SIGNED_GROSS` `SPEND_USD` `ORDER_CPA` `SIGNED_CPA` `ORDER_ROAS` `SIGNED_ROAS` `CONVERSION` | `NAME` |
+| `sortBy` | `NAME` `PRODUCT` `OWNER` `VISITS` `ADD_TO_CARTS` `CHECKOUTS` `SUBMITTED` `VALID` `CONFIRMED` `SIGNED` `VALID_VALUE` `SIGNED_GROSS` `SPEND_USD` `SPEND_PHP` `ORDER_CPA` `SIGNED_CPA` `ORDER_ROAS` `SIGNED_ROAS` `CONVERSION` | `NAME` |
 | `sortDirection` | `ASC` / `DESC` | `ASC` |
 
 既有参数保持不变：`from`、`to`、`groupBy`、`linkIds`、`ownerUserId`、`productId`、`landingPageId`、`page`、`pageSize`。
