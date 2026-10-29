@@ -141,6 +141,6 @@ export class CampaignLinksService {
 
   private serialize(row: LinkWithDetails) {
     const { owner, product, landingPage, ...link } = row;
-    return { ...link, aid: row.aidSnapshot, ownerName: owner.optimizerProfile?.displayName ?? owner.name, productName: product.name, productCode: product.productCode, productThumbnailUrl: product.images[0]?.url ?? null, pageName: landingPage?.name ?? null, path: linkPath(row) };
+    return { ...link, aid: row.aidSnapshot, ownerName: owner.optimizerProfile?.displayName ?? owner.name, productName: product.name, productCode: product.productCode, productThumbnailUrl: product.images?.[0]?.url ?? null, pageName: landingPage?.name ?? null, path: linkPath(row) };
   }
 }
