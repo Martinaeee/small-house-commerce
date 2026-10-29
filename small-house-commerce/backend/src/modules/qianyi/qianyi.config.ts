@@ -27,12 +27,12 @@ export function readQianyiConfig(config: ConfigService): QianyiConfig {
   const warehouse = config.get<string>('qianyi.warehouse') ?? '';
   const logistics = config.get<string>('qianyi.logistics') ?? '';
   const localWarehouseId = config.get<string>('qianyi.localWarehouseId') ?? null;
-  const flag = config.get<string>('qianyi.enabled') ?? 'false';
+  const flag = String(config.get<string>('qianyi.enabled') ?? 'false').trim().toLowerCase();
   const complete = Boolean(
     appId && secret && shop && warehouseId > 0 && warehouse && logistics,
   );
   return {
-    enabled: flag === 'true' && complete,
+    enabled: (flag === 'true' || flag === '1') && complete,
     baseUrl: config.get<string>('qianyi.baseUrl') ?? 'https://www.qianyierp.com',
     appId,
     secret,

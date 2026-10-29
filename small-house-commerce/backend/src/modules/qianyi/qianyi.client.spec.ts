@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
-import { QianyiClient, QianyiError, signQianyiRequest } from './qianyi.client.js';
+import { QianyiClient, QianyiError, qianyiRows, signQianyiRequest } from './qianyi.client.js';
 
 const ENV = {
   qianyi: {
@@ -72,6 +72,93 @@ describe('QianyiClient.call', () => {
     );
   });
 
+  it('unwraps a JSON-string bizContent', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          state: 'success',
+          errorCode: '',
+          bizContent: JSON.stringify({ list: [{ sku: 'SC001' }] }),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('QUERY_SIMPLE_LIST_SKU', 'sku', {})).resolves.toEqual({
+      list: [{ sku: 'SC001' }],
+    });
+  });
+
+  it('prefers bizContent over result when both are present', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          state: 'success',
+          errorCode: '',
+          bizContent: { orderNumber: 'S-1001' },
+          result: { orderNumber: 'STALE' },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('CREATE_AND_AUDIT_SALES_ORDER', 'salesOrder', {})).resolves.toEqual({
+      orderNumber: 'S-1001',
+    });
+  });
+
+  it('throws when bizContent reports a business failure after a protocol success', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          state: 'success',
+          errorCode: '',
+          bizContent: JSON.stringify({ success: false, code: 'SKU_NOT_FOUND', message: 'SKU 不存在' }),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('CREATE_AND_AUDIT_SALES_ORDER', 'salesOrder', {})).rejects.toMatchObject({
+      errorCode: 'BUSINESS_FAILURE',
+    });
+  });
+
+  it('throws when bizContent carries a non-zero errorCode', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          state: 'success',
+          errorCode: '',
+          bizContent: { errorCode: 'WMS_002', errorMsg: '仓库库存不足' },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('CREATE_AND_AUDIT_SALES_ORDER', 'salesOrder', {})).rejects.toMatchObject({
+      errorCode: 'WMS_002',
+    });
+  });
+
+  it('falls back to result when bizContent is absent', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ state: 'success', errorCode: '', result: { orderNumber: 'S-1' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('CREATE_AND_AUDIT_SALES_ORDER', 'salesOrder', {})).resolves.toEqual({
+      orderNumber: 'S-1',
+    });
+  });
+
+  it('returns null for an empty bizContent', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ state: 'success', errorCode: '', bizContent: '' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ) as unknown as typeof fetch;
+    await expect(clientWith(fetchImpl).call('CLOSE_SALES_ORDER', 'salesOrder', {})).resolves.toBeNull();
+  });
+
   it('sends the signed multipart fields the API expects', async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ state: 'success', errorCode: '', result: null }), {
@@ -103,5 +190,24 @@ describe('QianyiClient.call', () => {
     await expect(client.call('QUERY_SHOP_LIST', 'shop', {})).rejects.toMatchObject({
       errorCode: 'DISABLED',
     });
+  });
+});
+
+describe('qianyiRows', () => {
+  it('accepts a bare array', () => {
+    expect(qianyiRows([{ sku: 'A' }])).toEqual([{ sku: 'A' }]);
+  });
+
+  it('unwraps the list keys a bizContent wrapper uses', () => {
+    expect(qianyiRows({ list: [{ sku: 'A' }] })).toEqual([{ sku: 'A' }]);
+    expect(qianyiRows({ rows: [{ sku: 'B' }] })).toEqual([{ sku: 'B' }]);
+    expect(qianyiRows({ data: [{ sku: 'C' }] })).toEqual([{ sku: 'C' }]);
+    expect(qianyiRows({ result: [{ sku: 'D' }] })).toEqual([{ sku: 'D' }]);
+  });
+
+  it('returns an empty array for an unexpected shape', () => {
+    expect(qianyiRows(null)).toEqual([]);
+    expect(qianyiRows({ total: 0 })).toEqual([]);
+    expect(qianyiRows('oops')).toEqual([]);
   });
 });

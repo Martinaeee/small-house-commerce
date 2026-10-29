@@ -8,6 +8,8 @@ export interface QianyiResponse {
   errorCode?: string;
   errorMsg?: string;
   result?: unknown;
+  /** Business payload, usually a JSON string that still needs parsing. */
+  bizContent?: unknown;
 }
 
 /** Business failure returned by Qianyi, or a transport/parse failure. */
@@ -49,6 +51,61 @@ export function signQianyiRequest(
 }
 
 /**
+ * Qianyi answers with a protocol envelope (`state`/`errorCode`) and puts the
+ * business payload in `bizContent`, which is usually a JSON string that needs
+ * a second parse. A protocol-level success can still carry a business failure,
+ * so the unwrapped body is checked before it is handed to callers.
+ */
+export function unwrapQianyiPayload(parsed: QianyiResponse): unknown {
+  const source = parsed.bizContent ?? parsed.result;
+  if (source === undefined || source === null) return null;
+  let value: unknown = source;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    if (!text.startsWith('{') && !text.startsWith('[')) return value;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      throw new QianyiError('Qianyi bizContent is not valid JSON', 'INVALID_BIZ_CONTENT');
+    }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const body = value as Record<string, unknown>;
+    const errorCode = body.errorCode;
+    const codeIsFailure =
+      errorCode !== undefined && errorCode !== null && String(errorCode) !== '' && String(errorCode) !== '0';
+    if (body.success === false || body.state === 'failure' || codeIsFailure) {
+      throw new QianyiError(
+        String(body.errorMsg ?? body.message ?? 'Qianyi business failure'),
+        String(errorCode ?? 'BUSINESS_FAILURE'),
+      );
+    }
+  }
+  return value;
+}
+
+/** Qianyi lists sometimes arrive bare and sometimes inside a bizContent wrapper. */
+export function qianyiRows(payload: unknown): Array<Record<string, unknown>> {
+  const asRows = (value: unknown): Array<Record<string, unknown>> | null =>
+    Array.isArray(value)
+      ? value.filter(
+          (row): row is Record<string, unknown> =>
+            Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+        )
+      : null;
+  const direct = asRows(payload);
+  if (direct) return direct;
+  if (payload && typeof payload === 'object') {
+    for (const key of ['result', 'list', 'rows', 'data', 'records', 'items']) {
+      const rows = asRows((payload as Record<string, unknown>)[key]);
+      if (rows) return rows;
+    }
+  }
+  return [];
+}
+
+/**
  * The only place that knows the Qianyi wire protocol. One method, one path per
  * module (`shop`, `warehouse`, `salesOrder`, `sku`, `firstLeg`).
  */
@@ -68,6 +125,10 @@ export class QianyiClient {
 
   get enabled(): boolean {
     return this.config.enabled;
+  }
+
+  get shop(): string {
+    return this.config.shop;
   }
 
   async call(
@@ -132,6 +193,6 @@ export class QianyiClient {
         parsed.errorCode ?? 'UNKNOWN',
       );
     }
-    return parsed.result ?? null;
+    return unwrapQianyiPayload(parsed);
   }
 }

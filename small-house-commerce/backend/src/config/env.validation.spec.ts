@@ -30,6 +30,25 @@ describe('homepage preview environment validation', () => {
   });
 });
 
+describe('qianyi environment validation', () => {
+  const qianyi = {
+    QIANYI_APP_ID: 'app-id-12345',
+    QIANYI_APP_SECRET: 's'.repeat(24),
+    QIANYI_SHOP: 'LUWAG- PH',
+    QIANYI_WAREHOUSE_ID: '71537',
+    QIANYI_WAREHOUSE: 'PH-DAVAO-01',
+    QIANYI_LOGISTICS: 'SHIPDOC-STD',
+  };
+
+  it('accepts 1 as the enabled flag, matching the runtime config', () => {
+    expect(parseEnv({ ...required, ...qianyi, QIANYI_ENABLED: '1' }).QIANYI_ENABLED).toBe('1');
+  });
+
+  it('still requires every connection field when enabled with 1', () => {
+    expect(() => parseEnv({ ...required, QIANYI_ENABLED: '1' })).toThrow(/QIANYI_APP_ID/);
+  });
+});
+
 describe('email environment validation', () => {
   it('allows the log gateway without provider configuration', () => {
     const parsed = parseEnv(required);

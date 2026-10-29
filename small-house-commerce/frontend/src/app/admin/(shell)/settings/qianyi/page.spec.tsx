@@ -7,7 +7,6 @@ const apiMock = vi.hoisted(() => ({
   qianyiStatus: vi.fn(),
   qianyiSkus: vi.fn(),
   qianyiJobs: vi.fn(),
-  createQianyiSkus: vi.fn(),
   retryQianyiJob: vi.fn(),
   requeueQianyiJob: vi.fn(),
   authorizeQianyiCreateRetry: vi.fn(),
@@ -32,29 +31,12 @@ beforeEach(() => {
 });
 
 describe("QianyiSettingsPage", () => {
-  it("disables rows that are not ready to be created", async () => {
+  it("lists SKU codes and data gaps without offering remote creation", async () => {
     render(<QianyiSettingsPage />);
     await waitFor(() => expect(screen.getByText("Console Table")).toBeInTheDocument());
-    expect(screen.getByLabelText("TB001-Wa")).toBeEnabled();
-    expect(screen.getByLabelText("SC001")).toBeDisabled();
-  });
-
-  it("starts with nothing selected", async () => {
-    render(<QianyiSettingsPage />);
-    await waitFor(() => expect(screen.getByLabelText("TB001-Wa")).toBeInTheDocument());
-    expect(screen.getByLabelText("TB001-Wa")).not.toBeChecked();
-    expect(screen.getByRole("button", { name: /qianyi_create_selected/ })).toBeDisabled();
-  });
-
-  it("submits only the ticked rows", async () => {
-    apiMock.createQianyiSkus.mockResolvedValue({ results: [{ skuCode: "TB001-Wa", ok: true }] });
-    render(<QianyiSettingsPage />);
-    await waitFor(() => expect(screen.getByLabelText("TB001-Wa")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByLabelText("TB001-Wa"));
-    await userEvent.click(screen.getByRole("button", { name: /qianyi_create_selected/ }));
-
-    expect(apiMock.createQianyiSkus).toHaveBeenCalledWith(["sku-1"]);
+    expect(screen.getByText("TB001-Wa")).toBeInTheDocument();
+    expect(screen.getByText(/qianyi_missing/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 });
 
@@ -63,7 +45,7 @@ describe("QianyiSettingsPage mapping", () => {
     apiMock.qianyiSkus.mockResolvedValue(ROWS);
     apiMock.setQianyiMapping.mockResolvedValue({ qianyiSkuCode: "YD003760CMHT" });
     render(<QianyiSettingsPage />);
-    await waitFor(() => expect(screen.getByLabelText("TB001-Wa")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("qianyi code for TB001-Wa")).toBeInTheDocument());
 
     const input = screen.getByLabelText("qianyi code for TB001-Wa");
     await userEvent.type(input, "YD003760CMHT");

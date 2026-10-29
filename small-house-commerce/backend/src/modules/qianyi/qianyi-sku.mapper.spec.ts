@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSkuPayload, skuReadiness } from './qianyi-sku.mapper.js';
+import { skuReadiness } from './qianyi-sku.mapper.js';
 
 const SKU = {
   id: 'sku-1',
@@ -31,35 +31,3 @@ describe('skuReadiness', () => {
   });
 });
 
-describe('buildSkuPayload', () => {
-  it('uses package weight as gross and product weight as net', () => {
-    const payload = buildSkuPayload(SKU, 'TB001-Wa');
-    expect(payload).toMatchObject({
-      sku: 'TB001-Wa',
-      title: 'Console Table',
-      type: 'SINGLE',
-      weight: 12.5,
-      netWeight: 11.2,
-      weightUnit: 'KG',
-      length: 120,
-      width: 60,
-      height: 30,
-      dimensionUnit: 'cm',
-      enable: 1,
-    });
-    expect(payload.notes).toEqual([expect.stringContaining('shelfLife')]);
-  });
-
-  it('sends KG and cm, the units our catalog stores', () => {
-    const payload = buildSkuPayload(SKU, 'TB001-Wa');
-    expect(payload.weightUnit).toBe('KG');
-    expect(payload.dimensionUnit).toBe('cm');
-    expect(payload.shelfLife).toBeGreaterThan(0);
-  });
-
-  it('maps our width/depth onto Qianyi length/width', () => {
-    const payload = buildSkuPayload(SKU, 'TB001-Wa');
-    // Our schema: packageWidth × packageDepth × packageHeight = L × W × H.
-    expect([payload.length, payload.width, payload.height]).toEqual([120, 60, 30]);
-  });
-});

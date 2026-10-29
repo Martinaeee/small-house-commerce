@@ -2,7 +2,7 @@ import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } fro
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { QianyiClient } from './qianyi.client.js';
+import { QianyiClient, qianyiRows } from './qianyi.client.js';
 import { buildCreateOrderPayload, MissingMappingError } from './qianyi-order.mapper.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
 
@@ -196,10 +196,10 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
   private async findExistingOrder(payload: Record<string, unknown>): Promise<{ orderNumber?: string } | null> {
     const onlineOrderNumber = String(payload.onlineOrderNumber ?? '');
     if (!onlineOrderNumber) return null;
-    const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+    const rows = qianyiRows(await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
       shop: this.config.shop, onlineOrderNumber, page: 1, pageSize: 5,
-    })) as Array<Record<string, unknown>> | null;
-    const matches = (Array.isArray(rows) ? rows : []).filter(row => row.onlineOrderNumber === onlineOrderNumber &&
+    }));
+    const matches = rows.filter(row => row.onlineOrderNumber === onlineOrderNumber &&
       (row.shop === undefined || row.shop === this.config.shop) &&
       (row.payAmount === undefined || `${row.payAmount}` === `${payload.codPayAmount}`));
     return matches.length === 1 ? matches[0] as { orderNumber?: string } : null;
@@ -304,10 +304,10 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date).replace(',', '');
     let page = 1, checked = 0, unmatched = 0;
     for (;;) {
-      const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+      const rows = qianyiRows(await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
         shop: this.config.shop, updateTimeFrom: fmt(from), updateTimeTo: fmt(now), page, pageSize: 100,
-      })) as Array<Record<string, unknown>> | null;
-      if (!Array.isArray(rows) || rows.length === 0) break;
+      }));
+      if (rows.length === 0) break;
       checked += rows.length;
       for (const row of rows) {
         const online = String(row.onlineOrderNumber ?? '');

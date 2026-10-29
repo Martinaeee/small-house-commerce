@@ -16,17 +16,14 @@ const WEBHOOK_URL = "https://luwag.shop/api/v1/qianyi/webhook";
 /**
  * Qianyi integration console.
  *
- * The product-creation table is a gate, not a batch job: a row is only sent to
- * Qianyi when the operator ticks it, and rows missing weight or dimensions are
- * disabled rather than filled with guesses.
+ * SKUs are created in Qianyi by staff; this page only binds an existing code
+ * to a local SKU, and the backend verifies that code against the catalog.
  */
 export default function QianyiSettingsPage() {
   const { t } = useAdminI18n();
   const [status, setStatus] = useState<AdminQianyiStatus | null>(null);
   const [rows, setRows] = useState<AdminQianyiSkuRow[]>([]);
   const [jobs, setJobs] = useState<AdminQianyiJob[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,28 +39,6 @@ export default function QianyiSettingsPage() {
       })
       .catch(() => setMessage("load failed"));
   }, []);
-
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      const { results } = await adminApi.createQianyiSkus([...selected]);
-      const ok = results.filter((result) => result.ok).length;
-      setMessage(t("qianyi_created", { ok, total: results.length }));
-      setSelected(new Set());
-      setRows(await adminApi.qianyiSkus());
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const retry = async (id: string) => {
     const result = await adminApi.retryQianyiJob(id);
@@ -100,11 +75,19 @@ export default function QianyiSettingsPage() {
   };
 
   // The only place a mapping can be set: without it a SKU never reaches Qianyi.
+  // The backend verifies the code against the catalog while the integration is on.
   const saveMapping = async (id: string, current: string | null, next: string) => {
     const value = next.trim();
-    if (value === (current ?? "")) return;
-    await adminApi.setQianyiMapping(id, value || null);
-    setRows(await adminApi.qianyiSkus());
+    if (value === (current ?? "")) return true;
+    try {
+      await adminApi.setQianyiMapping(id, value || null);
+      setMessage(value ? t("qianyi_mapping_saved", { code: value }) : null);
+      setRows(await adminApi.qianyiSkus());
+      return true;
+    } catch {
+      setMessage(t("qianyi_mapping_failed", { code: value }));
+      return false;
+    }
   };
 
   return (
@@ -125,17 +108,11 @@ export default function QianyiSettingsPage() {
       </section>
 
       <section className="rounded-lg border border-border bg-surface p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">{t("qianyi_skus_title")}</h2>
-          <Button onClick={submit} disabled={busy || selected.size === 0}>
-            {t("qianyi_create_selected", { count: selected.size })}
-          </Button>
-        </div>
+        <h2 className="mb-3 text-sm font-semibold">{t("qianyi_skus_title")}</h2>
         {message ? <p className="mb-2 text-xs text-primary">{message}</p> : null}
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-muted">
-              <th className="w-10" />
               <th>{t("qianyi_col_sku")}</th>
               <th>{t("qianyi_col_title")}</th>
               <th>{t("qianyi_col_code")}</th>
@@ -145,15 +122,6 @@ export default function QianyiSettingsPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="border-t border-border/60">
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={row.skuCode}
-                    disabled={!row.ready || Boolean(row.qianyiSkuCode)}
-                    checked={selected.has(row.id)}
-                    onChange={() => toggle(row.id)}
-                  />
-                </td>
                 <td>{row.skuCode}</td>
                 <td>{row.title}</td>
                 <td>
@@ -161,9 +129,12 @@ export default function QianyiSettingsPage() {
                     aria-label={`qianyi code for ${row.skuCode}`}
                     defaultValue={row.qianyiSkuCode ?? ""}
                     placeholder="—"
-                    onBlur={(event) =>
-                      void saveMapping(row.id, row.qianyiSkuCode, event.currentTarget.value)
-                    }
+                    onBlur={async (event) => {
+                      const input = event.currentTarget;
+                      if (!(await saveMapping(row.id, row.qianyiSkuCode, input.value))) {
+                        input.value = row.qianyiSkuCode ?? "";
+                      }
+                    }}
                     className="w-36 rounded border border-border bg-surface px-2 py-1 text-sm"
                   />
                 </td>

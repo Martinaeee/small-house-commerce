@@ -141,4 +141,19 @@ describe('QianyiSyncService.reconcile', () => {
       where: { receivedAt: { lt: new Date('2026-07-31T03:00:00Z') }, processedAt: { not: null } },
     });
   });
+
+  it('reads a list wrapper returned inside bizContent', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service, prisma } = serviceWith(tx);
+    client.call.mockResolvedValue({ list: [{ onlineOrderNumber: 'PH100012', trackingNumber: 'TRK-1' }] });
+    const fake = prisma as unknown as {
+      order: { findUnique: (args: unknown) => Promise<unknown> };
+      orderNote: { create: (args: unknown) => Promise<unknown> };
+    };
+    fake.order = { findUnique: vi.fn(async () => ({ id: 'order-1', shipments: [] })) };
+    fake.orderNote = { create: vi.fn(async () => undefined) };
+    const result = await service.reconcile(new Date('2026-10-29T03:00:00Z'));
+    expect(result.checked).toBe(1);
+    expect(fake.orderNote.create).toHaveBeenCalledTimes(1);
+  });
 });

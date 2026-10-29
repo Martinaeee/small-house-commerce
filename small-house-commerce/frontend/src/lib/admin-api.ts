@@ -1652,16 +1652,9 @@ export interface AdminQianyiSkuRow {
   id: string;
   skuCode: string;
   qianyiSkuCode: string | null;
-  suggestedCode: string;
   title: string;
   ready: boolean;
   gaps: string[];
-}
-
-export interface AdminQianyiCreateResult {
-  skuCode: string;
-  ok: boolean;
-  error?: string;
 }
 
 export interface AdminQianyiJob {
@@ -1819,11 +1812,13 @@ export const adminApi = {
       `/api/v1/admin/orders/${encodeURIComponent(id)}`,
     ),
 
-  // Bare updated Order row (no customer/items includes).
+  // Bare updated Order row (no customer/items includes). The endpoint always
+  // requires a decision: an empty body arrives as `{}` (the auth wrapper sets
+  // a JSON content type) and is rejected, so the default is stated here.
   confirmOrder: (id: string): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/confirm`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ decision: "CONFIRM" }) },
     ),
 
   cancelOrder: (id: string): Promise<AdminOrderRow> =>
@@ -2754,14 +2749,6 @@ export const adminApi = {
 
   qianyiSkus: (): Promise<AdminQianyiSkuRow[]> =>
     adminAuthedFetch<AdminQianyiSkuRow[]>("/api/v1/admin/qianyi/skus"),
-
-  createQianyiSkus: (
-    skuIds: string[],
-  ): Promise<{ results: AdminQianyiCreateResult[] }> =>
-    adminAuthedFetch<{ results: AdminQianyiCreateResult[] }>(
-      "/api/v1/admin/qianyi/skus/create",
-      { method: "POST", body: JSON.stringify({ skuIds }) },
-    ),
 
   setQianyiMapping: (
     skuId: string,

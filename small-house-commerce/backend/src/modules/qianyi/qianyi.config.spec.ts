@@ -37,4 +37,11 @@ describe('readQianyiConfig', () => {
     );
     expect(config.enabled).toBe(false);
   });
+
+  it('accepts 1 as the enabled flag', () => {
+    const config = readQianyiConfig(
+      configOf({ qianyi: { ...COMPLETE.qianyi, enabled: '1' } }),
+    );
+    expect(config.enabled).toBe(true);
+  });
 });

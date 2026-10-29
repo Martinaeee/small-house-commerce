@@ -143,7 +143,7 @@ export const envSchema = z.object({
   ),
   // Qianyi ERP. Every value is optional so an unconfigured deployment boots
   // unchanged; the superRefine below refuses a half-configured switch-on.
-  QIANYI_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false']).optional()),
+  QIANYI_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false', '1']).optional()),
   QIANYI_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
   QIANYI_APP_ID: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
   QIANYI_APP_SECRET: z.preprocess(blankAsUndefined, z.string().min(20).optional()),
@@ -182,7 +182,7 @@ export const envSchema = z.object({
       message: 'META_PIXEL_ID is required when META_CAPI_ACCESS_TOKEN is set',
     });
   }
-  if (env.QIANYI_ENABLED === 'true') {
+  if (env.QIANYI_ENABLED === 'true' || env.QIANYI_ENABLED === '1') {
     const required = [
       'QIANYI_APP_ID',
       'QIANYI_APP_SECRET',
