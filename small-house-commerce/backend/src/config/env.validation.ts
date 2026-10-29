@@ -141,6 +141,25 @@ export const envSchema = z.object({
     blankAsUndefined,
     z.string().regex(/^v\d+\.\d+$/, 'META_CAPI_API_VERSION must look like v23.0').optional(),
   ),
+  // Qianyi ERP. Every value is optional so an unconfigured deployment boots
+  // unchanged; the superRefine below refuses a half-configured switch-on.
+  QIANYI_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false', '1']).optional()),
+  QIANYI_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
+  QIANYI_APP_ID: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
+  QIANYI_APP_SECRET: z.preprocess(blankAsUndefined, z.string().min(20).optional()),
+  QIANYI_SHOP: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  QIANYI_WAREHOUSE_ID: z.preprocess(
+    blankAsUndefined,
+    z.coerce.number().int().positive().optional(),
+  ),
+  QIANYI_WAREHOUSE: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  // Optional: the local Warehouse row that books Qianyi's shipments. Unset
+  // falls back to the existing "first active warehouse" rule.
+  QIANYI_LOCAL_WAREHOUSE_ID: z.preprocess(
+    blankAsUndefined,
+    z.string().uuid('QIANYI_LOCAL_WAREHOUSE_ID must be a uuid').optional(),
+  ),
+  QIANYI_LOGISTICS: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
     ctx.addIssue({
@@ -162,6 +181,25 @@ export const envSchema = z.object({
       path: ['META_PIXEL_ID'],
       message: 'META_PIXEL_ID is required when META_CAPI_ACCESS_TOKEN is set',
     });
+  }
+  if (env.QIANYI_ENABLED === 'true' || env.QIANYI_ENABLED === '1') {
+    const required = [
+      'QIANYI_APP_ID',
+      'QIANYI_APP_SECRET',
+      'QIANYI_SHOP',
+      'QIANYI_WAREHOUSE_ID',
+      'QIANYI_WAREHOUSE',
+      'QIANYI_LOGISTICS',
+    ] as const;
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} is required when QIANYI_ENABLED is true`,
+        });
+      }
+    }
   }
 });
 

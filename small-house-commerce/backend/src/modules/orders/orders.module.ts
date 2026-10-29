@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
 import { MetaCapiModule } from '../meta-capi/meta-capi.module.js';
+import { QianyiModule } from '../qianyi/qianyi.module.js';
 import { NewsletterModule } from '../newsletter/newsletter.module.js';
 import { OrdersService } from './orders.service.js';
 import { CustomerRiskService } from './customer-risk.service.js';
@@ -20,7 +21,7 @@ import { ReturnAcceptanceService } from './return-acceptance.service.js';
  * JwtModule, which the admin guards inject.
  */
 @Module({
-  imports: [AuthModule, CatalogModule, MetaCapiModule, NewsletterModule],
+  imports: [AuthModule, CatalogModule, MetaCapiModule, NewsletterModule, QianyiModule],
   controllers: [
     StorefrontOrdersController,
     AdminOrdersController,

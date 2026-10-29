@@ -24,6 +24,7 @@ import {
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
+import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
@@ -39,11 +40,7 @@ import {
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
-import {
-  orderStatusAfterSign,
-  quantityByLine,
-  type ShipmentSnapshot,
-} from './return-outcome.js';
+import { signShipmentWithin } from './sign-shipment.js';
 
 /**
  * The verification progress of one order, as the workbench table shows it
@@ -184,6 +181,22 @@ const GUEST_ORDER_INCLUDE = {
     },
   },
   shippingAddress: true,
+  // The shopper's carrier timeline. Only the fields the guest projection
+  // forwards are selected here, so warehouse ids and operator ids never leave
+  // the database.
+  shipments: {
+    orderBy: { shippedAt: 'asc' as const },
+    select: {
+      carrier: true,
+      trackingNumber: true,
+      shippedAt: true,
+      signedAt: true,
+      events: {
+        orderBy: { eventTime: 'asc' as const },
+        select: { normalizedStatus: true, eventTime: true },
+      },
+    },
+  },
   statusHistory: {
     orderBy: { createdAt: 'asc' as const },
     select: {
@@ -274,6 +287,9 @@ export class OrdersService {
     private readonly backInStock: BackInStockService,
     // Optional so direct unit constructions keep working; Nest injects it.
     @Optional() private readonly metaCapi?: MetaCapiService,
+    // Optional for the same reason: every spec that builds OrdersService by
+    // hand keeps working without a Qianyi stub.
+    @Optional() private readonly qianyi?: QianyiSyncService,
   ) {}
 
   /**
@@ -840,6 +856,9 @@ export class OrdersService {
           },
         });
       }
+      // Push happens through the outbox, inside this transaction: a rolled
+      // back confirmation must not leave a queued push behind.
+      await this.qianyi?.enqueue(tx, 'PUSH_ORDER', orderId);
       return { updated, promoReleased: false, backInStockClaims: [] };
     });
     await this.backInStock.deliverClaims(backInStockClaims);
@@ -879,6 +898,7 @@ export class OrdersService {
         comment: comment ?? null,
       },
     });
+    if (this.qianyi) await this.qianyi.cancelWithin(tx, order.id, operatorId);
     return { updated, promoReleased, backInStockClaims };
   }
 
@@ -925,6 +945,10 @@ export class OrdersService {
             operatorId,
           },
         });
+        // Only an order that reached Qianyi can be closed there. A queued or
+        // skipped push is cancelled so the worker cannot send a cancelled
+        // order; an in-flight one is flagged for manual reconciliation.
+        if (this.qianyi) await this.qianyi.cancelWithin(tx, orderId, operatorId);
         return { updated, promoReleased, backInStockClaims };
       },
     );
@@ -1684,6 +1708,9 @@ export class OrdersService {
         data: { orderStatus: 'CANCELLED' },
       });
       const promoReleased = await this.releasePromoSlot(tx, dropped.id);
+      // The merged-away order must not be pushed to Qianyi after it stopped
+      // existing locally.
+      if (this.qianyi) await this.qianyi.cancelWithin(tx, dropped.id, operatorId);
 
       // Audit both sides (§48: merged history is never deleted).
       await tx.orderMergeRecord.create({
@@ -2192,103 +2219,8 @@ export class OrdersService {
   /** §69 sign a shipment: every box signed moves the order to SIGNED. */
   async sign(orderId: string, shipmentId: string, operatorId: string) {
     return this.prisma.$transaction(async (tx) => {
-      // Serialize with return acceptance on the same order: a box cannot be
-      // signed and accepted back at the same time.
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: true,
-          shipments: { include: { items: true } },
-        },
-      });
-      if (!order) throw new NotFoundException('Order not found');
-      const shipment = order.shipments.find((s) => s.id === shipmentId);
-      if (!shipment) {
-        throw new NotFoundException('Shipment not found on this order');
-      }
-      if (shipment.status === 'SIGNED') {
-        throw new BadRequestException('Shipment is already signed');
-      }
-      if (shipment.status === 'RETURNED' || shipment.status === 'PARTIALLY_RETURNED') {
-        throw new BadRequestException(
-          `Shipment was already returned; its goods cannot be signed (current: ${shipment.status})`,
-        );
-      }
-      if (order.orderStatus !== 'SHIPPING') {
-        throw new BadRequestException(`Order is ${order.orderStatus}; only SHIPPING orders can be signed`);
-      }
-
-      // Some units of this box may already be back in the warehouse. Signing
-      // covers whatever is left; a fully returned box is refused above.
-      const acceptedInBox = new Map<string, number>();
-      for (const item of await tx.returnAcceptanceItem.findMany({
-        where: { acceptance: { orderId, shipmentId } },
-        select: { orderItemId: true, quantityGood: true, quantityDamaged: true },
-      })) {
-        acceptedInBox.set(
-          item.orderItemId,
-          (acceptedInBox.get(item.orderItemId) ?? 0) +
-            item.quantityGood +
-            item.quantityDamaged,
-        );
-      }
-      const hasReturnedUnits = [...acceptedInBox.values()].some((quantity) => quantity > 0);
-      const shipmentStatus = hasReturnedUnits ? 'PARTIALLY_RETURNED' : 'SIGNED';
-
-      await tx.shipment.update({
-        where: { id: shipmentId },
-        data: { status: shipmentStatus, signedAt: new Date() },
-      });
-
-      const shipments: ShipmentSnapshot[] = order.shipments.map((box) => ({
-        id: box.id,
-        status: box.id === shipmentId ? shipmentStatus : box.status,
-        items: box.items,
-      }));
-      const shippedByLine = new Map<string, number>();
-      for (const box of shipments) {
-        for (const [orderItemId, quantity] of quantityByLine(box.items)) {
-          shippedByLine.set(orderItemId, (shippedByLine.get(orderItemId) ?? 0) + quantity);
-        }
-      }
-      // A partial shipment may not cover the whole order yet: only a fully
-      // shipped order can reach a terminal status.
-      const fullyShipped = order.items.every(
-        (line) => (shippedByLine.get(line.id) ?? 0) >= line.quantity,
-      );
-      const orderStatus = orderStatusAfterSign({
-        lines: order.items,
-        shipments,
-        fullyShipped,
-      });
-      if (orderStatus !== order.orderStatus) {
-        await tx.order.update({ where: { id: orderId }, data: { orderStatus } });
-        await tx.orderStatusHistory.create({
-          data: {
-            orderId,
-            statusDomain: 'ORDER_STATUS',
-            oldStatus: order.orderStatus,
-            newStatus: orderStatus,
-            source: 'ADMIN',
-            operatorId,
-            comment: hasReturnedUnits
-              ? 'Remaining goods signed; some units were returned'
-              : 'All shipments signed',
-          },
-        });
-      }
-
-      await tx.orderNote.create({
-        data: {
-          orderId,
-          userId: operatorId,
-          noteType: 'WAREHOUSE',
-          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})`,
-        },
-      });
-
-      return { shipmentId, orderStatus, shipmentStatus };
+      return signShipmentWithin(tx, orderId, shipmentId, { source: 'ADMIN', operatorId });
     });
   }
 
@@ -2457,6 +2389,16 @@ export class OrdersService {
    * bought, and the product rows behind them are dropped from the response.
    */
   private guestOrder<T extends {
+    shipments?: Array<{
+      carrier: string;
+      trackingNumber: string | null;
+      shippedAt: Date | string;
+      signedAt: Date | string | null;
+      events?: Array<{
+        normalizedStatus: string;
+        eventTime: Date | string;
+      }>;
+    }>;
     items: Array<{
       optionSnapshot: unknown;
       variantId: string | null;
@@ -2474,8 +2416,33 @@ export class OrdersService {
       } | null;
     }>;
   }>(order: T) {
+    const { shipments, ...rest } = order as T & {
+      shipments?: Array<{
+        carrier: string;
+        trackingNumber: string | null;
+        shippedAt: Date | string;
+        signedAt: Date | string | null;
+        events?: Array<{ normalizedStatus: string; eventTime: Date | string }>;
+      }>;
+    };
+    const iso = (value: Date | string) => new Date(value).toISOString();
+    // Only the carrier-facing fields reach the shopper; the row's internal ids
+    // (warehouse, operator, cost) stay inside the admin.
+    const shipment = shipments?.[0]
+      ? {
+          carrier: shipments[0].carrier,
+          trackingNumber: shipments[0].trackingNumber,
+          shippedAt: iso(shipments[0].shippedAt),
+          signedAt: shipments[0].signedAt ? iso(shipments[0].signedAt) : null,
+          tracking: (shipments[0].events ?? []).map((event) => ({
+            status: event.normalizedStatus,
+            at: iso(event.eventTime),
+          })),
+        }
+      : null;
     return {
-      ...order,
+      ...rest,
+      shipment,
       items: order.items.map((item) => {
         // The nested product rows never reach the guest - only the flat
         // fields below do.

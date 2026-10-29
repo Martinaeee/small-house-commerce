@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 export type LogisticsStatus =
@@ -33,8 +34,18 @@ export interface RecordLogisticsEventInput {
 export class LogisticsEventService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(orderId: string, shipmentId: string, input: RecordLogisticsEventInput) {
-    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+  /**
+   * `client` defaults to the root PrismaService, but a caller that has just
+   * created the shipment inside its own transaction MUST pass that `tx`: the
+   * row is not visible on another connection until commit.
+   */
+  async record(
+    orderId: string,
+    shipmentId: string,
+    input: RecordLogisticsEventInput,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const shipment = await client.shipment.findUnique({ where: { id: shipmentId } });
     if (!shipment || shipment.orderId !== orderId) {
       throw new NotFoundException('Shipment not found for this order');
     }
@@ -42,14 +53,14 @@ export class LogisticsEventService {
     const eventTime = input.eventTime ?? new Date();
     const externalEventId = input.externalEventId ?? null;
 
-    const existing = await this.prisma.logisticsEvent.findFirst({
+    const existing = await client.logisticsEvent.findFirst({
       where: externalEventId
         ? { shipmentId, externalEventId }
         : { shipmentId, externalEventId: null, normalizedStatus: input.normalizedStatus, eventTime },
     });
     if (existing) return existing;
 
-    return this.prisma.logisticsEvent.create({
+    return client.logisticsEvent.create({
       data: {
         shipmentId,
         carrier: shipment.carrier,
