@@ -6,6 +6,7 @@ import type { MarketingReportQuery, MarketingReportSort, MarketingReportSortDire
 import { marketingOrderFactsSql, marketingOrderTotalsSql, verifiedAttributionSql } from './marketing-report-facts.js';
 import { serializeMarketingReportRow, type MarketingReportRawRow } from './marketing-report-metrics.js';
 import { sortMarketingReportRows } from './marketing-report-sort.js';
+import { buildMarketingReportTree, type MarketingReportVisitRow } from './marketing-report-tree.js';
 
 @Injectable()
 export class MarketingReportService {
@@ -110,6 +111,25 @@ export class MarketingReportService {
     const registered = rows.filter(row => row.kind === 'REGISTERED');
     const thumbnails = await this.productThumbnails(registered.map(row => row.productId));
     const otherSources = rows.filter(row => row.kind !== 'REGISTERED').map(row => serializeMarketingReportRow(row));
+    if (query.mode === 'TREE') {
+      const visitRows = await this.prisma.$queryRaw<MarketingReportVisitRow[]>(Prisma.sql`
+        WITH scoped_links AS (
+          SELECT l.id, l.product_id, l.source_type FROM campaign_links l WHERE ${where}
+        )
+        SELECT l.product_id::text AS product, l.source_type::text AS source,
+          COUNT(DISTINCT (v.visit_key, v.visit_day)) AS visits
+        FROM campaign_link_visits v JOIN scoped_links l ON l.id = v.link_id
+        WHERE v.visit_day BETWEEN ${query.from}::date AND ${query.to}::date
+        GROUP BY GROUPING SETS ((l.product_id, l.source_type), (l.product_id))
+      `);
+      return {
+        from: query.from, to: query.to, groupBy: query.groupBy, mode: 'TREE',
+        sortBy: query.sortBy, sortDirection: query.sortDirection, asOf: new Date().toISOString(),
+        linkCount: registered.length,
+        tree: buildMarketingReportTree(registered, visitRows, thumbnails, query.sortBy, query.sortDirection),
+        otherSources,
+      };
+    }
     const serialized = registered.map(row => serializeMarketingReportRow(row, thumbnails.get(row.productId ?? '') ?? null));
     const sorted = sortMarketingReportRows(serialized, query.sortBy, query.sortDirection);
     return { from: query.from, to: query.to, groupBy: query.groupBy, mode: query.mode, sortBy: query.sortBy, sortDirection: query.sortDirection, asOf: new Date().toISOString(), page: query.page, pageSize: query.pageSize, total: sorted.length,

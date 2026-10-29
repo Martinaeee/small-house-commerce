@@ -107,3 +107,34 @@ describe('marketing report funnel metrics, thumbnails and sorting', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 });
+
+describe('marketing report tree response', () => {
+  it('returns the product-source-link hierarchy and dedupes product visits', async () => {
+    const postRow = { ...raw, productId: 'product-1', productName: 'Chair', id: 'link-post', label: 'Post', sourceType: 'FB_POST', validOrders: 1n, visits: 4n };
+    const chair = { ...raw, productId: 'product-1', productName: 'Chair' };
+    const { service, prisma } = setup([chair, postRow]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([chair, postRow])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 6n }, { product: 'product-1', source: 'META_AD', visits: 2n }, { product: 'product-1', source: 'FB_POST', visits: 4n }]);
+    (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'product-1', images: [{ url: '/up.jpg' }] }]);
+    const result = await service.report({ ...query, mode: 'TREE', productId: 'product-1' }, account);
+    expect(result.mode).toBe('TREE');
+    expect(result.linkCount).toBe(2);
+    expect(result.tree).toHaveLength(1);
+    expect(result.tree[0].product).toMatchObject({ name: 'Chair', thumbnailUrl: '/up.jpg' });
+    expect(result.tree[0].totals).toMatchObject({ visits: 6, validOrders: 2 + 1 });
+    expect(result.tree[0].sources.map(s => s.sourceType)).toEqual(['FB_POST', 'META_AD']);
+    expect(result.otherSources).toEqual([]);
+  });
+
+  it('rejects unsafe visits sql contracts only through the schema, not runtime size', async () => {
+    // TREE ignores page/pageSize: it returns the whole scoped link set.
+    const { service, prisma } = setup([{ ...raw, productId: 'product-1', productName: 'Chair' }]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ ...raw, productId: 'product-1', productName: 'Chair' }])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 2n }]);
+    const result = await service.report({ ...query, mode: 'TREE', pageSize: 101 }, account);
+    expect(result.tree[0].totals.visits).toBe(2);
+    expect(result.linkCount).toBe(1);
+  });
+});
