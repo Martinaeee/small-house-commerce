@@ -48,6 +48,9 @@ export function jtHeaderDigest(bizContent: string, privateKey: string): string {
 
 const TIMEOUT_MS = 15_000;
 
+/** Exposed for the timeout test; the wire contract allows no longer a wait. */
+export const JT_REQUEST_TIMEOUT_MS = TIMEOUT_MS;
+
 /**
  * The only place that knows the J&T open-platform wire protocol: two-level
  * signing, a form-encoded `bizContent`, and one endpoint per feature. No
@@ -104,7 +107,18 @@ export class JtClient {
       throw new JtError(`J&T request failed: ${(error as Error).message}`, 'TRANSPORT');
     }
 
-    const text = await response.text();
+    // The body read sits on the same connection as the request: an abort or a
+    // dropped socket here is a transport failure, not a malformed response.
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      throw new JtError(
+        `J&T response could not be read: ${(error as Error).message}`,
+        'TRANSPORT',
+      );
+    }
+
     let parsed: JtEnvelope;
     try {
       parsed = JSON.parse(text) as JtEnvelope;

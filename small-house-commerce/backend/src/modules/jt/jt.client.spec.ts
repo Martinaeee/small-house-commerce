@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  JT_REQUEST_TIMEOUT_MS,
   JtClient,
   JtError,
   jtBodyDigest,
@@ -146,5 +147,37 @@ describe('JtClient.trace', () => {
     const client = new JtClient(configOf({ 'jt.enabled': 'false' }), request as never);
     await expect(client.trace('JT1')).rejects.toBeInstanceOf(JtError);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('gives every request the 15 second abort signal', async () => {
+    expect(JT_REQUEST_TIMEOUT_MS).toBe(15_000);
+    const { client, request } = clientWith(
+      new Response(JSON.stringify(okBody), { status: 200 }),
+    );
+
+    await client.trace('JT1');
+
+    const [, init] = request.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('maps an aborted request to TRANSPORT', async () => {
+    const request = vi.fn(async () => {
+      throw new DOMException('This operation was aborted', 'AbortError');
+    });
+    const client = new JtClient(configOf(), request as never);
+
+    await expect(client.trace('JT1')).rejects.toMatchObject({ kind: 'TRANSPORT' });
+  });
+
+  it('maps a body read failure to TRANSPORT', async () => {
+    const broken = new Response(null, { status: 200 });
+    vi.spyOn(broken, 'text').mockRejectedValue(
+      new DOMException('This operation was aborted', 'AbortError'),
+    );
+    const request = vi.fn(async () => broken);
+    const client = new JtClient(configOf(), request as never);
+
+    await expect(client.trace('JT1')).rejects.toMatchObject({ kind: 'TRANSPORT' });
   });
 });
