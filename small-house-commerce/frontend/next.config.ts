@@ -7,10 +7,11 @@ const nextConfig: NextConfig = {
   // (Task 3). `next dev` is unaffected; rewrites below still apply.
   output: "standalone",
 
-  // Uploaded originals are 1–2.6MB PNGs served raw by the backend; only the
-  // upload directory is eligible for the built-in optimizer (localPatterns
-  // gates every other local path), which resizes and re-encodes to WebP on
-  // demand. AVIF encoding is too slow on the container CPU — WebP only.
+  // Uploaded originals are 1–2.6MB PNGs served raw by the backend, and the
+  // bundled /about photography is ~2.8MB of JPEGs; only those two trees are
+  // eligible for the built-in optimizer (localPatterns gates every other
+  // local path), which resizes and re-encodes to WebP on demand. AVIF
+  // encoding is too slow on the container CPU — WebP only.
   images: {
     localPatterns: [{ pathname: "/uploads/**", search: "" }, { pathname: "/about/**", search: "" }],
     formats: ["image/webp"],
