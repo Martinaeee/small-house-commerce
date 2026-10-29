@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 interface Props {
   images: ProductImage[];
@@ -165,7 +166,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={image.url}
+                src={optimizedUploadImage(image.url, 1280)}
                 alt={image.altText ?? "Product image"}
                 loading={index === 0 ? "eager" : "lazy"}
                 className="aspect-square w-full object-cover"
@@ -194,7 +195,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
                 </span>
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={image.url} alt="" className="h-full w-full object-cover" />
+                <img src={optimizedUploadImage(image.url, 96)} alt="" className="h-full w-full object-cover" />
               )}
             </button>
           ))}
@@ -214,7 +215,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={preview.url}
+                      src={optimizedUploadImage(preview.url, 96)}
                       alt=""
                       className="absolute inset-0 h-full w-full object-cover"
                     />

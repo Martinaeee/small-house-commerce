@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { visibleFeatureLines } from "@/lib/feature-lines";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
 import { ViewportVideo } from "./ViewportVideo";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
 
@@ -31,7 +32,7 @@ function DetailMedia({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={block.url}
+      src={optimizedUploadImage(block.url, 1280)}
       alt={block.altText ?? ""}
       loading="lazy"
       className={`${frame} block`}

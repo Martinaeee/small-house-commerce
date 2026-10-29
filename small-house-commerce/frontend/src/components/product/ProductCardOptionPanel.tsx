@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { StorefrontProductOption, StorefrontProductVariant } from "@/lib/api";
 import { comparePositionThenId, isCompatibleValue, isOutOfStockOnly } from "@/lib/product-selection";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export interface ProductCardOptionPanelProps {
   open: boolean;
@@ -92,7 +93,7 @@ export function ProductCardOptionPanel({ open, variants, productOptions, selecte
               {option.presentation === "SWATCH" ? <span aria-hidden="true" className="h-7 w-7 shrink-0 rounded-sm border border-black/15" style={{ backgroundColor: value.swatchHex ?? "transparent" }} /> : null}
               {option.presentation === "IMAGE" && value.thumbnailUrl ?
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={value.thumbnailUrl} alt={value.thumbnailAlt ?? ""} className="h-7 w-7 shrink-0 rounded-sm object-cover" /> : null}
+                <img src={optimizedUploadImage(value.thumbnailUrl, 96)} alt={value.thumbnailAlt ?? ""} className="h-7 w-7 shrink-0 rounded-sm object-cover" /> : null}
               <span className="min-w-0 flex-1 break-words whitespace-normal">{value.label}</span>
               {outOfStock ? <span className="shrink-0 text-xs text-sale">Out of stock</span> : null}
             </button>;

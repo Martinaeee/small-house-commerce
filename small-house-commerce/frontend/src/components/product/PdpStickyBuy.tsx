@@ -14,6 +14,7 @@ import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAct
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { PriceBox, formatPrice } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export type StickyPurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
 
@@ -153,7 +154,7 @@ export function PdpStickyBuy({
           {coverMedia ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={coverMedia.url}
+              src={optimizedUploadImage(coverMedia.url, 96)}
               alt=""
               aria-hidden="true"
               className="h-7 w-7 shrink-0 rounded-md border border-border object-cover"
@@ -175,7 +176,7 @@ export function PdpStickyBuy({
         {coverMedia ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={coverMedia.url}
+            src={optimizedUploadImage(coverMedia.url, 96)}
             alt={coverMedia.altText ?? product.name}
             className="hidden h-14 w-14 shrink-0 rounded-md border border-border object-cover md:block"
           />

@@ -7,6 +7,7 @@ import { comparePositionThenId, isCompatibleValue, isOutOfStockOnly, isSelectabl
 import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductCardOptionPanel } from "./ProductCardOptionPanel";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const choiceClass = "relative inline-flex h-6 min-w-6 max-w-24 shrink-0 items-center justify-center rounded-sm border text-[11px] font-medium";
 
@@ -17,7 +18,7 @@ function isVisualChoice(option: StorefrontProductOption, value: StorefrontOption
 function ValueVisual({ option, value }: { option: StorefrontProductOption; value: StorefrontOptionValue }) {
   if (value.thumbnailUrl) return (
     /* eslint-disable-next-line @next/next/no-img-element */
-    <img src={value.thumbnailUrl} alt="" loading="lazy" className="h-full w-full rounded-[inherit] object-cover" />
+    <img src={optimizedUploadImage(value.thumbnailUrl, 96)} alt="" loading="lazy" className="h-full w-full rounded-[inherit] object-cover" />
   );
   if (option.presentation === "SWATCH") return null;
   return <span className="min-w-0 truncate">{value.label}</span>;

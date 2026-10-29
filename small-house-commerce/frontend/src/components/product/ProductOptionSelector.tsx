@@ -12,6 +12,7 @@ import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { resolveSkuProductDimensions } from "./pdp-facts";
 import { formatCentimeters } from "./pdp-specification-display";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 function isSelectable(variant: StorefrontProductVariant): boolean {
   return variant.sku?.status === "ACTIVE" && variant.sku.price !== null;
@@ -83,7 +84,7 @@ function ValueVisual({
       <>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={value.thumbnailUrl}
+          src={optimizedUploadImage(value.thumbnailUrl, 96)}
           alt={value.thumbnailAlt ?? value.label}
           className="h-12 w-12 rounded-md object-cover"
         />
@@ -323,7 +324,7 @@ export function ProductOptionSelector({
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={value.thumbnailUrl!}
+                          src={optimizedUploadImage(value.thumbnailUrl!, 96)}
                           alt={value.thumbnailAlt ?? value.label}
                           loading="lazy"
                           className="h-10 w-10 shrink-0 rounded-lg object-cover"

@@ -50,6 +50,7 @@ import {
 import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
 
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * Inline COD order on the PDP (Phase 2; item-list form per the 2026-09-27
@@ -640,7 +641,7 @@ export function PdpQuickCodOrder(): ReactNode {
                     {row.media ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={row.media.url}
+                        src={optimizedUploadImage(row.media.url, 96)}
                         alt={row.media.altText ?? row.variant.name}
                         className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
                       />
