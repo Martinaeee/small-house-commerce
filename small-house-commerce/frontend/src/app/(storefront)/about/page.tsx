@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { storySerif } from "@/lib/fonts";
 import { ABOUT_CONTENT, type AboutIcon } from "./about-content";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export const metadata: Metadata = {
   title: "Our Story",
@@ -156,7 +157,7 @@ export default function AboutPage() {
         <div className="order-2 w-[330px] shrink-0 snap-start lg:order-1 lg:h-[600px] lg:w-auto">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={story.image}
+            src={optimizedUploadImage(story.image, 1440)}
             alt={story.imageAlt}
             className="aspect-[3/2] h-auto w-full object-cover lg:h-full lg:aspect-auto"
           />
@@ -190,7 +191,7 @@ export default function AboutPage() {
           <div className="w-[320px] shrink-0 snap-start lg:w-auto">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={why.image}
+              src={optimizedUploadImage(why.image, 1440)}
               alt={why.imageAlt}
               className="aspect-[3/2] h-auto w-full object-cover lg:h-full lg:aspect-[4/5]"
             />
@@ -277,7 +278,7 @@ export default function AboutPage() {
                 <div className="overflow-hidden">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={step.image}
+                    src={optimizedUploadImage(step.image, 1440)}
                     alt={step.imageAlt}
                     className="aspect-[4/3] h-auto w-full object-cover lg:aspect-[4/3]"
                   />
@@ -309,7 +310,7 @@ export default function AboutPage() {
         <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[52%] lg:block">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={confidence.image}
+            src={optimizedUploadImage(confidence.image, 1440)}
             alt=""
             className="h-full w-full object-cover"
           />
@@ -362,7 +363,7 @@ export default function AboutPage() {
             <div className="w-[330px] shrink-0 snap-start lg:hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={confidence.image}
+                src={optimizedUploadImage(confidence.image, 1440)}
                 alt=""
                 className="aspect-[3/2] h-auto w-full object-cover"
               />
