@@ -99,8 +99,8 @@ services:
       PORT: "3000"
       # Used at request time by Server Components (serverApiUrl) for SSR/ISR
       # data fetches. It does not steer browser traffic: Caddy routes
-      # /api/v1/* directly to the backend, and the baked Next rewrite is
-      # dev-only.
+      # /api/v1/* and /uploads/* directly to the backend; only the in-process
+      # image optimizer consumes the baked rewrite (see the build arg above).
       API_TARGET: http://backend:3000
       # Runtime-only (no NEXT_PUBLIC prefix): authenticates the backend's
       # on-demand revalidation calls to /api/internal/revalidate.
