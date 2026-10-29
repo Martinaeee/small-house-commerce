@@ -67,3 +67,50 @@ describe("first-party analytics", () => {
     expect(detectDeviceType()).toBe("mobile");
   });
 });
+
+describe("marketing credential attachment", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("attaches the stored marketing credential to every event", () => {
+    localStorage.setItem("sh:marketing-touch", JSON.stringify({ credential: "server.credential", expiresAt: "2099-01-01T00:00:00Z" }));
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchSpy);
+    window.history.replaceState({}, "", "/products/table");
+
+    trackFirstParty("PRODUCT_VIEW", { productId: "product-1" });
+    flushAnalytics();
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0][1].body)) as { events: Array<Record<string, unknown>> };
+    expect(body.events[0]).toMatchObject({ marketingCredential: "server.credential", productId: "product-1" });
+  });
+
+  it("omits the credential field when no marketing touch is stored", () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchSpy);
+    window.history.replaceState({}, "", "/products/table");
+
+    trackFirstParty("PRODUCT_VIEW", { productId: "product-1" });
+    flushAnalytics();
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0][1].body)) as { events: Array<Record<string, unknown>> };
+    expect(body.events[0]).not.toHaveProperty("marketingCredential");
+  });
+
+  it("does not attach an expired stored credential", () => {
+    localStorage.setItem("sh:marketing-touch", JSON.stringify({ credential: "expired.credential", expiresAt: "2000-01-01T00:00:00Z" }));
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchSpy);
+    window.history.replaceState({}, "", "/products/table");
+
+    trackFirstParty("PAGE_VIEW");
+    flushAnalytics();
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0][1].body)) as { events: Array<Record<string, unknown>> };
+    expect(body.events[0]).not.toHaveProperty("marketingCredential");
+  });
+});

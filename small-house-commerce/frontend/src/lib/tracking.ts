@@ -47,6 +47,17 @@ export function readAttribution(): { marketingCredential?: string } {
   return touch ? { marketingCredential: touch.credential } : {};
 }
 
+/**
+ * The current marketing-touch credential for this browser, or null. Analytics
+ * attaches it to every first-party event so the server can resolve which
+ * campaign link produced the visit — the same signed credential checkout
+ * sends to attribute orders, so both funnels stay on one last-touch contract.
+ */
+export function currentMarketingCredential(): string | null {
+  if (typeof window === "undefined") return null;
+  return storedTouch()?.credential ?? null;
+}
+
 let memoryVisitKey: string | null = null;
 let touchSequence = 0;
 let acceptedSequence = 0;
