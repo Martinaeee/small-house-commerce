@@ -138,3 +138,25 @@ describe('marketing report tree response', () => {
     expect(result.linkCount).toBe(1);
   });
 });
+
+describe('marketing report TREE grouping guard', () => {
+  it('keeps link-level rows under TREE even when the client sends a coarser groupBy', async () => {
+    // groupBy=PRODUCT would aggregate away source_type and make every product
+    // collapse into one fake source row; TREE only exists at link level.
+    const { service, prisma } = setup([{ ...raw, productId: 'product-1', productName: 'Chair' }]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ ...raw, productId: 'product-1', productName: 'Chair' }])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 2n }]);
+    const result = await service.report({ ...query, mode: 'TREE', groupBy: 'PRODUCT' }, account);
+    const sql = (prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0][0].text;
+    // groupBy is reserved for the flat table; the tree only exists at link level
+    expect(sql).toContain('l.id::text AS group_key');
+    expect(sql).not.toContain('l.product_id::text AS group_key');
+    // link rows must carry the LINK name, not the coarse level's label
+    expect(sql).not.toContain('s.product_name, PRODUCT: l.product_id');
+    expect((prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[1][0].text).toContain('GROUPING SETS');
+    expect(result.tree).toHaveLength(1);
+    expect(result.tree[0].sources).toHaveLength(1);
+
+  });
+});

@@ -25,8 +25,10 @@ export class MarketingReportService {
     const end = new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + 16 * 3600_000);
     const linkIds = query.linkIds?.map(id => Prisma.sql`${id}::uuid`);
     const where = this.scopedLinksWhere(query, owner, linkIds, end);
-    const groupKey = { LINK: Prisma.sql`l.id::text`, PAGE: Prisma.sql`COALESCE(l.landing_page_id::text, 'PRODUCT:' || l.product_id::text)`, PRODUCT: Prisma.sql`l.product_id::text`, OWNER: Prisma.sql`l.owner_user_id::text` }[query.groupBy];
-    const groupLabel = { LINK: Prisma.sql`s.name`, PAGE: Prisma.sql`COALESCE(s.page_name, s.product_name)`, PRODUCT: Prisma.sql`s.product_name`, OWNER: Prisma.sql`s.owner_name` }[query.groupBy];
+    // The tree is always built from per-link rows: a coarser groupBy would
+    // aggregate away source_type and produce one fake source group per product.
+    const groupKey = query.mode === 'TREE' ? Prisma.sql`l.id::text` : { LINK: Prisma.sql`l.id::text`, PAGE: Prisma.sql`COALESCE(l.landing_page_id::text, 'PRODUCT:' || l.product_id::text)`, PRODUCT: Prisma.sql`l.product_id::text`, OWNER: Prisma.sql`l.owner_user_id::text` }[query.groupBy];
+    const groupLabel = query.mode === 'TREE' ? Prisma.sql`s.name` : { LINK: Prisma.sql`s.name`, PAGE: Prisma.sql`COALESCE(s.page_name, s.product_name)`, PRODUCT: Prisma.sql`s.product_name`, OWNER: Prisma.sql`s.owner_name` }[query.groupBy];
     const orderWhere = Prisma.sql`(((${verifiedAttributionSql}) AND a.touched_at >= ${from}::timestamptz AND a.touched_at < ${end}::timestamptz)
           OR (NOT COALESCE((${verifiedAttributionSql}), false) AND o.created_at >= ${from}::timestamptz AND o.created_at < ${end}::timestamptz))
           ${owner ? Prisma.sql`AND COALESCE(a.optimizer_id, o.optimizer_id) = ${owner}::uuid` : Prisma.empty}

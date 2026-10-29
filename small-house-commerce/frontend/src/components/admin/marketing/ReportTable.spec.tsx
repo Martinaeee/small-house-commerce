@@ -89,6 +89,15 @@ describe("workbench report filters, sorting and tree view", () => {
     expect(screen.queryByLabelText(/负责人/)).not.toBeInTheDocument();
   });
 
+  it("disables the grouping-level select while the tree view owns the grouping", async () => {
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("combobox", { name: "统计层级" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "视图" }), { target: { value: "FLAT" } });
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("combobox", { name: "统计层级" })).toBeEnabled();
+  });
+
   it("sorts by a clicked column and toggles directions", async () => {
     mount();
     await screen.findByText("Ad A");
