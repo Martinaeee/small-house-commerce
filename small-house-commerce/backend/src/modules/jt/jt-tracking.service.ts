@@ -275,11 +275,12 @@ export class JtTrackingService implements OnModuleInit, OnApplicationShutdown {
     });
     // Staff type the carrier by hand; a "JT" or "J&T Express PH" label silently
     // stops a box from being polled, so the count surfaces the drift.
+    // Prisma rejects `mode` inside `not`, the negation has to be top-level.
     const carrierMismatch = await this.prisma.shipment.count({
       where: {
         status: 'SHIPPING',
         trackingNumber: { not: null },
-        carrier: { not: { equals: this.config.carrierName, mode: 'insensitive' } },
+        NOT: { carrier: { equals: this.config.carrierName, mode: 'insensitive' } },
       },
     });
     return {
