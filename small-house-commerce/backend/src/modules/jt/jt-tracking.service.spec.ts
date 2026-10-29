@@ -88,7 +88,8 @@ function createHarness(details = [delivered, inTransit]) {
     if (where.trackingNumber?.not === null && row.trackingNumber == null) return false;
     // Mirror Prisma: `mode: 'insensitive'` is opt-in, a bare equals is exact.
     if (where.carrier?.equals && !sameCarrier(row, where.carrier)) return false;
-    if (where.carrier?.not?.equals && sameCarrier(row, where.carrier.not)) return false;
+    // Mirror Prisma: negation carries `mode`, so it has to be top-level `NOT`.
+    if (where.NOT?.carrier?.equals && sameCarrier(row, where.NOT.carrier)) return false;
     return true;
   };
 
