@@ -18,6 +18,7 @@ const healthy: AdminJtTrackingStatus = {
   lastFetched: 3,
   lastFailed: 0,
   pendingShipments: 7,
+  carrierMismatch: 0,
   lastError: null,
 };
 
@@ -47,6 +48,16 @@ describe("JtTrackingHealthCard", () => {
 
     await waitFor(() =>
       expect(screen.getByText(/billCode not found/)).toBeInTheDocument(),
+    );
+  });
+
+  it("surfaces shipped boxes whose carrier label does not match", async () => {
+    jtTrackingStatus.mockResolvedValue({ ...healthy, carrierMismatch: 2 });
+
+    render(<JtTrackingHealthCard t={t} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/jt_tracking_mismatch: 2/)).toBeInTheDocument(),
     );
   });
 });
