@@ -2,6 +2,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { poppins } from "@/lib/fonts";
 import type { HomepageSection } from "@/lib/api";
 import { trackAttrs } from "@/lib/home-tracking";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -68,7 +69,7 @@ export function HeroSection({ section }: { section: HomepageSection }) {
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={mobile || poster || desktop}
+                    src={optimizedUploadImage(mobile || poster || desktop, 1440)}
                     alt=""
                     className="absolute inset-0 h-full w-full object-cover"
                   />
@@ -81,13 +82,13 @@ export function HeroSection({ section }: { section: HomepageSection }) {
           <>
             <div className="relative hidden aspect-[16/7] w-full md:block">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={desktop} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img src={optimizedUploadImage(desktop, 1440)} alt="" className="absolute inset-0 h-full w-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-r from-ink/55 via-ink/20 to-transparent" />
             </div>
             <div className="relative aspect-[4/5] w-full md:hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={mobile || desktop}
+                src={optimizedUploadImage(mobile || desktop, 1440)}
                 alt=""
                 className="absolute inset-0 h-full w-full object-cover"
               />

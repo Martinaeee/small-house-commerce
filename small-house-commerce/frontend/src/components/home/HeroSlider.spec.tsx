@@ -3,6 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { emptyDocument } from "@/lib/homepage-document";
 import { requestNewsletterOffer } from "@/components/newsletter/newsletterOfferChannel";
 import { HeroSlider } from "./HeroSlider";
+import { optimizedUploadImage } from "@/lib/image-url";
 import type {
   HomepageHeroBehavior,
   HomepageHeroLinkZone,
@@ -657,7 +658,7 @@ describe("HeroSlider", () => {
     const mobile = document.querySelector("[data-hero-mobile-media]");
     expect(mobile).not.toBeNull();
     const mobileImg = mobile?.querySelector("img");
-    expect(mobileImg?.getAttribute("src")).toBe("/uploads/hero-mobile.jpg");
+    expect(mobileImg?.getAttribute("src")).toBe(optimizedUploadImage("/uploads/hero-mobile.jpg", 1440));
     // the desktop media layer stays present (hidden on mobile by CSS)
     expect(document.querySelector("[data-hero-media]")).not.toBeNull();
   });

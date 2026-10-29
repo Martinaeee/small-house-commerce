@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { HomepageSection } from "@/lib/api";
 import { ProductStorySection } from "./ProductStorySection";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const section: HomepageSection = {
   id: "story-responsive", type: "PRODUCT_STORY", title: "Thoughtful living", subtitle: null, sortOrder: 60,
@@ -16,7 +17,7 @@ describe("ProductStorySection responsive display", () => {
     const { container } = render(<ProductStorySection section={section} previewDevice={device} />);
     expect(container.querySelector<HTMLElement>(".grid")!.style.gap).toBe(`${gap}px`);
     expect(screen.getByRole("img").style.aspectRatio).toBe(ratio);
-    expect(screen.getByRole("img")).toHaveAttribute("src", "/uploads/story.jpg");
+    expect(screen.getByRole("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/story.jpg", 1440));
     expect(screen.getByRole("heading", { name: "Make room for everyday living" })).toBeVisible();
     expect(screen.getByText("Furniture for a calmer home.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Explore the table" })).toHaveAttribute("href", "/products/table");

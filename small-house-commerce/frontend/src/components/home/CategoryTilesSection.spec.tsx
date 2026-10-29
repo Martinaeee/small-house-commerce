@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { HomepageSection } from "@/lib/api";
 import { CategoryTilesSection } from "./CategoryTilesSection";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const section: HomepageSection = {
   id: "category-responsive", type: "CATEGORY_TILES", title: "Shop your space", subtitle: null, sortOrder: 10,
@@ -21,7 +22,7 @@ describe("custom homepage navigation", () => {
     expect(link).toHaveAttribute("data-track-event", "CategoryClick");
     expect(link).not.toHaveTextContent(entry.name);
     expect(screen.getByText(entry.name)).toBeVisible();
-    expect(container.querySelector("img")).toHaveAttribute("src", entry.imageUrl);
+    expect(container.querySelector("img")).toHaveAttribute("src", optimizedUploadImage(entry.imageUrl, 1440));
     expect(container.querySelector("img")).toHaveAttribute("alt", "");
     expect(screen.getAllByRole("link")).toHaveLength(1);
   });
@@ -67,7 +68,7 @@ describe("CategoryTilesSection responsive display", () => {
     const tile = screen.getByRole("link", { name: /Living room/ });
     expect(tile).toHaveAttribute("href", "/categories/living-room");
     expect(tile.style.aspectRatio).toBe(ratio);
-    expect(screen.getByRole("img")).toHaveAttribute("src", "/uploads/living.jpg");
+    expect(screen.getByRole("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/living.jpg", 640));
     expect(section).toEqual(original);
   });
 
