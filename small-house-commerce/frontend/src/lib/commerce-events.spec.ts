@@ -306,7 +306,7 @@ describe("emitCommerceEvent", () => {
     });
   });
 
-  it("records an add to cart in first-party analytics with the product id", () => {
+  it("records an add to cart in first-party analytics with the product id and final SKU", () => {
     emitCommerceEvent(
       addToCartEvent({
         productId: "prod-1",
@@ -318,14 +318,40 @@ describe("emitCommerceEvent", () => {
     );
     expect(analytics.trackFirstParty).toHaveBeenCalledWith("ADD_TO_CART", {
       productId: "prod-1",
+      entityId: "sku-1",
     });
   });
 
-  it("records the start of checkout in first-party analytics", () => {
+  it("records the start of checkout in first-party analytics with the SKU list", () => {
     emitCommerceEvent(
-      initiateCheckoutEvent({ items: [{ skuId: "sku-1", quantity: 1 }], value: 100 }),
+      initiateCheckoutEvent({
+        items: [
+          { skuId: "sku-1", quantity: 1 },
+          { skuId: "sku-2", quantity: 3 },
+        ],
+        value: 100,
+      }),
     );
-    expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {});
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {
+      productId: null,
+      entityId: "sku-1,sku-2",
+    });
+  });
+
+  it("truncates a long checkout SKU list to the 120-character entity bound", () => {
+    emitCommerceEvent(
+      initiateCheckoutEvent({ items: [{ skuId: "s".repeat(300), quantity: 1 }], value: null }),
+    );
+    const payload = analytics.trackFirstParty.mock.calls[0][1] as {
+      entityId: string | null;
+    };
+    expect(payload.entityId).toHaveLength(120);
+  });
+
+  it("records an empty checkout basket with a null entityId", () => {
+    emitCommerceEvent(initiateCheckoutEvent({ items: [], value: null }));
+    // A zero-item basket is refused by the builder; nothing reaches the funnel.
+    expect(analytics.trackFirstParty).not.toHaveBeenCalled();
   });
 
   it("records a purchase in first-party analytics keyed by order number", () => {

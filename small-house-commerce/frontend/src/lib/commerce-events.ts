@@ -43,6 +43,40 @@ const SERVER_MIRRORED_EVENTS = new Set([
   "InitiateCheckout",
 ]);
 
+/** analytics_events entityId cap (DTO `.max(120)`). */
+const ENTITY_ID_MAX = 120;
+
+function contentIds(event: CommerceEvent): string[] {
+  const ids = event.data.content_ids;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
+function truncateEntityId(value: string): string | null {
+  const truncated = value.length > ENTITY_ID_MAX ? value.slice(0, ENTITY_ID_MAX) : value;
+  return truncated || null;
+}
+
+/**
+ * First-party payload for a standard commerce event. AddToCart carries the
+ * final SKU and InitiateCheckout the whole basket's SKU list so the funnel
+ * report can show what was added and what reached checkout; both keep
+ * attributed by the touch credential, not by these ids.
+ */
+function firstPartyPayload(event: CommerceEvent): { productId?: string | null; entityId?: string | null } {
+  switch (event.name) {
+    case "AddToCart":
+      return { productId: event.productId, entityId: contentIds(event)[0] ?? null };
+    case "InitiateCheckout":
+      return { productId: null, entityId: truncateEntityId(contentIds(event).join(",")) };
+    case "Purchase": {
+      const orderId = event.data.order_id;
+      return typeof orderId === "string" && orderId ? { entityId: orderId } : {};
+    }
+    default:
+      return event.productId ? { productId: event.productId } : {};
+  }
+}
+
 function newEventId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -265,11 +299,7 @@ export function emitCommerceEvent(event: CommerceEvent | null): void {
   const firstPartyName = FIRST_PARTY_EVENT[event.name];
   if (!firstPartyName) return;
 
-  const orderId = event.data.order_id;
-  trackFirstParty(firstPartyName, {
-    ...(event.productId ? { productId: event.productId } : {}),
-    ...(typeof orderId === "string" && orderId ? { entityId: orderId } : {}),
-  });
+  trackFirstParty(firstPartyName, firstPartyPayload(event));
 }
 
 /**
