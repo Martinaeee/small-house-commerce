@@ -23,12 +23,11 @@ describe("shared report column model", () => {
   });
 
   it("renders the funnel columns between visits and submitted orders", () => {
-    render(<AdminI18nProvider><table><tbody><tr><ReportMetricCells row={row} /></tr></tbody></table></AdminI18nProvider>);
-    // addToCarts(3) collides with submittedOrders(3) as bare cell names
-    expect(screen.getAllByRole("cell", { name: "3" }).length).toBeGreaterThanOrEqual(2);
-    expect(cell("1")).toBeInTheDocument();
+    render(<AdminI18nProvider><table><tbody><tr><ReportMetricCells row={{ ...row, addToCarts: 7, checkouts: 5 }} /></tr></tbody></table></AdminI18nProvider>);
+    expect(cell("7")).toBeInTheDocument();
+    expect(cell("5")).toBeInTheDocument();
     expect(cell("PHP 12000.00")).toBeInTheDocument();
-    expect(cell("完整（3 / 3 日）")).toBeInTheDocument();
+    expect(cell("费用完整（3 / 3 日）")).toBeInTheDocument();
   });
 
   it("renders dashes for missing ratios", () => {
