@@ -75,18 +75,20 @@ function createHarness(details = [delivered, inTransit]) {
   const events: Array<Record<string, any>> = [];
   let seq = 0;
 
+  const sameCarrier = (row: Record<string, any>, filter: Record<string, any>) => {
+    const want = String(filter.equals);
+    const have = String(row.carrier);
+    return filter.mode === 'insensitive'
+      ? have.toLowerCase() === want.toLowerCase()
+      : have === want;
+  };
+
   const matches = (row: Record<string, any>, where: Record<string, any>) => {
     if (where.status && row.status !== where.status) return false;
     if (where.trackingNumber?.not === null && row.trackingNumber == null) return false;
-    if (where.carrier?.equals) {
-      // Mirror Prisma: `mode: 'insensitive'` is opt-in, a bare equals is exact.
-      const want = String(where.carrier.equals);
-      const have = String(row.carrier);
-      const caseInsensitive = where.carrier.mode === 'insensitive';
-      if (caseInsensitive ? have.toLowerCase() !== want.toLowerCase() : have !== want) {
-        return false;
-      }
-    }
+    // Mirror Prisma: `mode: 'insensitive'` is opt-in, a bare equals is exact.
+    if (where.carrier?.equals && !sameCarrier(row, where.carrier)) return false;
+    if (where.carrier?.not?.equals && sameCarrier(row, where.carrier.not)) return false;
     return true;
   };
 
@@ -169,7 +171,7 @@ function createHarness(details = [delivered, inTransit]) {
     { gapMs: 0 },
   );
 
-  return { service, client, ordersService, prisma, shipments, events };
+  return { service, client, ordersService, prisma, shipments, events, orders };
 }
 
 describe('backoff', () => {
@@ -292,6 +294,56 @@ describe('JtTrackingService', () => {
 
     expect(health.enabled).toBe(true);
     expect(health.pendingShipments).toBe(1);
+    expect(health.carrierMismatch).toBe(1);
     expect(client.trace).not.toHaveBeenCalled();
   });
+
+  it('refuses to refresh a non-J&T shipment without calling the carrier', async () => {
+    const { service, client, shipments } = createHarness();
+
+    await expect(service.refreshShipment(O2, S2)).rejects.toThrow(/not handled by/i);
+
+    expect(client.trace).not.toHaveBeenCalled();
+    expect(shipments[1].trackingCheckedAt).toBeNull();
+    expect(shipments[1].trackingFailures).toBe(0);
+    expect(shipments[1].trackingError).toBeNull();
+  });
+
+  it('clears the stale worker error once a tick succeeds', async () => {
+    const { service, client, shipments } = createHarness();
+    client.trace.mockRejectedValueOnce(new Error('billCode not found'));
+
+    await service.tick(NOW);
+    expect((await service.health()).lastError).toBe('billCode not found');
+
+    shipments[0].trackingCheckedAt = null; // force the next tick now
+    await service.tick(NOW + 1000);
+
+    expect((await service.health()).lastError).toBeNull();
+  });
+
+  it('records a tick-level failure in health instead of swallowing it', async () => {
+    const { service, prisma } = createHarness();
+    prisma.shipment.findMany.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.tick(NOW)).rejects.toThrow('db down');
+
+    const health = await service.health();
+    expect(health.lastError).toBe('db down');
+    expect(health.lastTickAt).not.toBeNull();
+  });
+
+  it.each(['CANCELLED', 'AFTER_SALES'])(
+    'records a delivery without advancing an order that is %s',
+    async (status) => {
+      const { service, events, ordersService, orders } = createHarness();
+      orders[0].orderStatus = status;
+
+      const result = await service.tick(NOW);
+
+      expect(result.failed).toBe(0);
+      expect(events.some((e) => e.normalizedStatus === 'SIGNED')).toBe(true);
+      expect(ordersService.sign).not.toHaveBeenCalled();
+    },
+  );
 });
