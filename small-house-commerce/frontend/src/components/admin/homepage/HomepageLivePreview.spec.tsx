@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HomepageNavigationEntry } from "@/lib/homepage-section-payloads";
 import { HomepageLivePreview } from "@/components/admin/homepage/HomepageLivePreview";
 import { ANNOUNCEMENT_SELECTION_ID } from "@/components/admin/homepage/ModuleTree";
+import { optimizedUploadImage } from "@/lib/image-url";
 import type {
   AdminCategoryNode,
   AdminProduct,
@@ -227,7 +228,7 @@ describe("HomepageLivePreview", () => {
       "/categories/preview-category", "/collections/small-spaces", "/categories/preview-category",
     ]);
     expect(within(region as HTMLElement).getByRole("link", { name: "Our collection" })).toBeVisible();
-    expect(region.querySelectorAll("img")[0]).toHaveAttribute("src", "/uploads/category.jpg");
+    expect(region.querySelectorAll("img")[0]).toHaveAttribute("src", optimizedUploadImage("/uploads/category.jpg", 1440));
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
     region.querySelector("a")!.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
@@ -274,7 +275,7 @@ describe("HomepageLivePreview", () => {
     const featured = container.querySelector<HTMLElement>("[data-ugc-featured]")!;
     expect(featured).toHaveAttribute("data-ugc-entry-id", "second");
     expect(within(featured).getByRole("link", { name: /View Preview product/ })).toHaveAttribute("href", "/products/preview-product");
-    expect(featured.querySelector("img")).toHaveAttribute("src", "/uploads/b.jpg");
+    expect(featured.querySelector("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/b.jpg", 1440));
     expect(featured).not.toHaveTextContent("Supporting sample");
     expect(container.querySelector('[data-ugc-layout="collage"]')).toHaveAttribute("data-device", "tablet");
     expect(featured.querySelector("[data-track-event]")).toBeNull();

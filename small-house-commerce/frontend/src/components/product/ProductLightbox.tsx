@@ -252,6 +252,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={optimizedUploadImage(image.url, 96)}
+                      alt=""
                       className="aspect-square w-full object-cover"
                     />
                   )}

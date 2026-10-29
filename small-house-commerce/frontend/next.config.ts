@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
   images: {
     localPatterns: [{ pathname: "/uploads/**", search: "" }],
     formats: ["image/webp"],
+    // The optimizer rejects any width outside these allowlists; storefront
+    // components request 96 (thumbnails), 640 (cards), 1280 (gallery) and
+    // 1440 (heroes/content). 96 is already in the default imageSizes.
+    deviceSizes: [640, 750, 828, 1080, 1200, 1280, 1440, 1920, 2048],
   },
 
   // Draft preview routes are operator-only (spec §5.2): never cached by
