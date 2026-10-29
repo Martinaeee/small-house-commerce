@@ -16,6 +16,17 @@ beforeEach(() => {
   authMock.fetch.mockResolvedValue({ page: 1, pageSize: 20, total: 0, items: [] });
 });
 
+describe("adminApi.confirmOrder", () => {
+  it("sends an explicit CONFIRM decision instead of an empty JSON body", async () => {
+    await adminApi.confirmOrder("order-1");
+
+    expect(authMock.fetch).toHaveBeenCalledWith(
+      "/api/v1/admin/orders/order-1/confirm",
+      { method: "POST", body: JSON.stringify({ decision: "CONFIRM" }) },
+    );
+  });
+});
+
 describe("adminApi.listOrders", () => {
   it("sends the payment status the dashboard's failed-payment card links with", async () => {
     await adminApi.listOrders({ paymentStatus: "FAILED", page: 1 });
