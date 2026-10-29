@@ -25,6 +25,7 @@ import {
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   track: tracking.track,
   trackCustom: tracking.trackCustom,
 }));

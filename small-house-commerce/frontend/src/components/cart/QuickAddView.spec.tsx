@@ -33,6 +33,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   track: tracking.track,
   trackCustom: tracking.trackCustom,
 }));

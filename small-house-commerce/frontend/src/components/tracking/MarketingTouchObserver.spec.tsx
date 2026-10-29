@@ -7,7 +7,8 @@ import { LandingViewTracker } from "@/components/product/LandingViewTracker";
 const state = vi.hoisted(() => ({ path: "/products/chair", search: "cl=abcdefghijklmnop" }));
 const mocks = vi.hoisted(() => ({ touch: vi.fn().mockResolvedValue(undefined), oldView: vi.fn().mockResolvedValue(undefined), oldPersist: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.path, useSearchParams: () => new URLSearchParams(state.search) }));
-vi.mock("@/lib/tracking", () => ({ recordMarketingTouch: mocks.touch, persistLandingPage: mocks.oldPersist, LANDING_VISIT_SESSION_KEY: "sh:lpvisit" }));
+vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null), recordMarketingTouch: mocks.touch, persistLandingPage: mocks.oldPersist, LANDING_VISIT_SESSION_KEY: "sh:lpvisit" }));
 vi.mock("@/lib/api", () => ({ api: { recordLandingPageView: mocks.oldView } }));
 
 beforeEach(() => { vi.clearAllMocks(); sessionStorage.clear(); state.path = "/products/chair"; state.search = "cl=abcdefghijklmnop"; });

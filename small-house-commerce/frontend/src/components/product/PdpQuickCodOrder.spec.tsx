@@ -26,6 +26,7 @@ vi.mock("@/lib/api", async () => {
   return { ...actual, api: { ...actual.api, createOrder: api.createOrder, previewPromoCode: api.previewPromoCode } };
 });
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   readAttribution: tracking.readAttribution,
 }));
 vi.mock("@/lib/commerce-events", async () => {
