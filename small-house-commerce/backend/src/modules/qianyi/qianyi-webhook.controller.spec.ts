@@ -47,15 +47,14 @@ describe('QianyiWebhookController.receive', () => {
   });
 });
 
-describe('QianyiWebhookController throttling', () => {
-  it('answers 429 when the caller is over budget', async () => {
+describe('QianyiWebhookController deferred callbacks', () => {
+  it('tells Qianyi a disabled callback was accepted and deferred', async () => {
     const controller = new QianyiWebhookController({
-      allow: vi.fn(() => false),
-      ingest: vi.fn(),
+      allow: () => true,
+      ingest: vi.fn(async () => ({ ok: true, duplicated: false, deferred: true })),
     } as never);
 
-    await expect(controller.receive({ body: {}, ip: '1.2.3.4' } as never)).rejects.toMatchObject({
-      status: 429,
-    });
+    await expect(controller.receive({ body: {}, ip: '1.2.3.4' } as never))
+      .resolves.toEqual({ ok: true, deferred: true });
   });
 });

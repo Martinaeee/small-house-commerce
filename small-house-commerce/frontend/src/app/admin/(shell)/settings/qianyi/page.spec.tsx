@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   createQianyiSkus: vi.fn(),
   retryQianyiJob: vi.fn(),
   requeueQianyiJob: vi.fn(),
+  authorizeQianyiCreateRetry: vi.fn(),
   setQianyiMapping: vi.fn(),
 }));
 
@@ -25,7 +26,7 @@ const ROWS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiMock.qianyiStatus.mockResolvedValue({ enabled: true, pending: 0, failed: 1, sent24h: 3 });
+  apiMock.qianyiStatus.mockResolvedValue({ enabled: true, pending: 0, failed: 1, review: 0, sent24h: 3 });
   apiMock.qianyiSkus.mockResolvedValue(ROWS);
   apiMock.qianyiJobs.mockResolvedValue([]);
 });
@@ -80,6 +81,7 @@ describe("QianyiSettingsPage skipped jobs", () => {
         kind: "PUSH_ORDER",
         status: "SKIPPED",
         attempts: 0,
+        pendingReview: false,
         lastError: "No Qianyi code for TB001-Wa.",
         externalOrderNumber: null,
         updatedAt: "2026-10-28T00:00:00.000Z",
@@ -94,5 +96,49 @@ describe("QianyiSettingsPage skipped jobs", () => {
 
     expect(apiMock.requeueQianyiJob).toHaveBeenCalledWith("job-9");
     expect(await screen.findByText(/qianyi_requeue_blocked/)).toBeInTheDocument();
+  });
+
+  const failedJob = (pendingReview: boolean) => ({
+    id: "job-7",
+    kind: "PUSH_ORDER",
+    status: "FAILED",
+    attempts: 1,
+    pendingReview,
+    lastError: "OUTCOME_UNKNOWN",
+    externalOrderNumber: null,
+    updatedAt: "2026-10-29T00:00:00.000Z",
+    order: { orderNumber: "PH100013" },
+  });
+
+  it("never offers a plain retry for a create with an unknown outcome", async () => {
+    apiMock.qianyiJobs.mockResolvedValue([failedJob(true)]);
+    render(<QianyiSettingsPage />);
+
+    expect(await screen.findByRole("button", { name: /qianyi_authorize_retry/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^qianyi_retry$/ })).not.toBeInTheDocument();
+  });
+
+  it("authorizes a create retry only through the explicit confirmation", async () => {
+    apiMock.qianyiJobs.mockResolvedValue([failedJob(true)]);
+    apiMock.authorizeQianyiCreateRetry.mockResolvedValue({ ok: true });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<QianyiSettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /qianyi_authorize_retry/ }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(apiMock.authorizeQianyiCreateRetry).toHaveBeenCalledWith("job-7");
+    expect(apiMock.retryQianyiJob).not.toHaveBeenCalled();
+  });
+
+  it("offers a safe retry only when no create was dispatched", async () => {
+    apiMock.qianyiJobs.mockResolvedValue([failedJob(false)]);
+    apiMock.retryQianyiJob.mockResolvedValue({ ok: true });
+    render(<QianyiSettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^qianyi_retry$/ }));
+
+    expect(apiMock.retryQianyiJob).toHaveBeenCalledWith("job-7");
+    expect(apiMock.authorizeQianyiCreateRetry).not.toHaveBeenCalled();
   });
 });

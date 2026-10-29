@@ -40,11 +40,7 @@ import {
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
-import {
-  orderStatusAfterSign,
-  quantityByLine,
-  type ShipmentSnapshot,
-} from './return-outcome.js';
+import { signShipmentWithin } from './sign-shipment.js';
 
 /**
  * The verification progress of one order, as the workbench table shows it
@@ -892,6 +888,7 @@ export class OrdersService {
         comment: comment ?? null,
       },
     });
+    if (this.qianyi) await this.qianyi.cancelWithin(tx, order.id, operatorId);
     return { updated, promoReleased, backInStockClaims };
   }
 
@@ -938,15 +935,10 @@ export class OrdersService {
             operatorId,
           },
         });
-        // Only an order that actually reached Qianyi can be closed there.
-        if (this.qianyi) {
-          const pushed = await tx.qianyiSyncJob.findUnique({
-            where: { orderId_kind: { orderId, kind: 'PUSH_ORDER' } },
-          });
-          if (pushed?.status === 'SENT') {
-            await this.qianyi.enqueue(tx, 'CLOSE_ORDER', orderId);
-          }
-        }
+        // Only an order that reached Qianyi can be closed there. A queued or
+        // skipped push is cancelled so the worker cannot send a cancelled
+        // order; an in-flight one is flagged for manual reconciliation.
+        if (this.qianyi) await this.qianyi.cancelWithin(tx, orderId, operatorId);
         return { updated, promoReleased, backInStockClaims };
       },
     );
@@ -1706,6 +1698,9 @@ export class OrdersService {
         data: { orderStatus: 'CANCELLED' },
       });
       const promoReleased = await this.releasePromoSlot(tx, dropped.id);
+      // The merged-away order must not be pushed to Qianyi after it stopped
+      // existing locally.
+      if (this.qianyi) await this.qianyi.cancelWithin(tx, dropped.id, operatorId);
 
       // Audit both sides (§48: merged history is never deleted).
       await tx.orderMergeRecord.create({
@@ -2214,103 +2209,8 @@ export class OrdersService {
   /** §69 sign a shipment: every box signed moves the order to SIGNED. */
   async sign(orderId: string, shipmentId: string, operatorId: string) {
     return this.prisma.$transaction(async (tx) => {
-      // Serialize with return acceptance on the same order: a box cannot be
-      // signed and accepted back at the same time.
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: true,
-          shipments: { include: { items: true } },
-        },
-      });
-      if (!order) throw new NotFoundException('Order not found');
-      const shipment = order.shipments.find((s) => s.id === shipmentId);
-      if (!shipment) {
-        throw new NotFoundException('Shipment not found on this order');
-      }
-      if (shipment.status === 'SIGNED') {
-        throw new BadRequestException('Shipment is already signed');
-      }
-      if (shipment.status === 'RETURNED' || shipment.status === 'PARTIALLY_RETURNED') {
-        throw new BadRequestException(
-          `Shipment was already returned; its goods cannot be signed (current: ${shipment.status})`,
-        );
-      }
-      if (order.orderStatus !== 'SHIPPING') {
-        throw new BadRequestException(`Order is ${order.orderStatus}; only SHIPPING orders can be signed`);
-      }
-
-      // Some units of this box may already be back in the warehouse. Signing
-      // covers whatever is left; a fully returned box is refused above.
-      const acceptedInBox = new Map<string, number>();
-      for (const item of await tx.returnAcceptanceItem.findMany({
-        where: { acceptance: { orderId, shipmentId } },
-        select: { orderItemId: true, quantityGood: true, quantityDamaged: true },
-      })) {
-        acceptedInBox.set(
-          item.orderItemId,
-          (acceptedInBox.get(item.orderItemId) ?? 0) +
-            item.quantityGood +
-            item.quantityDamaged,
-        );
-      }
-      const hasReturnedUnits = [...acceptedInBox.values()].some((quantity) => quantity > 0);
-      const shipmentStatus = hasReturnedUnits ? 'PARTIALLY_RETURNED' : 'SIGNED';
-
-      await tx.shipment.update({
-        where: { id: shipmentId },
-        data: { status: shipmentStatus, signedAt: new Date() },
-      });
-
-      const shipments: ShipmentSnapshot[] = order.shipments.map((box) => ({
-        id: box.id,
-        status: box.id === shipmentId ? shipmentStatus : box.status,
-        items: box.items,
-      }));
-      const shippedByLine = new Map<string, number>();
-      for (const box of shipments) {
-        for (const [orderItemId, quantity] of quantityByLine(box.items)) {
-          shippedByLine.set(orderItemId, (shippedByLine.get(orderItemId) ?? 0) + quantity);
-        }
-      }
-      // A partial shipment may not cover the whole order yet: only a fully
-      // shipped order can reach a terminal status.
-      const fullyShipped = order.items.every(
-        (line) => (shippedByLine.get(line.id) ?? 0) >= line.quantity,
-      );
-      const orderStatus = orderStatusAfterSign({
-        lines: order.items,
-        shipments,
-        fullyShipped,
-      });
-      if (orderStatus !== order.orderStatus) {
-        await tx.order.update({ where: { id: orderId }, data: { orderStatus } });
-        await tx.orderStatusHistory.create({
-          data: {
-            orderId,
-            statusDomain: 'ORDER_STATUS',
-            oldStatus: order.orderStatus,
-            newStatus: orderStatus,
-            source: 'ADMIN',
-            operatorId,
-            comment: hasReturnedUnits
-              ? 'Remaining goods signed; some units were returned'
-              : 'All shipments signed',
-          },
-        });
-      }
-
-      await tx.orderNote.create({
-        data: {
-          orderId,
-          userId: operatorId,
-          noteType: 'WAREHOUSE',
-          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})`,
-        },
-      });
-
-      return { shipmentId, orderStatus, shipmentStatus };
+      return signShipmentWithin(tx, orderId, shipmentId, { source: 'ADMIN', operatorId });
     });
   }
 

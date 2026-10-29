@@ -315,7 +315,7 @@ model Shipment {
   warehouseId    String         @map("warehouse_id") @db.Uuid
   carrier        String
   trackingNumber String?        @map("tracking_number")
-  qianyiOutboundNumber String?  @map("qianyi_outbound_number") @db.VarChar(64)
+  qianyiOutboundNumber String?  @unique @map("qianyi_outbound_number") @db.VarChar(64)
   qianyiStatus         String?  @map("qianyi_status") @db.VarChar(40)
   status         ShipmentStatus @default(SHIPPING)
   shippingCost   Decimal?       @map("shipping_cost") @db.Decimal(10, 2)

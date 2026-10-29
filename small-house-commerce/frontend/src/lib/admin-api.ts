@@ -1643,6 +1643,7 @@ export interface AdminQianyiStatus {
   enabled: boolean;
   pending: number;
   failed: number;
+  review: number;
   sent24h: number;
 }
 
@@ -1666,8 +1667,9 @@ export interface AdminQianyiCreateResult {
 export interface AdminQianyiJob {
   id: string;
   kind: "PUSH_ORDER" | "CLOSE_ORDER";
-  status: "PENDING" | "SENT" | "FAILED" | "SKIPPED";
+  status: "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED" | "CANCELLED";
   attempts: number;
+  pendingReview: boolean;
   lastError: string | null;
   externalOrderNumber: string | null;
   updatedAt: string;
@@ -2773,10 +2775,20 @@ export const adminApi = {
   qianyiJobs: (): Promise<AdminQianyiJob[]> =>
     adminAuthedFetch<AdminQianyiJob[]>("/api/v1/admin/qianyi/jobs"),
 
-  retryQianyiJob: (id: string): Promise<{ retried: boolean }> =>
-    adminAuthedFetch<{ retried: boolean }>(
+  retryQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
       `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/retry`,
       { method: "POST" },
+    ),
+
+  authorizeQianyiCreateRetry: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/authorize-retry`,
+      { method: "POST", body: JSON.stringify({ confirmedAbsent: true }) },
     ),
 
   requeueQianyiJob: (

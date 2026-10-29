@@ -15,9 +15,11 @@ enum QianyiSyncKind {
 
 enum QianyiSyncStatus {
   PENDING
+  SENDING
   SENT
   FAILED
   SKIPPED
+  CANCELLED
 }
 
 model QianyiSyncJob {
@@ -28,6 +30,16 @@ model QianyiSyncJob {
   attempts            Int               @default(0)
   nextAttemptAt       DateTime          @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
   lastError           String?           @map("last_error") @db.VarChar(1024)
+  /// How many times a CREATE was actually dispatched. Qianyi has no proven
+  /// remote idempotency, so a second create is never automatic.
+  autoCreateAttempts  Int               @default(0) @map("auto_create_attempts")
+  /// A create may have reached Qianyi with an unknown outcome; only an
+  /// operator may open it again after reconciling on the ERP side.
+  pendingReview       Boolean           @default(false) @map("pending_review")
+  /// Lease while a worker owns this job (SENDING).
+  claimedAt           DateTime?         @map("claimed_at") @db.Timestamptz(3)
+  /// Operator-visible audit of the last recovery action.
+  lastAction          String?           @map("last_action") @db.VarChar(1024)
   requestPayload      Json              @map("request_payload")
   responsePayload     Json?             @map("response_payload")
   externalOrderNumber String?           @map("external_order_number") @db.VarChar(64)

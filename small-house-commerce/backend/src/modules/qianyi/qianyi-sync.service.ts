@@ -1,57 +1,41 @@
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { QianyiClient, QianyiError } from './qianyi.client.js';
-import {
-  buildCreateOrderPayload,
-  MissingMappingError,
-  type QianyiOrderSource,
-} from './qianyi-order.mapper.js';
+import { QianyiClient } from './qianyi.client.js';
+import { buildCreateOrderPayload, MissingMappingError } from './qianyi-order.mapper.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
 
 const WORKER_INTERVAL_MS = 30_000;
 const BATCH_SIZE = 10;
-const MAX_ATTEMPTS = 5;
-const RETRY_DELAYS_MINUTES = [1, 5, 15, 60];
+const MAX_CLOSE_ATTEMPTS = 5;
+const CLOSE_BACKOFF_MINUTES = [1, 5, 15, 60];
+const SENDING_LEASE_MS = 10 * 60 * 1000;
+const ORDER_INCLUDE = { items: { include: { sku: true } }, shippingAddress: true, customer: true } satisfies Prisma.OrderInclude;
+const PUSHABLE = new Set(['CONFIRMED', 'SHIPPING']);
 
-const ORDER_INCLUDE = {
-  items: { include: { sku: true } },
-  shippingAddress: true,
-  customer: true,
-} satisfies Prisma.OrderInclude;
+type Job = Prisma.QianyiSyncJobGetPayload<object>;
+type Result = { ok: boolean; reason?: string; missing?: string[] };
 
-/**
- * Durable outbox for everything we send to Qianyi. The row is written inside
- * the caller's transaction, so a confirmed order can never be lost to a
- * network problem; the worker is the only thing that talks to the API.
- */
 @Injectable()
 export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(QianyiSyncService.name);
+  private readonly config: QianyiConfig;
   private timer: ReturnType<typeof setInterval> | null = null;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
-  private running = false;
-  private readonly config: QianyiConfig;
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly client: QianyiClient,
-    config: ConfigService,
-  ) {
+  constructor(private readonly prisma: PrismaService, private readonly client: QianyiClient, config: ConfigService) {
     this.config = readQianyiConfig(config);
   }
 
   onModuleInit(): void {
     if (!this.client.enabled || process.env.NODE_ENV === 'test') return;
-    this.timer = setInterval(() => {
-      void this.processPending().catch(() => undefined);
-    }, WORKER_INTERVAL_MS);
-    this.timer.unref?.();
-    this.reconcileTimer = setInterval(() => {
-      void this.reconcile().catch(() => undefined);
-    }, 24 * 60 * 60 * 1000);
-    this.reconcileTimer.unref?.();
+    const tick = () => { void this.processPending().catch(() => this.logger.error('Qianyi worker tick failed')); };
+    tick();
+    this.timer = setInterval(tick, WORKER_INTERVAL_MS);
+    this.timer.unref();
+    this.reconcileTimer = setInterval(() => { void this.reconcile().catch(() => this.logger.error('Qianyi reconcile failed')); }, 24 * 60 * 60 * 1000);
+    this.reconcileTimer.unref();
   }
 
   onApplicationShutdown(): void {
@@ -61,281 +45,267 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     this.reconcileTimer = null;
   }
 
-  /** Queues the push for a freshly confirmed order. Call inside the tx. */
-  async enqueue(
-    tx: Prisma.TransactionClient,
-    kind: 'PUSH_ORDER' | 'CLOSE_ORDER',
-    orderId: string,
-  ): Promise<void> {
+  /** Queues the push inside the caller's transaction. */
+  async enqueue(tx: Prisma.TransactionClient, kind: 'PUSH_ORDER' | 'CLOSE_ORDER', orderId: string): Promise<void> {
     if (!this.client.enabled) return;
-    const order = await tx.order.findUnique({
-      where: { id: orderId },
-      include: ORDER_INCLUDE,
-    });
+    const order = await tx.order.findUnique({ where: { id: orderId }, include: ORDER_INCLUDE });
     if (!order) return;
-
     const { shop, warehouseId, warehouse, logistics } = this.config;
-    // A missing mapping must never break the confirmation the operator just
-    // made: the order is confirmed, the push is recorded as SKIPPED, and the
-    // admin shows it in the unmatched list.
     let skipped: string | null = null;
     let payload: Record<string, unknown>;
     try {
-      payload =
-        kind === 'PUSH_ORDER'
-          ? buildCreateOrderPayload(order as unknown as QianyiOrderSource, {
-              shop,
-              warehouseId,
-              warehouse,
-              logistics,
-            })
-          : { shop, onlineOrderNumber: order.orderNumber };
+      if (kind === 'PUSH_ORDER') {
+        payload = buildCreateOrderPayload(order, { shop, warehouseId, warehouse, logistics });
+        payload._skuMapping = Object.fromEntries(order.items.map(item => [item.id, item.sku.qianyiSkuCode!.trim()]));
+      } else {
+        payload = { shop, onlineOrderNumber: order.orderNumber };
+      }
     } catch (error) {
       if (!(error instanceof MissingMappingError)) throw error;
       skipped = error.message;
       payload = { shop, onlineOrderNumber: order.orderNumber };
     }
-    const lastError = skipped ? skipped.slice(0, 1024) : null;
-
+    const existing = await tx.qianyiSyncJob.findUnique({ where: { orderId_kind: { orderId, kind } } });
+    if (existing && ['SENT', 'SENDING', 'CANCELLED'].includes(existing.status)) return;
     await tx.qianyiSyncJob.upsert({
       where: { orderId_kind: { orderId, kind } },
-      create: {
-        orderId,
-        kind,
-        requestPayload: payload as Prisma.InputJsonValue,
-        status: skipped ? 'SKIPPED' : undefined,
-        lastError,
-      },
-      update: {
-        status: skipped ? 'SKIPPED' : 'PENDING',
-        attempts: 0,
-        nextAttemptAt: new Date(),
-        requestPayload: payload as Prisma.InputJsonValue,
-        lastError,
+      create: { orderId, kind, requestPayload: payload as Prisma.InputJsonValue, status: skipped ? 'SKIPPED' : 'PENDING', lastError: skipped?.slice(0, 1024) },
+      // A re-confirmation must not silently reactivate a job that needs review.
+      update: existing?.pendingReview ? {} : {
+        status: skipped ? 'SKIPPED' : 'PENDING', attempts: 0, autoCreateAttempts: 0, pendingReview: false,
+        claimedAt: null, nextAttemptAt: new Date(), requestPayload: payload as Prisma.InputJsonValue, lastError: skipped?.slice(0, 1024),
       },
     });
   }
 
-  /** Delivers every due job; returns how many were attempted. */
+  /** Recovers jobs whose worker died between claim and confirmation. */
+  async recoverStaleSends(now = new Date()): Promise<number> {
+    const stale = await this.prisma.qianyiSyncJob.findMany({
+      where: { status: 'SENDING', claimedAt: { lt: new Date(now.getTime() - SENDING_LEASE_MS) } },
+      take: 50,
+    });
+    for (const job of stale) {
+      await this.prisma.$transaction(async tx => {
+        const changed = await tx.qianyiSyncJob.updateMany({ where: { id: job.id, status: 'SENDING' }, data: {
+          status: 'FAILED', pendingReview: true, claimedAt: null,
+          lastError: 'OUTCOME_UNKNOWN: the worker stopped during the request; reconcile in Qingyi before any retry',
+        } });
+        if (changed.count) await tx.orderNote.create({ data: { orderId: job.orderId, noteType: 'SYSTEM',
+          content: 'Qianyi push interrupted during the request. Automatic retry is blocked; verify the order in Qianyi first.' } });
+      });
+    }
+    return stale.length;
+  }
+
   async processPending(now = new Date()): Promise<number> {
-    if (!this.client.enabled || this.running) return 0;
-    this.running = true;
+    if (!this.client.enabled) return 0;
+    await this.recoverStaleSends(now);
+    const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      UPDATE qianyi_sync_jobs SET status='SENDING', claimed_at=${now}, attempts=attempts+1
+      WHERE id IN (SELECT id FROM qianyi_sync_jobs WHERE status='PENDING' AND next_attempt_at<=${now}
+        ORDER BY next_attempt_at ASC FOR UPDATE SKIP LOCKED LIMIT ${BATCH_SIZE})
+      RETURNING id`);
+    for (const { id } of claimed) await this.deliver(id, now);
+    return claimed.length;
+  }
+
+  private async deliver(id: string, now: Date): Promise<void> {
+    const job = await this.prisma.qianyiSyncJob.findUniqueOrThrow({ where: { id } });
     try {
-      const due = await this.prisma.qianyiSyncJob.findMany({
-        where: { status: 'PENDING', nextAttemptAt: { lte: now } },
-        orderBy: { nextAttemptAt: 'asc' },
-        take: BATCH_SIZE,
-      });
-      for (const job of due) {
-        try {
-          // A retry can follow a timeout where Qianyi DID create the order.
-          // Ask first, so the retry adopts it instead of creating a second one.
-          const existing =
-            job.kind === 'PUSH_ORDER' && job.attempts > 0
-              ? await this.findExistingOrder(job.requestPayload)
-              : null;
-          if (existing) {
-            await this.markSent(job, existing);
-            continue;
-          }
-          const result = await this.client.call(
-            job.kind === 'PUSH_ORDER' ? 'CREATE_AND_AUDIT_SALES_ORDER' : 'CLOSE_SALES_ORDER',
-            'salesOrder',
-            job.requestPayload as Record<string, unknown>,
-          );
-          await this.markSent(job, result);
-        } catch (error) {
-          const attempts = job.attempts + 1;
-          const failed = attempts >= MAX_ATTEMPTS || error instanceof MissingMappingError;
-          const delayMinutes = RETRY_DELAYS_MINUTES[attempts - 1] ?? 60;
-          await this.prisma.qianyiSyncJob.update({
-            where: { id: job.id },
-            data: {
-              status: failed ? 'FAILED' : 'PENDING',
-              attempts: { increment: 1 },
-              nextAttemptAt: failed
-                ? job.nextAttemptAt
-                : new Date(now.getTime() + delayMinutes * 60_000),
-              // Keep the Qianyi error code: it is what the operator acts on.
-              lastError: (
-                error instanceof QianyiError
-                  ? `${error.errorCode}: ${error.message}`
-                  : (error as Error).message
-              ).slice(0, 1024),
-            },
-          });
-        }
-      }
-      return due.length;
-    } finally {
-      this.running = false;
-    }
-  }
-
-  /** Which Qianyi order number, if any, already exists for this online order. */
-  private async findExistingOrder(payload: unknown): Promise<{ orderNumber?: string } | null> {
-    const onlineOrderNumber = String(
-      (payload as { onlineOrderNumber?: string } | null)?.onlineOrderNumber ?? '',
-    );
-    if (!onlineOrderNumber) return null;
-    const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
-      onlineOrderNumber,
-      page: 1,
-      pageSize: 1,
-    })) as Array<{ orderNumber?: string }> | null;
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  }
-
-  private async markSent(job: { id: string; orderId: string }, result: unknown): Promise<void> {
-    const external = (result as { orderNumber?: string } | null)?.orderNumber ?? null;
-    await this.prisma.qianyiSyncJob.update({
-      where: { id: job.id },
-      data: {
-        status: 'SENT',
-        attempts: { increment: 1 },
-        sentAt: new Date(),
-        lastError: null,
-        responsePayload: (result ?? null) as Prisma.InputJsonValue,
-        externalOrderNumber: external,
-      },
-    });
-    if (external) {
-      await this.prisma.order.update({
-        where: { id: job.orderId },
-        data: { qianyiOrderNumber: external },
+      if (job.kind === 'PUSH_ORDER') await this.deliverPush(job, now);
+      else await this.deliverClose(job, now);
+    } catch (error) {
+      await this.prisma.$transaction(async tx => {
+        await tx.qianyiSyncJob.update({ where: { id }, data: {
+          status: 'FAILED', pendingReview: true, claimedAt: null,
+          lastError: `${error instanceof Error ? error.message : 'unknown failure'}; verify the outcome in Qianyi before retrying`.slice(0, 1024),
+        } });
+        await tx.orderNote.create({ data: { orderId: job.orderId, noteType: 'SYSTEM',
+          content: 'Qianyi delivery failed after dispatch. Automatic retry is blocked; reconcile the order in Qianyi.' } });
       });
     }
   }
 
-  /**
-   * Re-queues a SKIPPED push once every line carries a Qianyi code.
-   *
-   * `attempts` is set to 1 on purpose: the worker then asks Qianyi whether the
-   * online order number already exists before creating anything, so a requeue
-   * can never produce a second order. The original reason is kept verbatim and
-   * the operator who did it is written to the order.
-   */
-  async requeueSkipped(
-    jobId: string,
-    operatorId: string,
-  ): Promise<{ ok: boolean; missing?: string[]; reason?: string }> {
-    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
-    if (!job) return { ok: false, reason: 'job not found' };
-    if (job.kind !== 'PUSH_ORDER' || job.status !== 'SKIPPED') {
-      return {
-        ok: false,
-        reason: `only a SKIPPED push can be requeued (this job is ${job.status})`,
-      };
-    }
-
-    const order = await this.prisma.order.findUnique({
-      where: { id: job.orderId },
-      include: ORDER_INCLUDE,
+  private async deliverPush(job: Job, now: Date): Promise<void> {
+    const order = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id=${job.orderId}::uuid FOR UPDATE`;
+      return tx.order.findUnique({ where: { id: job.orderId }, include: ORDER_INCLUDE });
     });
-    if (!order) return { ok: false, reason: 'order not found' };
-
-    const { shop, warehouseId, warehouse, logistics } = this.config;
+    if (!order) return this.finish(job, { status: 'FAILED', lastError: 'ORDER_MISSING' });
+    if (!PUSHABLE.has(order.orderStatus) || order.confirmationStatus !== 'CONFIRMED') {
+      return this.finish(job, { status: 'FAILED', lastError: `ORDER_NOT_PUSHABLE: ${order.orderStatus}/${order.confirmationStatus}` });
+    }
     let payload: Record<string, unknown>;
     try {
-      payload = buildCreateOrderPayload(order as unknown as QianyiOrderSource, {
-        shop,
-        warehouseId,
-        warehouse,
-        logistics,
-      });
+      payload = buildCreateOrderPayload(order, this.config);
+    } catch (error) {
+      if (!(error instanceof MissingMappingError)) throw error;
+      return this.finish(job, { status: 'SKIPPED', lastError: error.message.slice(0, 1024), requestPayload: { shop: this.config.shop, onlineOrderNumber: order.orderNumber } });
+    }
+    const frozen = (job.requestPayload as Record<string, unknown> | null)?._skuMapping;
+    if (frozen && typeof frozen === 'object') payload._skuMapping = frozen;
+    else payload._skuMapping = Object.fromEntries(order.items.map(item => [item.id, item.sku.qianyiSkuCode!.trim()]));
+
+    const existing = await this.findExistingOrder(payload);
+    if (existing) return this.markSent(job, existing, payload);
+
+    const granted = await this.prisma.qianyiSyncJob.updateMany({
+      where: { id: job.id, status: 'SENDING', autoCreateAttempts: 0 },
+      data: { autoCreateAttempts: 1, requestPayload: payload as Prisma.InputJsonValue },
+    });
+    if (granted.count === 0) {
+      return this.finish(job, { status: 'FAILED', pendingReview: true, requestPayload: payload as Prisma.InputJsonValue,
+        lastError: 'OUTCOME_UNKNOWN: a create was already dispatched; reconcile in Qianyi, then authorize a retry if it is absent' });
+    }
+    const result = await this.client.call('CREATE_AND_AUDIT_SALES_ORDER', 'salesOrder', payload);
+    await this.markSent(job, result, payload);
+  }
+
+  private async deliverClose(job: Job, now: Date): Promise<void> {
+    const result = await this.client.call('CLOSE_SALES_ORDER', 'salesOrder', job.requestPayload as Record<string, unknown>);
+    await this.finish(job, { status: 'SENT', externalOrderNumber: (result as { orderNumber?: string })?.orderNumber ?? null });
+  }
+
+  private async finish(job: Job, data: Prisma.QianyiSyncJobUpdateInput): Promise<void> {
+    const closing = job.kind === 'CLOSE_ORDER';
+    const attempts = data.status === 'SENT' || !closing ? job.attempts : job.attempts + 1;
+    const failed = closing && attempts >= MAX_CLOSE_ATTEMPTS;
+    await this.prisma.qianyiSyncJob.update({ where: { id: job.id }, data: {
+      ...data, claimedAt: null,
+      status: data.status ?? (failed ? 'FAILED' : 'PENDING'),
+      nextAttemptAt: failed ? job.nextAttemptAt : new Date(Date.now() + (CLOSE_BACKOFF_MINUTES[attempts - 1] ?? 60) * 60_000),
+    } });
+    if (data.status === 'SKIPPED') {
+      await this.prisma.orderNote.create({ data: { orderId: job.orderId, noteType: 'SYSTEM',
+        content: `Qianyi push skipped: ${String(data.lastError ?? '').slice(0, 500)}` } });
+    }
+  }
+
+  private async markSent(job: Job | { id: string; orderId: string }, result: unknown, request?: Record<string, unknown>): Promise<void> {
+    const external = (result as { orderNumber?: string } | null)?.orderNumber ?? null;
+    await this.prisma.$transaction(async tx => {
+      await tx.qianyiSyncJob.update({ where: { id: job.id }, data: {
+        status: 'SENT', claimedAt: null, sentAt: new Date(), lastError: null, pendingReview: false,
+        responsePayload: (result ?? null) as Prisma.InputJsonValue, externalOrderNumber: external,
+        ...(request ? { requestPayload: request as Prisma.InputJsonValue } : {}),
+      } });
+      if (external) await tx.order.update({ where: { id: job.orderId }, data: { qianyiOrderNumber: external } });
+    });
+  }
+
+  private async findExistingOrder(payload: Record<string, unknown>): Promise<{ orderNumber?: string } | null> {
+    const onlineOrderNumber = String(payload.onlineOrderNumber ?? '');
+    if (!onlineOrderNumber) return null;
+    const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+      shop: this.config.shop, onlineOrderNumber, page: 1, pageSize: 5,
+    })) as Array<Record<string, unknown>> | null;
+    const matches = (Array.isArray(rows) ? rows : []).filter(row => row.onlineOrderNumber === onlineOrderNumber &&
+      (row.shop === undefined || row.shop === this.config.shop) &&
+      (row.payAmount === undefined || `${row.payAmount}` === `${payload.codPayAmount}`));
+    return matches.length === 1 ? matches[0] as { orderNumber?: string } : null;
+  }
+
+  /** Re-queues a SKIPPED push once every line carries a mapping. */
+  async requeueSkipped(jobId: string, operatorId: string): Promise<Result> {
+    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
+    if (!job) return { ok: false, reason: 'job not found' };
+    if (job.kind !== 'PUSH_ORDER' || job.status !== 'SKIPPED' || job.autoCreateAttempts > 0 || job.pendingReview) {
+      return { ok: false, reason: 'only a never-sent SKIPPED push can be requeued' };
+    }
+    const order = await this.prisma.order.findUnique({ where: { id: job.orderId }, include: ORDER_INCLUDE });
+    if (!order || !PUSHABLE.has(order.orderStatus)) return { ok: false, reason: `order is ${order?.orderStatus ?? 'missing'}` };
+    try {
+      buildCreateOrderPayload(order, this.config);
     } catch (error) {
       if (error instanceof MissingMappingError) return { ok: false, missing: error.skuCodes };
       throw error;
     }
-
     const previous = job.lastError ? ` (was: ${job.lastError})` : '';
-    await this.prisma.qianyiSyncJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'PENDING',
-        attempts: 1,
-        nextAttemptAt: new Date(),
-        requestPayload: payload as Prisma.InputJsonValue,
-        lastError: `requeued from SKIPPED${previous}`.slice(0, 1024),
-      },
-    });
-    await this.prisma.orderNote.create({
-      data: {
-        orderId: job.orderId,
-        userId: operatorId,
-        noteType: 'SYSTEM',
-        content: `Qianyi push requeued after the SKU mapping was completed${previous}`.slice(0, 2000),
-      },
+    await this.prisma.$transaction(async tx => {
+      const changed = await tx.qianyiSyncJob.updateMany({ where: { id: jobId, status: 'SKIPPED', pendingReview: false },
+        data: { status: 'PENDING', attempts: 0, autoCreateAttempts: 0, claimedAt: null, nextAttemptAt: new Date(),
+          lastError: `requeued from SKIPPED${previous}`.slice(0, 1024), lastAction: `requeued by ${operatorId}` } });
+      if (!changed.count) throw new Error('Job state changed; reload and retry');
+      await tx.orderNote.create({ data: { orderId: job.orderId, userId: operatorId, noteType: 'SYSTEM',
+        content: `Qianyi push requeued after the SKU mapping was completed${previous}`.slice(0, 2000) } });
     });
     void this.processPending().catch(() => undefined);
     return { ok: true };
   }
 
-  /**
-   * Pulls a FAILED job back into the queue.
-   *
-   * `attempts` is set to 1 so the worker's "does Qianyi already have this
-   * order?" check runs first — a FAILED push may have failed *after* Qianyi
-   * created the order.
-   */
-  async retry(jobId: string): Promise<void> {
+  /** Requeues a FAILED job that never dispatched a create, with an audit note. */
+  async retry(jobId: string, operatorId: string): Promise<Result> {
     const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
-    const previous = job?.lastError ? ` (was: ${job.lastError})` : '';
-    await this.prisma.qianyiSyncJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'PENDING',
-        attempts: 1,
-        nextAttemptAt: new Date(),
-        lastError: job
-          ? `requeued from ${job.status}${previous}`.slice(0, 1024)
-          : null,
-      },
+    if (!job) return { ok: false, reason: 'job not found' };
+    if (job.status !== 'FAILED' || job.pendingReview || job.autoCreateAttempts > 0) {
+      return { ok: false, reason: 'this failure may have reached Qianyi; reconcile it, then authorize a create retry' };
+    }
+    const previous = job.lastError ? ` (was: ${job.lastError})` : '';
+    await this.prisma.$transaction(async tx => {
+      await tx.qianyiSyncJob.update({ where: { id: jobId }, data: { status: 'PENDING', attempts: 0, autoCreateAttempts: 0,
+        claimedAt: null, nextAttemptAt: new Date(), lastError: `requeued from FAILED${previous}`.slice(0, 1024),
+        lastAction: `retried by ${operatorId}` } });
+      await tx.orderNote.create({ data: { orderId: job.orderId, userId: operatorId, noteType: 'SYSTEM',
+        content: `Qianyi ${job.kind} requeued by operator${previous}`.slice(0, 2000) } });
     });
     void this.processPending().catch(() => undefined);
+    return { ok: true };
   }
 
-  /**
-   * Daily safety net. Qianyi is the source of truth for outbound numbers, but
-   * reconciliation only *flags*: writing a note lets the operator confirm
-   * before anything moves, and stops another channel's tracking number being
-   * attached to our order.
-   */
-  async reconcile(
-    now = new Date(),
-  ): Promise<{ checked: number; repaired: number; unmatched: number }> {
-    if (!this.client.enabled) return { checked: 0, repaired: 0, unmatched: 0 };
-
-    // Archive retention. The webhook table is append-only; without this it
-    // grows forever. Optional-chained so a deploy that outruns its migration
-    // cannot take the reconciliation down with it.
-    await this.prisma.qianyiWebhookEvent?.deleteMany?.({
-      where: { receivedAt: { lt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) } },
+  /** Opens a create again ONLY after the operator confirmed it is absent in Qianyi. */
+  async authorizeCreateRetry(jobId: string, operatorId: string, confirmedAbsent: boolean): Promise<Result> {
+    if (!confirmedAbsent) return { ok: false, reason: 'operator must confirm the order is absent in Qianyi' };
+    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
+    if (!job || job.kind !== 'PUSH_ORDER') return { ok: false, reason: 'not a push job' };
+    if (job.status !== 'FAILED' || !job.pendingReview || job.autoCreateAttempts === 0) {
+      return { ok: false, reason: 'this job does not need an authorized create retry' };
+    }
+    await this.prisma.$transaction(async tx => {
+      const changed = await tx.qianyiSyncJob.updateMany({ where: { id: jobId, status: 'FAILED', pendingReview: true },
+        data: { status: 'PENDING', attempts: 0, autoCreateAttempts: 0, pendingReview: false, claimedAt: null,
+          nextAttemptAt: new Date(), lastError: `create retry authorized after manual reconciliation by ${operatorId}`.slice(0, 1024),
+          lastAction: `create retry authorized by ${operatorId}` } });
+      if (!changed.count) throw new Error('Job state changed; reload and retry');
+      await tx.orderNote.create({ data: { orderId: job.orderId, userId: operatorId, noteType: 'SYSTEM',
+        content: 'Operator confirmed no Qianyi order exists; one new create was authorized.' } });
     });
-    const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-    const fmt = (date: Date) =>
-      new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Manila',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      })
-        .format(date)
-        .replace(',', '');
+    void this.processPending().catch(() => undefined);
+    return { ok: true };
+  }
 
-    let page = 1;
-    let checked = 0;
-    let unmatched = 0;
+  /** Runs inside the cancel transaction. */
+  async cancelWithin(tx: Prisma.TransactionClient, orderId: string, operatorId: string): Promise<'none' | 'cancelled' | 'review' | 'close'> {
+    if (!this.client.enabled) return 'none';
+    const job = await tx.qianyiSyncJob.findUnique({ where: { orderId_kind: { orderId, kind: 'PUSH_ORDER' } } });
+    if (!job) return 'none';
+    if (job.status === 'SENT') {
+      await this.enqueue(tx, 'CLOSE_ORDER', orderId);
+      return 'close';
+    }
+    if (job.status === 'SENDING') {
+      await tx.qianyiSyncJob.update({ where: { id: job.id }, data: { status: 'FAILED', pendingReview: true, claimedAt: null,
+        lastError: 'OUTCOME_UNKNOWN: cancelled while the create was in flight',
+        lastAction: `cancelled by ${operatorId}` } });
+      return 'review';
+    }
+    if (job.status === 'PENDING' || job.status === 'SKIPPED' || job.status === 'FAILED') {
+      await tx.qianyiSyncJob.update({ where: { id: job.id }, data: { status: 'CANCELLED', claimedAt: null,
+        lastAction: `cancelled by ${operatorId} from ${job.status}` } });
+      return 'cancelled';
+    }
+    return 'none';
+  }
+
+  async reconcile(now = new Date()): Promise<{ checked: number; repaired: number; unmatched: number }> {
+    if (!this.client.enabled) return { checked: 0, repaired: 0, unmatched: 0 };
+    await this.prisma.qianyiWebhookEvent.deleteMany({ where: { receivedAt: { lt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) }, processedAt: { not: null } } });
+    const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const fmt = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date).replace(',', '');
+    let page = 1, checked = 0, unmatched = 0;
     for (;;) {
       const rows = (await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
-        updateTimeFrom: fmt(from),
-        updateTimeTo: fmt(now),
-        page,
-        pageSize: 100,
+        shop: this.config.shop, updateTimeFrom: fmt(from), updateTimeTo: fmt(now), page, pageSize: 100,
       })) as Array<Record<string, unknown>> | null;
       if (!Array.isArray(rows) || rows.length === 0) break;
       checked += rows.length;
@@ -343,51 +313,26 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
         const online = String(row.onlineOrderNumber ?? '');
         const tracking = row.trackingNumber ? String(row.trackingNumber) : '';
         if (!online || !tracking) continue;
-        const order = await this.prisma.order.findUnique({
-          where: { orderNumber: online },
-          include: { shipments: true },
-        });
-        if (!order) {
-          // Qianyi has a shipment for an order we do not know about — either a
-          // typo on their side or a local deletion. Say so instead of skipping.
-          unmatched += 1;
-          this.logger.warn(
-            `qianyi reconcile: ${online} exists in Qianyi but not locally (tracking ${tracking})`,
-          );
-          continue;
-        }
-        if (order.shipments.some((shipment) => shipment.trackingNumber === tracking)) {
-          continue;
-        }
-        await this.prisma.orderNote.create({
-          data: {
-            orderId: order.id,
-            noteType: 'WAREHOUSE',
-            content: `Reconciliation: Qianyi reports tracking ${tracking} not present locally`,
-          },
-        });
+        const order = await this.prisma.order.findUnique({ where: { orderNumber: online }, include: { shipments: true } });
+        if (!order) { unmatched += 1; continue; }
+        if (order.shipments.some(box => box.trackingNumber === tracking)) continue;
+        await this.prisma.orderNote.create({ data: { orderId: order.id, noteType: 'WAREHOUSE',
+          content: `Reconciliation: Qianyi reports tracking ${tracking} not present locally` } });
       }
-      if (rows.length < 100) break;
+      if (rows.length < 100 || page >= 30) break;
       page += 1;
-      if (page > 30) break;
     }
     return { checked, repaired: 0, unmatched };
   }
 
-  async health(): Promise<{
-    enabled: boolean;
-    pending: number;
-    failed: number;
-    sent24h: number;
-  }> {
+  async health() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return {
       enabled: this.client.enabled,
-      pending: await this.prisma.qianyiSyncJob.count({ where: { status: 'PENDING' } }),
+      pending: await this.prisma.qianyiSyncJob.count({ where: { status: { in: ['PENDING', 'SENDING'] } } }),
       failed: await this.prisma.qianyiSyncJob.count({ where: { status: 'FAILED' } }),
-      sent24h: await this.prisma.qianyiSyncJob.count({
-        where: { status: 'SENT', sentAt: { gte: since } },
-      }),
+      review: await this.prisma.qianyiSyncJob.count({ where: { pendingReview: true } }),
+      sent24h: await this.prisma.qianyiSyncJob.count({ where: { status: 'SENT', sentAt: { gte: since } } }),
     };
   }
 }

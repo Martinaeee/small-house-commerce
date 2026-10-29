@@ -1,12 +1,4 @@
-import {
-  Controller,
-  HttpCode,
-  HttpException,
-  HttpStatus,
-  Post,
-  Req,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Controller, HttpCode, HttpException, HttpStatus, Post, Req, UseInterceptors } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { QianyiWebhookService } from './qianyi-webhook.service.js';
@@ -14,9 +6,10 @@ import { QianyiWebhookService } from './qianyi-webhook.service.js';
 /**
  * Public callback sink.
  *
- * Qianyi posts `multipart/form-data` by default (only text fields, no files),
- * so the interceptor turns the parts into a normal `req.body`; Express' own
- * parser already covers the form-urlencoded variant.
+ * Qianyi posts `multipart/form-data` by default (text fields only). The global
+ * Nest/Express parser covers urlencoded/JSON; this interceptor only adds
+ * multipart field parsing. A missing route-level body limit is a known
+ * residual risk recorded in the gate report.
  */
 @Controller('qianyi')
 export class QianyiWebhookController {
@@ -24,17 +17,10 @@ export class QianyiWebhookController {
 
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 1, fields: 20, fieldSize: 65_536 } }))
+  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 1, fields: 5, fieldSize: 65_536 } }))
   async receive(@Req() request: Request) {
-    // Budget check first: it is cheaper than hashing, JSON parsing and a query.
-    if (!this.webhooks.allow(request.ip ?? 'unknown')) {
-      throw new HttpException('Too many callbacks', HttpStatus.TOO_MANY_REQUESTS);
-    }
     const body = (request.body ?? {}) as Record<string, unknown>;
-    const field = (name: string): string => {
-      const value = body[name];
-      return typeof value === 'string' ? value : '';
-    };
+    const field = (name: string): string => (typeof body[name] === 'string' ? body[name] as string : '');
     const result = await this.webhooks.ingest({
       appId: field('appId'),
       serviceType: field('serviceType'),
@@ -43,11 +29,11 @@ export class QianyiWebhookController {
       sign: field('sign'),
     });
     if (result.retryable) {
-      // A non-2xx is what makes Qianyi resend; the archived row keeps the
-      // error so the failure is still inspectable.
+      // Qianyi resends on a non-2xx; the archived row keeps the failure.
       throw new HttpException('dispatch failed, retry', HttpStatus.INTERNAL_SERVER_ERROR);
     }
-    // Always 200 otherwise: Qianyi retries on failure.
-    return { ok: result.ok };
+    // Signed callbacks are always acknowledged, including while the feature is
+    // disabled (they are deferred, not applied) and ones we rejected.
+    return result.deferred ? { ok: true, deferred: true } : { ok: result.ok };
   }
 }

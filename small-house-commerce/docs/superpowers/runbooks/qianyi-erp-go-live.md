@@ -1,119 +1,113 @@
-# 千易 ERP 上线手册（订单同步）
+# 千易 ERP 订单同步：上线门禁与操作手册
 
-日期：2026-10-28
-对应设计：`docs/superpowers/specs/2026-10-28-qianyi-erp-integration-design.md`
-对应实现计划：`docs/superpowers/plans/2026-10-28-qianyi-erp-order-sync.md`
+更新：2026-10-29。运行时代码候选：`3264ae6fea3f67366bfc712180b55f4af205f125`。
 
-上线前默认状态：`QIANYI_ENABLED=false`，后端不产生任何千易请求。
+**当前结论：门禁未通过，不得按本手册直接部署或启用。** 保留功能分支；不合并、不 push、不创建 PR、不部署，不调用真实千易写接口。本手册描述实际实现、阻断条件和后续需授权的步骤，不构成执行授权。
 
-## 1. 千易后台（由有 ERP 账号的人操作）
+## 1. 已确认与未确认的边界
 
-1. 「设置 → 三方应用对接」打开 `LUWAG` 这个自研应用。
-2. **IP 白名单**填生产出口 IP：`43.160.229.107`（= `luwag.shop` 的 A 记录）。
-3. 勾选本次要用的能力：
-   - 商品：商品列表查询、商品新增、商品编辑、商品启用/停用
-   - 订单：订单创建并审核、订单关闭、订单列表查询、订单物流信息推送
-   - 店铺：店铺列表查询　仓库：仓库列表查询、仓库物流查询
-4. 「推送消息接收地址」填 `https://luwag.shop/api/v1/qianyi/webhook`，并勾选：
-   - 出库反馈推送（`PUSH_ODO_ORDER`）
-   - 订单物流信息推送（`PUSH_SALES_ORDER_SHIPPING_INFO`）
-   - 物流跟踪状态变更推送（`PUSH_TRACKING_PACKAGE`）
-5. 确认店铺 `LUWAG- PH` 处于「店铺已授权」，发货仓 `PH-DAVAO-01`、物流 `SHIPDOC-STD` 可用。
+- 店铺名称为 `LUWAG- PH`，中间空格必须保留。
+- 千易 OpenAPI 基址为 `https://www.qianyierp.com`；历史只读查询通过，不代表创建商品、创建订单、发货或真实回调已联调。
+- 千易目标仓为 `PH-DAVAO-01` / `71537`。本站 `Manila Central` 与该仓的物理对应关系尚未确认，不能以默认仓替代确认。
+- `SHIPDOC-STD` 可被仓库物流列表查到；实际服务商、J&T、COD 代收以及家具 `shelfLife` 含义仍需千易书面确认。
+- COD `payTime` 当前发送下单时间（+08:00）；隔离验收未把订单标成已付款，但千易是否接受该约定仍未验证。
+- 真实千易回调签名样本尚未取得。自签测试只能证明本站实现自洽。
+- 曾在对话中暴露的凭据必须轮换，并确认旧凭据失效后才能正式启用；不得把凭据写入 Git、报告或测试日志。
 
-## 2. 服务器环境变量
+## 2. 环境变量与停用语义
 
-在 `/opt/small-house-commerce/small-house-commerce/.env.deploy` 追加（`chmod 600`，**不进 Git**）：
+所有部署配置仅在后续获得授权后填写，凭据保存在受限配置文件中，不进入 Git。保持 `QIANYI_ENABLED=false`。
 
-```
-QIANYI_ENABLED=true
+```dotenv
+QIANYI_ENABLED=false
 QIANYI_BASE_URL=https://www.qianyierp.com
-QIANYI_APP_ID=<三方应用对接页的 accessId>
-QIANYI_APP_SECRET=<三方应用对接页的 secretKey>
+QIANYI_APP_ID=<轮换后的 appId>
+QIANYI_APP_SECRET=<轮换后的 secret>
 QIANYI_SHOP=LUWAG- PH
 QIANYI_WAREHOUSE_ID=71537
 QIANYI_WAREHOUSE=PH-DAVAO-01
-# 可选：本地记账仓库。不填则沿用"第一个启用仓库"（生产目前是 Manila Central）
-# QIANYI_LOCAL_WAREHOUSE_ID=<warehouses.id 的 uuid>
+QIANYI_LOCAL_WAREHOUSE_ID=<经业务确认的本地仓库 UUID>
 QIANYI_LOGISTICS=SHIPDOC-STD
 ```
 
-> `QIANYI_SHOP` 里的空格是名字的一部分，不要删。
-> 凭证在本项目的对话记录里明文出现过，**建议先在千易后台重置一次 secretKey 再填入**。
+当前代码的 `false` **阻止所有出站请求、排队推送、worker 和入站业务写入**。带有效签名的回调会被归档并标记 `INTEGRATION_DISABLED`，HTTP 返回 `{ok:true,deferred:true}`（不再让千易重试），订单、库存、包裹、物流轨迹不变。重新设为 `true` 并重启后，后台会回放这些待处理回调，每条最多应用一次。归档行仍会写入，这是停用期间唯一的数据变化。
 
-## 3. 部署
+当前停用态下**不会**使用默认仓库兜底：启用出库回调前必须配置 `QIANYI_LOCAL_WAREHOUSE_ID`，且该仓库必须为 ACTIVE / PH；回调扣减的预留仓与包裹记账仓不一致时整笔拒绝。
 
-```bash
-cd /opt/small-house-commerce/small-house-commerce
-docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
-```
+`docker-compose.prod.yml` 现在会显式把 `QIANYI_*` 转发给 backend；部署前仍必须打印容器实际 env 核验（`docker compose exec backend env | grep '^QIANYI_'`），且不要在未获授权时部署。
 
-**必须带 `--env-file .env.deploy`**，否则 `DATABASE_URL` 为空，后端会以 Prisma `P1010` 反复重启。
+## 3. 商品建档
 
-迁移 `20261028160000_add_qianyi_order_sync` 由后端容器入口的 `prisma migrate deploy` 自动应用（加性：两张新表 + 四个可空列）。时间戳排在已应用的 `20261028150000_add_order_idempotency` 之后，不会出现乱序应用。
+- 后台入口：`/admin/settings/qianyi`；默认不勾选，只提交人工明确勾选的 SKU。
+- 缺毛重、净重、包装三尺寸的行不可勾选；净重不能用毛重替代。
+- “字段齐全”不等于业务资料正确：还需检查正数、净重不高于毛重、尺寸轴与单位、家具保质期语义。
+- `qianyi-sku-first-batch.md` 是 2026-10-28 资料快照，不是批准建档清单。原统计 23 项字段齐全、26 项缺净重、13 项缺更多字段，不应写成 49 项可直接建档；字段齐全行中也存在净重/毛重矛盾。
+- 当前 mapper 固定 `shelfLife=36500`，未获千易确认，不应直接用于真实建档。
+- 千易已有同物商品时优先人工确认并填写映射；不得因编码不一致就自动新建重复商品。
 
-## 4. 打开开关后的第一轮检查
+## 4. 任务状态与后台按钮：实际行为
 
-1. 后台 `/admin/settings/qianyi`：应显示「已启用」，待推送 0 / 失败 0。
-2. 列表里 62 个 SKU 中，可建档的应约 49 个（缺尺寸/毛重的会显示「缺 …」且无法勾选）。
-3. **只勾选首批要上架的商品**，点「建档选中的 N 个」；结果里 `Created x / y`。
-4. 建档成功的行会显示千易编码；其余行保持空白，**空白行永不推单**。已有千易编码的商品可以在列表里直接改写（失焦即保存）。
-
-## 5. 推单验收（用一笔真实订单）
-
-1. 前台下一笔 COD 订单（或后台录单），客服在订单工作台点「确认」。
-2. 后台 `/admin/settings/qianyi` 的同步任务列表应出现 `PUSH_ORDER`，状态从 `PENDING` 变 `SENT`。
-3. 千易「订单」里应出现该线上单号（`PH…`），状态为待发货。
-4. 千易里点发货 → 我们会收到 `PUSH_ODO_ORDER`：
-   - 订单变 `SHIPPING`，生成 `Shipment`，本地库存按实际出货量扣减；
-   - 数量不一致时，订单备注里会写「ordered X, shipped Y」。
-5. 打开 `/track-order`，用单号 + 手机号查询：卡片里应出现「Tracking」区块，显示承运商、运单号与状态节点。
-
-## 6. 任务状态与恢复（与后台按钮一一对应）
-
-| 状态 | 含义 | 后台按钮 | 说明 |
+| 状态 | 实际含义 | 当前后台按钮 | 门禁说明 |
 |---|---|---|---|
-| `PENDING` | 排队中，等待 worker（30 秒一轮） | 无 | 失败后会按 1/5/15/60 分钟退避 |
-| `SENT` | 千易已确认收单 | 无 | 订单上会写回千易单号（`S…`） |
-| `FAILED` | 连续失败 5 次，停止自动重试 | **重推** | 重推会把 `attempts` 置为 1，**先查千易是否已有该单**再推，不会重复建单 |
-| `SKIPPED` | 有明细缺千易编码，**整单未推送** | **重排** | 只有全部明细都补上编码后才会成功；否则返回「仍缺映射：<SKU>」 |
+| `PENDING` | 等待 worker；每 30 秒检查 | 无 | worker 用数据库 `FOR UPDATE SKIP LOCKED` 领取，可多实例 |
+| `SENDING` | worker 已领取并在请求中 | 无 | 超过 10 分钟未完成会自动转 `FAILED` + 待核对 |
+| `SENT` | 本站把客户端响应判为成功并写入任务 | 无 | 仍需真实千易履约验收 |
+| `FAILED` | 确定失败，且从未发出 CREATE | **重推** | 重新校验映射/订单状态后放回队列，有操作人备注 |
+| `FAILED` + 待核对 | CREATE 可能已到达千易，结果不明 | **核对后授权重推** | 必须先在千易确认订单不存在；授权后才允许再创建一次 |
+| `SKIPPED` | 某些明细缺千易映射，整单未提交 | **重排** | 重读全部明细；缺映射返回具体 SKU；只接受从未发送的任务 |
+| `CANCELLED` | 订单在推送前被取消/合并 | 无 | worker 不会发送；已取消订单不能靠旧确认重新排队 |
 
-规则：
+实际入口：
 
-- 缺 SKU 映射**不会阻断客服确认**：订单照常确认成功，任务记 `SKIPPED` 并写明缺哪个 SKU。
-- 先在列表里直接填写千易编码（失焦即保存），再点该行「重排」。仍缺映射时按钮会给出具体 SKU，任务保持 `SKIPPED` 不动。
-- 「重推」和「重排」都会保留原始失败原因（`lastError` 变成 `requeued from <状态> (was: …)`），并在订单上留一条 `SYSTEM` 备注记录操作人。
-- 失败原因形如 `SERVICE_TYPE_NOT_ALLOW: 权限不足`，据此去千易补权限或改映射。
-- 超过 5 次自动转 `FAILED`，不会无限重试。
+- `POST /api/v1/admin/qianyi/jobs/:id/retry`（仅“从未发出 CREATE”的 FAILED）
+- `POST /api/v1/admin/qianyi/jobs/:id/authorize-retry`（body `{confirmedAbsent:true}`）
+- `POST /api/v1/admin/qianyi/jobs/:id/requeue`（仅 SKIPPED）
 
-## 7. 回滚
+**远端幂等没有证明。** CREATE 在任何任务生命周期里最多自动发出一次；之后只有操作人在千易确认“不存在”后才能授权再发一次。查询到已有订单时直接采纳为 SENT，但查询为空不会被视为“可以安全重发”。所有恢复动作写 `lastAction` 和 SYSTEM 订单备注；任务状态与备注在同一事务中。
 
-```bash
-# .env.deploy 里改回
-QIANYI_ENABLED=false
-docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
-```
+## 5. Webhook：现有保护与缺口
 
-关闭后：不推单、不调千易、worker 不启动。已推过的订单在千易侧保持原样，需要的话在千易后台手工处理。
+回调路径为 `/api/v1/qianyi/webhook`。尚未授权在千易后台正式配置并启用该路径。
 
-迁移是加性的，回滚代码不需要回滚表结构；两张 `qianyi_*` 表留着不影响旧代码运行。
+| 项目 | 当前真实实现 |
+|---|---|
+| 限流 | 路由中间件在 multipart 解析前按 IP 每分钟 240 次拒绝（429）；仍是单进程内存计数，不是分布式总量限制 |
+| 请求体 | 中间件拒绝声明长度超过 200KB 的请求（413）；multipart 限 5 字段、单字段 64KB、禁止文件；JSON/urlencoded 另受 Nest 全局 100KB parser 限制（该 parser 在任何中间件前执行） |
+| 验签 | appId 必须等于本站配置；MD5 常量时间比较；时间戳 10–13 位且偏差 ≤24 小时；字段格式/长度先校验 |
+| 解析顺序 | 验签通过后才 JSON.parse；非对象载荷拒绝；无效验签不归档、不写库 |
+| 重复 | 归档 externalKey 使用稳定的 vendor event ID（若有），否则 `serviceType+单号+运单+出库号+状态+发生时间+地点` 的 JSON 哈希；物流表复用同一 key |
+| 并发 | 归档行 `FOR UPDATE` + 审计列唯一约束 + 订单行锁；同一事件只应用一次 |
+| 失败 | 归档行保持 `processedAt=null` 并记录错误，HTTP 500 让千易重试；重新投递会再次尝试 |
+| 停用 | 验签通过后归档，标记 `INTEGRATION_DISABLED`，返回 200 `{ok:true,deferred:true}`；重启启用后回放 |
+| 清理 | 每日对账仅删除超过 90 天且已完成的归档 |
 
-## 8. 已知未覆盖（二期）
+仍未覆盖：真实千易样本验签、超 24 小时的真实回调（当前被 200 拒绝且不归档）、未提供运单号的多包裹回调（会被拒绝，等千易重试或人工处理）以及分布式限流。
 
-- 库存双向同步：千易库存变动不会回写本站。
-- 退货自动入库：`PUSH_RETURN_ORDER_INFO` 只留档不改库存。
-- 商品/价格同步：本站改价不会同步到千易。
-- 面单打印：本站不取千易面单。
+## 6. 验收与分阶段启用（后续授权前提）
 
-## 9. Webhook 防护（公开接口）
+1. 保持功能分支。P0/P1 代码缺陷已在隔离 PostgreSQL 上复验通过，但真实千易签名、仓配与 COD 业务条件仍未确认；不要部署当前候选。
+2. 已复验：迁移重复执行、确认/缺映射/重排、首次与失败并发、崩溃恢复、取消、部分/多包裹、签收、Bundle、COD 未付款。仍需补验人工发货与自动回调并发、真实服务重启。
+3. 提供真实千易签名样本，确认实际回调字段、重试与时间窗、物流/COD/payTime/shelfLife、物理仓绑定，完成凭据轮换。
+4. 完成 3 后，才可申请 `false` 配置的暗部署；必须验证无出站请求、入站只有归档行、无业务数据变化，且容器 env 实际正确。
+5. 再分别申请人工选择 SKU 建档、单笔受控订单、真实发货与签收验收的授权；不得把一次授权扩大为全量同步授权。
 
-| 防护 | 取值 | 位置 |
-|---|---|---|
-| 每 IP 频率 | 240 次/分钟，超出返回 **429** | `QianyiWebhookService.allow()`，在任何解析之前 |
-| 请求体 | multipart 字段 ≤ 20 个、单字段 ≤ 64KB；urlencoded/json 由 Nest 默认 100KB 限制 | `AnyFilesInterceptor` limits |
-| 验签 | MD5 必须匹配，且时间戳在 24 小时内 | `QianyiWebhookService.ingest()` |
-| 验签失败 | **不落库**，只记一行 `qianyi webhook rejected: <serviceType>` 日志 | 同上 |
-| 归档保留 | 90 天，每日对账时清理 | `QianyiSyncService.reconcile()` |
-| 事件去重 | `serviceType + sha256(单号|运单号|状态|发生时间|地点)`，不是状态名 | `externalKey()` |
+首轮隔离验收曾发现物流节点、承运商、onlineOrderId、签收及停用闸失败；本轮已修复并由 28 项一次性数据库用例覆盖。本站自签 + 假千易仍不等于真实千易验收通过。
 
-> 签名验证失败一律返回 200 + `{ok:false}`（不触发千易重试），并且不写任何表。
-> 派发失败才返回 500，让千易重发。
+## 7. 回滚边界
+
+**本候选未部署，当前不需要生产回滚。** 不要为了准备回滚而操作生产容器或改环境。
+
+2026-10-29 只读核实的生产基线为 `36269e66fd2676e1dd43fad4569a48d012b7902f`，镜像快照：
+
+- backend：`sha256:990819255fd9d063dddfdd4962743297972ef6b4887a524c575172fd66962074`
+- frontend：`sha256:f31e2e4f0a92e796a42b38edd4ff7824bc48826914e9d504887083ac6353f713`
+
+后续授权部署前，必须重新核实并保存当时实际镜像、Compose 和受限环境备份；上述 ID 是现场快照，不保证未来仍存在，也不能替代部署前的回滚点。
+
+若未来已部署且需回滚：先阻断入站并停止千易 worker，再恢复已保存的后端/前端镜像与配置，使用同一个 `--env-file .env.deploy`，禁止 build/pull 把旧镜像替换成新代码；重建容器后检查 checkout、订单、库存和 Meta 功能。仅修改环境开关或仅执行 `up -d` 不保证完整关闭和容器重建。`QIANYI_ENABLED=false` 现在会阻止出站与入站业务写入，但仍会把有效签名回调归档为 deferred；旧镜像没有此行为，回滚前要先停掉千易回调推送或接受旧代码直接处理回调。
+
+加性迁移保留，不删除千易表/列，不回滚业务数据库。千易侧已创建的订单或已发生的物理出库不会随代码回滚消失，必须单独对账，禁止用重复推单或反向改库存来“撤销”。
+
+## 8. 本期不包含
+
+库存双向同步、自动退货入库、商品/价格持续同步、面单打印；当前每日对账只提示差异，不自动补齐全部发货与物流状态。

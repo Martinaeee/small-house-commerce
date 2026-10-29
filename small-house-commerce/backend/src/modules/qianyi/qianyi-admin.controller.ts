@@ -144,9 +144,18 @@ export class QianyiAdminController {
   }
 
   @Post('jobs/:id/retry')
-  async retry(@Param('id') id: string) {
-    await this.sync.retry(id);
-    return { retried: true };
+  async retry(@Param('id') id: string, @CurrentUser() user: { userId: string }) {
+    return this.sync.retry(id, user.userId);
+  }
+
+  /**
+   * A create may already have reached Qianyi. Only an operator who verified
+   * the order is absent there may open it for one more create.
+   */
+  @Post('jobs/:id/authorize-retry')
+  async authorizeRetry(@Param('id') id: string, @CurrentUser() user: { userId: string },
+    @Body() body: { confirmedAbsent?: boolean }) {
+    return this.sync.authorizeCreateRetry(id, user.userId, body.confirmedAbsent === true);
   }
 
   /**

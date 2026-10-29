@@ -152,6 +152,12 @@ export const en: Record<ZhKey, string> = {
   qianyi_requeued: "Requeued, pushing now",
   qianyi_requeue_blocked: "Still unmapped: {skus}",
   qianyi_job_status: "{kind} · {status}",
+  qianyi_review: "{count} need review",
+  qianyi_retried: "Requeued",
+  qianyi_retry_blocked: "Not requeued: {reason}",
+  qianyi_authorize_retry: "Authorize retry",
+  qianyi_authorize_hint:
+    "Confirm in Qianyi that this order does not exist. This authorizes exactly one more create and records your account.",
   nav_system_status: "System Status",
   nav_group_website: "Website",
   admin_nav_expand: "Expand admin navigation",

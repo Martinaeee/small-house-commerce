@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, type NestModule, RequestMethod } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { LogisticsEventService } from '../orders/logistics-event.service.js';
 import { QianyiClient } from './qianyi.client.js';
@@ -6,6 +6,7 @@ import { QianyiSyncService } from './qianyi-sync.service.js';
 import { QianyiInboundService } from './qianyi-inbound.service.js';
 import { QianyiWebhookService } from './qianyi-webhook.service.js';
 import { QianyiWebhookController } from './qianyi-webhook.controller.js';
+import { QianyiWebhookMiddleware } from './qianyi-webhook.middleware.js';
 import { QianyiAdminController } from './qianyi-admin.controller.js';
 
 /**
@@ -24,8 +25,15 @@ import { QianyiAdminController } from './qianyi-admin.controller.js';
     QianyiSyncService,
     QianyiInboundService,
     QianyiWebhookService,
+    QianyiWebhookMiddleware,
     LogisticsEventService,
   ],
   exports: [QianyiClient, QianyiSyncService, QianyiInboundService],
 })
-export class QianyiModule {}
+export class QianyiModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(QianyiWebhookMiddleware)
+      .forRoutes({ path: 'qianyi/webhook', method: RequestMethod.POST });
+  }
+}

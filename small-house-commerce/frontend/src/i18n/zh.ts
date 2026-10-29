@@ -151,6 +151,12 @@ export const zh = {
   qianyi_requeued: "已重排，正在推送",
   qianyi_requeue_blocked: "仍缺映射：{skus}",
   qianyi_job_status: "{kind} · {status}",
+  qianyi_review: "待核对 {count}",
+  qianyi_retried: "已重推",
+  qianyi_retry_blocked: "未重推：{reason}",
+  qianyi_authorize_retry: "核对后授权重推",
+  qianyi_authorize_hint:
+    "请先在千易确认这笔订单确实不存在。确认后本次只允许再创建一次，并会记录当前操作人。",
   nav_system_status: "系统状态",
   nav_group_website: "网站",
   admin_nav_expand: "展开后台导航",

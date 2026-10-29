@@ -66,7 +66,21 @@ export default function QianyiSettingsPage() {
   };
 
   const retry = async (id: string) => {
-    await adminApi.retryQianyiJob(id);
+    const result = await adminApi.retryQianyiJob(id);
+    setMessage(
+      result.ok ? t("qianyi_retried") : t("qianyi_retry_blocked", { reason: result.reason ?? "" }),
+    );
+    setJobs(await adminApi.qianyiJobs());
+  };
+
+  // A job whose create may already have reached Qianyi. The operator must
+  // check the ERP first; the backend records who authorized the second create.
+  const authorizeRetry = async (id: string) => {
+    if (!window.confirm(t("qianyi_authorize_hint"))) return;
+    const result = await adminApi.authorizeQianyiCreateRetry(id);
+    setMessage(
+      result.ok ? t("qianyi_retried") : t("qianyi_retry_blocked", { reason: result.reason ?? "" }),
+    );
     setJobs(await adminApi.qianyiJobs());
   };
 
@@ -102,6 +116,7 @@ export default function QianyiSettingsPage() {
         <p className="text-muted">
           {t("qianyi_pending", { count: status?.pending ?? 0 })} ·{" "}
           {t("qianyi_failed", { count: status?.failed ?? 0 })} ·{" "}
+          {t("qianyi_review", { count: status?.review ?? 0 })} ·{" "}
           {t("qianyi_sent24h", { count: status?.sent24h ?? 0 })}
         </p>
         <p className="mt-2 break-all text-xs text-muted">
@@ -173,7 +188,12 @@ export default function QianyiSettingsPage() {
                   {job.lastError ? ` · ${job.lastError}` : ""}
                 </p>
               </div>
-              {job.status === "FAILED" ? (
+              {job.status === "FAILED" && job.pendingReview ? (
+                <Button size="sm" variant="secondary" onClick={() => authorizeRetry(job.id)}>
+                  {t("qianyi_authorize_retry")}
+                </Button>
+              ) : null}
+              {job.status === "FAILED" && !job.pendingReview ? (
                 <Button size="sm" onClick={() => retry(job.id)}>
                   {t("qianyi_retry")}
                 </Button>

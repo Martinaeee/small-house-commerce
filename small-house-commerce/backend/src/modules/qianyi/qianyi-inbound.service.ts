@@ -1,395 +1,217 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
+import { requirementsFromBundleSnapshot } from '../inventory/bundle-inventory.js';
 import { LogisticsEventService, type LogisticsStatus } from '../orders/logistics-event.service.js';
+import { readBundleSnapshot } from '../orders/order-item-snapshot.js';
+import { signShipmentWithin } from '../orders/sign-shipment.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
+import { qianyiCarrier, qianyiEventKey, qianyiEventTime, qianyiField } from './qianyi-event.js';
 
-/** 千易物流状态 → 我们归一的物流状态。未知状态不猜，返回 null。 */
 const TRACKING_STATUS: Record<string, LogisticsStatus> = {
-  CREATED: 'SHIPPED',
-  AVAILABLE_FOR_PICKUP: 'SHIPPED',
-  IN_TRANSIT: 'IN_TRANSIT',
-  OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
-  DELIVERED: 'SIGNED',
-  NOT_FOUND: 'FAILED_DELIVERY',
-  CANCEL: 'RETURNING',
+  CREATED: 'SHIPPED', AVAILABLE_FOR_PICKUP: 'SHIPPED', IN_TRANSIT: 'IN_TRANSIT',
+  OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY', DELIVERED: 'SIGNED', NOT_FOUND: 'FAILED_DELIVERY', CANCEL: 'RETURNING',
 };
+const ORDER_INCLUDE = { items: true, shipments: { include: { items: true } }, riskFlags: true } satisfies Prisma.OrderInclude;
+type Order = Prisma.OrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
+type Payload = Record<string, unknown>;
 
-/**
- * Stand-in for the carrier when 千易 does not name one. A real name from any
- * callback always wins over this value; it exists only so the non-null
- * `Shipment.carrier` column has something to hold.
- */
-const PLACEHOLDER_CARRIER = 'SHIPDOC';
-
-interface OutboundPayload {
-  onlineOrderNumber?: string;
-  orderNumber?: string;
-  trackNumber?: string;
-  trackingNumber?: string;
-  carrier?: string;
-  status?: string;
-  shippingTime?: number;
-  skuList?: Array<{ sku?: string; quantity?: number }>;
-}
-
-/**
- * Applies Qianyi callbacks to the order. Everything here is deliberate about
- * not trusting the payload: an unknown order, an unmapped SKU or a zero
- * quantity changes nothing and leaves a note for the operator instead.
- */
 @Injectable()
 export class QianyiInboundService {
-  private readonly logger = new Logger(QianyiInboundService.name);
   private readonly config: QianyiConfig;
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly inventory: InventoryService,
-    private readonly logistics: LogisticsEventService,
-    config: ConfigService,
-  ) {
+  constructor(private readonly prisma: PrismaService, private readonly inventory: InventoryService,
+    private readonly logistics: LogisticsEventService, config: ConfigService) {
     this.config = readQianyiConfig(config);
   }
 
-  async handle(serviceType: string, payload: Record<string, unknown>): Promise<void> {
-    switch (serviceType) {
-      case 'PUSH_ODO_ORDER':
-        await this.applyOutbound(payload as OutboundPayload);
-        return;
-      case 'PUSH_SALES_ORDER_SHIPPING_INFO':
-        await this.applyShippingInfo(payload as OutboundPayload);
-        return;
-      case 'PUSH_TRACKING_PACKAGE':
-        await this.applyTracking(payload as OutboundPayload);
-        return;
-      default:
-        // PUSH_RETURN_ORDER_INFO: archived only, inventory untouched.
-        this.logger.log(`qianyi ${serviceType} archived without side effects`);
-    }
+  async handle(serviceType: string, payload: Payload, client?: Prisma.TransactionClient): Promise<void> {
+    if (!this.config.enabled) return;
+    const apply = async (tx: Prisma.TransactionClient) => {
+      if (serviceType === 'PUSH_ODO_ORDER' && payload.status === 'SHIPPED') await this.outbound(tx, payload);
+      if (serviceType === 'PUSH_SALES_ORDER_SHIPPING_INFO') await this.shippingInfo(tx, payload);
+      if (serviceType === 'PUSH_TRACKING_PACKAGE') await this.tracking(tx, payload);
+    };
+    if (client) await apply(client);
+    else await this.prisma.$transaction(apply, { timeout: 20_000, maxWait: 10_000 });
   }
 
-  private async applyOutbound(payload: OutboundPayload): Promise<void> {
-    if (payload.status !== 'SHIPPED') return;
-    const orderNumber = payload.onlineOrderNumber;
-    if (!orderNumber) return;
+  private async lockedOrder(tx: Prisma.TransactionClient, payload: Payload): Promise<Order> {
+    const online = qianyiField(payload, 'onlineOrderNumber');
+    const alternate = qianyiField(payload, 'onlineOrderId');
+    if (online && alternate && online !== alternate) throw new BadRequestException('Conflicting Qianyi order references');
+    const reference = online || alternate;
+    if (!reference) throw new BadRequestException('Missing Qianyi online order reference');
+    await tx.$queryRaw`SELECT id FROM orders WHERE order_number=${reference} FOR UPDATE`;
+    const order = await tx.order.findUnique({ where: { orderNumber: reference }, include: ORDER_INCLUDE });
+    if (!order) throw new BadRequestException('Unknown Qianyi online order');
+    return order;
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { orderNumber },
-        include: { items: true, shipments: { include: { items: true } }, riskFlags: true },
-      });
-      if (!order) {
-        this.logger.warn(`qianyi outbound for unknown order ${orderNumber}`);
-        return;
-      }
-      // A repeated outbound must not create a second box. The outbound number
-      // is the only safe identity: an order shipped by hand has a Shipment
-      // already, and its Qianyi callback still has to be applied.
-      const outbound = payload.orderNumber ?? null;
-      const duplicate = outbound
-        ? order.shipments.some(
-            (shipment) => shipment.qianyiOutboundNumber === outbound,
-          )
-        : order.shipments.length > 0;
-      if (duplicate) return;
+  private async relatedEvents(tx: Prisma.TransactionClient, order: Order) {
+    return tx.qianyiWebhookEvent.findMany({ where: {
+      signValid: true, serviceType: { in: ['PUSH_SALES_ORDER_SHIPPING_INFO', 'PUSH_TRACKING_PACKAGE'] },
+      OR: [{ payload: { path: ['onlineOrderNumber'], equals: order.orderNumber } },
+        { payload: { path: ['onlineOrderId'], equals: order.orderNumber } }],
+    }, orderBy: [{ receivedAt: 'asc' }, { id: 'asc' }] });
+  }
 
-      // Resolve what actually left the warehouse BEFORE touching inventory:
-      // a short shipment must consume only what was sent.
-      const shippedByCode = new Map<string, number>();
-      for (const line of payload.skuList ?? []) {
-        const code = line.sku ?? '';
-        shippedByCode.set(code, (shippedByCode.get(code) ?? 0) + Number(line.quantity ?? 0));
+  private async outbound(tx: Prisma.TransactionClient, payload: Payload): Promise<void> {
+    const order = await this.lockedOrder(tx, payload);
+    const number = qianyiField(payload, 'orderNumber');
+    if (!number || number.length > 64) throw new BadRequestException('Missing or invalid Qianyi outbound number');
+    const existing = await tx.shipment.findUnique({ where: { qianyiOutboundNumber: number } });
+    if (existing) {
+      if (existing.orderId !== order.id) throw new BadRequestException('Qianyi outbound already belongs to another order');
+      return;
+    }
+    if (!['CONFIRMED', 'SHIPPING'].includes(order.orderStatus) || order.confirmationStatus !== 'CONFIRMED') {
+      throw new BadRequestException('Qianyi outbound requires a confirmed, open order');
+    }
+    if (order.riskFlags.some(flag => !flag.resolved && ['CUSTOMER_RECHECK', 'POSSIBLE_DUPLICATE'].includes(flag.flagType))) {
+      throw new BadRequestException('Unresolved risk flag blocks Qianyi outbound');
+    }
+    const warehouse = this.config.localWarehouseId
+      ? await tx.warehouse.findUnique({ where: { id: this.config.localWarehouseId } }) : null;
+    if (!warehouse || warehouse.status !== 'ACTIVE' || warehouse.country !== 'PH') {
+      throw new BadRequestException('Qianyi requires an explicit active local PH warehouse');
+    }
+    const push = await tx.qianyiSyncJob.findUnique({ where: { orderId_kind: { orderId: order.id, kind: 'PUSH_ORDER' } } });
+    const request = push?.requestPayload as Record<string, unknown> | undefined;
+    const frozen = request?._skuMapping;
+    if (!push || push.attempts < 1 || !frozen || typeof frozen !== 'object' || Array.isArray(frozen)) {
+      throw new BadRequestException('Qianyi outbound has no frozen sent SKU mapping');
+    }
+    const mapping = frozen as Record<string, unknown>;
+    const skus = await tx.sku.findMany({ where: { id: { in: order.items.map(item => item.skuId) } }, select: { id: true, isBundle: true } });
+    const virtual = new Set(skus.filter(sku => sku.isBundle).map(sku => sku.id));
+    const skuByCode = new Map<string, string>();
+    for (const item of order.items) {
+      const code = qianyiField(mapping, item.id);
+      if (!code || (skuByCode.has(code) && skuByCode.get(code) !== item.skuId)) {
+        throw new BadRequestException('Missing or ambiguous frozen Qianyi SKU mapping');
       }
-      // An outbound that lists lines is a complete statement of what shipped,
-      // so a mapped line that is missing from it did not go out. Only a
-      // payload with no line list at all falls back to "everything shipped".
-      const hasSkuList = shippedByCode.size > 0;
-      const mapped = await tx.sku.findMany({
-        where: { id: { in: order.items.map((item) => item.skuId) } },
-        select: { id: true, qianyiSkuCode: true },
-      });
-      const codeById = new Map(mapped.map((row) => [row.id, row.qianyiSkuCode]));
-      // What previous parcels (ours or Qianyi's) already boxed for each line.
-      const shippedAlready = new Map<string, number>();
-      for (const previous of order.shipments) {
-        for (const item of previous.items ?? []) {
-          shippedAlready.set(
-            item.orderItemId,
-            (shippedAlready.get(item.orderItemId) ?? 0) + item.quantity,
-          );
-        }
+      skuByCode.set(code, item.skuId);
+    }
+    if (!Array.isArray(payload.skuList) || payload.skuList.length === 0) throw new BadRequestException('Qianyi outbound must list actual shipped quantities');
+    const announced = new Map<string, number>();
+    for (const raw of payload.skuList) {
+      if (!raw || typeof raw !== 'object') throw new BadRequestException('Invalid Qianyi outbound line');
+      const line = raw as Record<string, unknown>;
+      const code = qianyiField(line, 'sku');
+      if (!skuByCode.has(code) || !Number.isSafeInteger(line.quantity) || Number(line.quantity) <= 0) {
+        throw new BadRequestException('Unknown SKU or invalid Qianyi shipped quantity');
       }
+      announced.set(code, (announced.get(code) ?? 0) + Number(line.quantity));
+    }
+    const archived = await this.relatedEvents(tx, order);
+    let trackingNumber = qianyiField(payload, 'trackingNumber', 'trackNumber');
+    if (!trackingNumber) {
+      const numbers = [...new Set(archived.map(event => qianyiField(event.payload as Payload, 'trackingNumber', 'trackNumber')).filter(Boolean))];
+      if (numbers.length !== 1) throw new BadRequestException('Qianyi outbound needs an unambiguous tracking number');
+      trackingNumber = numbers[0];
+    }
+    let carrier = qianyiCarrier(null, payload.carrier);
+    for (const event of archived) {
+      const data = event.payload as Payload;
+      if (qianyiField(data, 'trackingNumber', 'trackNumber') === trackingNumber) carrier = qianyiCarrier(carrier, data.carrier);
+    }
+    const manual = order.shipments.filter(box => box.trackingNumber === trackingNumber);
+    if (manual.length > 1) throw new BadRequestException('Ambiguous existing shipment waybill');
+    if (manual.length === 1) {
+      const box = manual[0];
+      if (box.qianyiOutboundNumber) throw new BadRequestException('Waybill already bound to a different outbound');
+      const boxed = new Map<string, number>();
+      for (const item of box.items) {
+        const code = qianyiField(mapping, item.orderItemId);
+        boxed.set(code, (boxed.get(code) ?? 0) + item.quantity);
+      }
+      if (boxed.size !== announced.size || [...announced].some(([code, quantity]) => boxed.get(code) !== quantity)) {
+        throw new BadRequestException('Qianyi quantities conflict with the existing manual shipment');
+      }
+      await tx.shipment.update({ where: { id: box.id }, data: { qianyiOutboundNumber: number, carrier: qianyiCarrier(box.carrier, carrier) } });
+    } else {
+      const already = new Map<string, number>();
+      for (const box of order.shipments) for (const line of box.items) already.set(line.orderItemId, (already.get(line.orderItemId) ?? 0) + line.quantity);
       const lines: Array<{ orderItemId: string; quantity: number }> = [];
-      const notes: string[] = [];
       const requirements = new Map<string, number>();
-
       for (const item of order.items) {
-        const code = codeById.get(item.skuId) ?? null;
-        const sent = code ? shippedByCode.get(code) : undefined;
-        const announced = !hasSkuList
-          ? item.quantity
-          : sent === undefined
-            ? 0
-            : Math.min(sent, item.quantity);
-        const remaining = Math.max(0, item.quantity - (shippedAlready.get(item.id) ?? 0));
-        if (remaining === 0) {
-          notes.push(`${item.skuCodeSnapshot}: already fully shipped, nothing consumed`);
-          continue;
-        }
-        // A later parcel can never push a line past what was ordered.
-        const quantity = Math.min(announced, remaining);
-        if (quantity === 0) {
-          notes.push(`${item.skuCodeSnapshot}: not shipped (ordered ${item.quantity})`);
-          continue;
-        }
-        if (quantity !== item.quantity) {
-          notes.push(`${item.skuCodeSnapshot}: ordered ${item.quantity}, shipped ${quantity}`);
-        }
+        const code = qianyiField(mapping, item.id);
+        const quantity = Math.min(announced.get(code) ?? 0, Math.max(0, item.quantity - (already.get(item.id) ?? 0)));
+        if (quantity === 0) continue;
+        announced.set(code, announced.get(code)! - quantity);
         lines.push({ orderItemId: item.id, quantity });
-        requirements.set(item.skuId, (requirements.get(item.skuId) ?? 0) + quantity);
+        const snapshot = readBundleSnapshot(item.bundleSnapshot);
+        if ((item.bundleSnapshot != null && !snapshot) || (virtual.has(item.skuId) && !snapshot) ||
+            (snapshot && (snapshot.bundleSkuId !== item.skuId || snapshot.components.some(c => c.totalQuantity !== c.quantity * item.quantity)))) {
+          throw new BadRequestException('Invalid frozen Bundle snapshot');
+        }
+        const physical = snapshot ? requirementsFromBundleSnapshot(snapshot, quantity) : [{ skuId: item.skuId, quantity }];
+        for (const line of physical) requirements.set(line.skuId, (requirements.get(line.skuId) ?? 0) + line.quantity);
       }
-
-      if (lines.length === 0) {
-        notes.push('Qianyi reported a shipment with no matching line; nothing was consumed');
+      if (lines.length === 0 || [...announced.values()].some(quantity => quantity > 0)) throw new BadRequestException('Qianyi outbound exceeds the unshipped order quantities');
+      const reservations = await tx.inventoryReservation.findMany({ where: { orderId: order.id, status: 'ACTIVE', skuId: { in: [...requirements.keys()] } } });
+      if (reservations.some(reservation => reservation.warehouseId !== warehouse.id)) throw new BadRequestException('Qianyi warehouse differs from reserved inventory');
+      const shipment = await tx.shipment.create({ data: { orderId: order.id, warehouseId: warehouse.id, carrier, trackingNumber,
+        qianyiOutboundNumber: number, shippedAt: qianyiEventTime(payload) ?? new Date(), items: { create: lines } } });
+      await this.inventory.consumeForOrder(tx, order.id, new Map([...requirements].sort(([a], [b]) => a.localeCompare(b))));
+      if (order.orderStatus !== 'SHIPPING') {
+        await tx.order.update({ where: { id: order.id }, data: { orderStatus: 'SHIPPING' } });
+        await tx.orderStatusHistory.create({ data: { orderId: order.id, statusDomain: 'ORDER_STATUS', oldStatus: order.orderStatus,
+          newStatus: 'SHIPPING', source: 'SYSTEM', comment: `Qianyi outbound ${number}` } });
       }
-
-      // 千易 在两个回调里用了不同的字段名（出库 `trackNumber`、物流 `trackingNumber`），
-      // 而且 SHIPPING_INFO 常常先到，所以这里三处都兜住。
-      const trackingNumber =
-        payload.trackNumber ??
-        payload.trackingNumber ??
-        (await this.archivedTracking(tx, orderNumber));
-
-      const warehouse = await this.resolveWarehouse(tx);
-      const shipment = await tx.shipment.create({
-        data: {
-          orderId: order.id,
-          warehouseId: warehouse.id,
-          carrier: payload.carrier?.trim().slice(0, 100) || PLACEHOLDER_CARRIER,
-          trackingNumber,
-          shippedAt: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
-          qianyiOutboundNumber: payload.orderNumber ?? null,
-          items: {
-            create: lines.map((line) => ({
-              orderItemId: line.orderItemId,
-              quantity: line.quantity,
-            })),
-          },
-        },
-      });
-
-      if (requirements.size > 0) {
-        await this.inventory.consumeForOrder(tx, order.id, requirements);
-      }
-
-      if (notes.length > 0) {
-        await tx.orderNote.create({
-          data: {
-            orderId: order.id,
-            noteType: 'WAREHOUSE',
-            content: `Qianyi outbound ${payload.orderNumber ?? trackingNumber ?? ''}: ${notes.join('; ')}`.slice(0, 2000),
-          },
-        });
-      }
-
-      if (order.orderStatus !== 'SHIPPING' && order.orderStatus !== 'SIGNED') {
-        await tx.order.update({
-          where: { id: order.id },
-          data: { orderStatus: 'SHIPPING' },
-        });
-        await tx.orderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            statusDomain: 'ORDER_STATUS',
-            oldStatus: order.orderStatus,
-            newStatus: 'SHIPPING',
-            source: 'SYSTEM',
-            comment: `Qianyi outbound ${payload.trackNumber ?? payload.orderNumber ?? ''}`.trim(),
-          },
-        });
-      }
-
-      await this.logistics.record(
-        order.id,
-        shipment.id,
-        {
-          normalizedStatus: 'SHIPPED',
-          externalStatus: payload.status ?? null,
-          externalEventId: payload.orderNumber ?? trackingNumber,
-          eventTime: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
-        },
-        // The shipment was created in this very transaction and is not visible
-        // on another connection until commit.
-        tx,
-      );
-
-      // Tracking scans often arrive before the parcel record. They were archived
-      // and could not attach to anything; now there is a shipment to hold them.
-      for (const event of await this.archivedTrackingEvents(tx, orderNumber)) {
-        const normalized = TRACKING_STATUS[event.status];
-        if (!normalized || normalized === 'SHIPPED') continue;
-        await this.logistics.record(
-          order.id,
-          shipment.id,
-          {
-            normalizedStatus: normalized,
-            externalStatus: event.status,
-            externalEventId: `${event.status}:${event.shippingTime ?? ''}`,
-            eventTime: event.shippingTime ? new Date(event.shippingTime) : new Date(),
-          },
-          tx,
-        );
-      }
-    });
+      await this.logistics.record(order.id, shipment.id, { normalizedStatus: 'SHIPPED', externalStatus: 'SHIPPED',
+        externalEventId: qianyiEventKey('PUSH_ODO_ORDER', payload), eventTime: qianyiEventTime(payload),
+        province: qianyiField(payload, 'province') || null, city: qianyiField(payload, 'city') || null }, tx);
+    }
+    for (const event of archived) {
+      if (event.serviceType === 'PUSH_SALES_ORDER_SHIPPING_INFO') await this.shippingInfo(tx, event.payload as Payload);
+      if (event.serviceType === 'PUSH_TRACKING_PACKAGE') await this.tracking(tx, event.payload as Payload);
+    }
   }
 
-  /**
-   * Which local Warehouse row books the shipment.
-   *
-   * 千易 fulfils from `PH-DAVAO-01`, which has no local counterpart by
-   * default, so an unset pin keeps the historical "first active warehouse"
-   * behaviour instead of inventing a row.
-   */
-  private async resolveWarehouse(tx: Prisma.TransactionClient) {
-    const pinned = this.config.localWarehouseId;
-    if (pinned) {
-      const row = await tx.warehouse.findUnique({ where: { id: pinned } });
-      if (row) return row;
-      this.logger.warn(`qianyi local warehouse ${pinned} missing; using the default`);
+  private parcel(order: Order, payload: Payload) {
+    const trackingNumber = qianyiField(payload, 'trackingNumber', 'trackNumber');
+    const outbound = qianyiField(payload, 'outboundNumber', 'outboundOrderNumber');
+    const matches = order.shipments.filter(box => (trackingNumber && box.trackingNumber === trackingNumber) || (outbound && box.qianyiOutboundNumber === outbound));
+    if (matches.length > 1) throw new BadRequestException('Ambiguous Qianyi shipment identity');
+    if (matches.length === 1) return matches[0];
+    if (!trackingNumber && !outbound && order.shipments.length > 1) {
+      throw new BadRequestException('Qianyi callback does not identify which parcel it belongs to');
     }
-    return this.inventory.defaultWarehouse(tx);
-  }
-
-  /**
-   * `PUSH_SALES_ORDER_SHIPPING_INFO` often arrives before the outbound. Its
-   * number is archived, so the outbound can adopt it instead of leaving the
-   * shipment without a tracking number.
-   */
-  private async archivedTracking(
-    tx: Prisma.TransactionClient,
-    orderNumber: string,
-  ): Promise<string | null> {
-    const events = tx.qianyiWebhookEvent;
-    if (!events?.findMany) return null;
-    const rows = await events.findMany({
-      where: { serviceType: 'PUSH_SALES_ORDER_SHIPPING_INFO' },
-      orderBy: { receivedAt: 'desc' },
-      take: 20,
-      select: { payload: true },
-    });
-    for (const row of rows) {
-      const value = row.payload as {
-        onlineOrderNumber?: string;
-        trackingNumber?: string;
-      };
-      if (value.onlineOrderNumber === orderNumber && value.trackingNumber) {
-        return value.trackingNumber;
-      }
-    }
+    if (trackingNumber && order.shipments.length === 1 && !order.shipments[0].trackingNumber) return order.shipments[0];
     return null;
   }
 
-  /** Tracking scans archived before the parcel record existed. */
-  private async archivedTrackingEvents(
-    tx: Prisma.TransactionClient,
-    orderNumber: string,
-  ): Promise<Array<{ status: string; shippingTime?: number }>> {
-    const events = tx.qianyiWebhookEvent;
-    if (!events?.findMany) return [];
-    const rows = await events.findMany({
-      where: { serviceType: 'PUSH_TRACKING_PACKAGE' },
-      orderBy: { receivedAt: 'asc' },
-      take: 50,
-      select: { payload: true },
-    });
-    const out: Array<{ status: string; shippingTime?: number }> = [];
-    for (const row of rows) {
-      const value = row.payload as {
-        onlineOrderNumber?: string;
-        onlineOrderId?: string;
-        status?: string;
-        shippingTime?: number;
-      };
-      const matches =
-        value.onlineOrderNumber === orderNumber || value.onlineOrderId === orderNumber;
-      if (matches && value.status) {
-        out.push({ status: value.status, shippingTime: value.shippingTime });
-      }
+  private async shippingInfo(tx: Prisma.TransactionClient, payload: Payload): Promise<void> {
+    const order = await this.lockedOrder(tx, payload);
+    const parcel = this.parcel(order, payload);
+    if (!parcel) return;
+    const trackingNumber = qianyiField(payload, 'trackingNumber', 'trackNumber');
+    const carrier = qianyiCarrier(parcel.carrier, payload.carrier);
+    if (carrier !== parcel.carrier || (!parcel.trackingNumber && trackingNumber)) {
+      await tx.shipment.update({ where: { id: parcel.id }, data: { carrier, trackingNumber: parcel.trackingNumber || trackingNumber || null } });
     }
-    return out;
   }
 
-  private async applyShippingInfo(payload: OutboundPayload): Promise<void> {
-    const orderNumber = payload.onlineOrderNumber;
-    const trackingNumber = payload.trackingNumber ?? payload.trackNumber;
-    if (!orderNumber || !trackingNumber) return;
-
-    await this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { orderNumber },
-        include: { shipments: true },
-      });
-      if (!order) return;
-      const shipment = order.shipments[0];
-      if (!shipment) {
-        // The outbound has not arrived yet; the number must not be lost.
-        await tx.orderNote.create({
-          data: {
-            orderId: order.id,
-            noteType: 'WAREHOUSE',
-            content: `Qianyi tracking ${trackingNumber} (${payload.carrier ?? 'carrier'}) pending outbound`,
-          },
-        });
-        return;
-      }
-      // A real carrier name from either callback always beats the placeholder,
-      // and a callback that omits it never erases what we already know.
-      const carrier = payload.carrier?.trim();
-      const nextCarrier = carrier ? carrier.slice(0, 100) : shipment.carrier;
-      const needsCarrier = Boolean(carrier) && shipment.carrier !== nextCarrier;
-      if (!shipment.trackingNumber || needsCarrier) {
-        await tx.shipment.update({
-          where: { id: shipment.id },
-          data: {
-            trackingNumber: shipment.trackingNumber ?? trackingNumber,
-            carrier: nextCarrier,
-          },
-        });
-      }
-    });
-  }
-
-  private async applyTracking(payload: OutboundPayload): Promise<void> {
-    const orderNumber = payload.onlineOrderNumber;
-    const status = payload.status ? TRACKING_STATUS[payload.status] : undefined;
-    if (!orderNumber || !status) return;
-
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const order = await tx.order.findUnique({
-        where: { orderNumber },
-        include: { shipments: true },
-      });
-      const shipment = order?.shipments[0];
-      if (!order || !shipment) return;
-      await this.logistics.record(
-        order.id,
-        shipment.id,
-        {
-          normalizedStatus: status,
-          externalStatus: payload.status ?? null,
-          externalEventId: `${payload.status}:${payload.shippingTime ?? ''}`,
-        },
-        tx,
-      );
-      if (status === 'SIGNED') {
-        await tx.shipment.update({
-          where: { id: shipment.id },
-          data: { signedAt: new Date(), qianyiStatus: payload.status ?? null },
-        });
-      }
-    });
+  private async tracking(tx: Prisma.TransactionClient, payload: Payload): Promise<void> {
+    const externalStatus = qianyiField(payload, 'status');
+    const status = TRACKING_STATUS[externalStatus];
+    if (!status) return;
+    const order = await this.lockedOrder(tx, payload);
+    const parcel = this.parcel(order, payload);
+    if (!parcel) return;
+    const carrier = qianyiCarrier(parcel.carrier, payload.carrier);
+    if (carrier !== parcel.carrier) await tx.shipment.update({ where: { id: parcel.id }, data: { carrier } });
+    const at = qianyiEventTime(payload);
+    await this.logistics.record(order.id, parcel.id, { normalizedStatus: status, externalStatus,
+      externalEventId: qianyiEventKey('PUSH_TRACKING_PACKAGE', payload), eventTime: at,
+      city: qianyiField(payload, 'city') || null, province: qianyiField(payload, 'province') || null }, tx);
+    if (status === 'SIGNED' && parcel.status !== 'SIGNED') {
+      await signShipmentWithin(tx, order.id, parcel.id, { source: 'SYSTEM', at: at ?? new Date() });
+      await tx.shipment.update({ where: { id: parcel.id }, data: { qianyiStatus: externalStatus } });
+    }
   }
 }
