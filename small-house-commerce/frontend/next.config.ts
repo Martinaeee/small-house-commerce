@@ -1,11 +1,20 @@
 import type { NextConfig } from "next";
 
-const API_TARGET = process.env.API_TARGET ?? "http://localhost:3000";
+const API_TARGET = process.env.API_TARGET || "http://localhost:3000";
 
 const nextConfig: NextConfig = {
   // Minimal self-contained server output for the production Docker image
   // (Task 3). `next dev` is unaffected; rewrites below still apply.
   output: "standalone",
+
+  // Uploaded originals are 1–2.6MB PNGs served raw by the backend; only the
+  // upload directory is eligible for the built-in optimizer (localPatterns
+  // gates every other local path), which resizes and re-encodes to WebP on
+  // demand. AVIF encoding is too slow on the container CPU — WebP only.
+  images: {
+    localPatterns: [{ pathname: "/uploads/**", search: "" }],
+    formats: ["image/webp"],
+  },
 
   // Draft preview routes are operator-only (spec §5.2): never cached by
   // shared caches, and `no-referrer` keeps the token-bearing URL out of
