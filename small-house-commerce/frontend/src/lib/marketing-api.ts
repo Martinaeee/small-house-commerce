@@ -91,6 +91,7 @@ export interface CampaignLinkRow extends CampaignLinkInput {
   landingPageId: string | null;
   productName: string;
   productCode: string | null;
+  productThumbnailUrl: string | null;
   pageName: string | null;
   path: string;
   status: "ACTIVE" | "DISABLED";
@@ -120,10 +121,18 @@ export interface MarketingLinkContext {
 }
 
 export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER";
+export type MarketingReportMode = "FLAT" | "TREE";
+export type MarketingReportSort =
+  | "NAME" | "PRODUCT" | "OWNER" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
+  | "SUBMITTED" | "VALID" | "CONFIRMED" | "SIGNED" | "VALID_VALUE" | "SIGNED_GROSS"
+  | "SPEND_USD" | "SPEND_PHP" | "ORDER_CPA" | "SIGNED_CPA" | "ORDER_ROAS" | "SIGNED_ROAS" | "CONVERSION";
 export interface MarketingReportQuery {
   from?: string;
   to?: string;
   groupBy?: MarketingReportLevel;
+  mode?: MarketingReportMode;
+  sortBy?: MarketingReportSort;
+  sortDirection?: "ASC" | "DESC";
   linkIds?: string[];
   ownerUserId?: string;
   productId?: string;
@@ -142,8 +151,11 @@ export interface MarketingReportRow {
   productName: string | null;
   productCode: string | null;
   landingPageId: string | null;
+  sourceType: string | null;
   visits: number | null;
   pageTotalVisits: number | null;
+  addToCarts: number;
+  checkouts: number;
   submittedOrders: number;
   validOrders: number;
   confirmedOrders: number;
@@ -165,12 +177,25 @@ export interface MarketingReportRow {
   recordedCostDays: number;
   costCoverageComplete: boolean;
   periodBasis: "TOUCH" | "ORDER_CREATED";
+  productThumbnailUrl: string | null;
+}
+/** One product → its source-type breakdown → the links inside each source. */
+export interface MarketingReportTreeProduct {
+  product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
+  totals: MarketingReportRow;
+  sources: { sourceType: string; totals: MarketingReportRow; links: MarketingReportRow[] }[];
 }
 export interface MarketingReport {
   from: string;
   to: string;
   groupBy: MarketingReportLevel;
+  mode: MarketingReportMode;
+  sortBy: MarketingReportSort;
+  sortDirection: "ASC" | "DESC";
   asOf: string;
+  /** TREE only: no pagination, the whole scoped link set. */
+  linkCount?: number;
+  tree?: MarketingReportTreeProduct[];
   page: number;
   pageSize: number;
   total: number;

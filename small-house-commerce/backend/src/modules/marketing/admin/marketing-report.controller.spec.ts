@@ -34,7 +34,7 @@ describe('marketing report HTTP boundary', () => {
       expect((await request(server).get('/admin/marketing/reports')).status).toBe(401);
       const response = await request(server).get(`/admin/marketing/reports?from=2026-10-09&to=2026-10-10&groupBy=PAGE&linkIds=${LINK}`).auth(bearer, { type: 'bearer' });
       expect(response.status).toBe(200); expect(response.headers['cache-control']).toBe('private, no-store');
-      expect(reports.report).toHaveBeenCalledWith({ from: '2026-10-09', to: '2026-10-10', groupBy: 'PAGE', linkIds: [LINK], page: 1, pageSize: 20 }, { id: OWNER, permissions: ['MARKETING_VIEW_ALL'] });
+      expect(reports.report).toHaveBeenCalledWith({ from: '2026-10-09', to: '2026-10-10', groupBy: 'PAGE', linkIds: [LINK], mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', page: 1, pageSize: 20 }, { id: OWNER, permissions: ['MARKETING_VIEW_ALL'] });
     } finally { await instance.close(); }
   });
 

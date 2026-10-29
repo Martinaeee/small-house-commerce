@@ -13,10 +13,10 @@
 // decided). No background cleanup in V1.
 
 model Cart {
-  id        String     @id @default(uuid(7)) @db.Uuid
-  expiresAt DateTime   @map("expires_at") @db.Timestamptz(3)
-  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id        String   @id @default(uuid(7)) @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   items CartItem[]
 

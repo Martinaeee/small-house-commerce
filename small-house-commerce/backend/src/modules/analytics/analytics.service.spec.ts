@@ -13,9 +13,10 @@ function event(overrides: Partial<AnalyticsEventInput> = {}): AnalyticsEventInpu
   };
 }
 
-function makeService() {
+function makeService(marketingTouch?: { resolve: (credential: string) => Promise<{ linkId: string | null } | null> }) {
   const prisma = { analyticsEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) } };
-  return { prisma, service: new AnalyticsService(prisma as never) };
+  const touch = marketingTouch ?? { resolve: vi.fn(async () => ({ linkId: null })) };
+  return { prisma, marketingTouch: touch, service: new AnalyticsService(prisma as never, touch as never) };
 }
 
 describe('AnalyticsService.ingest', () => {
@@ -75,8 +76,62 @@ describe('AnalyticsService.ingest', () => {
     const prisma = {
       analyticsEvent: { createMany: vi.fn().mockRejectedValue(new Error('db down')) },
     };
-    const service = new AnalyticsService(prisma as never);
+    const service = new AnalyticsService(prisma as never, { resolve: vi.fn(async () => null) } as never);
 
     await expect(service.ingest([event()], 'client')).resolves.toEqual({ accepted: 0 });
+  });
+});
+
+describe('campaign link attribution from the touch credential', () => {
+  const touchEvent = (credential?: string, eventName: 'ADD_TO_CART' | 'BEGIN_CHECKOUT' = 'ADD_TO_CART') =>
+    event({ eventName, marketingCredential: credential });
+
+  it('attributes each event to its own link and verifies each distinct credential once', async () => {
+    const resolve = vi.fn<(c: string) => Promise<{ linkId: string | null } | null>>()
+      .mockResolvedValueOnce({ linkId: 'link-a' })
+      .mockResolvedValueOnce({ linkId: 'link-b' });
+    const { prisma, service } = makeService({ resolve });
+    await service.ingest(
+      [
+        touchEvent('cred-a'),
+        touchEvent('cred-a'),
+        touchEvent('cred-b', 'BEGIN_CHECKOUT'),
+      ],
+      'client',
+    );
+    const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
+    expect(data[0].campaignLinkId).toBe('link-a');
+    expect(data[1].campaignLinkId).toBe('link-a');
+    expect(data[2].campaignLinkId).toBe('link-b');
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps storing events whose credential is missing or fails verification, with no link', async () => {
+    const resolve = vi.fn<(c: string) => Promise<{ linkId: string | null } | null>>().mockRejectedValue(new Error('boom'));
+    const { prisma, service } = makeService({ resolve });
+    await service.ingest([touchEvent('cred-x'), touchEvent()], 'client');
+    // The default createMany stub counts one accepted row regardless of size;
+    // the contract under test is that both rows still reach the database.
+    expect(prisma.analyticsEvent.createMany).toHaveBeenCalledOnce();
+    const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(2);
+    expect(data[0].campaignLinkId).toBeNull();
+    expect(data[1].campaignLinkId).toBeNull();
+  });
+
+  it('treats an expired credential as unattributed, not an error', async () => {
+    const resolve = vi.fn<(c: string) => Promise<{ linkId: string | null } | null>>().mockResolvedValue(null);
+    const { marketingTouch, prisma, service } = makeService({ resolve });
+    await service.ingest([touchEvent('expired')], 'client');
+    const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
+    expect(data[0].campaignLinkId).toBeNull();
+    expect(marketingTouch.resolve).toHaveBeenCalledOnce();
+  });
+
+  it('omits campaign_link_id from plain events that never carry a credential', async () => {
+    const { prisma, service } = makeService();
+    await service.ingest([event()], 'client');
+    const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
+    expect(data[0].campaignLinkId ?? null).toBeNull();
   });
 });

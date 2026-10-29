@@ -5,11 +5,12 @@ import { marketingReportQuerySchema } from './dto/marketing-report.dto.js';
 
 const OWNER = '11111111-1111-4111-a111-111111111111';
 const LINK = '33333333-3333-4333-a333-333333333333';
+const P1 = '91111111-1111-4111-a111-111111111111';
 const account = { id: OWNER, permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OWN'] };
-const query = { from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, page: 1, pageSize: 20 };
-const raw = { kind: 'REGISTERED', id: LINK, label: 'Ad A', ownerUserId: OWNER, ownerName: 'Optimizer', aid: 'OP-1', productId: null, productName: null, productCode: null, landingPageId: null, visits: 2n, pageTotalVisits: null, submittedOrders: 2n, validOrders: 2n, confirmedOrders: 1n, signedOrders: 1n, validOrderValuePhp: new Prisma.Decimal('10000'), signedGrossPhp: new Prisma.Decimal('10000'), spendUsd: new Prisma.Decimal('50'), spendPhp: new Prisma.Decimal('2865'), expectedCostDays: 1n, recordedCostDays: 1n, duplicateOrders: 0n, riskOrders: 0n, afterSalesOrders: 0n, refundStatusOrders: 0n };
+const query = { from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, mode: 'FLAT' as const, sortBy: 'NAME' as const, sortDirection: 'ASC' as const, page: 1, pageSize: 20 };
+const raw = { kind: 'REGISTERED', id: LINK, label: 'Ad A', ownerUserId: OWNER, ownerName: 'Optimizer', aid: 'OP-1', productId: null, productName: null, productCode: null, landingPageId: null, sourceType: 'META_AD', visits: 2n, pageTotalVisits: null, addToCarts: 3n, checkouts: 1n, submittedOrders: 2n, validOrders: 2n, confirmedOrders: 1n, signedOrders: 1n, validOrderValuePhp: new Prisma.Decimal('10000'), signedGrossPhp: new Prisma.Decimal('10000'), spendUsd: new Prisma.Decimal('50'), spendPhp: new Prisma.Decimal('2865'), expectedCostDays: 1n, recordedCostDays: 1n, duplicateOrders: 0n, riskOrders: 0n, afterSalesOrders: 0n, refundStatusOrders: 0n };
 function setup(rows = [raw]) {
-  const prisma = { $queryRaw: vi.fn(async () => rows), campaignLink: { findMany: vi.fn(async () => [{ id: LINK }]) } };
+  const prisma = { $queryRaw: vi.fn(async () => rows), campaignLink: { findMany: vi.fn(async () => [{ id: LINK }]) }, product: { findMany: vi.fn(async () => []) } };
   return { service: new MarketingReportService(prisma as never), prisma };
 }
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T01:00:00Z')); });
@@ -63,5 +64,99 @@ describe('marketing report monetary projection', () => {
   it('defaults to seven Manila dates and rejects invalid, inverted or future ranges', () => {
     expect(marketingReportQuerySchema.parse({})).toMatchObject({ from: '2026-10-07', to: '2026-10-13', groupBy: 'LINK' });
     for (const input of [{ from: '2026-02-30' }, { from: '2026-10-12', to: '2026-10-11' }, { to: '2026-10-14' }, { linkIds: 'not-a-uuid' }]) expect(marketingReportQuerySchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe('marketing report funnel metrics, thumbnails and sorting', () => {
+  it('counts add-to-cart and checkout events and returns product thumbnails', async () => {
+    const { service, prisma } = setup([{ ...raw, id: LINK, productId: 'product-1' }]);
+    (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'product-1', images: [{ url: '/uploads/chair.jpg' }] }]);
+    const result = await service.report({ ...query, productId: 'product-1' }, account);
+    expect(result).toMatchObject({ mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC' });
+    expect(result.rows[0]).toMatchObject({ addToCarts: 3, checkouts: 1, productThumbnailUrl: '/uploads/chair.jpg', sourceType: 'META_AD' });
+  });
+
+  it('sorts flat rows server-side and pages after sorting', async () => {
+    const rows = [
+      { ...raw, id: 'b', label: 'B', validOrders: 1n },
+      { ...raw, id: 'a', label: 'A', validOrders: 2n },
+      { ...raw, id: 'c', label: 'C', validOrders: 3n },
+    ];
+    const { service } = setup(rows);
+    const result = await service.report({ ...query, sortBy: 'VALID', sortDirection: 'DESC', pageSize: 2 }, account);
+    expect(result.total).toBe(3);
+    expect(result.rows.map(r => r.id)).toEqual(['c', 'a']);
+    expect(result.rows.map(r => r.validOrders)).toEqual([3, 2]);
+  });
+
+  it('keeps rank-less rows stable when every CPA is null in both directions', async () => {
+    const rows = [
+      { ...raw, id: 'b', label: 'B', spendUsd: new Prisma.Decimal(0), spendPhp: new Prisma.Decimal(0) },
+      { ...raw, id: 'a', label: 'A', spendUsd: new Prisma.Decimal(0), spendPhp: new Prisma.Decimal(0) },
+    ];
+    const { service } = setup(rows);
+    for (const direction of ['ASC', 'DESC'] as const) {
+      const result = await service.report({ ...query, sortBy: 'ORDER_CPA', sortDirection: direction }, account);
+      expect(result.rows.map(r => r.id)).toEqual(['a', 'b']);
+    }
+  });
+
+  it('stays reject-scoped when a view-own account passes a foreign owner with the relaxed UI', async () => {
+    const { service, prisma } = setup();
+    await expect(service.report({ ...query, ownerUserId: LINK }, account)).rejects.toMatchObject({ status: 404 });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe('marketing report tree response', () => {
+  it('returns the product-source-link hierarchy and dedupes product visits', async () => {
+    const postRow = { ...raw, productId: 'product-1', productName: 'Chair', id: 'link-post', label: 'Post', sourceType: 'FB_POST', validOrders: 1n, visits: 4n };
+    const chair = { ...raw, productId: 'product-1', productName: 'Chair' };
+    const { service, prisma } = setup([chair, postRow]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([chair, postRow])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 6n }, { product: 'product-1', source: 'META_AD', visits: 2n }, { product: 'product-1', source: 'FB_POST', visits: 4n }]);
+    (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'product-1', images: [{ url: '/up.jpg' }] }]);
+    const result = await service.report({ ...query, mode: 'TREE', productId: 'product-1' }, account);
+    expect(result.mode).toBe('TREE');
+    expect(result.linkCount).toBe(2);
+    expect(result.tree).toHaveLength(1);
+    expect(result.tree[0].product).toMatchObject({ name: 'Chair', thumbnailUrl: '/up.jpg' });
+    expect(result.tree[0].totals).toMatchObject({ visits: 6, validOrders: 2 + 1 });
+    expect(result.tree[0].sources.map(s => s.sourceType)).toEqual(['FB_POST', 'META_AD']);
+    expect(result.otherSources).toEqual([]);
+  });
+
+  it('rejects unsafe visits sql contracts only through the schema, not runtime size', async () => {
+    // TREE ignores page/pageSize: it returns the whole scoped link set.
+    const { service, prisma } = setup([{ ...raw, productId: 'product-1', productName: 'Chair' }]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ ...raw, productId: 'product-1', productName: 'Chair' }])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 2n }]);
+    const result = await service.report({ ...query, mode: 'TREE', pageSize: 101 }, account);
+    expect(result.tree[0].totals.visits).toBe(2);
+    expect(result.linkCount).toBe(1);
+  });
+});
+
+describe('marketing report TREE grouping guard', () => {
+  it('keeps link-level rows under TREE even when the client sends a coarser groupBy', async () => {
+    // groupBy=PRODUCT would aggregate away source_type and make every product
+    // collapse into one fake source row; TREE only exists at link level.
+    const { service, prisma } = setup([{ ...raw, productId: 'product-1', productName: 'Chair' }]);
+    (prisma.$queryRaw as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ ...raw, productId: 'product-1', productName: 'Chair' }])
+      .mockResolvedValueOnce([{ product: 'product-1', source: null, visits: 2n }]);
+    const result = await service.report({ ...query, mode: 'TREE', groupBy: 'PRODUCT' }, account);
+    const sql = (prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0][0].text;
+    // groupBy is reserved for the flat table; the tree only exists at link level
+    expect(sql).toContain('l.id::text AS group_key');
+    expect(sql).not.toContain('l.product_id::text AS group_key');
+    // link rows must carry the LINK name, not the coarse level's label
+    expect(sql).not.toContain('s.product_name, PRODUCT: l.product_id');
+    expect((prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[1][0].text).toContain('GROUPING SETS');
+    expect(result.tree).toHaveLength(1);
+    expect(result.tree[0].sources).toHaveLength(1);
+
   });
 });

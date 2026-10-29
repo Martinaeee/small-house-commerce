@@ -5,38 +5,38 @@ enum LandingPageStatus {
 }
 
 model ProductLandingPage {
-  id             String            @id @default(uuid(7)) @db.Uuid
-  productId      String            @map("product_id") @db.Uuid
-  name           String // internal label, e.g. "优化师A-首图版"
-  adCode         String?           @map("ad_code") // FB 目录/广告编号
-  slug           String            @unique // /lp/<slug>, kebab-case
-  titleOverride  String?           @map("title_override") // H1; null = product.name
+  id                String            @id @default(uuid(7)) @db.Uuid
+  productId         String            @map("product_id") @db.Uuid
+  name              String // internal label, e.g. "优化师A-首图版"
+  adCode            String?           @map("ad_code") // FB 目录/广告编号
+  slug              String            @unique // /lp/<slug>, kebab-case
+  titleOverride     String?           @map("title_override") // H1; null = product.name
   // Ordered [{ "url": "...", "altText": "..." }]; null/empty = inherit product images
-  imagesOverride Json?             @map("images_override")
-  seoTitle       String?           @map("seo_title")
-  seoDescription String?           @map("seo_description")
+  imagesOverride    Json?             @map("images_override")
+  seoTitle          String?           @map("seo_title")
+  seoDescription    String?           @map("seo_description")
   // Optional promotional headline block rendered above the H1 on the LP.
-  promoEnabled   Boolean           @default(false) @map("promo_enabled")
-  promoHeadline  String?           @map("promo_headline")
-  promoSubtext   String?           @map("promo_subtext")
+  promoEnabled      Boolean           @default(false) @map("promo_enabled")
+  promoHeadline     String?           @map("promo_headline")
+  promoSubtext      String?           @map("promo_subtext")
   // Optional schedule window: LP is publicly reachable only inside it.
-  startAt        DateTime?         @map("start_at") @db.Timestamptz(3)
-  endAt          DateTime?         @map("end_at") @db.Timestamptz(3)
-  status         LandingPageStatus @default(ACTIVE)
-  sortOrder      Int               @default(0) @map("sort_order")
-  ownerUserId    String?           @map("owner_user_id") @db.Uuid
-  draftContent   Json?             @map("draft_content")
-  publishedContent Json?           @map("published_content")
-  version        Int               @default(0)
-  publishedRevision Int           @default(0) @map("published_revision")
-  publishedAt    DateTime?         @map("published_at") @db.Timestamptz(3)
-  sourceContentHash String?        @map("source_content_hash")
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startAt           DateTime?         @map("start_at") @db.Timestamptz(3)
+  endAt             DateTime?         @map("end_at") @db.Timestamptz(3)
+  status            LandingPageStatus @default(ACTIVE)
+  sortOrder         Int               @default(0) @map("sort_order")
+  ownerUserId       String?           @map("owner_user_id") @db.Uuid
+  draftContent      Json?             @map("draft_content")
+  publishedContent  Json?             @map("published_content")
+  version           Int               @default(0)
+  publishedRevision Int               @default(0) @map("published_revision")
+  publishedAt       DateTime?         @map("published_at") @db.Timestamptz(3)
+  sourceContentHash String?           @map("source_content_hash")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  product Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
-  owner   User?              @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  visits  LandingPageVisit[]
+  product       Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  owner         User?              @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  visits        LandingPageVisit[]
   campaignLinks CampaignLink[]
 
   @@index([ownerUserId, updatedAt])

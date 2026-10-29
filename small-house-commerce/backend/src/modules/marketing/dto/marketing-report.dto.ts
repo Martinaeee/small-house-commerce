@@ -1,11 +1,17 @@
 import { z } from 'zod';
 import { manilaVisitDay } from '../marketing-attribution.js';
+import { marketingReportSortValues } from '../marketing-report-sort.js';
 
 const today = () => manilaVisitDay(new Date()).toISOString().slice(0, 10);
 export const marketingReportQuerySchema = z.object({
   from: z.iso.date().default(() => new Date(manilaVisitDay(new Date()).getTime() - 6 * 864e5).toISOString().slice(0, 10)),
   to: z.iso.date().default(today),
   groupBy: z.enum(['LINK', 'PAGE', 'PRODUCT', 'OWNER']).default('LINK'),
+  // FLAT keeps the classic paged table; TREE returns the product → source →
+  // link hierarchy the grouped workbench view renders without pagination.
+  mode: z.enum(['FLAT', 'TREE']).default('FLAT'),
+  sortBy: z.enum(marketingReportSortValues).default('NAME'),
+  sortDirection: z.enum(['ASC', 'DESC']).default('ASC'),
   linkIds: z.string().max(3700).transform(value => value.split(',')).pipe(z.array(z.string().uuid()).min(1).max(100)).optional(),
   ownerUserId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),

@@ -9,8 +9,9 @@ import { copyText } from "@/lib/clipboard";
 const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permissions: ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"] }, status: "authed" }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
-vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn() } }));
-const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1", pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
+vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
+const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
 beforeEach(() => {
@@ -21,6 +22,39 @@ beforeEach(() => {
   vi.mocked(marketingApi.cloneLink).mockResolvedValue({ ...row, id: "link-2", code: "new-code" });
   vi.mocked(marketingApi.disableLink).mockResolvedValue({ ...row, status: "DISABLED", version: 3 });
   vi.mocked(copyText).mockResolvedValue(true);
+});
+
+describe("campaign link filters and thumbnails", () => {
+  it("filters by product and optimizer from dedicated selects", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_ALL", "MARKETING_MANAGE_OWN"];
+    vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u2", aid: "OP-2", displayName: "Other", status: "ACTIVE", userStatus: "ACTIVE" }]);
+    mount();
+    await screen.findByText("Ad A");
+    fireEvent.change(screen.getByRole("combobox", { name: "商品" }), { target: { value: "p1" } });
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ productId: "p1", page: 1 })));
+    fireEvent.change(screen.getByRole("combobox", { name: "投放师" }), { target: { value: "u2" } });
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ ownerUserId: "u2", page: 1 })));
+  });
+
+  it("hides the optimizer filter for own-scope users", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"];
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.queryByRole("combobox", { name: "投放师" })).not.toBeInTheDocument();
+  });
+
+  it("renders the product thumbnail before the product name", async () => {
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({ items: [{ ...row, productThumbnailUrl: "/uploads/chair.jpg" }], total: 1, page: 1, pageSize: 20 });
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("img", { name: /Chair/ })).toHaveAttribute("src", "/uploads/chair.jpg");
+  });
+
+  it("keeps a labelled placeholder when the product has no image", async () => {
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("img", { name: "商品暂无图片" })).toBeInTheDocument();
+  });
 });
 
 describe("persisted campaign links", () => {

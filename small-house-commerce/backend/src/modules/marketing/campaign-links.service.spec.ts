@@ -15,7 +15,7 @@ const base = { productId: P1, name: 'Ad A', sourceType: 'META_AD' as const, camp
 
 function setup() {
   const rows = new Map<string, Record<string, unknown>>();
-  const product = { id: P1, slug: 'chair', name: 'Chair', status: 'ACTIVE', productCode: 'LUW-001' };
+  const product = { id: P1, slug: 'chair', name: 'Chair', status: 'ACTIVE', productCode: 'LUW-001', images: [{ url: '/uploads/chair.jpg' }] };
   const page = { id: LP, productId: P1, ownerUserId: U1, slug: 'campaign', name: 'Campaign', status: 'ACTIVE', publishedRevision: 1, publishedContent: { blocks: [] }, startAt: null, endAt: null };
   const variant = { id: V1, productId: P1, name: 'Standard', sku: { status: 'ACTIVE', price: '100' } };
   const profile = { userId: U1, aid: 'OP-1', displayName: 'Operator', status: 'ACTIVE' };
@@ -57,6 +57,13 @@ describe('persisted owner-scoped campaign links', () => {
     expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
   });
 
+
+  it('returns product thumbnails with each link', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base }, owner);
+    expect(link.productThumbnailUrl).toBe('/uploads/chair.jpg');
+    expect(link.productName).toBe('Chair');
+  });
   it('derives page-link ownership from the authorized page, including an administrator acting for its owner', async () => {
     const { service } = setup();
     const link = await service.createLink({ ...base, landingPageId: LP, variantId: V1 }, admin);

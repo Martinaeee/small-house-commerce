@@ -26,18 +26,18 @@ enum CollectionStatus {
 }
 
 model Collection {
-  id            String           @id @default(uuid(7)) @db.Uuid
-  name          String
-  slug          String           @unique
-  type          CollectionType   @default(NAVIGATION)
-  description   String?
-  heroImage     String?          @map("hero_image")
-  status        CollectionStatus @default(ACTIVE)
-  sortOrder     Int              @default(0) @map("sort_order")
-  seoTitle      String?          @map("seo_title")
-  seoDescription String?         @map("seo_description")
-  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id             String           @id @default(uuid(7)) @db.Uuid
+  name           String
+  slug           String           @unique
+  type           CollectionType   @default(NAVIGATION)
+  description    String?
+  heroImage      String?          @map("hero_image")
+  status         CollectionStatus @default(ACTIVE)
+  sortOrder      Int              @default(0) @map("sort_order")
+  seoTitle       String?          @map("seo_title")
+  seoDescription String?          @map("seo_description")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   products CollectionProduct[]
   sections CollectionSection[]
