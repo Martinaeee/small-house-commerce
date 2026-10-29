@@ -8,7 +8,17 @@ import { OptimizersService } from './optimizers.service.js';
 import type { CampaignLinkCloneInput, CampaignLinkCreateInput, CampaignLinkQuery, CampaignLinkUpdateInput } from './dto/campaign-link.dto.js';
 
 const details = {
-  product: { select: { name: true, productCode: true, slug: true, status: true } },
+  product: {
+    select: {
+      name: true, productCode: true, slug: true, status: true,
+      images: {
+        where: { type: 'IMAGE' as const, variantId: null, optionValueId: null },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        take: 1,
+        select: { url: true },
+      },
+    },
+  },
   landingPage: { select: { name: true, slug: true, status: true, publishedContent: true, publishedRevision: true, startAt: true, endAt: true } },
   owner: { select: { name: true, status: true, optimizerProfile: { select: { displayName: true, status: true } } } },
 } satisfies Prisma.CampaignLinkInclude;
@@ -131,6 +141,6 @@ export class CampaignLinksService {
 
   private serialize(row: LinkWithDetails) {
     const { owner, product, landingPage, ...link } = row;
-    return { ...link, aid: row.aidSnapshot, ownerName: owner.optimizerProfile?.displayName ?? owner.name, productName: product.name, productCode: product.productCode, pageName: landingPage?.name ?? null, path: linkPath(row) };
+    return { ...link, aid: row.aidSnapshot, ownerName: owner.optimizerProfile?.displayName ?? owner.name, productName: product.name, productCode: product.productCode, productThumbnailUrl: product.images[0]?.url ?? null, pageName: landingPage?.name ?? null, path: linkPath(row) };
   }
 }
