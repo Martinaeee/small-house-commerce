@@ -16,8 +16,35 @@ the older `ylopen.jtexpress.ph` API — the credentials are different and do not
 | `JT_POLL_MINUTES` | `30` (optional) |
 | `JT_CARRIER_NAME` | `J&T Express` (must match the ship dialog label) |
 
-Missing any of the four credentials keeps the integration off; the app still boots. With
-`JT_ENABLED=true` and a credential missing, the app refuses to start (`env.validation.ts`).
+### When the integration is on
+
+The switch and the credentials are checked in two places, and both agree:
+
+| `JT_ENABLED` | Credentials | Result |
+| --- | --- | --- |
+| unset or blank | any | off — the app boots normally |
+| `false` | any | off — the app boots normally |
+| `true` | all four present | on — the worker polls |
+| `true` | any of the four missing | **the app refuses to start** (`env.validation.ts`) |
+
+"All four" means `JT_API_ACCOUNT`, `JT_PRIVATE_KEY`, `JT_CUSTOMER_CODE`, `JT_CUSTOMER_PASSWORD`.
+`JT_BASE_URL`, `JT_POLL_MINUTES` and `JT_CARRIER_NAME` have defaults and are never required.
+
+## Base fix carried by this branch
+
+`6063a883 fix(qianyi): import the inbound service as a value so Nest can resolve it` is **not**
+part of the J&T feature, but it must not be dropped when this branch is integrated:
+
+- `qianyi-webhook.service.ts` imported `QianyiInboundService` with `import type`. Type-only
+  imports are erased at runtime, so the constructor emitted `Function` as its parameter type and
+  Nest failed with `UnknownDependenciesException` for `QianyiWebhookService` — the whole API
+  refused to boot, on every environment, before this branch.
+- The fix changes one word (`import type` → `import`). No behaviour changes; the module graph has
+  no cycle.
+- Verified by a boot smoke: `PORT=3999 HOST=127.0.0.1 node dist/main.js` logs
+  "Nest application successfully started".
+
+If this commit is dropped, the merge target will not start.
 
 ## Dry run
 

@@ -207,8 +207,8 @@ No new tables, no changes to `orders`. All writes are additive; disabling the in
 
 ## Admin surface
 
-- `POST /admin/orders/:id/shipments/:shipmentId/tracking/refresh` — permission `SHIPMENT_CREATE`, same path style as the existing `…/events` and `…/sign` routes. Ignores backoff, performs one fetch, returns `{ appended, skipped, signed }`; a carrier or network failure surfaces as an HTTP error. Returns `409` when the integration is disabled so the button can explain why nothing happened.
-- `GET /admin/jt/status` — `{ enabled, lastTickAt, lastFetched, lastFailed, pendingShipments, lastError }`, rendered as a `JtTrackingHealthCard` next to the existing `MetaCapiHealthCard` on `/admin/status`. Reuses the system-status permission.
+- `POST /admin/orders/:id/shipments/:shipmentId/tracking/refresh` — permission `SHIPMENT_CREATE`, same path style as the existing `…/events` and `…/sign` routes. Ignores backoff, performs one fetch, returns `{ appended, skipped, signed }`; a carrier or network failure surfaces as an HTTP error. Returns `409` when the integration is disabled. Refuses (`400`) a shipment whose carrier label is not the configured `JT_CARRIER_NAME` **without calling J&T and without stamping `tracking_error`** — a manual refresh must not poison a box the worker will never poll. The drawer shows the success count or the failure message next to the shipment.
+- `GET /admin/jt/status` — `{ enabled, lastTickAt, lastFetched, lastFailed, pendingShipments, carrierMismatch, lastError }`, rendered as a `JtTrackingHealthCard` next to the existing `MetaCapiHealthCard` on `/admin/status`. Reuses the system-status permission. `carrierMismatch` counts `SHIPPING` boxes with a tracking number whose carrier label does not match ours — the drift the integration cannot see otherwise.
 - `FulfillmentDialog` ship form gets a `J&T Express` preset button for the carrier field; the free-text field stays, and the tracking number stays manual.
 - `LogisticsEventDialog` shows, per event, J&T's raw description, the rider phone and a link to the signature photo — admin only.
 
@@ -235,8 +235,11 @@ Tracking numbers and carrier names are already public on that page today, so no 
 
 - Integration disabled → worker does nothing, admin refresh returns `409`, status card says "disabled".
 - One shipment failing must not abort the tick; failures are per shipment and counted.
+- A tick-level failure (the candidate query itself failing) is logged and recorded as the status card's `lastError`; it must never be swallowed. A later fully successful tick clears that error and the per-shipment `tracking_error`.
 - A failed shipment's already-ingested events stay; partial success is acceptable.
 - Unknown scan codes are skipped and logged, never persisted.
+- A concurrent poll and manual refresh can both try to insert the same `(shipment_id, external_event_id)`. Losing that unique constraint is not a failure: the insert reads the winning row back and returns it, so the refresh is not counted against the backoff.
+- Every transport failure — connect, timeout, or a body read that aborts mid-stream — becomes a `JtError('TRANSPORT')`; the 15-second limit is a single constant.
 - A J&T error message is truncated to 300 chars before storage; the full response is only in the log line.
 - Clock: only `scanTime` drives `eventTime`; `receivedAt` stays the ingest time so the two are distinguishable.
 
