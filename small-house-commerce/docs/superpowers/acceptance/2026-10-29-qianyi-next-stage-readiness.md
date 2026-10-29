@@ -245,7 +245,7 @@ SELECT column_name FROM information_schema.columns
 | B3 | >24h 合法回调被丢弃且不归档 | 后端 | 设计 C 的 C-1…C-6；其中 `LATE_REJECTED` 归档可先行 | L1 |
 | B4 | 多实例限流不共享 | 后端 + 运维 | 设计 D 的 D-1…D-6 全绿 | L1（多副本时）/ L4（单副本时仍会重启清零） |
 | B5 | `PUSH_RETURN_ORDER_INFO` 被标记已处理但无处理逻辑，退货事件永久跳过 | 后端 + 运营 | 决定“本期忽略”则写明并记录 `IGNORED`；要做则实现并测试 | L3 | **2026-10-29 已实现临时策略**：入站只写订单 SYSTEM 备注（含退货单号），完整退货闭环待业务确认 |
-| B6 | 结果不明时缺少“确认已存在→采纳/绑单”动作，只能假设不存在重推 | 后端 | 新增后台动作 + 测试：远端存在时采纳并 `SENT`，不再 CREATE | L2 |
+| B6 | 结果不明时缺少“确认已存在→采纳/绑单”动作，只能假设不存在重推 | 后端 | 新增后台动作 + 测试：远端存在时采纳并 `SENT`，不再 CREATE | L2 | **2026-10-29 已实现**：`POST jobs/:id/adopt` + 后台「采纳已有订单」按钮，先向千易列表核对单号再绑单 |
 | B7 | 合并后的保留订单未重新计价/重推，远端金额与本地不一致 | 后端 + 运营 | 明确规则（禁止合并已推单 / 或补修改接口）+ 测试 | L2 |
 | B8 | 每日对账只写备注、不修复 | 后端 + 运营 | 首单后观察 7 天，人工对账；自动修复另立设计 | L4 |
 | B9 | 全局 JSON/urlencoded parser 在中间件之前，回调路由无法单独消除解析成本 | 后端（架构） | 压测记录 + 方案评审 | L4 |
@@ -320,7 +320,7 @@ QIANYI_TEST_DB_IS_DISPOSABLE=1 pnpm vitest run test/qianyi-safety.e2e-spec.ts
 - **预期数据库**：job `FAILED`、`pending_review=true`、`auto_create_attempts=1`、`claimed_at=null`；`orders.qianyi_order_number` 仍空；库存/包裹不变；后续 tick 不再发送。
 - **预期千易**：**可能已建 1 单**，需人工按 `onlineOrderNumber` 查询。
 - **失败处理**：查到存在 → 应由 B6 的“采纳”动作绑定并转 `SENT`；查到不存在 → `authorize-retry` 后只再发一次；两者都禁止自动重发。
-- **现状覆盖**：P0-12、P0-13；**“采纳已存在”尚无实现（B6）**。
+- **现状覆盖**：P0-12、P0-13；“采纳已存在”（B6）已于 2026-10-29 实现（`POST jobs/:id/adopt`，先核对后绑单）。
 
 #### M4 取消竞争
 

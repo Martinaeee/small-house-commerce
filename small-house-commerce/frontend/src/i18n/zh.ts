@@ -135,6 +135,7 @@ export const zh = {
   qianyi_pending: "待推送 {count}",
   qianyi_failed: "失败 {count}",
   qianyi_sent24h: "24 小时成功 {count}",
+  qianyi_callbacks: "超期回调 {count} 条待人工处理（超过 7 天只归档、不应用）",
   qianyi_webhook: "回调地址",
   qianyi_skus_title: "SKU 绑定（在千易建档后填写编码）",
   qianyi_col_sku: "SKU",
@@ -157,6 +158,10 @@ export const zh = {
   qianyi_authorize_retry: "核对后授权重推",
   qianyi_authorize_hint:
     "请先在千易确认这笔订单确实不存在。确认后本次只允许再创建一次，并会记录当前操作人。",
+  qianyi_adopt: "采纳已有订单",
+  qianyi_adopt_hint: "如果千易里已经有这笔订单，请输入千易订单号（会先向千易核对）",
+  qianyi_adopted: "已采纳千易订单 {number}",
+  qianyi_adopt_blocked: "未采纳：{reason}",
   nav_system_status: "系统状态",
   nav_group_website: "网站",
   admin_nav_expand: "展开后台导航",

@@ -42,7 +42,7 @@ function serviceWith(tx: ReturnType<typeof txFor>, existing: ReturnType<typeof j
       count: vi.fn(async () => 0), update: vi.fn(async () => undefined) },
     $transaction: vi.fn(async (fn: (client: unknown) => unknown) => fn(tx)),
     $queryRaw: vi.fn(async () => []),
-    qianyiWebhookEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    qianyiWebhookEvent: { deleteMany: vi.fn(async () => ({ count: 0 })), count: vi.fn(async () => 0) },
   };
   return { service: new QianyiSyncService(prisma as never, client as never, CONFIG), prisma, tx };
 }
@@ -104,6 +104,51 @@ describe('QianyiSyncService recovery gates', () => {
     expect(prisma.qianyiSyncJob.update).not.toHaveBeenCalled();
     expect(await service.authorizeCreateRetry('job-1', 'user-1', true)).toEqual({ ok: true });
     expect(prisma.qianyiSyncJob.updateMany.mock.calls[0][0].data).toMatchObject({ autoCreateAttempts: 0, pendingReview: false });
+  });
+});
+
+describe('QianyiSyncService.health', () => {
+  it('reports stale callbacks that need a human', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service, prisma } = serviceWith(tx);
+    vi.mocked(prisma.qianyiWebhookEvent.count).mockResolvedValue(2);
+
+    expect((await service.health()).callbacks).toBe(2);
+  });
+});
+
+describe('QianyiSyncService.adoptExisting', () => {
+  const unknownOutcome = () => job({ status: 'FAILED', pendingReview: true, autoCreateAttempts: 1 });
+
+  it('adopts the Qianyi order only after the remote list confirms it', async () => {
+    client.call.mockResolvedValue({ result: [{ onlineOrderNumber: 'PH100012', orderNumber: 'QY-1', shop: 'LUWAG- PH' }] });
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service, prisma } = serviceWith(tx, unknownOutcome());
+
+    expect(await service.adoptExisting('job-1', 'user-1', ' QY-1 ')).toEqual({ ok: true });
+    expect(client.call).toHaveBeenCalledWith('QUERY_SALES_ORDER_LIST', 'salesOrder',
+      { shop: 'LUWAG- PH', onlineOrderNumber: 'PH100012', page: 1, pageSize: 5 });
+    expect(prisma.qianyiSyncJob.updateMany.mock.calls[0][0].data).toMatchObject({
+      status: 'SENT', externalOrderNumber: 'QY-1', pendingReview: false });
+    expect(tx.order.update).toHaveBeenCalledWith({ where: { id: 'order-1' }, data: { qianyiOrderNumber: 'QY-1' } });
+    expect(tx.orderNote.create).toHaveBeenCalled();
+  });
+
+  it('refuses a number the remote list does not return', async () => {
+    client.call.mockResolvedValue({ result: [{ onlineOrderNumber: 'PH100012', orderNumber: 'QY-2' }] });
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service, prisma } = serviceWith(tx, unknownOutcome());
+
+    expect((await service.adoptExisting('job-1', 'user-1', 'QY-1')).ok).toBe(false);
+    expect(prisma.qianyiSyncJob.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('only adopts a push whose create may already have been dispatched', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service } = serviceWith(tx, job({ status: 'SKIPPED' }));
+
+    expect((await service.adoptExisting('job-1', 'user-1', 'QY-1')).ok).toBe(false);
+    expect(client.call).not.toHaveBeenCalled();
   });
 });
 

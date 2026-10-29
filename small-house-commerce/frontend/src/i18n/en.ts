@@ -136,6 +136,7 @@ export const en: Record<ZhKey, string> = {
   qianyi_pending: "{count} pending",
   qianyi_failed: "{count} failed",
   qianyi_sent24h: "{count} sent in 24h",
+  qianyi_callbacks: "{count} late callbacks need a human (older than 7 days is archived, not applied)",
   qianyi_webhook: "Callback URL",
   qianyi_skus_title: "SKU mapping (create the SKU in Qianyi, then bind it here)",
   qianyi_col_sku: "SKU",
@@ -158,6 +159,10 @@ export const en: Record<ZhKey, string> = {
   qianyi_authorize_retry: "Authorize retry",
   qianyi_authorize_hint:
     "Confirm in Qianyi that this order does not exist. This authorizes exactly one more create and records your account.",
+  qianyi_adopt: "Adopt existing order",
+  qianyi_adopt_hint: "If the order already exists in Qianyi, enter its Qianyi order number (it is checked first)",
+  qianyi_adopted: "Adopted Qianyi order {number}",
+  qianyi_adopt_blocked: "Not adopted: {reason}",
   nav_system_status: "System Status",
   nav_group_website: "Website",
   admin_nav_expand: "Expand admin navigation",

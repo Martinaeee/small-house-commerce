@@ -55,7 +55,7 @@ QIANYI_LOGISTICS=SHIPDOC-STD
 | `SENDING` | worker 已领取并在请求中 | 无 | 超过 10 分钟未完成会自动转 `FAILED` + 待核对 |
 | `SENT` | 本站把客户端响应判为成功并写入任务 | 无 | 仍需真实千易履约验收 |
 | `FAILED` | 确定失败，且从未发出 CREATE | **重推** | 重新校验映射/订单状态后放回队列，有操作人备注 |
-| `FAILED` + 待核对 | CREATE 可能已到达千易，结果不明 | **核对后授权重推** | 必须先在千易确认订单不存在；授权后才允许再创建一次 |
+| `FAILED` + 待核对 | CREATE 可能已到达千易，结果不明 | **采纳已有订单 / 核对后授权重推** | 千易里已有单 → 填单号采纳（会先核对）；确认不存在 → 才允许再创建一次 |
 | `SKIPPED` | 某些明细缺千易映射，整单未提交 | **重排** | 重读全部明细；缺映射返回具体 SKU；只接受从未发送的任务 |
 | `CANCELLED` | 订单在推送前被取消/合并 | 无 | worker 不会发送；已取消订单不能靠旧确认重新排队 |
 
@@ -63,6 +63,7 @@ QIANYI_LOGISTICS=SHIPDOC-STD
 
 - `POST /api/v1/admin/qianyi/jobs/:id/retry`（仅“从未发出 CREATE”的 FAILED）
 - `POST /api/v1/admin/qianyi/jobs/:id/authorize-retry`（body `{confirmedAbsent:true}`）
+- `POST /api/v1/admin/qianyi/jobs/:id/adopt`（body `{qianyiOrderNumber}`）：CREATE 其实已到千易时，操作人填入千易订单号，后端先向千易列表核对，匹配才回写 `SENT` 并绑单
 - `POST /api/v1/admin/qianyi/jobs/:id/requeue`（仅 SKIPPED）
 
 **远端幂等没有证明。** CREATE 在任何任务生命周期里最多自动发出一次；之后只有操作人在千易确认“不存在”后才能授权再发一次。查询到已有订单时直接采纳为 SENT，但查询为空不会被视为“可以安全重发”。所有恢复动作写 `lastAction` 和 SYSTEM 订单备注；任务状态与备注在同一事务中。

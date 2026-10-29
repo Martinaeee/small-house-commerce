@@ -273,8 +273,40 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     return { ok: true };
   }
 
-  /** Runs inside the cancel transaction. */
-  async cancelWithin(tx: Prisma.TransactionClient, orderId: string, operatorId: string): Promise<'none' | 'cancelled' | 'review' | 'close'> {
+  /**
+   * The opposite of a create retry: the create may have reached Qianyi and the
+   * order is there, so the operator supplies its number and we bind it instead
+   * of sending a second create. The remote list must confirm the pair.
+   */
+  async adoptExisting(jobId: string, operatorId: string, qianyiOrderNumber: string): Promise<Result> {
+    const target = qianyiOrderNumber.trim();
+    if (!target) return { ok: false, reason: 'a Qianyi order number is required' };
+    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
+    if (!job || job.kind !== 'PUSH_ORDER') return { ok: false, reason: 'not a push job' };
+    if (job.status !== 'FAILED' || job.autoCreateAttempts === 0) {
+      return { ok: false, reason: 'only a push whose create was dispatched can be adopted' };
+    }
+    const online = String((job.requestPayload as { onlineOrderNumber?: string } | null)?.onlineOrderNumber ?? '');
+    if (!online) return { ok: false, reason: 'the job carries no Qianyi order reference' };
+    const rows = qianyiRows(await this.client.call('QUERY_SALES_ORDER_LIST', 'salesOrder', {
+      shop: this.config.shop, onlineOrderNumber: online, page: 1, pageSize: 5,
+    }));
+    const confirmed = rows.some(row => row.onlineOrderNumber === online && String(row.orderNumber ?? '') === target);
+    if (!confirmed) return { ok: false, reason: `Qianyi does not list ${target} for ${online}` };
+    await this.prisma.$transaction(async tx => {
+      const changed = await tx.qianyiSyncJob.updateMany({ where: { id: jobId, status: 'FAILED' },
+        data: { status: 'SENT', sentAt: new Date(), claimedAt: null, pendingReview: false,
+          externalOrderNumber: target, lastError: null,
+          lastAction: `adopted existing Qianyi order ${target} by ${operatorId}`.slice(0, 1024) } });
+      if (!changed.count) throw new Error('Job state changed; reload and retry');
+      await tx.order.update({ where: { id: job.orderId }, data: { qianyiOrderNumber: target } });
+      await tx.orderNote.create({ data: { orderId: job.orderId, userId: operatorId, noteType: 'SYSTEM',
+        content: `Operator adopted existing Qianyi order ${target} after manual reconciliation.`.slice(0, 2000) } });
+    });
+    return { ok: true };
+  }
+
+  /** Runs inside the cancel transaction. */  async cancelWithin(tx: Prisma.TransactionClient, orderId: string, operatorId: string): Promise<'none' | 'cancelled' | 'review' | 'close'> {
     if (!this.client.enabled) return 'none';
     const job = await tx.qianyiSyncJob.findUnique({ where: { orderId_kind: { orderId, kind: 'PUSH_ORDER' } } });
     if (!job) return 'none';
@@ -333,6 +365,11 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       failed: await this.prisma.qianyiSyncJob.count({ where: { status: 'FAILED' } }),
       review: await this.prisma.qianyiSyncJob.count({ where: { pendingReview: true } }),
       sent24h: await this.prisma.qianyiSyncJob.count({ where: { status: 'SENT', sentAt: { gte: since } } }),
+      // Callbacks that arrived too late to apply: they stay archived and need
+      // an operator, so surface them instead of leaving them in the table.
+      callbacks: await this.prisma.qianyiWebhookEvent.count({
+        where: { processedAt: null, error: 'STALE_CALLBACK' },
+      }),
     };
   }
 }

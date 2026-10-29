@@ -1645,6 +1645,7 @@ export interface AdminQianyiStatus {
   failed: number;
   review: number;
   sent24h: number;
+  callbacks: number;
 }
 
 /** One catalog SKU as the Qianyi creation preview lists it. */
@@ -2776,6 +2777,15 @@ export const adminApi = {
     adminAuthedFetch<{ ok: boolean; reason?: string }>(
       `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/authorize-retry`,
       { method: "POST", body: JSON.stringify({ confirmedAbsent: true }) },
+    ),
+
+  adoptQianyiJob: (
+    id: string,
+    qianyiOrderNumber: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/adopt`,
+      { method: "POST", body: JSON.stringify({ qianyiOrderNumber }) },
     ),
 
   requeueQianyiJob: (

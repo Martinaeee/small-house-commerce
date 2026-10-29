@@ -59,6 +59,20 @@ export default function QianyiSettingsPage() {
     setJobs(await adminApi.qianyiJobs());
   };
 
+  // The operator found the order in Qianyi after all: bind it instead of
+  // sending a second create.
+  const adopt = async (id: string) => {
+    const number = window.prompt(t("qianyi_adopt_hint"))?.trim();
+    if (!number) return;
+    const result = await adminApi.adoptQianyiJob(id, number);
+    setMessage(
+      result.ok
+        ? t("qianyi_adopted", { number })
+        : t("qianyi_adopt_blocked", { reason: result.reason ?? "" }),
+    );
+    setJobs(await adminApi.qianyiJobs());
+  };
+
   // Only valid once every line has a code; the backend refuses otherwise and
   // names the SKUs that are still missing.
   const requeue = async (id: string) => {
@@ -102,6 +116,11 @@ export default function QianyiSettingsPage() {
           {t("qianyi_review", { count: status?.review ?? 0 })} ·{" "}
           {t("qianyi_sent24h", { count: status?.sent24h ?? 0 })}
         </p>
+        {(status?.callbacks ?? 0) > 0 ? (
+          <p className="mt-1 text-xs text-red-600">
+            {t("qianyi_callbacks", { count: status?.callbacks ?? 0 })}
+          </p>
+        ) : null}
         <p className="mt-2 break-all text-xs text-muted">
           {t("qianyi_webhook")}：{WEBHOOK_URL}
         </p>
@@ -160,9 +179,14 @@ export default function QianyiSettingsPage() {
                 </p>
               </div>
               {job.status === "FAILED" && job.pendingReview ? (
-                <Button size="sm" variant="secondary" onClick={() => authorizeRetry(job.id)}>
-                  {t("qianyi_authorize_retry")}
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => adopt(job.id)}>
+                    {t("qianyi_adopt")}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => authorizeRetry(job.id)}>
+                    {t("qianyi_authorize_retry")}
+                  </Button>
+                </div>
               ) : null}
               {job.status === "FAILED" && !job.pendingReview ? (
                 <Button size="sm" onClick={() => retry(job.id)}>

@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   retryQianyiJob: vi.fn(),
   requeueQianyiJob: vi.fn(),
   authorizeQianyiCreateRetry: vi.fn(),
+  adoptQianyiJob: vi.fn(),
   setQianyiMapping: vi.fn(),
 }));
 
@@ -122,5 +123,24 @@ describe("QianyiSettingsPage skipped jobs", () => {
 
     expect(apiMock.retryQianyiJob).toHaveBeenCalledWith("job-7");
     expect(apiMock.authorizeQianyiCreateRetry).not.toHaveBeenCalled();
+  });
+
+  it("adopts an existing Qianyi order with the number the operator found", async () => {
+    apiMock.qianyiJobs.mockResolvedValue([failedJob(true)]);
+    apiMock.adoptQianyiJob.mockResolvedValue({ ok: true });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue(" QY-7 ");
+    render(<QianyiSettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /qianyi_adopt/ }));
+
+    expect(prompt).toHaveBeenCalled();
+    expect(apiMock.adoptQianyiJob).toHaveBeenCalledWith("job-7", "QY-7");
+  });
+
+  it("surfaces late callbacks that need a human", async () => {
+    apiMock.qianyiStatus.mockResolvedValue({ enabled: true, pending: 0, failed: 1, review: 0, sent24h: 3, callbacks: 2 });
+    render(<QianyiSettingsPage />);
+
+    expect(await screen.findByText(/qianyi_callbacks/)).toBeInTheDocument();
   });
 });

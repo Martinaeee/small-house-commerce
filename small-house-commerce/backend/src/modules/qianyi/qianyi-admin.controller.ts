@@ -131,6 +131,16 @@ export class QianyiAdminController {
   }
 
   /**
+   * The create did reach Qianyi after all. The operator supplies the order
+   * number they found there, and the backend verifies it before binding.
+   */
+  @Post('jobs/:id/adopt')
+  async adopt(@Param('id') id: string, @CurrentUser() user: { userId: string },
+    @Body() body: { qianyiOrderNumber?: string }) {
+    return this.sync.adoptExisting(id, user.userId, (body.qianyiOrderNumber ?? '').trim());
+  }
+
+  /**
    * Re-queues a push that was skipped for a missing SKU mapping. Refuses with
    * the exact SKUs still unmapped, and arms the duplicate check before the
    * worker pushes anything.
