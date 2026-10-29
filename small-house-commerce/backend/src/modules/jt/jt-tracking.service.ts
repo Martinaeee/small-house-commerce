@@ -60,6 +60,8 @@ export interface JtTrackingHealth {
   lastFetched: number;
   lastFailed: number;
   pendingShipments: number;
+  /** Shipped boxes whose carrier label does not match ours, so polling skips them. */
+  carrierMismatch: number;
   lastError: string | null;
 }
 
@@ -159,10 +161,22 @@ export class JtTrackingService implements OnModuleInit, OnApplicationShutdown {
         }
       }
 
+      if (failed === 0) this.lastError = null;
+
       this.lastTickAt = new Date(now);
       this.lastFetched = checked - failed;
       this.lastFailed = failed;
       return { checked, appended, failed };
+    } catch (error) {
+      // A tick-level failure (the database refusing the candidate query, for
+      // example) never reaches the per-shipment branch, so it has to be
+      // recorded here or the status card goes blind.
+      this.lastTickAt = new Date(now);
+      this.lastFetched = 0;
+      this.lastFailed = 0;
+      this.lastError = (error as Error).message;
+      this.logger.error(`J&T tick failed: ${this.lastError}`);
+      throw error;
     } finally {
       this.running = false;
     }
@@ -184,6 +198,14 @@ export class JtTrackingService implements OnModuleInit, OnApplicationShutdown {
     }
     if (!shipment.trackingNumber) {
       throw new BadRequestException('Shipment has no tracking number');
+    }
+    if (!this.isJtCarrier(shipment.carrier)) {
+      // A manual refresh must never query J&T with another carrier's waybill:
+      // the request would fail and stamp this box with a tracking error the
+      // worker (which skips it) can never clear.
+      throw new BadRequestException(
+        `Shipment carrier "${shipment.carrier}" is not handled by the J&T integration`,
+      );
     }
 
     try {
@@ -251,14 +273,30 @@ export class JtTrackingService implements OnModuleInit, OnApplicationShutdown {
         carrier: { equals: this.config.carrierName, mode: 'insensitive' },
       },
     });
+    // Staff type the carrier by hand; a "JT" or "J&T Express PH" label silently
+    // stops a box from being polled, so the count surfaces the drift.
+    const carrierMismatch = await this.prisma.shipment.count({
+      where: {
+        status: 'SHIPPING',
+        trackingNumber: { not: null },
+        carrier: { not: { equals: this.config.carrierName, mode: 'insensitive' } },
+      },
+    });
     return {
       enabled: this.client.enabled,
       lastTickAt: this.lastTickAt ? this.lastTickAt.toISOString() : null,
       lastFetched: this.lastFetched,
       lastFailed: this.lastFailed,
       pendingShipments,
+      carrierMismatch,
       lastError: this.lastError,
     };
+  }
+
+  private isJtCarrier(carrier: string): boolean {
+    return (
+      carrier.trim().toLowerCase() === this.config.carrierName.trim().toLowerCase()
+    );
   }
 
   /**
