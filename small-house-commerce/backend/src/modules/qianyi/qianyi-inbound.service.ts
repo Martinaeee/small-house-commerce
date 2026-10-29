@@ -33,6 +33,7 @@ export class QianyiInboundService {
       if (serviceType === 'PUSH_ODO_ORDER' && payload.status === 'SHIPPED') await this.outbound(tx, payload);
       if (serviceType === 'PUSH_SALES_ORDER_SHIPPING_INFO') await this.shippingInfo(tx, payload);
       if (serviceType === 'PUSH_TRACKING_PACKAGE') await this.tracking(tx, payload);
+      if (serviceType === 'PUSH_RETURN_ORDER_INFO') await this.returnNotice(tx, payload);
     };
     if (client) await apply(client);
     else await this.prisma.$transaction(apply, { timeout: 20_000, maxWait: 10_000 });
@@ -50,8 +51,22 @@ export class QianyiInboundService {
     return order;
   }
 
-  private async relatedEvents(tx: Prisma.TransactionClient, order: Order) {
-    return tx.qianyiWebhookEvent.findMany({ where: {
+  /**
+   * Returns are not modelled yet. Recording the callback as a note keeps it
+   * visible to an operator instead of silently acknowledging and dropping it;
+   * stock, refunds and order status stay untouched until the rules are agreed.
+   */
+  private async returnNotice(tx: Prisma.TransactionClient, payload: Payload): Promise<void> {
+    const reference = qianyiField(payload, 'onlineOrderNumber', 'onlineOrderId');
+    if (!reference) return;
+    const order = await tx.order.findUnique({ where: { orderNumber: reference }, select: { id: true } });
+    if (!order) return;
+    const returnNumber = qianyiField(payload, 'returnOrderNumber', 'orderNumber').slice(0, 64) || 'unknown';
+    await tx.orderNote.create({ data: { orderId: order.id, noteType: 'SYSTEM',
+      content: `Qianyi return callback ${returnNumber} received; process the return in the workbench.`.slice(0, 2000) } });
+  }
+
+  private async relatedEvents(tx: Prisma.TransactionClient, order: Order) {    return tx.qianyiWebhookEvent.findMany({ where: {
       signValid: true, serviceType: { in: ['PUSH_SALES_ORDER_SHIPPING_INFO', 'PUSH_TRACKING_PACKAGE'] },
       OR: [{ payload: { path: ['onlineOrderNumber'], equals: order.orderNumber } },
         { payload: { path: ['onlineOrderId'], equals: order.orderNumber } }],

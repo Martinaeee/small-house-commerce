@@ -18,6 +18,11 @@ function fields(serviceType: string, payload: unknown, overrides: Partial<Qianyi
   return { ...input, sign: signQianyiRequest(input, secret), ...overrides };
 }
 
+function fieldsAt(serviceType: string, payload: unknown, timestamp: string): QianyiWebhookFields {
+  const input = { appId, serviceType, bizParam: JSON.stringify(payload), timestamp };
+  return { ...input, sign: signQianyiRequest(input, secret) };
+}
+
 /** Stateful in-memory stand-in for the archive table and its transaction. */
 function prismaFake() {
   const rows = new Map<string, Record<string, unknown>>();
@@ -130,6 +135,37 @@ describe('QianyiWebhookService', () => {
     const enabled = new QianyiWebhookService(config(true), db as never, inbound as never);
     expect(await enabled.processDeferred()).toBe(1);
     expect(await enabled.processDeferred()).toBe(0);
+    expect(inbound.handle).toHaveBeenCalledTimes(1);
+  });
+
+  // Qianyi retries, and a queue outage can deliver a signed callback days
+  // later. The archive dedupes by event key, so applying a late event is safe.
+  it('applies a signed callback that arrives days late', async () => {
+    const { db, rows } = prismaFake();
+    const service = new QianyiWebhookService(config(true), db as never, inbound as never);
+    const ts = fieldsAt('PUSH_TRACKING_PACKAGE', { onlineOrderNumber: 'PH1', status: 'IN_TRANSIT' },
+      String(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    expect(await service.ingest(ts)).toMatchObject({ ok: true, duplicated: false });
+    expect(inbound.handle).toHaveBeenCalledTimes(1);
+    expect([...rows.values()][0].processedAt).toBeInstanceOf(Date);
+  });
+
+  it('archives a callback older than the archive window without applying it', async () => {
+    const { db, rows } = prismaFake();
+    const service = new QianyiWebhookService(config(true), db as never, inbound as never);
+    const stale = fieldsAt('PUSH_ODO_ORDER', { onlineOrderNumber: 'PH1' },
+      String(Date.now() - 10 * 24 * 60 * 60 * 1000));
+    expect(await service.ingest(stale)).toMatchObject({ ok: true });
+    expect(inbound.handle).not.toHaveBeenCalled();
+    expect([...rows.values()][0]).toMatchObject({ error: 'STALE_CALLBACK', processedAt: null });
+  });
+
+  it('reads a ten-digit timestamp as seconds, not milliseconds', async () => {
+    const { db } = prismaFake();
+    const service = new QianyiWebhookService(config(true), db as never, inbound as never);
+    const seconds = String(Math.floor(Date.now() / 1000));
+    expect(await service.ingest(fieldsAt('PUSH_TRACKING_PACKAGE', { onlineOrderNumber: 'PH1' }, seconds)))
+      .toMatchObject({ ok: true, duplicated: false });
     expect(inbound.handle).toHaveBeenCalledTimes(1);
   });
 });

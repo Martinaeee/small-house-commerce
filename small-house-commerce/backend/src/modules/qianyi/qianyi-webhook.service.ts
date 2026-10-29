@@ -8,8 +8,18 @@ import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
 import { QianyiInboundService } from './qianyi-inbound.service.js';
 import { qianyiEventKey } from './qianyi-event.js';
 
-const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+// Qianyi retries and queue outages can deliver a signed callback days later.
+// The archive dedupes by event key, so a late event still applies once; past
+// this window it is archived for inspection instead of being applied.
+const MAX_CALLBACK_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_CALLBACK = 'STALE_CALLBACK';
 const HANDLED = new Set(['PUSH_ODO_ORDER', 'PUSH_SALES_ORDER_SHIPPING_INFO', 'PUSH_TRACKING_PACKAGE', 'PUSH_RETURN_ORDER_INFO']);
+
+/** Qianyi has sent both 10-digit seconds and 13-digit milliseconds. */
+function timestampMs(raw: string): number {
+  const value = Number(raw);
+  return raw.length <= 10 ? value * 1000 : value;
+}
 
 export interface QianyiWebhookFields {
   appId: string;
@@ -65,8 +75,7 @@ export class QianyiWebhookService implements OnModuleInit, OnApplicationShutdown
   async ingest(fields: QianyiWebhookFields): Promise<QianyiWebhookResult> {
     if (!this.config.secret || fields.appId !== this.config.appId ||
         !/^[a-f0-9]{32}$/i.test(fields.sign) || !/^\d{10,13}$/.test(fields.timestamp) ||
-        !/^[A-Z_]{1,60}$/.test(fields.serviceType) || Buffer.byteLength(fields.bizParam) > 65_536 ||
-        Math.abs(Date.now() - Number(fields.timestamp)) > MAX_CLOCK_SKEW_MS) {
+        !/^[A-Z_]{1,60}$/.test(fields.serviceType) || Buffer.byteLength(fields.bizParam) > 65_536) {
       return { ok: false, duplicated: false };
     }
     const expected = signQianyiRequest(fields, this.config.secret);
@@ -89,6 +98,11 @@ export class QianyiWebhookService implements OnModuleInit, OnApplicationShutdown
         error: this.config.enabled ? null : 'INTEGRATION_DISABLED' },
       update: {},
     });
+    if (Math.abs(Date.now() - timestampMs(fields.timestamp)) > MAX_CALLBACK_AGE_MS) {
+      await this.prisma.qianyiWebhookEvent.updateMany({ where: { id: event.id, processedAt: null },
+        data: { error: STALE_CALLBACK } });
+      return { ok: true, duplicated: false };
+    }
     if (!this.config.enabled) {
       await this.prisma.qianyiWebhookEvent.updateMany({ where: { id: event.id, processedAt: null }, data: { error: 'INTEGRATION_DISABLED' } });
       return { ok: true, duplicated: Boolean(event.processedAt), deferred: !event.processedAt };
