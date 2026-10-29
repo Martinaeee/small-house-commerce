@@ -58,7 +58,11 @@ function createHarness(options: { skus?: Record<string, unknown>; metaCapi?: { e
     $executeRaw: vi.fn(async () => 0),
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
     order: {
-      create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+        id: 'order-1',
+        // Prisma returns the persisted Decimal(10,2) scalar on create.
+        grandTotal: args.data.grandTotal,
+      })),
       findUnique: vi.fn(),
       update: vi.fn(async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
         id: 'order-1',
@@ -1268,6 +1272,7 @@ describe('OrdersService.checkout idempotency', () => {
       orderStatus: 'NEW',
       confirmationStatus: 'UNCONFIRMED',
       customerClassification: 'NEW',
+      grandTotal: new Prisma.Decimal('250'),
       idempotencyHash: idempotencyFingerprint(input),
       ...overrides,
     };
@@ -1286,10 +1291,14 @@ describe('OrdersService.checkout idempotency', () => {
       confirmationStatus: 'UNCONFIRMED',
       riskType: null,
       requiresReview: false,
+      grandTotal: 250,
     });
-    // Replay exposes order status only: never customer, items or address.
+    // A replay exposes the order status and its original grand total, never
+    // customer, items or address. The fixture's 250 deliberately differs from
+    // the current SKU price (199): the replay must not recompute the cart.
     expect(Object.keys(result).sort()).toEqual([
       'confirmationStatus',
+      'grandTotal',
       'orderNumber',
       'orderStatus',
       'requiresReview',
@@ -1299,6 +1308,20 @@ describe('OrdersService.checkout idempotency', () => {
     expect(harness.tx.customer.upsert).not.toHaveBeenCalled();
     expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
     expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
+  });
+
+  it('returns the same authoritative grand total it sends to the Purchase outbox', async () => {
+    const harness = createHarness();
+    const result = await harness.service.checkout(checkoutOverrides(), REQUEST_META);
+
+    // SKU price 199 × quantity 1; no discount or shipping.
+    expect(result.grandTotal).toBe(199);
+    expect(harness.metaCapi.enqueuePurchase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderNumber: 'PH1',
+        value: 199,
+      }),
+    );
   });
 
   it('rejects the same key when the order content changed', async () => {
@@ -1355,6 +1378,7 @@ describe('OrdersService.checkout idempotency', () => {
     expect(result.orderNumber).toBe('PH1001');
     expect(result.orderStatus).toBe('CONFIRMED');
     expect(result.requiresReview).toBe(false);
+    expect(result.grandTotal).toBe(250);
     expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
   });
 

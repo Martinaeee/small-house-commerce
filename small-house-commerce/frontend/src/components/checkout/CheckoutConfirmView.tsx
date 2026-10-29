@@ -210,11 +210,13 @@ export function CheckoutConfirmView({
         // The success page only receives the order number, so the full
         // Purchase event (final SKU list + value) is stashed tab-scoped
         // BEFORE navigation; PurchaseTracking consumes it exactly once.
+        // value is the server's authoritative order total, not the checkout
+        // preview: the preview can go stale or use a different promo result.
         storePurchasePayload(
           purchaseEvent({
             orderId: order.orderNumber,
             items: checkout.orderItems,
-            value: discountedTotal,
+            value: order.grandTotal,
           }),
         );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");

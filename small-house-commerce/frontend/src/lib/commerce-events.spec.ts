@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   addToCartEvent,
   consumePurchasePayload,
@@ -12,6 +14,26 @@ import {
   viewContentEvent,
   type CommerceEvent,
 } from "./commerce-events";
+
+interface PurchaseFixture {
+  orderId: string;
+  eventId: string;
+  items: { skuId: string; quantity: number }[];
+  value: number;
+  currency: string;
+  customData: Record<string, unknown>;
+  customDataKeys: string[];
+  excludedCustomDataKeys: string[];
+}
+
+const PURCHASE_FIXTURE = (
+  JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../../../contracts/meta-purchase-fixtures.json"),
+      "utf8",
+    ),
+  ) as { purchase: PurchaseFixture }
+).purchase;
 
 /**
  * Task 19: one commerce-event adapter keyed by final SKU IDs (design spec
@@ -161,6 +183,20 @@ describe("standard events keyed by the final SKU", () => {
       value: 2598,
       currency: "PHP",
     });
+  });
+
+  it("matches the browser/CAPI Purchase contract exactly", () => {
+    const event = purchaseEvent({
+      orderId: PURCHASE_FIXTURE.orderId,
+      items: PURCHASE_FIXTURE.items,
+      value: PURCHASE_FIXTURE.value,
+    });
+    expect(event.eventId).toBe(PURCHASE_FIXTURE.eventId);
+    expect(event.data).toEqual(PURCHASE_FIXTURE.customData);
+    expect(Object.keys(event.data).sort()).toEqual(PURCHASE_FIXTURE.customDataKeys);
+    for (const key of PURCHASE_FIXTURE.excludedCustomDataKeys) {
+      expect(event.data).not.toHaveProperty(key);
+    }
   });
 
   it("still builds a fail-open Purchase without items or value", () => {

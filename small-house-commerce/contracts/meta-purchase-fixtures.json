@@ -1,0 +1,32 @@
+{
+  "purchase": {
+    "orderId": "PH-TEST-1001",
+    "eventId": "purchase-PH-TEST-1001",
+    "items": [
+      { "skuId": "sku-a", "quantity": 2 },
+      { "skuId": "sku-b", "quantity": 1 }
+    ],
+    "value": 2598,
+    "currency": "PHP",
+    "customData": {
+      "content_type": "product",
+      "order_id": "PH-TEST-1001",
+      "content_ids": ["sku-a", "sku-b"],
+      "contents": [
+        { "id": "sku-a", "quantity": 2 },
+        { "id": "sku-b", "quantity": 1 }
+      ],
+      "value": 2598,
+      "currency": "PHP"
+    },
+    "customDataKeys": [
+      "content_ids",
+      "content_type",
+      "contents",
+      "currency",
+      "order_id",
+      "value"
+    ],
+    "excludedCustomDataKeys": ["num_items"]
+  }
+}

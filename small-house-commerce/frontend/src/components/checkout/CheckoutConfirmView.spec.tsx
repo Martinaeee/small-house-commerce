@@ -214,7 +214,7 @@ describe("CheckoutConfirmView order notes", () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder
       .mockRejectedValueOnce(new Error("Network timeout"))
-      .mockResolvedValueOnce({ orderNumber: "PH2002" });
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
     const view = render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
 
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
@@ -234,8 +234,8 @@ describe("CheckoutConfirmView order notes", () => {
   it("clears the Buy Now key only after success so the next purchase gets a new key", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder
-      .mockResolvedValueOnce({ orderNumber: "PH2001" })
-      .mockResolvedValueOnce({ orderNumber: "PH2002" });
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
     const first = render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
 
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
@@ -257,8 +257,8 @@ describe("CheckoutConfirmView order notes", () => {
   it("clears the Quick COD key after success so the next purchase gets a new key", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder
-      .mockResolvedValueOnce({ orderNumber: "PH2001" })
-      .mockResolvedValueOnce({ orderNumber: "PH2002" });
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
     draftMock.readCheckoutDraft.mockReturnValue({
       ...validDraft,
       selection: {
@@ -290,8 +290,8 @@ describe("CheckoutConfirmView order notes", () => {
       removeItems: vi.fn().mockResolvedValue(undefined),
     });
     apiMock.createOrder
-      .mockResolvedValueOnce({ orderNumber: "PH2001" })
-      .mockResolvedValueOnce({ orderNumber: "PH2002" });
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
     const first = render(<CheckoutConfirmView itemsParam="item-1" />);
 
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
@@ -313,6 +313,7 @@ describe("CheckoutConfirmView order notes", () => {
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     draftMock.readCheckoutDraft.mockReturnValue({
       ...validDraft,
@@ -343,6 +344,7 @@ describe("CheckoutConfirmView order notes", () => {
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
 
@@ -365,6 +367,7 @@ describe("CheckoutConfirmView", () => {
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     localStorage.setItem("sh:marketing-touch", JSON.stringify({
       credential: "server.credential",
@@ -384,7 +387,7 @@ describe("CheckoutConfirmView", () => {
   });
   it("clears the revealed subscribe code once the order is placed", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
-    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
     localStorage.setItem("luwag_newsletter_promo_code", "WELCOME59");
 
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
@@ -473,7 +476,7 @@ describe("CheckoutConfirmView", () => {
       ],
     };
     apiMock.getProductBySlug.mockResolvedValue(directProduct);
-    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 340 });
     draftMock.readCheckoutDraft.mockReturnValue({
       ...validDraft,
       selection: {
@@ -556,6 +559,39 @@ describe("CheckoutConfirmView", () => {
     expect(screen.getByText("Total (COD)").nextElementSibling).toHaveTextContent(
       "₱141.00",
     );
+  });
+
+  it("stashes the server's final grand total, not the checkout preview, for Purchase", async () => {
+    const user = userEvent.setup();
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+      grandTotal: 137,
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    expect(await screen.findByText("Confirm your order")).toBeInTheDocument();
+
+    // The preview is 2 × ₱100 = ₱200; the server's authoritative final total
+    // deliberately differs (for example, the promo cap applied in the order
+    // transaction). The success-page Purchase must use the server amount.
+    await user.click(screen.getByTestId("confirm-place-order"));
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+
+    const payload = JSON.parse(sessionStorage.getItem("luwag_purchase_payload")!);
+    expect(payload.eventId).toBe("purchase-PH2001");
+    expect(payload.data).toEqual({
+      content_type: "product",
+      order_id: "PH2001",
+      content_ids: ["sku-red-small"],
+      contents: [{ id: "sku-red-small", quantity: 2 }],
+      value: 137,
+      currency: "PHP",
+    });
+    expect(payload.data.value).not.toBe(200);
   });
 });
 

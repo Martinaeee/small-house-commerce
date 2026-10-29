@@ -170,6 +170,9 @@ export class MetaCapiService implements OnModuleInit, OnApplicationShutdown {
     if (!input.consent) return false;
     if (!this.client.enabled) return false;
     if (isAdminSource(input.eventSourceUrl)) return false;
+    // Keep this shape identical to the browser Purchase event. Meta documents
+    // num_items for InitiateCheckout only; adding it here would make the CAPI
+    // copy differ from the Pixel copy for the same order.
     const customData: Prisma.InputJsonValue = {
       content_type: 'product',
       order_id: input.orderNumber,
@@ -180,7 +183,6 @@ export class MetaCapiService implements OnModuleInit, OnApplicationShutdown {
       })),
       value: input.value,
       currency: 'PHP',
-      num_items: input.items.reduce((total, item) => total + item.quantity, 0),
     };
     return this.enqueue({
       eventName: 'Purchase',

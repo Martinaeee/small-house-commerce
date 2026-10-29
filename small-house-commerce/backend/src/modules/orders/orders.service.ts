@@ -602,7 +602,10 @@ export class OrdersService {
           quantity: line.quantity,
           unitPrice: Number(line.unitPrice),
         })),
-        amount: grandTotal,
+        // The persisted Decimal(10,2) amount is the single source for the
+        // response and the Meta Purchase outbox, so a rounded DB value can
+        // never diverge between the browser and server events.
+        amount: Number(created.grandTotal),
       };
       });
 
@@ -672,6 +675,9 @@ export class OrdersService {
       confirmationStatus: requiresReview ? 'NEEDS_REVIEW' : 'UNCONFIRMED',
       riskType: requiresReview ? classification.classification : null,
       requiresReview,
+      // The same amount written to the order and sent to the Purchase outbox.
+      // The confirmation page uses this instead of its cart preview total.
+      grandTotal: amount,
     };
   }
 
@@ -684,6 +690,7 @@ export class OrdersService {
         orderStatus: true,
         confirmationStatus: true,
         customerClassification: true,
+        grandTotal: true,
         idempotencyHash: true,
       },
     });
@@ -700,6 +707,9 @@ export class OrdersService {
       confirmationStatus: existing.confirmationStatus,
       riskType: requiresReview ? existing.customerClassification : null,
       requiresReview,
+      // A replay returns the original order's persisted amount, never a
+      // fresh preview or the catalog's current price.
+      grandTotal: Number(existing.grandTotal),
     };
   }
 

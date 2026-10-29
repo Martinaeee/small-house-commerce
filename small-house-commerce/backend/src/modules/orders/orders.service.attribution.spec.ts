@@ -27,7 +27,7 @@ function setup() {
     sku,
     customer: { upsert: vi.fn(async () => ({ id: 'customer-1' })) },
     $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
-    order: { create: vi.fn(async ({ data }: { data: Prisma.OrderCreateInput }) => { writes.push(data); return { id: 'order-1' }; }) },
+    order: { create: vi.fn(async ({ data }: { data: Prisma.OrderCreateInput }) => { writes.push(data); return { id: 'order-1', grandTotal: data.grandTotal }; }) },
     orderStatusHistory: { create: vi.fn(async () => ({})) },
     campaignLinkVisit: { createMany: vi.fn(async () => ({ count: 1 })) },
     landingPageVisit: { createMany: vi.fn(async () => ({ count: 1 })) },

@@ -196,3 +196,30 @@ describe("Meta checkout forwarding", () => {
     expect(body.metaConsent).toBe(false);
   });
 });
+
+describe("createOrder response", () => {
+  it("returns the server's authoritative grand total unchanged", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        orderNumber: "PH1",
+        orderStatus: "NEW",
+        confirmationStatus: "UNCONFIRMED",
+        grandTotal: 2598,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await api.createOrder({
+      customer: {
+        name: "Jane",
+        phone: "09171234567",
+        province: "Metro Manila",
+        city: "Manila",
+        streetAddress: "1 Main St",
+      },
+      items: [{ skuId: "sku-1", quantity: 1 }],
+    });
+
+    expect(result.grandTotal).toBe(2598);
+  });
+});

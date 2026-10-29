@@ -894,7 +894,13 @@ export const api = {
     /** Client-generated retry key; a replay returns the original order. */
     idempotencyKey?: string | null;
   }) =>
-    request<{ orderNumber: string; orderStatus: string; confirmationStatus: string }>(
+    request<{
+      orderNumber: string;
+      orderStatus: string;
+      confirmationStatus: string;
+      /** The final server-computed total; use this for Purchase value. */
+      grandTotal: number;
+    }>(
       "/api/v1/storefront/orders",
       {
         method: "POST",
