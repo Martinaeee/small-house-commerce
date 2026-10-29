@@ -15,7 +15,7 @@ describe('POST /qianyi/webhook (multipart)', () => {
     const ingest = vi.fn(async () => ({ ok: true, duplicated: false }));
     const moduleRef = await Test.createTestingModule({
       controllers: [QianyiWebhookController],
-      providers: [{ provide: QianyiWebhookService, useValue: { ingest } }],
+      providers: [{ provide: QianyiWebhookService, useValue: { ingest, allow: () => true } }],
     }).compile();
     const app = moduleRef.createNestApplication();
     await app.init();

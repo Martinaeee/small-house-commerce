@@ -17,6 +17,13 @@ const TRACKING_STATUS: Record<string, LogisticsStatus> = {
   CANCEL: 'RETURNING',
 };
 
+/**
+ * Stand-in for the carrier when 千易 does not name one. A real name from any
+ * callback always wins over this value; it exists only so the non-null
+ * `Shipment.carrier` column has something to hold.
+ */
+const PLACEHOLDER_CARRIER = 'SHIPDOC';
+
 interface OutboundPayload {
   onlineOrderNumber?: string;
   orderNumber?: string;
@@ -161,7 +168,7 @@ export class QianyiInboundService {
         data: {
           orderId: order.id,
           warehouseId: warehouse.id,
-          carrier: payload.carrier?.slice(0, 100) ?? 'SHIPDOC',
+          carrier: payload.carrier?.trim().slice(0, 100) || PLACEHOLDER_CARRIER,
           trackingNumber,
           shippedAt: payload.shippingTime ? new Date(payload.shippingTime) : new Date(),
           qianyiOutboundNumber: payload.orderNumber ?? null,
@@ -338,12 +345,17 @@ export class QianyiInboundService {
         });
         return;
       }
-      if (!shipment.trackingNumber) {
+      // A real carrier name from either callback always beats the placeholder,
+      // and a callback that omits it never erases what we already know.
+      const carrier = payload.carrier?.trim();
+      const nextCarrier = carrier ? carrier.slice(0, 100) : shipment.carrier;
+      const needsCarrier = Boolean(carrier) && shipment.carrier !== nextCarrier;
+      if (!shipment.trackingNumber || needsCarrier) {
         await tx.shipment.update({
           where: { id: shipment.id },
           data: {
-            trackingNumber,
-            carrier: shipment.carrier || payload.carrier || 'SHIPDOC',
+            trackingNumber: shipment.trackingNumber ?? trackingNumber,
+            carrier: nextCarrier,
           },
         });
       }

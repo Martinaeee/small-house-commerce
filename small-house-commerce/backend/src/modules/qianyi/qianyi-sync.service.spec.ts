@@ -279,3 +279,148 @@ describe('QianyiSyncService.reconcile', () => {
     expect(client.call).not.toHaveBeenCalled();
   });
 });
+
+describe('QianyiSyncService.requeueSkipped', () => {
+  function orderWith(mapping: string | null) {
+    return {
+      id: 'order-1',
+      orderNumber: 'PH100012',
+      currency: 'PHP',
+      shippingTotal: '0.00',
+      discountTotal: '0.00',
+      grandTotal: '100.00',
+      customerNote: null,
+      createdAt: new Date('2026-10-28T02:30:00Z'),
+      customer: { name: 'Maria', email: null },
+      shippingAddress: null,
+      items: [
+        {
+          skuCodeSnapshot: 'TB001-Wa',
+          quantity: 1,
+          unitPrice: '100.00',
+          unitDiscount: '0.00',
+          lineTotal: '100.00',
+          sku: { skuCode: 'TB001-Wa', qianyiSkuCode: mapping },
+        },
+      ],
+    };
+  }
+
+  function prismaFor(order: ReturnType<typeof orderWith>, status = 'SKIPPED') {
+    return {
+      qianyiSyncJob: {
+        findUnique: vi.fn(async () => ({
+          id: 'job-1',
+          orderId: 'order-1',
+          kind: 'PUSH_ORDER',
+          status,
+          attempts: 0,
+          lastError: 'No Qianyi code for TB001-Wa.',
+          requestPayload: {},
+        })),
+        update: vi.fn(async () => undefined),
+        findMany: vi.fn(async () => []),
+        count: vi.fn(async () => 0),
+      },
+      order: { findUnique: vi.fn(async () => order), update: vi.fn(async () => undefined) },
+      orderNote: { create: vi.fn(async () => undefined) },
+    };
+  }
+
+  it('refuses while a line is still unmapped and says which one', async () => {
+    const prisma = prismaFor(orderWith(null));
+    const service = new QianyiSyncService(
+      prisma as never,
+      { enabled: true, call: vi.fn() } as never,
+      CONFIG,
+    );
+
+    const result = await service.requeueSkipped('job-1', 'user-1');
+
+    expect(result).toEqual({ ok: false, missing: ['TB001-Wa'] });
+    expect(prisma.qianyiSyncJob.update).not.toHaveBeenCalled();
+    expect(prisma.orderNote.create).not.toHaveBeenCalled();
+  });
+
+  it('requeues with the duplicate-check armed and keeps the original reason', async () => {
+    const prisma = prismaFor(orderWith('YD003760CMHT'));
+    const client = { enabled: true, call: vi.fn(async () => null) };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    const result = await service.requeueSkipped('job-1', 'user-1');
+
+    expect(result).toEqual({ ok: true });
+    const update = prisma.qianyiSyncJob.update.mock.calls[0][0];
+    expect(update.data.status).toBe('PENDING');
+    // attempts = 1 makes the worker ask Qianyi before creating anything.
+    expect(update.data.attempts).toBe(1);
+    expect(update.data.lastError).toContain('requeued');
+    expect(update.data.lastError).toContain('No Qianyi code for TB001-Wa');
+    expect(prisma.orderNote.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: 'user-1', noteType: 'SYSTEM' }),
+      }),
+    );
+  });
+
+  it('refuses a job that is not skipped', async () => {
+    const prisma = prismaFor(orderWith('YD003760CMHT'), 'SENT');
+    const service = new QianyiSyncService(
+      prisma as never,
+      { enabled: true, call: vi.fn() } as never,
+      CONFIG,
+    );
+
+    await expect(service.requeueSkipped('job-1', 'user-1')).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(prisma.qianyiSyncJob.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('QianyiSyncService.retry', () => {
+  it('arms the duplicate check and keeps the failure reason', async () => {
+    const prisma = {
+      qianyiSyncJob: {
+        findUnique: vi.fn(async () => ({
+          id: 'job-1',
+          status: 'FAILED',
+          lastError: 'TRANSPORT: timeout',
+        })),
+        update: vi.fn(async () => undefined),
+        findMany: vi.fn(async () => []),
+        count: vi.fn(async () => 0),
+      },
+    };
+    const service = new QianyiSyncService(
+      prisma as never,
+      { enabled: true, call: vi.fn() } as never,
+      CONFIG,
+    );
+
+    await service.retry('job-1');
+
+    const data = prisma.qianyiSyncJob.update.mock.calls[0][0].data;
+    expect(data.attempts).toBe(1);
+    expect(data.lastError).toContain('TRANSPORT: timeout');
+  });
+});
+
+describe('QianyiSyncService.reconcile — archive pruning', () => {
+  it('deletes archived callbacks older than the retention window', async () => {
+    const prisma = {
+      qianyiSyncJob: { findMany: vi.fn(), update: vi.fn(), count: vi.fn(async () => 0) },
+      qianyiWebhookEvent: { deleteMany: vi.fn(async () => ({ count: 3 })) },
+      order: { update: vi.fn(), findUnique: vi.fn(async () => null) },
+      orderNote: { create: vi.fn() },
+    };
+    const client = { enabled: true, call: vi.fn(async () => []) };
+    const service = new QianyiSyncService(prisma as never, client as never, CONFIG);
+
+    await service.reconcile(new Date('2026-10-29T03:00:00Z'));
+
+    expect(prisma.qianyiWebhookEvent.deleteMany).toHaveBeenCalledWith({
+      where: { receivedAt: { lt: new Date('2026-07-31T03:00:00Z') } },
+    });
+  });
+});

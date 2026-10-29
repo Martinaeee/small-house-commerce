@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { signQianyiRequest } from './qianyi.client.js';
 import { readQianyiConfig, type QianyiConfig } from './qianyi.config.js';
-import type { QianyiInboundService } from './qianyi-inbound.service.js';
+import { QianyiInboundService } from './qianyi-inbound.service.js';
 
 /**
  * How far a callback timestamp may drift.
@@ -15,6 +16,10 @@ import type { QianyiInboundService } from './qianyi-inbound.service.js';
  * business write is idempotent.
  */
 const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+
+/** Per-IP budget for the public endpoint. 千易 sends a handful per order. */
+const RATE_LIMIT_MAX = 240;
+const RATE_WINDOW_MS = 60 * 1000;
 
 const HANDLED = new Set([
   'PUSH_ODO_ORDER',
@@ -42,6 +47,7 @@ export interface QianyiWebhookFields {
 export class QianyiWebhookService {
   private readonly logger = new Logger(QianyiWebhookService.name);
   private readonly config: QianyiConfig;
+  private readonly hits = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
     config: ConfigService,
@@ -49,6 +55,33 @@ export class QianyiWebhookService {
     private readonly inbound: QianyiInboundService,
   ) {
     this.config = readQianyiConfig(config);
+  }
+
+  /**
+   * Cheap per-IP budget checked BEFORE any parsing, so an unauthenticated
+   * caller cannot make us hash, parse and query on every request.
+   */
+  allow(clientKey: string, now = Date.now()): boolean {
+    if (this.hits.size > 1000) {
+      for (const [key, bucket] of this.hits) {
+        if (now >= bucket.resetAt) this.hits.delete(key);
+      }
+    }
+    const bucket = this.hits.get(clientKey) ?? {
+      count: 0,
+      resetAt: now + RATE_WINDOW_MS,
+    };
+    if (now >= bucket.resetAt) {
+      bucket.count = 0;
+      bucket.resetAt = now + RATE_WINDOW_MS;
+    }
+    if (bucket.count >= RATE_LIMIT_MAX) {
+      this.hits.set(clientKey, bucket);
+      return false;
+    }
+    bucket.count += 1;
+    this.hits.set(clientKey, bucket);
+    return true;
   }
 
   async ingest(
@@ -77,16 +110,12 @@ export class QianyiWebhookService {
     const externalKey = this.externalKey(fields.serviceType, payload);
 
     if (!signValid) {
-      await this.prisma.qianyiWebhookEvent.create({
-        data: {
-          serviceType: fields.serviceType,
-          signValid: false,
-          externalKey: `${externalKey}:bad-sign:${Date.now()}`,
-          payload: payload as Prisma.InputJsonValue,
-          error: 'invalid signature or stale timestamp',
-        },
-      });
-      this.logger.warn(`qianyi webhook rejected: ${fields.serviceType}`);
+      // Deliberately NOT archived: this endpoint is public, and writing a row
+      // per unauthenticated request would let anyone grow the table. The log
+      // line names the callback type only — never the payload or the app id.
+      this.logger.warn(
+        `qianyi webhook rejected: ${fields.serviceType || '(no serviceType)'}`,
+      );
       return { ok: false, duplicated: false };
     }
 
@@ -150,28 +179,38 @@ export class QianyiWebhookService {
   }
 
   /**
-   * Identity + state + when + where.
+   * Event fingerprint used as the idempotency key.
    *
-   * Status alone is not enough: a parcel passes the same status twice at
-   * different times and places (two "in transit" scans, a re-delivery), and
-   * collapsing them loses real tracking history.
+   * 千易 sends no stable event id, so the identity is composed explicitly and
+   * hashed to a bounded length (truncating a joined string could silently drop
+   * the tail and collapse two real events):
+   *
+   *   order identity | tracking number | status | occurred-at | place
+   *
+   * A status name alone is never enough: one parcel passes the same status
+   * twice at different times or places, and one order can carry two shipments.
+   * Identical tuples are the same event and are collapsed.
    */
   private externalKey(serviceType: string, payload: Record<string, unknown>): string {
-    const identity = String(
-      payload.orderNumber ??
-        payload.onlineOrderNumber ??
-        payload.onlineOrderId ??
-        payload.trackingNumber ??
-        'unknown',
-    ).slice(0, 60);
-    const state = String(payload.status ?? payload.erpStatus ?? '');
-    const occurred = String(
-      payload.shippingTime ?? payload.eventTime ?? payload.finishedTime ?? '',
-    );
-    const place = [payload.city, payload.province, payload.warehouseName]
-      .filter((value) => typeof value === 'string' && value.length > 0)
-      .join('/')
-      .slice(0, 60);
-    return `${serviceType}:${identity}:${state}:${occurred}:${place}`.slice(0, 200);
+    const first = (...keys: string[]): string => {
+      for (const key of keys) {
+        const value = payload[key];
+        if (typeof value === 'string' && value.trim()) return value.trim();
+        if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+      }
+      return '';
+    };
+
+    const parts = [
+      serviceType,
+      first('orderNumber', 'onlineOrderNumber', 'onlineOrderId'),
+      first('trackingNumber', 'trackNumber'),
+      first('status', 'erpStatus'),
+      first('shippingTime', 'eventTime', 'finishedTime'),
+      [first('city'), first('province'), first('warehouseName')].filter(Boolean).join('/'),
+    ].join('|');
+
+    const digest = createHash('sha256').update(parts, 'utf8').digest('hex').slice(0, 40);
+    return `${serviceType}:${digest}`.slice(0, 200);
   }
 }

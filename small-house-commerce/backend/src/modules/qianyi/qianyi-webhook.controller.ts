@@ -26,6 +26,10 @@ export class QianyiWebhookController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 1, fields: 20, fieldSize: 65_536 } }))
   async receive(@Req() request: Request) {
+    // Budget check first: it is cheaper than hashing, JSON parsing and a query.
+    if (!this.webhooks.allow(request.ip ?? 'unknown')) {
+      throw new HttpException('Too many callbacks', HttpStatus.TOO_MANY_REQUESTS);
+    }
     const body = (request.body ?? {}) as Record<string, unknown>;
     const field = (name: string): string => {
       const value = body[name];

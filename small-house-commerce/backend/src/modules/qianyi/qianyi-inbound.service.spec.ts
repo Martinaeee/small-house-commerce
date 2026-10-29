@@ -373,3 +373,76 @@ describe('QianyiInboundService — warehouse and multiple parcels', () => {
     );
   });
 });
+
+describe('QianyiInboundService — carrier names', () => {
+  it('replaces the placeholder carrier with the real one from SHIPPING_INFO', async () => {
+    const client = tx({
+      order: {
+        findUnique: vi.fn(async () => ({
+          id: 'order-1',
+          orderNumber: 'PH100012',
+          orderStatus: 'SHIPPING',
+          items: [],
+          shipments: [{ id: 'ship-1', carrier: 'SHIPDOC', trackingNumber: null }],
+        })),
+        update: vi.fn(async () => undefined),
+      },
+    });
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_SALES_ORDER_SHIPPING_INFO', {
+      onlineOrderNumber: 'PH100012',
+      trackingNumber: 'TRACK123',
+      carrier: 'J&T Express',
+      status: 'WAIT_SHIP',
+    });
+
+    expect(client.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ carrier: 'J&T Express' }) }),
+    );
+  });
+
+  it('keeps the stored carrier when the callback carries none', async () => {
+    const client = tx({
+      order: {
+        findUnique: vi.fn(async () => ({
+          id: 'order-1',
+          orderNumber: 'PH100012',
+          orderStatus: 'SHIPPING',
+          items: [],
+          shipments: [{ id: 'ship-1', carrier: 'J&T Express', trackingNumber: null }],
+        })),
+        update: vi.fn(async () => undefined),
+      },
+    });
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_SALES_ORDER_SHIPPING_INFO', {
+      onlineOrderNumber: 'PH100012',
+      trackingNumber: 'TRACK123',
+      status: 'WAIT_SHIP',
+    });
+
+    expect(client.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ carrier: 'J&T Express' }) }),
+    );
+  });
+
+  it('falls back to the placeholder only when the outbound has no carrier', async () => {
+    const client = tx();
+    const { service } = serviceWith(client);
+
+    await service.handle('PUSH_ODO_ORDER', {
+      orderNumber: 'S1',
+      onlineOrderNumber: 'PH100012',
+      trackNumber: 'TRACK123',
+      carrier: '   ',
+      status: 'SHIPPED',
+      skuList: [{ sku: 'YD003760CMHT', quantity: 1 }],
+    });
+
+    expect(client.shipment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ carrier: 'SHIPDOC' }) }),
+    );
+  });
+});

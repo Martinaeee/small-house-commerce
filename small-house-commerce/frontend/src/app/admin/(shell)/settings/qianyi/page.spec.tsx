@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   qianyiJobs: vi.fn(),
   createQianyiSkus: vi.fn(),
   retryQianyiJob: vi.fn(),
+  requeueQianyiJob: vi.fn(),
   setQianyiMapping: vi.fn(),
 }));
 
@@ -68,5 +69,30 @@ describe("QianyiSettingsPage mapping", () => {
     await userEvent.tab();
 
     expect(apiMock.setQianyiMapping).toHaveBeenCalledWith("sku-1", "YD003760CMHT");
+  });
+});
+
+describe("QianyiSettingsPage skipped jobs", () => {
+  it("offers a requeue for a skipped job and reports the SKUs still unmapped", async () => {
+    apiMock.qianyiJobs.mockResolvedValue([
+      {
+        id: "job-9",
+        kind: "PUSH_ORDER",
+        status: "SKIPPED",
+        attempts: 0,
+        lastError: "No Qianyi code for TB001-Wa.",
+        externalOrderNumber: null,
+        updatedAt: "2026-10-28T00:00:00.000Z",
+        order: { orderNumber: "PH100012" },
+      },
+    ]);
+    apiMock.requeueQianyiJob.mockResolvedValue({ ok: false, missing: ["TB001-Wa"] });
+    render(<QianyiSettingsPage />);
+
+    const button = await screen.findByRole("button", { name: /qianyi_requeue/ });
+    await userEvent.click(button);
+
+    expect(apiMock.requeueQianyiJob).toHaveBeenCalledWith("job-9");
+    expect(await screen.findByText(/qianyi_requeue_blocked/)).toBeInTheDocument();
   });
 });

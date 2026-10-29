@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Header, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Permissions } from '../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../auth/permissions.guard.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -146,5 +147,15 @@ export class QianyiAdminController {
   async retry(@Param('id') id: string) {
     await this.sync.retry(id);
     return { retried: true };
+  }
+
+  /**
+   * Re-queues a push that was skipped for a missing SKU mapping. Refuses with
+   * the exact SKUs still unmapped, and arms the duplicate check before the
+   * worker pushes anything.
+   */
+  @Post('jobs/:id/requeue')
+  async requeue(@Param('id') id: string, @CurrentUser() user: { userId: string }) {
+    return this.sync.requeueSkipped(id, user.userId);
   }
 }

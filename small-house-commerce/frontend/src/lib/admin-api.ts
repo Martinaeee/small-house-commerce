@@ -2778,4 +2778,12 @@ export const adminApi = {
       `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/retry`,
       { method: "POST" },
     ),
+
+  requeueQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; missing?: string[]; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; missing?: string[]; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/requeue`,
+      { method: "POST" },
+    ),
 };

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { signQianyiRequest } from './qianyi.client.js';
 import { QianyiWebhookService } from './qianyi-webhook.service.js';
+import { QianyiInboundService } from './qianyi-inbound.service.js';
 
 const ENV = {
   qianyi: {
@@ -104,11 +105,9 @@ describe('QianyiWebhookService', () => {
 
     expect(result.ok).toBe(false);
     expect(inbound.handle).not.toHaveBeenCalled();
-    expect(prisma.qianyiWebhookEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ signValid: false }),
-      }),
-    );
+    // An unauthenticated request must not be able to write a row: that would
+    // turn the public endpoint into an unbounded insert surface.
+    expect(prisma.qianyiWebhookEvent.create).not.toHaveBeenCalled();
   });
 
   it('accepts a valid signature and dispatches once', async () => {
@@ -188,6 +187,59 @@ describe('QianyiWebhookService', () => {
         data: expect.objectContaining({ error: expect.stringContaining('insufficient') }),
       }),
     );
+  });
+
+  it('keeps two shipments on one order apart when only the tracking number differs', async () => {
+    const prisma = statefulPrisma();
+    const inbound = { handle: vi.fn(async () => undefined) };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+
+    const base = { onlineOrderNumber: 'PH100012', status: 'IN_TRANSIT' };
+    await service.ingest(
+      signedFields({
+        serviceType: 'PUSH_SALES_ORDER_SHIPPING_INFO',
+        bizParam: JSON.stringify({ ...base, trackingNumber: 'TRACK-A' }),
+      }) as never,
+    );
+    await service.ingest(
+      signedFields({
+        serviceType: 'PUSH_SALES_ORDER_SHIPPING_INFO',
+        bizParam: JSON.stringify({ ...base, trackingNumber: 'TRACK-B' }),
+      }) as never,
+    );
+
+    expect(inbound.handle).toHaveBeenCalledTimes(2);
+  });
+
+  it('collapses an identical duplicate onto one archived fingerprint', async () => {
+    const prisma = statefulPrisma();
+    const inbound = { handle: vi.fn(async () => undefined) };
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prisma as never,
+      inbound as never,
+    );
+    const payload = JSON.stringify({
+      onlineOrderNumber: 'PH100012',
+      trackingNumber: 'TRACK-A',
+      status: 'IN_TRANSIT',
+      shippingTime: 1754014435000,
+      city: 'Quezon City',
+    });
+
+    await service.ingest(
+      signedFields({ serviceType: 'PUSH_TRACKING_PACKAGE', bizParam: payload }) as never,
+    );
+    const second = await service.ingest(
+      signedFields({ serviceType: 'PUSH_TRACKING_PACKAGE', bizParam: payload }) as never,
+    );
+
+    expect(second).toEqual({ ok: true, duplicated: true });
+    expect(inbound.handle).toHaveBeenCalledTimes(1);
   });
 
   it('does not collapse two same-status events at different times or places', async () => {
@@ -304,5 +356,32 @@ describe('QianyiWebhookService', () => {
     expect(result.ok).toBe(true);
     expect(inbound.handle).not.toHaveBeenCalled();
     expect(prisma.qianyiWebhookEvent.create).toHaveBeenCalled();
+  });
+});
+
+describe('QianyiWebhookService.allow', () => {
+  it('throttles one caller after the per-minute budget', () => {
+    const service = new QianyiWebhookService(
+      new ConfigService(ENV),
+      prismaWith() as never,
+      { handle: vi.fn() } as never,
+    );
+    let allowed = 0;
+    for (let i = 0; i < 300; i += 1) {
+      if (service.allow('1.2.3.4')) allowed += 1;
+    }
+    expect(allowed).toBe(240);
+    // Another caller keeps its own budget.
+    expect(service.allow('5.6.7.8')).toBe(true);
+  });
+});
+
+describe('QianyiWebhookService wiring', () => {
+  it('declares QianyiInboundService as a real dependency for Nest DI', () => {
+    // A `import type` here erases the runtime metadata and Nest resolves the
+    // parameter as `Function`, which fails at boot — invisible to unit tests
+    // that construct the service by hand.
+    const types = Reflect.getMetadata('design:paramtypes', QianyiWebhookService) as unknown[];
+    expect(types?.[2]).toBe(QianyiInboundService);
   });
 });

@@ -68,12 +68,22 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
    - 数量不一致时，订单备注里会写「ordered X, shipped Y」。
 5. 打开 `/track-order`，用单号 + 手机号查询：卡片里应出现「Tracking」区块，显示承运商、运单号与状态节点。
 
-## 6. 推送失败怎么办
+## 6. 任务状态与恢复（与后台按钮一一对应）
 
-- 任务列表里 `FAILED` 的行有「重推」按钮；重推会把该行拉回队列并立刻尝试。
-- 失败原因写在任务行下方（形如 `SERVICE_TYPE_NOT_ALLOW: 权限不足`），据此去千易补权限或改映射。
+| 状态 | 含义 | 后台按钮 | 说明 |
+|---|---|---|---|
+| `PENDING` | 排队中，等待 worker（30 秒一轮） | 无 | 失败后会按 1/5/15/60 分钟退避 |
+| `SENT` | 千易已确认收单 | 无 | 订单上会写回千易单号（`S…`） |
+| `FAILED` | 连续失败 5 次，停止自动重试 | **重推** | 重推会把 `attempts` 置为 1，**先查千易是否已有该单**再推，不会重复建单 |
+| `SKIPPED` | 有明细缺千易编码，**整单未推送** | **重排** | 只有全部明细都补上编码后才会成功；否则返回「仍缺映射：<SKU>」 |
+
+规则：
+
+- 缺 SKU 映射**不会阻断客服确认**：订单照常确认成功，任务记 `SKIPPED` 并写明缺哪个 SKU。
+- 先在列表里直接填写千易编码（失焦即保存），再点该行「重排」。仍缺映射时按钮会给出具体 SKU，任务保持 `SKIPPED` 不动。
+- 「重推」和「重排」都会保留原始失败原因（`lastError` 变成 `requeued from <状态> (was: …)`），并在订单上留一条 `SYSTEM` 备注记录操作人。
+- 失败原因形如 `SERVICE_TYPE_NOT_ALLOW: 权限不足`，据此去千易补权限或改映射。
 - 超过 5 次自动转 `FAILED`，不会无限重试。
-- **缺 SKU 映射不会阻断客服确认**：订单照常确认成功，同步任务记为 `SKIPPED` 并写明缺哪个 SKU。在列表里直接填写千易编码（失焦即保存），再点该任务行的「重推」即可。
 
 ## 7. 回滚
 
@@ -93,3 +103,17 @@ docker compose --env-file .env.deploy -f docker-compose.prod.yml up -d backend
 - 退货自动入库：`PUSH_RETURN_ORDER_INFO` 只留档不改库存。
 - 商品/价格同步：本站改价不会同步到千易。
 - 面单打印：本站不取千易面单。
+
+## 9. Webhook 防护（公开接口）
+
+| 防护 | 取值 | 位置 |
+|---|---|---|
+| 每 IP 频率 | 240 次/分钟，超出返回 **429** | `QianyiWebhookService.allow()`，在任何解析之前 |
+| 请求体 | multipart 字段 ≤ 20 个、单字段 ≤ 64KB；urlencoded/json 由 Nest 默认 100KB 限制 | `AnyFilesInterceptor` limits |
+| 验签 | MD5 必须匹配，且时间戳在 24 小时内 | `QianyiWebhookService.ingest()` |
+| 验签失败 | **不落库**，只记一行 `qianyi webhook rejected: <serviceType>` 日志 | 同上 |
+| 归档保留 | 90 天，每日对账时清理 | `QianyiSyncService.reconcile()` |
+| 事件去重 | `serviceType + sha256(单号|运单号|状态|发生时间|地点)`，不是状态名 | `externalKey()` |
+
+> 签名验证失败一律返回 200 + `{ok:false}`（不触发千易重试），并且不写任何表。
+> 派发失败才返回 500，让千易重发。

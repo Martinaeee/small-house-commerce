@@ -207,11 +207,90 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Pulls a FAILED job back into the queue. */
-  async retry(jobId: string): Promise<void> {
+  /**
+   * Re-queues a SKIPPED push once every line carries a Qianyi code.
+   *
+   * `attempts` is set to 1 on purpose: the worker then asks Qianyi whether the
+   * online order number already exists before creating anything, so a requeue
+   * can never produce a second order. The original reason is kept verbatim and
+   * the operator who did it is written to the order.
+   */
+  async requeueSkipped(
+    jobId: string,
+    operatorId: string,
+  ): Promise<{ ok: boolean; missing?: string[]; reason?: string }> {
+    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
+    if (!job) return { ok: false, reason: 'job not found' };
+    if (job.kind !== 'PUSH_ORDER' || job.status !== 'SKIPPED') {
+      return {
+        ok: false,
+        reason: `only a SKIPPED push can be requeued (this job is ${job.status})`,
+      };
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: job.orderId },
+      include: ORDER_INCLUDE,
+    });
+    if (!order) return { ok: false, reason: 'order not found' };
+
+    const { shop, warehouseId, warehouse, logistics } = this.config;
+    let payload: Record<string, unknown>;
+    try {
+      payload = buildCreateOrderPayload(order as unknown as QianyiOrderSource, {
+        shop,
+        warehouseId,
+        warehouse,
+        logistics,
+      });
+    } catch (error) {
+      if (error instanceof MissingMappingError) return { ok: false, missing: error.skuCodes };
+      throw error;
+    }
+
+    const previous = job.lastError ? ` (was: ${job.lastError})` : '';
     await this.prisma.qianyiSyncJob.update({
       where: { id: jobId },
-      data: { status: 'PENDING', attempts: 0, nextAttemptAt: new Date(), lastError: null },
+      data: {
+        status: 'PENDING',
+        attempts: 1,
+        nextAttemptAt: new Date(),
+        requestPayload: payload as Prisma.InputJsonValue,
+        lastError: `requeued from SKIPPED${previous}`.slice(0, 1024),
+      },
+    });
+    await this.prisma.orderNote.create({
+      data: {
+        orderId: job.orderId,
+        userId: operatorId,
+        noteType: 'SYSTEM',
+        content: `Qianyi push requeued after the SKU mapping was completed${previous}`.slice(0, 2000),
+      },
+    });
+    void this.processPending().catch(() => undefined);
+    return { ok: true };
+  }
+
+  /**
+   * Pulls a FAILED job back into the queue.
+   *
+   * `attempts` is set to 1 so the worker's "does Qianyi already have this
+   * order?" check runs first — a FAILED push may have failed *after* Qianyi
+   * created the order.
+   */
+  async retry(jobId: string): Promise<void> {
+    const job = await this.prisma.qianyiSyncJob.findUnique({ where: { id: jobId } });
+    const previous = job?.lastError ? ` (was: ${job.lastError})` : '';
+    await this.prisma.qianyiSyncJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'PENDING',
+        attempts: 1,
+        nextAttemptAt: new Date(),
+        lastError: job
+          ? `requeued from ${job.status}${previous}`.slice(0, 1024)
+          : null,
+      },
     });
     void this.processPending().catch(() => undefined);
   }
@@ -226,6 +305,13 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     now = new Date(),
   ): Promise<{ checked: number; repaired: number; unmatched: number }> {
     if (!this.client.enabled) return { checked: 0, repaired: 0, unmatched: 0 };
+
+    // Archive retention. The webhook table is append-only; without this it
+    // grows forever. Optional-chained so a deploy that outruns its migration
+    // cannot take the reconciliation down with it.
+    await this.prisma.qianyiWebhookEvent?.deleteMany?.({
+      where: { receivedAt: { lt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) } },
+    });
     const from = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
     const fmt = (date: Date) =>
       new Intl.DateTimeFormat('en-CA', {

@@ -5,7 +5,7 @@ import { QianyiWebhookController } from './qianyi-webhook.controller.js';
 describe('QianyiWebhookController.receive', () => {
   it('forwards only the five documented fields', async () => {
     const ingest = vi.fn(async () => ({ ok: true, duplicated: false }));
-    const controller = new QianyiWebhookController({ ingest } as never);
+    const controller = new QianyiWebhookController({ ingest, allow: () => true } as never);
 
     const result = await controller.receive({
       body: {
@@ -31,6 +31,7 @@ describe('QianyiWebhookController.receive', () => {
   it('answers ok=false for a rejected callback without throwing', async () => {
     const controller = new QianyiWebhookController({
       ingest: vi.fn(async () => ({ ok: false, duplicated: false })),
+      allow: () => true,
     } as never);
 
     await expect(controller.receive({ body: {} } as never)).resolves.toEqual({ ok: false });
@@ -39,8 +40,22 @@ describe('QianyiWebhookController.receive', () => {
   it('answers 500 when the dispatch failed so Qianyi resends', async () => {
     const controller = new QianyiWebhookController({
       ingest: vi.fn(async () => ({ ok: false, duplicated: false, retryable: true })),
+      allow: () => true,
     } as never);
 
     await expect(controller.receive({ body: {} } as never)).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe('QianyiWebhookController throttling', () => {
+  it('answers 429 when the caller is over budget', async () => {
+    const controller = new QianyiWebhookController({
+      allow: vi.fn(() => false),
+      ingest: vi.fn(),
+    } as never);
+
+    await expect(controller.receive({ body: {}, ip: '1.2.3.4' } as never)).rejects.toMatchObject({
+      status: 429,
+    });
   });
 });

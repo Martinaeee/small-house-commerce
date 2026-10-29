@@ -70,6 +70,21 @@ export default function QianyiSettingsPage() {
     setJobs(await adminApi.qianyiJobs());
   };
 
+  // Only valid once every line has a code; the backend refuses otherwise and
+  // names the SKUs that are still missing.
+  const requeue = async (id: string) => {
+    const result = await adminApi.requeueQianyiJob(id);
+    setMessage(
+      result.ok
+        ? t("qianyi_requeued")
+        : t("qianyi_requeue_blocked", {
+            skus: (result.missing ?? []).join(", ") || (result.reason ?? ""),
+          }),
+    );
+    setJobs(await adminApi.qianyiJobs());
+    setRows(await adminApi.qianyiSkus());
+  };
+
   // The only place a mapping can be set: without it a SKU never reaches Qianyi.
   const saveMapping = async (id: string, current: string | null, next: string) => {
     const value = next.trim();
@@ -161,6 +176,11 @@ export default function QianyiSettingsPage() {
               {job.status === "FAILED" ? (
                 <Button size="sm" onClick={() => retry(job.id)}>
                   {t("qianyi_retry")}
+                </Button>
+              ) : null}
+              {job.status === "SKIPPED" ? (
+                <Button size="sm" onClick={() => requeue(job.id)}>
+                  {t("qianyi_requeue")}
                 </Button>
               ) : null}
             </li>
