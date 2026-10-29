@@ -400,7 +400,7 @@ export default function AboutPage() {
         <div className="order-2 w-[330px] shrink-0 snap-start lg:order-1 lg:w-auto">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={collection.image}
+            src={optimizedUploadImage(collection.image, 1440)}
             alt={collection.imageAlt}
             className="aspect-[16/9] h-auto w-full object-cover lg:h-full lg:aspect-auto"
           />
