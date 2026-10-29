@@ -24,6 +24,7 @@ function renderHeader(
         moduleTitle="商品"
         admin={ADMIN}
         onLogout={vi.fn()}
+        onChangePassword={vi.fn()}
         {...props}
       />
     </AdminI18nProvider>,
@@ -64,8 +65,18 @@ describe("AdminGlobalHeader", () => {
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the existing language control and accepts real Phase-B slots later", async () => {
+  it("offers a password change entry in the account menu", async () => {
     const user = userEvent.setup();
+    const onChangePassword = vi.fn();
+    renderHeader({ onChangePassword });
+
+    const account = screen.getByRole("group", { name: "账户菜单" });
+    await user.click(within(account).getByRole("button", { name: "修改密码" }));
+
+    expect(onChangePassword).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the existing language control and accepts real Phase-B slots later", async () => {    const user = userEvent.setup();
     renderHeader({
       searchControl: <button type="button">Search live</button>,
       notificationControl: <button type="button">Notifications live</button>,

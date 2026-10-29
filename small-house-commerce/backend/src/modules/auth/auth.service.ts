@@ -9,7 +9,7 @@ import argon2 from 'argon2';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { MsDuration } from './auth.module.js';
-import type { LoginInput, RefreshInput } from './dto/auth.dto.js';
+import type { ChangePasswordInput, LoginInput, RefreshInput } from './dto/auth.dto.js';
 
 /**
  * Parses a vercel/ms style duration ("30s", "1h", "7d") into milliseconds.
@@ -158,6 +158,64 @@ export class AuthService {
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    return { ok: true };
+  }
+
+  /**
+   * Replaces the caller's own password.
+   *
+   * The current password must be supplied, so a stolen access token alone
+   * cannot lock the real owner out. Every other session the account holds is
+   * revoked; the session that asked for the change keeps working, because
+   * `refreshToken` identifies its rotation family.
+   */
+  async changePassword(userId: string, input: ChangePasswordInput) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true, status: true },
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const valid = await argon2.verify(user.passwordHash, input.currentPassword);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const passwordHash = await argon2.hash(input.newPassword);
+
+    const current = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: hashToken(input.refreshToken) },
+      select: { id: true, userId: true, familyId: true },
+    });
+
+    const live = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null },
+      select: { id: true, familyId: true },
+    });
+
+    // Keep the caller's own session; revoke everything else. An unknown
+    // refresh token means the caller cannot be placed, so every session goes.
+    const toRevoke = live
+      .filter((row) => {
+        if (!current || current.userId !== userId) return true;
+        if (current.familyId === null) return row.id !== current.id;
+        return row.familyId !== current.familyId;
+      })
+      .map((row) => row.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      if (toRevoke.length > 0) {
+        await tx.refreshToken.updateMany({
+          where: { id: { in: toRevoke } },
+          data: { revokedAt: new Date() },
+        });
+      }
+    });
+
     return { ok: true };
   }
 

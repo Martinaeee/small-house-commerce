@@ -362,8 +362,46 @@ describe("AdminShell website navigation group", () => {
       "nav_storefront_shell",
       "nav_settings",
       "nav_system_status",
+      "nav_team",
       "marketing_title",
       "nav_newsletter",
     ]);
+  });
+
+  it("shows Team only with SYSTEM_SETTINGS_EDIT", () => {
+    shellState.permissions = ["SYSTEM_SETTINGS_EDIT"];
+    renderShell();
+
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_team" }),
+    ).toHaveAttribute("href", "/admin/team");
+  });
+
+  it("hides Team from an account without SYSTEM_SETTINGS_EDIT", () => {
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
+    expect(
+      within(desktopNav()).queryByRole("link", { name: "nav_team" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks a direct visit to the team route without SYSTEM_SETTINGS_EDIT", () => {
+    shellState.pathname = "/admin/team";
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
+    expect(
+      screen.getByText("No modules available for your account."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Protected route content")).toBeNull();
+  });
+
+  it("mounts the team route for SYSTEM_SETTINGS_EDIT", () => {
+    shellState.pathname = "/admin/team";
+    shellState.permissions = ["SYSTEM_SETTINGS_EDIT"];
+    renderShell();
+
+    expect(screen.getByText("Protected route content")).toBeVisible();
   });
 });

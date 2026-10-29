@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { AdminGlobalHeader } from "@/components/admin/AdminGlobalHeader";
 import { AdminGlobalSearch } from "@/components/admin/AdminGlobalSearch";
 import { AdminNotifications } from "@/components/admin/AdminNotifications";
+import { ChangePasswordDialog } from "@/components/admin/ChangePasswordDialog";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import studioStyles from "./homepage/HomepageStudio.module.css";
@@ -152,6 +153,13 @@ const NAV_ITEMS: NavEntry[] = [
   },
   {
     kind: "item",
+    href: "/admin/team",
+    labelKey: "nav_team",
+    // Managing accounts is system security configuration: SUPER_ADMIN only.
+    permission: "SYSTEM_SETTINGS_EDIT",
+  },
+  {
+    kind: "item",
     href: "/admin/marketing",
     labelKey: "marketing_title",
     permission: ["MARKETING_VIEW_OWN", "MARKETING_VIEW_ALL"],
@@ -205,6 +213,7 @@ const NAV_ICON_PATHS: Record<string, string> = {
   "/admin/homepage": "m3 10 9-7 9 7v11h-6v-7H9v7H3V10Z",
   "/admin/storefront-shell": "M3 3h18v18H3V3Zm0 5h18M3 17h18",
   "/admin/settings": "M4 7h16M4 17h16M8 4v6m8 4v6",
+  "/admin/team": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
   "/admin/status": "M12 3a9 9 0 1 0 9 9h-9V3Zm3 0a9 9 0 0 1 6 6h-6V3Z",
   "/admin/marketing": "m3 9 17-6v18L3 15V9Zm4 7 2 6h4l-2-5",
   "/admin/newsletter": "M3 5h18v14H3V5Zm0 0 9 8 9-8",
@@ -299,6 +308,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const hamburgerRef = useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
+  // The password dialog lives outside the sticky header so its fixed overlay
+  // is not trapped in the header's stacking context (the rail sits above it).
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   // Client-only gate for the body portal (false on the server, true after
   // hydration); mirrors the storefront drawer.
@@ -415,11 +428,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const isHiddenRoute =
     pathname === "/admin/search" ||
     pathname === "/admin/notifications" ||
+    pathname === "/admin/team" ||
     pathname.startsWith("/admin/customers/");
   const canRenderHiddenRoute =
     (pathname === "/admin/search" &&
       SEARCH_PERMISSIONS.some((permission) => hasPermission(permission))) ||
     (pathname === "/admin/notifications" && canViewNotificationsPage) ||
+    (pathname === "/admin/team" && hasPermission("SYSTEM_SETTINGS_EDIT")) ||
     (pathname.startsWith("/admin/customers/") &&
       hasPermission("CUSTOMER_MANAGE"));
   const hiddenRouteDenied = isHiddenRoute && !canRenderHiddenRoute;
@@ -480,6 +495,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             moduleTitle={title}
             admin={admin}
             onLogout={onLogout}
+            onChangePassword={() => setPasswordOpen(true)}
             searchControl={<AdminGlobalSearch permissions={admin.permissions} />}
             notificationControl={
               <AdminNotifications canViewAll={canViewNotificationsPage} />
@@ -508,6 +524,23 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
           <main className={`admin-app${isStudio ? ` ${studioStyles.studioApp}` : ""}`}>{shellBody}</main>
         </div>
+
+        {/* Password change lives at the shell root so its fixed overlay is not
+            captured by the sticky header's stacking context. */}
+        <ChangePasswordDialog
+          open={passwordOpen}
+          onClose={() => setPasswordOpen(false)}
+          onDone={() => setPasswordChanged(true)}
+        />
+
+        {passwordChanged ? (
+          <div
+            role="status"
+            className="fixed bottom-4 right-4 z-50 rounded-lg border border-border bg-card px-4 py-3 text-sm text-ink shadow-lg"
+          >
+            {t("team_password_changed")}
+          </div>
+        ) : null}
       </div>
 
       {/* Mobile drawer (portaled to body) */}

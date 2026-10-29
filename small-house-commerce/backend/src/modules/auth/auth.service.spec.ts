@@ -518,3 +518,108 @@ describe('AuthService.login — timing equalizer', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
+
+describe('AuthService.changePassword', () => {
+  const activeUserRow = async () => ({
+    id: 'u-1',
+    email: 'admin@example.com',
+    name: 'Admin',
+    status: 'ACTIVE' as const,
+    passwordHash: await argon2.hash('oldpassword'),
+  });
+
+  it('rejects a wrong current password', async () => {
+    const service = makeService({
+      user: { findUnique: vi.fn().mockResolvedValue(await activeUserRow()) },
+    });
+
+    await expect(
+      service.changePassword('u-1', {
+        currentPassword: 'wrongpassword',
+        newPassword: 'newpassword1',
+        refreshToken: 'tok',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a disabled account', async () => {
+    const row = { ...(await activeUserRow()), status: 'DISABLED' };
+    const service = makeService({
+      user: { findUnique: vi.fn().mockResolvedValue(row) },
+    });
+
+    await expect(
+      service.changePassword('u-1', {
+        currentPassword: 'oldpassword',
+        newPassword: 'newpassword1',
+        refreshToken: 'tok',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('stores the new hash and keeps the caller session alive', async () => {
+    const updateUser = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const service = makeService({
+      user: {
+        findUnique: vi.fn().mockResolvedValue(await activeUserRow()),
+        update: updateUser,
+      },
+      refreshToken: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: 'rt-1', userId: 'u-1', familyId: 'fam-1' }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'rt-1', familyId: 'fam-1' },
+          { id: 'rt-2', familyId: 'fam-2' },
+          { id: 'rt-3', familyId: 'fam-1' },
+        ]),
+        updateMany,
+      },
+    });
+
+    await service.changePassword('u-1', {
+      currentPassword: 'oldpassword',
+      newPassword: 'newpassword1',
+      refreshToken: 'tok',
+    });
+
+    const storedHash = updateUser.mock.calls[0]![0].data.passwordHash as string;
+    expect(await argon2.verify(storedHash, 'newpassword1')).toBe(true);
+    // Only the other rotation family is revoked.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['rt-2'] } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('revokes every session when the refresh token is unknown', async () => {
+    const updateUser = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+    const service = makeService({
+      user: {
+        findUnique: vi.fn().mockResolvedValue(await activeUserRow()),
+        update: updateUser,
+      },
+      refreshToken: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'rt-1', familyId: 'fam-1' },
+          { id: 'rt-2', familyId: 'fam-2' },
+        ]),
+        updateMany,
+      },
+    });
+
+    await service.changePassword('u-1', {
+      currentPassword: 'oldpassword',
+      newPassword: 'newpassword1',
+      refreshToken: 'stale',
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['rt-1', 'rt-2'] } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+});

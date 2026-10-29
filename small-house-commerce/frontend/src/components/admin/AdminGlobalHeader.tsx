@@ -8,6 +8,8 @@ export interface AdminGlobalHeaderProps {
   moduleTitle: string;
   admin: AdminUser;
   onLogout: () => void | Promise<void>;
+  /** Opens the self-service password change dialog (rendered by the shell). */
+  onChangePassword: () => void;
   mobileMenuTrigger?: ReactNode;
   /** Phase B replaces this slot with the real command palette trigger. */
   searchControl?: ReactNode;
@@ -38,6 +40,7 @@ export function AdminGlobalHeader({
   moduleTitle,
   admin,
   onLogout,
+  onChangePassword,
   mobileMenuTrigger,
   searchControl,
   notificationControl,
@@ -146,8 +149,16 @@ export function AdminGlobalHeader({
 
             <button
               type="button"
-              onClick={() => void onLogout()}
+              onClick={onChangePassword}
               className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-lg border border-border text-xs font-semibold text-ink-secondary hover:border-primary hover:text-cta"
+            >
+              {t("team_change_password_entry")}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void onLogout()}
+              className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-lg border border-border text-xs font-semibold text-ink-secondary hover:border-primary hover:text-cta"
             >
               {t("admin_header_logout")}
             </button>

@@ -1671,6 +1671,36 @@ export interface AdminSystemStatus {
   };
 }
 
+// --- team members (admin RBAC) -----------------------------------------------
+
+export type AdminRoleCode =
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "OPTIMIZER"
+  | "CONFIRMOR"
+  | "WAREHOUSE"
+  | "FINANCE";
+
+export type AdminUserStatus = "ACTIVE" | "DISABLED";
+
+export interface AdminRole {
+  code: AdminRoleCode;
+  name: string;
+  description: string | null;
+  /** Every permission the role grants; several roles union to a wider set. */
+  permissionCodes: string[];
+}
+
+export interface AdminTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  status: AdminUserStatus;
+  createdAt: string;
+  updatedAt: string;
+  roles: { role: { code: AdminRoleCode; name: string } }[];
+}
+
 export const adminApi = {
   searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
     adminAuthedFetch<AdminBundleSkuCandidate[]>(
@@ -2711,4 +2741,49 @@ export const adminApi = {
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>
     adminAuthedFetch<AdminMetaCapiStatus>("/api/v1/admin/meta-capi/status"),
+
+  /** Team members (SYSTEM_SETTINGS_EDIT). */
+  listAdminUsers: (): Promise<AdminTeamMember[]> =>
+    adminAuthedFetch<AdminTeamMember[]>("/api/v1/users"),
+
+  /** Role catalogue with the permissions each role grants. */
+  listAdminRoles: (): Promise<AdminRole[]> =>
+    adminAuthedFetch<AdminRole[]>("/api/v1/roles"),
+
+  createAdminUser: (input: {
+    name: string;
+    email: string;
+    password: string;
+    roleCodes: AdminRoleCode[];
+  }): Promise<AdminTeamMember> =>
+    adminAuthedFetch<AdminTeamMember>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  updateAdminUser: (
+    id: string,
+    input: {
+      name?: string;
+      email?: string;
+      status?: AdminUserStatus;
+      roleCodes?: AdminRoleCode[];
+      password?: string;
+    },
+  ): Promise<AdminTeamMember> =>
+    adminAuthedFetch<AdminTeamMember>(`/api/v1/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
+  /** Self-service password change; keeps this session, drops the others. */
+  changeAdminPassword: (input: {
+    currentPassword: string;
+    newPassword: string;
+    refreshToken: string;
+  }): Promise<{ ok: boolean }> =>
+    adminAuthedFetch<{ ok: boolean }>("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 };

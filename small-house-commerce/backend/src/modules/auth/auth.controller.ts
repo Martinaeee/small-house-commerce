@@ -12,8 +12,10 @@ import { Throttle, ThrottleGuard } from '../../common/throttle.guard.js';
 import { AuthService } from './auth.service.js';
 import { CurrentUser } from './current-user.decorator.js';
 import {
+  changePasswordSchema,
   loginSchema,
   refreshSchema,
+  type ChangePasswordInput,
   type LoginInput,
   type RefreshInput,
 } from './dto/auth.dto.js';
@@ -43,6 +45,17 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   logout(@Body(new ZodValidationPipe(refreshSchema)) input: RefreshInput) {
     return this.auth.logout(input.refreshToken);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard, ThrottleGuard)
+  @Throttle({ key: 'admin-change-password:ip', bucket: 'ip', limit: 10, windowMs: 10 * 60_000 })
+  @HttpCode(HttpStatus.OK)
+  changePassword(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(changePasswordSchema)) input: ChangePasswordInput,
+  ) {
+    return this.auth.changePassword(user.userId, input);
   }
 
   @Get('me')
