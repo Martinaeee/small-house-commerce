@@ -293,3 +293,35 @@ describe("OrderList with withheld details", () => {
     expect(onVerifyPhone).toHaveBeenCalledWith("09667443461");
   });
 });
+
+describe("carrier tracking", () => {
+  it("shows the carrier, the tracking number and each status", () => {
+    renderList(
+      result({
+        orders: [
+          order({
+            orderStatus: "SHIPPING",
+            shipment: {
+              carrier: "SHIPDOC",
+              trackingNumber: "TRACK123",
+              shippedAt: "2026-10-28T02:00:00.000Z",
+              signedAt: null,
+              tracking: [
+                { status: "SHIPPED", at: "2026-10-28T02:00:00.000Z" },
+                { status: "IN_TRANSIT", at: "2026-10-29T02:00:00.000Z" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(screen.getByText("SHIPDOC · TRACK123")).toBeInTheDocument();
+    expect(screen.getByText("In transit")).toBeInTheDocument();
+  });
+
+  it("shows no tracking block before the parcel exists", () => {
+    renderList(result({ orders: [order({ shipment: null })] }));
+    expect(screen.queryByText("Tracking")).not.toBeInTheDocument();
+  });
+});

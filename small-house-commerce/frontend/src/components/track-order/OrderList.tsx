@@ -38,6 +38,17 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   AFTER_SALES: "After-sales",
 };
 
+/** Carrier states as the shopper reads them (Qiányī / LogisticsEvent codes). */
+const TRACKING_LABELS: Record<string, string> = {
+  SHIPPED: "Picked up",
+  IN_TRANSIT: "In transit",
+  OUT_FOR_DELIVERY: "Out for delivery",
+  SIGNED: "Delivered",
+  FAILED_DELIVERY: "Delivery failed",
+  RETURNING: "Returning",
+  RETURNED: "Returned",
+};
+
 const PAYMENT_LABELS: Record<string, string> = {
   COD_PENDING: "Cash on Delivery · Awaiting payment",
   COLLECTED: "Collected",
@@ -482,6 +493,26 @@ function OrderCard({
               </div>
             </dl>
           </Section>
+
+          {/* The parcel's own trail, once the warehouse has handed it over. */}
+          {order.shipment ? (
+            <Section title="Tracking">
+              <p className="text-[14px] font-medium text-ink">
+                {order.shipment.carrier}
+                {order.shipment.trackingNumber ? ` · ${order.shipment.trackingNumber}` : ""}
+              </p>
+              <ol className="mt-2 space-y-1 border-l border-border pl-3 text-[13px]">
+                {order.shipment.tracking.map((event) => (
+                  <li key={`${event.status}-${event.at}`}>
+                    <span className="font-medium text-ink">
+                      {TRACKING_LABELS[event.status] ?? event.status}
+                    </span>
+                    <span className="ml-2 text-ink-secondary">{formatDate(event.at)}</span>
+                  </li>
+                ))}
+              </ol>
+            </Section>
+          ) : null}
 
           {/* status history: folded keeps the latest status */}
           <Section title="Order status">

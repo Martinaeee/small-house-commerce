@@ -1639,6 +1639,37 @@ export interface AdminMetaCapiStatus {
   lastErrorAt: string | null;
 }
 
+export interface AdminQianyiStatus {
+  enabled: boolean;
+  pending: number;
+  failed: number;
+  review: number;
+  sent24h: number;
+  callbacks: number;
+}
+
+/** One catalog SKU as the Qianyi creation preview lists it. */
+export interface AdminQianyiSkuRow {
+  id: string;
+  skuCode: string;
+  qianyiSkuCode: string | null;
+  title: string;
+  ready: boolean;
+  gaps: string[];
+}
+
+export interface AdminQianyiJob {
+  id: string;
+  kind: "PUSH_ORDER" | "CLOSE_ORDER";
+  status: "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED" | "CANCELLED";
+  attempts: number;
+  pendingReview: boolean;
+  lastError: string | null;
+  externalOrderNumber: string | null;
+  updatedAt: string;
+  order?: { orderNumber: string } | null;
+}
+
 export interface AdminSystemStatus {
   generatedAt: string;
   stale: boolean;
@@ -2788,4 +2819,55 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  qianyiStatus: (): Promise<AdminQianyiStatus> =>
+    adminAuthedFetch<AdminQianyiStatus>("/api/v1/admin/qianyi/status"),
+
+  qianyiSkus: (): Promise<AdminQianyiSkuRow[]> =>
+    adminAuthedFetch<AdminQianyiSkuRow[]>("/api/v1/admin/qianyi/skus"),
+
+  setQianyiMapping: (
+    skuId: string,
+    qianyiSkuCode: string | null,
+  ): Promise<{ qianyiSkuCode: string | null }> =>
+    adminAuthedFetch<{ qianyiSkuCode: string | null }>(
+      `/api/v1/admin/qianyi/skus/${encodeURIComponent(skuId)}/mapping`,
+      { method: "PUT", body: JSON.stringify({ qianyiSkuCode }) },
+    ),
+
+  qianyiJobs: (): Promise<AdminQianyiJob[]> =>
+    adminAuthedFetch<AdminQianyiJob[]>("/api/v1/admin/qianyi/jobs"),
+
+  retryQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/retry`,
+      { method: "POST" },
+    ),
+
+  authorizeQianyiCreateRetry: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/authorize-retry`,
+      { method: "POST", body: JSON.stringify({ confirmedAbsent: true }) },
+    ),
+
+  adoptQianyiJob: (
+    id: string,
+    qianyiOrderNumber: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/adopt`,
+      { method: "POST", body: JSON.stringify({ qianyiOrderNumber }) },
+    ),
+
+  requeueQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; missing?: string[]; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; missing?: string[]; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/requeue`,
+      { method: "POST" },
+    ),
 };

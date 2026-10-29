@@ -145,6 +145,12 @@ const NAV_ITEMS: NavEntry[] = [
       },
       {
         kind: "item",
+        href: "/admin/settings/qianyi",
+        labelKey: "nav_qianyi",
+        permission: "SYSTEM_SETTINGS_EDIT",
+      },
+      {
+        kind: "item",
         href: "/admin/status",
         labelKey: "nav_system_status",
         permission: "SYSTEM_SETTINGS_EDIT",

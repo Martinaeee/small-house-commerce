@@ -361,6 +361,7 @@ describe("AdminShell website navigation group", () => {
       "nav_homepage",
       "nav_storefront_shell",
       "nav_settings",
+      "nav_qianyi",
       "nav_system_status",
       "nav_team",
       "marketing_title",

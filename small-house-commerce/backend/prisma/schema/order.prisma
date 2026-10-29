@@ -214,6 +214,8 @@ model Order {
   /// sha256 of the order-defining request content, used to reject key reuse
   /// with different order details.
   idempotencyHash        String?            @map("idempotency_hash") @db.VarChar(64)
+  /// Qianyi system order number (S…), learned from the push response.
+  qianyiOrderNumber      String?            @map("qianyi_order_number") @db.VarChar(64)
   // Manual COD verification (stage 1A): the checklist a handler works through.
   verificationRequired   Boolean            @default(false) @map("verification_required")
   // When the handler should come back to this order (follow-up callback).
@@ -235,6 +237,7 @@ model Order {
   reservations            InventoryReservation[]
   shipments               Shipment[]
   promoRedemption         PromoCodeRedemption?
+  qianyiJobs              QianyiSyncJob[]
   verificationAssignments OrderVerificationAssignment[]
   verificationItems       OrderVerificationItem[]
   verificationEvents      OrderVerificationEvent[]
@@ -307,18 +310,20 @@ model OrderMergeRecord {
 /// the order's line quantities; the order stays SHIPPING until every shipment
 /// is SIGNED (§69, DATABASE.md §2177-2205).
 model Shipment {
-  id             String         @id @default(uuid(7)) @db.Uuid
-  orderId        String         @map("order_id") @db.Uuid
-  warehouseId    String         @map("warehouse_id") @db.Uuid
-  carrier        String
-  trackingNumber String?        @map("tracking_number")
-  status         ShipmentStatus @default(SHIPPING)
-  shippingCost   Decimal?       @map("shipping_cost") @db.Decimal(10, 2)
-  shippedAt      DateTime       @map("shipped_at") @db.Timestamptz(3)
-  signedAt       DateTime?      @map("signed_at") @db.Timestamptz(3)
-  createdBy      String?        @map("created_by") @db.Uuid
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                   String         @id @default(uuid(7)) @db.Uuid
+  orderId              String         @map("order_id") @db.Uuid
+  warehouseId          String         @map("warehouse_id") @db.Uuid
+  carrier              String
+  trackingNumber       String?        @map("tracking_number")
+  qianyiOutboundNumber String?        @unique @map("qianyi_outbound_number") @db.VarChar(64)
+  qianyiStatus         String?        @map("qianyi_status") @db.VarChar(40)
+  status               ShipmentStatus @default(SHIPPING)
+  shippingCost         Decimal?       @map("shipping_cost") @db.Decimal(10, 2)
+  shippedAt            DateTime       @map("shipped_at") @db.Timestamptz(3)
+  signedAt             DateTime?      @map("signed_at") @db.Timestamptz(3)
+  createdBy            String?        @map("created_by") @db.Uuid
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order             Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
   warehouse         Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)

@@ -71,6 +71,18 @@ export function configuration() {
       testEventCode: env.META_CAPI_TEST_EVENT_CODE ?? null,
       apiVersion: env.META_CAPI_API_VERSION ?? 'v23.0',
     },
+    // Qianyi ERP order integration. Empty values keep it switched off.
+    qianyi: {
+      enabled: env.QIANYI_ENABLED ?? 'false',
+      baseUrl: env.QIANYI_BASE_URL ?? 'https://www.qianyierp.com',
+      appId: env.QIANYI_APP_ID ?? '',
+      appSecret: env.QIANYI_APP_SECRET ?? '',
+      shop: env.QIANYI_SHOP ?? '',
+      warehouseId: env.QIANYI_WAREHOUSE_ID ?? 0,
+      warehouse: env.QIANYI_WAREHOUSE ?? '',
+      localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
+      logistics: env.QIANYI_LOGISTICS ?? '',
+    },
   };
 }
 

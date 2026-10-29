@@ -56,6 +56,17 @@ services:
       META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
       META_CAPI_TEST_EVENT_CODE: ${META_CAPI_TEST_EVENT_CODE:-}
       META_CAPI_API_VERSION: ${META_CAPI_API_VERSION:-v23.0}
+      # Qianyi ERP. Keep QIANYI_ENABLED=false until every go-live gate in
+      # docs/superpowers/runbooks/qianyi-erp-go-live.md is signed off.
+      QIANYI_ENABLED: ${QIANYI_ENABLED:-false}
+      QIANYI_BASE_URL: ${QIANYI_BASE_URL:-https://www.qianyierp.com}
+      QIANYI_APP_ID: ${QIANYI_APP_ID:-}
+      QIANYI_APP_SECRET: ${QIANYI_APP_SECRET:-}
+      QIANYI_SHOP: ${QIANYI_SHOP:-}
+      QIANYI_WAREHOUSE_ID: ${QIANYI_WAREHOUSE_ID:-}
+      QIANYI_WAREHOUSE: ${QIANYI_WAREHOUSE:-}
+      QIANYI_LOCAL_WAREHOUSE_ID: ${QIANYI_LOCAL_WAREHOUSE_ID:-}
+      QIANYI_LOGISTICS: ${QIANYI_LOGISTICS:-}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
       UPLOAD_DIR: /app/uploads

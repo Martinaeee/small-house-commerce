@@ -119,6 +119,19 @@ export interface GuestOrderView {
   items: GuestOrderItem[];
   shippingAddress: GuestOrderShippingAddress | null;
   statusHistory: GuestOrderStatusHistoryEntry[];
+  /**
+   * Carrier details once the parcel exists. Only carrier-facing fields are
+   * sent; warehouse and operator ids stay in the admin.
+   */
+  shipment?: GuestOrderShipment | null;
+}
+
+export interface GuestOrderShipment {
+  carrier: string;
+  trackingNumber: string | null;
+  shippedAt: string;
+  signedAt: string | null;
+  tracking: Array<{ status: string; at: string }>;
 }
 
 /** The guest lookup response: one or more orders and how they were found. */
