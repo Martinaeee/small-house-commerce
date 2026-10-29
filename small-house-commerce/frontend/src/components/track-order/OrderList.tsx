@@ -6,6 +6,7 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * The order details a shopper sees after a successful lookup.
@@ -382,7 +383,7 @@ function OrderCard({
                       {item.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={item.thumbnailUrl}
+                          src={optimizedUploadImage(item.thumbnailUrl, 96)}
                           alt={productHref ? "" : item.productNameSnapshot}
                           data-testid={`track-item-image-${item.id}`}
                           className="h-[76px] w-[76px] shrink-0 rounded-lg object-cover"

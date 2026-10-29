@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { OrderList } from "./OrderList";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * The order list a shopper sees after a lookup. Cards read top to bottom:
@@ -186,7 +187,7 @@ describe("OrderList card layout", () => {
 
     expect(screen.getByTestId("track-item-image-item-1")).toHaveAttribute(
       "src",
-      "/uploads/catalog/2026/cabinet.png",
+      optimizedUploadImage("/uploads/catalog/2026/cabinet.png", 96),
     );
   });
 

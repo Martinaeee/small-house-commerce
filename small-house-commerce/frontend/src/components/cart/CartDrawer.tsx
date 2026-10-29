@@ -22,6 +22,7 @@ import {
   resolveSelection,
 } from "@/lib/product-selection";
 import type { CartItem, Product } from "@/lib/api";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * Slide-in "Your Cart" drawer after every add-to-cart (spec §4.4). Right-side
@@ -418,7 +419,7 @@ export function CartDrawer() {
                           >
                             {image ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={image.url} alt={image.altText ?? product.name} className="h-full w-full object-cover" />
+                              <img src={optimizedUploadImage(image.url, 96)} alt={image.altText ?? product.name} className="h-full w-full object-cover" />
                             ) : (
                               <PlaceholderImage label={product.name} className="h-full w-full" />
                             )}

@@ -13,6 +13,7 @@ import {
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
+import { optimizedUploadImage } from "@/lib/image-url";
 import {
   createInitialSelection,
   resolveSelection,
@@ -74,7 +75,7 @@ export function CartRecommendations() {
                   {image ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={image.url}
+                      src={optimizedUploadImage(image.url, 640)}
                       alt={image.altText ?? product.name}
                       className="aspect-square w-full rounded object-cover"
                       loading="lazy"

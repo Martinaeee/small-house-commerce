@@ -12,6 +12,7 @@ import {
   usePdpPurchase,
 } from "@/components/product/PdpPurchaseProvider";
 import { ProductOptionSelector } from "@/components/product/ProductOptionSelector";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * The cart line image slot, fed by the enriched summary's effective
@@ -47,7 +48,7 @@ export function CartLineThumbnail({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={thumb.url}
+            src={optimizedUploadImage(thumb.url, 96)}
             alt={thumb.altText ?? ""}
             className="h-full w-full object-cover"
           />
