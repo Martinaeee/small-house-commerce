@@ -4,7 +4,7 @@
 
 ---
 
-您好，我们已完成千易 OpenAPI 的只读验证（店铺 `LUWAG- PH`、仓 `PH-DAVAO-01` / 71537、物流 `SHIPDOC-STD`）。正式启用前需要确认以下 6 项，麻烦逐条回复：
+您好，我们已完成千易 OpenAPI 的只读验证（店铺 `LUWAG- PH`、仓 `PH-DAVAO-01` / 71537）。正式启用前需要确认以下 6 项，麻烦逐条回复：
 
 1. **回调签名**
    请提供 1 份真实回调样本（`appId` / `serviceType` / 原始 `bizParam` 字节 / `timestamp` / `sign`），用于离线复算；并说明回调验签是否与请求同一算法、同一密钥。
@@ -17,7 +17,7 @@
    重复调用 `CREATE_AND_AUDIT_SALES_ORDER` 且 `onlineOrderNumber` 相同时，返回什么（报错码 / 返回原单 / 再建一单）？`onlineOrderNumber` 的唯一范围是店铺还是账号？
 
 4. **仓配**
-   `PH-DAVAO-01` / 71537 与我们本地仓 `Manila Central` 的物理对应关系请确认；`SHIPDOC-STD` 实际承运商是谁，是否可指定 J&T？
+   仓库已确认：`PH-DAVAO-01` / 71537。但我们配置的物流编码 `SHIPDOC-STD` 在千易里查不到，请提供该仓库**可用的物流编码列表**（编码 + 显示名称 + 对应承运商），并确认其中是否包含 J&T。
 
 5. **COD**
    `paymentMethod=COD`、`payTime=下单时间`、`codPayAmount=订单总额` 的口径是否正确？未收款前订单在千易里显示什么状态？

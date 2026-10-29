@@ -8,8 +8,7 @@
 
 - 店铺名称为 `LUWAG- PH`，中间空格必须保留。
 - 千易 OpenAPI 基址为 `https://www.qianyierp.com`；历史只读查询通过，不代表创建商品、创建订单、发货或真实回调已联调。
-- 千易目标仓为 `PH-DAVAO-01` / `71537`。本站 `Manila Central` 与该仓的物理对应关系尚未确认，不能以默认仓替代确认。
-- `SHIPDOC-STD` 可被仓库物流列表查到；实际服务商、J&T 与 COD 代收仍需千易书面确认。
+- 千易目标仓已确认为 `PH-DAVAO-01` / `71537`；本站 `Manila Central` 与该仓的物理对应关系尚未确认，不能以默认仓替代确认。**物流编码待定**：2026-10-29 运营在千易界面查不到 `SHIPDOC-STD`，需千易给出该仓可用的物流编码列表（编码 + 名称 + 承运商，含是否支持 J&T）。在拿到正确编码前，`QIANYI_LOGISTICS` 不能填 `SHIPDOC-STD`；填错会导致推单业务失败（千易不会建单，我方任务记 FAILED）。COD 代收口径仍需千易书面确认。
 - COD `payTime` 当前发送下单时间（+08:00）；隔离验收未把订单标成已付款，但千易是否接受该约定仍未验证。
 - 真实千易回调签名样本尚未取得。自签测试只能证明本站实现自洽。
 - 曾在对话中暴露的凭据必须轮换，并确认旧凭据失效后才能正式启用；不得把凭据写入 Git、报告或测试日志。
@@ -27,7 +26,8 @@ QIANYI_SHOP=LUWAG- PH
 QIANYI_WAREHOUSE_ID=71537
 QIANYI_WAREHOUSE=PH-DAVAO-01
 QIANYI_LOCAL_WAREHOUSE_ID=<经业务确认的本地仓库 UUID>
-QIANYI_LOGISTICS=SHIPDOC-STD
+# SHIPDOC-STD 已确认在千易侧不存在，等千易给出该仓库的真实物流编码后再填
+QIANYI_LOGISTICS=<千易确认的物流编码>
 ```
 
 当前代码的 `false` **阻止所有出站请求、排队推送、worker 和入站业务写入**。带有效签名的回调会被归档并标记 `INTEGRATION_DISABLED`，HTTP 返回 `{ok:true,deferred:true}`（不再让千易重试），订单、库存、包裹、物流轨迹不变。重新设为 `true` 并重启后，后台会回放这些待处理回调，每条最多应用一次。归档行仍会写入，这是停用期间唯一的数据变化。
