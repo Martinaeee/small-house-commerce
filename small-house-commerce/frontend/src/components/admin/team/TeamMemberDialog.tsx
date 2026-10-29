@@ -186,6 +186,7 @@ export function TeamMemberDialog({
               <Button
                 type="button"
                 variant="secondary"
+                className="whitespace-nowrap"
                 onClick={() => setPassword(generateAdminPassword())}
               >
                 {t("team_generate_password")}
@@ -201,7 +202,7 @@ export function TeamMemberDialog({
               {t("team_roles_hint")}
             </span>
           </legend>
-          <div className="mt-2 space-y-2">
+          <div className="mt-2 max-h-[15rem] space-y-2 overflow-y-auto pr-1">
             {roles.map((role) => {
               const checked = roleCodes.includes(role.code);
               return (

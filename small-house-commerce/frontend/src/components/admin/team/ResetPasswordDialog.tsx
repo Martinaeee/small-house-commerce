@@ -93,6 +93,7 @@ export function ResetPasswordDialog({
             <Button
               type="button"
               variant="secondary"
+              className="whitespace-nowrap"
               onClick={() => {
                 const next = generateAdminPassword();
                 setPassword(next);
