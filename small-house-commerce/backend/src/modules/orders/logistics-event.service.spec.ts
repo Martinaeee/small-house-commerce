@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
 import { LogisticsEventService } from './logistics-event.service.js';
 
 const ORDER_ID = '00000000-0000-4000-8000-0000000000a1';
@@ -156,8 +157,7 @@ describe('LogisticsEventService.record inside a caller transaction', () => {
   });
 });
 
-describe('LogisticsEventService carrier detail', () => {
-  it('stores the carrier wording, rider phone and signature url', async () => {
+describe('LogisticsEventService carrier detail', () => {  it('stores the carrier wording, rider phone and signature url', async () => {
     const { service } = createHarness();
     const saved = await service.record(
       ORDER_ID,
@@ -176,5 +176,45 @@ describe('LogisticsEventService carrier detail', () => {
       staffContact: '9684746842',
       signatureImageUrl: 'https://example.test/sign.jpg',
     });
+  });
+});
+
+describe('LogisticsEventService concurrent insert', () => {
+  it('returns the row that won the unique constraint instead of failing', async () => {
+    const { service, prisma } = createHarness();
+    const raced = {
+      id: 'ev-raced',
+      shipmentId: SHIPMENT_ID,
+      carrier: 'LBC',
+      externalEventId: 'LBC-1',
+      externalStatus: 'In transit to sorting facility',
+      normalizedStatus: 'IN_TRANSIT',
+      eventTime: new Date('2026-10-23T10:00:00.000Z'),
+    };
+    // The first lookup misses (the other writer has not committed yet), the
+    // insert loses the race, and the re-read finds the winner.
+    prisma.logisticsEvent.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(raced);
+    prisma.logisticsEvent.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '7.10.0',
+      }),
+    );
+
+    const saved = await service.record(ORDER_ID, SHIPMENT_ID, event());
+
+    expect(saved.id).toBe('ev-raced');
+    expect(prisma.logisticsEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a non-P2002 database error unchanged', async () => {
+    const { service, prisma } = createHarness();
+    prisma.logisticsEvent.create.mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(service.record(ORDER_ID, SHIPMENT_ID, event())).rejects.toThrow(
+      'connection reset',
+    );
   });
 });
