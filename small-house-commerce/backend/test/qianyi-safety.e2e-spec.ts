@@ -401,6 +401,51 @@ describe('Qianyi safety on disposable PostgreSQL', { timeout: 20000 }, () => {
     expect(await jobOf(f)).toMatchObject({ status: 'SENT', autoCreateAttempts: 1 });
   });
 
+  it('P0-17: an unknown create outcome is adopted once Qianyi confirms the order', async () => {
+    const f = await fixture();
+    await resetJob(f, { status: 'FAILED', pendingReview: true, autoCreateAttempts: 1, externalOrderNumber: null });
+    let creates = 0;
+    const sync = syncWith(async type => {
+      if (type === 'QUERY_SALES_ORDER_LIST') {
+        return [{ onlineOrderNumber: f.order.orderNumber, orderNumber: 'S-ADOPT', shop: 'LUWAG- PH' }];
+      }
+      creates += 1;
+      return { orderNumber: 'SHOULD-NOT-BE-CREATED' };
+    });
+    const id = (await jobOf(f)).id;
+
+    expect((await sync.adoptExisting(id, operatorId, 'S-MISSING')).ok).toBe(false);
+    expect((await sync.adoptExisting(id, operatorId, ' S-ADOPT ')).ok).toBe(true);
+    expect(creates).toBe(0);
+    expect(await jobOf(f)).toMatchObject({ status: 'SENT', externalOrderNumber: 'S-ADOPT', pendingReview: false });
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: f.order.id } })).qianyiOrderNumber).toBe('S-ADOPT');
+    expect(await prisma.orderNote.count({ where: { orderId: f.order.id } })).toBe(1);
+  });
+
+  it('P0-18: a return callback becomes an order note without touching stock or shipments', async () => {
+    const f = await fixture();
+    const before = await businessSnapshot();
+    expect(await services().ingest(fields('PUSH_RETURN_ORDER_INFO', {
+      onlineOrderNumber: f.order.orderNumber, returnOrderNumber: 'RET-1', status: 'RETURNED',
+    }))).toMatchObject({ ok: true });
+    const after = await businessSnapshot();
+    expect(after.orders).toEqual(before.orders);
+    expect(after.inventory).toEqual(before.inventory);
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.shipments).toEqual(before.shipments);
+    expect(await prisma.orderNote.count({ where: { orderId: f.order.id, content: { contains: 'RET-1' } } })).toBe(1);
+  });
+
+  it('P0-19: a callback older than the archive window is kept but never applied', async () => {
+    const f = await fixture();
+    const input = { appId, serviceType: 'PUSH_ODO_ORDER', bizParam: JSON.stringify(outbound(f, 'stale')),
+      timestamp: String(Date.now() - 10 * 24 * 60 * 60 * 1000) };
+    expect(await services().ingest({ ...input, sign: signQianyiRequest(input, secret) })).toMatchObject({ ok: true });
+    expect(await prisma.shipment.count({ where: { orderId: f.order.id } })).toBe(0);
+    expect(await prisma.qianyiWebhookEvent.findFirstOrThrow({ where: { serviceType: 'PUSH_ODO_ORDER', externalKey: { not: '' } } }))
+      .toMatchObject({ processedAt: null, error: 'STALE_CALLBACK' });
+  });
+
   it('P0-13: a worker that died mid-request is recovered as review, never resent', async () => {
     const f = await fixture();
     await resetJob(f, { status: 'SENDING', attempts: 1, autoCreateAttempts: 1,
