@@ -85,15 +85,17 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     setInputs(value => ({ ...value, ...partial }));
   }
 
+  // TREE responses carry no `rows`: the flat table must never even walk them.
+  const flatRows = data?.mode === "FLAT" ? data.rows ?? [] : [];
   const flatTable = data && <div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>
     <th className="min-w-56 whitespace-nowrap px-3 py-2"><button type="button" aria-label={t("marketing_report_sort_hint")} onClick={() => toggleSort("NAME", false)}>{t("marketing_internal_name")}{indicator("NAME")}</button></th>
     {reportColumns.slice(1).map(column => <th key={column.key} className="whitespace-nowrap px-3 py-2" aria-sort={column.sortBy === sortBy ? (sortDirection === "ASC" ? "ascending" : "descending") : undefined}>{column.sortBy
       ? <button type="button" aria-label={`${t(column.key)} · ${t("marketing_report_sort_hint")}`} onClick={() => toggleSort(column.sortBy, Boolean(column.numeric))}>{t(column.key)}{indicator(column.sortBy)}</button>
       : t(column.key)}</th>)}
-  </tr></thead><tbody className="divide-y divide-admin-border">{data.rows.map(row => <tr key={row.id} className="align-top">
+  </tr></thead><tbody className="divide-y divide-admin-border">{flatRows.map(row => <tr key={row.id} className="align-top">
     <td className="min-w-56 px-3 py-3"><div className="flex items-start gap-2"><ProductThumb url={row.productThumbnailUrl} label={row.productName ?? row.label} /><div>{identity(row, t)}</div></div></td>
     <ReportMetricCells row={row} />
-  </tr>)}{!data.rows.length && <tr><td colSpan={reportColumns.length} className="p-6 text-center text-admin-muted">{t("marketing_report_empty")}</td></tr>}</tbody></table></div>;
+  </tr>)}{!flatRows.length && <tr><td colSpan={reportColumns.length} className="p-6 text-center text-admin-muted">{t("marketing_report_empty")}</td></tr>}</tbody></table></div>;
 
   return <section className="min-w-0 space-y-3" aria-label={t("marketing_reports")}>
     <h2 className="font-semibold">{t("marketing_reports")}</h2>
