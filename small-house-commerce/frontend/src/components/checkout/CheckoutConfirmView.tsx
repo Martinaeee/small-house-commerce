@@ -221,7 +221,14 @@ export function CheckoutConfirmView({
         metaConsent: adsConsent,
       };
       const order = await api.createOrder(payload);
-      if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
+      if (!checkout.isBuyNow) {
+        try {
+          await removeItems(checkout.cartItemIds);
+        } catch {
+          // The order already exists. A stale cart is recoverable; reporting
+          // this as an order failure would invite an unnecessary retry.
+        }
+      }
       try {
         // The success page only receives the order number, so the full
         // Purchase event (final SKU list + value) is stashed tab-scoped
@@ -278,7 +285,10 @@ export function CheckoutConfirmView({
     return <p className="py-16 text-center text-ink-secondary">Loading…</p>;
   }
 
-  if (unresolvedSelection) {
+  // Once submission starts, cart cleanup can make this selection disappear
+  // before navigation commits. Keep the accepted order in its submitting UI
+  // instead of flashing the unavailable-selection error page.
+  if (unresolvedSelection && !submitting) {
     return (
       <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
         <h1 className="mb-3 text-2xl font-semibold text-ink">

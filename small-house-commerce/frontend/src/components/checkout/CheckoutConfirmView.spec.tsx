@@ -436,6 +436,58 @@ describe("CheckoutConfirmView", () => {
     expect(screen.queryByTestId("confirm-place-order")).toBeNull();
   });
 
+  it("keeps the submitting view while successful cart cleanup empties the selection", async () => {
+    let finishCleanup!: () => void;
+    const cleanupPending = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const removeItems = vi.fn(() => cleanupPending);
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems,
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    const view = render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(removeItems).toHaveBeenCalled());
+
+    // Cart cleanup reloads the now-empty cart before its promise resolves. The
+    // accepted order must remain in its submitting state until navigation,
+    // rather than briefly turning into the unavailable-selection error page.
+    useCartMock.mockReturnValue({
+      cart: { items: [] },
+      loading: false,
+      removeItems,
+    });
+    view.rerender(<CheckoutConfirmView itemsParam="item-1" />);
+
+    expect(screen.getByText("Confirm your order")).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't confirm this order.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("confirm-place-order")).toHaveTextContent("Placing order…");
+
+    finishCleanup();
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+  });
+
+  it("navigates to success when cart cleanup fails after order creation", async () => {
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems: vi.fn().mockRejectedValue(new Error("Cart cleanup failed")),
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders the confirm UI with the resolved Buy Now selection", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
