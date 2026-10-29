@@ -21,6 +21,10 @@ import {
 import { useCustomerHistory } from "./useCustomerHistory";
 import { LogisticsEventDialog } from "./LogisticsEventDialog";
 import { ReturnAcceptanceDialog } from "./ReturnAcceptanceDialog";
+import {
+  TrackingRefreshNote,
+  type TrackingRefreshFeedback,
+} from "./TrackingRefreshNote";
 import { LOGISTICS_STATUS_KEYS } from "./logistics-labels";
 
 export type DrawerTab = "overview" | "verify" | "customer" | "goods" | "history";
@@ -119,15 +123,39 @@ export function OrderDrawer({
   const [fulfillmentVersion, setFulfillmentVersion] = useState(0);
   const [logisticsShipment, setLogisticsShipment] = useState<AdminShipment | null>(null);
   const [trackingBusy, setTrackingBusy] = useState<string | null>(null);
+  const [trackingFeedback, setTrackingFeedback] = useState<
+    Record<string, TrackingRefreshFeedback>
+  >({});
   const [returnOpen, setReturnOpen] = useState(false);
 
   async function refreshTracking(orderIdForRefresh: string, shipmentId: string) {
     setTrackingBusy(shipmentId);
+    setTrackingFeedback((previous) => {
+      const next = { ...previous };
+      delete next[shipmentId];
+      return next;
+    });
     try {
-      await adminApi.refreshJtTracking(orderIdForRefresh, shipmentId);
+      const result = await adminApi.refreshJtTracking(orderIdForRefresh, shipmentId);
+      const signed = result.signed ? ` · ${t("orders_jt_refresh_signed")}` : "";
+      setTrackingFeedback((previous) => ({
+        ...previous,
+        [shipmentId]: {
+          ok: true,
+          message: `${t("orders_jt_refresh_ok", { count: result.appended })}${signed}`,
+        },
+      }));
       setFulfillmentVersion((version) => version + 1);
-    } catch {
-      // The drawer keeps the previous data; the status card explains why.
+    } catch (error) {
+      // Surfaced next to the shipment: a refused carrier or a carrier error
+      // must never look like a silent no-op.
+      setTrackingFeedback((previous) => ({
+        ...previous,
+        [shipmentId]: {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }));
     } finally {
       setTrackingBusy(null);
     }
@@ -672,6 +700,9 @@ export function OrderDrawer({
                                   ) : null}
                                 </span>
                               </div>
+                              <TrackingRefreshNote
+                                feedback={trackingFeedback[shipment.id] ?? null}
+                              />
                               {(shipment.events ?? []).length > 0 ? (
                                 <ul className="mt-1 space-y-0.5">
                                   {(shipment.events ?? []).slice(0, 3).map((event) => (

@@ -40,7 +40,7 @@ export function JtTrackingHealthCard({ t }: { t: Translate }) {
     ? "critical"
     : data && !data.enabled
       ? "unknown"
-      : data && data.lastFailed > 0
+      : data && (data.lastFailed > 0 || data.carrierMismatch > 0)
         ? "warning"
         : "healthy";
   const toneClasses: Record<string, string> = {
@@ -81,6 +81,11 @@ export function JtTrackingHealthCard({ t }: { t: Translate }) {
       {data?.lastError ? (
         <p className="mt-2 text-[12.5px]">
           {t("jt_tracking_error")}: {data.lastError}
+        </p>
+      ) : null}
+      {data && data.carrierMismatch > 0 ? (
+        <p className="mt-2 text-[12.5px]">
+          {t("jt_tracking_mismatch")}: {data.carrierMismatch}
         </p>
       ) : null}
     </section>

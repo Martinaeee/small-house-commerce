@@ -188,6 +188,7 @@ export const en: Record<ZhKey, string> = {
   jt_tracking_last_run: "Last poll",
   jt_tracking_failed: "Failing",
   jt_tracking_error: "Last error",
+  jt_tracking_mismatch: "Carrier mismatch",
   meta_capi_subtitle:
     "Server-side event queue (consented visitors only)",
   meta_capi_disabled: "Disabled (no access token configured)",
@@ -871,6 +872,8 @@ export const en: Record<ZhKey, string> = {
   orders_ship_carrier_jt: "J&T Express",
   orders_jt_refresh: "Refresh tracking",
   orders_jt_signature: "Signature photo",
+  orders_jt_refresh_ok: "Tracking updated · {count} new scan(s)",
+  orders_jt_refresh_signed: "delivery signed",
   orders_ship_tracking: "Tracking number (optional)",
   orders_ship_remaining: "Left to ship",
   orders_ship_submit: "Create shipment",

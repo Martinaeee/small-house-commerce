@@ -1649,6 +1649,8 @@ export interface AdminJtTrackingStatus {
   lastFetched: number;
   lastFailed: number;
   pendingShipments: number;
+  /** Shipped boxes whose carrier label does not match the integration's. */
+  carrierMismatch: number;
   lastError: string | null;
 }
 
