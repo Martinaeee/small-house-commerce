@@ -7,8 +7,9 @@ import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { AdminApiError } from "@/lib/admin-auth";
 import { copyText } from "@/lib/clipboard";
-import { canManageMarketingPage, marketingApi, type CampaignLinkRow } from "@/lib/marketing-api";
+import { canManageMarketingPage, marketingApi, type CampaignLinkRow, type MarketingOwnerOption } from "@/lib/marketing-api";
 import { CreateCampaignLinkDialog } from "./CreateCampaignLinkDialog";
+import { ProductThumb } from "./ReportColumns";
 
 const buttonClass = "rounded-md border border-admin-border px-2 py-1.5 text-xs disabled:opacity-40";
 export function CampaignLinksList({ productId, landingPageId, onLoaded }: { productId?: string; landingPageId?: string; onLoaded?: (total: number) => void }) {
@@ -17,9 +18,14 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState<"" | "ACTIVE" | "DISABLED">("");
+  const [productFilter, setProductFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [products, setProducts] = useState<{ id: string; name: string; productCode: string | null }[]>([]);
+  const [ownerOptions, setOwnerOptions] = useState<MarketingOwnerOption[]>([]);
+  const all = Boolean(admin?.permissions.includes("MARKETING_VIEW_ALL"));
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
-  const queryKey = JSON.stringify([admin?.id, productId, landingPageId, filter, status, page, revision]);
+  const queryKey = JSON.stringify([admin?.id, productId, landingPageId, filter, status, productFilter, ownerFilter, page, revision]);
   const [loaded, setLoaded] = useState<{ key: string; items: CampaignLinkRow[]; total: number } | null>(null);
   const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -33,12 +39,28 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
 
   useEffect(() => {
     if (!admin) return;
+    // The dropdown follows the link-builder context (active products). Links
+    // to an inactive product stay listed when no filter is set.
+    marketingApi.linkContext()
+      .then(context => setProducts(context.products.map(({ id, name, productCode }) => ({ id, name, productCode }))))
+      .catch(() => { /* optional filter dropdown */ });
+    return () => { };
+  }, [admin]);
+
+  useEffect(() => {
+    if (!admin || !all) return;
+    marketingApi.ownerOptions().then(setOwnerOptions).catch(() => setOwnerOptions([]));
+    return () => { };
+  }, [admin, all]);
+
+  useEffect(() => {
+    if (!admin) return;
     let alive = true;
-    marketingApi.listLinks({ productId, landingPageId, search: filter || undefined, status: status || undefined, page, pageSize: 20 })
+    marketingApi.listLinks({ productId: productFilter || productId, landingPageId, search: filter || undefined, status: status || undefined, ownerUserId: (all ? ownerFilter : undefined) || undefined, page, pageSize: 20 })
       .then((result) => { if (alive) { setLoaded({ key: queryKey, ...result }); setLoadError(null); onLoaded?.(result.total); } })
       .catch((reason: unknown) => { if (alive) setLoadError({ key: queryKey, message: reason instanceof Error ? reason.message : String(reason) }); });
     return () => { alive = false; };
-  }, [admin, queryKey, productId, landingPageId, filter, status, page, onLoaded]);
+  }, [admin, queryKey, productId, landingPageId, filter, status, productFilter, ownerFilter, page, onLoaded]);
 
   async function mutate(row: CampaignLinkRow, action: "rename" | "disable") {
     if (!canManageMarketingPage(admin, row.ownerUserId) || operation.current) return;
@@ -66,6 +88,8 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">{t("marketing_links")}</h2>{canCreate && <button className="rounded-lg bg-cta px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" type="button" disabled={busy} onClick={() => setCreating({ scopeKey })}>{t("marketing_link_create")}</button>}</div>
     <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); setFilter(search); setPage(1); }}>
       <input className="min-w-0 flex-1 rounded-lg border border-admin-border px-3 py-2 text-sm" aria-label={t("marketing_link_search")} placeholder={t("marketing_link_search")} value={search} onChange={(event) => setSearch(event.target.value)} />
+      <select className="rounded-lg border border-admin-border px-3 py-2 text-sm" aria-label={t("marketing_report_filter_product")} value={productFilter} onChange={(event) => { setProductFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_report_all_products")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}{product.productCode ? ` · ${product.productCode}` : ""}</option>)}</select>
+      {all && <select className="rounded-lg border border-admin-border px-3 py-2 text-sm" aria-label={t("marketing_link_filter_owner")} value={ownerFilter} onChange={(event) => { setOwnerFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_all_owners")}</option>{ownerOptions.map(owner => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select>}
       <select className="rounded-lg border border-admin-border px-3 py-2 text-sm" aria-label={t("common_status")} value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="">{t("marketing_all_statuses")}</option><option value="ACTIVE">{t("marketing_link_active")}</option><option value="DISABLED">{t("marketing_status_DISABLED")}</option></select>
       <button className={buttonClass} type="submit">{t("common_search")}</button><button type="button" className={buttonClass} disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t("marketing_reload")}</button>
     </form>
@@ -74,9 +98,9 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
     {!data && !error && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
     {data && <>
       <div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>{["marketing_internal_name", "link_builder_product", "link_builder_aid", "link_builder_target_section", "marketing_source_type", "common_status", "common_actions"].map((key) => <th key={key} className="whitespace-nowrap px-3 py-2">{t(key as Parameters<typeof t>[0])}</th>)}</tr></thead><tbody className="divide-y divide-admin-border">
-        {data.items.map((row) => <tr key={row.id}>
+        {data.items.map((row) => <tr key={row.id} className="align-top">
           <td className="px-3 py-3"><p className="font-medium">{row.name}</p><p className="mt-1 font-mono text-[11px] text-admin-muted">{row.code}</p></td>
-          <td className="px-3 py-3"><p>{row.productName}</p><p className="text-xs text-admin-muted">{row.productCode}</p></td>
+          <td className="px-3 py-3"><div className="flex items-start gap-2"><ProductThumb url={row.productThumbnailUrl} label={row.productName} /><div><p>{row.productName}</p><p className="text-xs text-admin-muted">{row.productCode}</p></div></div></td>
           <td className="px-3 py-3"><p>{row.ownerName}</p><p className="text-xs text-admin-muted">{row.aid}</p></td>
           <td className="max-w-72 px-3 py-3"><p>{row.pageName ?? t("link_builder_no_landing_page")}{row.variantNameSnapshot ? ` · ${row.variantNameSnapshot}` : ""}</p><input aria-label={`${t("marketing_link_url")} · ${row.name}`} readOnly className="mt-1 w-full min-w-48 bg-transparent text-xs text-admin-muted" value={typeof window === "undefined" ? row.path : new URL(row.path, window.location.origin).href} /></td>
           <td className="px-3 py-3"><p>{t(`marketing_source_${row.sourceType}`)}</p><p className="text-xs text-admin-muted">{row.adId ?? "—"}</p></td>
@@ -87,7 +111,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
       </tbody></table></div>
       <div className="flex items-center justify-between text-xs text-admin-muted"><span>{t("marketing_records", { count: String(data.total) })}</span><div className="flex gap-2"><button type="button" className={buttonClass} disabled={page === 1 || busy} onClick={() => setPage((value) => value - 1)}>{t("marketing_previous")}</button><span className="py-1.5">{page}</span><button type="button" className={buttonClass} disabled={page * 20 >= data.total || busy} onClick={() => setPage((value) => value + 1)}>{t("marketing_next")}</button></div></div>
     </>}
-    {canCreate && creating?.scopeKey === scopeKey && <CreateCampaignLinkDialog key={`${scopeKey}:${creating.copyFrom?.id ?? "new"}`} productId={productId} landingPageId={landingPageId} copyFrom={creating.copyFrom} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); setNotice(t("marketing_link_saved")); setRevision((value) => value + 1); }} />}
+    {canCreate && creating?.scopeKey === scopeKey && <CreateCampaignLinkDialog key={`${scopeKey}:${creating.copyFrom?.id ?? "new"}`} productId={productId || productFilter || undefined} landingPageId={landingPageId} copyFrom={creating.copyFrom} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); setNotice(t("marketing_link_saved")); setRevision((value) => value + 1); }} />}
     {renaming && <Dialog open title={t("marketing_link_rename")} onClose={() => { if (!operation.current) setRenaming(null); }}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void mutate(renaming.row, "rename"); }}>
       <p className="text-xs text-admin-muted">{t("marketing_link_immutable")}</p>{renaming.error && <p role="alert" className="text-sm text-red-700">{renaming.error}</p>}
       <label className="block space-y-1 text-sm">{t("marketing_internal_name")}<input className="w-full rounded-lg border border-admin-border px-3 py-2" required maxLength={120} disabled={busy} value={renaming.name} onChange={(event) => setRenaming((current) => current ? { ...current, name: event.target.value } : current)} /></label>

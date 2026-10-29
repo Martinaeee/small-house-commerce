@@ -8,7 +8,7 @@ import { PerformancePageTable } from "./PerformancePageTable";
 
 const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permissions: ["MARKETING_VIEW_ALL"] } }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
-vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), performance: vi.fn(), performanceOptions: vi.fn() } }));
+vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), performance: vi.fn(), performanceOptions: vi.fn(), linkContext: vi.fn(async () => ({ products: [] })), ownerOptions: vi.fn(async () => []) } }));
 
 const range = { from: "2026-10-06", to: "2026-10-12" };
 function totals(overrides: Partial<PerformanceTotals> = {}): PerformanceTotals {
