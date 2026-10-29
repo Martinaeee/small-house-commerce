@@ -12,4 +12,8 @@ describe("optimizedUploadImage", () => {
   it("passes through non-upload local paths untouched", () => {
     expect(optimizedUploadImage("/brand-mark", 64)).toBe("/brand-mark");
   });
+  it("rewrites bundled about photography too", () => {
+    expect(optimizedUploadImage("/about/our-story.jpg", 1440))
+      .toBe(`/_next/image?url=${encodeURIComponent("/about/our-story.jpg")}&w=1440&q=75`);
+  });
 });

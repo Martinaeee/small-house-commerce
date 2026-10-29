@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   // gates every other local path), which resizes and re-encodes to WebP on
   // demand. AVIF encoding is too slow on the container CPU — WebP only.
   images: {
-    localPatterns: [{ pathname: "/uploads/**", search: "" }],
+    localPatterns: [{ pathname: "/uploads/**", search: "" }, { pathname: "/about/**", search: "" }],
     formats: ["image/webp"],
     // The optimizer rejects any width outside these allowlists; storefront
     // components request 96 (thumbnails), 640 (cards), 1280 (gallery) and
