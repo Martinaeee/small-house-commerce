@@ -95,9 +95,31 @@ function createHarness(details = [delivered, inTransit]) {
 
   const prisma = {
     shipment: {
-      findMany: vi.fn(async ({ where }: any) =>
-        shipments.filter((row) => matches(row, where)),
-      ),
+      findMany: vi.fn(async ({ where, orderBy, take }: any) => {
+        const rows = shipments.filter((row) => matches(row, where));
+        const clauses = Array.isArray(orderBy) ? orderBy : [orderBy];
+        rows.sort((left, right) => {
+          for (const clause of clauses) {
+            const [field, direction] = Object.entries(clause ?? {})[0] ?? [];
+            if (!field) continue;
+            const a = (left as any)[field];
+            const b = (right as any)[field];
+            const options = typeof direction === 'object' ? direction : null;
+            if (a == null || b == null) {
+              if (a == null && b == null) continue;
+              const nullsFirst = options?.nulls === 'first';
+              return a == null === nullsFirst ? -1 : 1;
+            }
+            const aValue = a instanceof Date ? a.getTime() : a;
+            const bValue = b instanceof Date ? b.getTime() : b;
+            if (aValue === bValue) continue;
+            const result = aValue < bValue ? -1 : 1;
+            return (options?.sort ?? direction) === 'desc' ? -result : result;
+          }
+          return 0;
+        });
+        return rows.slice(0, take);
+      }),
       findUnique: vi.fn(async ({ where }: any) =>
         shipments.find((row) => row.id === where.id) ?? null,
       ),
@@ -215,6 +237,30 @@ describe('JtTrackingService', () => {
 
     expect(client.trace).toHaveBeenCalledTimes(1);
     expect(client.trace).toHaveBeenCalledWith('JT1');
+  });
+
+  it('rotates a full batch so a later shipment is reached on the next tick', async () => {
+    const { service, client, shipments } = createHarness([inTransit]);
+    for (let index = 2; index <= 26; index += 1) {
+      shipments.push({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        orderId: O2,
+        carrier: 'J&T Express',
+        status: 'SHIPPING',
+        trackingNumber: `JT${index}`,
+        shippedAt: new Date(Date.parse('2026-10-27T02:00:00.000Z') + index * 60_000),
+        trackingCheckedAt: null,
+        trackingFailures: 0,
+        trackingError: null,
+      });
+    }
+    const now = Date.now();
+
+    await service.tick(now);
+    await service.tick(now + 1000);
+
+    const queriedWaybills = client.trace.mock.calls.map(([waybill]) => waybill);
+    expect(new Set(queriedWaybills).size).toBe(26);
   });
 
   it('records every mapped scan and signs the delivery once', async () => {

@@ -135,7 +135,11 @@ export class JtTrackingService implements OnModuleInit, OnApplicationShutdown {
           trackingNumber: { not: null },
           carrier: { equals: this.config.carrierName, mode: 'insensitive' },
         },
-        orderBy: { shippedAt: 'asc' },
+        orderBy: [
+          { trackingCheckedAt: { sort: 'asc', nulls: 'first' } },
+          { shippedAt: 'asc' },
+          { id: 'asc' },
+        ],
         take: CANDIDATE_SCAN,
         select: {
           id: true,
