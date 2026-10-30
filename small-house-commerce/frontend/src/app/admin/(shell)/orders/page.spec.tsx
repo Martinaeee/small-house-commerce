@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   orderCounts: vi.fn(),
   listAssignees: vi.fn(),
   listSkus: vi.fn(),
+  skuSearch: vi.fn(),
   assignOrder: vi.fn(),
   confirmOrder: vi.fn(),
   cancelOrder: vi.fn(),
@@ -141,6 +142,7 @@ beforeEach(() => {
     },
   });
   api.listAssignees.mockResolvedValue([{ id: "staff-a", name: "客服 A" }]);
+  api.skuSearch.mockResolvedValue({ total: 0, items: [] });
   api.customerOrderHistory.mockResolvedValue({
     phone: "+639171224466",
     total: 4,
@@ -318,5 +320,57 @@ describe("dashboard and notification deep links", () => {
 
     await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
     expect(api.listOrders.mock.calls[0][0]).toMatchObject({ confirmation: "NEEDS_REVIEW" });
+  });
+});
+
+describe("the new-order dialog", () => {
+  const skuItem = (over: Record<string, unknown> = {}) => ({
+    skuId: "sku-1",
+    label: "Kids Study Chair — Black (CH001-B)",
+    price: "3499",
+    skuCode: "CH001-B",
+    thumbnailUrl: "/uploads/black.png",
+    ...over,
+  });
+
+  it("offers the whole sellable catalogue, not a truncated list", async () => {
+    api.skuSearch.mockResolvedValue({
+      total: 56,
+      items: [
+        skuItem(),
+        skuItem({
+          skuId: "sku-2",
+          label: "Clothes Rack — Walnut (GR001-W)",
+          price: "3799",
+          skuCode: "GR001-W",
+          thumbnailUrl: null,
+        }),
+      ],
+    });
+
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /New order/ }));
+
+    // the operator sees how many products are on sale
+    expect(await screen.findByText("56 sellable products")).toBeTruthy();
+    // every row shows the photo of the variant next to its name
+    expect(
+      document.querySelector('img[src="/uploads/black.png"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("Kids Study Chair — Black (CH001-B)")).toBeTruthy();
+    expect(screen.getByText("Clothes Rack — Walnut (GR001-W)")).toBeTruthy();
+  });
+
+  it("keeps the photo of the picked product on screen", async () => {
+    api.skuSearch.mockResolvedValue({ total: 56, items: [skuItem()] });
+
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /New order/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Kids Study Chair/ }));
+
+    expect(
+      document.querySelector('img[src="/uploads/black.png"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("3499")).toBeTruthy();
   });
 });

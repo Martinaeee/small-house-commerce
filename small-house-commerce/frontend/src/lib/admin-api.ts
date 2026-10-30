@@ -2005,7 +2005,16 @@ export const adminApi = {
   /** SKU search for manual order entry (sellable SKUs only). */
   skuSearch: (
     q: string,
-  ): Promise<{ skuId: string; label: string; price: string | null; skuCode: string }[]> =>
+  ): Promise<{
+    total: number;
+    items: {
+      skuId: string;
+      label: string;
+      price: string | null;
+      skuCode: string;
+      thumbnailUrl: string | null;
+    }[];
+  }> =>
     adminAuthedFetch(
       `/api/v1/admin/orders/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
     ),

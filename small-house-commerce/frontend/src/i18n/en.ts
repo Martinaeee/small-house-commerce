@@ -917,6 +917,7 @@ export const en: Record<ZhKey, string> = {
   orders_create_street: "Street address",
   orders_create_barangay: "Barangay",
   orders_create_product: "Product",
+  orders_create_product_count: "{total} sellable products",
   orders_create_qty: "Quantity",
   orders_create_submit: "Create order",
   verify_assign_state: "State / actions",

@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { Field } from "@/components/admin/Field";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Pagination } from "@/components/admin/Pagination";
+import { ProductThumbnail } from "@/components/admin/ProductPicker";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
@@ -1336,9 +1337,20 @@ function NewOrderDialog({
   });
   const [skuQuery, setSkuQuery] = useState("");
   const [skuOptions, setSkuOptions] = useState<
-    { skuId: string; label: string; price: string | null }[]
+    {
+      skuId: string;
+      label: string;
+      price: string | null;
+      thumbnailUrl: string | null;
+    }[]
   >([]);
-  const [pickedSku, setPickedSku] = useState<{ skuId: string; label: string } | null>(null);
+  const [skuTotal, setSkuTotal] = useState(0);
+  const [pickedSku, setPickedSku] = useState<{
+    skuId: string;
+    label: string;
+    price: string | null;
+    thumbnailUrl: string | null;
+  } | null>(null);
   const [createQty, setCreateQty] = useState(1);
 
   useEffect(() => {
@@ -1347,8 +1359,10 @@ function NewOrderDialog({
     const timer = setTimeout(() => {
       adminApi
         .skuSearch(skuQuery)
-        .then((opts) => {
-          if (active) setSkuOptions(opts);
+        .then((result) => {
+          if (!active) return;
+          setSkuOptions(result.items);
+          setSkuTotal(result.total);
         })
         .catch(() => {
           // Non-fatal.
@@ -1478,26 +1492,48 @@ function NewOrderDialog({
               className="w-full rounded-lg border border-border px-3 py-2 text-sm text-ink"
             />
           </Field>
+          {pickedSku ? (
+            <div className="mt-2 flex items-center gap-3 rounded-lg border border-border bg-background p-2">
+              <ProductThumbnail imageUrl={pickedSku.thumbnailUrl} className="h-10 w-10" />
+              <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                {pickedSku.label}
+              </span>
+              <span className="whitespace-nowrap text-xs text-ink-secondary">
+                {pickedSku.price ?? "—"}
+              </span>
+            </div>
+          ) : null}
           {!pickedSku && skuOptions.length > 0 ? (
-            <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border">
-              {skuOptions.map((option) => (
-                <li key={option.skuId}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPickedSku({ skuId: option.skuId, label: option.label });
-                      setSkuOptions([]);
-                    }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
-                  >
-                    <span className="truncate">{option.label}</span>
-                    <span className="ml-3 whitespace-nowrap text-xs text-ink-secondary">
-                      {option.price ?? "—"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mt-2 text-xs text-ink-muted">
+                {t("orders_create_product_count", { total: skuTotal })}
+              </p>
+              <ul className="mt-1 max-h-72 overflow-y-auto rounded-lg border border-border">
+                {skuOptions.map((option) => (
+                  <li key={option.skuId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickedSku({
+                          skuId: option.skuId,
+                          label: option.label,
+                          price: option.price,
+                          thumbnailUrl: option.thumbnailUrl,
+                        });
+                        setSkuOptions([]);
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
+                    >
+                      <ProductThumbnail imageUrl={option.thumbnailUrl} className="h-9 w-9" />
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      <span className="whitespace-nowrap text-xs text-ink-secondary">
+                        {option.price ?? "—"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : null}
           <div className="mt-2 w-28">
             <Field label={t("orders_create_qty")} htmlFor="co-qty">

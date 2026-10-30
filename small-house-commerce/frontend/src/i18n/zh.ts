@@ -898,6 +898,7 @@ export const zh = {
   orders_create_street: "街道地址",
   orders_create_barangay: "Barangay",
   orders_create_product: "商品",
+  orders_create_product_count: "共 {total} 个可售商品",
   orders_create_qty: "数量",
   orders_create_submit: "创建订单",
   verify_assign_state: "状态 / 操作",
