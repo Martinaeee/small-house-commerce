@@ -1495,7 +1495,7 @@ function NewOrderDialog({
           {pickedSku ? (
             <div className="mt-2 flex items-center gap-3 rounded-lg border border-border bg-background p-2">
               <ProductThumbnail imageUrl={pickedSku.thumbnailUrl} className="h-10 w-10" />
-              <span className="min-w-0 flex-1 truncate text-sm text-ink">
+              <span className="min-w-0 flex-1 text-sm leading-snug text-ink line-clamp-2">
                 {pickedSku.label}
               </span>
               <span className="whitespace-nowrap text-xs text-ink-secondary">
@@ -1525,7 +1525,7 @@ function NewOrderDialog({
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-ink hover:bg-primary-light/30"
                     >
                       <ProductThumbnail imageUrl={option.thumbnailUrl} className="h-9 w-9" />
-                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      <span className="min-w-0 flex-1 leading-snug line-clamp-2">{option.label}</span>
                       <span className="whitespace-nowrap text-xs text-ink-secondary">
                         {option.price ?? "—"}
                       </span>
