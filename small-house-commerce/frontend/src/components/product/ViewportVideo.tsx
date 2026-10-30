@@ -14,6 +14,8 @@ import {
   type ViewportPlaybackRegistration,
 } from "@/lib/viewport-video-coordinator";
 
+import { videoPlaybackUrl } from "@/lib/video-url";
+
 export type VideoPlaybackMode = ViewportPlaybackMode | "LIGHTBOX";
 
 interface NetworkInformationLike {
@@ -150,7 +152,7 @@ export function ViewportVideo({
   return (
     <video
       ref={videoRef}
-      src={attachSource ? src : undefined}
+      src={attachSource ? videoPlaybackUrl(src) : undefined}
       muted={mode !== "LIGHTBOX"}
       playsInline
       controls={showControls}

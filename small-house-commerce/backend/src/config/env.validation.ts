@@ -96,6 +96,12 @@ export const envSchema = z.object({
   // persistent mounted volume. R2 is considered durable automatically.
   UPLOAD_STORAGE_DURABLE: z.enum(['true', 'false']).optional(),
 
+  // Video upload re-encode: ffmpeg binary path (bare 'ffmpeg' uses PATH),
+  // on/off switch and the per-file wall-clock budget.
+  UPLOAD_FFMPEG_PATH: z.string().optional(),
+  UPLOAD_VIDEO_TRANSCODE: z.enum(['true', 'false']).optional(),
+  UPLOAD_VIDEO_TRANSCODE_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+
   // On-demand storefront revalidation. Both must be set for the best-effort
   // bridge to run; unset either and admin writes simply fall back to ISR.
   REVALIDATE_URL: z.string().url().optional(),

@@ -13,6 +13,7 @@ import {
 } from "@/components/product/PdpPurchaseProvider";
 import { ProductOptionSelector } from "@/components/product/ProductOptionSelector";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { videoPlaybackUrl } from "@/lib/video-url";
 
 /**
  * The cart line image slot, fed by the enriched summary's effective
@@ -38,7 +39,7 @@ export function CartLineThumbnail({
       {thumb ? (
         thumb.type === "VIDEO" ? (
           <video
-            src={thumb.url}
+            src={videoPlaybackUrl(thumb.url)}
             muted
             playsInline
             preload="metadata"

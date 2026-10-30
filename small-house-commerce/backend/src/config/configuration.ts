@@ -57,6 +57,13 @@ export function configuration() {
     upload: {
       dir: env.UPLOAD_DIR ?? null,
       durable: uploadStorageIsDurable(env),
+      // Video uploads are re-encoded into playback-friendly H.264 mp4 by an
+      // external ffmpeg binary; absent binaries simply keep the original.
+      ffmpegPath: env.UPLOAD_FFMPEG_PATH ?? 'ffmpeg',
+      videoTranscode: env.UPLOAD_VIDEO_TRANSCODE !== 'false',
+      videoTranscodeTimeoutMs: env.UPLOAD_VIDEO_TRANSCODE_TIMEOUT_MS
+        ? Number(env.UPLOAD_VIDEO_TRANSCODE_TIMEOUT_MS)
+        : 90_000,
     },
     email: {
       apiKey: env.EMAIL_API_KEY ?? null,

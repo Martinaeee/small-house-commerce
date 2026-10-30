@@ -3,6 +3,7 @@ import { poppins } from "@/lib/fonts";
 import type { HomepageSection } from "@/lib/api";
 import { trackAttrs } from "@/lib/home-tracking";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { videoPlaybackUrl } from "@/lib/video-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -60,7 +61,7 @@ export function HeroSection({ section }: { section: HomepageSection }) {
                 controls={false}
                 poster={poster || desktop || undefined}
               >
-                <source src={video} type="video/mp4" />
+                <source src={videoPlaybackUrl(video)} type="video/mp4" />
               </video>
               <div className="absolute inset-0 bg-gradient-to-r from-ink/60 via-ink/25 to-transparent" />
             </div>
