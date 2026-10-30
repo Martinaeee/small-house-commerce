@@ -1,5 +1,7 @@
 # Video Transcode Implementation Plan (Part B) + One-off Transcode (Part A)
 
+> **历史草案，已被实际实施与生产验收记录取代。** 当前状态和恢复步骤以 [2026-10-30-video-transcode-execution.md](2026-10-30-video-transcode-execution.md) 为准。不要执行下文旧 shell 方案：正式版本采用最大 1280×720、私有原片备份、校验后原子替换及前台缓存版本，不把原片放在公开 uploads 下；自动转码并非覆盖所有格式/存储路径，也没有“所有网络 1–3 秒起播”的承诺。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline, chosen pattern of this session). Steps use checkbox syntax.
 
 **Goal:** 商品/落地页视频上传自动转码为 H.264 WebP-era mp4（≤1080p、faststart、CRF26），并对现有 17 个未压缩视频（~199MB，最高 23MB）做一次性批量转码，目标买家起播 1–3 秒。
