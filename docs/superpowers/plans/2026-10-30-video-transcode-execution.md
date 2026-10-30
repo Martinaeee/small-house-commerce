@@ -123,7 +123,7 @@ docker run --rm --network none \
 - 复现：生产页面点开图集的视频被设为 `preload="none"`，进入时不会加载也不开始播放；手动按原生播放键后同一文件可正常播放到 23.234 秒、432×720。主图播放标是独立叠层，没有跟播放状态联动。
 - 修复：仅改动前台图集组件与视频封装。打开图集的当前视频改为 `preload="metadata"` 并静音自动起播，保留原生播放/声音控件；手机竖排图集只自动播放用户点开的那一支，其他视频滑到可见才播放、离开视口暂停；主图播放标在 `playing` 后隐藏，`pause`/`ended`/`error` 后恢复，缩略图仍保留播放标。未改页面布局、文案、导航或后台。
 - 证据：先写测试并确认 7 项按预期失败，再实现后转绿；前端全量 **309 文件 / 3440 用例**、`tsc --noEmit`、改动文件 eslint、production build 全部通过。
-- 发布：提交 `9b39274b38e5b72740f773e22e742769f6edb4c0`，生产基线 `51f04be` 之后 fast-forward；仅重建并切换 frontend，backend 保持视频发布镜像 `ac972521`。新前端镜像 `sha256:940ff017ba5de8f575bef798240402967c31238070c26d612067c7bd6994a83a`，回滚标签 `small-house-prod-frontend:rollback-pre-pdp-video-20261030`（指向 `336a0832`，即视频发布后的前一版前端）。
+- 发布：提交 `9b39274b38e5b72740f773e22e742769f6edb4c0`，生产基线 `51f04be` 之后 fast-forward；仅重建并切换 frontend，backend 保持视频发布镜像 `ac972521`。新前端镜像 `sha256:940ff017ba5de8f575bef798240402967c31238070c26d612067c7bd6994a83a`，回滚标签 `small-house-prod-frontend:rollback-pre-pdp-video-20261030`（指向 `sha256:35a76e0c`，即视频发布后的前一版前端）。
 - 生产验收：iPhone 13 WebKit 与手机 Chromium 均确认打开图集视频自动播放、有原生控件、23.234 秒、无页面错误、关图集后主图续播；桌面 1440 Chromium 的 split 视图视频同样可播；主图播放时播放标隐藏。8 个主要页面 HTTP200，视频仍 HTTP206。
 
 ## 无关附带改动
