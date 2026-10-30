@@ -108,7 +108,8 @@ function createHarness(details = [delivered, inTransit]) {
             if (a == null || b == null) {
               if (a == null && b == null) continue;
               const nullsFirst = options?.nulls === 'first';
-              return a == null === nullsFirst ? -1 : 1;
+              const aIsNull = a == null;
+              return aIsNull === nullsFirst ? -1 : 1;
             }
             const aValue = a instanceof Date ? a.getTime() : a;
             const bValue = b instanceof Date ? b.getTime() : b;
