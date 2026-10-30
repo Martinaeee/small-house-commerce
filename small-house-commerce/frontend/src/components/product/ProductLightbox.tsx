@@ -208,6 +208,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                   key={current.id}
                   src={current.url}
                   mode="LIGHTBOX"
+                  autoPlay
                   ariaLabel={current.altText ?? "Product video"}
                   className="max-h-full max-w-full rounded-md"
                 />
@@ -281,6 +282,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                     <ViewportVideo
                       src={image.url}
                       mode="LIGHTBOX"
+                      autoPlay={i === index}
                       ariaLabel={image.altText ?? `Product video ${i + 1}`}
                       className="block h-auto w-full bg-black"
                     />

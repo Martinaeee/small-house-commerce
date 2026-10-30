@@ -58,6 +58,40 @@ afterEach(() => {
 });
 
 describe("ProductGallery video", () => {
+  it("hides only the stage play badge while the video is playing", () => {
+    render(<ProductGallery images={media} active={1} onSelect={vi.fn()} onOpenLightbox={vi.fn()} />);
+    const stage = screen.getByRole("button", { name: "Open media 2" });
+    const video = stage.querySelector("video") as HTMLVideoElement;
+    const thumb = screen.getByRole("button", { name: "View media 2" });
+    expect(stage).toHaveTextContent("▶");
+
+    fireEvent.playing(video);
+    expect(stage).not.toHaveTextContent("▶");
+    expect(thumb).toHaveTextContent("▶");
+
+    fireEvent.pause(video);
+    expect(stage).toHaveTextContent("▶");
+    fireEvent.playing(video);
+    expect(stage).not.toHaveTextContent("▶");
+    fireEvent.ended(video);
+    expect(stage).toHaveTextContent("▶");
+    fireEvent.playing(video);
+    fireEvent.error(video);
+    expect(stage).toHaveTextContent("▶");
+  });
+
+  it("restores the badge when a video is selected again before playback starts", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "View media 2" }));
+    const stage = screen.getByRole("button", { name: "Open media 2" });
+    fireEvent.playing(stage.querySelector("video") as HTMLVideoElement);
+    expect(stage).not.toHaveTextContent("▶");
+    await user.click(screen.getByRole("button", { name: "View media 1" }));
+    await user.click(screen.getByRole("button", { name: "View media 2" }));
+    expect(stage).toHaveTextContent("▶");
+  });
+
   it("loads only the active video and keeps mixed-media indices stable", async () => {
     const user = userEvent.setup();
     render(<Harness />);

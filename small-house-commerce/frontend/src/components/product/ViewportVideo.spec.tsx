@@ -233,7 +233,7 @@ describe("ViewportVideo", () => {
     );
   });
 
-  it("renders LIGHTBOX as user-controlled media without autoplay", () => {
+  it("preloads LIGHTBOX metadata without autoplay by default", () => {
     render(
       <ViewportVideo
         src="/full.mp4"
@@ -245,7 +245,49 @@ describe("ViewportVideo", () => {
 
     expect(video).toHaveAttribute("src", "/full.mp4");
     expect(video).toHaveAttribute("controls");
-    expect(video).toHaveAttribute("preload", "none");
+    expect(video).toHaveAttribute("preload", "metadata");
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  });
+
+  it("starts the opened lightbox video muted and pauses it when hidden or closed", async () => {
+    const view = render(
+      <ViewportVideo
+        src="/full.mp4"
+        mode="LIGHTBOX"
+        ariaLabel="Opened product video"
+        autoPlay
+      />,
+    );
+    const video = screen.getByLabelText("Opened product video") as HTMLVideoElement;
+
+    expect(video).toHaveProperty("muted", true);
+    expect(video).toHaveAttribute("autoplay");
+    expect(video).toHaveAttribute("playsinline");
+    expect(video).toHaveAttribute("controls");
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1));
+
+    intersect(video, "0px", 0);
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
+    intersect(video, "0px", 0.8);
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2));
+
+    view.unmount();
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps native controls usable when lightbox autoplay is rejected", async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new DOMException("Blocked", "NotAllowedError"));
+    render(
+      <ViewportVideo
+        src="/full.mp4"
+        mode="LIGHTBOX"
+        ariaLabel="Blocked product video"
+        autoPlay
+      />,
+    );
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1));
+    const video = screen.getByLabelText("Blocked product video");
+    expect(video).toHaveAttribute("controls");
+    expect(video).toHaveAttribute("src", "/full.mp4");
   });
 });

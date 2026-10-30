@@ -1,7 +1,7 @@
 // src/components/product/ProductGallery.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
@@ -31,6 +31,23 @@ function PlayBadge() {
   );
 }
 
+function GalleryVideo({ image }: { image: ProductImage }) {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <>
+      <ViewportVideo
+        src={image.url}
+        mode="TEASER"
+        ariaLabel={image.altText ?? "Product video"}
+        controls={false}
+        onPlaybackChange={setPlaying}
+        className="pointer-events-none aspect-square w-full object-cover"
+      />
+      {!playing && <PlayBadge />}
+    </>
+  );
+}
+
 function scrollTrackTo(track: HTMLDivElement, left: number) {
   if (typeof track.scrollTo === "function") {
     track.scrollTo({ left, behavior: "auto" });
@@ -47,9 +64,8 @@ function scrollTrackTo(track: HTMLDivElement, left: number) {
  * Thumbnails mirror the same selection: with 1–5 entries all thumbnails are
  * shown directly (up to five); with 6+ the strip shows four direct thumbnails
  * followed by a "+N" tile (N = total − 4) that opens the lightbox at index 4.
- * Gallery entries can be photos or short videos — the stage shows a video's
- * first frame with a play badge (playback happens in the lightbox); only the
- * active video is mounted.
+ * Gallery entries can be photos or short videos — only the active video is
+ * mounted, with a play badge until its inline preview starts playing.
  */
 export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Props) {
   const hasRealImages = images.length > 0 && images.some((image) => image.url);
@@ -150,14 +166,7 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
           >
             {image.type === "VIDEO" ? (
               index === active ? (
-                <ViewportVideo
-                  key={image.id}
-                  src={image.url}
-                  mode="TEASER"
-                  ariaLabel={image.altText ?? "Product video"}
-                  controls={false}
-                  className="pointer-events-none aspect-square w-full object-cover"
-                />
+                <GalleryVideo key={image.id} image={image} />
               ) : (
                 <span className="relative flex aspect-square w-full items-center justify-center bg-black">
                   <PlayBadge />
@@ -172,7 +181,6 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
                 className="aspect-square w-full object-cover"
               />
             )}
-            {image.type === "VIDEO" && index === active && <PlayBadge />}
           </button>
         ))}
       </div>

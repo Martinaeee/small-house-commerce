@@ -63,6 +63,8 @@ export function ViewportVideo({
   className,
   poster,
   controls,
+  autoPlay = false,
+  onPlaybackChange,
 }: {
   src: string;
   mode: VideoPlaybackMode;
@@ -70,6 +72,8 @@ export function ViewportVideo({
   className?: string;
   poster?: string;
   controls?: boolean;
+  autoPlay?: boolean;
+  onPlaybackChange?: (playing: boolean) => void;
 }): ReactNode {
   const reactId = useId();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -145,6 +149,27 @@ export function ViewportVideo({
     return () => observer.disconnect();
   }, [autoplayAllowed, autoplayMode, sourceEnabled]);
 
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element || mode !== "LIGHTBOX" || !autoPlay) return;
+    const play = () => {
+      // A browser may still reject autoplay; native controls remain available.
+      element.play()?.catch(() => undefined);
+    };
+    play();
+    const observer = typeof IntersectionObserver === "undefined"
+      ? null
+      : new IntersectionObserver(([entry]) => {
+          if (entry?.isIntersecting) play();
+          else element.pause();
+        }, { rootMargin: "0px", threshold: 0 });
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.pause();
+    };
+  }, [autoPlay, mode, src]);
+
   const attachSource = mode === "LIGHTBOX" || sourceEnabled;
   const showControls =
     controls ?? (mode === "CONTENT" || mode === "LIGHTBOX");
@@ -153,11 +178,16 @@ export function ViewportVideo({
     <video
       ref={videoRef}
       src={attachSource ? videoPlaybackUrl(src) : undefined}
-      muted={mode !== "LIGHTBOX"}
+      muted={mode !== "LIGHTBOX" || autoPlay}
+      autoPlay={mode === "LIGHTBOX" && autoPlay}
       playsInline
       controls={showControls}
       loop={mode === "TEASER" || mode === "HERO"}
-      preload={mode === "LIGHTBOX" || !autoplayAllowed ? "none" : "metadata"}
+      preload={mode === "LIGHTBOX" || autoplayAllowed ? "metadata" : "none"}
+      onPlaying={() => onPlaybackChange?.(true)}
+      onPause={() => onPlaybackChange?.(false)}
+      onEnded={() => onPlaybackChange?.(false)}
+      onError={() => onPlaybackChange?.(false)}
       poster={poster || undefined}
       aria-label={ariaLabel}
       className={className}
