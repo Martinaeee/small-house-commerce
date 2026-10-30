@@ -305,10 +305,17 @@ export function emitCommerceEvent(event: CommerceEvent | null): void {
 /**
  * Stashes the successful Purchase event tab-scoped (sessionStorage) BEFORE
  * the success-page navigation, because the success page only receives the
- * order number. Storage failures are swallowed: the success page still
- * fires a fail-open Purchase keyed by the order number.
+ * order number. The submit-time ads-consent choice rides along so the
+ * success page can hold the browser event to the choice that was in force
+ * when the order was placed, not the one in force when the page loads.
+ * Storage failures are swallowed: the success page then records the order
+ * for the first-party funnel without a Meta event — the server outbox
+ * already holds the authoritative copy for every consented order.
  */
-export function storePurchasePayload(event: CommerceEvent): boolean {
+export function storePurchasePayload(
+  event: CommerceEvent,
+  consent: boolean,
+): boolean {
   if (typeof window === "undefined") return false;
   try {
     window.sessionStorage.setItem(
@@ -317,6 +324,7 @@ export function storePurchasePayload(event: CommerceEvent): boolean {
         name: event.name,
         data: event.data,
         eventId: event.eventId,
+        consent,
       }),
     );
     return true;
@@ -331,7 +339,17 @@ export function storePurchasePayload(event: CommerceEvent): boolean {
  * payload naming a different order is refused (and still consumed) — the
  * page's own order number must never inherit another order's value.
  */
-export function consumePurchasePayload(orderId: string): CommerceEvent | null {
+export interface StashedPurchase {
+  event: CommerceEvent;
+  /**
+   * Ads consent captured when the order was submitted. `undefined` for
+   * payloads stashed by builds that predate the snapshot; the caller then
+   * falls back to the live consent choice.
+   */
+  consent: boolean | undefined;
+}
+
+export function consumePurchasePayload(orderId: string): StashedPurchase | null {
   if (typeof window === "undefined") return null;
   let raw: string | null;
   try {
@@ -350,6 +368,7 @@ export function consumePurchasePayload(orderId: string): CommerceEvent | null {
       name?: unknown;
       data?: unknown;
       eventId?: unknown;
+      consent?: unknown;
     };
     if (parsed.name !== "Purchase") return null;
     if (typeof parsed.data !== "object" || parsed.data === null) return null;
@@ -362,21 +381,35 @@ export function consumePurchasePayload(orderId: string): CommerceEvent | null {
       /^[A-Za-z0-9_-]{8,100}$/.test(parsed.eventId)
         ? parsed.eventId
         : `purchase-${orderId}`;
-    return { name: "Purchase", custom: false, eventId, data };
+    return {
+      event: { name: "Purchase", custom: false, eventId, data },
+      consent: typeof parsed.consent === "boolean" ? parsed.consent : undefined,
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * Records the first-party PURCHASE on its own. The success page uses it when
+ * the browser Meta event must stay off (no stashed payload, or consent was
+ * not held at submit): the funnel record must never depend on the ad
+ * channels, and the server outbox already carries the CAPI copy for every
+ * consented order.
+ */
+export function recordPurchaseFirstParty(orderId: string): void {
+  trackFirstParty("PURCHASE", { entityId: orderId });
 }
 
 /** sessionStorage key prefix of the once-per-tab Purchase marker (§12). */
 export const PURCHASE_FIRED_STORAGE_PREFIX = "luwag_purchase_fired:";
 
 /**
- * Whether this tab already fired Purchase for the order number. The payload
- * above is consumed exactly once, so a refreshed success page re-enters the
- * fail-open path — without this marker every refresh would re-fire a
- * valueless Purchase. Fails open (false) when storage is unavailable,
- * matching the fail-open emit it guards.
+ * Whether this tab already recorded Purchase for the order number. The
+ * payload above is consumed exactly once, so a refreshed success page
+ * re-enters the marker-guarded path — without this marker every refresh
+ * would record the order a second time. Fails open (false) when storage is
+ * unavailable, matching the best-effort guards above.
  */
 export function purchaseAlreadyFired(orderId: string): boolean {
   if (typeof window === "undefined") return false;
@@ -392,14 +425,14 @@ export function purchaseAlreadyFired(orderId: string): boolean {
 }
 
 /**
- * Marks the order number Purchase-fired for this tab. Best effort: a lost
- * marker can only re-fire a valueless Purchase, never suppress a real one.
+ * Marks the order number Purchase-recorded for this tab. Best effort: a lost
+ * marker can only record the order twice, never suppress a real event.
  */
 export function markPurchaseFired(orderId: string): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(PURCHASE_FIRED_STORAGE_PREFIX + orderId, "1");
   } catch {
-    // Marker loss is acceptable: the next load re-fires valueless at worst.
+    // Marker loss is acceptable: the next load records first-party again.
   }
 }

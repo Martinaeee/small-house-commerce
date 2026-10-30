@@ -41,6 +41,14 @@ import {
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
 import { signShipmentWithin } from './sign-shipment.js';
+import { skuThumbnailUrl } from './sku-thumbnail.js';
+
+/**
+ * How many sellable SKUs the admin new-order picker receives in one answer.
+ * The picker shows the whole catalogue of sellable SKUs, so the cap only
+ * guards the response size — the real total travels next to the rows.
+ */
+const SKU_SEARCH_LIMIT = 200;
 
 /**
  * The verification progress of one order, as the workbench table shows it
@@ -1149,25 +1157,84 @@ export class OrdersService {
     };
   }
 
-  /** SKU search for manual order entry: sellable SKUs matching name/code. */
+  /**
+   * Sellable SKUs for the admin new-order picker.
+   *
+   * A phone order can buy anything in the catalogue, so the list is not cut
+   * down to a handful of rows: the picker receives every sellable SKU (up to
+   * the cap) plus the real total. The search matches the product name, the
+   * variant name and the SKU code, because an operator reading a code off a
+   * photo expects it to find the row.
+   */
   async skuSearch(q: string) {
     const term = q.trim();
-    const skus = await this.prisma.sku.findMany({
-      where: {
-        status: 'ACTIVE',
-        price: { not: null },
-        variant: { product: { status: 'ACTIVE', ...(term ? { name: { contains: term, mode: 'insensitive' as const } } : {}) } },
-      },
-      include: { variant: { select: { name: true, product: { select: { name: true } } } } },
-      orderBy: { skuCode: 'asc' },
-      take: 8,
-    });
-    return skus.map((sku) => ({
-      skuId: sku.id,
-      label: `${sku.variant.product.name} — ${sku.variant.name} (${sku.skuCode})`,
-      price: sku.price === null ? null : String(sku.price),
-      skuCode: sku.skuCode,
-    }));
+    const where = {
+      status: 'ACTIVE' as const,
+      price: { not: null },
+      variant: { product: { status: 'ACTIVE' as const } },
+      ...(term
+        ? {
+            OR: [
+              { skuCode: { contains: term, mode: 'insensitive' as const } },
+              { variant: { name: { contains: term, mode: 'insensitive' as const } } },
+              {
+                variant: {
+                  product: { name: { contains: term, mode: 'insensitive' as const } },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const [skus, total] = await Promise.all([
+      this.prisma.sku.findMany({
+        where,
+        include: {
+          variant: {
+            select: {
+              id: true,
+              name: true,
+              optionValues: { select: { optionValueId: true } },
+              product: {
+                select: {
+                  name: true,
+                  images: {
+                    where: { type: 'IMAGE' },
+                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                    select: {
+                      url: true,
+                      type: true,
+                      optionValueId: true,
+                      variantId: true,
+                      isScene: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        // Group the variants of one product together — an operator picks a
+        // product first and then the colour or size.
+        orderBy: [
+          { variant: { product: { name: 'asc' } } },
+          { variant: { name: 'asc' } },
+          { skuCode: 'asc' },
+        ],
+        take: SKU_SEARCH_LIMIT,
+      }),
+      this.prisma.sku.count({ where }),
+    ]);
+    return {
+      total,
+      items: skus.map((sku) => ({
+        skuId: sku.id,
+        label: `${sku.variant.product.name} — ${sku.variant.name} (${sku.skuCode})`,
+        price: sku.price === null ? null : String(sku.price),
+        skuCode: sku.skuCode,
+        thumbnailUrl: skuThumbnailUrl(sku.variant),
+      })),
+    };
   }
 
   /** Assign / reassign the customer-service owner of an order. */

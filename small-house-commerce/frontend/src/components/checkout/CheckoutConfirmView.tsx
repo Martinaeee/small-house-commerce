@@ -15,7 +15,10 @@ import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { hasAdsConsent } from "@/lib/consent";
 import { readMetaBrowserIds } from "@/lib/meta-capi";
 import { validateCheckoutForm } from "@/lib/checkoutValidation";
-import { checkoutIdempotencyKey, clearCheckoutIdempotencyKey } from "@/lib/checkout-idempotency";
+import {
+  checkoutIdempotencyAttempt,
+  clearCheckoutIdempotencyKey,
+} from "@/lib/checkout-idempotency";
 import {
   readCheckoutDraft,
   clearCheckoutDraft,
@@ -95,10 +98,15 @@ export function CheckoutConfirmView({
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
   // Stable across retries of this checkout; the backend replays the original
-  // order instead of creating a second one. Scoped to this checkout URL: the
-  // confirm route can be reused for a different selection without unmounting,
-  // and a key from the old selection must never leak into the new one.
-  const idempotencyKeyRef = useRef<{ scope: string; key: string } | null>(null);
+  // order instead of creating a second one. The consent snapshot belongs to
+  // that same attempt: a retry cannot acquire a newer consent choice than the
+  // request that may already have created the order and CAPI outbox row.
+  // Scoped to this checkout URL so another selection cannot inherit either.
+  const idempotencyKeyRef = useRef<{
+    scope: string;
+    key: string;
+    metaConsent: boolean;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
@@ -178,11 +186,19 @@ export function CheckoutConfirmView({
     inFlightRef.current = true;
     setSubmitting(true);
     try {
-      const idempotencyKey =
+      const attempt =
         idempotencyKeyRef.current?.scope === checkoutHref
-          ? idempotencyKeyRef.current.key
-          : checkoutIdempotencyKey(checkoutHref);
-      idempotencyKeyRef.current = { scope: checkoutHref, key: idempotencyKey };
+          ? idempotencyKeyRef.current
+          : {
+              scope: checkoutHref,
+              ...checkoutIdempotencyAttempt(checkoutHref, hasAdsConsent()),
+            };
+      idempotencyKeyRef.current = attempt;
+      const idempotencyKey = attempt.key;
+      // One attempt snapshot for both channels: every retry sends the same
+      // metaConsent the first request used, and the success page receives it
+      // too, so a replay can never change the Browser/CAPI consent pairing.
+      const adsConsent = attempt.metaConsent;
       const payload = {
         customer: {
           ...draft.customer,
@@ -202,22 +218,32 @@ export function CheckoutConfirmView({
         // Meta matching data, only meaningful (and only accepted by the
         // backend) when the shopper accepted optional cookies.
         ...readMetaBrowserIds(),
-        metaConsent: hasAdsConsent(),
+        metaConsent: adsConsent,
       };
       const order = await api.createOrder(payload);
-      if (!checkout.isBuyNow) await removeItems(checkout.cartItemIds);
+      if (!checkout.isBuyNow) {
+        try {
+          await removeItems(checkout.cartItemIds);
+        } catch {
+          // The order already exists. A stale cart is recoverable; reporting
+          // this as an order failure would invite an unnecessary retry.
+        }
+      }
       try {
         // The success page only receives the order number, so the full
         // Purchase event (final SKU list + value) is stashed tab-scoped
         // BEFORE navigation; PurchaseTracking consumes it exactly once.
         // value is the server's authoritative order total, not the checkout
         // preview: the preview can go stale or use a different promo result.
+        // The consent snapshot rides along so the success page holds the
+        // browser event to the choice in force at submit.
         storePurchasePayload(
           purchaseEvent({
             orderId: order.orderNumber,
             items: checkout.orderItems,
             value: order.grandTotal,
           }),
+          adsConsent,
         );
         sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
         // Carried to /track-order so the shopper does not retype the number they
@@ -259,7 +285,10 @@ export function CheckoutConfirmView({
     return <p className="py-16 text-center text-ink-secondary">Loading…</p>;
   }
 
-  if (unresolvedSelection) {
+  // Once submission starts, cart cleanup can make this selection disappear
+  // before navigation commits. Keep the accepted order in its submitting UI
+  // instead of flashing the unavailable-selection error page.
+  if (unresolvedSelection && !submitting) {
     return (
       <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
         <h1 className="mb-3 text-2xl font-semibold text-ink">
