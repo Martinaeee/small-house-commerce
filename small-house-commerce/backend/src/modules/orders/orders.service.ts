@@ -2480,7 +2480,8 @@ export class OrdersService {
         }
       : null;
     return {
-      ...order,
+      ...rest,
+      shipment,
       items: order.items.map((item) => {
         // The nested product rows never reach the guest - only the flat
         // fields below do.
