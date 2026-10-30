@@ -7,6 +7,17 @@ import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
 
+/** Carrier states as the shopper reads them (carrier / LogisticsEvent codes). */
+const TRACKING_LABELS: Record<string, string> = {
+  SHIPPED: "Picked up",
+  IN_TRANSIT: "In transit",
+  OUT_FOR_DELIVERY: "Out for delivery",
+  SIGNED: "Delivered",
+  FAILED_DELIVERY: "Delivery failed",
+  RETURNING: "Returning",
+  RETURNED: "Returned",
+};
+
 /**
  * The order details a shopper sees after a successful lookup.
  *
