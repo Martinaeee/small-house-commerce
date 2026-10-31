@@ -122,6 +122,27 @@ describe("normalizeSectionForEditor", () => {
       expect(result.payload).not.toHaveProperty("layout.overrides.tablet");
     },
   );
+  it("keeps the product grid heading link and sort choice when reopening the editor", () => {
+    const section = malformedSection("PRODUCT_GRID");
+    section.payload = {
+      columns: 4,
+      linkLabel: "See more",
+      linkUrl: "/collections/best-sellers",
+      sortMode: "SALES",
+    };
+    expect(normalizeSectionForEditor(section).payload).toEqual(section.payload);
+  });
+
+  it("drops malformed product grid links and sort modes", () => {
+    const section = malformedSection("PRODUCT_GRID");
+    section.payload = {
+      linkLabel: 42,
+      linkUrl: "javascript:alert(1)",
+      sortMode: "RANDOM",
+    } as unknown as typeof section.payload;
+    expect(normalizeSectionForEditor(section).payload).toEqual({ columns: 4 });
+  });
+
   it("fills safe payload defaults without changing the stored section", () => {
     const original = malformedSection("USP");
     const before = structuredClone(original);

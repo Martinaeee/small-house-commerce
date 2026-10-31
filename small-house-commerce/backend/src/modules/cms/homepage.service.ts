@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HomepageSectionType, Prisma } from '../../generated/prisma/client.js';
+import { HomepageSectionType, Prisma, type OrderStatus } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ProductsService } from '../catalog/products.service.js';
 import {
@@ -20,6 +20,15 @@ import type { NavigationTarget } from './homepage-validation.js';
 type SectionWithProducts = Prisma.HomepageSectionGetPayload<{
   include: { products: true };
 }>;
+
+const NON_SALE_ORDER_STATUSES: OrderStatus[] = [
+  'CANCELLED',
+  'DENIED',
+  'RETURNED',
+  'PARTIALLY_RETURNED',
+];
+/** Recent sales window used when a product grid is ranked by sales. */
+const SALES_RANK_WINDOW_DAYS = 90;
 
 type HydratedProduct = Awaited<
   ReturnType<ProductsService['storefrontByIds']>
@@ -347,8 +356,34 @@ export class HomepageService {
     return (this.links ?? new PrismaLinkLookup(this.prisma)).navigationTargets({ categoryIds: [...categoryIds], collectionIds: [...collectionIds] });
   }
 
-  private async presentSection(
-    section: StorefrontSection,
+  /**
+   * Units sold in the recent window for product-grid ranking. Cancelled,
+   * denied and returned orders never count, matching the dashboard's sale
+   * definition. A short window keeps "best sellers" current; products with
+   * no sales keep their manual order after the ranked ones.
+   */
+  private async salesUnits(productIds: string[]): Promise<Map<string, number>> {
+    const units = new Map<string, number>();
+    if (productIds.length === 0) return units;
+    const since = new Date(Date.now() - SALES_RANK_WINDOW_DAYS * 86_400_000);
+    const rows = await this.prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        productId: { in: productIds },
+        order: {
+          createdAt: { gte: since },
+          orderStatus: { notIn: NON_SALE_ORDER_STATUSES },
+        },
+      },
+      _sum: { quantity: true },
+    });
+    for (const row of rows) {
+      if (row.productId) units.set(row.productId, row._sum.quantity ?? 0);
+    }
+    return units;
+  }
+
+  private async presentSection(    section: StorefrontSection,
     productById: Map<string, HydratedProduct>,
     heroLinks: LinkHrefs,
     navigationTargets: Map<string, NavigationTarget>,
@@ -401,7 +436,7 @@ export class HomepageService {
     if (section.type === HomepageSectionType.PRODUCT_GRID) {
       // Only ACTIVE products with a priced, in-stock SKU appear. Empty grids
       // still come back so the frontend can render its empty state.
-      const products = section.products
+      let products = section.products
         .map((joinRow) => productById.get(joinRow.productId))
         .filter(
           (product): product is HydratedProduct =>
@@ -413,6 +448,13 @@ export class HomepageService {
             section.products.find((j) => j.productId === product.id)?.badge ??
             null,
         }));
+      if (payload.sortMode === 'SALES' && products.length > 1) {
+        const units = await this.salesUnits(products.map((product) => product.id));
+        // Array#sort is stable, so equal sales keep the operator's manual order.
+        products = products
+          .slice()
+          .sort((left, right) => (units.get(right.id) ?? 0) - (units.get(left.id) ?? 0));
+      }
       return { ...base, payload, products };
     }
 

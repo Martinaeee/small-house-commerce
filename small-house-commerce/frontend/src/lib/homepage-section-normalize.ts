@@ -231,7 +231,16 @@ function normalizePayload<T extends NonHeroSectionType>(
     case "PRODUCT_GRID": {
       const columns: ProductGridPayload["columns"] =
         payload.columns === 2 || payload.columns === 4 ? payload.columns : 4;
-      return { columns } as SectionPayloadMap[T];
+      return {
+        columns,
+        ...(typeof payload.linkLabel === "string" && payload.linkLabel.trim().length > 0
+          ? { linkLabel: payload.linkLabel.slice(0, 40) }
+          : {}),
+        ...(isBannerHref(payload.linkUrl) ? { linkUrl: payload.linkUrl } : {}),
+        ...(payload.sortMode === "MANUAL" || payload.sortMode === "SALES"
+          ? { sortMode: payload.sortMode }
+          : {}),
+      } as SectionPayloadMap[T];
     }
     case "SOLUTIONS":
       return {

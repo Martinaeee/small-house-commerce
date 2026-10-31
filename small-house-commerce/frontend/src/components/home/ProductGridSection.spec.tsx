@@ -16,6 +16,35 @@ const section: HomepageSection = {
 
 beforeEach(() => vi.clearAllMocks());
 
+describe("ProductGridSection heading link", () => {
+  const linked: HomepageSection = {
+    ...section,
+    title: "Best Sellers",
+    products: [],
+    payload: { linkLabel: "See more", linkUrl: "/collections/best-sellers" },
+  };
+
+  it("links the heading and the See more action on the storefront", () => {
+    render(<ProductGridSection section={linked} />);
+    expect(screen.getByRole("link", { name: "Best Sellers" })).toHaveAttribute(
+      "href",
+      "/collections/best-sellers",
+    );
+    expect(screen.getByRole("link", { name: "See more" })).toHaveAttribute(
+      "href",
+      "/collections/best-sellers",
+    );
+  });
+
+  it("keeps the heading and action inert on the admin canvas", () => {
+    render(<ProductGridSection section={linked} interactionMode="preview" />);
+    expect(screen.queryByRole("link", { name: "Best Sellers" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "See more" })).toBeNull();
+    expect(screen.getByText("Best Sellers")).toBeVisible();
+    expect(screen.getByText("See more")).toBeVisible();
+  });
+});
+
 describe("ProductGridSection preview isolation", () => {
   it("renders a single horizontal swipe rail without changing the hydrated ProductCard", () => {
     const { container, rerender } = render(<ProductGridSection section={section} previewDevice="mobile" interactionMode="preview" />);

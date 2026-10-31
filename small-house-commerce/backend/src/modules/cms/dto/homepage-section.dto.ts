@@ -65,6 +65,12 @@ const solutionsPayloadSchema = z.object({
 const productGridPayloadSchema = z.object({
   columns: z.union([z.literal(2), z.literal(4)]).optional(),
   layout: sectionLayoutSchemas.PRODUCT_GRID.optional(),
+  // Optional "See more" entry: the heading and action link to the same page.
+  linkLabel: z.string().trim().min(1).max(40).optional(),
+  linkUrl: inAppOrHttps.optional(),
+  // MANUAL keeps the operator's order; SALES ranks the same selection by
+  // recent sold units (service-side, never by client preference).
+  sortMode: z.enum(['MANUAL', 'SALES']).optional(),
 });
 
 const productStoryPayloadSchema = z.object({

@@ -2323,6 +2323,13 @@ export const zh = {
   homepage_builder_product_grid_move_down: "下移商品 {index}",
   homepage_builder_product_grid_remove: "删除商品 {name}",
   homepage_builder_product_grid_badge: "{name} 的角标",
+  homepage_builder_product_grid_link_label: "链接文字",
+  homepage_builder_product_grid_link_url: "链接地址",
+  homepage_builder_product_grid_order: "商品顺序",
+  homepage_builder_product_grid_order_manual: "手动排序",
+  homepage_builder_product_grid_order_sales: "按最近 90 天销量优先",
+  homepage_builder_product_grid_order_sales_hint:
+    "把所选商品按最近 90 天的售出件数排序；没有近期销量的商品排在后面，并保持手动顺序。",
 
   // --- Homepage builder: remaining section editors ---
   homepage_builder_solutions_items: "解决方案",

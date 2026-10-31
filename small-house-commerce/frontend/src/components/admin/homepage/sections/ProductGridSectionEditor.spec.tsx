@@ -118,6 +118,26 @@ describe("ProductGridSectionEditor", () => {
     expect(screen.getByTestId(`product-grid-row-${productRows[0].id}`)).toBeVisible();
   });
 
+  it("edits the optional heading link and the product ordering mode", async () => {
+    setAdminLang("en");
+    render(
+      <AdminI18nProvider>
+        <Harness initial={{ linkLabel: "See more", linkUrl: "/collections/best-sellers" }} />
+      </AdminI18nProvider>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Link text" })).toHaveValue("See more");
+    expect(screen.getByRole("textbox", { name: "Link URL" })).toHaveValue(
+      "/collections/best-sellers",
+    );
+    const order = screen.getByRole("combobox", { name: "Product order" });
+    expect(order).toHaveValue("MANUAL");
+
+    fireEvent.change(order, { target: { value: "SALES" } });
+    expect(order).toHaveValue("SALES");
+    expect(screen.getByText(/Best selling first/)).toBeVisible();
+  });
+
   it("shows the linked product photo and name on the selected row", async () => {
     setAdminLang("en");
     getProduct.mockResolvedValue(productRows[0]);

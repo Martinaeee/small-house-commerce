@@ -22,6 +22,19 @@ describe('homepage payload schemas', () => {
   ])('rejects unsupported layout fields for %s', (type, layout) => {
     expect(homepagePayloadSchemas[type].safeParse({ layout }).success).toBe(false);
   });
+  it('accepts a product grid heading link and an explicit sales sort', () => {
+    const schema = homepagePayloadSchemas[HomepageSectionType.PRODUCT_GRID];
+    const payload = {
+      columns: 4,
+      linkLabel: 'See more',
+      linkUrl: '/collections/best-sellers',
+      sortMode: 'SALES',
+    };
+    expect(schema.parse(payload)).toEqual(payload);
+    expect(schema.safeParse({ sortMode: 'RANDOM' }).success).toBe(false);
+    expect(schema.safeParse({ linkUrl: 'javascript:alert(1)' }).success).toBe(false);
+  });
+
   it('accepts a valid payload for every section type', () => {
     const cases: Array<[HomepageSectionType, unknown]> = [
       [

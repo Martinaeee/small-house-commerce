@@ -75,11 +75,14 @@ function skuProduct(
   };
 }
 
-function createContext(sections: SectionFixture[]) {
-  const productsById = new Map<string, unknown>([
+function createContext(
+  sections: SectionFixture[],
+  catalog = new Map<string, unknown>([
     ['p1', skuProduct('p1', 3, 100)],
     ['p2', skuProduct('p2', 0, 100)],
-  ]);
+  ]),
+) {
+  const productsById = catalog;
 
   const products = {
     storefrontByIds: vi.fn(async (ids: string[]) =>
@@ -156,6 +159,9 @@ function createContext(sections: SectionFixture[]) {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         where.id.in.map((id) => ({ id })),
       ),
+    },
+    orderItem: {
+      groupBy: vi.fn(async () => [] as Array<{ productId: string | null; _sum: { quantity: number | null } }>),
     },
     $transaction: vi.fn(async (cb: (client: typeof tx) => unknown) => cb(tx)),
   };
@@ -289,6 +295,59 @@ describe('HomepageService.storefrontGet', () => {
 
     const cats = result.sections[1] as StorefrontSectionView;
     expect(cats.categories?.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('orders a sales grid by recent units sold and keeps each badge with its product', async () => {
+    const ctx = createContext(
+      [section({
+        id: 'grid',
+        type: T.PRODUCT_GRID,
+        payload: { sortMode: 'SALES' },
+        products: [join('grid', 'p1', 0, 'A'), join('grid', 'p2', 1, 'B')],
+      })],
+      new Map([
+        ['p1', skuProduct('p1', 3, 100)],
+        ['p2', skuProduct('p2', 3, 100)],
+      ]),
+    );
+    ctx.prisma.orderItem.groupBy.mockResolvedValue([
+      { productId: 'p1', _sum: { quantity: 2 } },
+      { productId: 'p2', _sum: { quantity: 6 } },
+    ] as never);
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    const grid = result.sections[0] as StorefrontSectionView;
+    expect(grid.products?.map((product) => ({ id: product.id, badge: product.badge }))).toEqual([
+      { id: 'p2', badge: 'B' },
+      { id: 'p1', badge: 'A' },
+    ]);
+    expect(ctx.prisma.orderItem.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ['productId'],
+      where: {
+        productId: { in: ['p1', 'p2'] },
+        order: {
+          createdAt: { gte: expect.any(Date) },
+          orderStatus: { notIn: ['CANCELLED', 'DENIED', 'RETURNED', 'PARTIALLY_RETURNED'] },
+        },
+      },
+    }));
+  });
+
+  it('keeps the manual grid order when a sales grid has no sold units yet', async () => {
+    const ctx = createContext(
+      [section({
+        id: 'grid',
+        type: T.PRODUCT_GRID,
+        payload: { sortMode: 'SALES' },
+        products: [join('grid', 'p1', 0, null), join('grid', 'p2', 1, null)],
+      })],
+      new Map([
+        ['p1', skuProduct('p1', 3, 100)],
+        ['p2', skuProduct('p2', 3, 100)],
+      ]),
+    );
+    const result = await new HomepageService(ctx.prisma as never, ctx.products).storefrontGet();
+    expect((result.sections[0] as StorefrontSectionView).products?.map((product) => product.id))
+      .toEqual(['p1', 'p2']);
   });
 
   it('keeps out-of-stock products in ROOM_INSPIRATION (grid sellability filter is grid-only)', async () => {

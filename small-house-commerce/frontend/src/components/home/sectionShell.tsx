@@ -143,16 +143,29 @@ export function SectionHeading({
   title,
   subtitle,
   action,
+  titleHref,
 }: {
   title: string | null;
   subtitle?: string | null;
   action?: ReactNode;
+  /** When set, the heading itself becomes this link (storefront only). */
+  titleHref?: string;
 }) {
   if (!title && !action) return null;
   return (
     <div data-homepage-role="heading-row" className="mb-6 flex items-baseline justify-between gap-4">
       <div>
-        {title ? <h2 data-homepage-role="heading" className="text-3xl font-semibold text-ink">{title}</h2> : null}
+        {title ? (
+          titleHref ? (
+            <h2 data-homepage-role="heading" className="text-3xl font-semibold text-ink">
+              <SmartLink href={titleHref} className="hover:underline">
+                {title}
+              </SmartLink>
+            </h2>
+          ) : (
+            <h2 data-homepage-role="heading" className="text-3xl font-semibold text-ink">{title}</h2>
+          )
+        ) : null}
         {subtitle ? <p data-homepage-role="body" className="mt-1 text-ink-secondary">{subtitle}</p> : null}
       </div>
       {action}
