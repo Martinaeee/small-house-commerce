@@ -31,9 +31,15 @@ export type CategoryTilesPayload = {
   layout?: ResponsiveFields<CategoryLayoutFields>;
 };
 
+export type ProductGridSortMode = "MANUAL" | "SALES";
+
 export type ProductGridPayload = {
   columns?: 2 | 4;
   layout?: ResponsiveFields<ProductGridLayoutFields>;
+  /** Optional heading/action link; both the title and "See more" use it. */
+  linkLabel?: string;
+  linkUrl?: string;
+  sortMode?: ProductGridSortMode;
 };
 
 export type SolutionItem = {

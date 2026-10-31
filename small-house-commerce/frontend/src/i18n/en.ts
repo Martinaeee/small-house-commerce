@@ -2455,6 +2455,13 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_product_grid_move_down: "Move product {index} down",
   homepage_builder_product_grid_remove: "Remove product {name}",
   homepage_builder_product_grid_badge: "Badge for {name}",
+  homepage_builder_product_grid_link_label: "Link text",
+  homepage_builder_product_grid_link_url: "Link URL",
+  homepage_builder_product_grid_order: "Product order",
+  homepage_builder_product_grid_order_manual: "Manual order",
+  homepage_builder_product_grid_order_sales: "Best selling first (last 90 days)",
+  homepage_builder_product_grid_order_sales_hint:
+    "The storefront ranks these selected products by units sold in the last 90 days; the editor preview keeps the manual order. Products without recent sales stay after the ranked ones in manual order.",
 
   // --- Homepage builder: remaining section editors ---
   homepage_builder_solutions_items: "Solutions",
