@@ -2329,7 +2329,7 @@ export const zh = {
   homepage_builder_product_grid_order_manual: "手动排序",
   homepage_builder_product_grid_order_sales: "按最近 90 天销量优先",
   homepage_builder_product_grid_order_sales_hint:
-    "把所选商品按最近 90 天的售出件数排序；没有近期销量的商品排在后面，并保持手动顺序。",
+    "线上按最近 90 天售出件数排序；编辑画布预览仍显示手动顺序。没有近期销量的商品排在后面，并保持手动顺序。",
 
   // --- Homepage builder: remaining section editors ---
   homepage_builder_solutions_items: "解决方案",

@@ -2393,7 +2393,7 @@ export const en: Record<ZhKey, string> = {
   homepage_builder_product_grid_order_manual: "Manual order",
   homepage_builder_product_grid_order_sales: "Best selling first (last 90 days)",
   homepage_builder_product_grid_order_sales_hint:
-    "Ranks these selected products by units sold in the last 90 days. Products without recent sales keep their manual order after the ranked ones.",
+    "The storefront ranks these selected products by units sold in the last 90 days; the editor preview keeps the manual order. Products without recent sales stay after the ranked ones in manual order.",
 
   // --- Homepage builder: remaining section editors ---
   homepage_builder_solutions_items: "Solutions",
