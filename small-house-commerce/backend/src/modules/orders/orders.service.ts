@@ -183,6 +183,27 @@ const GUEST_ORDER_INCLUDE = {
     },
   },
   shippingAddress: true,
+  // The shopper's carrier timeline. Only the fields the guest projection
+  // forwards are selected here, so warehouse ids and operator ids never leave
+  // the database.
+  shipments: {
+    orderBy: { shippedAt: 'asc' as const },
+    select: {
+      carrier: true,
+      trackingNumber: true,
+      shippedAt: true,
+      signedAt: true,
+      events: {
+        orderBy: { eventTime: 'asc' as const },
+        select: {
+          normalizedStatus: true,
+          eventTime: true,
+          externalDescription: true,
+          staffContact: true,
+        },
+      },
+    },
+  },
   statusHistory: {
     orderBy: { createdAt: 'asc' as const },
     select: {
@@ -260,6 +281,12 @@ function guestThumbnail(item: {
     (image) => image.variantId === null && image.optionValueId === null,
   );
   return shared?.url ?? null;
+}
+
+export interface SignShipmentOptions {
+  /** Who drove the signature: a carrier scan or a human click must stay distinguishable. */
+  source?: 'ADMIN' | 'CARRIER';
+  comment?: string;
 }
 
 @Injectable()
@@ -2116,7 +2143,12 @@ export class OrdersService {
   }
 
   /** §69 sign a shipment: every box signed moves the order to SIGNED. */
-  async sign(orderId: string, shipmentId: string, operatorId: string) {
+  async sign(
+    orderId: string,
+    shipmentId: string,
+    operatorId: string | null,
+    options: SignShipmentOptions = {},
+  ) {
     return this.prisma.$transaction(async (tx) => {
       // Serialize with return acceptance on the same order: a box cannot be
       // signed and accepted back at the same time.
@@ -2196,11 +2228,13 @@ export class OrdersService {
             statusDomain: 'ORDER_STATUS',
             oldStatus: order.orderStatus,
             newStatus: orderStatus,
-            source: 'ADMIN',
+            source: options.source ?? 'ADMIN',
             operatorId,
-            comment: hasReturnedUnits
-              ? 'Remaining goods signed; some units were returned'
-              : 'All shipments signed',
+            comment:
+              options.comment ??
+              (hasReturnedUnits
+                ? 'Remaining goods signed; some units were returned'
+                : 'All shipments signed'),
           },
         });
       }
@@ -2210,7 +2244,7 @@ export class OrdersService {
           orderId,
           userId: operatorId,
           noteType: 'WAREHOUSE',
-          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})`,
+          content: `Shipment signed (${shipment.carrier}${shipment.trackingNumber ? ` · ${shipment.trackingNumber}` : ''})${options.source === 'CARRIER' ? ' · reported by carrier' : ''}`,
         },
       });
 
@@ -2335,7 +2369,7 @@ export class OrdersService {
           personalDetailsIncluded: false,
           orders: [
             {
-              ...this.guestOrder(order),
+              ...this.guestOrder(order, false),
               customer: {
                 id: order.customer.id,
                 name: null,
@@ -2353,7 +2387,7 @@ export class OrdersService {
       return {
         matchedBy: 'orderNumber' as const,
         personalDetailsIncluded: true,
-        orders: [this.guestOrder(order)],
+        orders: [this.guestOrder(order, true)],
       };
     }
 
@@ -2374,7 +2408,7 @@ export class OrdersService {
     return {
       matchedBy: 'phone' as const,
       personalDetailsIncluded: true,
-      orders: orders.map((order) => this.guestOrder(order)),
+      orders: orders.map((order) => this.guestOrder(order, true)),
     };
   }
 
@@ -2383,6 +2417,18 @@ export class OrdersService {
    * bought, and the product rows behind them are dropped from the response.
    */
   private guestOrder<T extends {
+    shipments?: Array<{
+      carrier: string;
+      trackingNumber: string | null;
+      shippedAt: Date | string;
+      signedAt: Date | string | null;
+      events?: Array<{
+        normalizedStatus: string;
+        eventTime: Date | string;
+        externalDescription: string | null;
+        staffContact: string | null;
+      }>;
+    }>;
     items: Array<{
       optionSnapshot: unknown;
       variantId: string | null;
@@ -2399,9 +2445,43 @@ export class OrdersService {
         } | null;
       } | null;
     }>;
-  }>(order: T) {
+  }>(order: T, personalDetailsIncluded: boolean) {
+    const { shipments, ...rest } = order as T & {
+      shipments?: Array<{
+        carrier: string;
+        trackingNumber: string | null;
+        shippedAt: Date | string;
+        signedAt: Date | string | null;
+        events?: Array<{
+          normalizedStatus: string;
+          eventTime: Date | string;
+          externalDescription: string | null;
+          staffContact: string | null;
+        }>;
+      }>;
+    };
+    const iso = (value: Date | string) => new Date(value).toISOString();
+    // Only the carrier-facing fields reach the shopper; the row's internal ids
+    // (warehouse, operator, cost) stay inside the admin.
+    const shipment = shipments?.[0]
+      ? {
+          carrier: shipments[0].carrier,
+          trackingNumber: shipments[0].trackingNumber,
+          shippedAt: iso(shipments[0].shippedAt),
+          signedAt: shipments[0].signedAt ? iso(shipments[0].signedAt) : null,
+          tracking: (shipments[0].events ?? []).map((event) => ({
+            status: event.normalizedStatus,
+            at: iso(event.eventTime),
+            description: personalDetailsIncluded
+              ? (event.externalDescription ?? null)
+              : null,
+            riderPhone: personalDetailsIncluded ? (event.staffContact ?? null) : null,
+          })),
+        }
+      : null;
     return {
-      ...order,
+      ...rest,
+      shipment,
       items: order.items.map((item) => {
         // The nested product rows never reach the guest - only the flat
         // fields below do.

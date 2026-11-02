@@ -119,6 +119,26 @@ export interface GuestOrderView {
   items: GuestOrderItem[];
   shippingAddress: GuestOrderShippingAddress | null;
   statusHistory: GuestOrderStatusHistoryEntry[];
+  /**
+   * Carrier details once the parcel exists. Only carrier-facing fields are
+   * sent; warehouse and operator ids stay in the admin.
+   */
+  shipment?: GuestOrderShipment | null;
+}
+
+export interface GuestOrderShipment {
+  carrier: string;
+  trackingNumber: string | null;
+  shippedAt: string;
+  signedAt: string | null;
+  tracking: Array<{
+    status: string;
+    at: string;
+    /** J&T's own wording; null until the shopper verifies the phone. */
+    description?: string | null;
+    /** Rider phone; null until the shopper verifies the phone. */
+    riderPhone?: string | null;
+  }>;
 }
 
 /** The guest lookup response: one or more orders and how they were found. */

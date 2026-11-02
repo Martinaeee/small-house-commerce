@@ -7,6 +7,17 @@ import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { formatOrderOptionsFromSnapshot } from "@/lib/order-options";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
 
+/** Carrier states as the shopper reads them (carrier / LogisticsEvent codes). */
+const TRACKING_LABELS: Record<string, string> = {
+  SHIPPED: "Picked up",
+  IN_TRANSIT: "In transit",
+  OUT_FOR_DELIVERY: "Out for delivery",
+  SIGNED: "Delivered",
+  FAILED_DELIVERY: "Delivery failed",
+  RETURNING: "Returning",
+  RETURNED: "Returned",
+};
+
 /**
  * The order details a shopper sees after a successful lookup.
  *
@@ -481,6 +492,39 @@ function OrderCard({
               </div>
             </dl>
           </Section>
+
+          {/* The parcel's own trail, once the warehouse has handed it over. */}
+          {order.shipment ? (
+            <Section title="Tracking">
+              <p className="text-[14px] font-medium text-ink">
+                {order.shipment.carrier}
+                {order.shipment.trackingNumber ? ` · ${order.shipment.trackingNumber}` : ""}
+              </p>
+              <ol className="mt-2 space-y-1 border-l border-border pl-3 text-[13px]">
+                {order.shipment.tracking.map((event) => (
+                  <li key={`${event.status}-${event.at}`}>
+                    <span className="font-medium text-ink">
+                      {TRACKING_LABELS[event.status] ?? event.status}
+                    </span>
+                    <span className="ml-2 text-ink-secondary">{formatDate(event.at)}</span>
+                    {event.description ? (
+                      <p className="mt-0.5 text-[12px] leading-5 text-ink-muted">
+                        {event.description}
+                      </p>
+                    ) : null}
+                    {event.riderPhone ? (
+                      <a
+                        href={`tel:${event.riderPhone}`}
+                        className="mt-0.5 block text-[12px] font-medium text-cta underline-offset-2 hover:underline"
+                      >
+                        {event.riderPhone}
+                      </a>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            </Section>
+          ) : null}
 
           {/* status history: folded keeps the latest status */}
           <Section title="Order status">

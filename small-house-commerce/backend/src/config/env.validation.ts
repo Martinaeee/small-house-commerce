@@ -141,6 +141,18 @@ export const envSchema = z.object({
     blankAsUndefined,
     z.string().regex(/^v\d+\.\d+$/, 'META_CAPI_API_VERSION must look like v23.0').optional(),
   ),
+  // J&T Express PH legacy TRACKQUERY gateway. Optional so an unconfigured
+  // deployment boots unchanged; the superRefine below refuses a half-configured
+  // switch-on.
+  JT_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false']).optional()),
+  JT_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
+  JT_ECCOMPANYID: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
+  JT_KEY: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
+  JT_POLL_MINUTES: z.preprocess(
+    blankAsUndefined,
+    z.coerce.number().int().positive().max(1440).optional(),
+  ),
+  JT_CARRIER_NAME: z.preprocess(blankAsUndefined, z.string().min(1).max(60).optional()),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
     ctx.addIssue({
@@ -162,6 +174,18 @@ export const envSchema = z.object({
       path: ['META_PIXEL_ID'],
       message: 'META_PIXEL_ID is required when META_CAPI_ACCESS_TOKEN is set',
     });
+  }
+  if (env.JT_ENABLED === 'true') {
+    const required = ['JT_ECCOMPANYID', 'JT_KEY'] as const;
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} is required when JT_ENABLED is true`,
+        });
+      }
+    }
   }
 });
 
