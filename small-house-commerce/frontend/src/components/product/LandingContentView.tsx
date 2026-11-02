@@ -10,6 +10,7 @@ import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { PdpClient } from "./PdpClient";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
+import { useDesktopViewport } from "./useDesktopViewport";
 import { ProductGallery } from "./ProductGallery";
 import { ProductLightbox } from "./ProductLightbox";
 import { ProductDetailMedia } from "./ProductDetailBody";
@@ -85,8 +86,11 @@ function useLinkedVariantUnavailable(): boolean {
 
 function LiveOrderForm() {
   const { preview } = useRuntime();
+  const desktop = useDesktopViewport();
   const unavailable = useLinkedVariantUnavailable();
-  if (preview || unavailable) return null;
+  // On phones the full-width wrapper would leave an empty grid row, so the
+  // whole node goes away, not just the form inside it.
+  if (preview || unavailable || !desktop) return null;
   return <div data-landing-product-order="true" className="lg:col-span-2"><PdpQuickCodOrder /></div>;
 }
 

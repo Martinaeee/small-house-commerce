@@ -37,6 +37,7 @@ import { PdpStickyBuy } from "./PdpStickyBuy";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { VariantPickerDialog } from "./VariantPickerDialog";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { useDesktopViewport } from "./useDesktopViewport";
 import { pdpSellingPointsVisible, pdpSolutionBadges } from "./pdp-facts";
 import { resolvePdpBanner } from "./pdp-banner";
 import {
@@ -188,6 +189,7 @@ export function PdpClient({
   const searchParams = useSearchParams();
   const { addItem, openPicker, cart } = useCart();
   const { backInStockEnabled } = useSiteSettings();
+  const desktop = useDesktopViewport();
   const {
     primaryLine,
     primaryDerived,
@@ -565,9 +567,11 @@ export function PdpClient({
       // SAME picker (the one the PLP uses), pre-set to the current selection,
       // so the two behave identically; only the confirmation differs — ADD TO
       // CART adds the line, ORDER NOW goes straight to checkout.
-      // Single-variant products have nothing to pick and keep the direct
-      // paths below.
-      if (selectableCount > 1) {
+      // On phones the picker is also where quantity gets chosen, so it stays
+      // the single purchase entry there too: the inline form is gone and the
+      // sticky bar's two actions must not diverge. Desktop single-variant
+      // products have nothing to pick and keep the direct paths below.
+      if (selectableCount > 1 || !desktop) {
         openPicker(product, {
           initialVariantId: resolvedVariant?.id ?? null,
           initialQuantity: primaryLine.quantity,
@@ -591,6 +595,7 @@ export function PdpClient({
       executeAddToCart,
       executeOrderNow,
       openPicker,
+      desktop,
       primaryDerived.purchaseConfirmed,
       primaryDerived.purchasableVariant,
       primaryLine.quantity,

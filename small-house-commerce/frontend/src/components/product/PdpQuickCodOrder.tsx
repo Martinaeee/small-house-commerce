@@ -49,6 +49,7 @@ import {
 import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
 
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { useDesktopViewport } from "./useDesktopViewport";
 import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
@@ -125,6 +126,15 @@ function FieldError({
 }
 
 export function PdpQuickCodOrder(): ReactNode {
+  // Phones buy through the fixed bar and the shared drawer instead. Not
+  // mounting the inner form keeps its draft restore, address lookups and
+  // submit path out of the mobile page — and leaves no empty slot behind.
+  const desktop = useDesktopViewport();
+  if (!desktop) return null;
+  return <PdpQuickCodOrderForm />;
+}
+
+function PdpQuickCodOrderForm(): ReactNode {
   const router = useRouter();
   const { product, primaryLine, primaryDerived, setPurchaseLocked } =
     usePdpPurchase();

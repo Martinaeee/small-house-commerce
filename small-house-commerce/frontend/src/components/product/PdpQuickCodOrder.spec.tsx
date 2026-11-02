@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
@@ -213,6 +214,7 @@ async function fillRequiredFields(
 }
 
 beforeEach(() => {
+  installDesktopViewport();
   api.createOrder.mockReset();
   api.previewPromoCode.mockReset();
   tracking.readAttribution.mockReset();
@@ -230,6 +232,29 @@ beforeEach(() => {
 });
 
 describe("PdpQuickCodOrder", () => {
+  it("renders nothing on mobile so the page cannot redirect shoppers into a hidden form", () => {
+    installDesktopViewport(false);
+    renderQuickOrder();
+
+    expect(
+      screen.queryByRole("heading", { name: "Delivery information" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+    expect(
+      screen.queryByRole("button", { name: "Use my location" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the inline Cash on Delivery form on desktop", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.getByRole("heading", { name: "Delivery information" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Full Name *")).toBeVisible();
+  });
+
   it("writes the shared checkout draft and opens review without creating an order", async () => {
     const user = userEvent.setup();
     window.history.replaceState(

@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import type { Product, ProductImage } from "@/lib/api";
 import { createInitialPurchaseLines } from "./PdpPurchaseProvider";
 import { resolveSelection } from "@/lib/product-selection";
@@ -153,6 +154,8 @@ function Harness({
   );
 }
 
+beforeEach(() => { installDesktopViewport(); });
+
 afterEach(() => {
   vi.unstubAllGlobals();
   mockSettings.backInStockEnabled = true;
@@ -162,6 +165,29 @@ afterEach(() => {
 });
 
 describe("PdpStickyBuy", () => {
+  it("shows both purchase actions on mobile before the hero leaves the viewport", () => {
+    installDesktopViewport(false);
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+    observer.enter();
+    expect(screen.getByTestId("sticky-order-now")).toBeVisible();
+    expect(screen.getByTestId("sticky-add-to-cart")).toBeVisible();
+  });
+
+  it("keeps the mobile bar even if an old inline form observer reports an intersection", () => {
+    const resize = installDesktopViewport();
+    const observer = installIntersectionObserver();
+    render(<><Harness /><section id="quick-cod-order">COD</section></>);
+    observer.leave();
+    observer.enterCod();
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+    act(() => resize(false));
+    expect(screen.getByTestId("sticky-buy")).toBeVisible();
+    act(() => resize(true));
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+    expect(document.documentElement.style.getPropertyValue("--sticky-bar-offset")).toBe("");
+  });
+
   it("stays hidden while the hero intersects and shows one responsive shared-action bar after it leaves", () => {
     const observer = installIntersectionObserver();
     render(<Harness />);

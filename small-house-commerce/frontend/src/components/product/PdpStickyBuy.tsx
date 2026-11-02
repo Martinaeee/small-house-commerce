@@ -14,6 +14,7 @@ import { RestockNotifyAction } from "@/components/back-in-stock/RestockNotifyAct
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { PriceBox, formatPrice } from "@/components/ui/PriceBox";
 import type { PurchaseLineState } from "./PdpPurchaseProvider";
+import { useDesktopViewport } from "./useDesktopViewport";
 import { optimizedUploadImage } from "@/lib/image-url";
 
 export type StickyPurchaseIntent = "ADD_TO_CART" | "ORDER_NOW";
@@ -56,6 +57,7 @@ export function PdpStickyBuy({
   onRestockSaved,
 }: PdpStickyBuyProps): ReactNode {
   const { backInStockEnabled } = useSiteSettings();
+  const desktop = useDesktopViewport();
   const [visible, setVisible] = useState(false);
   const [codInView, setCodInView] = useState(false);
   const barRef = useRef<HTMLElement | null>(null);
@@ -76,6 +78,9 @@ export function PdpStickyBuy({
   // purchase UI over it. The section id is the same contract the COD form
   // and the E2E gates already use.
   useEffect(() => {
+    // Phones have no inline form any more: the bar is the page's purchase
+    // entry from the first frame and must not wait for (or yield to) it.
+    if (!desktop) return;
     const section = document.getElementById("quick-cod-order");
     if (!section || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
@@ -86,9 +91,9 @@ export function PdpStickyBuy({
     );
     observer.observe(section);
     return () => observer.disconnect();
-  }, []);
+  }, [desktop]);
 
-  const shown = visible && !codInView;
+  const shown = desktop ? visible && !codInView : true;
 
   // The bar is fixed, so the document must reserve exactly its height or the
   // last of the footer sits underneath it. Measuring (instead of a per-breakpoint
