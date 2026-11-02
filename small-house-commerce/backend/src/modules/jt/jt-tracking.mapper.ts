@@ -46,7 +46,7 @@ export function toEventInput(detail: JtDetail): RecordLogisticsEventInput | null
     province: detail.scanNetworkProvince ?? null,
     city: detail.scanNetworkCity ?? null,
     description: detail.desc ?? null,
-    staffContact: detail.staffConcatPhone ?? null,
+    staffContact: detail.staffConcatPhone ?? detail.staffContact ?? null,
     signatureImageUrl: detail.sigPicUrl ?? null,
   };
 }

@@ -4,7 +4,10 @@ export interface JtDetail {
   desc?: string | null;
   scanTypeName: string;
   scanTypeCode: string;
+  /// The platform documents both names for the courier phone and does not say
+  /// which one a given account receives, so either may arrive.
   staffConcatPhone?: string | null;
+  staffContact?: string | null;
   scanNetworkProvince?: string | null;
   scanNetworkCity?: string | null;
   scanNetworkArea?: string | null;

@@ -57,6 +57,26 @@ describe('toEventInput', () => {
     });
   });
 
+  it('falls back to staffContact when the carrier sends that field instead', () => {
+    const input = toEventInput({
+      ...detail({ staffContact: '9171234567' }),
+      staffConcatPhone: undefined,
+    });
+    expect(input?.staffContact).toBe('9171234567');
+  });
+
+  it('keeps staffConcatPhone first when both phone fields are present', () => {
+    const input = toEventInput(
+      detail({ staffConcatPhone: '9684746842', staffContact: '9171234567' }),
+    );
+    expect(input?.staffContact).toBe('9684746842');
+  });
+
+  it('leaves the phone empty when neither phone field is sent', () => {
+    const input = toEventInput({ ...detail(), staffConcatPhone: undefined });
+    expect(input?.staffContact).toBeNull();
+  });
+
   it('builds a stable id so a repeat poll is idempotent', () => {
     expect(toEventInput(detail())?.externalEventId).toBe(
       toEventInput(detail())?.externalEventId,
