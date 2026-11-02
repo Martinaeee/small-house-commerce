@@ -365,6 +365,9 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
       failed: await this.prisma.qianyiSyncJob.count({ where: { status: 'FAILED' } }),
       review: await this.prisma.qianyiSyncJob.count({ where: { pendingReview: true } }),
       sent24h: await this.prisma.qianyiSyncJob.count({ where: { status: 'SENT', sentAt: { gte: since } } }),
+      // Pushes that never reached Qianyi because a SKU was unmapped: they need
+      // an operator to finish the binding, so they are counted apart from FAILED.
+      skipped: await this.prisma.qianyiSyncJob.count({ where: { status: 'SKIPPED' } }),
       // Callbacks that arrived too late to apply: they stay archived and need
       // an operator, so surface them instead of leaving them in the table.
       callbacks: await this.prisma.qianyiWebhookEvent.count({

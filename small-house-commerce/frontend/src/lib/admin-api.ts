@@ -1645,18 +1645,23 @@ export interface AdminQianyiStatus {
   failed: number;
   review: number;
   sent24h: number;
+  skipped?: number;
   callbacks: number;
 }
 
-/** One catalog SKU as the Qianyi creation preview lists it. */
+/** One catalog SKU as the Qianyi console lists it. */
 export interface AdminQianyiSkuRow {
   id: string;
   skuCode: string;
   qianyiSkuCode: string | null;
   title: string;
+  variantName?: string;
+  imageUrl?: string | null;
   ready: boolean;
   gaps: string[];
 }
+
+export type AdminQianyiJobFilter = "all" | "todo" | "pending" | "failed" | "review" | "skipped" | "sent24h";
 
 export interface AdminQianyiJob {
   id: string;
@@ -1666,8 +1671,10 @@ export interface AdminQianyiJob {
   pendingReview: boolean;
   lastError: string | null;
   externalOrderNumber: string | null;
+  createdAt?: string;
+  sentAt?: string | null;
   updatedAt: string;
-  order?: { orderNumber: string } | null;
+  order?: { id?: string; orderNumber: string } | null;
 }
 
 export interface AdminSystemStatus {
@@ -2844,8 +2851,10 @@ export const adminApi = {
       { method: "PUT", body: JSON.stringify({ qianyiSkuCode }) },
     ),
 
-  qianyiJobs: (): Promise<AdminQianyiJob[]> =>
-    adminAuthedFetch<AdminQianyiJob[]>("/api/v1/admin/qianyi/jobs"),
+  qianyiJobs: (filter?: AdminQianyiJobFilter): Promise<AdminQianyiJob[]> =>
+    adminAuthedFetch<AdminQianyiJob[]>(
+      `/api/v1/admin/qianyi/jobs${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
+    ),
 
   retryQianyiJob: (
     id: string,

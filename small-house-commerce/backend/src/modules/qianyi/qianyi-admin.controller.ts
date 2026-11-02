@@ -7,15 +7,44 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { QianyiClient, qianyiRows } from './qianyi.client.js';
 import { QianyiSyncService } from './qianyi-sync.service.js';
 import { skuReadiness, type SkuSource } from './qianyi-sku.mapper.js';
+import { skuThumbnailUrl } from '../orders/sku-thumbnail.js';
+import { Prisma } from '../../generated/prisma/client.js';
 
 const SKU_INCLUDE = {
   product: { select: { name: true, description: true } },
   variant: {
-    include: {
-      product: { include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } } },
+    select: {
+      id: true,
+      name: true,
+      optionValues: { select: { optionValueId: true } },
+      product: {
+        select: {
+          name: true,
+          description: true,
+          images: {
+            where: { type: 'IMAGE' },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            select: {
+              url: true,
+              type: true,
+              optionValueId: true,
+              variantId: true,
+              isScene: true,
+            },
+          },
+        },
+      },
     },
   },
-} as const;
+} satisfies Prisma.SkuInclude;
+
+type SkuImage = {
+  url: string;
+  type: string;
+  optionValueId: string | null;
+  variantId: string | null;
+  isScene: boolean;
+};
 
 type SkuRow = {
   id: string;
@@ -27,7 +56,12 @@ type SkuRow = {
   packageDepth: number | null;
   productWeight: number | null;
   product: { name: string; description: string | null };
-  variant: { product: { images: Array<{ url: string }> } };
+  variant: {
+    id: string;
+    name: string;
+    optionValues: Array<{ optionValueId: string }>;
+    product: { name: string; description: string | null; images: SkuImage[] };
+  };
 };
 
 function toSource(row: SkuRow): SkuSource {
@@ -83,6 +117,14 @@ export class QianyiAdminController {
         skuCode: row.skuCode,
         qianyiSkuCode: row.qianyiSkuCode,
         title: row.product.name,
+        variantName: row.variant.name,
+        // Same precedence the order lines use, so the operator recognises the
+        // picture the customer saw next to the code they are binding.
+        imageUrl: skuThumbnailUrl({
+          id: row.variant.id,
+          optionValues: row.variant.optionValues,
+          product: { images: row.variant.product.images },
+        }),
         ...readiness,
       };
     });
@@ -107,11 +149,39 @@ export class QianyiAdminController {
 
   @Get('jobs')
   @Header('Cache-Control', 'private, no-store')
-  async jobs() {
+  async jobs(@Query('filter') filter = 'all') {
+    let where: Prisma.QianyiSyncJobWhereInput;
+    switch (filter) {
+      case 'all': where = {}; break;
+      case 'todo': where = { status: { in: ['PENDING', 'SENDING', 'FAILED', 'SKIPPED'] } }; break;
+      case 'pending': where = { status: { in: ['PENDING', 'SENDING'] } }; break;
+      case 'failed': where = { status: 'FAILED' }; break;
+      case 'review': where = { pendingReview: true }; break;
+      case 'skipped': where = { status: 'SKIPPED' }; break;
+      case 'sent24h':
+        where = { status: 'SENT', sentAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } };
+        break;
+      default: throw new BadRequestException('Invalid Qianyi job filter');
+    }
+    // Filter before taking the latest 50, so older unresolved jobs are not
+    // hidden behind newer successes. Stored customer payloads stay server-side.
     return this.prisma.qianyiSyncJob.findMany({
-      orderBy: { updatedAt: 'desc' },
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: 50,
-      include: { order: { select: { orderNumber: true } } },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        attempts: true,
+        pendingReview: true,
+        lastError: true,
+        externalOrderNumber: true,
+        createdAt: true,
+        sentAt: true,
+        updatedAt: true,
+        order: { select: { id: true, orderNumber: true } },
+      },
     });
   }
 

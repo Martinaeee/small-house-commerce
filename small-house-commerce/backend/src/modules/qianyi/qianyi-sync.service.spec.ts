@@ -115,6 +115,20 @@ describe('QianyiSyncService.health', () => {
 
     expect((await service.health()).callbacks).toBe(2);
   });
+
+  it('counts pushes skipped for a missing SKU mapping so the console can filter them', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service, prisma } = serviceWith(tx);
+    vi.mocked(prisma.qianyiSyncJob.count)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3);
+
+    expect((await service.health()).skipped).toBe(3);
+    expect(vi.mocked(prisma.qianyiSyncJob.count).mock.calls[4][0]).toEqual({ where: { status: 'SKIPPED' } });
+  });
 });
 
 describe('QianyiSyncService.adoptExisting', () => {
