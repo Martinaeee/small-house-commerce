@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation";
 import { type Product, type StorefrontProductVariant } from "@/lib/api";
 import {
   defaultPreferredDeliveryDate,
-  deliveryWindowFor,
   manilaWallDate,
   toDateInputValue,
 } from "@/lib/deliveryWindow";
@@ -951,23 +950,7 @@ export function PdpQuickCodOrder(): ReactNode {
               />
             </div>
 
-            <label className="col-span-1 flex flex-col gap-1 text-[13px] font-medium text-ink sm:col-span-full">
-              <span className="sm:hidden">Landmark</span>
-              <span className="hidden sm:inline">Landmark (Optional)</span>
-              <input
-                id="quick-cod-landmark"
-                name="landmark"
-                aria-label="Landmark (Optional)"
-                className={inputCls}
-                value={form.landmark}
-                onChange={set("landmark")}
-                placeholder="Gate name"
-                autoComplete="off"
-                disabled={submitting}
-              />
-            </label>
-
-            <div className="col-span-1 flex flex-col gap-1 sm:col-span-full">
+            <div className="col-span-full flex flex-col gap-1">
               <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 <span className="sm:hidden">Preferred date</span>
                 <span className="hidden sm:inline">
@@ -999,11 +982,6 @@ export function PdpQuickCodOrder(): ReactNode {
                 message={errors.preferredDeliveryDate}
               />
             </div>
-            <p className="col-span-full -mt-1 text-xs text-ink-muted">
-              {form.province.trim()
-                ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
-                : "Choose a preferred date (optional)."}
-            </p>
 
             <div className="col-span-full flex flex-col gap-1">
               <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
@@ -1020,9 +998,6 @@ export function PdpQuickCodOrder(): ReactNode {
                   disabled={submitting}
                 />
               </label>
-              <span className="text-xs font-normal text-ink-muted">
-                We&apos;ll do our best to accommodate your request.
-              </span>
             </div>
             <p className="col-span-full text-xs text-ink-secondary">
               Your information is used only to process and deliver your order.

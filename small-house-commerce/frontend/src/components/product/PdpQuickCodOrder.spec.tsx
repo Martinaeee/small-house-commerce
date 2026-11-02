@@ -278,10 +278,10 @@ describe("PdpQuickCodOrder", () => {
 
     expect(screen.getByRole("button", { name: "Use my location" })).toBeVisible();
     expect(screen.getByLabelText("Postal Code")).toBeVisible();
-    expect(screen.getByLabelText("Landmark (Optional)")).toBeVisible();
+    expect(screen.queryByLabelText("Landmark (Optional)")).toBeNull();
     expect(screen.getByLabelText("Preferred delivery date (optional)")).toBeVisible();
     expect(screen.queryByText("We use your mobile number for delivery updates.")).toBeNull();
-    expect(screen.getByText("Choose a preferred date (optional).")).toBeVisible();
+    expect(screen.queryByText("Choose a preferred date (optional).")).toBeNull();
     expect(screen.getByTestId("quick-cod-submit")).toHaveTextContent("REVIEW ORDER");
   });
 
@@ -305,8 +305,8 @@ describe("PdpQuickCodOrder", () => {
       "Add a delivery note (optional)",
     );
     expect(
-      screen.getByText("We'll do our best to accommodate your request."),
-    ).toBeVisible();
+      screen.queryByText("We'll do our best to accommodate your request."),
+    ).toBeNull();
     expect(
       screen.getByText(
         "Your information is used only to process and deliver your order.",
@@ -580,7 +580,6 @@ describe("PdpQuickCodOrder", () => {
       expect(screen.getByLabelText("Full Name *")).toHaveValue("Maria Santos"),
     );
     expect(screen.getByLabelText("Postal Code")).toHaveValue("1101");
-    expect(screen.getByLabelText("Landmark (Optional)")).toHaveValue("Blue gate");
     expect(screen.getByLabelText("Preferred delivery date (optional)")).toHaveValue(
       "2026-10-05",
     );
