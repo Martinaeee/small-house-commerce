@@ -75,3 +75,21 @@
 ## 已知限制
 
 - 旧 `PDP_INLINE` 草稿在确认页的 “Edit” 仍指向 `#quick-cod-order`。手机端不再渲染该表单，因此从桌面创建、再到手机打开确认页的旧草稿，点 Edit 会落到商品页而看不到编辑表单；新的手机流程（抽屉 → `/checkout`）Edit 指回 `/checkout`，正常。若要统一改造，需要为多 SKU 草稿在结账页增加 `directItems` 恢复协议，属于另一轮改动。
+
+## 追加：像素与投放前检查（2026-11-02）
+
+用普通 Chrome Android UA（避开 `HeadlessChrome` 被 fbevents 丢弃）在生产实测，隔离浏览器上下文，consent 设为 granted：
+
+- PDP：Pixel `PageView` + `ViewContent`（`content_ids`=SKU UUID、`value`、`currency`）正常；CAPI 镜像同样发出。
+- 打开 `ORDER NOW` 抽屉：不产生 `AddToCart`/`InitiateCheckout`。
+- 抽屉确认 `ORDER NOW`：自定义 `variant_confirm` 一次，跳 `/checkout` 后 `PageView` + `InitiateCheckout` 一次；无 `AddToCart`，未创建订单。
+- 抽屉确认 `ADD TO CART`（仅拦截 `/api/v1/storefront/cart/items`，未真实加购）：`variant_confirm` + `AddToCart` 各一次；数值为 `price × qty`。浏览器 `eid` 与服务端 outbox `event_id` 完全一致（Meta 去重成立）。
+- `fbclid` 落地会生成 `_fbc` cookie，CAPI 可用；营销 `cl`/`aid` 凭证由 `MarketingTouchObserver` 写入 localStorage，抽屉跳结账不会丢失。
+- 生产配置：Pixel `2095166877806714` 已烘焙进前端 chunk；CAPI token 已设置；outbox 全部 `SENT`，近 7 天 ViewContent 50 / InitiateCheckout 21 / AddToCart 15 / Purchase 4，无 `FAILED`。
+- 检查期间产生了少量诊断事件（ViewContent/InitiateCheckout/AddToCart 各几条，无订单），会出现在 Events Manager。
+
+投放前值得处理、但**不属于本次改动**：
+
+- 首次访问的 cookie 同意条与手机固定购买栏都是 `z-40`、都贴底，同意条会完整盖住固定栏，选择前 ORDER NOW/ADD TO CART 不可点；手机端现在只靠固定栏购买，建议把同意条抬到固定栏之上（需先确认，属全局组件改动）。
+- 纯 `fbclid` 落地若在离开落地页之后才同意 Cookie，`_fbc` 可能缺失；`cl`/`aid` 营销链接不受影响。
+
