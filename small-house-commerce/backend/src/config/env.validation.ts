@@ -141,14 +141,13 @@ export const envSchema = z.object({
     blankAsUndefined,
     z.string().regex(/^v\d+\.\d+$/, 'META_CAPI_API_VERSION must look like v23.0').optional(),
   ),
-  // J&T Express PH open platform. Optional so an unconfigured deployment boots
-  // unchanged; the superRefine below refuses a half-configured switch-on.
+  // J&T Express PH legacy TRACKQUERY gateway. Optional so an unconfigured
+  // deployment boots unchanged; the superRefine below refuses a half-configured
+  // switch-on.
   JT_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false']).optional()),
   JT_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
-  JT_API_ACCOUNT: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
-  JT_PRIVATE_KEY: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
-  JT_CUSTOMER_CODE: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
-  JT_CUSTOMER_PASSWORD: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  JT_ECCOMPANYID: z.preprocess(blankAsUndefined, z.string().min(1).max(40).optional()),
+  JT_KEY: z.preprocess(blankAsUndefined, z.string().min(8).optional()),
   JT_POLL_MINUTES: z.preprocess(
     blankAsUndefined,
     z.coerce.number().int().positive().max(1440).optional(),
@@ -177,12 +176,7 @@ export const envSchema = z.object({
     });
   }
   if (env.JT_ENABLED === 'true') {
-    const required = [
-      'JT_API_ACCOUNT',
-      'JT_PRIVATE_KEY',
-      'JT_CUSTOMER_CODE',
-      'JT_CUSTOMER_PASSWORD',
-    ] as const;
+    const required = ['JT_ECCOMPANYID', 'JT_KEY'] as const;
     for (const key of required) {
       if (!env[key]) {
         ctx.addIssue({

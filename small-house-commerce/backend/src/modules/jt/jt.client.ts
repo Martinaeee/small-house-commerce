@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { readJtConfig, type JtConfig } from './jt.config.js';
-import type { JtDetail, JtEnvelope } from './jt.types.js';
+import type { JtDetail, JtEnvelope, JtScan } from './jt.types.js';
 
 export type JtErrorKind =
   | 'DISABLED'
@@ -22,39 +22,32 @@ export class JtError extends Error {
   }
 }
 
-/** MD5(password + fixed salt), uppercase — J&T's "密文". */
-export function jtPasswordCipher(password: string): string {
-  return createHash('md5')
-    .update(password + 'jadada236t2', 'utf8')
-    .digest('hex')
-    .toUpperCase();
-}
-
-/** Body-level digest: base64(MD5(customerCode + cipher + privateKey)). */
-export function jtBodyDigest(
-  customerCode: string,
-  password: string,
-  privateKey: string,
-): string {
-  return createHash('md5')
-    .update(customerCode + jtPasswordCipher(password) + privateKey, 'utf8')
-    .digest('base64');
-}
-
-/** Header digest: base64(MD5(bizContent + privateKey)) over the exact JSON sent. */
-export function jtHeaderDigest(bizContent: string, privateKey: string): string {
-  return createHash('md5').update(bizContent + privateKey, 'utf8').digest('base64');
+/**
+ * `data_digest` for the legacy TRACKQUERY protocol: base64 of the hex MD5 of
+ * the exact `logistics_interface` string followed by the account key. This is
+ * one level, unlike the open platform's two-level digest.
+ */
+export function jtDataDigest(logisticsInterface: string, key: string): string {
+  const hex = createHash('md5').update(logisticsInterface + key, 'utf8').digest('hex');
+  return Buffer.from(hex, 'utf8').toString('base64');
 }
 
 const TIMEOUT_MS = 15_000;
+
+/**
+ * The namespaced path is part of the contract: the gateway answers 404 without
+ * `/jts-phl-order-api`, so it is appended here rather than asked of the
+ * `JT_BASE_URL` value.
+ */
+const TRACE_PATH = '/jts-phl-order-api/api/track/trackForJson';
 
 /** Exposed for the timeout test; the wire contract allows no longer a wait. */
 export const JT_REQUEST_TIMEOUT_MS = TIMEOUT_MS;
 
 /**
- * The only place that knows the J&T open-platform wire protocol: two-level
- * signing, a form-encoded `bizContent`, and one endpoint per feature. No
- * persistence and no retries — the worker owns cadence and backoff.
+ * The only place that knows the J&T TRACKQUERY wire protocol: a form-encoded
+ * body, one digest over the payload, and one endpoint. No persistence and no
+ * retries — the worker owns cadence and backoff.
  */
 @Injectable()
 export class JtClient {
@@ -79,30 +72,27 @@ export class JtClient {
       throw new JtError('J&T integration is disabled', 'DISABLED');
     }
 
-    const bizContent = JSON.stringify({
-      customerCode: this.config.customerCode,
-      digest: jtBodyDigest(
-        this.config.customerCode,
-        this.config.customerPassword,
-        this.config.privateKey,
-      ),
-      billCode,
-    });
-    const headerDigest = jtHeaderDigest(bizContent, this.config.privateKey);
+    // `lang: "en"` is what makes `desc` arrive in English; without it the
+    // carrier answers in whichever language its account defaults to.
+    const payload = JSON.stringify({ billcode: billCode, lang: 'en' });
+    const body = new URLSearchParams({
+      msg_type: 'TRACKQUERY',
+      eccompanyid: this.config.eccompanyid,
+      logistics_interface: payload,
+      data_digest: jtDataDigest(payload, this.config.key),
+    }).toString();
 
     let response: Response;
     try {
-      response = await this.request(`${this.config.baseUrl}/logistics/trace`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          apiAccount: this.config.apiAccount,
-          digest: headerDigest,
-          timestamp: String(Date.now()),
+      response = await this.request(
+        `${this.config.baseUrl.replace(/\/+$/, '')}${TRACE_PATH}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+          signal: AbortSignal.timeout(TIMEOUT_MS),
         },
-        body: new URLSearchParams({ bizContent }).toString(),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
+      );
     } catch (error) {
       throw new JtError(`J&T request failed: ${(error as Error).message}`, 'TRANSPORT');
     }
@@ -129,19 +119,30 @@ export class JtClient {
       );
     }
 
-    if (String(parsed.code) !== '1') {
-      const message = parsed.msg || `J&T rejected the request (HTTP ${response.status})`;
-      this.logger.warn(
-        `J&T trace rejected: ${message}${parsed.requestId ? ` (${parsed.requestId})` : ''}`,
-      );
-      throw new JtError(
-        message,
-        /sign|签名/i.test(message) ? 'SIGNATURE' : 'BUSINESS',
-        parsed.requestId,
-      );
+    // The legacy envelope's failure flag is not documented, so the presence of
+    // an `responseitems` array is the only success signal we act on. Anything
+    // else is a rejection carrying whatever wording the gateway sent.
+    if (!Array.isArray(parsed.responseitems)) {
+      const message =
+        parsed.reason ||
+        parsed.msg ||
+        parsed.message ||
+        `J&T rejected the request (HTTP ${response.status})`;
+      this.logger.warn(`J&T trace rejected: ${message}`);
+      throw new JtError(message, /sign|digest|签名/i.test(message) ? 'SIGNATURE' : 'BUSINESS');
     }
 
-    const details = parsed.data?.details;
-    return Array.isArray(details) ? details : [];
+    return parsed.responseitems
+      .flatMap((item) => (Array.isArray(item?.details) ? item.details : []))
+      .map(toDetail);
   }
+}
+
+function toDetail(scan: JtScan): JtDetail {
+  return {
+    scanTime: scan.scantime,
+    scanTypeName: scan.scantype ?? '',
+    scanTypeCode: scan.code == null ? '' : String(scan.code),
+    desc: scan.desc ?? null,
+  };
 }

@@ -3,11 +3,9 @@ import { readJtConfig } from './jt.config.js';
 
 const base = {
   'jt.enabled': 'true',
-  'jt.baseUrl': 'https://demoopenapi.jtexpress.ph/webopenplatformapi/api',
-  'jt.apiAccount': '640826271705595946',
-  'jt.privateKey': 'pk',
-  'jt.customerCode': 'J0086474299',
-  'jt.customerPassword': 'pw',
+  'jt.baseUrl': 'https://jtapi.jtexpress.ph',
+  'jt.eccompanyid': 'LUWAG-EC',
+  'jt.key': 'test-key',
   'jt.pollMinutes': 30,
   'jt.carrierName': 'J&T Express',
 };
@@ -16,12 +14,12 @@ const configOf = (values: Record<string, unknown>) =>
   ({ get: (key: string) => values[key] }) as never;
 
 describe('readJtConfig', () => {
-  it('is enabled when the flag is on and every credential is present', () => {
+  it('is enabled when the flag is on and both credentials are present', () => {
     expect(readJtConfig(configOf(base)).enabled).toBe(true);
   });
 
-  it('stays disabled when the flag is on but the private key is missing', () => {
-    const values = { ...base, 'jt.privateKey': '' };
+  it('stays disabled when the flag is on but the key is missing', () => {
+    const values = { ...base, 'jt.key': '' };
     expect(readJtConfig(configOf(values)).enabled).toBe(false);
   });
 
@@ -42,8 +40,6 @@ describe('readJtConfig', () => {
   it('falls back to the production host', () => {
     const values = { ...base };
     delete (values as Record<string, unknown>)['jt.baseUrl'];
-    expect(readJtConfig(configOf(values)).baseUrl).toBe(
-      'https://openapi.jtexpress.ph/webopenplatformapi/api',
-    );
+    expect(readJtConfig(configOf(values)).baseUrl).toBe('https://jtapi.jtexpress.ph');
   });
 });

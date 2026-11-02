@@ -6,10 +6,6 @@ const detail = (overrides: Record<string, unknown> = {}) => ({
   desc: 'Your package has been Delivered',
   scanTypeName: 'Delivered',
   scanTypeCode: '113',
-  staffConcatPhone: '9684746842',
-  scanNetworkProvince: 'METRO-MANILA',
-  scanNetworkCity: 'TAGUIG',
-  sigPicUrl: 'https://example.test/sign.jpg',
   ...overrides,
 });
 
@@ -42,39 +38,15 @@ describe('parseScanTime', () => {
 });
 
 describe('toEventInput', () => {
-  it('carries the carrier wording, rider phone and signature url', () => {
+  it('carries the carrier wording next to the normalized state', () => {
     const input = toEventInput(detail());
     expect(input).toEqual({
       normalizedStatus: 'SIGNED',
       externalEventId: '113:2026-05-09 09:57:32',
       externalStatus: 'Delivered',
       eventTime: new Date('2026-05-09T01:57:32.000Z'),
-      province: 'METRO-MANILA',
-      city: 'TAGUIG',
       description: 'Your package has been Delivered',
-      staffContact: '9684746842',
-      signatureImageUrl: 'https://example.test/sign.jpg',
     });
-  });
-
-  it('falls back to staffContact when the carrier sends that field instead', () => {
-    const input = toEventInput({
-      ...detail({ staffContact: '9171234567' }),
-      staffConcatPhone: undefined,
-    });
-    expect(input?.staffContact).toBe('9171234567');
-  });
-
-  it('keeps staffConcatPhone first when both phone fields are present', () => {
-    const input = toEventInput(
-      detail({ staffConcatPhone: '9684746842', staffContact: '9171234567' }),
-    );
-    expect(input?.staffContact).toBe('9684746842');
-  });
-
-  it('leaves the phone empty when neither phone field is sent', () => {
-    const input = toEventInput({ ...detail(), staffConcatPhone: undefined });
-    expect(input?.staffContact).toBeNull();
   });
 
   it('builds a stable id so a repeat poll is idempotent', () => {

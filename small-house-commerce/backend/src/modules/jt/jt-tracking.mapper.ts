@@ -43,10 +43,6 @@ export function toEventInput(detail: JtDetail): RecordLogisticsEventInput | null
     externalEventId: `${detail.scanTypeCode.trim()}:${detail.scanTime.trim()}`,
     externalStatus: detail.scanTypeName,
     eventTime,
-    province: detail.scanNetworkProvince ?? null,
-    city: detail.scanNetworkCity ?? null,
     description: detail.desc ?? null,
-    staffContact: detail.staffConcatPhone ?? detail.staffContact ?? null,
-    signatureImageUrl: detail.sigPicUrl ?? null,
   };
 }

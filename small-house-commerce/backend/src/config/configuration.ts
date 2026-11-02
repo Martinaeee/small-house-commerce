@@ -74,11 +74,9 @@ export function configuration() {
     // J&T Express tracking. Empty values keep the worker switched off.
     jt: {
       enabled: env.JT_ENABLED ?? 'false',
-      baseUrl: env.JT_BASE_URL ?? 'https://openapi.jtexpress.ph/webopenplatformapi/api',
-      apiAccount: env.JT_API_ACCOUNT ?? '',
-      privateKey: env.JT_PRIVATE_KEY ?? '',
-      customerCode: env.JT_CUSTOMER_CODE ?? '',
-      customerPassword: env.JT_CUSTOMER_PASSWORD ?? '',
+      baseUrl: env.JT_BASE_URL ?? 'https://jtapi.jtexpress.ph',
+      eccompanyid: env.JT_ECCOMPANYID ?? '',
+      key: env.JT_KEY ?? '',
       pollMinutes: env.JT_POLL_MINUTES ?? 30,
       carrierName: env.JT_CARRIER_NAME ?? 'J&T Express',
     },

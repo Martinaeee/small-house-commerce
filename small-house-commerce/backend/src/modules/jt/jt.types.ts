@@ -1,23 +1,29 @@
-/** One scan as J&T reports it inside `data.details[]`. */
+/** One scan as J&T reports it inside `responseitems[].details[]`. */
+export interface JtScan {
+  scantime: string;
+  scantype?: string | null;
+  desc?: string | null;
+  /** Scan code; which namespace it belongs to is confirmed on a real waybill. */
+  code?: string | number | null;
+}
+
+export interface JtResponseItem {
+  details?: JtScan[] | null;
+}
+
+/** The TRACKQUERY envelope. Only `responseitems` is trusted as a success signal. */
+export interface JtEnvelope {
+  responseitems?: JtResponseItem[] | null;
+  responseFlag?: string | null;
+  reason?: string | null;
+  msg?: string | null;
+  message?: string | null;
+}
+
+/** A scan in the shape the mapper and the persistence layer understand. */
 export interface JtDetail {
   scanTime: string;
   desc?: string | null;
   scanTypeName: string;
   scanTypeCode: string;
-  /// The platform documents both names for the courier phone and does not say
-  /// which one a given account receives, so either may arrive.
-  staffConcatPhone?: string | null;
-  staffContact?: string | null;
-  scanNetworkProvince?: string | null;
-  scanNetworkCity?: string | null;
-  scanNetworkArea?: string | null;
-  sigPicUrl?: string | null;
-  timeZone?: string | null;
-}
-
-export interface JtEnvelope {
-  code: string | number;
-  msg?: string;
-  data?: { billCode?: string; details?: JtDetail[] } | null;
-  requestId?: string;
 }
