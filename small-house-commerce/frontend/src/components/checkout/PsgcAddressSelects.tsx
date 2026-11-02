@@ -143,7 +143,7 @@ export function PsgcAddressSelects({
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
         <label
           htmlFor="checkout-province"
-          className={compactPlaceholders ? "min-h-8 sm:min-h-0" : undefined}
+          className={compactPlaceholders ? "min-h-10 sm:min-h-0" : undefined}
         >
           Province *
         </label>
@@ -170,7 +170,7 @@ export function PsgcAddressSelects({
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
         <label
           htmlFor="checkout-city"
-          className={compactPlaceholders ? "min-h-8 sm:min-h-0" : undefined}
+          className={compactPlaceholders ? "min-h-10 sm:min-h-0" : undefined}
         >
           City / Municipality *
         </label>

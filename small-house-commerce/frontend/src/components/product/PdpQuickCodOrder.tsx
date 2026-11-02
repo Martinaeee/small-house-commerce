@@ -961,7 +961,7 @@ export function PdpQuickCodOrder(): ReactNode {
                 className={inputCls}
                 value={form.landmark}
                 onChange={set("landmark")}
-                placeholder="Gate / landmark"
+                placeholder="Gate name"
                 autoComplete="off"
                 disabled={submitting}
               />
