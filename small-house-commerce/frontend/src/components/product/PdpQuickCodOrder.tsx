@@ -191,6 +191,7 @@ export function PdpQuickCodOrder(): ReactNode {
     streetAddress: "",
     landmark: "",
     preferredDeliveryDate: defaultPreferredDeliveryDate(),
+    notes: "",
   });
   const [dateBounds] = useState(() => {
     const { year, month, day } = manilaWallDate(new Date());
@@ -231,6 +232,7 @@ export function PdpQuickCodOrder(): ReactNode {
       setForm({
         ...draft.customer,
         preferredDeliveryDate: draft.preferredDeliveryDate ?? "",
+        notes: draft.customerNote ?? "",
       });
       setInitialPromoCode(draft.promoCode ?? "");
       const bySku = new Map(
@@ -332,14 +334,17 @@ export function PdpQuickCodOrder(): ReactNode {
   };
 
   const set =
-    (field: keyof typeof form) =>
-    (event: ChangeEvent<HTMLInputElement>): void => {
+    (field: CheckoutField | "notes") =>
+    (
+      event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+    ): void => {
       const value = event.target.value;
       setFormTouched(true);
       fireInitiate(items, totals.subtotal);
       setForm((current) => ({ ...current, [field]: value }));
       // Clear the field's own error as soon as it is edited; a fresh verdict
       // arrives on blur or on the next submit.
+      if (field === "notes") return;
       setErrors((current) => {
         if (!current[field]) return current;
         const next = { ...current };
@@ -581,6 +586,7 @@ export function PdpQuickCodOrder(): ReactNode {
         items,
       },
       appliedPromo?.code ?? null,
+      form.notes.trim() || null,
     );
     router.push(`/checkout/confirm${query}`);
   }
@@ -772,92 +778,102 @@ export function PdpQuickCodOrder(): ReactNode {
           <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
         </div>
 
-        {/* Delivery form */}
+        {/* Delivery form — the same consolidated card as checkout. */}
         <form
-          className="flex w-full flex-col gap-4"
+          className="flex w-full flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
           onSubmit={(event) => {
             event.preventDefault();
             goToReview();
           }}
           noValidate
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="quick-cod-name"
-                className="text-sm font-medium text-ink"
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-ink">
+              Delivery information
+            </h2>
+            <button
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={submitting || locating}
+              className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-cta hover:underline disabled:opacity-60"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
               >
+                <path
+                  d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="10" r="2.5" />
+              </svg>
+              {locating ? "Locating…" : "Use my location"}
+            </button>
+          </div>
+          {locationError ? (
+            <p role="alert" className="mb-3 text-xs text-sale">
+              {locationError}
+            </p>
+          ) : null}
+          {locationNotice ? (
+            <p role="status" className="mb-3 text-xs text-ink-secondary">
+              {locationNotice}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Full Name *
+                <input
+                  id="quick-cod-name"
+                  name="name"
+                  className={`${inputCls}${errors.name ? " border-sale" : ""}`}
+                  value={form.name}
+                  onChange={set("name")}
+                  onBlur={revalidate("name")}
+                  aria-invalid={Boolean(errors.name)}
+                  aria-describedby={
+                    errors.name ? "quick-cod-name-error" : undefined
+                  }
+                  autoComplete="name"
+                  placeholder="Juan Dela Cruz"
+                  disabled={submitting}
+                />
               </label>
-              <input
-                id="quick-cod-name"
-                name="name"
-                className={`mt-1 ${inputCls}${errors.name ? " border-sale" : ""}`}
-                value={form.name}
-                onChange={set("name")}
-                onBlur={revalidate("name")}
-                aria-invalid={Boolean(errors.name)}
-                aria-describedby={
-                  errors.name ? "quick-cod-name-error" : undefined
-                }
-                autoComplete="name"
-                placeholder="Juan Dela Cruz"
-                disabled={submitting}
-              />
               <FieldError id="quick-cod-name" message={errors.name} />
             </div>
 
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="quick-cod-phone"
-                className="text-sm font-medium text-ink"
-              >
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Mobile Number *
+                <input
+                  id="quick-cod-phone"
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
+                  value={form.phone}
+                  onChange={set("phone")}
+                  onBlur={revalidate("phone")}
+                  aria-invalid={Boolean(errors.phone)}
+                  aria-describedby={
+                    errors.phone ? "quick-cod-phone-error" : undefined
+                  }
+                  autoComplete="tel"
+                  placeholder="0917 123 4567"
+                  disabled={submitting}
+                />
               </label>
-              <input
-                id="quick-cod-phone"
-                name="phone"
-                type="tel"
-                inputMode="tel"
-                className={`mt-1 ${inputCls}${errors.phone ? " border-sale" : ""}`}
-                value={form.phone}
-                onChange={set("phone")}
-                onBlur={revalidate("phone")}
-                aria-invalid={Boolean(errors.phone)}
-                aria-describedby={
-                  errors.phone ? "quick-cod-phone-error" : undefined
-                }
-                autoComplete="tel"
-                placeholder="0917 123 4567"
-                disabled={submitting}
-              />
               <FieldError id="quick-cod-phone" message={errors.phone} />
             </div>
 
-            <p className="-mt-2 text-xs text-ink-muted sm:col-span-2">
+            <p className="col-span-full -mt-1 text-xs font-normal text-ink-muted">
               We use your mobile number for delivery updates.
             </p>
-
-            <div className="sm:col-span-2">
-              <button
-                type="button"
-                onClick={handleUseMyLocation}
-                disabled={submitting || locating}
-                className="text-sm font-medium text-cta hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {locating ? "Locating…" : "Use my location"}
-              </button>
-              {locationError ? (
-                <p role="alert" className="mt-1 text-xs text-sale">
-                  {locationError}
-                </p>
-              ) : null}
-              {locationNotice ? (
-                <p role="status" className="mt-1 text-xs text-ink-muted">
-                  {locationNotice}
-                </p>
-              ) : null}
-            </div>
 
             <PsgcAddressSelects
               province={form.province}
@@ -872,23 +888,20 @@ export function PdpQuickCodOrder(): ReactNode {
               disabled={submitting}
             />
 
-            <div className="flex flex-col gap-1 sm:col-span-2">
-              <label
-                htmlFor="quick-cod-postal"
-                className="text-sm font-medium text-ink"
-              >
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Postal Code
+                <input
+                  id="quick-cod-postal"
+                  name="postalCode"
+                  className={inputCls}
+                  value={form.postalCode}
+                  onChange={set("postalCode")}
+                  placeholder="1100"
+                  inputMode="numeric"
+                  disabled={submitting}
+                />
               </label>
-              <input
-                id="quick-cod-postal"
-                name="postalCode"
-                className={inputCls}
-                value={form.postalCode}
-                onChange={set("postalCode")}
-                placeholder="1100"
-                inputMode="numeric"
-                disabled={submitting}
-              />
               {postalLookup.options.length > 1 ? (
                 <select
                   aria-label="Pick a postal code"
@@ -927,89 +940,101 @@ export function PdpQuickCodOrder(): ReactNode {
               ) : null}
             </div>
 
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="quick-cod-street"
-                className="text-sm font-medium text-ink"
-              >
+            <div className="col-span-full flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Full Address *
+                <input
+                  id="quick-cod-street"
+                  name="streetAddress"
+                  className={`${inputCls}${errors.streetAddress ? " border-sale" : ""}`}
+                  value={form.streetAddress}
+                  onChange={set("streetAddress")}
+                  onBlur={revalidate("streetAddress")}
+                  aria-invalid={Boolean(errors.streetAddress)}
+                  aria-describedby={
+                    errors.streetAddress ? "quick-cod-street-error" : undefined
+                  }
+                  autoComplete="street-address"
+                  placeholder="House no., street, subdivision"
+                  disabled={submitting}
+                />
               </label>
-              <input
-                id="quick-cod-street"
-                name="streetAddress"
-                className={`mt-1 ${inputCls}${errors.streetAddress ? " border-sale" : ""}`}
-                value={form.streetAddress}
-                onChange={set("streetAddress")}
-                onBlur={revalidate("streetAddress")}
-                aria-invalid={Boolean(errors.streetAddress)}
-                aria-describedby={
-                  errors.streetAddress ? "quick-cod-street-error" : undefined
-                }
-                autoComplete="street-address"
-                placeholder="House no., street, subdivision"
-                disabled={submitting}
-              />
               <FieldError
                 id="quick-cod-street"
                 message={errors.streetAddress}
               />
             </div>
 
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="quick-cod-landmark"
-                className="text-sm font-medium text-ink"
-              >
-                Landmark
-              </label>
+            <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
+              Landmark (Optional)
               <input
                 id="quick-cod-landmark"
                 name="landmark"
-                className={`mt-1 ${inputCls}`}
+                className={inputCls}
                 value={form.landmark}
                 onChange={set("landmark")}
                 placeholder="Landmark, gate, delivery note"
                 autoComplete="off"
                 disabled={submitting}
               />
-            </div>
+            </label>
 
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="quick-cod-preferred-date"
-                className="text-sm font-medium text-ink"
-              >
+            <div className="col-span-full flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Preferred delivery date (optional)
+                <input
+                  id="quick-cod-preferred-date"
+                  name="preferredDeliveryDate"
+                  type="date"
+                  min={dateBounds.min}
+                  max={dateBounds.max}
+                  className={`${inputCls}${
+                    errors.preferredDeliveryDate ? " border-sale" : ""
+                  }`}
+                  value={form.preferredDeliveryDate}
+                  onChange={handlePreferredDateChange}
+                  aria-invalid={Boolean(errors.preferredDeliveryDate)}
+                  aria-describedby={
+                    errors.preferredDeliveryDate
+                      ? "quick-cod-preferred-date-error"
+                      : undefined
+                  }
+                  disabled={submitting}
+                />
               </label>
-              <input
-                id="quick-cod-preferred-date"
-                name="preferredDeliveryDate"
-                type="date"
-                min={dateBounds.min}
-                max={dateBounds.max}
-                className={`mt-1 ${inputCls}${
-                  errors.preferredDeliveryDate ? " border-sale" : ""
-                }`}
-                value={form.preferredDeliveryDate}
-                onChange={handlePreferredDateChange}
-                aria-invalid={Boolean(errors.preferredDeliveryDate)}
-                aria-describedby={
-                  errors.preferredDeliveryDate
-                    ? "quick-cod-preferred-date-error"
-                    : undefined
-                }
-                disabled={submitting}
-              />
               <FieldError
                 id="quick-cod-preferred-date"
                 message={errors.preferredDeliveryDate}
               />
-              <p className="mt-1 text-xs text-ink-muted">
-                {form.province.trim()
-                  ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
-                  : "Choose a preferred date (optional)."}
-              </p>
             </div>
+            <p className="col-span-full -mt-1 text-xs text-ink-muted">
+              {form.province.trim()
+                ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                : "Choose a preferred date (optional)."}
+            </p>
+
+            <div className="col-span-full flex flex-col gap-1">
+              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+                Order Notes (Optional)
+                <textarea
+                  id="quick-cod-notes"
+                  name="notes"
+                  className={`${inputCls} resize-y`}
+                  rows={2}
+                  maxLength={200}
+                  value={form.notes}
+                  onChange={set("notes")}
+                  placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+                  disabled={submitting}
+                />
+              </label>
+              <span className="text-xs font-normal text-ink-muted">
+                We&apos;ll do our best to accommodate your request.
+              </span>
+            </div>
+            <p className="col-span-full text-xs text-ink-secondary">
+              Your information is used only to process and deliver your order.
+            </p>
           </div>
 
           {needsItems ? (
