@@ -25,6 +25,12 @@ describe("marketing route association", () => {
     expect(screen.getByRole("link", { name: "Ad expenses" })).toHaveAttribute("href", `/admin/marketing/costs${accountingQuery}`);
     expect(screen.getByRole("link", { name: "Accounting" })).toHaveAttribute("href", `/admin/marketing/reports${accountingQuery}`);
   });
+  it("exposes the short link tool as its own workbench tab", () => {
+    setAdminLang("en");
+    render(<AdminI18nProvider><MarketingWorkbench view="shortLinks" /></AdminI18nProvider>);
+    expect(screen.getByRole("link", { name: "Short links" })).toHaveAttribute("href", "/admin/marketing/short-links");
+    expect(screen.getByRole("heading", { name: "Short link generator" })).toBeTruthy();
+  });
   it("resolves product and page context without server fetching private records", async () => {
     const pages = await WorkbenchPage({ searchParams: Promise.resolve({ productId: "p1" }) });
     expect(pages.props).toMatchObject({ productId: "p1", view: "pages" });

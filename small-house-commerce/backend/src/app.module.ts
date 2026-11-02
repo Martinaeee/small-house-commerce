@@ -23,6 +23,7 @@ import { SystemStatusModule } from './modules/system-status/system-status.module
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { MetaCapiModule } from './modules/meta-capi/meta-capi.module.js';
 import { QianyiModule } from './modules/qianyi/qianyi.module.js';
+import { ShortLinksModule } from './modules/short-links/short-links.module.js';
 import { configuration } from './config/configuration.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -60,6 +61,7 @@ import { UsersModule } from './modules/users/users.module.js';
     AnalyticsModule,
     MetaCapiModule,
     QianyiModule,
+    ShortLinksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

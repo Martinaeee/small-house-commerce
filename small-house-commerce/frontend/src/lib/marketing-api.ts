@@ -65,6 +65,14 @@ export interface MarketingPageQuery {
 }
 
 export type MarketingSourceType = "FB_POST" | "META_AD" | "ORGANIC" | "DIRECT" | "EMAIL" | "OTHER";
+export interface ShortLinkResult {
+  code: string;
+  /** Root-relative entrance, e.g. "/s/abc12345". */
+  path: string;
+  /** Normalized storefront path + query the code redirects to. */
+  target: string;
+}
+
 export interface CampaignLinkInput {
   productId: string;
   variantId?: string | null;
@@ -437,6 +445,7 @@ export const marketingApi = {
   updateLink: (id: string, name: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(pagePath(id), { method: "PATCH", body: JSON.stringify({ name, expectedVersion }) }),
   disableLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/disable`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   cloneLink: (id: string, input: Partial<CampaignLinkInput> = {}) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/clone`, { method: "POST", body: JSON.stringify(input) }),
+  createShortLink: (input: { url: string }) => adminAuthedFetch<ShortLinkResult>("/api/v1/admin/short-links", { method: "POST", body: JSON.stringify(input), cache: "no-store", referrerPolicy: "no-referrer" }),
   listPages: (query: MarketingPageQuery = {}) => request<Paged<MarketingPageListRow>>(queryString(query)),
   productOptions: (query: { search?: string; id?: string; page?: number; pageSize?: number } = {}) => request<Paged<MarketingProductOption>>(`/product-options${queryString(query)}`),
   ownerOptions: () => request<MarketingOwnerOption[]>("/owner-options"),

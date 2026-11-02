@@ -9,8 +9,9 @@ import { MarketingPerformanceDashboard } from "./MarketingPerformanceDashboard";
 import { CampaignLinksList } from "./CampaignLinksList";
 import { AdCostsList } from "./AdCostsList";
 import { ReportTable } from "./ReportTable";
+import { ShortLinkTool } from "./ShortLinkTool";
 
-export type MarketingWorkbenchView = "pages" | "links" | "costs" | "reports" | "compare" | "optimizers";
+export type MarketingWorkbenchView = "pages" | "links" | "costs" | "reports" | "shortLinks" | "compare" | "optimizers";
 
 export default function MarketingWorkbench({ view, productId, ownerUserId, landingPageId, linkId, preset, from, to }: {
   view: MarketingWorkbenchView;
@@ -32,12 +33,14 @@ export default function MarketingWorkbench({ view, productId, ownerUserId, landi
       <Link className={`border-b-2 px-4 py-3 text-sm ${view === "links" ? "border-cta font-semibold text-cta" : "border-transparent text-admin-muted"}`} aria-current={view === "links" ? "page" : undefined} href={`/admin/marketing/links${linksSuffix}`}>{t("marketing_links")}</Link>
       <Link className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm ${view === "costs" ? "border-cta font-semibold text-cta" : "border-transparent text-admin-muted"}`} aria-current={view === "costs" ? "page" : undefined} href={`/admin/marketing/costs${accountingSuffix}`}>{t("marketing_costs")}</Link>
       <Link className={`border-b-2 px-4 py-3 text-sm ${view === "reports" ? "border-cta font-semibold text-cta" : "border-transparent text-admin-muted"}`} aria-current={view === "reports" ? "page" : undefined} href={`/admin/marketing/reports${accountingSuffix}`}>{t("marketing_reports")}</Link>
+      <Link className={`border-b-2 px-4 py-3 text-sm ${view === "shortLinks" ? "border-cta font-semibold text-cta" : "border-transparent text-admin-muted"}`} aria-current={view === "shortLinks" ? "page" : undefined} href="/admin/marketing/short-links">{t("marketing_short_links")}</Link>
     </nav>
     {view === "pages" ? <MarketingPagesList key={productId ?? "all"} productId={productId} />
       : view === "compare" ? <MarketingPerformanceDashboard view="PRODUCT" productId={productId} initialDates={initialDates} />
       : view === "optimizers" ? <MarketingPerformanceDashboard view="OPTIMIZER" ownerUserId={ownerUserId} initialDates={initialDates} />
       : view === "links" ? <CampaignLinksList key={`${productId}:${landingPageId}`} productId={productId} landingPageId={landingPageId} />
       : view === "costs" ? <AdCostsList key={`${productId}:${landingPageId}:${linkId}`} productId={productId} landingPageId={landingPageId} linkId={linkId} />
+      : view === "shortLinks" ? <ShortLinkTool />
       : <ReportTable key={`${productId}:${landingPageId}:${linkId}`} productId={productId} landingPageId={landingPageId} linkId={linkId} />}
   </div>;
 }

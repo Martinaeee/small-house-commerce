@@ -1,0 +1,14 @@
+// Short links for the marketing workbench: a storefront path (plus query)
+// shortened to /s/<code>. No analytics, no custom codes, no target editing —
+// a row exists only so a click can be redirected. Additive.
+model ShortLink {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  code       String   @unique
+  target     String
+  /// sha256(target); the unique index makes "same target → same code" cheap
+  /// and safe against two operators shortening the same URL at once.
+  targetHash String   @unique @map("target_hash")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("short_links")
+}
