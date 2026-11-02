@@ -280,9 +280,7 @@ describe("PdpQuickCodOrder", () => {
     expect(screen.getByLabelText("Postal Code")).toBeVisible();
     expect(screen.getByLabelText("Landmark (Optional)")).toBeVisible();
     expect(screen.getByLabelText("Preferred delivery date (optional)")).toBeVisible();
-    expect(
-      screen.getByText("We use your mobile number for delivery updates."),
-    ).toBeVisible();
+    expect(screen.queryByText("We use your mobile number for delivery updates.")).toBeNull();
     expect(screen.getByText("Choose a preferred date (optional).")).toBeVisible();
     expect(screen.getByTestId("quick-cod-submit")).toHaveTextContent("REVIEW ORDER");
   });
@@ -304,7 +302,7 @@ describe("PdpQuickCodOrder", () => {
     expect(notes).toHaveAttribute("maxlength", "200");
     expect(notes).toHaveAttribute(
       "placeholder",
-      "Any special delivery instructions? (e.g. Please call before delivery)",
+      "Add a delivery note (optional)",
     );
     expect(
       screen.getByText("We'll do our best to accommodate your request."),
@@ -314,6 +312,47 @@ describe("PdpQuickCodOrder", () => {
         "Your information is used only to process and deliver your order.",
       ),
     ).toBeVisible();
+  });
+
+  it("drops the duplicate section heading while keeping a labelled region", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.queryByRole("heading", { name: "Order Now — Cash on Delivery" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("region", { name: "Order now — Cash on Delivery" }),
+    ).toBeVisible();
+  });
+
+  it("keeps the COD reassurance on one line", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.getByText(
+        "Cash on Delivery · We call to confirm every order · Details used only to deliver this order",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("We call to confirm every order before it ships."),
+    ).toBeNull();
+  });
+
+  it("uses short placeholders for the paired address selects", () => {
+    renderQuickOrder();
+
+    expect(screen.getByTestId("psgc-province")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
+    expect(screen.getByTestId("psgc-city")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
+    expect(screen.getByTestId("psgc-barangay")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
   });
 
   it("writes the order note into the shared checkout draft", async () => {

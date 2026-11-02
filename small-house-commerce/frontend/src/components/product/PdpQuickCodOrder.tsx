@@ -594,21 +594,10 @@ export function PdpQuickCodOrder(): ReactNode {
   return (
     <section
       id="quick-cod-order"
-      aria-labelledby="quick-cod-order-title"
-      className="scroll-mt-28 rounded-lg border border-border bg-card p-6"
+      aria-label="Order now — Cash on Delivery"
+      className="scroll-mt-28"
     >
-      <h2
-        id="quick-cod-order-title"
-        className="text-2xl font-semibold text-ink"
-      >
-        Order Now — Cash on Delivery
-      </h2>
-      <p className="mt-1 text-sm text-ink-secondary">
-        Fill in your delivery details and we will call to confirm your order.
-        Pay in cash when it arrives.
-      </p>
-
-      <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
         {/* Items — one row per sellable style, each with its own quantity. */}
         <div
           data-testid="quick-cod-items"
@@ -780,7 +769,7 @@ export function PdpQuickCodOrder(): ReactNode {
 
         {/* Delivery form — the same consolidated card as checkout. */}
         <form
-          className="flex w-full flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+          className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:p-5"
           onSubmit={(event) => {
             event.preventDefault();
             goToReview();
@@ -824,8 +813,8 @@ export function PdpQuickCodOrder(): ReactNode {
               {locationNotice}
             </p>
           ) : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="col-span-full flex flex-col gap-1 sm:col-span-1">
               <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Full Name *
                 <input
@@ -847,7 +836,7 @@ export function PdpQuickCodOrder(): ReactNode {
               <FieldError id="quick-cod-name" message={errors.name} />
             </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="col-span-full flex flex-col gap-1 sm:col-span-1">
               <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
                 Mobile Number *
                 <input
@@ -871,10 +860,6 @@ export function PdpQuickCodOrder(): ReactNode {
               <FieldError id="quick-cod-phone" message={errors.phone} />
             </div>
 
-            <p className="col-span-full -mt-1 text-xs font-normal text-ink-muted">
-              We use your mobile number for delivery updates.
-            </p>
-
             <PsgcAddressSelects
               province={form.province}
               city={form.city}
@@ -886,6 +871,7 @@ export function PdpQuickCodOrder(): ReactNode {
               onBlurField={(field) => revalidate(field)()}
               inputCls={inputCls}
               disabled={submitting}
+              compactPlaceholders
             />
 
             <div className="flex flex-col gap-1">
@@ -965,27 +951,33 @@ export function PdpQuickCodOrder(): ReactNode {
               />
             </div>
 
-            <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
-              Landmark (Optional)
+            <label className="col-span-1 flex flex-col gap-1 text-[13px] font-medium text-ink sm:col-span-full">
+              <span className="sm:hidden">Landmark</span>
+              <span className="hidden sm:inline">Landmark (Optional)</span>
               <input
                 id="quick-cod-landmark"
                 name="landmark"
+                aria-label="Landmark (Optional)"
                 className={inputCls}
                 value={form.landmark}
                 onChange={set("landmark")}
-                placeholder="Landmark, gate, delivery note"
+                placeholder="Gate / landmark"
                 autoComplete="off"
                 disabled={submitting}
               />
             </label>
 
-            <div className="col-span-full flex flex-col gap-1">
+            <div className="col-span-1 flex flex-col gap-1 sm:col-span-full">
               <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Preferred delivery date (optional)
+                <span className="sm:hidden">Preferred date</span>
+                <span className="hidden sm:inline">
+                  Preferred delivery date (optional)
+                </span>
                 <input
                   id="quick-cod-preferred-date"
                   name="preferredDeliveryDate"
                   type="date"
+                  aria-label="Preferred delivery date (optional)"
                   min={dateBounds.min}
                   max={dateBounds.max}
                   className={`${inputCls}${
@@ -1020,11 +1012,11 @@ export function PdpQuickCodOrder(): ReactNode {
                   id="quick-cod-notes"
                   name="notes"
                   className={`${inputCls} resize-y`}
-                  rows={2}
+                  rows={1}
                   maxLength={200}
                   value={form.notes}
                   onChange={set("notes")}
-                  placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+                  placeholder="Add a delivery note (optional)"
                   disabled={submitting}
                 />
               </label>
@@ -1056,11 +1048,10 @@ export function PdpQuickCodOrder(): ReactNode {
             {submitting ? "Opening review…" : "REVIEW ORDER"}
           </Button>
 
-          <ul className="flex flex-col gap-1.5 text-xs text-ink-muted">
-            <li>Cash on Delivery — pay only when your order arrives.</li>
-            <li>We call to confirm every order before it ships.</li>
-            <li>Your details are used only to deliver this order.</li>
-          </ul>
+          <p className="text-xs text-ink-muted">
+            Cash on Delivery · We call to confirm every order · Details used
+            only to deliver this order
+          </p>
         </form>
       </div>
     </section>
