@@ -41,6 +41,36 @@ describe("GET /s/[code]", () => {
     );
   });
 
+  it("uses the public origin Caddy forwarded, not the container bind address", async () => {
+    stubBackend({ target: "/products/chair?variant=v1&cl=code" });
+
+    const response = await GET(
+      new NextRequest("http://0.0.0.0:3000/s/abc12345", {
+        headers: { "x-forwarded-host": "luwag.shop", "x-forwarded-proto": "https" },
+      }),
+      context("abc12345"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://luwag.shop/products/chair?variant=v1&cl=code",
+    );
+  });
+
+  it("ignores an injected forwarded host", async () => {
+    stubBackend({ target: "/products/chair" });
+
+    const response = await GET(
+      new NextRequest("http://localhost/s/abc12345", {
+        headers: { "x-forwarded-host": "evil.com/", "x-forwarded-proto": "javascript" },
+      }),
+      context("abc12345"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost/products/chair");
+  });
+
   it("encodes the short code in the backend request", async () => {
     vi.stubEnv("API_TARGET", "http://127.0.0.1:3230");
     const fetchMock = stubBackend({ target: "/products/chair" });

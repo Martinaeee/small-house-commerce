@@ -30,6 +30,33 @@ function notFound(): Response {
   });
 }
 
+/**
+ * Caddy proxies to the container over the internal network, so request.url is
+ * the bind address (http://0.0.0.0:3000) rather than the public host. Prefer
+ * the forwarded origin and fall back to the request's own origin for local
+ * runs and tests. Both values are validated before they reach a Location
+ * header.
+ */
+function publicOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers
+    .get("x-forwarded-host")
+    ?.split(",", 1)[0]
+    ?.trim();
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",", 1)[0]
+    ?.trim()
+    .toLowerCase();
+
+  const proto = forwardedProto === "http" || forwardedProto === "https"
+    ? forwardedProto
+    : "https";
+  if (forwardedHost && /^[a-z0-9.-]+(?::\d{1,5})?$/i.test(forwardedHost)) {
+    return `${proto}://${forwardedHost}`;
+  }
+  return request.nextUrl.origin;
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -51,5 +78,5 @@ export async function GET(
   const target = localTarget((body as { target?: unknown } | null)?.target);
   if (!target) return notFound();
 
-  return NextResponse.redirect(new URL(target, request.url), 302);
+  return NextResponse.redirect(new URL(target, publicOrigin(request)), 302);
 }
