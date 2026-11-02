@@ -57,6 +57,17 @@
 - **恢复点**：`small-house-prod-frontend:rollback-pre-form-compact-20261102` → `sha256:c785607205a2c126108e326f33d4a60baf0fa1462afb7c898bf041b93aaa7a63`（紧凑化前、含订单备注的版本）。
 - 回滚仅切前端；不要连带回退后端。
 
+## 追加：删除三处辅助内容（2026-11-02 用户指定）
+
+用户截图圈出并要求删除：Landmark 整行、日期下方 `Choose a preferred date (optional).` 提示、备注下方 `We'll do our best to accommodate your request.` 提示。
+
+- 代码 `71c230c8`；最终前端镜像 `sha256:ed4e96fa0d93ea25ac159e2862fa4bcb0ba9175a483c8788fe2caf164c5b6f3e`。
+- 表单输入控件 10→9；三处内容在 Chromium/WebKit、iPhone 13/iPhone SE、桌面 1440 均确认不存在。
+- 高度：iPhone 13 903→**861px**（相对改版前 1228px 为 −30%）；iPhone SE 931→889px；桌面 875→**748px**。
+- Landing 字段删除后日期改为整行；`deliveryWindowFor` 导入随之移除。草稿里的 `landmark` 字段保留（恒为空），不破坏确认页与后端契约。
+- 定向测试 23/23、`tsc` 与 ESLint 通过。全量前端 308/309 文件通过；`HomepageEditor.spec.tsx` 4 项只在并行全量时 5 秒超时，单独运行 65/65 通过，本轮未触碰该模块。
+- 回滚仍使用 `rollback-pre-form-compact-20261102`。
+
 ## 剩余观察（本轮未改）
 
 - 手机端悬浮客服气泡与「回到顶部」按钮在滚动时会压住表单右侧部分控件，属于全站浮动件；是否在表单区域隐藏需要另行确认。
