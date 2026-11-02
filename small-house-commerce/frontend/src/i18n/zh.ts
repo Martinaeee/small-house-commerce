@@ -2135,6 +2135,10 @@ export const zh = {
   product_edit_unserializable: "该商品包含表单无法编辑的数据，请刷新页面后重试。",
   product_edit_saved_stock: "商品已保存，库存已更新。",
   product_edit_saved: "商品已保存。",
+  product_new_saved: "商品已创建并保存。",
+  product_save_feedback_title: "保存结果",
+  product_save_feedback_close: "关闭保存提示",
+  product_save_feedback_failed: "保存未完成，请查看页面中的错误详情。",
   product_edit_stock_partial_saved:
     "商品已保存，但 {count} 项库存更新失败——请在下方重试（只重发失败的行）。",
   product_edit_stock_partial: "{count} 项库存更新失败——请在下方重试。",

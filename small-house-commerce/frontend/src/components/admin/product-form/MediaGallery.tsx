@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -32,6 +32,14 @@ export interface MediaGalleryItem {
   /** Human label shown on the thumbnail (e.g. "Shared", "Colour = Black"). */
   scopeLabel?: string;
 }
+/** Props the sortable tile hands to the element that starts a drag. */
+type SortableState = ReturnType<typeof useSortable>;
+interface SortableActivator {
+  ref: (node: HTMLElement | null) => void;
+  attributes: SortableState["attributes"];
+  listeners: SortableState["listeners"];
+}
+
 interface MediaGalleryLabels {
   type(number: number): string;
   url(number: number): string;
@@ -102,9 +110,20 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
   const actionClass = "inline-flex h-6 min-w-0 flex-1 items-center justify-center rounded bg-white/90 px-1 text-[11px] font-semibold text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40";
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      // Space starts a sortable drag; Enter still opens the tile's editor.
+      keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter"] },
+    }),
   );
+  /**
+   * A drag ends with a pointerup, and the browser fires a click right after it.
+   * The timestamp lets the tile ignore that follow-up click so dropping a card
+   * never opens its editor.
+   */
+  const lastDropAt = useRef(0);
   const handleDragEnd = (event: DragEndEvent): void => {
+    lastDropAt.current = Date.now();
     const { active: dragged, over } = event;
     if (!onReorder || !over || dragged.id === over.id) return;
     const from = items.findIndex((item) => item.key === dragged.id);
@@ -115,7 +134,7 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
 
   return (
     <div className="mt-3 min-w-0" data-media-gallery={scope}>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} onDragCancel={() => { lastDropAt.current = Date.now(); }}>
         <SortableContext items={items.map((item) => item.key)} strategy={rectSortingStrategy}>
           <ul aria-label={listLabel ?? t("product_media_gallery_aria", { scope })} className="grid grid-cols-[repeat(auto-fill,minmax(88px,104px))] justify-start gap-2">
         {items.map((item, index) => {
@@ -129,22 +148,29 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
               dragLabel={t("product_media_drag_aria", { number: index + 1 })}
               className={`group relative overflow-hidden rounded-lg bg-background ${item.key === highlightedKey || invalidItems.some(({ item: invalid }) => invalid.key === item.key) ? "ring-2 ring-cta ring-offset-1" : "border border-border"}`}
             >
-              <button type="button" aria-label={t("product_media_edit_card", { scope, number: index + 1 })} aria-expanded={expanded} aria-controls={editorId} onClick={() => setSelected(expanded ? null : item.key)} className="relative block aspect-square w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-cta">
-                {item.url.trim() ? item.type === "VIDEO"
-                  ? <video src={item.url} muted playsInline preload="metadata" className="pointer-events-none h-full w-full object-cover" />
-                  : /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={item.url} alt={item.altText} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
-                  : <span className="flex h-full items-center justify-center px-2 text-xs text-ink-muted">{t(item.type === "VIDEO" ? "product_media_empty_video" : "product_media_empty_image")}</span>}
-                <span className="absolute left-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink-secondary">{index + 1}</span>
-                {item.type === "VIDEO" ? <span className="absolute right-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink">{t("product_media_type_video")}</span> : null}
-                {item.isScene ? <span className="absolute left-1 top-7 rounded bg-cta px-1 text-[10px] font-semibold text-white">{t("product_media_scene_badge")}</span> : null}
-                {item.scopeLabel ? <span className="absolute left-1 top-7 max-w-[calc(100%-0.5rem)] truncate rounded bg-white/90 px-1 text-[10px] font-semibold text-cta">{item.scopeLabel}</span> : null}
-              </button>
-              <div data-media-actions className={`absolute inset-x-0 bottom-0 flex gap-px bg-gradient-to-t from-black/45 px-px pb-1 pt-5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}>
-                <button type="button" className={actionClass} aria-label={labels.previous(index + 1)} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
-                <button type="button" className={actionClass} aria-label={labels.next(index + 1)} disabled={pending || index === items.length - 1} onClick={() => move(index, 1)}>↓</button>
-                <button type="button" className={actionClass} aria-label={labels.remove} disabled={pending} onClick={() => remove(index)}>×</button>
-              </div>
+              {(activator) => (
+                <>
+                  <button type="button" ref={activator.ref} {...activator.attributes} {...activator.listeners} aria-label={t("product_media_edit_card", { scope, number: index + 1 })} aria-expanded={expanded} aria-controls={editorId} onClick={() => {
+                    if (Date.now() - lastDropAt.current < 300) return;
+                    setSelected(expanded ? null : item.key);
+                  }} className="relative block aspect-square w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-cta">
+                    {item.url.trim() ? item.type === "VIDEO"
+                      ? <video src={item.url} muted playsInline preload="metadata" className="pointer-events-none h-full w-full object-cover" />
+                      : /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={item.url} alt={item.altText} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                      : <span className="flex h-full items-center justify-center px-2 text-xs text-ink-muted">{t(item.type === "VIDEO" ? "product_media_empty_video" : "product_media_empty_image")}</span>}
+                    <span className="absolute left-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink-secondary">{index + 1}</span>
+                    {item.type === "VIDEO" ? <span className="absolute right-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink">{t("product_media_type_video")}</span> : null}
+                    {item.isScene ? <span className="absolute left-1 top-7 rounded bg-cta px-1 text-[10px] font-semibold text-white">{t("product_media_scene_badge")}</span> : null}
+                    {item.scopeLabel ? <span className="absolute left-1 top-7 max-w-[calc(100%-0.5rem)] truncate rounded bg-white/90 px-1 text-[10px] font-semibold text-cta">{item.scopeLabel}</span> : null}
+                  </button>
+                  <div data-media-actions onPointerDown={(event) => event.stopPropagation()} className={`absolute inset-x-0 bottom-0 flex gap-px bg-gradient-to-t from-black/45 px-px pb-1 pt-5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}>
+                    <button type="button" className={actionClass} aria-label={labels.previous(index + 1)} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
+                    <button type="button" className={actionClass} aria-label={labels.next(index + 1)} disabled={pending || index === items.length - 1} onClick={() => move(index, 1)}>↓</button>
+                    <button type="button" className={actionClass} aria-label={labels.remove} disabled={pending} onClick={() => remove(index)}>×</button>
+                  </div>
+                </>
+              )}
             </SortableTile>
           );
         })}
@@ -223,7 +249,7 @@ function SortableTile({
   disabled: boolean;
   dragLabel: string;
   className: string;
-  children: ReactNode;
+  children: (activator: SortableActivator) => ReactNode;
 }): ReactNode {
   const {
     attributes,
@@ -234,6 +260,16 @@ function SortableTile({
     transition,
     isDragging,
   } = useSortable({ id, disabled });
+  /**
+   * The thumbnail itself is the drag surface — dragging the picture is what
+   * people reach for, and it also gives the keyboard sensor a real, focusable
+   * activator. The corner ⠿ is a hint only, so it never competes for events.
+   */
+  const activator: SortableActivator = {
+    ref: setActivatorNodeRef,
+    attributes: disabled ? ({} as SortableState["attributes"]) : attributes,
+    listeners: disabled ? undefined : listeners,
+  };
   return (
     <li
       ref={setNodeRef}
@@ -244,21 +280,19 @@ function SortableTile({
           : undefined,
         transition: transition ?? undefined,
       }}
-      className={`${className} ${isDragging ? "z-10 shadow-lg" : ""}`}
+      className={`${className} ${disabled ? "" : "cursor-grab active:cursor-grabbing"} ${isDragging ? "z-10 shadow-lg" : ""}`}
     >
-      {!disabled ? (
-        <button
-          ref={setActivatorNodeRef}
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label={dragLabel}
-          className="absolute right-1 top-7 z-10 inline-flex h-5 w-5 cursor-grab touch-none items-center justify-center rounded bg-white/90 text-[11px] font-semibold text-ink-secondary opacity-0 transition-opacity hover:bg-white hover:text-cta group-hover:opacity-100 group-focus-within:opacity-100 active:cursor-grabbing [@media(hover:none)]:opacity-100"
+      {disabled ? null : (
+        <span
+          aria-hidden="true"
+          data-media-drag-handle
+          title={dragLabel}
+          className="pointer-events-none absolute right-1 top-7 z-10 inline-flex h-5 w-5 items-center justify-center rounded bg-white/90 text-[11px] font-semibold text-ink-secondary opacity-80"
         >
           ⠿
-        </button>
-      ) : null}
-      {children}
+        </span>
+      )}
+      {children(activator)}
     </li>
   );
 }

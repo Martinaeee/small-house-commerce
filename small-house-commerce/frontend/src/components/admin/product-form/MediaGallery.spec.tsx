@@ -81,24 +81,63 @@ describe("MediaGallery drag reorder", () => {
     vi.restoreAllMocks();
   });
 
-  it("reorders through the dnd-kit keyboard sensor", async () => {
+  it("reorders when the thumbnail is the drag activator", async () => {
     const onReorder = vi.fn();
     renderGallery(onReorder);
 
     await keyboardSort(
-      screen.getByRole("button", { name: "Drag to reorder item 1" }),
+      screen.getByRole("button", { name: "Edit Detail media 1" }),
       ["ArrowDown"],
     );
 
     expect(onReorder).toHaveBeenCalledWith(0, 1);
   });
 
+  it("keeps the drag hint decorative so the thumbnail stays the only control", () => {
+    renderGallery(vi.fn());
+
+    const hint = document.querySelector("[data-media-drag-handle]");
+    expect(hint).not.toBeNull();
+    expect(hint).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("leaves the arrow buttons out of the drag surface", async () => {
+    const onMove = vi.fn();
+    const onReorder = vi.fn();
+    render(
+      <AdminI18nProvider>
+        <MediaGallery
+          items={ITEMS}
+          scope="Detail"
+          pending={false}
+          indexed
+          labels={{
+            type: (number) => `Type ${number}`,
+            url: (number) => `URL ${number}`,
+            alt: (number) => `Alt ${number}`,
+            previous: (number) => `Up ${number}`,
+            next: (number) => `Down ${number}`,
+            remove: "Remove",
+          }}
+          onUpload={async () => {}}
+          onPatch={vi.fn()}
+          onMove={onMove}
+          onReorder={onReorder}
+          onRemove={vi.fn()}
+        />
+      </AdminI18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Down 1" }));
+
+    expect(onMove).toHaveBeenCalledWith("0", 1);
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
   it("keeps the arrow buttons as a non-drag fallback", () => {
     renderGallery(undefined);
-    // Without onReorder there is no drag handle.
-    expect(
-      screen.queryByRole("button", { name: "Drag to reorder item 1" }),
-    ).not.toBeInTheDocument();
+    // Without onReorder the tile is not a drag surface.
+    expect(document.querySelector("[data-media-drag-handle]")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Down / })).toHaveLength(3);
   });
 });

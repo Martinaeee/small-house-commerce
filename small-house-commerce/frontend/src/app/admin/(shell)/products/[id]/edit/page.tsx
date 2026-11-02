@@ -11,6 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { ProductSaveFeedback } from "@/components/admin/product-form/ProductSaveFeedback";
+import { consumeProductCreated } from "@/lib/admin-product-save-feedback";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import {
   ProductForm,
@@ -303,6 +305,7 @@ export default function EditProductPage(): ReactNode {
           setCategories(categoriesResult.value);
           setLoadError(null);
           setNotFound(false);
+          if (consumeProductCreated(id)) setNotice(t("product_new_saved"));
         }
       })
       .finally(() => {
@@ -311,7 +314,7 @@ export default function EditProductPage(): ReactNode {
     return () => {
       active = false;
     };
-  }, [id, queryKey]);
+  }, [id, queryKey, t]);
 
   // Client-side navigation between product ids does not remount this page.
   // Reset all product-derived state DURING RENDER (React's "adjust state when a
@@ -774,13 +777,10 @@ export default function EditProductPage(): ReactNode {
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
-      {notice ? (
-        <div
-          role="status"
-          className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-        >
-          {notice}
-        </div>
+      {!pending && error ? (
+        <ProductSaveFeedback key={`error:${error}`} tone="error" message={t("product_save_feedback_failed")} />
+      ) : !pending && notice ? (
+        <ProductSaveFeedback key={notice} tone="success" message={notice} onClose={() => setNotice(null)} />
       ) : null}
 
       {/* Phase B partial failure: only the failed rows, retried alone. */}

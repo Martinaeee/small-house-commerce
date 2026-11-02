@@ -109,40 +109,33 @@ describe("DetailMediaWorkspace batch scope", () => {
 });
 
 describe("DetailMediaWorkspace drag affordance", () => {
-  it("renders a drag handle per thumbnail when reordering is wired", () => {
-    renderWorkspace({
-      blocks: [
-        {
-          url: "https://example.com/a.jpg",
-          type: "IMAGE",
-          altText: "",
-          sortOrder: "0",
-          optionValueId: "",
-          variantId: "",
-        },
-      ],
-    });
+  const oneBlock = [
+    {
+      url: "https://example.com/a.jpg",
+      type: "IMAGE" as const,
+      altText: "",
+      sortOrder: "0",
+      optionValueId: "",
+      variantId: "",
+    },
+  ];
+
+  it("makes the thumbnail itself the drag surface when reordering is wired", () => {
+    renderWorkspace({ blocks: oneBlock });
+    // The picture people grab is the sortable activator; the ⠿ is only a hint.
     expect(
-      screen.getByRole("button", { name: "拖动排序第 1 张" }),
-    ).toBeInTheDocument();
+      document.querySelector('[aria-roledescription="sortable"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("[data-media-drag-handle]"),
+    ).toHaveAttribute("aria-hidden", "true");
   });
 
   it("stays read-only when no reorder handler is provided", () => {
-    renderWorkspace({
-      onReorder: undefined,
-      blocks: [
-        {
-          url: "https://example.com/a.jpg",
-          type: "IMAGE",
-          altText: "",
-          sortOrder: "0",
-          optionValueId: "",
-          variantId: "",
-        },
-      ],
-    });
+    renderWorkspace({ onReorder: undefined, blocks: oneBlock });
     expect(
-      screen.queryByRole("button", { name: "拖动排序第 1 张" }),
-    ).not.toBeInTheDocument();
+      document.querySelector('[aria-roledescription="sortable"]'),
+    ).toBeNull();
+    expect(document.querySelector("[data-media-drag-handle]")).toBeNull();
   });
 });
