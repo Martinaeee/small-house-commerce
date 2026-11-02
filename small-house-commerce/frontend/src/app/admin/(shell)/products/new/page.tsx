@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { ProductSaveFeedback } from "@/components/admin/product-form/ProductSaveFeedback";
+import { rememberProductCreated } from "@/lib/admin-product-save-feedback";
 import { PageHeader } from "@/components/admin/PageHeader";
 import {
   ProductForm,
@@ -205,7 +207,10 @@ export default function NewProductPage(): ReactNode {
       setStockFailures(remaining);
       if (remaining.length === 0) {
         if (bundleFailures.length > 0) setError(t("bundle_partial", { count: bundleFailures.length }));
-        else if (createdId) router.push(`/admin/products/${createdId}/edit`);
+        else if (createdId) {
+          rememberProductCreated(createdId);
+          router.push(`/admin/products/${createdId}/edit`);
+        }
       } else {
         setError(t("product_save_stock_still_failed", { count: remaining.length }));
       }
@@ -229,7 +234,10 @@ export default function NewProductPage(): ReactNode {
       setBundleFailures(failures);
       if (failures.length > 0) setError(t("bundle_partial", { count: failures.length }));
       else if (stockFailures.length > 0) setError(t("product_save_stock_still_failed", { count: stockFailures.length }));
-      else router.push(`/admin/products/${bundleProduct.id}/edit`);
+      else {
+        rememberProductCreated(bundleProduct.id);
+        router.push(`/admin/products/${bundleProduct.id}/edit`);
+      }
     } finally {
       if (mounted.current) setPending(false);
     }
@@ -387,6 +395,7 @@ export default function NewProductPage(): ReactNode {
           return;
         }
 
+        rememberProductCreated(created.id);
         router.push(`/admin/products/${created.id}/edit`);
       } catch (err: unknown) {
         if (!mounted.current) return;
@@ -403,6 +412,9 @@ export default function NewProductPage(): ReactNode {
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8">
+      {!pending && error ? (
+        <ProductSaveFeedback key={error} tone="error" message={t("product_save_feedback_failed")} />
+      ) : null}
       {categories === null || categories.length === 0 || loadError ? (
         <PageHeader
           title={t("product_new_title")}

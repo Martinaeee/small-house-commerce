@@ -210,6 +210,43 @@ describe("NewProductPage two-phase save", () => {
     await user.click(await screen.findByRole("button", { name: "添加 CHAIR" }));
   }
 
+  it("hands a completed create receipt to the edit page only after all save phases finish", async () => {
+    sessionStorage.removeItem("admin:product-created:created-1");
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    setStockBatch.mockResolvedValue([{ skuId: "sku-1", ok: true, onHand: 0, reserved: 0, available: 0 }]);
+    let finishGraph!: (value: AdminProduct) => void;
+    updateProduct.mockImplementation(() => new Promise(resolve => { finishGraph = resolve; }));
+    renderNewProductPage();
+    await fillAndSubmit(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(sessionStorage.getItem("admin:product-created:created-1")).toBeNull();
+    expect(screen.queryByRole("status", { name: "保存结果" })).not.toBeInTheDocument();
+
+    finishGraph(SAVED_WITH_SKU);
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/products/created-1/edit"));
+    expect(Number(sessionStorage.getItem("admin:product-created:created-1"))).toBeGreaterThan(0);
+    sessionStorage.removeItem("admin:product-created:created-1");
+  });
+
+  it("shows a floating partial-save warning rather than a success when a later phase fails", async () => {
+    sessionStorage.removeItem("admin:product-created:created-1");
+    const user = userEvent.setup();
+    createProduct.mockResolvedValue(CREATED);
+    updateProduct.mockRejectedValue(new Error("Graph save failed"));
+    renderNewProductPage();
+    await fillAndSubmit(user);
+
+    const feedback = await screen.findByRole("alert", { name: "保存结果" });
+    expect(feedback).toHaveTextContent("保存未完成，请查看页面中的错误详情。");
+    expect(screen.getByRole("link", { name: "继续编辑该商品" })).toHaveAttribute("href", "/admin/products/created-1/edit");
+    expect(sessionStorage.getItem("admin:product-created:created-1")).toBeNull();
+    expect(pushMock).not.toHaveBeenCalled();
+    await user.click(within(feedback).getByRole("button", { name: "关闭保存提示" }));
+    expect(screen.getByText(/Graph save failed/)).toBeInTheDocument();
+  });
+
   it("creates the product and graph before saving new Bundle components against a real identity", async () => {
     const user = userEvent.setup();
     const saved = structuredClone(SAVED_WITH_SKU);

@@ -750,6 +750,76 @@ describe("EditProductPage save orchestration", () => {
     expect(setStockBatch).not.toHaveBeenCalled();
   });
 
+  it("shows no-op saves above the scrolled page and lets the operator dismiss and repeat them", async () => {
+    const user = userEvent.setup();
+    getProduct.mockResolvedValue(legacyProduct());
+    renderEditPage();
+    await waitForForm();
+
+    await clickSave(user);
+
+    const feedback = await screen.findByRole("status", { name: "保存结果" });
+    expect(feedback).toHaveTextContent("没有需要保存的更改。");
+    expect(feedback.closest("[data-product-save-feedback]")).toHaveClass("fixed");
+    await user.click(within(feedback).getByRole("button", { name: "关闭保存提示" }));
+    expect(screen.queryByRole("status", { name: "保存结果" })).not.toBeInTheDocument();
+
+    await clickSave(user);
+    expect(await screen.findByRole("status", { name: "保存结果" })).toHaveTextContent("没有需要保存的更改。");
+    expect(updateProduct).not.toHaveBeenCalled();
+  });
+
+  it.each(["DRAFT", "ACTIVE"] as const)("shows a floating result only after a %s save finishes", async (status) => {
+    const user = userEvent.setup();
+    const original = legacyProduct({ status: "DRAFT" });
+    getProduct.mockResolvedValue(original);
+    let finishSave!: (product: AdminProduct) => void;
+    updateProduct.mockImplementation(() => new Promise(resolve => { finishSave = resolve; }));
+    renderEditPage();
+    await waitForForm();
+    await setInput(user, screen.getByLabelText(/商品名 \*/), "Chair saved");
+    await user.selectOptions(screen.getByRole("combobox", { name: "商品状态" }), status);
+    await clickSave(user);
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("status", { name: "保存结果" })).not.toBeInTheDocument();
+
+    finishSave(legacyProduct({ name: "Chair saved", status }));
+
+    const feedback = await screen.findByRole("status", { name: "保存结果" });
+    expect(feedback).toHaveTextContent("商品已保存。");
+    expect(feedback.closest("[data-product-save-feedback]")).toHaveClass("fixed");
+  });
+
+  it("shows a floating failure without replacing the detailed inline error", async () => {
+    const user = userEvent.setup();
+    getProduct.mockResolvedValue(legacyProduct());
+    updateProduct.mockRejectedValue(new Error("Save endpoint unavailable"));
+    renderEditPage();
+    await waitForForm();
+    await setInput(user, screen.getByLabelText(/商品名 \*/), "Chair saved");
+    await clickSave(user);
+
+    const feedback = await screen.findByRole("alert", { name: "保存结果" });
+    expect(feedback).toHaveTextContent("保存未完成，请查看页面中的错误详情。");
+    expect(screen.getByText("Save endpoint unavailable")).toBeInTheDocument();
+    await user.click(within(feedback).getByRole("button", { name: "关闭保存提示" }));
+    expect(screen.getByText("Save endpoint unavailable")).toBeInTheDocument();
+  });
+
+  it("shows a completed create receipt once on the edit page", async () => {
+    sessionStorage.setItem("admin:product-created:p1", String(Date.now()));
+    getProduct.mockResolvedValue(legacyProduct());
+    const view = renderEditPage();
+    await waitForForm();
+
+    expect(await screen.findByRole("status", { name: "保存结果" })).toHaveTextContent("商品已创建并保存。");
+    view.unmount();
+    renderEditPage();
+    await waitForForm();
+    expect(screen.queryByRole("status", { name: "保存结果" })).not.toBeInTheDocument();
+    sessionStorage.removeItem("admin:product-created:p1");
+  });
+
   it("PATCHes only the changed scalar on a scalar-only save", async () => {
     const user = userEvent.setup();
     getProduct.mockResolvedValue(legacyProduct());

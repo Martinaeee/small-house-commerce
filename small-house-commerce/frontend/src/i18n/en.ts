@@ -2185,6 +2185,10 @@ export const en: Record<ZhKey, string> = {
     "This product has data the form cannot edit. Reload the page and try again.",
   product_edit_saved_stock: "Product saved, stock updated.",
   product_edit_saved: "Product saved.",
+  product_new_saved: "Product created and saved.",
+  product_save_feedback_title: "Save result",
+  product_save_feedback_close: "Dismiss save notification",
+  product_save_feedback_failed: "Save incomplete. Check the error details on this page.",
   product_edit_stock_partial_saved:
     "Product saved, but {count} stock update(s) failed — retry below (only failed rows are sent again).",
   product_edit_stock_partial: "{count} stock update(s) failed — retry below.",
