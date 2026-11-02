@@ -25,6 +25,18 @@ describe("CookieConsentBar", () => {
     expect(screen.getByRole("button", { name: "Essential only" })).toBeTruthy();
   });
 
+  it("rides above the fixed purchase bar when one is on screen", async () => {
+    render(<CookieConsentBar />);
+
+    const region = await screen.findByRole("region", {
+      name: "Your privacy choices",
+    });
+    // The PDP publishes its bar height; the consent bar must add it to the
+    // mobile tab-bar offset instead of covering the only purchase entry.
+    expect(region.className).toContain("--sticky-bar-offset");
+    expect(region.className).not.toContain("md:bottom-0");
+  });
+
   it("records acceptance and hides", async () => {
     render(<CookieConsentBar />);
     fireEvent.click(await screen.findByRole("button", { name: "Accept all" }));
