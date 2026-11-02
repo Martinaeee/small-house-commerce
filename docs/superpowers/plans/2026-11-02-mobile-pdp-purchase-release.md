@@ -90,6 +90,14 @@
 
 投放前值得处理、但**不属于本次改动**：
 
-- 首次访问的 cookie 同意条与手机固定购买栏都是 `z-40`、都贴底，同意条会完整盖住固定栏，选择前 ORDER NOW/ADD TO CART 不可点；手机端现在只靠固定栏购买，建议把同意条抬到固定栏之上（需先确认，属全局组件改动）。
+- 首次访问的 cookie 同意条与手机固定购买栏都是 `z-40`、都贴底，同意条会完整盖住固定栏，选择前 ORDER NOW/ADD TO CART 不可点。**已按用户批准修复，见下节。**
 - 纯 `fbclid` 落地若在离开落地页之后才同意 Cookie，`_fbc` 可能缺失；`cl`/`aid` 营销链接不受影响。
+
+## 追加：Cookie 同意条抬到固定购买栏之上（2026-11-02，用户批准）
+
+- 背景：首次访问的同意条与固定购买栏同为 `z-40` 贴底，实测同意条会拦截购买按钮点击；手机端现在只靠固定栏购买，影响广告首次流量。
+- 改动：`CookieConsentBar` 的 `bottom` 改为 `calc(var(--sticky-bar-offset,0px)+var(--mobile-tab-bar-offset,0px))`，删除 `md:bottom-0`。固定栏在屏时（手机常驻、桌面滚动后）同意条自动位于其上方；没有固定栏的页面仍贴底。
+- 测试：新增 1 项先红后绿；`CookieConsentBar.spec` 6/6；全量前端 311 文件 / **3494 用例全绿**；`tsc`、ESLint、`pnpm build` 通过。
+- 生产验收（Chromium + WebKit，iPhone 390）：同意条 bottom 791px、固定栏 top 791px，**重叠 0px**；同意前点 ORDER NOW 抽屉正常打开；选 `Essential only` 后同意条消失、固定栏保留；`pageerror=[]`。
+- 新前端镜像 `sha256:420133258e434709d6300fa9ca767ab86d77a9b709db9305ed1e800067b9b33c`；回滚标签 `rollback-pre-consent-offset-20261102` → `sha256:423ee2a0…`；已 revalidate `storefront`。
 
