@@ -53,7 +53,10 @@ export class MarketingReportService {
           CASE WHEN COUNT(DISTINCT s.product_id) = 1 THEN MIN(s.product_name) END AS "productName",
           CASE WHEN COUNT(DISTINCT s.product_id) = 1 THEN MIN(s.product_code) END AS "productCode",
           CASE WHEN COUNT(DISTINCT s.landing_page_id) = 1 THEN MIN(s.landing_page_id::text) END AS "landingPageId",
-          CASE WHEN COUNT(DISTINCT s.source_type) = 1 THEN MIN(s.source_type::text) END AS "sourceType"
+          CASE WHEN COUNT(DISTINCT s.source_type) = 1 THEN MIN(s.source_type::text) END AS "sourceType",
+          CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.post_date) END AS "postDate",
+          CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.post_url) END AS "postUrl",
+          CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.archived_at) END AS "archivedAt"
         FROM scoped_links s GROUP BY s.group_key
       ), visits AS (
         SELECT s.group_key, COUNT(DISTINCT (v.visit_key, v.visit_day)) AS count
@@ -92,6 +95,7 @@ export class MarketingReportService {
       )
       SELECT 'REGISTERED' AS kind, g.id, g.label, g."ownerUserId", g."ownerName", g.aid,
         g."productId", g."productName", g."productCode", g."landingPageId", g."sourceType",
+        g."postDate", g."postUrl", g."archivedAt",
         COALESCE(v.count, 0) AS visits, ${query.groupBy === 'PAGE' ? Prisma.sql`pv.count` : Prisma.sql`NULL::bigint`} AS "pageTotalVisits",
         COALESCE(o."submittedOrders", 0) AS "submittedOrders", COALESCE(o."validOrders", 0) AS "validOrders", COALESCE(o."confirmedOrders", 0) AS "confirmedOrders", COALESCE(o."signedOrders", 0) AS "signedOrders",
         COALESCE(o."validOrderValuePhp", 0) AS "validOrderValuePhp", COALESCE(o."signedGrossPhp", 0) AS "signedGrossPhp",
@@ -102,7 +106,7 @@ export class MarketingReportService {
       LEFT JOIN expenses e ON e.group_key = g.id LEFT JOIN coverage c ON c.group_key = g.id
       LEFT JOIN registered_orders o ON o.group_key = g.id LEFT JOIN commerce_events ce ON ce.group_key = g.id
       UNION ALL
-      SELECT o.kind, o.kind, o.kind, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::bigint, NULL::bigint,
+      SELECT o.kind, o.kind, o.kind, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::date, NULL::text, NULL::timestamptz, NULL::bigint, NULL::bigint,
         o."submittedOrders", o."validOrders", o."confirmedOrders", o."signedOrders", o."validOrderValuePhp", o."signedGrossPhp",
         0::bigint, 0::bigint,
         0::numeric, 0::numeric, 0::bigint, 0::bigint,
@@ -112,7 +116,8 @@ export class MarketingReportService {
     `);
     const registered = rows.filter(row => row.kind === 'REGISTERED');
     const thumbnails = await this.productThumbnails(registered.map(row => row.productId));
-    const otherSources = rows.filter(row => row.kind !== 'REGISTERED').map(row => serializeMarketingReportRow(row));
+    const postDateFiltered = Boolean(query.postDateFrom || query.postDateTo || query.postDateMissingOnly);
+    const otherSources = postDateFiltered ? [] : rows.filter(row => row.kind !== 'REGISTERED').map(row => serializeMarketingReportRow(row));
     if (query.mode === 'TREE') {
       const visitRows = await this.prisma.$queryRaw<MarketingReportVisitRow[]>(Prisma.sql`
         WITH scoped_links AS (
@@ -132,7 +137,7 @@ export class MarketingReportService {
         otherSources,
       };
     }
-    const serialized = registered.map(row => serializeMarketingReportRow(row, thumbnails.get(row.productId ?? '') ?? null));
+    const serialized = registered.map(row => serializeMarketingReportRow(query.groupBy === 'LINK' ? row : { ...row, postDate: null, postUrl: null, archivedAt: null }, thumbnails.get(row.productId ?? '') ?? null));
     const sorted = sortMarketingReportRows(serialized, query.sortBy, query.sortDirection);
     return { from: query.from, to: query.to, groupBy: query.groupBy, mode: query.mode, sortBy: query.sortBy, sortDirection: query.sortDirection, asOf: new Date().toISOString(), page: query.page, pageSize: query.pageSize, total: sorted.length,
       rows: sorted.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), otherSources };
@@ -145,7 +150,10 @@ export class MarketingReportService {
       ${owner ? Prisma.sql`AND l.owner_user_id = ${owner}::uuid` : Prisma.empty}
       ${query.productId ? Prisma.sql`AND l.product_id = ${query.productId}::uuid` : Prisma.empty}
       ${query.landingPageId ? Prisma.sql`AND l.landing_page_id = ${query.landingPageId}::uuid` : Prisma.empty}
-      ${linkIds ? Prisma.sql`AND l.id IN (${Prisma.join(linkIds)})` : Prisma.empty}`;
+      ${linkIds ? Prisma.sql`AND l.id IN (${Prisma.join(linkIds)})` : Prisma.empty}
+      ${query.postDateMissingOnly ? Prisma.sql`AND l.source_type = 'FB_POST' AND l.post_date IS NULL` : Prisma.empty}
+      ${query.postDateFrom ? Prisma.sql`AND l.source_type = 'FB_POST' AND l.post_date >= ${query.postDateFrom}::date` : Prisma.empty}
+      ${query.postDateTo ? Prisma.sql`AND l.source_type = 'FB_POST' AND l.post_date <= ${query.postDateTo}::date` : Prisma.empty}`;
   }
 
   /** First product image per product; null when the product has no picture. */

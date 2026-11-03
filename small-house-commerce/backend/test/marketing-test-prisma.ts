@@ -6,6 +6,7 @@ const databases = {
   release_marketing_fresh_20261015: 'small_house_marketing_release_fresh_20261015',
   release_marketing_upgrade_20261015: 'small_house_marketing_release_upgrade_20261015',
   review_marketing_funnel_20261029: 'small_house_marketing_review_funnel_20261029',
+  public: 'luwag_post_links_local_e2e_20261103',
 } as const;
 
 export interface MarketingTestDatabase {
