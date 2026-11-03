@@ -128,6 +128,7 @@ export interface CampaignLinkQuery {
   page?: number;
   pageSize?: number;
 }
+export type CampaignLinkArchiveState = "UNARCHIVED" | "ARCHIVED" | "ALL";
 export type CampaignLinkGroupQuery = Omit<CampaignLinkQuery, "orderBy">;
 export interface CampaignLinkProductGroup {
   product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };

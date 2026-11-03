@@ -3679,5 +3679,8 @@ export const en: Record<ZhKey, string> = {
   marketing_post_other_sources_hidden: "Showing only registered Facebook post links that match the post-date filter.",
   marketing_post_conflict: "This record changed. Reload before saving again.",
   marketing_post_manage_denied: "You cannot manage this record.",
+  marketing_post_saved_outside_filter: "Record created but hidden by the owner filter; it was not created for another owner.",
+  marketing_post_clear_owner: "Clear owner filter",
+  marketing_post_create_uncertain: "The result is unconfirmed. Close this dialog and reload the list before creating again.",
   common_done: "Done",
 };
