@@ -1,9 +1,12 @@
 import {
   ConflictException,
   GoneException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
+import { SlidingWindowRateLimiter, normalizeClientIp } from '../../common/rate-limit.window.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
@@ -30,6 +33,16 @@ export class CheckoutDraftConflictError extends ConflictException {
       message: 'A newer checkout draft revision was saved.',
       currentRevision,
     });
+  }
+}
+
+export class CheckoutDraftCapacityError extends HttpException {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterMs: number) {
+    const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+    super({ statusCode: 429, message: 'Too many new checkout drafts. Please retry later.', retryAfterSeconds: seconds }, 429);
+    this.retryAfterSeconds = seconds;
   }
 }
 
@@ -97,12 +110,15 @@ function toSummary(row: AdminDraftRow): AdminCheckoutDraftSummary {
 
 @Injectable()
 export class CheckoutDraftsService {
+  private readonly creationLimiter = new SlidingWindowRateLimiter();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async save(
     rawToken: string,
     input: CheckoutDraftSaveInput,
     now: Date = new Date(),
+    clientIp?: string,
   ): Promise<{ status: 'OPEN' | 'CONVERTED' | 'EXPIRED'; revision: number; converted: boolean }> {
     const token = this.parseToken(rawToken, now);
     const existing = await this.prisma.checkoutDraft.findUnique({
@@ -129,10 +145,21 @@ export class CheckoutDraftsService {
 
     const snapshot = buildCheckoutDraftSnapshot(input);
     const contact = contactOf(snapshot);
-    const hasUserInput = Boolean(input.hasUserInput || existing?.hasUserInput);
+    const hasUserInput = Boolean(existing?.hasUserInput ||
+      Object.values(snapshot.customer).some((value) => value.trim() !== '') ||
+      snapshot.customerNote.trim() || snapshot.promoCodeInput.trim() || snapshot.promoCodeApplied ||
+      // The date starts prefilled: its presence alone is not evidence of a shopper edit.
+      (input.hasUserInput && snapshot.preferredDeliveryDate));
     const tokenExpiresAt = new Date(token.issuedAt.getTime() + CHECKOUT_DRAFT_MAX_AGE_MS);
 
     if (!existing) {
+      // New anonymous rows have a separate, much lower budget. Typing into an
+      // existing checkout does not consume it, including behind shared IPs.
+      const ip = normalizeClientIp(clientIp);
+      for (const [windowMs, limit] of [[60 * 60_000, 60], [24 * 60 * 60_000, 500]]) {
+        const decision = this.creationLimiter.hit(`checkout-draft-new:${windowMs}:${ip}`, limit, windowMs, now.getTime());
+        if (!decision.allowed) throw new CheckoutDraftCapacityError(decision.retryAfterMs);
+      }
       const emptyExpiresAt = new Date(
         Math.min(now.getTime() + EMPTY_TTL_MS, tokenExpiresAt.getTime()),
       );
@@ -154,7 +181,7 @@ export class CheckoutDraftsService {
         return { status: 'OPEN', revision: created.clientRevision, converted: false };
       } catch (error) {
         if (!this.isUniqueViolation(error)) throw error;
-        return this.save(rawToken, input, now);
+        return this.save(rawToken, input, now, clientIp);
       }
     }
 
@@ -162,6 +189,9 @@ export class CheckoutDraftsService {
       throw new CheckoutDraftConflictError(existing.clientRevision);
     }
     if (input.revision === existing.clientRevision) {
+      if (!isDeepStrictEqual(existing.snapshot, snapshot)) {
+        throw new CheckoutDraftConflictError(existing.clientRevision);
+      }
       return { status: 'OPEN', revision: existing.clientRevision, converted: false };
     }
 

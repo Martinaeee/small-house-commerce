@@ -3541,6 +3541,7 @@ export const zh = {
   checkout_drafts_status_open: "未完成",
   checkout_drafts_status_converted: "已转订单",
   checkout_drafts_empty: "还没有草稿订单。",
+  checkout_drafts_load_error: "草稿加载失败，可能已过期或网络暂时不可用。请返回列表后重试。",
   checkout_drafts_no_permission: "没有查看草稿订单的权限。",
   checkout_drafts_col_contact: "顾客",
   checkout_drafts_col_items: "商品",

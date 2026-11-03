@@ -56,8 +56,8 @@ export async function persistConvertedDraft(
         productSnapshot: [],
         orderId: args.orderId,
         createdAt: now,
-        // `updated_at` is NOT NULL with no database default; createMany does
-        // not run the @updatedAt rule, so the tombstone stamps it here.
+        // Keep the NOT NULL timestamp explicit rather than relying on ORM
+        // timestamp injection in this order-critical createMany path.
         updatedAt: now,
         expiresAt,
       },

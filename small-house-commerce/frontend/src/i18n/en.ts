@@ -3641,6 +3641,7 @@ export const en: Record<ZhKey, string> = {
   checkout_drafts_status_open: "Unfinished",
   checkout_drafts_status_converted: "Converted",
   checkout_drafts_empty: "No checkout drafts yet.",
+  checkout_drafts_load_error: "Could not load checkout drafts. The draft may have expired or the connection is unavailable. Return to the list and try again.",
   checkout_drafts_no_permission: "You do not have permission to view checkout drafts.",
   checkout_drafts_col_contact: "Customer",
   checkout_drafts_col_items: "Items",

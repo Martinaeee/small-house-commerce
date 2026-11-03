@@ -38,7 +38,10 @@ export default function CheckoutDraftsPage() {
         pageSize: PAGE_SIZE,
       })
       .then((result) => {
-        if (alive) setData({ items: result.items, total: result.total });
+        if (alive) {
+          setData({ items: result.items, total: result.total });
+          setError(false);
+        }
       })
       .catch(() => {
         if (alive) setError(true);
@@ -97,9 +100,8 @@ export default function CheckoutDraftsPage() {
         </select>
       </div>
       {error ? (
-        <p className="mt-4 text-sm text-sale">{t("checkout_drafts_empty")}</p>
-      ) : null}
-      {!data ? (
+        <p role="alert" className="mt-4 text-sm text-sale">{t("checkout_drafts_load_error")}</p>
+      ) : !data ? (
         <div className="mt-4">
           <TableSkeleton />
         </div>

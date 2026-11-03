@@ -8,6 +8,8 @@ export type CheckoutAutosaveStatus =
   | "saving"
   | "saved"
   | "offline"
+  | "conflict"
+  | "unavailable"
   | "expired"
   | "converted";
 
@@ -85,52 +87,59 @@ export function resolveCheckoutAttempt(
   key: string,
   now: number = Date.now(),
 ): CheckoutAttempt {
-  const stored = readAttempt();
+  const stored = readAttempts().find((attempt) => attempt.key === key);
   if (
     stored &&
-    stored.key === key &&
+    now >= stored.createdAt &&
     now - stored.createdAt < CHECKOUT_AUTOSAVE_MAX_AGE_MS
   ) {
     return stored;
   }
   const attempt = { token: createCheckoutDraftToken(now), key, createdAt: now };
-  writeAttempt(attempt);
+  try {
+    const others = readAttempts().filter(
+      (entry) => entry.key !== key && now - entry.createdAt < CHECKOUT_AUTOSAVE_MAX_AGE_MS,
+    );
+    localStorage.setItem(ATTEMPT_KEY, JSON.stringify([...others, attempt]));
+  } catch {
+    /* storage disabled: the mounted checkout still has its token */
+  }
   return attempt;
 }
 
-function readAttempt(): CheckoutAttempt | null {
+function readAttempts(): CheckoutAttempt[] {
   try {
-    const raw = localStorage.getItem(ATTEMPT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CheckoutAttempt;
-    return typeof parsed.token === "string" && typeof parsed.key === "string"
-      ? parsed
-      : null;
+    const parsed: unknown = JSON.parse(localStorage.getItem(ATTEMPT_KEY) ?? "null");
+    // Keep the original single-entry format readable across a release.
+    return (Array.isArray(parsed) ? parsed : parsed ? [parsed] : []).filter(
+      (entry): entry is CheckoutAttempt =>
+        entry && typeof entry.token === "string" && typeof entry.key === "string" &&
+        Number.isFinite(entry.createdAt),
+    );
   } catch {
-    return null;
+    return [];
   }
 }
 
-function writeAttempt(attempt: CheckoutAttempt): void {
+function readAutosaves(): StoredAutosave[] {
   try {
-    localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempt));
+    const parsed: unknown = JSON.parse(localStorage.getItem(DATA_KEY) ?? "null");
+    return (Array.isArray(parsed) ? parsed : parsed ? [parsed] : []).filter(
+      (entry): entry is StoredAutosave =>
+        entry && typeof entry.token === "string" && entry.snapshot &&
+        Number.isInteger(entry.revision) &&
+        Date.now() - entry.savedAt < CHECKOUT_AUTOSAVE_MAX_AGE_MS,
+    );
   } catch {
-    /* storage disabled: sync degrades, form keeps working */
+    return [];
   }
 }
 
 export function readAutosave(
   attempt: CheckoutAttempt,
 ): { revision: number; snapshot: CheckoutAutosaveSnapshot } | null {
-  try {
-    const raw = localStorage.getItem(DATA_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredAutosave;
-    if (parsed.token !== attempt.token || !parsed.snapshot) return null;
-    return { revision: parsed.revision, snapshot: parsed.snapshot };
-  } catch {
-    return null;
-  }
+  const stored = readAutosaves().find((entry) => entry.token === attempt.token);
+  return stored ? { revision: stored.revision, snapshot: stored.snapshot } : null;
 }
 
 export function readAutosaveRevision(attempt: CheckoutAttempt): number {
@@ -149,19 +158,21 @@ export function writeAutosave(
       snapshot,
       savedAt: Date.now(),
     };
-    localStorage.setItem(DATA_KEY, JSON.stringify(stored));
+    const others = readAutosaves().filter((entry) => entry.token !== attempt.token);
+    localStorage.setItem(DATA_KEY, JSON.stringify([...others, stored]));
   } catch {
-    /* see writeAttempt */
+    /* storage disabled: the form keeps working */
   }
 }
 
 export function clearAutosave(attempt?: CheckoutAttempt): void {
   try {
-    localStorage.removeItem(DATA_KEY);
-    const stored = readAttempt();
-    if (!attempt || !stored || stored.token === attempt.token) {
-      localStorage.removeItem(ATTEMPT_KEY);
-    }
+    const data = readAutosaves().filter((entry) => attempt && entry.token !== attempt.token);
+    const attempts = readAttempts().filter((entry) => attempt && entry.token !== attempt.token);
+    if (data.length) localStorage.setItem(DATA_KEY, JSON.stringify(data));
+    else localStorage.removeItem(DATA_KEY);
+    if (attempts.length) localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempts));
+    else localStorage.removeItem(ATTEMPT_KEY);
   } catch {
     /* ignore */
   }
@@ -182,26 +193,31 @@ export async function restoreCheckoutDraft(
     const res = await fetch("/api/v1/storefront/checkout-drafts/current", {
       headers: { [CHECKOUT_DRAFT_HEADER]: attempt.token },
       cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
     });
     if (res.ok) {
       const body = (await res.json()) as {
         revision: number;
         snapshot: CheckoutAutosaveSnapshot;
       };
-      if (!local || body.revision >= local.revision) {
+      // Another tab or a shopper edit can advance storage while GET is in
+      // flight. Compare with the current copy, not just the pre-request one.
+      const latest = readAutosave(attempt) ?? local;
+      if (!latest || body.revision >= latest.revision) {
         writeAutosave(attempt, body.revision, body.snapshot);
         return body.snapshot;
       }
+      return latest.snapshot;
     }
   } catch {
     /* offline: local copy still restores */
   }
-  return local?.snapshot ?? null;
+  return (readAutosave(attempt) ?? local)?.snapshot ?? null;
 }
 
 export function readCheckoutAttemptToken(key: string): string | null {
-  const stored = readAttempt();
-  if (!stored || stored.key !== key) return null;
+  const stored = readAttempts().find((entry) => entry.key === key);
+  if (!stored) return null;
   if (Date.now() - stored.createdAt >= CHECKOUT_AUTOSAVE_MAX_AGE_MS) return null;
   return stored.token;
 }
@@ -273,6 +289,10 @@ export function autosaveStatusLabel(status: CheckoutAutosaveStatus): string {
   if (status === "offline") {
     return "We could not save to the shop yet. Your details stay on this device and will retry.";
   }
+  if (status === "conflict")
+    return "This checkout was updated in another tab. Your changes stay on this device; review before continuing.";
+  if (status === "unavailable")
+    return "We could not save to the shop. Your changes stay on this device; you can still continue checkout.";
   if (status === "expired")
     return "This saved checkout has expired. Please continue with a new one.";
   if (status === "converted") return "This checkout was already placed.";

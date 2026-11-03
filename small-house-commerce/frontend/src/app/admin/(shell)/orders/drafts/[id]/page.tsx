@@ -13,13 +13,19 @@ export default function CheckoutDraftDetailPage() {
   const { hasPermission } = useAdminAuth();
   const { t } = useAdminI18n();
   const [draft, setDraft] = useState<AdminCheckoutDraftDetail | null>(null);
+  const [error, setError] = useState(false);
   const canView = hasPermission("ORDER_VIEW_ALL");
 
   useEffect(() => {
     if (!canView) return;
     let alive = true;
     adminApi.getCheckoutDraft(params.id).then((value) => {
-      if (alive) setDraft(value);
+      if (alive) {
+        setDraft(value);
+        setError(false);
+      }
+    }).catch(() => {
+      if (alive) setError(true);
     });
     return () => {
       alive = false;
@@ -31,6 +37,16 @@ export default function CheckoutDraftDetailPage() {
       <p className="px-4 py-6 text-sm text-ink-secondary md:px-8">
         {t("checkout_drafts_no_permission")}
       </p>
+    );
+  }
+  if (error) {
+    return (
+      <div className="px-4 py-6 md:px-8">
+        <p role="alert" className="text-sm text-sale">{t("checkout_drafts_load_error")}</p>
+        <Link href="/admin/orders/drafts" className="mt-3 inline-block text-sm text-cta hover:underline">
+          {t("checkout_drafts_detail_back")}
+        </Link>
+      </div>
     );
   }
   if (!draft) {

@@ -7,11 +7,14 @@ import {
   HttpCode,
   NotFoundException,
   Put,
+  Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { Throttle, ThrottleGuard } from '../../../common/throttle.guard.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
-import { CheckoutDraftsService } from '../checkout-drafts.service.js';
+import { CheckoutDraftCapacityError, CheckoutDraftsService } from '../checkout-drafts.service.js';
 import {
   checkoutDraftSaveSchema,
   type CheckoutDraftSaveInput,
@@ -37,8 +40,17 @@ export class StorefrontCheckoutDraftsController {
   async save(
     @Headers(HEADER) token: string | undefined,
     @Body(new ZodValidationPipe(checkoutDraftSaveSchema)) body: CheckoutDraftSaveInput,
+    @Req() request?: Request,
+    @Res({ passthrough: true }) response?: Response,
   ) {
-    return this.drafts.save(requireToken(token), body);
+    try {
+      return await this.drafts.save(requireToken(token), body, undefined, request?.ip);
+    } catch (error) {
+      if (error instanceof CheckoutDraftCapacityError) {
+        response?.setHeader('Retry-After', String(error.retryAfterSeconds));
+      }
+      throw error;
+    }
   }
 
   @Get('current')

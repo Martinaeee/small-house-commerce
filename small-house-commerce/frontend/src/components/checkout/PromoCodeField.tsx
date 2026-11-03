@@ -31,7 +31,7 @@ export interface PromoCodeFieldProps {
   /** Lets checkout CTAs stay locked while a preview can still change totals. */
   onCheckingChange?: (checking: boolean) => void;
   /** Raw text in the code box, before it is validated. Autosave only. */
-  onInputChange?: (value: string) => void;
+  onInputChange?: (value: string, edited?: boolean) => void;
 }
 
 /**
@@ -234,7 +234,7 @@ export function PromoCodeField({
     shopperCodeRef.current = trimmed === "" ? null : value;
     shopperStateRef.current = trimmed === "" ? "none" : "typed";
     setCode(value);
-    onInputChangeRef.current?.(value);
+    onInputChangeRef.current?.(value, true);
     setMessage(null);
     setBusy(false);
     onCheckingRef.current?.(false);

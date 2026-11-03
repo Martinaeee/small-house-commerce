@@ -33,8 +33,8 @@ export function useCheckoutDraftAutosave({
   const bodyRef = useRef("");
   const snapshotRef = useRef(snapshot);
   const timerRef = useRef<number | null>(null);
-  // Late retries go through a ref: the retry timer must not close over a
-  // binding declared after it.
+  const retryRef = useRef<number | null>(null);
+  const generationRef = useRef(0);
   const sendRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
@@ -43,11 +43,26 @@ export function useCheckoutDraftAutosave({
 
   useEffect(() => {
     revisionRef.current = readAutosaveRevision(attempt);
+    lastQueuedRef.current = "";
+    bodyRef.current = "";
+    stoppedRef.current = false;
+    inFlightRef.current = false;
+    backoffRef.current = 0;
+    return () => {
+      generationRef.current += 1;
+      stoppedRef.current = true;
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      if (retryRef.current) window.clearTimeout(retryRef.current);
+      timerRef.current = retryRef.current = null;
+    };
   }, [attempt]);
 
   const send = useCallback(async () => {
-    if (inFlightRef.current || stoppedRef.current) return;
-    if (bodyRef.current === "") return;
+    if (inFlightRef.current || stoppedRef.current || retryRef.current) return;
+    const sentBody = bodyRef.current;
+    if (!sentBody) return;
+    const generation = generationRef.current;
+    let succeeded = false;
     inFlightRef.current = true;
     setStatus("saving");
     try {
@@ -57,38 +72,72 @@ export function useCheckoutDraftAutosave({
           "Content-Type": "application/json",
           [CHECKOUT_DRAFT_HEADER]: attempt.token,
         },
-        body: bodyRef.current,
+        body: sentBody,
         cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
       });
+      if (generation !== generationRef.current) return;
       if (res.status === 410) {
         stoppedRef.current = true;
         setStatus("expired");
         return;
       }
-      // A newer client revision already won (another tab or a retry).
       if (res.status === 409) {
-        setStatus("saved");
+        const conflict = await res.json().catch(() => ({})) as { currentRevision?: number };
+        if (Number.isInteger(conflict.currentRevision)) {
+          revisionRef.current = Math.max(revisionRef.current, conflict.currentRevision!);
+        }
+        // Do not overwrite the winning tab automatically or claim this one
+        // was saved. A subsequent shopper edit starts above the known version.
+        setStatus("conflict");
+        return;
+      }
+      if (res.status === 429) {
+        const retrySeconds = Number(res.headers.get("Retry-After"));
+        const delay = Math.max(15_000, Number.isFinite(retrySeconds) ? retrySeconds * 1000 : 0);
+        retryRef.current = window.setTimeout(() => {
+          retryRef.current = null;
+          sendRef.current();
+        }, delay);
+        setStatus("offline");
+        return;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        stoppedRef.current = true;
+        setStatus("unavailable");
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = (await res.json()) as { status?: string };
+      if (generation !== generationRef.current) return;
       if (body.status === "CONVERTED") {
         stoppedRef.current = true;
         setStatus("converted");
         return;
       }
       backoffRef.current = 0;
-      setStatus("saved");
+      succeeded = true;
+      if (sentBody === bodyRef.current) setStatus("saved");
     } catch {
-      if (stoppedRef.current) return;
+      if (stoppedRef.current || generation !== generationRef.current) return;
       setStatus("offline");
-      const delay = BACKOFF_MS[Math.min(backoffRef.current, BACKOFF_MS.length - 1)];
-      backoffRef.current += 1;
-      window.setTimeout(() => {
-        if (!stoppedRef.current) sendRef.current();
+      const delay = BACKOFF_MS[Math.min(backoffRef.current++, BACKOFF_MS.length - 1)];
+      retryRef.current = window.setTimeout(() => {
+        retryRef.current = null;
+        sendRef.current();
       }, delay);
     } finally {
-      inFlightRef.current = false;
+      if (generation === generationRef.current) {
+        inFlightRef.current = false;
+        // A newer change whose debounce fired during the request is still
+        // pending. Drain it instead of waiting for another keystroke.
+        if (succeeded && sentBody !== bodyRef.current && timerRef.current === null) {
+          timerRef.current = window.setTimeout(() => {
+            timerRef.current = null;
+            sendRef.current();
+          }, 0);
+        }
+      }
     }
   }, [attempt]);
 
@@ -96,53 +145,35 @@ export function useCheckoutDraftAutosave({
     sendRef.current = () => void send();
   }, [send]);
 
-  // Serialize during render so the debounce effect can key on the VALUES: a
-  // re-render carrying an identical snapshot (a restore landing mid-debounce,
-  // an unrelated state change) must not tear down the pending timer and leave
-  // the change unsent.
-  const serialized = JSON.stringify({
-    hasUserInput,
-    customer: snapshot.customer,
-    items: snapshot.items,
-    preferredDeliveryDate: snapshot.preferredDeliveryDate,
-    promoCodeInput: snapshot.promoCodeInput,
-    promoCodeApplied: snapshot.promoCodeApplied,
-    customerNote: snapshot.customerNote,
-  });
-
+  const serialized = JSON.stringify({ hasUserInput, ...snapshot });
   useEffect(() => {
-    if (!active || stoppedRef.current) return;
-    if (serialized === lastQueuedRef.current) return;
+    if (!active || serialized === lastQueuedRef.current) return;
     lastQueuedRef.current = serialized;
-    revisionRef.current += 1;
+    revisionRef.current = Math.max(revisionRef.current, readAutosaveRevision(attempt)) + 1;
     writeAutosave(attempt, revisionRef.current, snapshotRef.current);
-    bodyRef.current = JSON.stringify({
-      revision: revisionRef.current,
-      ...JSON.parse(serialized),
-    });
+    bodyRef.current = JSON.stringify({ revision: revisionRef.current, ...JSON.parse(serialized) });
+    if (stoppedRef.current) return;
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
       void send();
     }, DEBOUNCE_MS);
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
     };
   }, [active, attempt, serialized, send]);
 
   useEffect(() => {
     if (!active) return;
     const flush = () => {
-      if (stoppedRef.current || bodyRef.current === "" || inFlightRef.current) return;
+      if (stoppedRef.current || bodyRef.current === "") return;
       void fetch(ENDPOINT, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          [CHECKOUT_DRAFT_HEADER]: attempt.token,
-        },
+        headers: { "Content-Type": "application/json", [CHECKOUT_DRAFT_HEADER]: attempt.token },
         body: bodyRef.current,
         keepalive: true,
       }).catch(() => undefined);
-      writeAutosave(attempt, revisionRef.current, snapshotRef.current);
     };
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
@@ -150,6 +181,7 @@ export function useCheckoutDraftAutosave({
 
   const flush = useCallback(() => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
     void send();
   }, [send]);
 

@@ -77,6 +77,13 @@ describe("CheckoutDraftDetailPage", () => {
     expect(screen.getByText(/PH100020/)).toBeInTheDocument();
   });
 
+  it("shows a recoverable error when the draft cannot be loaded", async () => {
+    getCheckoutDraft.mockRejectedValue(new Error("Not found"));
+    render(<AdminI18nProvider><CheckoutDraftDetailPage /></AdminI18nProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("草稿加载失败");
+    expect(screen.getByRole("link", { name: "返回草稿列表" })).toHaveAttribute("href", "/admin/orders/drafts");
+  });
+
   it("renders a converted tombstone that predates the first autosave", async () => {
     // When the order was placed before any draft reached the server, the
     // converted row carries an empty snapshot; the screen must fall back to

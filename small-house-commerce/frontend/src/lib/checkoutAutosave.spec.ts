@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkoutAttemptKey,
   clearAutosave,
   createCheckoutDraftToken,
   readAutosave,
+  readCheckoutAttemptToken,
+  restoreCheckoutDraft,
   resolveCheckoutAttempt,
   writeAutosave,
   type CheckoutAutosaveSnapshot,
@@ -68,6 +70,34 @@ describe("local autosave", () => {
     expect(readAutosave(attempt)).toEqual({ revision: 3, snapshot: SNAPSHOT });
     clearAutosave(attempt);
     expect(readAutosave(attempt)).toBeNull();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps independent checkout tokens and snapshots when tabs use different selections", () => {
+    const a = resolveCheckoutAttempt("cart:a");
+    writeAutosave(a, 3, SNAPSHOT);
+    const b = resolveCheckoutAttempt("cart:b");
+    writeAutosave(b, 1, { ...SNAPSHOT, customerNote: "second checkout" });
+    expect(resolveCheckoutAttempt("cart:a").token).toBe(a.token);
+    expect(readCheckoutAttemptToken("cart:a")).toBe(a.token);
+    expect(readAutosave(a)?.snapshot).toEqual(SNAPSHOT);
+    clearAutosave(b);
+    expect(readAutosave(a)?.snapshot).toEqual(SNAPSHOT);
+    expect(readCheckoutAttemptToken("cart:a")).toBe(a.token);
+  });
+
+  it("does not replace a local edit made while the restore GET was in flight", async () => {
+    const attempt = resolveCheckoutAttempt("cart:a");
+    writeAutosave(attempt, 1, SNAPSHOT);
+    let finish!: (res: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    const restoring = restoreCheckoutDraft("cart:a");
+    const edited = { ...SNAPSHOT, customerNote: "typed during restore" };
+    writeAutosave(attempt, 4, edited);
+    finish(new Response(JSON.stringify({ revision: 2, snapshot: SNAPSHOT }), { status: 200 }));
+    expect(await restoring).toEqual(edited);
+    expect(readAutosave(attempt)).toEqual({ revision: 4, snapshot: edited });
   });
 
   it("never throws when storage is disabled", () => {

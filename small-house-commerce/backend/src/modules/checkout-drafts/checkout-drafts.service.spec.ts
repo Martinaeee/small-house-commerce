@@ -4,6 +4,7 @@ import {
   CheckoutDraftGoneError,
   CheckoutDraftsService,
 } from './checkout-drafts.service.js';
+import { buildCheckoutDraftSnapshot } from './checkout-draft-snapshot.js';
 import type { CheckoutDraftSaveInput } from './dto/checkout-draft.dto.js';
 
 const NOW = new Date('2026-11-03T00:00:00.000Z');
@@ -73,11 +74,50 @@ describe('CheckoutDraftsService.save', () => {
   it('treats an equal revision as an idempotent retry', async () => {
     const { service, prisma } = harness({
       id: 'draft-1', status: 'OPEN', clientRevision: 3, createdAt: NOW,
-      expiresAt: new Date(NOW.getTime() + 60_000), snapshot: {}, productSnapshot: [],
+      expiresAt: new Date(NOW.getTime() + 60_000),
+      snapshot: buildCheckoutDraftSnapshot(EMPTY_INPUT), productSnapshot: [],
     });
     const result = await service.save(TOKEN, { ...EMPTY_INPUT, revision: 3 }, NOW);
     expect(result).toEqual({ status: 'OPEN', revision: 3, converted: false });
     expect(prisma.checkoutDraft.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects equal revision with different content instead of reporting a false save', async () => {
+    const { service } = harness({
+      id: 'draft-1', status: 'OPEN', clientRevision: 3, createdAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 60_000),
+      snapshot: buildCheckoutDraftSnapshot(EMPTY_INPUT), productSnapshot: [],
+    });
+    await expect(service.save(TOKEN, { ...EMPTY_INPUT, revision: 3, customerNote: 'another tab' }, NOW))
+      .rejects.toBeInstanceOf(CheckoutDraftConflictError);
+  });
+
+  it('does not trust a true input flag on a completely empty snapshot', async () => {
+    const { service, state } = harness();
+    await service.save(TOKEN, { ...EMPTY_INPUT, hasUserInput: true }, NOW);
+    expect(state.row?.hasUserInput).toBe(false);
+    expect(state.row?.expiresAt).toEqual(new Date(NOW.getTime() + 24 * 60 * 60_000));
+  });
+
+  it('recognizes partial customer input even when the client flag is false', async () => {
+    const { service, state } = harness();
+    await service.save(TOKEN, { ...EMPTY_INPUT, customer: { ...EMPTY_INPUT.customer, phone: '09' } }, NOW);
+    expect(state.row?.hasUserInput).toBe(true);
+  });
+
+  it('limits new drafts separately while allowing updates to an existing draft', async () => {
+    const { service, state, prisma } = harness();
+    for (let n = 0; n < 60; n += 1) {
+      state.row = null;
+      await service.save(TOKEN, EMPTY_INPUT, NOW, '192.0.2.1');
+    }
+    state.row = null;
+    await expect(service.save(TOKEN, EMPTY_INPUT, NOW, '192.0.2.1')).rejects.toMatchObject({ status: 429 });
+    expect(prisma.checkoutDraft.create).toHaveBeenCalledTimes(60);
+    state.row = { id: 'draft-1', status: 'OPEN', clientRevision: 1, expiresAt: new Date(NOW.getTime() + 60_000) };
+    await expect(service.save(TOKEN, { ...EMPTY_INPUT, revision: 2 }, NOW, '192.0.2.1')).resolves.toMatchObject({ revision: 2 });
+    state.row = null;
+    await expect(service.save(TOKEN, EMPTY_INPUT, NOW, '192.0.2.2')).resolves.toMatchObject({ status: 'OPEN' });
   });
 
   it('rejects an older revision instead of overwriting newer input', async () => {

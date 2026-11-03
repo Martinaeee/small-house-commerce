@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { CheckoutDraftCapacityError } from '../checkout-drafts.service.js';
 import { StorefrontCheckoutDraftsController } from './checkout-drafts.controller.js';
 
 const INPUT = {
@@ -37,7 +38,23 @@ describe('StorefrontCheckoutDraftsController', () => {
     };
     const controller = new StorefrontCheckoutDraftsController(service as never);
     await controller.save('tok', INPUT);
-    expect(service.save).toHaveBeenCalledWith('tok', INPUT);
+    expect(service.save).toHaveBeenCalledWith('tok', INPUT, undefined, undefined);
+  });
+
+  it('passes the trusted request IP into the creation budget', async () => {
+    const save = vi.fn().mockResolvedValue({ status: 'OPEN', revision: 1 });
+    const controller = new StorefrontCheckoutDraftsController({ save } as never);
+    await controller.save('tok', INPUT, { ip: '192.0.2.1' } as never);
+    expect(save).toHaveBeenCalledWith('tok', INPUT, undefined, '192.0.2.1');
+  });
+
+  it('tells the browser when the creation budget will reopen', async () => {
+    const error = new CheckoutDraftCapacityError(120_000);
+    const controller = new StorefrontCheckoutDraftsController({ save: vi.fn().mockRejectedValue(error) } as never);
+    const setHeader = vi.fn();
+    await expect(controller.save('tok', INPUT, { ip: '192.0.2.1' } as never, { setHeader } as never))
+      .rejects.toBe(error);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '120');
   });
 
   it('requires the capability header on read', async () => {

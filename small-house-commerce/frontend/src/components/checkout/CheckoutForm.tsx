@@ -160,6 +160,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const attempt = useMemo(() => resolveCheckoutAttempt(attemptKey), [attemptKey]);
   const [promoInput, setPromoInput] = useState("");
   const [draftTouched, setDraftTouched] = useState(false);
+  const [autosaveRestored, setAutosaveRestored] = useState(false);
   // Synchronous twin of draftTouched: the restore promise must not overwrite
   // a field the shopper has already edited in this visit.
   const draftTouchedRef = useRef(false);
@@ -225,16 +226,14 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       }));
       setInitialPromoCode(next.promoCodeApplied ?? next.promoCodeInput);
       setPromoInput(next.promoCodeInput);
-      if (
-        next.name ||
-        next.phone ||
-        next.province ||
-        next.streetAddress ||
-        next.notes
-      ) {
+      if (Object.values(restored.customer).some(Boolean) ||
+          restored.customerNote || restored.promoCodeInput || restored.preferredDeliveryDate) {
         draftTouchedRef.current = true;
         setDraftTouched(true);
       }
+    }).finally(() => {
+      // Never persist the initial blank form while a saved copy is loading.
+      if (alive) setAutosaveRestored(true);
     });
     return () => {
       alive = false;
@@ -253,7 +252,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     useCheckoutDraftAutosave({
       attempt,
       snapshot: autosaveSnapshot,
-      active: !cartLoading && !cartBlocked,
+      active: (autosaveRestored || draftTouched) && !cartLoading && !cartBlocked,
       hasUserInput: draftTouched,
     });
 
@@ -882,7 +881,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               initialCode={initialPromoCode}
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
-              onInputChange={setPromoInput}
+              onInputChange={(value, edited) => {
+                if (edited) markDraftTouched();
+                setPromoInput(value);
+              }}
             />
             <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
           </div>

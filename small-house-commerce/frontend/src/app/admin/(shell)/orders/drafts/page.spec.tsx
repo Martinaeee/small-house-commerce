@@ -53,6 +53,13 @@ describe("CheckoutDraftsPage", () => {
     expect(within(screen.getByRole("table")).getByText("未完成")).toBeInTheDocument();
   });
 
+  it("does not label a failed request as an empty inbox", async () => {
+    listCheckoutDrafts.mockRejectedValue(new Error("Offline"));
+    render(<AdminI18nProvider><CheckoutDraftsPage /></AdminI18nProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("草稿加载失败");
+    expect(screen.queryByText("还没有草稿订单。")).not.toBeInTheDocument();
+  });
+
   it("hides the page from operators without ORDER_VIEW_ALL", async () => {
     canView = false;
     render(
