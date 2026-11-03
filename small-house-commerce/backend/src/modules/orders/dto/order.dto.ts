@@ -112,6 +112,10 @@ export const checkoutSchema = z.object({
     .transform((value) => (value === '' ? null : value.toUpperCase()))
     .nullable()
     .default(null),
+  // Optional capability token from the checkout autosave layer. It links the
+  // order to its draft; it never changes what was bought and is excluded from
+  // the idempotency fingerprint.
+  checkoutDraftToken: z.string().min(20).max(200).nullable().optional(),
 });
 
 export const orderQuerySchema = z.object({
