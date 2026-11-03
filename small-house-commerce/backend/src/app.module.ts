@@ -4,6 +4,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CartModule } from './modules/cart/cart.module.js';
+import { CheckoutDraftsModule } from './modules/checkout-drafts/checkout-drafts.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
 import { CmsModule } from './modules/cms/cms.module.js';
 import { CollectionsModule } from './modules/collections/collections.module.js';
@@ -45,6 +46,7 @@ import { UsersModule } from './modules/users/users.module.js';
     CmsModule,
     CustomersModule,
     CartModule,
+    CheckoutDraftsModule,
     InventoryModule,
     OrdersModule,
     PsgcModule,
