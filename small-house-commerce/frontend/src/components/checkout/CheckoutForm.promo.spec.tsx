@@ -70,6 +70,9 @@ beforeEach(() => {
     newsletterOfferTitle: "",
   };
   sessionStorage.clear();
+  // Checkout autosave keeps its attempt in localStorage across visits; each
+  // test must start with an empty tab or a previous note is restored.
+  localStorage.clear();
   draftMock.readCheckoutDraft.mockReturnValue(null);
   validationMock.validateCheckoutForm.mockReturnValue({});
   validationMock.validatePreferredDate.mockReturnValue(null);

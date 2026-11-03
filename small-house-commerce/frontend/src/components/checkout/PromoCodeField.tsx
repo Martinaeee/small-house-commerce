@@ -30,6 +30,8 @@ export interface PromoCodeFieldProps {
   onApplied?: (result: AppliedPromo | null) => void;
   /** Lets checkout CTAs stay locked while a preview can still change totals. */
   onCheckingChange?: (checking: boolean) => void;
+  /** Raw text in the code box, before it is validated. Autosave only. */
+  onInputChange?: (value: string) => void;
 }
 
 /**
@@ -48,6 +50,7 @@ export function PromoCodeField({
   initialCode = "",
   onApplied,
   onCheckingChange,
+  onInputChange,
 }: PromoCodeFieldProps) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState(initialCode);
@@ -62,6 +65,7 @@ export function PromoCodeField({
   const seedSource: CodeSource = hasFlowCode ? "shopper" : "granted";
   const onAppliedRef = useRef(onApplied);
   const onCheckingRef = useRef(onCheckingChange);
+  const onInputChangeRef = useRef(onInputChange);
   const requestIdRef = useRef(0);
   const lastAttemptedCodeRef = useRef<string | null>(null);
   const lastSourceRef = useRef<CodeSource>("granted");
@@ -79,6 +83,10 @@ export function PromoCodeField({
   useEffect(() => {
     onCheckingRef.current = onCheckingChange;
   }, [onCheckingChange]);
+
+  useEffect(() => {
+    onInputChangeRef.current = onInputChange;
+  }, [onInputChange]);
 
   const applyCode = useCallback(
     async (candidate: string, source: CodeSource = "shopper") => {
@@ -149,6 +157,7 @@ export function PromoCodeField({
       if (seedChanged) {
         seededInitialCodeRef.current = effectiveSeed;
         setCode(effectiveSeed);
+        onInputChangeRef.current?.(effectiveSeed);
         // A code we revealed is shown in the open field: the shopper can see
         // which code is on their total.
         if (seedSource === "granted" && effectiveSeed.trim() !== "") {
@@ -209,6 +218,7 @@ export function PromoCodeField({
       shopperCodeRef.current = null;
       shopperStateRef.current = "none";
       setCode(granted);
+      onInputChangeRef.current?.(granted);
       setOpen(true);
       void applyCodeRef.current(granted, "granted");
     });
@@ -224,6 +234,7 @@ export function PromoCodeField({
     shopperCodeRef.current = trimmed === "" ? null : value;
     shopperStateRef.current = trimmed === "" ? "none" : "typed";
     setCode(value);
+    onInputChangeRef.current?.(value);
     setMessage(null);
     setBusy(false);
     onCheckingRef.current?.(false);

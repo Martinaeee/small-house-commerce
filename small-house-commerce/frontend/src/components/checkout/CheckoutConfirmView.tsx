@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -24,6 +24,15 @@ import {
   clearCheckoutDraft,
   type CheckoutDraft,
 } from "@/lib/checkoutDraft";
+import {
+  autosaveStatusLabel,
+  buildCheckoutSnapshot,
+  checkoutAttemptKey,
+  clearAutosave,
+  readCheckoutAttemptToken,
+  resolveCheckoutAttempt,
+} from "@/lib/checkoutAutosave";
+import { useCheckoutDraftAutosave } from "./useCheckoutDraftAutosave";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
@@ -116,6 +125,43 @@ export function CheckoutConfirmView({
     itemsParam,
     slug,
   })}`;
+  const attemptKey = useMemo(
+    () => checkoutAttemptKey({ skuId, qty, itemsParam, slug }),
+    [skuId, qty, itemsParam, slug],
+  );
+  const checkoutAttempt = useMemo(
+    () => resolveCheckoutAttempt(attemptKey),
+    [attemptKey],
+  );
+  const confirmSnapshot = useMemo(
+    () =>
+      buildCheckoutSnapshot(
+        {
+          name: draft?.customer.name ?? "",
+          phone: draft?.customer.phone ?? "",
+          province: draft?.customer.province ?? "",
+          city: draft?.customer.city ?? "",
+          barangay: draft?.customer.barangay ?? "",
+          postalCode: draft?.customer.postalCode ?? "",
+          streetAddress: draft?.customer.streetAddress ?? "",
+          landmark: draft?.customer.landmark ?? "",
+          preferredDeliveryDate: draft?.preferredDeliveryDate ?? "",
+          notes: draft?.customerNote ?? "",
+        },
+        checkout.orderItems,
+        {
+          input: draft?.promoCode ?? "",
+          applied: appliedPromo?.code ?? draft?.promoCode ?? null,
+        },
+      ),
+    [draft, checkout.orderItems, appliedPromo],
+  );
+  const confirmAutosave = useCheckoutDraftAutosave({
+    attempt: checkoutAttempt,
+    snapshot: confirmSnapshot,
+    active: draft !== null,
+    hasUserInput: true,
+  });
   const editHref = editHrefForDraft(draft, checkoutHref);
   const discountedTotal =
     checkout.total === null
@@ -215,6 +261,8 @@ export function CheckoutConfirmView({
         // Analytics-only: links this order to the visit that produced it.
         trackingSessionId: analyticsSessionId(),
         idempotencyKey,
+        // Links the order to the unfinished-checkout draft it came from.
+        checkoutDraftToken: readCheckoutAttemptToken(attemptKey),
         // Meta matching data, only meaningful (and only accepted by the
         // backend) when the shopper accepted optional cookies.
         ...readMetaBrowserIds(),
@@ -259,6 +307,7 @@ export function CheckoutConfirmView({
         // Storage unavailable: skip the success-page stashes; the order stands.
       }
       clearCheckoutDraft();
+      clearAutosave(checkoutAttempt);
       // The revealed code is spent with this order — a later order in the same
       // browser must not inherit it.
       clearStoredNewsletterCode();
@@ -482,6 +531,14 @@ export function CheckoutConfirmView({
                 {error}
               </p>
             )}
+
+            <p
+              data-testid="checkout-autosave-status"
+              aria-live="polite"
+              className="mb-3 text-xs text-ink-muted"
+            >
+              {autosaveStatusLabel(confirmAutosave.status)}
+            </p>
 
             <Button
               onClick={placeOrder}

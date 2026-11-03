@@ -248,6 +248,24 @@ export function buildCheckoutSnapshot(
   };
 }
 
+export interface CheckoutRestoredFormState extends CheckoutAutosaveForm {
+  promoCodeInput: string;
+  promoCodeApplied: string | null;
+}
+
+/** Maps a saved draft back to the form; a missing date stays empty. */
+export function restoredFormState(
+  snapshot: CheckoutAutosaveSnapshot,
+): CheckoutRestoredFormState {
+  return {
+    ...snapshot.customer,
+    preferredDeliveryDate: snapshot.preferredDeliveryDate ?? "",
+    notes: snapshot.customerNote,
+    promoCodeInput: snapshot.promoCodeInput,
+    promoCodeApplied: snapshot.promoCodeApplied,
+  };
+}
+
 export function autosaveStatusLabel(status: CheckoutAutosaveStatus): string {
   if (status === "saving") return "Saving your details…";
   if (status === "saved")

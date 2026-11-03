@@ -18,6 +18,15 @@ import {
   INITIATE_CHECKOUT_FIRED_KEY,
 } from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import {
+  autosaveStatusLabel,
+  buildCheckoutSnapshot,
+  checkoutAttemptKey,
+  resolveCheckoutAttempt,
+  restoreCheckoutDraft,
+  restoredFormState,
+} from "@/lib/checkoutAutosave";
+import { useCheckoutDraftAutosave } from "./useCheckoutDraftAutosave";
 import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
@@ -143,6 +152,21 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     totals,
     total,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
+
+  const attemptKey = useMemo(
+    () => checkoutAttemptKey({ skuId, qty, itemsParam, slug }),
+    [skuId, qty, itemsParam, slug],
+  );
+  const attempt = useMemo(() => resolveCheckoutAttempt(attemptKey), [attemptKey]);
+  const [promoInput, setPromoInput] = useState("");
+  const [draftTouched, setDraftTouched] = useState(false);
+  // Synchronous twin of draftTouched: the restore promise must not overwrite
+  // a field the shopper has already edited in this visit.
+  const draftTouchedRef = useRef(false);
+  const markDraftTouched = () => {
+    draftTouchedRef.current = true;
+    setDraftTouched(true);
+  };
   // Display-only preview of the promo discount; the order endpoint recomputes
   // the authoritative amount when the order is created.
   const discountedTotal =
@@ -175,6 +199,64 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     };
   }, []);
 
+  // Autosave restore: the server copy wins when it is newer than the local
+  // one. It runs after the review-payload restore above, and never resets a
+  // field the shopper has already started typing in this session.
+  useEffect(() => {
+    let alive = true;
+    void restoreCheckoutDraft(attemptKey).then((restored) => {
+      if (!alive || !restored) return;
+      // The shopper started typing while the request was in flight: their
+      // input wins over the saved copy.
+      if (draftTouchedRef.current) return;
+      const next = restoredFormState(restored);
+      setForm((f) => ({
+        ...f,
+        name: next.name,
+        phone: next.phone,
+        province: next.province,
+        city: next.city,
+        barangay: next.barangay,
+        postalCode: next.postalCode,
+        streetAddress: next.streetAddress,
+        landmark: next.landmark,
+        preferredDeliveryDate: next.preferredDeliveryDate,
+        notes: next.notes,
+      }));
+      setInitialPromoCode(next.promoCodeApplied ?? next.promoCodeInput);
+      setPromoInput(next.promoCodeInput);
+      if (
+        next.name ||
+        next.phone ||
+        next.province ||
+        next.streetAddress ||
+        next.notes
+      ) {
+        draftTouchedRef.current = true;
+        setDraftTouched(true);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [attemptKey]);
+
+  const autosaveSnapshot = useMemo(
+    () =>
+      buildCheckoutSnapshot(form, orderItems, {
+        input: promoInput,
+        applied: appliedPromo?.code ?? null,
+      }),
+    [form, orderItems, promoInput, appliedPromo],
+  );
+  const { status: autosaveStatus, flush: flushAutosave } =
+    useCheckoutDraftAutosave({
+      attempt,
+      snapshot: autosaveSnapshot,
+      active: !cartLoading && !cartBlocked,
+      hasUserInput: draftTouched,
+    });
+
   // TRACKING_SPEC §12 InitiateCheckout — at most once per checkout session
   // (see INITIATE_CHECKOUT_FIRED_KEY). Fail-open: if sessionStorage is unavailable the event
   // still fires, and a storage write must never throw into the effect.
@@ -193,8 +275,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
   const set =
     (field: CheckoutField) => (e: ChangeEvent<HTMLInputElement>) => {
-      setForm((f) => ({ ...f, [field]: e.target.value }));
-      setErrors((current) => {
+      markDraftTouched();
+      setForm((f) => ({ ...f, [field]: e.target.value }));      setErrors((current) => {
         if (!current[field]) return current;
         const next = { ...current };
         delete next[field];
@@ -217,6 +299,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // immediately — clear the value and show the inline warning (UTC-midnight
   // convention; also covers an invalid typed value in text-input fallback).
   const onPreferredDateChange = (e: ChangeEvent<HTMLInputElement>) => {
+    markDraftTouched();
     const value = e.target.value;
     const dateError = validatePreferredDate(value);
     if (dateError) {
@@ -264,6 +347,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // PSGC cascade change handlers (spec §3.3): reset downstream levels and
   // clear any stale location error when the user edits these fields manually.
   const handleProvinceChange = (v: string) => {
+    markDraftTouched();
     setLocationError(null);
     setLocationNotice(null);
     setForm((f) => {
@@ -278,6 +362,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   };
 
   const handleCityChange = (v: string) => {
+    markDraftTouched();
     setLocationError(null);
     setLocationNotice(null);
     setForm((f) => {
@@ -291,11 +376,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     });
   };
 
-  const handleBarangayChange = (v: string) =>
-    setForm((f) => {
+  const handleBarangayChange = (v: string) => {
+    markDraftTouched();
+    return setForm((f) => {
       const next = { ...f, barangay: v };
       return { ...next, postalCode: withDerivedPostal(next, f.postalCode) };
     });
+  };
 
   // Use my location (spec §3.4): geolocation → Nominatim reverse geocode →
   // confidence-fill province/city via the same handlers as manual selection.
@@ -389,6 +476,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
     }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
+    flushAutosave();
     router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
   }
 
@@ -536,6 +624,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 {locating ? "Locating…" : "Use my location"}
               </button>
             </div>
+            <p
+              data-testid="checkout-autosave-status"
+              aria-live="polite"
+              className="mb-2 text-xs text-ink-muted"
+            >
+              {autosaveStatusLabel(autosaveStatus)}
+            </p>
             {locationError && (
               <p
                 role="alert"
@@ -711,7 +806,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   rows={2}
                   maxLength={200}
                   value={form.notes}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  onChange={(e) => {
+                    markDraftTouched();
+                    setForm((f) => ({ ...f, notes: e.target.value }));
+                  }}
                   placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
                 />
                 <span className="text-xs font-normal text-ink-muted">
@@ -784,6 +882,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               initialCode={initialPromoCode}
               onApplied={setAppliedPromo}
               onCheckingChange={setPromoChecking}
+              onInputChange={setPromoInput}
             />
             <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
           </div>
