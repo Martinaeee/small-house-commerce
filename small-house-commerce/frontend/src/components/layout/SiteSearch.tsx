@@ -17,6 +17,7 @@ import { api, type Product } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
+import { optimizedUploadImage } from "@/lib/image-url";
 import {
   createInitialSelection,
   resolveSelection,
@@ -381,7 +382,7 @@ export function SiteSearch() {
                             {cover ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                src={cover.url}
+                                src={optimizedUploadImage(cover.url, 96)}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />

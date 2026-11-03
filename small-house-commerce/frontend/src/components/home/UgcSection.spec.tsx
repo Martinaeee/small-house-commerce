@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HomepageSection } from "@/lib/api";
 import { UgcSection } from "./UgcSection";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const originalMatchMedia = window.matchMedia;
 
@@ -68,7 +69,7 @@ describe("UgcSection collage", () => {
     const featured = container.querySelector<HTMLElement>("[data-ugc-featured]")!;
     expect(featured).not.toBeNull();
     expect(featured).toHaveAttribute("data-ugc-entry-id", "second");
-    expect(featured.querySelector("img")).toHaveAttribute("src", "/uploads/b.jpg");
+    expect(featured.querySelector("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/b.jpg", 1440));
     expect(featured.querySelector("[data-ugc-summary]")).toHaveTextContent("Sample text B");
     expect(within(featured).queryByText(/Sample text A/)).toBeNull();
     expect(within(featured).getByRole("link", { name: /View Sample furniture/i }))

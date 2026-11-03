@@ -220,6 +220,7 @@ describe.skipIf(!database)('OrdersService Bundle lifecycle on PostgreSQL', () =>
       attribution: { sourceType: 'ORGANIC' },
       customerNote: null,
       promoCode: null,
+      metaConsent: false,
     };
   }
 

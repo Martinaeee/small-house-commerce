@@ -3,11 +3,12 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product } from "@/lib/api";
 import { cardTestProduct } from "@/test/product-card-fixtures";
+import { optimizedUploadImage } from "@/lib/image-url";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductCardVariantSelector } from "./ProductCardVariantSelector";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 let resize: (() => void) | undefined;
 let width = 144;
@@ -235,7 +236,7 @@ describe("ProductCardVariantSelector", () => {
     renderSelector(product);
     const blue = screen.queryByRole("button", { name: "Blue" });
     expect(blue).toBeInTheDocument();
-    expect(blue!.querySelector("img")).toHaveAttribute("src", "/uploads/blue-option.webp");
+    expect(blue!.querySelector("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/blue-option.webp", 96));
     expect(blue).not.toHaveStyle({ backgroundColor: "#0000ff" });
   });
 
@@ -246,7 +247,7 @@ describe("ProductCardVariantSelector", () => {
     renderSelector(product);
     const blue = screen.queryByRole("button", { name: "Blue" });
     expect(blue).toBeInTheDocument();
-    expect(blue!.querySelector("img")).toHaveAttribute("src", "/uploads/blue-option.webp");
+    expect(blue!.querySelector("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/blue-option.webp", 96));
     expect(within(blue!).queryByText("Blue")).not.toBeInTheDocument();
   });
 

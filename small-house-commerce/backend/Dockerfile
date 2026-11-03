@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# ---- base: Node 22 + pnpm, runtime libs for Prisma/argon2 ----------------
+# ---- base: Node 22 + pnpm, runtime libs incl. ffmpeg for video uploads ----
 FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
@@ -13,7 +13,7 @@ ENV COREPACK_NPM_REGISTRY=$COREPACK_NPM_REGISTRY
 RUN corepack enable \
  && corepack prepare pnpm@12.3.4 --activate \
  && apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

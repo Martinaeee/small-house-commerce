@@ -10,22 +10,33 @@ function renderPage({
   hasSpecifications?: boolean;
 } = {}) {
   render(
-    <>
-      <PdpSectionNav
-        hasDetails={hasDetails}
-        hasSpecifications={hasSpecifications}
-      />
+    <div data-storefront-shell-mode="live">
+      <div className="sticky top-0 z-40"><div>Announcement</div><header /></div>
       <main>
+        <PdpSectionNav
+          hasDetails={hasDetails}
+          hasSpecifications={hasSpecifications}
+        />
         <section id="pdp-purchase" className="scroll-mt-32" />
         <section id="details" className="scroll-mt-32" />
         <section id="specifications" className="scroll-mt-32" />
         <section id="reviews" className="scroll-mt-32" />
       </main>
-    </>,
+    </div>,
   );
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function elementHeight(element: Element, height: number) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    top: 0, bottom: height, left: 0, right: 600, width: 600, height,
+    x: 0, y: 0, toJSON: () => ({}),
+  });
+}
 
 function sectionPositions(tops: Record<string, number>) {
   for (const [id, top] of Object.entries(tops)) {
@@ -37,6 +48,47 @@ function sectionPositions(tops: Record<string, number>) {
 }
 
 describe("PdpSectionNav", () => {
+  it.each([
+    { device: "mobile", headerHeight: 113, margin: "174px" },
+    { device: "desktop", headerHeight: 125, margin: "186px" },
+  ])("sits below the entire sticky header on $device and clears it on anchor jumps", async ({ headerHeight, margin }) => {
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    const header = screen.getByRole("banner").parentElement!;
+    elementHeight(header, headerHeight);
+    elementHeight(nav, 53);
+
+    fireEvent.resize(window);
+
+    await waitFor(() => expect(nav.style.top).toBe(`${headerHeight}px`));
+    for (const id of ["pdp-purchase", "details", "specifications", "reviews"]) {
+      expect(document.getElementById(id)!.style.scrollMarginTop).toBe(margin);
+    }
+  });
+
+  it("follows announcement or font height changes without waiting for a window resize", async () => {
+    const callbacks = new Map<Element, () => void>();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe(target: Element) { callbacks.set(target, this.callback); }
+      unobserve(target: Element) { callbacks.delete(target); }
+      disconnect() {}
+    });
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    const header = screen.getByRole("banner").parentElement!;
+    elementHeight(header, 125);
+    elementHeight(nav, 53);
+    fireEvent.resize(window);
+    await waitFor(() => expect(nav.style.top).toBe("125px"));
+
+    elementHeight(header, 149);
+    callbacks.get(header)?.();
+
+    await waitFor(() => expect(nav.style.top).toBe("149px"));
+    expect(document.getElementById("reviews")!.style.scrollMarginTop).toBe("210px");
+  });
+
   it("renders native anchors for the real content sections", () => {
     renderPage();
 

@@ -14,6 +14,7 @@ import {
   resolveSelection,
 } from "@/lib/product-selection";
 import { SectionPlaceholder } from "./SectionPlaceholder";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * Castlery-style shoppable room gallery: a full-width snap rail on every
@@ -174,7 +175,7 @@ export function RoomSceneGallery({
               <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl bg-primary-light/30">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={scene.imageUrl}
+                  src={optimizedUploadImage(scene.imageUrl, 1440)}
                   alt={scene.alt ?? section.title ?? ""}
                   loading="lazy"
                   className="h-full w-full object-contain"
@@ -296,7 +297,7 @@ export function RoomSceneGallery({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={scene.imageUrl}
+                  src={optimizedUploadImage(scene.imageUrl, 1440)}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover"
@@ -411,7 +412,7 @@ export function RoomProductList({
                   {cover ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={cover.url}
+                      src={optimizedUploadImage(cover.url, 96)}
                       alt=""
                       loading="lazy"
                       className="h-full w-full object-cover"

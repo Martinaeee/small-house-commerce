@@ -145,4 +145,80 @@ describe('UploadsService.saveLocal', () => {
     await expect(service.saveLocal(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported media type/);
     await expect(service.saveLocal(Buffer.alloc(0), 'image/jpeg')).rejects.toThrow(/Empty upload/);
   });
+
+  it('stores the transcoded bytes for a large mp4 and keeps the .mp4 key', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'luwag-video-upload-'));
+    try {
+      const transcoded = Buffer.from('tiny-faststart-mp4');
+      const transcoder = { transcode: vi.fn(async () => ({ buffer: transcoded, contentType: 'video/mp4' })) };
+      const localService = new UploadsService(
+        { get: vi.fn((key: string) => (key === 'upload.dir' ? dir : null)) } as never,
+        transcoder as never,
+      );
+      const big = Buffer.alloc(1_600_000, 0x5a); // above the 1.5 MB transcode gate
+
+      const result = await localService.saveLocal(big, 'video/mp4');
+
+      expect(transcoder.transcode).toHaveBeenCalledWith(big, 'video/mp4');
+      expect(result.url).toMatch(/\.mp4$/);
+      await expect(readFile(join(dir, result.key))).resolves.toEqual(transcoded);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the original bytes when the transcoder declines or grows the file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'luwag-video-upload-'));
+    try {
+      const original = Buffer.alloc(1_600_000, 0x3c);
+      const transcoder = { transcode: vi.fn(async () => null) };
+      const localService = new UploadsService(
+        { get: vi.fn((key: string) => (key === 'upload.dir' ? dir : null)) } as never,
+        transcoder as never,
+      );
+
+      const result = await localService.saveLocal(original, 'video/mp4');
+      expect((await readFile(join(dir, result.key))).equals(original)).toBe(true);
+
+      const grower = { transcode: vi.fn(async () => ({ buffer: Buffer.alloc(2_000_000), contentType: 'video/mp4' })) };
+      const growing = new UploadsService(
+        { get: vi.fn((key: string) => (key === 'upload.dir' ? dir : null)) } as never,
+        grower as never,
+      );
+      const result2 = await growing.saveLocal(original, 'video/mp4');
+      expect(result2.url).toMatch(/\.mp4$/);
+      const stored = await readFile(join(dir, result2.key));
+      expect(stored.equals(original)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses an mp4 key when a MOV upload is successfully converted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'luwag-video-mov-'));
+    try {
+      const encoded = Buffer.from('smaller-mp4');
+      const service = new UploadsService(
+        { get: (key: string) => key === 'upload.dir' ? dir : null } as never,
+        { transcode: async () => ({ buffer: encoded, contentType: 'video/mp4' }) } as never,
+      );
+      const result = await service.saveLocal(Buffer.alloc(1_600_000), 'video/quicktime');
+      expect(result.key).toMatch(/\.mp4$/);
+      expect((await readFile(join(dir, result.key))).equals(encoded)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never offers small videos or images to the transcoder', async () => {
+    const transcoder = { transcode: vi.fn(async () => null) };
+    const probing = new UploadsService(
+      { get: vi.fn(() => null) } as never,
+      transcoder as never,
+    );
+    await probing.saveLocal(Buffer.alloc(1_000, 0x21), 'video/mp4');
+    await probing.saveLocal(Buffer.alloc(1_600_000, 0x21), 'image/jpeg');
+    await probing.saveLocal(Buffer.alloc(1_600_000, 0x21), 'video/webm');
+    expect(transcoder.transcode).not.toHaveBeenCalled();
+  });
 });

@@ -19,6 +19,7 @@ import {
   usePdpPurchase,
 } from "@/components/product/PdpPurchaseProvider";
 import { ProductOptionSelector } from "@/components/product/ProductOptionSelector";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 interface QuickAddViewProps {
   product: Product;
@@ -242,7 +243,7 @@ function QuickAddPicker({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 data-testid={`picker-media-${product.slug}`}
-                src={media.url}
+                src={optimizedUploadImage(media.url, 640)}
                 alt={media.altText ?? product.name}
                 className="h-full w-full object-cover"
               />

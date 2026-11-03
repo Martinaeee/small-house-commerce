@@ -131,3 +131,27 @@ describe('LogisticsEventService', () => {
     expect((prisma as unknown as Row).order).toBeUndefined();
   });
 });
+
+describe('LogisticsEventService.record inside a caller transaction', () => {
+  it('reads and writes through the client it is given', async () => {
+    const { service, prisma } = createHarness();
+    const tx = {
+      shipment: {
+        findUnique: vi.fn(async () => ({ id: 'ship-1', orderId: 'order-1', carrier: 'LBC' })),
+      },
+      logisticsEvent: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async ({ data }: { data: unknown }) => data),
+      },
+    };
+
+    await service.record('order-1', 'ship-1', event(), tx as never);
+
+    // A shipment created inside the caller's transaction is invisible on the
+    // root client until commit, so the lookup must go through `tx`.
+    expect(tx.shipment.findUnique).toHaveBeenCalled();
+    expect(tx.logisticsEvent.create).toHaveBeenCalled();
+    expect(prisma.shipment.findUnique).not.toHaveBeenCalled();
+    expect(prisma.logisticsEvent.create).not.toHaveBeenCalled();
+  });
+});

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import type { ProductGridPayload } from "@/lib/homepage-section-payloads";
 import type { SectionProduct } from "@/lib/homepage-document";
 import type { SectionPayloadEditorProps } from "@/components/admin/homepage/section-editor-registry";
 import {
@@ -9,8 +10,20 @@ import {
   ProductThumbnail,
   useProductSummaries,
 } from "@/components/admin/ProductPicker";
+import { BufferedTextInput } from "@/components/admin/homepage/BufferedSectionField";
+import { isBannerHref } from "@/lib/banner-href";
 
 const MAX_PRODUCTS = 24;
+
+function safePayload(value: unknown): ProductGridPayload {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const payload = value as Record<string, unknown>;
+  return {
+    ...(typeof payload.linkLabel === "string" ? { linkLabel: payload.linkLabel.slice(0, 40) } : {}),
+    ...(isBannerHref(payload.linkUrl) ? { linkUrl: payload.linkUrl } : {}),
+    ...(payload.sortMode === "MANUAL" || payload.sortMode === "SALES" ? { sortMode: payload.sortMode } : {}),
+  };
+}
 
 type ProductGridEditorProps = SectionPayloadEditorProps<"PRODUCT_GRID"> & {
   onProductsChange?: (
@@ -20,10 +33,24 @@ type ProductGridEditorProps = SectionPayloadEditorProps<"PRODUCT_GRID"> & {
 
 export function ProductGridSectionEditor({
   section,
+  onPayloadChange,
   onProductsChange,
 }: ProductGridEditorProps): ReactNode {
   const { t } = useAdminI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const payload = safePayload(section.payload);
+  const sortMode = payload.sortMode ?? "MANUAL";
+  const updateField = (
+    field: "linkLabel" | "linkUrl" | "sortMode",
+    value: string | undefined,
+  ): void => {
+    onPayloadChange((current) => {
+      const next = { ...current } as Record<string, unknown>;
+      if (value === undefined || value === "") delete next[field];
+      else next[field] = value;
+      return next as ProductGridPayload;
+    });
+  };
   const products = [...(section.products ?? [])].sort(
     (left, right) => left.sortOrder - right.sortOrder,
   );
@@ -85,6 +112,51 @@ export function ProductGridSectionEditor({
       data-section-content-editor="PRODUCT_GRID"
       className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
     >
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+          {t("homepage_builder_product_grid_link_label")}
+          <input
+            type="text"
+            className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+            aria-label={t("homepage_builder_product_grid_link_label")}
+            maxLength={40}
+            value={payload.linkLabel ?? ""}
+            disabled={!onPayloadChange}
+            onChange={(event) => updateField("linkLabel", event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+          {t("homepage_builder_product_grid_link_url")}
+          <BufferedTextInput
+            type="text"
+            className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+            aria-label={t("homepage_builder_product_grid_link_url")}
+            maxLength={2048}
+            value={payload.linkUrl ?? ""}
+            isValid={(value) => value === "" || isBannerHref(value)}
+            commitValidImmediately
+            onCommit={(value) => updateField("linkUrl", value)}
+          />
+        </label>
+      </div>
+      <label className="flex flex-col gap-1 text-xs font-medium text-ink-secondary">
+        {t("homepage_builder_product_grid_order")}
+        <select
+          className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-ink"
+          aria-label={t("homepage_builder_product_grid_order")}
+          value={sortMode}
+          disabled={!onPayloadChange}
+          onChange={(event) => updateField("sortMode", event.target.value)}
+        >
+          <option value="MANUAL">{t("homepage_builder_product_grid_order_manual")}</option>
+          <option value="SALES">{t("homepage_builder_product_grid_order_sales")}</option>
+        </select>
+      </label>
+      {sortMode === "SALES" ? (
+        <p className="text-xs text-ink-muted">
+          {t("homepage_builder_product_grid_order_sales_hint")}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">

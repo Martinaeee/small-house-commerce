@@ -27,6 +27,12 @@ interface PsgcAddressSelectsProps {
   onBlurField?: (field: "province" | "city") => void;
   inputCls: string;
   disabled?: boolean;
+  /**
+   * The inline PDP/landing COD form pairs the three selects two-up on phones.
+   * "Select" then fits the half-width control; the visible label above still
+   * carries the full meaning and the checkout page keeps its longer prompts.
+   */
+  compactPlaceholders?: boolean;
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -58,6 +64,7 @@ export function PsgcAddressSelects({
   onBlurField,
   inputCls,
   disabled = false,
+  compactPlaceholders = false,
 }: PsgcAddressSelectsProps) {
   const provinces = listProvinces();
   const cities = province ? listMunicipalities(province) : [];
@@ -134,7 +141,12 @@ export function PsgcAddressSelects({
   return (
     <>
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
-        <label htmlFor="checkout-province">Province *</label>
+        <label
+          htmlFor="checkout-province"
+          className={compactPlaceholders ? "min-h-10 sm:min-h-0" : undefined}
+        >
+          Province *
+        </label>
         <SearchableSelect
           id="checkout-province"
           testId="psgc-province"
@@ -144,7 +156,7 @@ export function PsgcAddressSelects({
           onChange={handleProvinceChange}
           onBlur={() => onBlurField?.("province")}
           disabled={disabled}
-          placeholder="Select province"
+          placeholder={compactPlaceholders ? "Select" : "Select province"}
           searchPlaceholder="Search provinces…"
           invalid={Boolean(errors?.province)}
           describedBy={errors?.province ? "checkout-province-error" : undefined}
@@ -156,7 +168,12 @@ export function PsgcAddressSelects({
       </div>
 
       <div className="flex flex-col gap-1 text-sm font-medium text-ink">
-        <label htmlFor="checkout-city">City / Municipality *</label>
+        <label
+          htmlFor="checkout-city"
+          className={compactPlaceholders ? "min-h-10 sm:min-h-0" : undefined}
+        >
+          City / Municipality *
+        </label>
         <SearchableSelect
           id="checkout-city"
           testId="psgc-city"
@@ -166,7 +183,9 @@ export function PsgcAddressSelects({
           onChange={handleCityChange}
           onBlur={() => onBlurField?.("city")}
           disabled={disabled || !province}
-          placeholder="Select city / municipality"
+          placeholder={
+            compactPlaceholders ? "Select" : "Select city / municipality"
+          }
           searchPlaceholder="Search cities…"
           invalid={Boolean(errors?.city)}
           describedBy={errors?.city ? "checkout-city-error" : undefined}
@@ -212,7 +231,7 @@ export function PsgcAddressSelects({
               options={barangayNames}
               onChange={onBarangayChange}
               disabled={disabled || !city}
-              placeholder="Select barangay"
+              placeholder={compactPlaceholders ? "Select" : "Select barangay"}
               searchPlaceholder="Search barangays…"
               loading={barangayLoading}
             />

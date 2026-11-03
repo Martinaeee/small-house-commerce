@@ -4,6 +4,8 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatOrderOptionsText } from "@/lib/order-options";
 import type { CheckoutLine } from "./checkoutItems";
+import { optimizedUploadImage } from "@/lib/image-url";
+import { videoPlaybackUrl } from "@/lib/video-url";
 
 function PreviewRow({ line }: { line: CheckoutLine }) {
   // Structured option pairs are authoritative on the checkout line; the
@@ -16,7 +18,7 @@ function PreviewRow({ line }: { line: CheckoutLine }) {
         {line.thumbnail ? (
           line.thumbnail.type === "VIDEO" ? (
             <video
-              src={line.thumbnail.url}
+              src={videoPlaybackUrl(line.thumbnail.url)}
               muted
               playsInline
               preload="metadata"
@@ -26,7 +28,7 @@ function PreviewRow({ line }: { line: CheckoutLine }) {
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={line.thumbnail.url}
+              src={optimizedUploadImage(line.thumbnail.url, 96)}
               alt={line.thumbnail.altText ?? ""}
               className="h-full w-full object-cover"
             />

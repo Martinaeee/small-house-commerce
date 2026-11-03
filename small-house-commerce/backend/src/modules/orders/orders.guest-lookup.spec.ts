@@ -299,3 +299,64 @@ describe('OrdersService.lookup — guest data minimisation', () => {
     }
   });
 });
+
+describe('OrdersService.lookup — carrier tracking', () => {
+  it('projects a shipment down to carrier fields and a status timeline', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(
+      orderRecord({
+        shipments: [
+          {
+            id: 'ship-1',
+            warehouseId: 'wh-1',
+            createdBy: 'user-1',
+            shippingCost: '0',
+            carrier: 'SHIPDOC',
+            trackingNumber: 'TRACK123',
+            shippedAt: '2026-10-28T02:00:00.000Z',
+            signedAt: null,
+            events: [
+              {
+                normalizedStatus: 'SHIPPED',
+                externalStatus: 'SHIPPED',
+                eventTime: '2026-10-28T02:00:00.000Z',
+                rawPayloadReference: 'internal',
+              },
+              {
+                normalizedStatus: 'IN_TRANSIT',
+                externalStatus: 'IN_TRANSIT',
+                eventTime: '2026-10-29T02:00:00.000Z',
+                rawPayloadReference: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const result = await service.lookup('PH100001', '0917 123 4567');
+
+    expect(result.orders[0]!.shipment).toEqual({
+      carrier: 'SHIPDOC',
+      trackingNumber: 'TRACK123',
+      shippedAt: '2026-10-28T02:00:00.000Z',
+      signedAt: null,
+      tracking: [
+        { status: 'SHIPPED', at: '2026-10-28T02:00:00.000Z' },
+        { status: 'IN_TRANSIT', at: '2026-10-29T02:00:00.000Z' },
+      ],
+    });
+    // Internal ids must not reach the shopper.
+    expect(JSON.stringify(result.orders[0])).not.toContain('wh-1');
+    expect(JSON.stringify(result.orders[0])).not.toContain('user-1');
+  });
+
+  it('reports no shipment before the parcel exists', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findUnique.mockResolvedValue(orderRecord({ shipments: [] }));
+
+    const result = await service.lookup('PH100001', '0917 123 4567');
+
+    expect(result.orders[0]!.shipment).toBeNull();
+  });
+});

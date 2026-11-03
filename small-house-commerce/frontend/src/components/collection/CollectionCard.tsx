@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Collection } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * DESIGN_SYSTEM §14 Collection Card — homepage navigation modules.
@@ -15,7 +16,7 @@ export function CollectionCard({ collection }: { collection: Collection }) {
       {collection.heroImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={collection.heroImage}
+          src={optimizedUploadImage(collection.heroImage, 640)}
           alt={collection.name}
           className="aspect-[4/5] w-full object-cover"
           loading="lazy"

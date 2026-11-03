@@ -34,6 +34,9 @@ const draftMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/checkoutDraft", () => draftMock);
 
+const consentMock = vi.hoisted(() => ({ hasAdsConsent: vi.fn(() => false) }));
+vi.mock("@/lib/consent", () => ({ hasAdsConsent: consentMock.hasAdsConsent }));
+
 const cover = {
   id: "cover",
   url: "/cover.jpg",
@@ -152,8 +155,15 @@ const validDraft = {
   preferredDeliveryDate: null,
 };
 
+function storedIdempotencyKeys(): string[] {
+  return Object.keys(window.sessionStorage).filter((key) =>
+    key.startsWith("luwag_checkout_idem:"),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  consentMock.hasAdsConsent.mockReturnValue(false);
   useCartMock.mockReturnValue({
     removeItems: vi.fn().mockResolvedValue(undefined),
   });
@@ -163,12 +173,162 @@ beforeEach(() => {
 });
 
 describe("CheckoutConfirmView order notes", () => {
+  it("reuses one idempotency key and consent snapshot when a timed-out submission is retried", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockRejectedValueOnce(new Error("Network timeout"))
+      .mockResolvedValueOnce({
+        orderNumber: "PH2001",
+        orderStatus: "NEW",
+        confirmationStatus: "UNCONFIRMED",
+        grandTotal: 100,
+      });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    const button = await screen.findByTestId("confirm-place-order");
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+    // The timeout keeps the attempt: the retry must replay the original order
+    // under both the same key and the same submit-time consent.
+    expect(storedIdempotencyKeys()).toHaveLength(1);
+    consentMock.hasAdsConsent.mockReturnValue(true);
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+
+    const first = apiMock.createOrder.mock.calls[0]![0];
+    const second = apiMock.createOrder.mock.calls[1]![0];
+    expect(first.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{16,120}$/);
+    expect(second.idempotencyKey).toBe(first.idempotencyKey);
+    expect(first.metaConsent).toBe(false);
+    expect(second.metaConsent).toBe(false);
+    const purchasePayload = JSON.parse(
+      sessionStorage.getItem("luwag_purchase_payload")!,
+    );
+    expect(purchasePayload.consent).toBe(false);
+    // The successful retry ends the attempt and clears the stored key.
+    expect(storedIdempotencyKeys()).toHaveLength(0);
+  });
+
+  it("keeps the key when the submission fails and does not clear it", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockRejectedValueOnce(new Error("409: already submitted"));
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    const button = await screen.findByTestId("confirm-place-order");
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+
+    const key = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    expect(storedIdempotencyKeys()).toHaveLength(1);
+    expect(
+      JSON.parse(sessionStorage.getItem(storedIdempotencyKeys()[0]!)!),
+    ).toEqual({ key, metaConsent: false });
+  });
+
+  it("does not carry a failed selection's key into a different selection", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockRejectedValueOnce(new Error("Network timeout"))
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
+    const view = render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+
+    // Same confirm route, new quantity: the in-memory retry key belongs to the
+    // old scope and must not leak into the new checkout.
+    view.rerender(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+
+    const firstKey = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    const secondKey = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("clears the Buy Now key only after success so the next purchase gets a new key", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
+    const first = render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    const firstKey = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    // Clearing the key must not consume the success-page Purchase snapshot.
+    expect(sessionStorage.getItem("luwag_purchase_payload")).not.toBeNull();
+    expect(storedIdempotencyKeys()).toHaveLength(0);
+    first.unmount();
+
+    // A second purchase from the same Buy Now scope must create a new key.
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+    const secondKey = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("clears the Quick COD key after success so the next purchase gets a new key", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
+    draftMock.readCheckoutDraft.mockReturnValue({
+      ...validDraft,
+      selection: {
+        kind: "PDP_INLINE",
+        productSlug: "chair",
+        productQuery: "?aid=aid-123",
+        items: [{ skuId: "sku-red-small", quantity: 1 }],
+      },
+    });
+    const first = render(<CheckoutConfirmView />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    const firstKey = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    expect(storedIdempotencyKeys()).toHaveLength(0);
+    first.unmount();
+
+    render(<CheckoutConfirmView />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+    const secondKey = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("clears the cart key after success so the next purchase gets a new key", async () => {
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems: vi.fn().mockResolvedValue(undefined),
+    });
+    apiMock.createOrder
+      .mockResolvedValueOnce({ orderNumber: "PH2001", grandTotal: 100 })
+      .mockResolvedValueOnce({ orderNumber: "PH2002", grandTotal: 100 });
+    const first = render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    const firstKey = apiMock.createOrder.mock.calls[0]![0].idempotencyKey;
+    expect(storedIdempotencyKeys()).toHaveLength(0);
+    first.unmount();
+
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+    const secondKey = apiMock.createOrder.mock.calls[1]![0].idempotencyKey;
+    expect(secondKey).not.toBe(firstKey);
+  });
+
   it("shows the order note and submits it with the order", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder.mockResolvedValue({
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     draftMock.readCheckoutDraft.mockReturnValue({
       ...validDraft,
@@ -199,6 +359,7 @@ describe("CheckoutConfirmView order notes", () => {
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
 
@@ -221,6 +382,7 @@ describe("CheckoutConfirmView", () => {
       orderNumber: "PH2001",
       orderStatus: "NEW",
       confirmationStatus: "PENDING",
+      grandTotal: 100,
     });
     localStorage.setItem("sh:marketing-touch", JSON.stringify({
       credential: "server.credential",
@@ -240,7 +402,7 @@ describe("CheckoutConfirmView", () => {
   });
   it("clears the revealed subscribe code once the order is placed", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
-    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
     localStorage.setItem("luwag_newsletter_promo_code", "WELCOME59");
 
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
@@ -272,6 +434,58 @@ describe("CheckoutConfirmView", () => {
 
     expect(await screen.findByText("We couldn't confirm this order.")).toBeInTheDocument();
     expect(screen.queryByTestId("confirm-place-order")).toBeNull();
+  });
+
+  it("keeps the submitting view while successful cart cleanup empties the selection", async () => {
+    let finishCleanup!: () => void;
+    const cleanupPending = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const removeItems = vi.fn(() => cleanupPending);
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems,
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    const view = render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(removeItems).toHaveBeenCalled());
+
+    // Cart cleanup reloads the now-empty cart before its promise resolves. The
+    // accepted order must remain in its submitting state until navigation,
+    // rather than briefly turning into the unavailable-selection error page.
+    useCartMock.mockReturnValue({
+      cart: { items: [] },
+      loading: false,
+      removeItems,
+    });
+    view.rerender(<CheckoutConfirmView itemsParam="item-1" />);
+
+    expect(screen.getByText("Confirm your order")).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't confirm this order.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("confirm-place-order")).toHaveTextContent("Placing order…");
+
+    finishCleanup();
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+  });
+
+  it("navigates to success when cart cleanup fails after order creation", async () => {
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems: vi.fn().mockRejectedValue(new Error("Cart cleanup failed")),
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders the confirm UI with the resolved Buy Now selection", async () => {
@@ -329,7 +543,7 @@ describe("CheckoutConfirmView", () => {
       ],
     };
     apiMock.getProductBySlug.mockResolvedValue(directProduct);
-    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001" });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 340 });
     draftMock.readCheckoutDraft.mockReturnValue({
       ...validDraft,
       selection: {
@@ -411,6 +625,67 @@ describe("CheckoutConfirmView", () => {
     );
     expect(screen.getByText("Total (COD)").nextElementSibling).toHaveTextContent(
       "₱141.00",
+    );
+  });
+
+  it("stashes the server's final grand total, not the checkout preview, for Purchase", async () => {
+    const user = userEvent.setup();
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+      grandTotal: 137,
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    expect(await screen.findByText("Confirm your order")).toBeInTheDocument();
+
+    // The preview is 2 × ₱100 = ₱200; the server's authoritative final total
+    // deliberately differs (for example, the promo cap applied in the order
+    // transaction). The success-page Purchase must use the server amount.
+    await user.click(screen.getByTestId("confirm-place-order"));
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+
+    const payload = JSON.parse(sessionStorage.getItem("luwag_purchase_payload")!);
+    expect(payload.eventId).toBe("purchase-PH2001");
+    expect(payload.data).toEqual({
+      content_type: "product",
+      order_id: "PH2001",
+      content_ids: ["sku-red-small"],
+      contents: [{ id: "sku-red-small", quantity: 2 }],
+      value: 137,
+      currency: "PHP",
+    });
+    expect(payload.data.value).not.toBe(200);
+    // The same consent value the backend received rides with the payload, so
+    // the success page can hold the browser event to the submit-time choice.
+    expect(payload.consent).toBe(false);
+  });
+
+  it("stashes the submit-time consent snapshot with the Purchase payload", async () => {
+    consentMock.hasAdsConsent.mockReturnValue(true);
+    const user = userEvent.setup();
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH2001",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+      grandTotal: 100,
+    });
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="2" slug="chair" />);
+    expect(await screen.findByText("Confirm your order")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("confirm-place-order"));
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+
+    const payload = JSON.parse(sessionStorage.getItem("luwag_purchase_payload")!);
+    expect(payload.consent).toBe(true);
+    expect(apiMock.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ metaConsent: true }),
     );
   });
 });

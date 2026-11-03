@@ -7,6 +7,7 @@ import type { Product } from "@/lib/api";
 import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 import { moduleLayoutPresentation } from "@/lib/homepage-responsive";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -53,7 +54,7 @@ export function ProductStorySection({ section, previewDevice, appearance }: Sect
         <div data-homepage-role="media" className={imageOrderClass} style={layout?.imageStyle}>
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" style={layout?.imageStyle} />
+            <img src={optimizedUploadImage(image, 1440)} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" style={layout?.imageStyle} />
           ) : (
             <PlaceholderImage label="" className={layout ? "h-full w-full rounded-xl" : "aspect-[4/3] w-full rounded-xl"} />
           )}

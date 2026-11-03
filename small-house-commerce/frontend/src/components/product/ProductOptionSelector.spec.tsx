@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import { clearProductMediaCacheForTests } from "@/lib/product-media";
 import { recordProductView } from "@/lib/recently-viewed";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpClient } from "./PdpClient";
@@ -62,6 +63,7 @@ vi.mock("@/components/site/SiteSettingsProvider", () => ({
   }),
 }));
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   track: tracking.track,
   trackCustom: tracking.trackCustom,
 }));
@@ -377,6 +379,7 @@ function installStickyObserver() {
 let popStateSync: (() => void) | null = null;
 
 beforeEach(() => {
+  installDesktopViewport();
   clearProductMediaCacheForTests();
   navigation.push.mockReset();
   navigation.replace.mockReset();
@@ -1405,6 +1408,60 @@ describe("PDP option confirmation and deep links", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument();
+  });
+
+  it("routes a mobile single-SKU add through the shared picker so quantity stays explicit", async () => {
+    const single = {
+      ...product,
+      id: "single-product",
+      variants: [product.variants[0]],
+      options: product.options.map((option) => ({
+        ...option,
+        values: option.values.filter((value) =>
+          product.variants[0].optionValueIds.includes(value.id),
+        ),
+      })),
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+    };
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    renderPdp({ item: single });
+
+    await user.click(screen.getByTestId("add-to-cart"));
+
+    expect(cart.openPicker).toHaveBeenCalledWith(single, {
+      initialVariantId: "red-small",
+      initialQuantity: 1,
+      intent: "ADD_TO_CART",
+    });
+    expect(cart.addItem).not.toHaveBeenCalled();
+  });
+
+  it("routes a mobile single-SKU Order Now through the shared picker before checkout", async () => {
+    const single = {
+      ...product,
+      id: "single-product",
+      variants: [product.variants[0]],
+      options: product.options.map((option) => ({
+        ...option,
+        values: option.values.filter((value) =>
+          product.variants[0].optionValueIds.includes(value.id),
+        ),
+      })),
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+    };
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    renderPdp({ item: single });
+
+    await user.click(screen.getByTestId("order-now"));
+
+    expect(cart.openPicker).toHaveBeenCalledWith(single, {
+      initialVariantId: "red-small",
+      initialQuantity: 1,
+      intent: "ORDER_NOW",
+    });
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it("removes only an invalid variant param and returns to ordinary unselected state", async () => {

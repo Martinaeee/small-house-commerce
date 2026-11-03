@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   addToCartEvent,
   consumePurchasePayload,
@@ -6,12 +8,33 @@ import {
   initiateCheckoutEvent,
   optionSelectEvent,
   purchaseEvent,
+  recordPurchaseFirstParty,
   storePurchasePayload,
   variantConfirmEvent,
   variantUnavailableEvent,
   viewContentEvent,
   type CommerceEvent,
 } from "./commerce-events";
+
+interface PurchaseFixture {
+  orderId: string;
+  eventId: string;
+  items: { skuId: string; quantity: number }[];
+  value: number;
+  currency: string;
+  customData: Record<string, unknown>;
+  customDataKeys: string[];
+  excludedCustomDataKeys: string[];
+}
+
+const PURCHASE_FIXTURE = (
+  JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../../../contracts/meta-purchase-fixtures.json"),
+      "utf8",
+    ),
+  ) as { purchase: PurchaseFixture }
+).purchase;
 
 /**
  * Task 19: one commerce-event adapter keyed by final SKU IDs (design spec
@@ -25,6 +48,7 @@ import {
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   track: tracking.track,
   trackCustom: tracking.trackCustom,
 }));
@@ -161,6 +185,20 @@ describe("standard events keyed by the final SKU", () => {
       value: 2598,
       currency: "PHP",
     });
+  });
+
+  it("matches the browser/CAPI Purchase contract exactly", () => {
+    const event = purchaseEvent({
+      orderId: PURCHASE_FIXTURE.orderId,
+      items: PURCHASE_FIXTURE.items,
+      value: PURCHASE_FIXTURE.value,
+    });
+    expect(event.eventId).toBe(PURCHASE_FIXTURE.eventId);
+    expect(event.data).toEqual(PURCHASE_FIXTURE.customData);
+    expect(Object.keys(event.data).sort()).toEqual(PURCHASE_FIXTURE.customDataKeys);
+    for (const key of PURCHASE_FIXTURE.excludedCustomDataKeys) {
+      expect(event.data).not.toHaveProperty(key);
+    }
   });
 
   it("still builds a fail-open Purchase without items or value", () => {
@@ -306,7 +344,7 @@ describe("emitCommerceEvent", () => {
     });
   });
 
-  it("records an add to cart in first-party analytics with the product id", () => {
+  it("records an add to cart in first-party analytics with the product id and final SKU", () => {
     emitCommerceEvent(
       addToCartEvent({
         productId: "prod-1",
@@ -318,14 +356,40 @@ describe("emitCommerceEvent", () => {
     );
     expect(analytics.trackFirstParty).toHaveBeenCalledWith("ADD_TO_CART", {
       productId: "prod-1",
+      entityId: "sku-1",
     });
   });
 
-  it("records the start of checkout in first-party analytics", () => {
+  it("records the start of checkout in first-party analytics with the SKU list", () => {
     emitCommerceEvent(
-      initiateCheckoutEvent({ items: [{ skuId: "sku-1", quantity: 1 }], value: 100 }),
+      initiateCheckoutEvent({
+        items: [
+          { skuId: "sku-1", quantity: 1 },
+          { skuId: "sku-2", quantity: 3 },
+        ],
+        value: 100,
+      }),
     );
-    expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {});
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {
+      productId: null,
+      entityId: "sku-1,sku-2",
+    });
+  });
+
+  it("truncates a long checkout SKU list to the 120-character entity bound", () => {
+    emitCommerceEvent(
+      initiateCheckoutEvent({ items: [{ skuId: "s".repeat(300), quantity: 1 }], value: null }),
+    );
+    const payload = analytics.trackFirstParty.mock.calls[0][1] as {
+      entityId: string | null;
+    };
+    expect(payload.entityId).toHaveLength(120);
+  });
+
+  it("records an empty checkout basket with a null entityId", () => {
+    emitCommerceEvent(initiateCheckoutEvent({ items: [], value: null }));
+    // A zero-item basket is refused by the builder; nothing reaches the funnel.
+    expect(analytics.trackFirstParty).not.toHaveBeenCalled();
   });
 
   it("records a purchase in first-party analytics keyed by order number", () => {
@@ -406,40 +470,53 @@ describe("event identity", () => {
   });
 });
 
-describe("tab-scoped purchase payload", () => {
+describe("tab-scoped purchase payload and consent snapshot", () => {
   beforeEach(() => {
     tracking.track.mockReset();
     tracking.trackCustom.mockReset();
     analytics.trackFirstParty.mockReset();
+    metaCapi.sendMetaServerEvent.mockReset();
     window.sessionStorage.clear();
   });
 
-  it("stores the Purchase event before navigation and consumes it exactly once", () => {
+  it("stores the Purchase event with the submit-time consent and consumes it exactly once", () => {
     const event = purchaseEvent({
       orderId: "LW-1003",
       items: [{ skuId: "sku-a", quantity: 1 }],
       value: 1299,
     });
-    expect(storePurchasePayload(event)).toBe(true);
+    expect(storePurchasePayload(event, true)).toBe(true);
     const consumed = consumePurchasePayload("LW-1003");
-    expect(consumed).toEqual(event);
-    expect(consumed?.eventId).toBe("purchase-LW-1003");
+    expect(consumed?.event).toEqual(event);
+    expect(consumed?.event.eventId).toBe("purchase-LW-1003");
+    expect(consumed?.consent).toBe(true);
     // Consumed once: a second read (page refresh) finds nothing.
     expect(consumePurchasePayload("LW-1003")).toBeNull();
     expect(window.sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
   });
 
-  it("restores a legacy payload without an id under the order-keyed id", () => {
+  it("keeps a denied submit-time consent with the payload", () => {
+    const event = purchaseEvent({ orderId: "LW-1006", items: [], value: 99 });
+    expect(storePurchasePayload(event, false)).toBe(true);
+    expect(consumePurchasePayload("LW-1006")?.consent).toBe(false);
+  });
+
+  it("restores a legacy payload without an id or consent snapshot", () => {
     window.sessionStorage.setItem(
       "luwag_purchase_payload",
       JSON.stringify({ name: "Purchase", data: { order_id: "LW-2002" } }),
     );
     const consumed = consumePurchasePayload("LW-2002");
-    expect(consumed?.eventId).toBe("purchase-LW-2002");
+    expect(consumed?.event.eventId).toBe("purchase-LW-2002");
+    // Pre-snapshot payloads leave the decision to the live consent choice.
+    expect(consumed?.consent).toBeUndefined();
   });
 
   it("refuses a payload that belongs to a different order", () => {
-    storePurchasePayload(purchaseEvent({ orderId: "LW-1", items: [], value: 99 }));
+    storePurchasePayload(
+      purchaseEvent({ orderId: "LW-1", items: [], value: 99 }),
+      true,
+    );
     expect(consumePurchasePayload("LW-OTHER")).toBeNull();
     expect(window.sessionStorage.getItem("luwag_purchase_payload")).toBeNull();
   });
@@ -461,9 +538,23 @@ describe("tab-scoped purchase payload", () => {
         throw new Error("quota");
       });
     expect(
-      storePurchasePayload(purchaseEvent({ orderId: "LW-1", items: [], value: null })),
+      storePurchasePayload(
+        purchaseEvent({ orderId: "LW-1", items: [], value: null }),
+        true,
+      ),
     ).toBe(false);
     setItem.mockRestore();
+  });
+
+  it("records the first-party PURCHASE on its own, without any Meta channel", () => {
+    recordPurchaseFirstParty("LW-1007");
+    expect(analytics.trackFirstParty).toHaveBeenCalledTimes(1);
+    expect(analytics.trackFirstParty).toHaveBeenCalledWith("PURCHASE", {
+      entityId: "LW-1007",
+    });
+    expect(tracking.track).not.toHaveBeenCalled();
+    expect(tracking.trackCustom).not.toHaveBeenCalled();
+    expect(metaCapi.sendMetaServerEvent).not.toHaveBeenCalled();
   });
 });
 

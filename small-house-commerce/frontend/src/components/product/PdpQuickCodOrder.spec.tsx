@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product, ProductMediaSet } from "@/lib/api";
@@ -26,6 +27,7 @@ vi.mock("@/lib/api", async () => {
   return { ...actual, api: { ...actual.api, createOrder: api.createOrder, previewPromoCode: api.previewPromoCode } };
 });
 vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null),
   readAttribution: tracking.readAttribution,
 }));
 vi.mock("@/lib/commerce-events", async () => {
@@ -212,6 +214,7 @@ async function fillRequiredFields(
 }
 
 beforeEach(() => {
+  installDesktopViewport();
   api.createOrder.mockReset();
   api.previewPromoCode.mockReset();
   tracking.readAttribution.mockReset();
@@ -229,6 +232,29 @@ beforeEach(() => {
 });
 
 describe("PdpQuickCodOrder", () => {
+  it("renders nothing on mobile so the page cannot redirect shoppers into a hidden form", () => {
+    installDesktopViewport(false);
+    renderQuickOrder();
+
+    expect(
+      screen.queryByRole("heading", { name: "Delivery information" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+    expect(
+      screen.queryByRole("button", { name: "Use my location" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the inline Cash on Delivery form on desktop", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.getByRole("heading", { name: "Delivery information" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Full Name *")).toBeVisible();
+  });
+
   it("writes the shared checkout draft and opens review without creating an order", async () => {
     const user = userEvent.setup();
     window.history.replaceState(
@@ -265,6 +291,7 @@ describe("PdpQuickCodOrder", () => {
         items: [{ skuId: "sku-red", quantity: 1 }],
       },
       null,
+      null,
     );
     expect(router.push).toHaveBeenCalledWith(
       "/checkout/confirm?aid=aid-123&utm_source=facebook",
@@ -276,13 +303,101 @@ describe("PdpQuickCodOrder", () => {
 
     expect(screen.getByRole("button", { name: "Use my location" })).toBeVisible();
     expect(screen.getByLabelText("Postal Code")).toBeVisible();
-    expect(screen.getByLabelText("Landmark")).toBeVisible();
+    expect(screen.queryByLabelText("Landmark (Optional)")).toBeNull();
     expect(screen.getByLabelText("Preferred delivery date (optional)")).toBeVisible();
-    expect(
-      screen.getByText("We use your mobile number for delivery updates."),
-    ).toBeVisible();
-    expect(screen.getByText("Choose a preferred date (optional).")).toBeVisible();
+    expect(screen.queryByText("We use your mobile number for delivery updates.")).toBeNull();
+    expect(screen.queryByText("Choose a preferred date (optional).")).toBeNull();
     expect(screen.getByTestId("quick-cod-submit")).toHaveTextContent("REVIEW ORDER");
+  });
+
+  it("shows the checkout's consolidated delivery card with order notes", () => {
+    renderQuickOrder();
+
+    const card = screen
+      .getByRole("heading", { name: "Delivery information" })
+      .closest("section");
+    expect(card).not.toBeNull();
+    expect(
+      within(card as HTMLElement).getByRole("button", {
+        name: "Use my location",
+      }),
+    ).toBeVisible();
+
+    const notes = screen.getByLabelText("Order Notes (Optional)");
+    expect(notes).toHaveAttribute("maxlength", "200");
+    expect(notes).toHaveAttribute(
+      "placeholder",
+      "Add a delivery note (optional)",
+    );
+    expect(
+      screen.queryByText("We'll do our best to accommodate your request."),
+    ).toBeNull();
+    expect(
+      screen.getByText(
+        "Your information is used only to process and deliver your order.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("drops the duplicate section heading while keeping a labelled region", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.queryByRole("heading", { name: "Order Now — Cash on Delivery" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("region", { name: "Order now — Cash on Delivery" }),
+    ).toBeVisible();
+  });
+
+  it("keeps the COD reassurance on one line", () => {
+    renderQuickOrder();
+
+    expect(
+      screen.getByText(
+        "Cash on Delivery · We call to confirm every order · Details used only to deliver this order",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("We call to confirm every order before it ships."),
+    ).toBeNull();
+  });
+
+  it("uses short placeholders for the paired address selects", () => {
+    renderQuickOrder();
+
+    expect(screen.getByTestId("psgc-province")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
+    expect(screen.getByTestId("psgc-city")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
+    expect(screen.getByTestId("psgc-barangay")).toHaveAttribute(
+      "placeholder",
+      "Select",
+    );
+  });
+
+  it("writes the order note into the shared checkout draft", async () => {
+    const user = userEvent.setup();
+    renderQuickOrder();
+
+    await fillRequiredFields(user);
+    await user.type(
+      screen.getByLabelText("Order Notes (Optional)"),
+      "Please call before delivery",
+    );
+    await user.click(screen.getByTestId("quick-cod-submit"));
+
+    expect(checkoutDraft.writeCheckoutDraft).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(String),
+      expect.any(Object),
+      null,
+      "Please call before delivery",
+    );
   });
 
   it("carries several styles with their own quantities into checkout review", async () => {
@@ -326,6 +441,7 @@ describe("PdpQuickCodOrder", () => {
           { skuId: "sku-blue", quantity: 2 },
         ],
       },
+      null,
       null,
     );
     expect(router.push).toHaveBeenCalledWith("/checkout/confirm");
@@ -473,6 +589,7 @@ describe("PdpQuickCodOrder", () => {
         landmark: "Blue gate",
       },
       preferredDeliveryDate: "2026-10-05",
+      customerNote: "Please call before delivery",
       savedAt: "2026-09-27T00:00:00.000Z",
       selection: {
         kind: "PDP_INLINE",
@@ -488,9 +605,11 @@ describe("PdpQuickCodOrder", () => {
       expect(screen.getByLabelText("Full Name *")).toHaveValue("Maria Santos"),
     );
     expect(screen.getByLabelText("Postal Code")).toHaveValue("1101");
-    expect(screen.getByLabelText("Landmark")).toHaveValue("Blue gate");
     expect(screen.getByLabelText("Preferred delivery date (optional)")).toHaveValue(
       "2026-10-05",
+    );
+    expect(screen.getByLabelText("Order Notes (Optional)")).toHaveValue(
+      "Please call before delivery",
     );
     expect(screen.getByTestId("quick-cod-row-qty-red")).toHaveTextContent("2");
   });
@@ -521,6 +640,7 @@ describe("PdpQuickCodOrder", () => {
       expect.objectContaining({
         items: [{ skuId: "sku-red", quantity: 1 }],
       }),
+      null,
       null,
     );
   });

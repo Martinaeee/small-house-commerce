@@ -6,6 +6,7 @@ import type { SectionProps } from "./sectionRegistry";
 import { parseScenes } from "./room-scenes";
 import { RoomSceneGallery } from "./RoomSceneGallery";
 import { trackAttrs } from "@/lib/home-tracking";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -56,7 +57,7 @@ export function RoomInspirationSection({ section, previewDevice }: SectionProps)
         <div>
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img data-homepage-role="media" src={image} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" />
+            <img data-homepage-role="media" src={optimizedUploadImage(image, 1440)} alt={heading} loading="lazy" className="aspect-[4/3] w-full rounded-xl object-cover" />
           ) : (
             <PlaceholderImage label="" className="aspect-[4/3] w-full rounded-xl" />
           )}
@@ -78,7 +79,7 @@ export function RoomInspirationSection({ section, previewDevice }: SectionProps)
                 >
                   {thumb ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={thumb} alt="" loading="lazy" className="h-16 w-16 rounded-md object-cover" />
+                    <img src={optimizedUploadImage(thumb, 96)} alt="" loading="lazy" className="h-16 w-16 rounded-md object-cover" />
                   ) : (
                     <PlaceholderImage label="" className="h-16 w-16 rounded-md" />
                   )}

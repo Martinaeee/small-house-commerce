@@ -1,6 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { MetaCapiService } from './meta-capi.service.js';
+
+interface PurchaseFixture {
+  orderId: string;
+  eventId: string;
+  items: { skuId: string; quantity: number }[];
+  value: number;
+  currency: string;
+  customData: Record<string, unknown>;
+  customDataKeys: string[];
+  excludedCustomDataKeys: string[];
+}
+
+const PURCHASE_FIXTURE = (
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL('../../../../contracts/meta-purchase-fixtures.json', import.meta.url),
+      ),
+      'utf8',
+    ),
+  ) as { purchase: PurchaseFixture }
+).purchase;
 
 function makeClient(enabled = true) {
   return { enabled, send: vi.fn().mockResolvedValue(undefined) };
@@ -120,7 +144,8 @@ describe('MetaCapiService.enqueuePurchase', () => {
     expect(data.phoneHash).toBe(
       createHash('sha256').update('639171234567').digest('hex'),
     );
-    expect(data.customData).toMatchObject({
+    expect(data.customData).toEqual({
+      content_type: 'product',
       order_id: 'PH100011',
       content_ids: ['sku-1', 'sku-2'],
       contents: [
@@ -130,6 +155,27 @@ describe('MetaCapiService.enqueuePurchase', () => {
       value: 3999,
       currency: 'PHP',
     });
+  });
+
+  it('matches the browser Purchase custom_data contract exactly', async () => {
+    const prisma = makePrisma();
+    const service = new MetaCapiService(prisma as never, makeClient() as never);
+    await service.enqueuePurchase({
+      ...purchase,
+      orderNumber: PURCHASE_FIXTURE.orderId,
+      items: PURCHASE_FIXTURE.items.map((item) => ({ ...item, unitPrice: 0 })),
+      value: PURCHASE_FIXTURE.value,
+    });
+
+    const data = prisma.metaConversionEvent.create.mock.calls[0][0].data;
+    expect(data.eventId).toBe(PURCHASE_FIXTURE.eventId);
+    expect(data.customData).toEqual(PURCHASE_FIXTURE.customData);
+    expect(Object.keys(data.customData as Record<string, unknown>).sort()).toEqual(
+      PURCHASE_FIXTURE.customDataKeys,
+    );
+    for (const key of PURCHASE_FIXTURE.excludedCustomDataKeys) {
+      expect(data.customData).not.toHaveProperty(key);
+    }
   });
 
   it('never sends a purchase without ads consent', async () => {

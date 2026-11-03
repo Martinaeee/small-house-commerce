@@ -7,9 +7,10 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Permissions } from '../auth/permissions.decorator.js';
 import { PermissionsGuard } from '../auth/permissions.guard.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { JwtAuthGuard, type RequestUser } from '../auth/jwt-auth.guard.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import {
   createUserSchema,
@@ -47,9 +48,11 @@ export class UsersController {
 
   @Patch(':id')
   update(
+    @CurrentUser() actor: RequestUser,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateUserSchema)) input: UpdateUserInput,
   ) {
-    return this.users.update(id, input);
+    // The actor id drives the self-protection and last-Super-Admin guards.
+    return this.users.update(id, input, actor.userId);
   }
 }

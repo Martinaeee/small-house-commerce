@@ -13,6 +13,7 @@ import {
 } from "@/components/admin/ProductForm";
 import { canonicalCombinationKey, cardGraphFromLegacyForm, type AdminCatalogGraphDraft } from "@/lib/admin-product-graph";
 import { adminApi } from "@/lib/admin-api";
+import { optimizedUploadImage } from "@/lib/image-url";
 import { en } from "@/i18n/en";
 
 vi.mock("next/navigation", () => ({
@@ -262,7 +263,7 @@ describe("ProductForm independent card media", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Media" }));
     await userEvent.click(screen.getByRole("button", { name: "Blue Preview this variant" }));
     const card = within(view.container.querySelector("article")!);
-    expect(card.getByRole("img", { name: "Blue card" })).toHaveAttribute("src", "/uploads/blue-card.webp");
+    expect(card.getByRole("img", { name: "Blue card" })).toHaveAttribute("src", optimizedUploadImage("/uploads/blue-card.webp", 640));
     if (availability !== "priced") expect(card.queryByTestId("price")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to Cart" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: "Chair" })).not.toBeInTheDocument();

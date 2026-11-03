@@ -11,8 +11,10 @@ import {
 
 /**
  * Bottom consent bar for optional advertising cookies. It never blocks the
- * page, sits above the mobile tab bar, and only leaves after a choice — the
- * footer's "Cookie Settings" reopens it later.
+ * page, sits above the mobile tab bar and — on a product page with the fixed
+ * purchase bar — above that bar too, so the shopper can still start buying
+ * before choosing. It only leaves after a choice; the footer's "Cookie
+ * Settings" reopens it later.
  */
 export function CookieConsentBar() {
   const [open, setOpen] = useState(false);
@@ -41,7 +43,7 @@ export function CookieConsentBar() {
     <div
       role="region"
       aria-label="Your privacy choices"
-      className="fixed inset-x-0 bottom-[var(--mobile-tab-bar-offset,0px)] z-40 border-t border-border bg-card px-4 py-3 shadow-[0_-6px_20px_rgba(31,42,36,0.08)] md:bottom-0"
+      className="fixed inset-x-0 bottom-[calc(var(--sticky-bar-offset,0px)+var(--mobile-tab-bar-offset,0px))] z-40 border-t border-border bg-card px-4 py-3 shadow-[0_-6px_20px_rgba(31,42,36,0.08)]"
     >
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <p className="text-[13px] leading-5 text-ink-secondary">

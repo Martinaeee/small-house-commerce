@@ -1639,6 +1639,44 @@ export interface AdminMetaCapiStatus {
   lastErrorAt: string | null;
 }
 
+export interface AdminQianyiStatus {
+  enabled: boolean;
+  pending: number;
+  failed: number;
+  review: number;
+  sent24h: number;
+  skipped?: number;
+  callbacks: number;
+}
+
+/** One catalog SKU as the Qianyi console lists it. */
+export interface AdminQianyiSkuRow {
+  id: string;
+  skuCode: string;
+  qianyiSkuCode: string | null;
+  title: string;
+  variantName?: string;
+  imageUrl?: string | null;
+  ready: boolean;
+  gaps: string[];
+}
+
+export type AdminQianyiJobFilter = "all" | "todo" | "pending" | "failed" | "review" | "skipped" | "sent24h";
+
+export interface AdminQianyiJob {
+  id: string;
+  kind: "PUSH_ORDER" | "CLOSE_ORDER";
+  status: "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED" | "CANCELLED";
+  attempts: number;
+  pendingReview: boolean;
+  lastError: string | null;
+  externalOrderNumber: string | null;
+  createdAt?: string;
+  sentAt?: string | null;
+  updatedAt: string;
+  order?: { id?: string; orderNumber: string } | null;
+}
+
 export interface AdminSystemStatus {
   generatedAt: string;
   stale: boolean;
@@ -1669,6 +1707,36 @@ export interface AdminSystemStatus {
     lastCheckAt?: string | null;
     lastResult?: string | null;
   };
+}
+
+// --- team members (admin RBAC) -----------------------------------------------
+
+export type AdminRoleCode =
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "OPTIMIZER"
+  | "CONFIRMOR"
+  | "WAREHOUSE"
+  | "FINANCE";
+
+export type AdminUserStatus = "ACTIVE" | "DISABLED";
+
+export interface AdminRole {
+  code: AdminRoleCode;
+  name: string;
+  description: string | null;
+  /** Every permission the role grants; several roles union to a wider set. */
+  permissionCodes: string[];
+}
+
+export interface AdminTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  status: AdminUserStatus;
+  createdAt: string;
+  updatedAt: string;
+  roles: { role: { code: AdminRoleCode; name: string } }[];
 }
 
 export const adminApi = {
@@ -1782,11 +1850,13 @@ export const adminApi = {
       `/api/v1/admin/orders/${encodeURIComponent(id)}`,
     ),
 
-  // Bare updated Order row (no customer/items includes).
+  // Bare updated Order row (no customer/items includes). The endpoint always
+  // requires a decision: an empty body arrives as `{}` (the auth wrapper sets
+  // a JSON content type) and is rejected, so the default is stated here.
   confirmOrder: (id: string): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/confirm`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ decision: "CONFIRM" }) },
     ),
 
   cancelOrder: (id: string): Promise<AdminOrderRow> =>
@@ -1942,7 +2012,16 @@ export const adminApi = {
   /** SKU search for manual order entry (sellable SKUs only). */
   skuSearch: (
     q: string,
-  ): Promise<{ skuId: string; label: string; price: string | null; skuCode: string }[]> =>
+  ): Promise<{
+    total: number;
+    items: {
+      skuId: string;
+      label: string;
+      price: string | null;
+      skuCode: string;
+      thumbnailUrl: string | null;
+    }[];
+  }> =>
     adminAuthedFetch(
       `/api/v1/admin/orders/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
     ),
@@ -2711,4 +2790,102 @@ export const adminApi = {
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>
     adminAuthedFetch<AdminMetaCapiStatus>("/api/v1/admin/meta-capi/status"),
+
+  /** Team members (SYSTEM_SETTINGS_EDIT). */
+  listAdminUsers: (): Promise<AdminTeamMember[]> =>
+    adminAuthedFetch<AdminTeamMember[]>("/api/v1/users"),
+
+  /** Role catalogue with the permissions each role grants. */
+  listAdminRoles: (): Promise<AdminRole[]> =>
+    adminAuthedFetch<AdminRole[]>("/api/v1/roles"),
+
+  createAdminUser: (input: {
+    name: string;
+    email: string;
+    password: string;
+    roleCodes: AdminRoleCode[];
+  }): Promise<AdminTeamMember> =>
+    adminAuthedFetch<AdminTeamMember>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  updateAdminUser: (
+    id: string,
+    input: {
+      name?: string;
+      email?: string;
+      status?: AdminUserStatus;
+      roleCodes?: AdminRoleCode[];
+      password?: string;
+    },
+  ): Promise<AdminTeamMember> =>
+    adminAuthedFetch<AdminTeamMember>(`/api/v1/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
+  /** Self-service password change; keeps this session, drops the others. */
+  changeAdminPassword: (input: {
+    currentPassword: string;
+    newPassword: string;
+    refreshToken: string;
+  }): Promise<{ ok: boolean }> =>
+    adminAuthedFetch<{ ok: boolean }>("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  qianyiStatus: (): Promise<AdminQianyiStatus> =>
+    adminAuthedFetch<AdminQianyiStatus>("/api/v1/admin/qianyi/status"),
+
+  qianyiSkus: (): Promise<AdminQianyiSkuRow[]> =>
+    adminAuthedFetch<AdminQianyiSkuRow[]>("/api/v1/admin/qianyi/skus"),
+
+  setQianyiMapping: (
+    skuId: string,
+    qianyiSkuCode: string | null,
+  ): Promise<{ qianyiSkuCode: string | null }> =>
+    adminAuthedFetch<{ qianyiSkuCode: string | null }>(
+      `/api/v1/admin/qianyi/skus/${encodeURIComponent(skuId)}/mapping`,
+      { method: "PUT", body: JSON.stringify({ qianyiSkuCode }) },
+    ),
+
+  qianyiJobs: (filter?: AdminQianyiJobFilter): Promise<AdminQianyiJob[]> =>
+    adminAuthedFetch<AdminQianyiJob[]>(
+      `/api/v1/admin/qianyi/jobs${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`,
+    ),
+
+  retryQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/retry`,
+      { method: "POST" },
+    ),
+
+  authorizeQianyiCreateRetry: (
+    id: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/authorize-retry`,
+      { method: "POST", body: JSON.stringify({ confirmedAbsent: true }) },
+    ),
+
+  adoptQianyiJob: (
+    id: string,
+    qianyiOrderNumber: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/adopt`,
+      { method: "POST", body: JSON.stringify({ qianyiOrderNumber }) },
+    ),
+
+  requeueQianyiJob: (
+    id: string,
+  ): Promise<{ ok: boolean; missing?: string[]; reason?: string }> =>
+    adminAuthedFetch<{ ok: boolean; missing?: string[]; reason?: string }>(
+      `/api/v1/admin/qianyi/jobs/${encodeURIComponent(id)}/requeue`,
+      { method: "POST" },
+    ),
 };

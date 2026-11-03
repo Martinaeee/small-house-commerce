@@ -1,5 +1,6 @@
 import { Prisma } from '../../generated/prisma/client.js';
 import type { PerformanceChange, PerformanceTotals } from './marketing-performance.types.js';
+import type { SortableReportRow } from './marketing-report-sort.js';
 
 const countFields = ['submittedOrders', 'validOrders', 'confirmedOrders', 'signedOrders', 'duplicateOrders', 'riskOrders', 'afterSalesOrders', 'refundStatusOrders'] as const;
 type CountField = typeof countFields[number];
@@ -7,12 +8,29 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   kind: 'REGISTERED' | 'DIRECT' | 'LEGACY' | 'UNVERIFIED'; id: string; label: string;
   ownerUserId: string | null; ownerName: string | null; aid: string | null;
   productId: string | null; productName: string | null; productCode: string | null; landingPageId: string | null;
+  sourceType: string | null;
+  postDate?: Date | null; postUrl?: string | null; archivedAt?: Date | null;
   visits: bigint | null; pageTotalVisits?: bigint | null;
+  /** First-party funnel counts; performance-side callers predate them. */
+  addToCarts?: bigint; checkouts?: bigint;
   validOrderValuePhp: Prisma.Decimal; signedGrossPhp: Prisma.Decimal; spendUsd: Prisma.Decimal; spendPhp: Prisma.Decimal;
   expectedCostDays: bigint; recordedCostDays: bigint;
 };
+/** The sortable/serializable contract shared by the flat report and the tree. */
+export type MarketingReportSerializedRow = SortableReportRow & {
+  kind: MarketingReportRawRow['kind']; ownerUserId: string | null; aid: string | null;
+  productId: string | null;
+  duplicateOrders: number; riskOrders: number; afterSalesOrders: number; refundStatusOrders: number;
+  validOrderValuePhp: string; signedGrossPhp: string; spendUsd: string; spendPhp: string;
+  expectedCostDays: number; recordedCostDays: number; costCoverageComplete: boolean;
+  orderCpaUsd: string | null; signedCpaUsd: string | null; orderRoas: string | null; signedRoas: string | null;
+  conversionRate: string | null; periodBasis: 'TOUCH' | 'ORDER_CREATED';
+  productCode: string | null; landingPageId: string | null; sourceType: string | null;
+  postDate: string | null; postUrl: string | null; archivedAt: string | null;
+  productThumbnailUrl: string | null; pageTotalVisits: number | null;
+};
 
-export function serializeMarketingReportRow(row: MarketingReportRawRow) {
+export function serializeMarketingReportRow(row: MarketingReportRawRow, productThumbnailUrl: string | null = null): MarketingReportSerializedRow {
   const registered = row.kind === 'REGISTERED';
   const expectedCostDays = Number(row.expectedCostDays);
   const recordedCostDays = Number(row.recordedCostDays);
@@ -26,6 +44,13 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow) {
   return {
     kind: row.kind, id: row.id, label: row.label, ownerUserId: row.ownerUserId, ownerName: row.ownerName, aid: row.aid,
     productId: row.productId, productName: row.productName, productCode: row.productCode, landingPageId: row.landingPageId,
+    sourceType: row.sourceType ?? null,
+    postDate: row.postDate ? row.postDate.toISOString().slice(0, 10) : null,
+    postUrl: row.postUrl ?? null,
+    archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+    addToCarts: Number(row.addToCarts ?? 0n),
+    checkouts: Number(row.checkouts ?? 0n),
+    productThumbnailUrl: productThumbnailUrl ?? null,
     ...counts, visits, pageTotalVisits: row.pageTotalVisits == null ? null : Number(row.pageTotalVisits),
     validOrderValuePhp: new Prisma.Decimal(row.validOrderValuePhp).toFixed(2), signedGrossPhp: new Prisma.Decimal(row.signedGrossPhp).toFixed(2),
     spendUsd: usd.toFixed(2), spendPhp: php.toFixed(2), expectedCostDays, recordedCostDays, costCoverageComplete,

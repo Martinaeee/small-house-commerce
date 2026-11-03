@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PresignUploadInput } from './dto/upload.dto.js';
 import { buildR2PresignedPutUrl, type PresignResult, type R2Settings } from './r2-presign.js';
+import { VideoTranscoderService } from './video-transcoder.service.js';
 
 const EXTENSION_BY_TYPE: Record<string, 'jpg' | 'png' | 'webp' | 'mp4' | 'webm' | 'mov'> = {
   'image/jpeg': 'jpg',
@@ -21,6 +22,9 @@ export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 /** 100 MB per video — short product clips; still well under a small VPS's
  * memory when buffered, and guarded against abuse by the throttle. */
 export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+/** Videos under this size re-encode to roughly the same bytes; skip the
+ * process and keep uploads snappy. */
+const VIDEO_TRANSCODE_MIN_BYTES = 1_500_000;
 
 const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
@@ -38,7 +42,10 @@ export function maxBytesFor(contentType: string): number {
 
 @Injectable()
 export class UploadsService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(VideoTranscoderService) private readonly transcoder?: VideoTranscoderService,
+  ) {}
 
   // fileName is accepted for API stability but deliberately not used in the
   // key: keys are year/uuid only, so no path traversal or odd bytes survive.
@@ -118,7 +125,7 @@ export class UploadsService {
    * base URL.
    */
   async saveLocal(buffer: Buffer, contentType: string): Promise<{ url: string; key: string }> {
-    const ext = EXTENSION_BY_TYPE[contentType];
+    let ext = EXTENSION_BY_TYPE[contentType];
     if (!ext) {
       throw new BadRequestException(`Unsupported media type: ${contentType}`);
     }
@@ -134,12 +141,32 @@ export class UploadsService {
       );
     }
 
+    // Product clips arrive as raw phone/API exports; a uniform faststart
+    // H.264 re-encode keeps the buyer-side start time in seconds. Any
+    // transcoder decline (missing ffmpeg, timeout, grown file) stores the
+    // original bytes — the upload itself never fails.
+    let payload = buffer;
+    let payloadType = contentType;
+    if (
+      this.transcoder &&
+      VIDEO_TYPES.has(contentType) &&
+      contentType !== 'video/webm' &&
+      buffer.length >= VIDEO_TRANSCODE_MIN_BYTES
+    ) {
+      const outcome = await this.transcoder.transcode(buffer, contentType);
+      if (outcome && outcome.buffer.length > 0 && outcome.buffer.length < buffer.length) {
+        payload = outcome.buffer;
+        payloadType = outcome.contentType;
+      }
+    }
+    ext = EXTENSION_BY_TYPE[payloadType] ?? ext;
+
     const dir = this.config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
     const year = new Date().getUTCFullYear();
     const key = `catalog/${year}/${randomUUID()}.${ext}`;
     const abs = join(dir, key);
     await mkdir(join(dir, `catalog/${year}`), { recursive: true });
-    await writeFile(abs, buffer);
+    await writeFile(abs, payload);
     return { url: `/uploads/${key}`, key };
   }
 }

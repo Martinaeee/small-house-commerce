@@ -7,7 +7,9 @@ const LINK = '33333333-3333-4333-a333-333333333333';
 const raw: MarketingReportRawRow = {
   kind: 'REGISTERED', id: LINK, label: 'Ad A', ownerUserId: OWNER, ownerName: 'Optimizer', aid: 'OP-1',
   productId: 'product-1', productName: 'Chair', productCode: 'LUW-001', landingPageId: 'page-1',
+  sourceType: 'META_AD',
   visits: 2n, pageTotalVisits: 5n,
+  addToCarts: 0n, checkouts: 0n,
   submittedOrders: 2n, validOrders: 2n, confirmedOrders: 1n, signedOrders: 1n,
   validOrderValuePhp: new Prisma.Decimal('10000'), signedGrossPhp: new Prisma.Decimal('10000'),
   spendUsd: new Prisma.Decimal('50'), spendPhp: new Prisma.Decimal('2865'),
@@ -55,5 +57,16 @@ describe('shared marketing report metrics', () => {
   it('keeps unverifiable history on the order-created basis with unknown visits', () => {
     const totals = serializeMarketingTotals({ ...raw, kind: 'UNVERIFIED' });
     expect(totals).toMatchObject({ visits: null, periodBasis: 'ORDER_CREATED', conversionRate: null });
+  });
+
+  it('exposes funnel event counts and the product thumbnail', () => {
+    const row = serializeMarketingReportRow({ ...raw, addToCarts: 3n, checkouts: 1n }, '/uploads/chair.jpg');
+    expect(row).toMatchObject({ addToCarts: 3, checkouts: 1, sourceType: 'META_AD', productThumbnailUrl: '/uploads/chair.jpg' });
+    expect(serializeMarketingReportRow(raw)).toMatchObject({ addToCarts: 0, checkouts: 0, productThumbnailUrl: null });
+  });
+
+  it('serializes performance-side rows that predate the funnel columns without NaN', () => {
+    const legacy = { ...raw, addToCarts: undefined, checkouts: undefined, sourceType: undefined } as unknown as MarketingReportRawRow;
+    expect(serializeMarketingReportRow(legacy)).toMatchObject({ addToCarts: 0, checkouts: 0, sourceType: null });
   });
 });

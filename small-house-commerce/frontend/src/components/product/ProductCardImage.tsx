@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
 import type { ProductCardImage as CardImage, ProductCardMediaPair } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export interface ProductCardImageProps {
   productName: string;
@@ -19,7 +20,7 @@ function ScenePreview({ image, active, productName }: { image: CardImage; active
   const visible = active && loaded && !failed;
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={image.url} alt={image.altText || productName} aria-hidden data-card-scene="" data-visible={visible ? "true" : "false"}
+    <img src={optimizedUploadImage(image.url, 640)} alt={image.altText || productName} aria-hidden data-card-scene="" data-visible={visible ? "true" : "false"}
       onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
       className={`pointer-events-none absolute inset-0 h-full w-full object-cover ${visible ? "opacity-100 transition-opacity duration-200 motion-reduce:transition-none" : "opacity-0 transition-none"}`} />
   );
@@ -48,7 +49,7 @@ export function ProductCardImage({ productName, media, href, navigationTrackAttr
   const content = <>
     {media.cover ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={media.cover.url} alt={media.cover.altText ?? productName} className="h-full w-full object-contain" loading="lazy" />
+      <img src={optimizedUploadImage(media.cover.url, 640)} alt={media.cover.altText ?? productName} className="h-full w-full object-contain" loading="lazy" />
     ) : <PlaceholderImage label={productName} className="h-full w-full" />}
     {scene && (active || requestedUrl === scene.url) ? <ScenePreview key={scene.url} image={scene} active={active} productName={productName} /> : null}
     {children}

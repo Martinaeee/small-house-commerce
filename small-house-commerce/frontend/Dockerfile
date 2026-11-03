@@ -26,18 +26,27 @@ ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 # exists for regions where npmjs is unreachable or flaky. Empty = official.
 ARG NPM_CONFIG_REGISTRY=""
 ENV NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY
+# Baked into the /api/v1 and /uploads rewrite destinations
+# (routes-manifest.json). Caddy serves browser traffic directly, but the
+# built-in image optimizer fetches local /uploads/* source files from inside
+# this container, and that fetch must land on the backend.
+ARG API_TARGET=""
+ENV API_TARGET=$API_TARGET
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm run build
+# The production image optimizer needs sharp on disk; fail the build here
+# rather than serving 500s for every optimized image at runtime.
+RUN node -e "require('sharp')"
 
 # ---- runner: only the standalone trace ------------------------------------
 # API_TARGET here is read at REQUEST time by serverApiUrl() in Server
-# Components (SSR/ISR fetches). It does NOT affect rewrites(): that
-# destination is baked into routes-manifest.json at build time and stays
-# dev-only — in production Caddy routes browser /api/v1/* calls straight
-# to the backend, while server-side fetches call this URL directly.
+# Components (SSR/ISR fetches). The build-stage ARG above bakes the rewrite
+# destinations for the image optimizer's /uploads/* source fetches; the
+# browser path is unaffected — Caddy routes /api/v1/* and /uploads/* straight
+# to the backend.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000

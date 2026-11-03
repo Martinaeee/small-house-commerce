@@ -6,7 +6,8 @@ import { HomeTracking } from "./HomeTracking";
 
 const analytics = vi.hoisted(() => ({ trackFirstParty: vi.fn() }));
 vi.mock("@/lib/analytics", () => analytics);
-vi.mock("@/lib/tracking", () => ({ track: vi.fn(), trackCustom: vi.fn() }));
+vi.mock("@/lib/tracking", () => ({
+  currentMarketingCredential: vi.fn(() => null), track: vi.fn(), trackCustom: vi.fn() }));
 
 /** Minimal IntersectionObserver stand-in the test drives by hand. */
 class MockIntersectionObserver {

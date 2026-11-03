@@ -11,6 +11,7 @@ import { trackAttrs } from "@/lib/home-tracking";
 import { readUgcPayload } from "@/lib/homepage-section-normalize";
 import { HomepageContentImage } from "./HomepageContentImage";
 import styles from "./UgcSection.module.css";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 type CollageEntry = { id?: string; name?: string; location?: string; comment?: string; imageUrl?: string; focalX?: number; focalY?: number; product?: Product };
@@ -212,7 +213,7 @@ export function UgcSection({ section, previewDevice, interactionMode }: SectionP
             <figure data-homepage-role="media" key={index} className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
               {image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={image} alt="" loading="lazy" className="aspect-square w-full object-cover" style={focalStyle(row as CollageEntry)} />
+                <img src={optimizedUploadImage(image, 640)} alt="" loading="lazy" className="aspect-square w-full object-cover" style={focalStyle(row as CollageEntry)} />
               ) : <PlaceholderImage label="" className="aspect-square w-full" />}
               <figcaption className="flex flex-1 flex-col gap-2 p-4">
                 <blockquote data-homepage-role="quote" className="flex-1 text-sm text-ink-secondary">“{str(row.comment)}”</blockquote>

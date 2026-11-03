@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BrandStorySection } from "./BrandStorySection";
 import type { HomepageSection } from "@/lib/api";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 vi.mock("@/lib/fonts", () => ({
   poppins: { className: "font-poppins" },
@@ -81,7 +82,7 @@ describe("BrandStorySection", () => {
     });
     expect(image).toHaveAttribute(
       "src",
-      "/uploads/catalog/2026/brand-story.jpg",
+      optimizedUploadImage("/uploads/catalog/2026/brand-story.jpg", 1440),
     );
     expect(screen.getByText("SMALL SPACE. BIG POSSIBILITIES.")).toBeVisible();
     expect(screen.getByText(/Room to breathe\./)).toBeVisible();

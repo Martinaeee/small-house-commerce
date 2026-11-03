@@ -9,6 +9,7 @@ import type { NavItem, NavTree } from "@/lib/nav";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { BrandWordmark } from "./BrandWordmark";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * Castlery-style main navigation (spec 2026-09-11-navigation-mega-menu-design).
@@ -47,7 +48,7 @@ function ArrowRight() {
 function LeafThumb({ leaf, className }: { leaf: Category; className: string }) {
   return leaf.imageUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={leaf.imageUrl} alt={leaf.name} loading="lazy" className={`object-cover ${className}`} />
+    <img src={optimizedUploadImage(leaf.imageUrl, 96)} alt={leaf.name} loading="lazy" className={`object-cover ${className}`} />
   ) : (
     <PlaceholderImage label={leaf.name} className={className} />
   );

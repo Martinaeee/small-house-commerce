@@ -36,6 +36,7 @@ import type { HeroPayload, HomepageDevice } from "@/lib/homepage-document";
 import { useHeroReadableLayout } from "./useHeroReadableLayout";
 import { HeroSlideCountdown } from "./HeroSlideCountdown";
 import { sectionStylePresentation } from "./sectionShell";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * Storefront hero slider for the homepage document (spec §6.1 / plan Task 19).
@@ -694,9 +695,10 @@ function HeroSlideMedia({
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- hero media from the homepage document; arbitrary host, not on the next/image domain allowlist. */}
           <img
-            src={mobile.image.url}
+            src={optimizedUploadImage(mobile.image.url, 1440)}
             alt={mobile.image.alt || ""}
             loading={eager ? undefined : "lazy"}
+            fetchPriority={eager ? "high" : undefined}
             className="h-full w-full object-cover"
             style={{ objectFit: fit }}
           />
@@ -753,9 +755,10 @@ function renderBaseMedia(
     return (
       // eslint-disable-next-line @next/next/no-img-element -- hero media from the homepage document; arbitrary host, not on the next/image domain allowlist.
       <img
-        src={media.image.url}
+        src={optimizedUploadImage(media.image.url, 1440)}
         alt={media.image.alt || ""}
         loading={eager ? undefined : "lazy"}
+        fetchPriority={eager ? "high" : undefined}
         className="h-full w-full object-cover"
         style={{ objectFit: fit }}
       />

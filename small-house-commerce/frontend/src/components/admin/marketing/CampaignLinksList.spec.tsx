@@ -9,8 +9,9 @@ import { copyText } from "@/lib/clipboard";
 const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permissions: ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"] }, status: "authed" }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
-vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn() } }));
-const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1", pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
+vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listProductGroups: vi.fn(async () => ({ items: [{ product: { id: "p1", name: "Chair", productCode: "CHAIR-1", thumbnailUrl: null }, recordCount: 3, postCount: 2, lastPostDate: "2026-11-03", latestCreatedAt: "2026-11-03T01:00:00Z" }], total: 1, page: 1, pageSize: 20 })), archiveLink: vi.fn(), unarchiveLink: vi.fn(), createShortLink: vi.fn(async () => ({ path: "/s/abc", code: "abc", target: "/products/chair" })), listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
+const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
 beforeEach(() => {
@@ -21,6 +22,80 @@ beforeEach(() => {
   vi.mocked(marketingApi.cloneLink).mockResolvedValue({ ...row, id: "link-2", code: "new-code" });
   vi.mocked(marketingApi.disableLink).mockResolvedValue({ ...row, status: "DISABLED", version: 3 });
   vi.mocked(copyText).mockResolvedValue(true);
+});
+
+describe("product post workspace", () => {
+  it("defaults to grouped products and shares filters with the drawer", async () => {
+    mount({ workspace: true });
+    await screen.findAllByText("3 条记录");
+    expect(marketingApi.listLinks).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("combobox", { name: "归档状态" }), { target: { value: "ALL" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: "查看帖子" }))[0]!);
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenCalledWith(expect.objectContaining({ productId: "p1", archiveState: "ALL", orderBy: "POST_DATE_DESC" })));
+  });
+  it("explains a new own link hidden by a foreign owner filter", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_ALL", "MARKETING_MANAGE_OWN"];
+    vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u2", aid: "OP-2", displayName: "Other", status: "ACTIVE", userStatus: "ACTIVE" }]);
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    await screen.findByRole("option", { name: /Other/ });
+    fireEvent.change(screen.getByRole("combobox", { name: "投放师" }), { target: { value: "u2" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: "新增帖子" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "保存并生成链接" })).toBeEnabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
+    expect(await screen.findByText(/不符合当前投放师筛选/)).toBeInTheDocument();
+  });
+  it("defaults each view to its own archive state without clearing business filters", async () => {
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.change(screen.getByRole("combobox", { name: "商品" }), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "ALL", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("ALL");
+    fireEvent.click(screen.getByRole("button", { name: "按商品" }));
+    await waitFor(() => expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "UNARCHIVED", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("UNARCHIVED");
+  });
+  it("keeps the flat view and archives only against the saved version", async () => {
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    await screen.findByText("Ad A");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "归档这条记录" }));
+    await waitFor(() => expect(marketingApi.archiveLink).toHaveBeenCalledWith("link-1", 2));
+  });
+});
+
+describe("campaign link filters and thumbnails", () => {
+  it("filters by product and optimizer from dedicated selects", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_ALL", "MARKETING_MANAGE_OWN"];
+    vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u2", aid: "OP-2", displayName: "Other", status: "ACTIVE", userStatus: "ACTIVE" }]);
+    mount();
+    await screen.findByText("Ad A");
+    fireEvent.change(screen.getByRole("combobox", { name: "商品" }), { target: { value: "p1" } });
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ productId: "p1", page: 1 })));
+    fireEvent.change(screen.getByRole("combobox", { name: "投放师" }), { target: { value: "u2" } });
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ ownerUserId: "u2", page: 1 })));
+  });
+
+  it("hides the optimizer filter for own-scope users", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"];
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.queryByRole("combobox", { name: "投放师" })).not.toBeInTheDocument();
+  });
+
+  it("renders the product thumbnail before the product name", async () => {
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({ items: [{ ...row, productThumbnailUrl: "/uploads/chair.jpg" }], total: 1, page: 1, pageSize: 20 });
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("img", { name: /Chair/ })).toHaveAttribute("src", "/uploads/chair.jpg");
+  });
+
+  it("keeps a labelled placeholder when the product has no image", async () => {
+    mount();
+    await screen.findByText("Ad A");
+    expect(screen.getByRole("img", { name: "商品暂无图片" })).toBeInTheDocument();
+  });
 });
 
 describe("persisted campaign links", () => {
@@ -59,7 +134,7 @@ describe("persisted campaign links", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(await within(dialog).findByText(/版本冲突/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText("内部名称")).toHaveValue("Unsaved name");
-    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", "Unsaved name", 2);
+    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", { name: "Unsaved name", expectedVersion: 2 });
     expect(within(dialog).queryByLabelText("商品")).not.toBeInTheDocument();
   });
 
@@ -69,9 +144,13 @@ describe("persisted campaign links", () => {
     expect(screen.getByRole("link", { name: "核算" })).toHaveAttribute("href", "/admin/marketing/reports?productId=p1&landingPageId=page-1&linkId=link-1");
   });
 
-  it("copies only the stored public URL", async () => {
+  it("confirms a successful copy in a dialog with the full URL", async () => {
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith(new URL(row.path, window.location.origin).href));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("复制成功")).toBeInTheDocument();
+    expect(within(dialog).getByText("已复制")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
   });
 
   it("prefills a new-link copy and sends the edited ad parameters without changing ownership", async () => {
@@ -90,8 +169,10 @@ describe("persisted campaign links", () => {
   it("retains a selectable saved URL when the clipboard is unavailable", async () => {
     vi.mocked(copyText).mockResolvedValue(false);
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
-    expect(await screen.findByText("复制失败，请手动选择并复制")).toBeInTheDocument();
-    expect(screen.getByLabelText("投放网址 · Ad A")).toHaveValue(new URL(row.path, window.location.origin).href);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("复制失败")).toBeInTheDocument();
+    expect(within(dialog).getByText("复制失败，请手动选择并复制")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
   });
 
   it("keeps finance read-only and disables an owned link against its saved version", async () => {

@@ -6,7 +6,7 @@ import { cardTestProduct } from "@/test/product-card-fixtures";
 import { ProductCardOptionPanel } from "./ProductCardOptionPanel";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 const dialogPrototype = HTMLDialogElement.prototype;
 const originalShow = Object.getOwnPropertyDescriptor(dialogPrototype, "showModal");
 const originalClose = Object.getOwnPropertyDescriptor(dialogPrototype, "close");

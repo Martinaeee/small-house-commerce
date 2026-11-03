@@ -65,12 +65,22 @@ export interface MarketingPageQuery {
 }
 
 export type MarketingSourceType = "FB_POST" | "META_AD" | "ORGANIC" | "DIRECT" | "EMAIL" | "OTHER";
+export interface ShortLinkResult {
+  code: string;
+  /** Root-relative entrance, e.g. "/s/abc12345". */
+  path: string;
+  /** Normalized storefront path + query the code redirects to. */
+  target: string;
+}
+
 export interface CampaignLinkInput {
   productId: string;
   variantId?: string | null;
   landingPageId?: string | null;
-  name: string;
+  name?: string;
   sourceType: MarketingSourceType;
+  postDate?: string | null;
+  postUrl?: string | null;
   campaignId?: string | null;
   adsetId?: string | null;
   adId?: string | null;
@@ -81,6 +91,10 @@ export interface CampaignLinkInput {
   utmTerm?: string | null;
 }
 export interface CampaignLinkRow extends CampaignLinkInput {
+  name: string;
+  postDate: string | null;
+  postUrl: string | null;
+  archivedAt: string | null;
   id: string;
   code: string;
   ownerUserId: string;
@@ -91,6 +105,7 @@ export interface CampaignLinkRow extends CampaignLinkInput {
   landingPageId: string | null;
   productName: string;
   productCode: string | null;
+  productThumbnailUrl: string | null;
   pageName: string | null;
   path: string;
   status: "ACTIVE" | "DISABLED";
@@ -104,8 +119,29 @@ export interface CampaignLinkQuery {
   productId?: string;
   landingPageId?: string;
   status?: "ACTIVE" | "DISABLED";
+  sourceType?: MarketingSourceType;
+  archiveState?: "UNARCHIVED" | "ARCHIVED" | "ALL";
+  postDateFrom?: string;
+  postDateTo?: string;
+  postDateMissingOnly?: boolean;
+  orderBy?: "CREATED_AT_DESC" | "POST_DATE_DESC";
   page?: number;
   pageSize?: number;
+}
+export type CampaignLinkArchiveState = "UNARCHIVED" | "ARCHIVED" | "ALL";
+export type CampaignLinkGroupQuery = Omit<CampaignLinkQuery, "orderBy">;
+export interface CampaignLinkProductGroup {
+  product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
+  recordCount: number;
+  postCount: number;
+  lastPostDate: string | null;
+  latestCreatedAt: string;
+}
+export interface CampaignLinkUpdateInput {
+  name?: string;
+  postDate?: string | null;
+  postUrl?: string | null;
+  expectedVersion: number;
 }
 export interface MarketingLinkContext {
   products: {
@@ -120,10 +156,21 @@ export interface MarketingLinkContext {
 }
 
 export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER";
+export type MarketingReportMode = "FLAT" | "TREE";
+export type MarketingReportSort =
+  | "NAME" | "PRODUCT" | "OWNER" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
+  | "SUBMITTED" | "VALID" | "CONFIRMED" | "SIGNED" | "VALID_VALUE" | "SIGNED_GROSS"
+  | "SPEND_USD" | "SPEND_PHP" | "ORDER_CPA" | "SIGNED_CPA" | "ORDER_ROAS" | "SIGNED_ROAS" | "CONVERSION";
 export interface MarketingReportQuery {
+  postDateFrom?: string;
+  postDateTo?: string;
+  postDateMissingOnly?: boolean;
   from?: string;
   to?: string;
   groupBy?: MarketingReportLevel;
+  mode?: MarketingReportMode;
+  sortBy?: MarketingReportSort;
+  sortDirection?: "ASC" | "DESC";
   linkIds?: string[];
   ownerUserId?: string;
   productId?: string;
@@ -132,6 +179,9 @@ export interface MarketingReportQuery {
   pageSize?: number;
 }
 export interface MarketingReportRow {
+  postDate: string | null;
+  postUrl: string | null;
+  archivedAt: string | null;
   kind: "REGISTERED" | "DIRECT" | "LEGACY" | "UNVERIFIED";
   id: string;
   label: string;
@@ -142,8 +192,11 @@ export interface MarketingReportRow {
   productName: string | null;
   productCode: string | null;
   landingPageId: string | null;
+  sourceType: string | null;
   visits: number | null;
   pageTotalVisits: number | null;
+  addToCarts: number;
+  checkouts: number;
   submittedOrders: number;
   validOrders: number;
   confirmedOrders: number;
@@ -165,12 +218,25 @@ export interface MarketingReportRow {
   recordedCostDays: number;
   costCoverageComplete: boolean;
   periodBasis: "TOUCH" | "ORDER_CREATED";
+  productThumbnailUrl: string | null;
+}
+/** One product → its source-type breakdown → the links inside each source. */
+export interface MarketingReportTreeProduct {
+  product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
+  totals: MarketingReportRow;
+  sources: { sourceType: string; totals: MarketingReportRow; links: MarketingReportRow[] }[];
 }
 export interface MarketingReport {
   from: string;
   to: string;
   groupBy: MarketingReportLevel;
+  mode: MarketingReportMode;
+  sortBy: MarketingReportSort;
+  sortDirection: "ASC" | "DESC";
   asOf: string;
+  /** TREE only: no pagination, the whole scoped link set. */
+  linkCount?: number;
+  tree?: MarketingReportTreeProduct[];
   page: number;
   pageSize: number;
   total: number;
@@ -409,9 +475,13 @@ export const marketingApi = {
   listLinks: (query: CampaignLinkQuery = {}) => linkRequest<Paged<CampaignLinkRow>>(queryString(query)),
   linkContext: () => adminAuthedFetch<MarketingLinkContext>("/api/v1/admin/link-builder/context", { cache: "no-store", referrerPolicy: "no-referrer" }),
   createLink: (input: CampaignLinkInput) => linkRequest<CampaignLinkRow>("", { method: "POST", body: JSON.stringify(input) }),
-  updateLink: (id: string, name: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(pagePath(id), { method: "PATCH", body: JSON.stringify({ name, expectedVersion }) }),
+  listProductGroups: (query: CampaignLinkGroupQuery = {}) => linkRequest<Paged<CampaignLinkProductGroup>>(`/product-groups${queryString(query)}`),
+  updateLink: (id: string, input: CampaignLinkUpdateInput) => linkRequest<CampaignLinkRow>(pagePath(id), { method: "PATCH", body: JSON.stringify(input) }),
+  archiveLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/archive`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
+  unarchiveLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/unarchive`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   disableLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/disable`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   cloneLink: (id: string, input: Partial<CampaignLinkInput> = {}) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/clone`, { method: "POST", body: JSON.stringify(input) }),
+  createShortLink: (input: { url: string }) => adminAuthedFetch<ShortLinkResult>("/api/v1/admin/short-links", { method: "POST", body: JSON.stringify(input), cache: "no-store", referrerPolicy: "no-referrer" }),
   listPages: (query: MarketingPageQuery = {}) => request<Paged<MarketingPageListRow>>(queryString(query)),
   productOptions: (query: { search?: string; id?: string; page?: number; pageSize?: number } = {}) => request<Paged<MarketingProductOption>>(`/product-options${queryString(query)}`),
   ownerOptions: () => request<MarketingOwnerOption[]>("/owner-options"),

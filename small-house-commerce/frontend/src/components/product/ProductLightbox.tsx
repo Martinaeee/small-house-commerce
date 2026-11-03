@@ -6,6 +6,7 @@ import type { ProductImage } from "@/lib/api";
 import { suspendViewportPlayback } from "@/lib/viewport-video-coordinator";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 interface Props {
   images: ProductImage[];
@@ -207,6 +208,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                   key={current.id}
                   src={current.url}
                   mode="LIGHTBOX"
+                  autoPlay
                   ariaLabel={current.altText ?? "Product video"}
                   className="max-h-full max-w-full rounded-md"
                 />
@@ -214,7 +216,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={current.id}
-                  src={current.url}
+                  src={optimizedUploadImage(current.url, 1280)}
                   alt={current.altText ?? "Product image"}
                   className={`max-h-full max-w-full rounded-md object-contain transition-opacity duration-150 ${
                     animating ? "opacity-0" : "opacity-100"
@@ -250,7 +252,7 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={image.url}
+                      src={optimizedUploadImage(image.url, 96)}
                       alt=""
                       className="aspect-square w-full object-cover"
                     />
@@ -280,13 +282,14 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                     <ViewportVideo
                       src={image.url}
                       mode="LIGHTBOX"
+                      autoPlay={i === index}
                       ariaLabel={image.altText ?? `Product video ${i + 1}`}
                       className="block h-auto w-full bg-black"
                     />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={image.url}
+                      src={optimizedUploadImage(image.url, 1280)}
                       alt={image.altText ?? `Product image ${i + 1}`}
                       className="block h-auto w-full"
                     />

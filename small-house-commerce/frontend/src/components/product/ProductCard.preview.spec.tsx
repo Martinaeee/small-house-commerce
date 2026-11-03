@@ -6,7 +6,7 @@ import { ProductCard } from "./ProductCard";
 import { cardTestProduct } from "@/test/product-card-fixtures";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });

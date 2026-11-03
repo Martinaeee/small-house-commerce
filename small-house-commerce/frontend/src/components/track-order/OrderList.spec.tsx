@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { OrderList } from "./OrderList";
 import type { GuestOrderResult, GuestOrderView } from "@/lib/guestOrder";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 /**
  * The order list a shopper sees after a lookup. Cards read top to bottom:
@@ -186,7 +187,7 @@ describe("OrderList card layout", () => {
 
     expect(screen.getByTestId("track-item-image-item-1")).toHaveAttribute(
       "src",
-      "/uploads/catalog/2026/cabinet.png",
+      optimizedUploadImage("/uploads/catalog/2026/cabinet.png", 96),
     );
   });
 
@@ -290,5 +291,37 @@ describe("OrderList with withheld details", () => {
     await user.click(screen.getByTestId("track-verify-submit"));
 
     expect(onVerifyPhone).toHaveBeenCalledWith("09667443461");
+  });
+});
+
+describe("carrier tracking", () => {
+  it("shows the carrier, the tracking number and each status", () => {
+    renderList(
+      result({
+        orders: [
+          order({
+            orderStatus: "SHIPPING",
+            shipment: {
+              carrier: "SHIPDOC",
+              trackingNumber: "TRACK123",
+              shippedAt: "2026-10-28T02:00:00.000Z",
+              signedAt: null,
+              tracking: [
+                { status: "SHIPPED", at: "2026-10-28T02:00:00.000Z" },
+                { status: "IN_TRANSIT", at: "2026-10-29T02:00:00.000Z" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(screen.getByText("SHIPDOC · TRACK123")).toBeInTheDocument();
+    expect(screen.getByText("In transit")).toBeInTheDocument();
+  });
+
+  it("shows no tracking block before the parcel exists", () => {
+    renderList(result({ orders: [order({ shipment: null })] }));
+    expect(screen.queryByText("Tracking")).not.toBeInTheDocument();
   });
 });

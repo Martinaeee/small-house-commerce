@@ -11,7 +11,7 @@ import * as purchase from "./PdpPurchaseProvider";
 import { cardTestProduct } from "@/test/product-card-fixtures";
 
 const tracking = vi.hoisted(() => ({ track: vi.fn(), trackCustom: vi.fn() }));
-vi.mock("@/lib/tracking", () => tracking);
+vi.mock("@/lib/tracking", () => ({ ...tracking, currentMarketingCredential: vi.fn(() => null) }));
 
 const cartSummary = { cartId: "card-test-cart", items: [], subtotal: 120, discount: 0,
   shipping: 0, total: 120, expiresAt: "2030-01-01T00:00:00Z", created: true };

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { manilaVisitDay } from '../marketing/marketing-attribution.js';
+import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import type { AnalyticsEventInput } from './dto/analytics-event.dto.js';
 
 /**
@@ -32,7 +33,10 @@ export class AnalyticsService {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
   private readonly productIdCache = new Map<string, string>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly marketingTouch: MarketingTouchService,
+  ) {}
 
   /** Returns how many events were stored; over-limit callers get 429 upstream. */
   async ingest(events: AnalyticsEventInput[], clientKey: string): Promise<{ accepted: number }> {
@@ -50,9 +54,34 @@ export class AnalyticsService {
     bucket.count += events.length;
     this.hits.set(clientKey, bucket);
 
-    const rows = events
-      .filter((event) => this.isStorefrontEvent(event))
-      .map((event) => this.toRow(event));
+    // One HMAC verification per distinct credential, not per event: the batch
+    // comes from a single browser tab, so every event above two credentials
+    // is the rare case.
+    const linkIds = new Map<string, string | null>();
+    const resolveLinkId = async (credential: string | undefined): Promise<string | null> => {
+      if (!credential) return null;
+      const cached = linkIds.get(credential);
+      if (cached !== undefined) return cached;
+      // An unverifiable credential is the shopper's problem to fix by touching
+      // a real link again; the event itself is still valid traffic and stores
+      // with campaign_link_id NULL, exactly like historical rows.
+      let linkId: string | null = null;
+      try {
+        linkId = (await this.marketingTouch.resolve(credential))?.linkId ?? null;
+      } catch {
+        linkId = null;
+      }
+      linkIds.set(credential, linkId);
+      return linkId;
+    };
+
+    const rows: Prisma.AnalyticsEventCreateManyInput[] = [];
+    for (const batchEvent of events) {
+      if (!this.isStorefrontEvent(batchEvent)) continue;
+      const row = this.toRow(batchEvent);
+      row.campaignLinkId = await resolveLinkId(batchEvent.marketingCredential);
+      rows.push(row);
+    }
     if (rows.length === 0) return { accepted: 0 };
 
     await this.resolveProductIds(rows);

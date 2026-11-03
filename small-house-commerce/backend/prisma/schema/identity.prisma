@@ -79,10 +79,10 @@ model User {
   optimizerProfile         OptimizerProfile?
   marketingPages           ProductLandingPage[]
   campaignLinks            CampaignLink[]
-  adCosts                  AdCostEntry[] @relation("AdCostOwner")
-  adCostsCreated           AdCostEntry[] @relation("AdCostCreator")
-  adCostsUpdated           AdCostEntry[] @relation("AdCostUpdater")
-  adCostAudits              AdCostAudit[]
+  adCosts                  AdCostEntry[]          @relation("AdCostOwner")
+  adCostsCreated           AdCostEntry[]          @relation("AdCostCreator")
+  adCostsUpdated           AdCostEntry[]          @relation("AdCostUpdater")
+  adCostAudits             AdCostAudit[]
   storefrontShellDrafts    StorefrontShell[]      @relation("StorefrontShellDraftUpdater")
   storefrontShellPublishes StorefrontShell[]      @relation("StorefrontShellPublisher")
   storefrontShellAssets    StorefrontShellAsset[] @relation("StorefrontShellAssetCreator")

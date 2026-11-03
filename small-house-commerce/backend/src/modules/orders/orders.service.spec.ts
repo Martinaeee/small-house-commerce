@@ -1,8 +1,9 @@
 import { Prisma } from '../../generated/prisma/client.js';
 import { describe, expect, it, vi } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { checkoutSchema } from './dto/order.dto.js';
+import { idempotencyFingerprint } from './order-idempotency.js';
 import { buildBundleSnapshot } from './order-item-snapshot.js';
 import { OrdersService } from './orders.service.js';
 
@@ -45,17 +46,23 @@ function checkoutOverrides(overrides: Record<string, unknown> = {}) {
       streetAddress: '1 Main St',
     },
     items: [{ skuId: SKU_ID, quantity: 1 }],
+    attribution: { sourceType: 'ORGANIC' },
     ...overrides,
   });
 }
 
-function createHarness(options: { skus?: Record<string, unknown> } = {}) {
+function createHarness(options: { skus?: Record<string, unknown>; metaCapi?: { enqueuePurchase: (...args: unknown[]) => Promise<boolean> } } = {}) {
   const skus = options.skus ?? { [SKU_ID]: skuRecord() };
   const tx: Record<string, any> = {
     $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
     $executeRaw: vi.fn(async () => 0),
+    customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
     order: {
-      create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: 'order-1' })),
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+        id: 'order-1',
+        // Prisma returns the persisted Decimal(10,2) scalar on create.
+        grandTotal: args.data.grandTotal,
+      })),
       findUnique: vi.fn(),
       update: vi.fn(async (_args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
         id: 'order-1',
@@ -115,6 +122,7 @@ function createHarness(options: { skus?: Record<string, unknown> } = {}) {
   const backInStock = {
     deliverClaims: vi.fn(async () => undefined),
   };
+  const metaCapi = options.metaCapi ?? { enqueuePurchase: vi.fn(async () => true) };
   const service = new OrdersService(
     prisma as never,
     inventory as unknown as InventoryService,
@@ -122,6 +130,7 @@ function createHarness(options: { skus?: Record<string, unknown> } = {}) {
     { resolve: vi.fn(async () => null) } as never,
     promotions as never,
     backInStock as never,
+    metaCapi as never,
   );
   return {
     service,
@@ -131,6 +140,7 @@ function createHarness(options: { skus?: Record<string, unknown> } = {}) {
     customerRisk,
     promotions,
     backInStock,
+    metaCapi,
   };
 }
 
@@ -1242,5 +1252,171 @@ describe('OrdersService Bundle edit, merge and ship', () => {
     await expect(harness.service.ship('order-1', { carrier: 'LBC', items: [{ orderItemId: ITEM_ID, quantity: 1 }] }, 'op-1'))
       .rejects.toThrow(/snapshot is unreadable/);
     expect(harness.inventory.consumeForOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.checkout idempotency', () => {
+  const KEY = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  const REQUEST_META = {
+    eventSourceUrl: 'https://luwag.shop/checkout/confirm',
+    clientIp: '203.0.113.10',
+    clientUserAgent: 'vitest',
+  };
+
+  function existingOrder(
+    input: ReturnType<typeof checkoutOverrides>,
+    overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      orderNumber: 'PH1001',
+      orderStatus: 'NEW',
+      confirmationStatus: 'UNCONFIRMED',
+      customerClassification: 'NEW',
+      grandTotal: new Prisma.Decimal('250'),
+      idempotencyHash: idempotencyFingerprint(input),
+      ...overrides,
+    };
+  }
+
+  it('replays the original order for the same key and content without side effects', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique.mockResolvedValueOnce(existingOrder(input));
+
+    const result = await harness.service.checkout(input, REQUEST_META);
+
+    expect(result).toEqual({
+      orderNumber: 'PH1001',
+      orderStatus: 'NEW',
+      confirmationStatus: 'UNCONFIRMED',
+      riskType: null,
+      requiresReview: false,
+      grandTotal: 250,
+    });
+    // A replay exposes the order status and its original grand total, never
+    // customer, items or address. The fixture's 250 deliberately differs from
+    // the current SKU price (199): the replay must not recompute the cart.
+    expect(Object.keys(result).sort()).toEqual([
+      'confirmationStatus',
+      'grandTotal',
+      'orderNumber',
+      'orderStatus',
+      'requiresReview',
+      'riskType',
+    ]);
+    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(harness.tx.customer.upsert).not.toHaveBeenCalled();
+    expect(harness.inventory.reserveWithin).not.toHaveBeenCalled();
+    expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
+  });
+
+  it('returns the same authoritative grand total it sends to the Purchase outbox', async () => {
+    const harness = createHarness();
+    const result = await harness.service.checkout(checkoutOverrides(), REQUEST_META);
+
+    // SKU price 199 × quantity 1; no discount or shipping.
+    expect(result.grandTotal).toBe(199);
+    expect(harness.metaCapi.enqueuePurchase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderNumber: 'PH1',
+        value: 199,
+      }),
+    );
+  });
+
+  it('rejects the same key when the order content changed', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique.mockResolvedValueOnce(
+      existingOrder(input, { idempotencyHash: 'deadbeef'.repeat(8) }),
+    );
+
+    const error = await harness.service.checkout(input).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as Error).message).toContain('PH1001');
+    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(harness.tx.customer.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates the customer inside the order transaction', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValueOnce(null);
+
+    await harness.service.checkout(checkoutOverrides({ idempotencyKey: KEY }), REQUEST_META);
+
+    expect(harness.tx.customer.upsert).toHaveBeenCalledTimes(1);
+    expect(harness.prisma.customer.upsert).not.toHaveBeenCalled();
+  });
+
+  it('stores the key and fingerprint on a new order', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique.mockResolvedValueOnce(null);
+
+    await harness.service.checkout(input);
+
+    const data = harness.tx.order.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.idempotencyKey).toBe(KEY);
+    expect(data.idempotencyHash).toBe(idempotencyFingerprint(input));
+  });
+
+  it('turns a concurrent unique-key race into a replay', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(
+        existingOrder(input, { orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED' }),
+      );
+    harness.prisma.$transaction.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+
+    const result = await harness.service.checkout(input, REQUEST_META);
+
+    expect(result.orderNumber).toBe('PH1001');
+    expect(result.orderStatus).toBe('CONFIRMED');
+    expect(result.requiresReview).toBe(false);
+    expect(result.grandTotal).toBe(250);
+    expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a unique violation that is not about the idempotency key', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique.mockResolvedValue(null);
+    const failure = Object.assign(new Error('Unique constraint failed on order_number'), {
+      code: 'P2002',
+    });
+    harness.prisma.$transaction.mockRejectedValueOnce(failure);
+
+    await expect(harness.service.checkout(input, REQUEST_META)).rejects.toBe(failure);
+  });
+
+  it('keeps the no-key path unchanged', async () => {
+    const harness = createHarness();
+    await harness.service.checkout(checkoutOverrides());
+
+    expect(harness.prisma.order.findUnique).not.toHaveBeenCalled();
+    const data = harness.tx.order.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.idempotencyKey).toBeNull();
+    expect(data.idempotencyHash).toBeNull();
+  });
+
+  it('lets a failed attempt be retried with the same key', async () => {
+    const harness = createHarness();
+    // qty 6 exceeds the harness's available 5: the transaction rejects before
+    // creating anything and the key is never stored.
+    await expect(
+      harness.service.checkout(
+        checkoutOverrides({ idempotencyKey: KEY, items: [{ skuId: SKU_ID, quantity: 6 }] }),
+      ),
+    ).rejects.toThrow(/Insufficient stock/);
+    expect(harness.tx.order.create).not.toHaveBeenCalled();
+
+    harness.prisma.order.findUnique.mockResolvedValue(null);
+    await harness.service.checkout(checkoutOverrides({ idempotencyKey: KEY }));
+    expect(harness.tx.order.create).toHaveBeenCalledTimes(1);
   });
 });

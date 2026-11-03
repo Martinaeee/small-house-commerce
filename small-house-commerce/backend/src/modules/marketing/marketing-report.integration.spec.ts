@@ -44,6 +44,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
       await prisma.adCostAudit.deleteMany({ where: { cost: { link: { productId } } } });
       await prisma.adCostEntry.deleteMany({ where: { link: { productId } } });
       await prisma.campaignLinkVisit.deleteMany({ where: { link: { productId } } });
+      await prisma.analyticsEvent.deleteMany({ where: { campaignLinkId: { not: null } } });
       await prisma.campaignLink.deleteMany({ where: { productId } });
       await prisma.landingPageVisit.deleteMany({ where: { landingPage: { productId } } });
       await prisma.productLandingPage.deleteMany({ where: { productId } });
@@ -145,6 +146,44 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     for (const groupBy of ['PRODUCT', 'OWNER']) expect((await report.report(query({ ...selected, groupBy }), own())).rows[0]).toMatchObject({ visits: 1 });
   });
 
+  it('attributes first-party funnel events to their registered links and ignores unattributed ones', async () => {
+    const t = await target();
+    const second = await prisma.campaignLink.create({ data: { productId, landingPageId: t.page.id, ownerUserId: ownerId, aidSnapshot: 'REPORT-OWNER', name: 'Report ad funnel B', code: randomUUID().replaceAll('-', '').slice(0, 16), sourceType: 'FB_POST', createdAt: new Date('2026-10-03T16:00:00Z') } });
+    const day = new Date('2026-10-05T00:00:00Z');
+    const eventId = (name: string) => ({ eventName: name as never, sessionId: `funnel-${tag}`, pageUrl: 'https://luwag.ph/x', pagePath: '/lp/x', deviceType: 'mobile', eventDay: day });
+    await prisma.analyticsEvent.createMany({ data: [
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id },
+      { ...eventId('BEGIN_CHECKOUT'), campaignLinkId: t.link.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: second.id },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: null },
+      { ...eventId('ADD_TO_CART'), campaignLinkId: t.link.id, eventDay: new Date('2026-10-06T00:00:00Z') },
+    ] });
+    const selected = { linkIds: [t.link.id, second.id] };
+    const flat = await report.report(query({ ...selected, sortBy: 'ADD_TO_CARTS' as const, sortDirection: 'DESC' as const }), own());
+    expect(flat.rows.map(row => [row.label, row.addToCarts, row.checkouts])).toEqual([['Report ad', 2, 1], ['Report ad funnel B', 1, 0]]);
+    expect(flat.rows.every(row => row.visits === 0)).toBe(true);
+    await prisma.campaignLinkVisit.createMany({ data: [t.link.id, second.id].map(linkId => ({ linkId, visitKey: `funnel-tab-${tag}`, visitDay: day })) });
+    const tree = await report.report(query({ ...selected, mode: 'TREE' as const, groupBy: 'PRODUCT' as const }), own());
+    expect(tree.linkCount).toBe(2);
+    expect(tree.tree[0].sources.map(source => [source.sourceType, source.totals.addToCarts])).toEqual(expect.arrayContaining([['META_AD', 2], ['FB_POST', 1]]));
+    expect(JSON.stringify(tree.tree[0].sources.map(s => s.links))).toContain('Report ad');
+  });
+
+  it('dedupes one session across two links of one product in the tree while the flat table counts both', async () => {
+    const t = await target();
+    const second = await prisma.campaignLink.create({ data: { productId, landingPageId: t.page.id, ownerUserId: ownerId, aidSnapshot: 'REPORT-OWNER', name: 'Report ad dedupe B', code: randomUUID().replaceAll('-', '').slice(0, 16), sourceType: 'FB_POST', createdAt: new Date('2026-10-03T16:00:00Z') } });
+    const day = new Date('2026-10-05T00:00:00Z');
+    await prisma.campaignLinkVisit.createMany({ data: [t.link.id, second.id].map(linkId => ({ linkId, visitKey: `dedupe-tab-${tag}`, visitDay: day })) });
+    const selected = { linkIds: [t.link.id, second.id] };
+    expect((await report.report(query(selected), own())).rows.every(row => row.visits === 1)).toBe(true);
+    const tree = await report.report(query({ ...selected, mode: 'TREE' as const }), own());
+    expect(tree.tree).toHaveLength(1);
+    expect(tree.tree[0].totals.visits).toBe(1); // deduped, not summed (2)
+    expect(tree.tree[0].sources).toHaveLength(2);
+    expect(tree.tree[0].sources.every(source => source.totals.visits === 1)).toBe(true);
+  });
+
   it('uses Manila touch boundaries rather than order creation and keeps owner scopes private', async () => {
     const t = await target();
     await order(t, { touchedAt: '2026-10-04T15:59:59.999Z' });
@@ -157,5 +196,28 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     await expect(report.report(query({ linkIds: [t.link.id] }), foreign)).rejects.toMatchObject({ status: 404 });
     await expect(report.report(query({ ownerUserId: ownerId }), foreign)).rejects.toMatchObject({ status: 404 });
     expect((await report.report(query({ linkIds: [t.link.id] }), { id: otherId, permissions: ['MARKETING_VIEW_ALL'] })).rows[0]).toMatchObject({ submittedOrders: 2 });
+  });
+
+  it('filters registered Facebook posts by registered date without changing the metric cohort', async () => {
+    const t = await target();
+    await prisma.campaignLink.update({ where: { id: t.link.id }, data: { sourceType: 'FB_POST', postDate: new Date('2026-10-04T00:00:00.000Z') } });
+    await prisma.campaignLinkVisit.create({ data: { linkId: t.link.id, visitKey: 'post-date-1', visitDay: new Date('2026-10-05T00:00:00.000Z') } });
+    await order(t);
+    const hit = await report.report(query({ postDateFrom: '2026-10-04', postDateTo: '2026-10-04', linkIds: [t.link.id] }), own());
+    expect(hit.rows[0]).toMatchObject({ postDate: '2026-10-04', submittedOrders: 1, visits: 1 });
+    const miss = await report.report(query({ postDateFrom: '2026-10-03', postDateTo: '2026-10-03', linkIds: [t.link.id] }), own());
+    expect(miss.rows).toHaveLength(0);
+    expect(miss.otherSources).toHaveLength(0);
+  });
+
+  it('keeps links without a post date out of date filters but visible when unfiltered', async () => {
+    const t = await target();
+    await prisma.campaignLink.update({ where: { id: t.link.id }, data: { sourceType: 'FB_POST' } });
+    const unfiltered = await report.report(query({ linkIds: [t.link.id] }), own());
+    expect(unfiltered.rows[0]).toMatchObject({ postDate: null });
+    const missing = await report.report(query({ postDateMissingOnly: true, linkIds: [t.link.id] }), own());
+    expect(missing.rows[0]).toMatchObject({ postDate: null });
+    const ranged = await report.report(query({ postDateFrom: '2026-10-01', linkIds: [t.link.id] }), own());
+    expect(ranged.rows).toHaveLength(0);
   });
 });

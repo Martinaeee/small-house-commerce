@@ -1,11 +1,18 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LandingBlocksLayout, LandingBlocksProvider, LandingContentView, MarketingBlocks } from "./LandingContentView";
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import type { Product } from "@/lib/api";
 import { deliveryWindows } from "@/lib/deliveryWindow";
 import type { LandingContent } from "@/lib/marketing-content";
+import { installDesktopViewport } from "@/test/desktop-viewport";
+
+// The slot's placement is what this file checks; the purchase islands have
+// their own suites, and mounting the real ones here would drag in the cart,
+// router and media loaders.
+vi.mock("./PdpClient", () => ({ PdpClient: () => null }));
+vi.mock("./PdpQuickCodOrder", () => ({ PdpQuickCodOrder: () => null }));
 
 const saved: LandingContent = {
   schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null,
@@ -16,7 +23,70 @@ const saved: LandingContent = {
   ],
 };
 
+const slotProduct: Product = {
+  id: "slot-product",
+  name: "Table",
+  slug: "table",
+  description: null,
+  tagline: null,
+  categoryId: "tables",
+  ratingAverage: null,
+  reviewCount: 0,
+  room: null,
+  internalRole: null,
+  solutions: [],
+  width: null,
+  depth: null,
+  height: null,
+  foldedWidth: null,
+  foldedDepth: null,
+  foldedHeight: null,
+  materials: null,
+  features: null,
+  catalogGraphVersion: 1,
+  defaultDisplayVariantId: "default",
+  effectiveCoverMedia: null,
+  images: [],
+  options: [],
+  variants: [
+    {
+      id: "default",
+      name: "Default",
+      position: 0,
+      combinationKey: "",
+      optionValueIds: [],
+      sku: {
+        id: "slot-sku",
+        skuCode: "SLOT",
+        status: "ACTIVE",
+        price: 100,
+        compareAtPrice: null,
+        availableInventory: 5,
+      },
+    },
+  ],
+};
+
 describe("shared landing content renderer", () => {
+  it("drops the full-width inline order slot on mobile and keeps it on desktop", () => {
+    const setDesktop = installDesktopViewport(false);
+    const mobile = render(
+      <LandingContentView content={saved} approvedContent={saved} product={slotProduct} />,
+    );
+    expect(
+      mobile.container.querySelector('[data-landing-product-order="true"]'),
+    ).toBeNull();
+    mobile.unmount();
+
+    setDesktop(true);
+    const desktop = render(
+      <LandingContentView content={saved} approvedContent={saved} product={slotProduct} />,
+    );
+    expect(
+      desktop.container.querySelector('[data-landing-product-order="true"]'),
+    ).toHaveClass("lg:col-span-2");
+  });
+
   it("follows the selected SKU dimensions in live landing facts without package leakage", async () => {
     const user = userEvent.setup();
     const item: Product = {

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type Review } from "@/lib/api";
 import { RatingStars } from "./RatingStars";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 const HELPED_STORAGE_KEY = "rv_helpful_ids";
 
@@ -180,7 +181,7 @@ export function ReviewCard({ review }: { review: Review }) {
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={photo}
-              src={photo}
+              src={optimizedUploadImage(photo, 96)}
               alt="Customer review"
               className="h-16 w-16 rounded-md border border-border object-cover"
               loading="lazy"

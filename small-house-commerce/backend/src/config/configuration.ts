@@ -57,6 +57,13 @@ export function configuration() {
     upload: {
       dir: env.UPLOAD_DIR ?? null,
       durable: uploadStorageIsDurable(env),
+      // Video uploads are re-encoded into playback-friendly H.264 mp4 by an
+      // external ffmpeg binary; absent binaries simply keep the original.
+      ffmpegPath: env.UPLOAD_FFMPEG_PATH ?? 'ffmpeg',
+      videoTranscode: env.UPLOAD_VIDEO_TRANSCODE !== 'false',
+      videoTranscodeTimeoutMs: env.UPLOAD_VIDEO_TRANSCODE_TIMEOUT_MS
+        ? Number(env.UPLOAD_VIDEO_TRANSCODE_TIMEOUT_MS)
+        : 90_000,
     },
     email: {
       apiKey: env.EMAIL_API_KEY ?? null,
@@ -70,6 +77,18 @@ export function configuration() {
       accessToken: env.META_CAPI_ACCESS_TOKEN ?? null,
       testEventCode: env.META_CAPI_TEST_EVENT_CODE ?? null,
       apiVersion: env.META_CAPI_API_VERSION ?? 'v23.0',
+    },
+    // Qianyi ERP order integration. Empty values keep it switched off.
+    qianyi: {
+      enabled: env.QIANYI_ENABLED ?? 'false',
+      baseUrl: env.QIANYI_BASE_URL ?? 'https://www.qianyierp.com',
+      appId: env.QIANYI_APP_ID ?? '',
+      appSecret: env.QIANYI_APP_SECRET ?? '',
+      shop: env.QIANYI_SHOP ?? '',
+      warehouseId: env.QIANYI_WAREHOUSE_ID ?? 0,
+      warehouse: env.QIANYI_WAREHOUSE ?? '',
+      localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
+      logistics: env.QIANYI_LOGISTICS ?? '',
     },
   };
 }

@@ -1,6 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { HomepageContentImage } from "./HomepageContentImage";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 describe("HomepageContentImage", () => {
   it("replaces a failed image with an inert placeholder and retries a different source", () => {
@@ -13,7 +14,7 @@ describe("HomepageContentImage", () => {
     expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
     expect(container.firstElementChild).toHaveClass("h-full", "w-full");
     rerender(<HomepageContentImage src="/uploads/second.jpg" />);
-    expect(container.querySelector("img")).toHaveAttribute("src", "/uploads/second.jpg");
+    expect(container.querySelector("img")).toHaveAttribute("src", optimizedUploadImage("/uploads/second.jpg", 1440));
     expect(fetch).not.toHaveBeenCalled();
     fetch.mockRestore();
   });

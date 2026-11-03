@@ -8,6 +8,7 @@ import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 import { moduleLayoutPresentation } from "@/lib/homepage-responsive";
 import styles from "./CategoryTilesSection.module.css";
+import { optimizedUploadImage } from "@/lib/image-url";
 
 export function CategoryTilesSection({ section, previewDevice, interactionMode, appearance }: SectionProps) {
   const categories = section.categories ?? [];
@@ -72,7 +73,7 @@ export function CategoryTilesSection({ section, previewDevice, interactionMode, 
             {category.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={category.imageUrl}
+                src={optimizedUploadImage(category.imageUrl, 640)}
                 alt={category.name}
                 loading="lazy"
                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
