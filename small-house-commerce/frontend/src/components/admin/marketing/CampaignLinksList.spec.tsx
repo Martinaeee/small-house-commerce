@@ -10,7 +10,7 @@ const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permission
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
 vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
-const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
 productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
@@ -93,7 +93,7 @@ describe("persisted campaign links", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(await within(dialog).findByText(/版本冲突/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText("内部名称")).toHaveValue("Unsaved name");
-    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", "Unsaved name", 2);
+    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", { name: "Unsaved name", expectedVersion: 2 });
     expect(within(dialog).queryByLabelText("商品")).not.toBeInTheDocument();
   });
 

@@ -7,6 +7,21 @@ vi.mock("./admin-auth", async (original) => ({ ...await original<typeof import("
 const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null, blocks: [{ id: "buy", type: "buy", sourceKey: null, props: {} }] };
 beforeEach(() => vi.mocked(adminAuthedFetch).mockReset());
 
+describe("marketing post API", () => {
+  it("reads product groups and archive/date filters uncached", async () => {
+    await marketingApi.listProductGroups({ archiveState: "UNARCHIVED", sourceType: "FB_POST", postDateMissingOnly: true });
+    expect(adminAuthedFetch).toHaveBeenCalledWith(expect.stringContaining("/product-groups?archiveState=UNARCHIVED&sourceType=FB_POST&postDateMissingOnly=true"), expect.objectContaining({ cache: "no-store", referrerPolicy: "no-referrer" }));
+  });
+  it("archives and restores by version without changing status", async () => {
+    await marketingApi.archiveLink("id/1", 2);
+    await marketingApi.unarchiveLink("id/1", 3);
+    expect(vi.mocked(adminAuthedFetch).mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ["/api/v1/admin/campaign-links/id%2F1/archive", { expectedVersion: 2 }],
+      ["/api/v1/admin/campaign-links/id%2F1/unarchive", { expectedVersion: 3 }],
+    ]);
+  });
+});
+
 describe("marketing authenticated API", () => {
   it("uploads raw media only through an encoded saved-page endpoint", async () => {
     expect(marketingApi.uploadMedia).toBeTypeOf("function");
@@ -51,7 +66,7 @@ describe("marketing authenticated API", () => {
     const input = { productId: "p1", landingPageId: "lp1", variantId: "v1", name: "Ad A", sourceType: "META_AD" as const, utmCampaign: "Chair & table" };
     await marketingApi.createLink(input);
     expect(vi.mocked(adminAuthedFetch).mock.calls[0]).toEqual(["/api/v1/admin/campaign-links", expect.objectContaining({ method: "POST", cache: "no-store", referrerPolicy: "no-referrer", body: JSON.stringify(input) })]);
-    await marketingApi.updateLink("link/1", "Rename", 2);
+    await marketingApi.updateLink("link/1", { name: "Rename", expectedVersion: 2 });
     expect(vi.mocked(adminAuthedFetch).mock.calls[1]).toEqual(["/api/v1/admin/campaign-links/link%2F1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Rename", expectedVersion: 2 }) })]);
     await marketingApi.disableLink("link/1", 3);
     expect(vi.mocked(adminAuthedFetch).mock.calls[2][0]).toBe("/api/v1/admin/campaign-links/link%2F1/disable");

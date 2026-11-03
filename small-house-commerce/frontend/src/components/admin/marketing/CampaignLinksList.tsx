@@ -68,7 +68,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
     if (action === "disable" && !window.confirm(t("marketing_link_disable_confirm"))) return;
     operation.current = true; setBusy(true); setActionError(null); setNotice(null);
     try {
-      if (action === "rename") await marketingApi.updateLink(row.id, renaming!.name.trim(), row.version);
+      if (action === "rename") await marketingApi.updateLink(row.id, { name: renaming!.name.trim(), expectedVersion: row.version });
       else await marketingApi.disableLink(row.id, row.version);
       setRenaming(null); setRevision((value) => value + 1); setNotice(t("marketing_link_saved"));
     } catch (reason) {
