@@ -44,6 +44,9 @@ model CampaignLink {
   variantNameSnapshot String?            @map("variant_name_snapshot")
   landingPageId       String?            @map("landing_page_id") @db.Uuid
   name                String
+  postDate            DateTime?          @map("post_date") @db.Date
+  postUrl             String?            @map("post_url") @db.VarChar(2048)
+  archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
   sourceType          SourceType         @map("source_type")
   campaignId          String?            @map("campaign_id")
   adsetId             String?            @map("adset_id")
@@ -68,6 +71,8 @@ model CampaignLink {
   @@index([ownerUserId, createdAt])
   @@index([productId])
   @@index([landingPageId])
+  @@index([ownerUserId, archivedAt, productId])
+  @@index([productId, sourceType, postDate])
   @@map("campaign_links")
 }
 
