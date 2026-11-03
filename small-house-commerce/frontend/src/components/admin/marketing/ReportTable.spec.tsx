@@ -13,6 +13,17 @@ const result: MarketingReport = { from: '2026-10-05', to: '2026-10-07', groupBy:
 const mount = (props: Parameters<typeof ReportTable>[0] = {}) => render(<AdminI18nProvider><ReportTable {...props} /></AdminI18nProvider>);
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ['MARKETING_VIEW_OWN']; vi.mocked(marketingApi.report).mockResolvedValue(result); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([]); });
 
+describe('post date report filters', () => {
+  it('sends post dates without replacing the metric reporting period', async () => {
+    mount(); await screen.findByText('Ad A');
+    fireEvent.change(screen.getByLabelText('发帖起始日'), { target: { value: '2026-11-01' } });
+    fireEvent.change(screen.getByLabelText('发帖结束日'), { target: { value: '2026-11-03' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询核算' }));
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ postDateFrom: '2026-11-01', postDateTo: '2026-11-03', from: expect.any(String), to: expect.any(String) })));
+    expect(await screen.findByText('当前仅统计符合条件的已登记 Facebook 帖子链接。')).toBeInTheDocument();
+  });
+});
+
 describe('touch-date marketing reports', () => {
   it('shows saved PHP/CPA/ROAS and immutable whole-order gross with a non-settlement warning', async () => {
     mount(); await screen.findByText('Ad A');

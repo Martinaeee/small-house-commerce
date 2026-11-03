@@ -64,6 +64,8 @@ export function ReportTreeTable({ tree, sortBy, sortDirection, onSort }: {
             <tr key={link.id} className="align-top">
               <td className="px-3 py-3 pl-20 text-admin-muted">
                 <p>{link.label}</p>
+                {link.sourceType === "FB_POST" && <p className="text-xs">{link.postDate ?? t("marketing_post_unregistered")}{link.archivedAt ? ` · ${t("marketing_post_archived")}` : ""}</p>}
+                {link.postUrl && <a className="text-xs underline" href={link.postUrl} target="_blank" rel="noopener noreferrer">{t("marketing_post_original")}</a>}
                 {link.ownerName && <p className="text-xs text-admin-muted">{link.ownerName} · {link.aid ?? "—"}</p>}
               </td>
               <ReportMetricCells row={link} />

@@ -13,8 +13,8 @@ const dateFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", y
 const levels = ["LINK", "PAGE", "PRODUCT", "OWNER"] as const;
 type Mode = "TREE" | "FLAT";
 
-function identity(row: MarketingReportRow, t: ReturnType<typeof useAdminI18n>["t"]) {
-  return <>{row.kind === "REGISTERED" ? row.label : t(`marketing_report_${row.kind}`)}{row.kind !== "REGISTERED" ? null : null}
+function identity(row: MarketingReportRow, t: ReturnType<typeof useAdminI18n>["t"], showPost = false) {
+  return <>{row.kind === "REGISTERED" ? row.label : t(`marketing_report_${row.kind}`)}{showPost && row.sourceType === "FB_POST" && <p className="text-xs text-admin-muted">{row.postDate ?? t("marketing_post_unregistered")}{row.archivedAt ? ` · ${t("marketing_post_archived")}` : ""}</p>}{showPost && row.postUrl && <a className="text-xs underline" href={row.postUrl} target="_blank" rel="noopener noreferrer">{t("marketing_post_original")}</a>}
     {row.ownerName && row.kind === "REGISTERED" && <p className="text-xs text-admin-muted">{row.ownerName} · {row.aid ?? "—"}</p>}
     {row.kind !== "REGISTERED" && row.productName && <p className="text-xs text-admin-muted">{row.ownerName ?? ""}</p>}
     {row.productName && row.kind === "REGISTERED" && <p className="text-xs text-admin-muted">{row.productName} · {row.productCode ?? "—"}</p>}
@@ -24,7 +24,7 @@ function identity(row: MarketingReportRow, t: ReturnType<typeof useAdminI18n>["t
 export function ReportTable({ productId, landingPageId, linkId }: { productId?: string; landingPageId?: string; linkId?: string }) {
   const { admin } = useAdminAuth();
   const { t } = useAdminI18n();
-  const [inputs, setInputs] = useState(() => ({ from: dateFormat.format(new Date(Date.now() - 6 * 864e5)), to: dateFormat.format(new Date()), groupBy: "LINK" as const, ownerUserId: "" }));
+  const [inputs, setInputs] = useState(() => ({ from: dateFormat.format(new Date(Date.now() - 6 * 864e5)), to: dateFormat.format(new Date()), groupBy: "LINK" as const, ownerUserId: "", postDateFrom: "", postDateTo: "", postDateMissingOnly: false }));
   const [filters, setFilters] = useState(inputs);
   const [productFilter, setProductFilter] = useState(productId ?? "");
   const [mode, setMode] = useState<Mode>("TREE");
@@ -47,7 +47,7 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
   useEffect(() => {
     if (!admin) return;
     let alive = true;
-    marketingApi.report({ from: filters.from, to: filters.to, groupBy: filters.groupBy, mode, sortBy, sortDirection, ownerUserId: all ? filters.ownerUserId || undefined : undefined, productId: productFilter || undefined, landingPageId, linkIds: linkId ? [linkId] : undefined, page: mode === "FLAT" ? page : 1, pageSize: 20 })
+    marketingApi.report({ from: filters.from, to: filters.to, postDateFrom: filters.postDateFrom || undefined, postDateTo: filters.postDateTo || undefined, postDateMissingOnly: filters.postDateMissingOnly || undefined, groupBy: filters.groupBy, mode, sortBy, sortDirection, ownerUserId: all ? filters.ownerUserId || undefined : undefined, productId: productFilter || undefined, landingPageId, linkIds: linkId ? [linkId] : undefined, page: mode === "FLAT" ? page : 1, pageSize: 20 })
       .then(freshData => { if (alive) { setLoaded({ key: queryKey, data: freshData }); setStaleSnapshot(freshData); setError(null); } })
       .catch((reason: unknown) => { if (alive) setError({ key: queryKey, message: reason instanceof Error ? reason.message : String(reason) }); });
     return () => { alive = false; };
@@ -97,15 +97,19 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
       ? <button type="button" aria-label={`${t(column.key)} · ${t("marketing_report_sort_hint")}`} onClick={() => toggleSort(column.sortBy, Boolean(column.numeric))}>{t(column.key)}{indicator(column.sortBy)}</button>
       : t(column.key)}</th>)}
   </tr></thead><tbody className="divide-y divide-admin-border">{flatRows.map(row => <tr key={row.id} className="align-top">
-    <td className="min-w-56 px-3 py-3"><div className="flex items-start gap-2"><ProductThumb url={row.productThumbnailUrl} label={row.productName ?? row.label} /><div>{identity(row, t)}</div></div></td>
+    <td className="min-w-56 px-3 py-3"><div className="flex items-start gap-2"><ProductThumb url={row.productThumbnailUrl} label={row.productName ?? row.label} /><div>{identity(row, t, data.groupBy === "LINK")}</div></div></td>
     <ReportMetricCells row={row} />
   </tr>)}{!flatRows.length && <tr><td colSpan={reportColumns.length} className="p-6 text-center text-admin-muted">{t("marketing_report_empty")}</td></tr>}</tbody></table></div>;
 
   return <section className="min-w-0 space-y-3" aria-label={t("marketing_reports")}>
     <h2 className="font-semibold">{t("marketing_reports")}</h2>
+    <p className="text-xs text-admin-muted">{t("marketing_post_report_hint")}</p>
     <form className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); setFilters(inputs); setPage(1); }}>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_from")}<input className={fieldClass} required type="date" value={inputs.from} max={inputs.to} onChange={(event) => changeStatusFields({ from: event.target.value })} /></label>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_to")}<input className={fieldClass} required type="date" value={inputs.to} min={inputs.from} max={dateFormat.format(new Date())} onChange={(event) => changeStatusFields({ to: event.target.value })} /></label>
+      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_from")}<input className={fieldClass} type="date" value={inputs.postDateFrom} max={inputs.postDateTo || undefined} onChange={e => changeStatusFields({ postDateFrom: e.target.value, postDateMissingOnly: false })} /></label>
+      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_to")}<input className={fieldClass} type="date" value={inputs.postDateTo} min={inputs.postDateFrom || undefined} onChange={e => changeStatusFields({ postDateTo: e.target.value, postDateMissingOnly: false })} /></label>
+      <label className="flex items-center gap-2 text-xs text-admin-muted"><input type="checkbox" checked={inputs.postDateMissingOnly} onChange={e => changeStatusFields({ postDateMissingOnly: e.target.checked, postDateFrom: "", postDateTo: "" })} />{t("marketing_post_missing_only")}</label>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_level")}<select className={fieldClass} value={inputs.groupBy} disabled={mode === "TREE"} aria-disabled={mode === "TREE"} onChange={(event) => changeStatusFields({ groupBy: event.target.value as typeof inputs.groupBy })}>{levels.map(level => <option key={level} value={level}>{t(`marketing_report_${level}`)}</option>)}</select></label>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_filter_product")}<select className={fieldClass} aria-label={t("marketing_report_filter_product")} value={productFilter} onChange={(event) => { setProductFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_report_all_products")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}{product.productCode ? ` · ${product.productCode}` : ""}</option>)}</select></label>
       {all && <label className="space-y-1 text-xs text-admin-muted">{t("marketing_owner")}<select className={fieldClass} aria-label={t("marketing_owner")} value={inputs.ownerUserId} onChange={(event) => changeStatusFields({ ownerUserId: event.target.value })}><option value="">{t("marketing_all_owners")}</option>{ownerData?.items.map(owner => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select></label>}
@@ -134,7 +138,8 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
         </>
         : flatTable}
       {data.mode === "FLAT" && <div className="flex items-center justify-between text-xs text-admin-muted"><span>{t("marketing_records", { count: String(data.total) })}</span><div className="flex gap-2"><button type="button" className={buttonClass} disabled={page === 1} onClick={() => setPage(value => value - 1)}>{t("marketing_previous")}</button><span className="py-2">{page}</span><button type="button" className={buttonClass} disabled={page * 20 >= data.total} onClick={() => setPage(value => value + 1)}>{t("marketing_next")}</button></div></div>}
-      {data.otherSources.length > 0 && <div className="space-y-2"><h3 className="font-medium">{t("marketing_report_other")}</h3><p className="text-xs text-admin-muted">{t("marketing_report_other_hint")}</p><div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>{(["marketing_source_type", "marketing_report_submitted", "marketing_report_valid", "marketing_report_confirmed", "marketing_report_signed", "marketing_report_valid_value", "marketing_report_signed_gross"] as const).map(key => <th className="whitespace-nowrap px-3 py-2" key={key}>{t(key)}</th>)}</tr></thead><tbody className="divide-y divide-admin-border">{data.otherSources.map(row => <tr key={row.id}><td className="min-w-64 px-3 py-3">{identity(row, t)}</td>{[row.submittedOrders, row.validOrders, row.confirmedOrders, row.signedOrders].map((count, index) => <td className="px-3 py-3" key={index}>{count}</td>)}<td className="whitespace-nowrap px-3 py-3">PHP {row.validOrderValuePhp}</td><td className="whitespace-nowrap px-3 py-3">PHP {row.signedGrossPhp}</td></tr>)}</tbody></table></div></div>}
+      {(filters.postDateFrom || filters.postDateTo || filters.postDateMissingOnly) && <p className="text-xs text-admin-muted">{t("marketing_post_other_sources_hidden")}</p>}
+      {!(filters.postDateFrom || filters.postDateTo || filters.postDateMissingOnly) && data.otherSources.length > 0 && <div className="space-y-2"><h3 className="font-medium">{t("marketing_report_other")}</h3><p className="text-xs text-admin-muted">{t("marketing_report_other_hint")}</p><div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>{(["marketing_source_type", "marketing_report_submitted", "marketing_report_valid", "marketing_report_confirmed", "marketing_report_signed", "marketing_report_valid_value", "marketing_report_signed_gross"] as const).map(key => <th className="whitespace-nowrap px-3 py-2" key={key}>{t(key)}</th>)}</tr></thead><tbody className="divide-y divide-admin-border">{data.otherSources.map(row => <tr key={row.id}><td className="min-w-64 px-3 py-3">{identity(row, t)}</td>{[row.submittedOrders, row.validOrders, row.confirmedOrders, row.signedOrders].map((count, index) => <td className="px-3 py-3" key={index}>{count}</td>)}<td className="whitespace-nowrap px-3 py-3">PHP {row.validOrderValuePhp}</td><td className="whitespace-nowrap px-3 py-3">PHP {row.signedGrossPhp}</td></tr>)}</tbody></table></div></div>}
     </>}
   </section>;
 }
