@@ -1,0 +1,33 @@
+enum CheckoutDraftStatus {
+  OPEN
+  CONVERTED
+  EXPIRED
+}
+
+/// 未完成的结账草稿。与 orders 完全分离：不占库存、不建 Customer。
+model CheckoutDraft {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  /// sha256(raw token)；原始能力令牌永不落库。
+  tokenHash       String              @unique @map("token_hash") @db.VarChar(64)
+  tokenIssuedAt   DateTime            @map("token_issued_at") @db.Timestamptz(3)
+  status          CheckoutDraftStatus @default(OPEN)
+  /// 顾客是否主动填写或选择过；系统默认值不计入。
+  hasUserInput    Boolean             @default(false) @map("has_user_input")
+  /// 客户端单调递增序号；用于幂等重试与旧请求防覆盖。
+  clientRevision  Int                 @default(0) @map("client_revision")
+  contactName     String?             @map("contact_name") @db.VarChar(120)
+  contactPhone    String?             @map("contact_phone") @db.VarChar(24)
+  snapshot        Json                @default("{}")
+  productSnapshot Json                @default("[]") @map("product_snapshot")
+  orderId         String?             @unique @map("order_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+  @@index([expiresAt])
+  @@index([contactPhone])
+  @@map("checkout_drafts")
+}
