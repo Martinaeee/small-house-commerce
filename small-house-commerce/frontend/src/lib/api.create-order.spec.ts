@@ -19,7 +19,7 @@ const CUSTOMER = {
 describe("api.createOrder", () => {
   it("forwards the checkout draft token so the order can convert it", async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             orderNumber: "PH100020",
