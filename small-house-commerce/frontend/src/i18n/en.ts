@@ -3661,6 +3661,7 @@ export const en: Record<ZhKey, string> = {
   marketing_post_create_result_hint: "This post has its own tracking identity.",
   marketing_post_short_link: "Post short link",
   marketing_post_full_link: "Full tracking link",
+  marketing_post_copy_full_link: "Copy full link",
   marketing_post_short_failed: "Short link failed; the record is saved. Copy the full link or retry the short link.",
   marketing_post_retry_short: "Retry short link",
   marketing_post_continue: "Add another",

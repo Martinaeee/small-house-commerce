@@ -3563,6 +3563,7 @@ export const zh = {
   marketing_post_create_result_hint: "这条帖子有自己的独立追踪标识。",
   marketing_post_short_link: "该帖专属短链",
   marketing_post_full_link: "完整投放链接",
+  marketing_post_copy_full_link: "复制完整链接",
   marketing_post_short_failed: "短链生成失败，已创建记录仍保留；可复制长链或重试短链。",
   marketing_post_retry_short: "重试短链",
   marketing_post_continue: "继续新增",

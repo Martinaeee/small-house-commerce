@@ -5,6 +5,7 @@ import { AdminI18nProvider } from '@/lib/admin-i18n';
 import { marketingApi, type CampaignLinkRow } from '@/lib/marketing-api';
 import { CreateCampaignLinkDialog } from './CreateCampaignLinkDialog';
 import { PostLinkResultDialog } from './PostLinkResultDialog';
+import { copyText } from '@/lib/clipboard';
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => ({ admin: { id: 'u1', name: 'Operator', permissions: ['MARKETING_VIEW_OWN','MARKETING_MANAGE_OWN'] } }) }));
 vi.mock('@/lib/marketing-api', async load => ({ ...await load(), marketingApi: { linkContext: vi.fn(), createLink: vi.fn(), cloneLink: vi.fn(), createShortLink: vi.fn() } }));
 vi.mock('@/lib/clipboard', () => ({ copyText: vi.fn(async () => false) }));
@@ -47,5 +48,22 @@ describe('post creation and dedicated links',()=>{
   fireEvent.click(screen.getByRole('button',{name:'重试短链'}));
   await waitFor(()=>expect(screen.getByLabelText('该帖专属短链')).toHaveValue(new URL('/s/abc123',window.location.origin).href));
   expect(marketingApi.createLink).not.toHaveBeenCalled();
+ });
+ it('never lets the short-link button copy the long link', async()=>{
+  vi.mocked(marketingApi.createShortLink).mockRejectedValue(new Error('offline'));
+  wrap(<PostLinkResultDialog link={row} onClose={vi.fn()} onContinue={vi.fn()}/>);
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button',{name:'复制短链'})).toBeDisabled();
+  vi.mocked(copyText).mockResolvedValue(true);
+  fireEvent.click(screen.getByRole('button',{name:'复制完整链接'}));
+  await waitFor(()=>expect(copyText).toHaveBeenCalledWith(new URL(row.path,window.location.origin).href));
+ });
+ it('copies the URL each button names once the short link exists', async()=>{
+  vi.mocked(marketingApi.createShortLink).mockResolvedValue({path:'/s/abc123',code:'abc123',target:row.path});
+  vi.mocked(copyText).mockResolvedValue(true);
+  wrap(<PostLinkResultDialog link={row} onClose={vi.fn()} onContinue={vi.fn()}/>);
+  await waitFor(()=>expect(screen.getByLabelText('该帖专属短链')).toHaveValue(new URL('/s/abc123',window.location.origin).href));
+  fireEvent.click(screen.getByRole('button',{name:'复制短链'}));
+  await waitFor(()=>expect(copyText).toHaveBeenLastCalledWith(new URL('/s/abc123',window.location.origin).href));
  });
 });

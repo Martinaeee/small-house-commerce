@@ -45,6 +45,16 @@ describe("product post workspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
     expect(await screen.findByText(/不符合当前投放师筛选/)).toBeInTheDocument();
   });
+  it("defaults each view to its own archive state without clearing business filters", async () => {
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.change(screen.getByRole("combobox", { name: "商品" }), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "ALL", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("ALL");
+    fireEvent.click(screen.getByRole("button", { name: "按商品" }));
+    await waitFor(() => expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "UNARCHIVED", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("UNARCHIVED");
+  });
   it("keeps the flat view and archives only against the saved version", async () => {
     mount({ workspace: true }); await screen.findAllByText("3 条记录");
     fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
