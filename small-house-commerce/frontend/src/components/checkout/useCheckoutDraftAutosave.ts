@@ -96,21 +96,26 @@ export function useCheckoutDraftAutosave({
     sendRef.current = () => void send();
   }, [send]);
 
+  // Serialize during render so the debounce effect can key on the VALUES: a
+  // re-render carrying an identical snapshot (a restore landing mid-debounce,
+  // an unrelated state change) must not tear down the pending timer and leave
+  // the change unsent.
+  const serialized = JSON.stringify({
+    hasUserInput,
+    customer: snapshot.customer,
+    items: snapshot.items,
+    preferredDeliveryDate: snapshot.preferredDeliveryDate,
+    promoCodeInput: snapshot.promoCodeInput,
+    promoCodeApplied: snapshot.promoCodeApplied,
+    customerNote: snapshot.customerNote,
+  });
+
   useEffect(() => {
     if (!active || stoppedRef.current) return;
-    const serialized = JSON.stringify({
-      hasUserInput,
-      customer: snapshot.customer,
-      items: snapshot.items,
-      preferredDeliveryDate: snapshot.preferredDeliveryDate,
-      promoCodeInput: snapshot.promoCodeInput,
-      promoCodeApplied: snapshot.promoCodeApplied,
-      customerNote: snapshot.customerNote,
-    });
     if (serialized === lastQueuedRef.current) return;
     lastQueuedRef.current = serialized;
     revisionRef.current += 1;
-    writeAutosave(attempt, revisionRef.current, snapshot);
+    writeAutosave(attempt, revisionRef.current, snapshotRef.current);
     bodyRef.current = JSON.stringify({
       revision: revisionRef.current,
       ...JSON.parse(serialized),
@@ -122,7 +127,7 @@ export function useCheckoutDraftAutosave({
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current);
     };
-  }, [active, attempt, snapshot, hasUserInput, send]);
+  }, [active, attempt, serialized, send]);
 
   useEffect(() => {
     if (!active) return;

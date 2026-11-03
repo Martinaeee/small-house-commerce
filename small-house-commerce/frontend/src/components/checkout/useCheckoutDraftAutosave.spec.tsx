@@ -84,6 +84,39 @@ describe("useCheckoutDraftAutosave", () => {
     expect(result.current.status).toBe("offline");
   });
 
+  it("still saves when a render with identical values lands inside the debounce", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "OPEN", revision: 1 }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = resolveCheckoutAttempt("cart:all");
+    const { rerender } = renderHook(
+      ({ version }: { version: number }) => {
+        void version;
+        return useCheckoutDraftAutosave({
+          attempt,
+          // A fresh object with the same values, exactly what a restore
+          // landing mid-debounce produces.
+          snapshot: { ...SNAPSHOT, customer: { ...SNAPSHOT.customer } },
+          active: true,
+          hasUserInput: false,
+        });
+      },
+      { initialProps: { version: 0 } },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    rerender({ version: 1 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("stops syncing after 410", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 410 }));
     vi.stubGlobal("fetch", fetchMock);
