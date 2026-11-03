@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import CheckoutDraftDetailPage from "./page";
@@ -74,6 +74,39 @@ describe("CheckoutDraftDetailPage", () => {
     expect(await screen.findByText("Ana")).toBeInTheDocument();
     expect(screen.getByText(/1 Main St/)).toBeInTheDocument();
     expect(screen.getByText("Call first")).toBeInTheDocument();
+    expect(screen.getByText(/PH100020/)).toBeInTheDocument();
+  });
+
+  it("renders a converted tombstone that predates the first autosave", async () => {
+    // When the order was placed before any draft reached the server, the
+    // converted row carries an empty snapshot; the screen must fall back to
+    // the summary contact instead of crashing on `snapshot.customer`.
+    getCheckoutDraft.mockResolvedValue({
+      id: "draft-1",
+      status: "CONVERTED",
+      hasUserInput: true,
+      contactName: "Ana",
+      contactPhone: "0917",
+      itemCount: 0,
+      firstItemName: null,
+      firstItemThumbnail: null,
+      orderId: "order-1",
+      orderNumber: "PH100020",
+      createdAt: "2026-11-03T00:00:00.000Z",
+      updatedAt: "2026-11-03T00:05:00.000Z",
+      expiresAt: "2026-12-03T00:00:00.000Z",
+      snapshot: {},
+      productSnapshot: [],
+    });
+    render(
+      <AdminI18nProvider>
+        <CheckoutDraftDetailPage />
+      </AdminI18nProvider>,
+    );
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("draft-fields")).getByText("0917"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/PH100020/)).toBeInTheDocument();
   });
 });

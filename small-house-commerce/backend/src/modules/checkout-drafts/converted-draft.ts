@@ -55,6 +55,10 @@ export async function persistConvertedDraft(
         snapshot: {},
         productSnapshot: [],
         orderId: args.orderId,
+        createdAt: now,
+        // `updated_at` is NOT NULL with no database default; createMany does
+        // not run the @updatedAt rule, so the tombstone stamps it here.
+        updatedAt: now,
         expiresAt,
       },
     ],

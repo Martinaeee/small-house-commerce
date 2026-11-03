@@ -40,6 +40,21 @@ describe('persistConvertedDraft', () => {
     });
   });
 
+  it('stamps the tombstone timestamps the table requires', async () => {
+    // `updated_at` is NOT NULL with no database default: a createMany that
+    // leaves it out fails the insert and rolls the whole order back.
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const createMany = vi.fn(
+      async (_args: { data: Array<Record<string, unknown>>; skipDuplicates?: boolean }) => ({
+        count: 1,
+      }),
+    );
+    await persistConvertedDraft({ checkoutDraft: { updateMany, createMany } } as never, ARGS);
+    const data = createMany.mock.calls[0]?.[0]?.data?.[0];
+    expect(data?.createdAt).toEqual(NOW);
+    expect(data?.updatedAt).toEqual(NOW);
+  });
+
   it('never touches the draft for a malformed token', async () => {
     const updateMany = vi.fn();
     const createMany = vi.fn();

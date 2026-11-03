@@ -41,7 +41,30 @@ export default function CheckoutDraftDetailPage() {
     );
   }
 
-  const c = draft.snapshot.customer;
+  // A converted draft created from the order alone carries an empty snapshot:
+  // fall back to the contact the order wrote onto the row.
+  const snapshot = draft.snapshot as Partial<AdminCheckoutDraftDetail["snapshot"]> | undefined;
+  const customer = {
+    name: "",
+    phone: "",
+    province: "",
+    city: "",
+    barangay: "",
+    postalCode: "",
+    streetAddress: "",
+    landmark: "",
+    ...(snapshot?.customer ?? {}),
+  };
+  const address = [
+    customer.streetAddress,
+    customer.barangay,
+    customer.city,
+    customer.province,
+    customer.postalCode,
+    customer.landmark,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <div className="w-full max-w-none px-4 py-5 md:px-8">
       <PageHeader
@@ -60,33 +83,35 @@ export default function CheckoutDraftDetailPage() {
         <h2 className="text-sm font-semibold">
           {t("checkout_drafts_detail_fields")}
         </h2>
-        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-          <Row label={t("checkout_drafts_field_name")} value={c.name} />
-          <Row label={t("checkout_drafts_field_phone")} value={c.phone} />
+        <dl
+          data-testid="draft-fields"
+          className="mt-3 grid gap-2 text-sm sm:grid-cols-2"
+        >
           <Row
-            label={t("checkout_drafts_field_address")}
-            value={[
-              c.streetAddress,
-              c.barangay,
-              c.city,
-              c.province,
-              c.postalCode,
-              c.landmark,
-            ]
-              .filter(Boolean)
-              .join(", ")}
+            label={t("checkout_drafts_field_name")}
+            value={customer.name || (draft.contactName ?? "")}
           />
           <Row
+            label={t("checkout_drafts_field_phone")}
+            value={customer.phone || (draft.contactPhone ?? "")}
+          />
+          <Row label={t("checkout_drafts_field_address")} value={address} />
+          <Row
             label={t("checkout_drafts_field_date")}
-            value={draft.snapshot.preferredDeliveryDate ?? ""}
+            value={draft.snapshot?.preferredDeliveryDate ?? ""}
           />
           <Row
             label={t("checkout_drafts_field_promo")}
             value={
-              draft.snapshot.promoCodeApplied ?? draft.snapshot.promoCodeInput
+              draft.snapshot?.promoCodeApplied ??
+              draft.snapshot?.promoCodeInput ??
+              ""
             }
           />
-          <Row label={t("checkout_drafts_field_note")} value={draft.snapshot.customerNote} />
+          <Row
+            label={t("checkout_drafts_field_note")}
+            value={draft.snapshot?.customerNote ?? ""}
+          />
         </dl>
       </section>
       <section className="mt-4 rounded-xl border border-border bg-card p-4">
@@ -94,12 +119,12 @@ export default function CheckoutDraftDetailPage() {
           {t("checkout_drafts_detail_products")}
         </h2>
         <ul className="mt-3 divide-y divide-border/60 text-sm">
-          {draft.productSnapshot.length === 0 ? (
+          {draft.productSnapshot?.length === 0 ? (
             <li className="py-2 text-ink-muted">
               {t("checkout_drafts_not_filled_yet")}
             </li>
           ) : null}
-          {draft.productSnapshot.map((line) => (
+          {draft.productSnapshot?.map((line) => (
             <li key={line.skuId} className="flex items-center gap-3 py-2">
               {line.thumbnailUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
