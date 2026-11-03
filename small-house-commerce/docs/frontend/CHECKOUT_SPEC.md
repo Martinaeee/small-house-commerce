@@ -1541,4 +1541,4 @@ END
 - Autosave honors `Retry-After`, cancels retry timers on unmount, and retains local input without endlessly retrying permanent 4xx responses.
 - New anonymous drafts have a separate normalized-IP budget of 60/hour and 500/day; updates do not consume that budget. The existing 120/minute write and 240/minute read IP throttles remain in place. These limits are process-local in the current single-instance deployment, not phone-ownership verification.
 - The existing `luwag_checkout_draft` sessionStorage payload is unchanged; it still carries the validated review payload.
-- Verification and release gates: [2026-11-03 checkout draft verification](../releases/2026-11-03-checkout-autosave-drafts-verification.md). This feature has not been migrated or deployed to production.
+- Verification and release gates: [2026-11-03 checkout draft verification](../releases/2026-11-03-checkout-autosave-drafts-verification.md). Deployed to production on 2026-11-03 at `08fefe66`; see [the production record](../releases/2026-11-03-checkout-autosave-drafts-production.md).
