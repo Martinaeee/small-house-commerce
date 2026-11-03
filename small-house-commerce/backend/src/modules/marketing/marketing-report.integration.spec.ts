@@ -197,4 +197,27 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     await expect(report.report(query({ ownerUserId: ownerId }), foreign)).rejects.toMatchObject({ status: 404 });
     expect((await report.report(query({ linkIds: [t.link.id] }), { id: otherId, permissions: ['MARKETING_VIEW_ALL'] })).rows[0]).toMatchObject({ submittedOrders: 2 });
   });
+
+  it('filters registered Facebook posts by registered date without changing the metric cohort', async () => {
+    const t = await target();
+    await prisma.campaignLink.update({ where: { id: t.link.id }, data: { sourceType: 'FB_POST', postDate: new Date('2026-10-04T00:00:00.000Z') } });
+    await prisma.campaignLinkVisit.create({ data: { linkId: t.link.id, visitKey: 'post-date-1', visitDay: new Date('2026-10-05T00:00:00.000Z') } });
+    await order(t);
+    const hit = await report.report(query({ postDateFrom: '2026-10-04', postDateTo: '2026-10-04', linkIds: [t.link.id] }), own());
+    expect(hit.rows[0]).toMatchObject({ postDate: '2026-10-04', submittedOrders: 1, visits: 1 });
+    const miss = await report.report(query({ postDateFrom: '2026-10-03', postDateTo: '2026-10-03', linkIds: [t.link.id] }), own());
+    expect(miss.rows).toHaveLength(0);
+    expect(miss.otherSources).toHaveLength(0);
+  });
+
+  it('keeps links without a post date out of date filters but visible when unfiltered', async () => {
+    const t = await target();
+    await prisma.campaignLink.update({ where: { id: t.link.id }, data: { sourceType: 'FB_POST' } });
+    const unfiltered = await report.report(query({ linkIds: [t.link.id] }), own());
+    expect(unfiltered.rows[0]).toMatchObject({ postDate: null });
+    const missing = await report.report(query({ postDateMissingOnly: true, linkIds: [t.link.id] }), own());
+    expect(missing.rows[0]).toMatchObject({ postDate: null });
+    const ranged = await report.report(query({ postDateFrom: '2026-10-01', linkIds: [t.link.id] }), own());
+    expect(ranged.rows).toHaveLength(0);
+  });
 });

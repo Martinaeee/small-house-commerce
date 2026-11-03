@@ -19,4 +19,10 @@ describe('marketing report query schema', () => {
       expect(marketingReportQuerySchema.safeParse(input).success).toBe(false);
     }
   });
+
+  it('parses post date filters and rejects conflicts', () => {
+    expect(marketingReportQuerySchema.parse({ postDateFrom: '2026-11-03' })).toMatchObject({ postDateFrom: '2026-11-03' });
+    expect(marketingReportQuerySchema.safeParse({ postDateMissingOnly: 'true', postDateFrom: '2026-11-01' }).success).toBe(false);
+    expect(marketingReportQuerySchema.safeParse({ postDateFrom: '2026-11-03', postDateTo: '2026-11-02' }).success).toBe(false);
+  });
 });

@@ -8,10 +8,21 @@ import { marketingApi, type MarketingReport, type MarketingReportRow } from '@/l
 const auth = vi.hoisted(() => ({ admin: { id: 'u1', permissions: ['MARKETING_VIEW_OWN'] } }));
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => auth }));
 vi.mock('@/lib/marketing-api', async load => ({ ...await load(), marketingApi: { report: vi.fn(), ownerOptions: vi.fn(), linkContext: vi.fn(async () => ({ products: [] })), listCosts: vi.fn(async () => ({ items: [], total: 0 })) } }));
-const row: MarketingReportRow = { kind: 'REGISTERED', id: 'link-1', label: 'Ad A', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', productId: 'p1', productName: 'Chair', productCode: 'CHAIR-1', landingPageId: 'page-1', sourceType: 'META_AD' as const, addToCarts: 0, checkouts: 0, visits: 2, pageTotalVisits: null, submittedOrders: 3, validOrders: 2, confirmedOrders: 1, signedOrders: 1, validOrderValuePhp: '12000.00', signedGrossPhp: '10000.00', spendUsd: '50.00', spendPhp: '2865.00', orderCpaUsd: '25.00', signedCpaUsd: '50.00', orderRoas: '4.19', signedRoas: '3.49', conversionRate: '1.0000', costCoverageComplete: true, recordedCostDays: 3, expectedCostDays: 3, duplicateOrders: 1, riskOrders: 1, afterSalesOrders: 0, refundStatusOrders: 0, periodBasis: 'TOUCH' , productThumbnailUrl: null };
+const row: MarketingReportRow = { postDate: null, postUrl: null, archivedAt: null, kind: 'REGISTERED', id: 'link-1', label: 'Ad A', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', productId: 'p1', productName: 'Chair', productCode: 'CHAIR-1', landingPageId: 'page-1', sourceType: 'META_AD' as const, addToCarts: 0, checkouts: 0, visits: 2, pageTotalVisits: null, submittedOrders: 3, validOrders: 2, confirmedOrders: 1, signedOrders: 1, validOrderValuePhp: '12000.00', signedGrossPhp: '10000.00', spendUsd: '50.00', spendPhp: '2865.00', orderCpaUsd: '25.00', signedCpaUsd: '50.00', orderRoas: '4.19', signedRoas: '3.49', conversionRate: '1.0000', costCoverageComplete: true, recordedCostDays: 3, expectedCostDays: 3, duplicateOrders: 1, riskOrders: 1, afterSalesOrders: 0, refundStatusOrders: 0, periodBasis: 'TOUCH' , productThumbnailUrl: null };
 const result: MarketingReport = { from: '2026-10-05', to: '2026-10-07', groupBy: 'LINK', mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', asOf: '2026-10-11T04:00:00Z', page: 1, pageSize: 20, total: 1, rows: [row], otherSources: [] };
 const mount = (props: Parameters<typeof ReportTable>[0] = {}) => render(<AdminI18nProvider><ReportTable {...props} /></AdminI18nProvider>);
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ['MARKETING_VIEW_OWN']; vi.mocked(marketingApi.report).mockResolvedValue(result); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([]); });
+
+describe('post date report filters', () => {
+  it('sends post dates without replacing the metric reporting period', async () => {
+    mount(); await screen.findByText('Ad A');
+    fireEvent.change(screen.getByLabelText('发帖起始日'), { target: { value: '2026-11-01' } });
+    fireEvent.change(screen.getByLabelText('发帖结束日'), { target: { value: '2026-11-03' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询核算' }));
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ postDateFrom: '2026-11-01', postDateTo: '2026-11-03', from: expect.any(String), to: expect.any(String) })));
+    expect(await screen.findByText('当前仅统计符合条件的已登记 Facebook 帖子链接。')).toBeInTheDocument();
+  });
+});
 
 describe('touch-date marketing reports', () => {
   it('shows saved PHP/CPA/ROAS and immutable whole-order gross with a non-settlement warning', async () => {

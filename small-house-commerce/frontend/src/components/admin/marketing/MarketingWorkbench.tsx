@@ -38,7 +38,7 @@ export default function MarketingWorkbench({ view, productId, ownerUserId, landi
     {view === "pages" ? <MarketingPagesList key={productId ?? "all"} productId={productId} />
       : view === "compare" ? <MarketingPerformanceDashboard view="PRODUCT" productId={productId} initialDates={initialDates} />
       : view === "optimizers" ? <MarketingPerformanceDashboard view="OPTIMIZER" ownerUserId={ownerUserId} initialDates={initialDates} />
-      : view === "links" ? <CampaignLinksList key={`${productId}:${landingPageId}`} productId={productId} landingPageId={landingPageId} />
+      : view === "links" ? <CampaignLinksList key={`${productId}:${landingPageId}`} productId={productId} landingPageId={landingPageId} workspace />
       : view === "costs" ? <AdCostsList key={`${productId}:${landingPageId}:${linkId}`} productId={productId} landingPageId={landingPageId} linkId={linkId} />
       : view === "shortLinks" ? <ShortLinkTool />
       : <ReportTable key={`${productId}:${landingPageId}:${linkId}`} productId={productId} landingPageId={landingPageId} linkId={linkId} />}

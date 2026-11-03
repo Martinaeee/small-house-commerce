@@ -28,6 +28,14 @@ const treeGrid = (value: MarketingReportTreeProduct[]) => value;
 describe("report tree table", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("shows registered post metadata and safely opens the original", () => {
+    const withPost = [{ ...tree[0], sources: [{ sourceType: "FB_POST", totals: row, links: [{ ...row, sourceType: "FB_POST", postDate: "2026-11-03", postUrl: "https://facebook.com/luwag/posts/1", archivedAt: "2026-11-03T02:00:00Z" }] }] }];
+    render(<AdminI18nProvider><ReportTreeTable tree={withPost} sortBy="NAME" sortDirection="ASC" onSort={vi.fn()} /></AdminI18nProvider>);
+    expect(screen.getByText(/2026-11-03/)).toBeInTheDocument();
+    expect(screen.getByText(/已归档/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "打开原帖" })).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   it("renders the three levels with aligned metric columns", () => {
     mount();
     // both products and both sources render; link rows keep their own labels

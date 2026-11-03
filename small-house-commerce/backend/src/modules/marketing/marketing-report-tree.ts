@@ -47,6 +47,7 @@ function add(target: Totals, row: MarketingReportRawRow): void {
 function toRaw(totals: Totals, identity: { id: string; label: string; productId: string; productName: string; productCode: string | null; sourceType: string | null }, visits: bigint): MarketingReportRawRow {
   return {
     kind: 'REGISTERED', ownerUserId: null, ownerName: null, aid: null, landingPageId: null,
+    postDate: null, postUrl: null, archivedAt: null,
     pageTotalVisits: null, visits, ...identity, ...totals,
   };
 }

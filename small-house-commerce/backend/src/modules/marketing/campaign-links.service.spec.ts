@@ -22,21 +22,28 @@ function setup() {
   const prisma = {
     user: { findUnique: vi.fn(async () => ({ name: 'Operator', status: 'ACTIVE' })) },
     optimizerProfile: { findUnique: vi.fn(async () => profile) },
-    product: { findUnique: vi.fn(async () => product) },
+    product: { findUnique: vi.fn(async () => product), findMany: vi.fn(async () => [product]) },
     productVariant: { findUnique: vi.fn(async () => variant) },
     productLandingPage: { findUnique: vi.fn(async () => page) },
     campaignLink: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const row = { id: `link-${rows.size}`, version: 0, status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date(), ...data, product, landingPage: data.landingPageId ? page : null, owner: { name: 'Operator', optimizerProfile: profile } };
+        const row = {
+          id: `link-${rows.size}`, version: 0, status: 'ACTIVE', archivedAt: null,
+          postDate: null, postUrl: null, createdAt: new Date(), updatedAt: new Date(),
+          ...data, product, landingPage: data.landingPageId ? page : null,
+          owner: { name: 'Operator', status: 'ACTIVE', optimizerProfile: profile },
+        };
         rows.set(row.id, row); return structuredClone(row);
       }),
       findUnique: vi.fn(async ({ where }: { where: { id?: string; code?: string } }) => structuredClone(where.id ? rows.get(where.id) ?? null : [...rows.values()].find((row) => row.code === where.code) ?? null)),
+      findMany: vi.fn(async () => []),
+      groupBy: vi.fn(async () => []),
+      count: vi.fn(async () => 0),
       updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
         const row = rows.get(String(where.id));
         if (!row || row.version !== where.version || row.ownerUserId !== where.ownerUserId) return { count: 0 };
         rows.set(String(where.id), { ...row, ...data, version: Number(row.version) + 1 }); return { count: 1 };
       }),
-      findMany: vi.fn(async () => []), count: vi.fn(async () => 0),
     },
     $transaction: vi.fn(),
   };
@@ -142,5 +149,76 @@ describe('persisted owner-scoped campaign links', () => {
     expect(copy).toMatchObject({ ownerUserId: U1, productId: P1, adId: 'ad', sourceType: 'META_AD' });
     expect(copy.code).not.toBe(original.code);
     expect((await service.getLink(original.id, owner)).name).toBe('Ad A');
+  });
+
+  it('hides foreign metadata updates before source validation', async () => {
+    const { service } = setup();
+    const link = await service.createLink(base, owner);
+    await expect(service.updateLink(link.id, { postDate: '2026-11-03', expectedVersion: 0 }, { ...owner, id: U2 })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('does not count Facebook posts outside a non-post source filter', async () => {
+    const { service, prisma } = setup();
+    await service.listProductGroups({ sourceType: 'META_AD', archiveState: 'ALL', page: 1, pageSize: 20 }, owner);
+    expect(prisma.campaignLink.groupBy.mock.calls[1]?.[0]).toMatchObject({ where: { AND: [{ ownerUserId: U1, sourceType: 'META_AD' }, { sourceType: 'FB_POST' }] } });
+  });
+
+  it('creates a dated Facebook post with a server-generated name and normalized date', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ productId: P1, sourceType: 'FB_POST', postDate: '2026-11-03', postUrl: 'https://www.facebook.com/luwag/posts/1' }, owner);
+    expect(link.postDate).toBe('2026-11-03');
+    expect(link.postUrl).toBe('https://www.facebook.com/luwag/posts/1');
+    expect(link.name).toMatch(/^11-03｜Chair｜帖子 /);
+    expect(link.archivedAt).toBeNull();
+  });
+
+  it('edits post metadata without changing the code and clears fields explicitly', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post', postDate: '2026-11-03' }, owner);
+    const updated = await service.updateLink(link.id, { postDate: '2026-11-02', postUrl: null, expectedVersion: 0 }, owner);
+    expect(updated).toMatchObject({ code: link.code, postDate: '2026-11-02', postUrl: null, version: 1 });
+    await expect(service.updateLink(link.id, { postDate: '2026-11-01', expectedVersion: 0 }, owner)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects post metadata on a non-post link', async () => {
+    const { service } = setup();
+    const link = await service.createLink(base, owner);
+    await expect(service.updateLink(link.id, { postDate: '2026-11-03', expectedVersion: 0 }, owner)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('archives and restores without changing status, code or touch resolution', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post', postDate: '2026-11-03' }, owner);
+    const archived = await service.archiveLink(link.id, 0, owner);
+    expect(archived).toMatchObject({ archivedAt: expect.any(String), status: 'ACTIVE', code: link.code, version: 1 });
+    const same = await service.archiveLink(link.id, 1, owner);
+    expect(same.version).toBe(1);
+    const restored = await service.unarchiveLink(link.id, 1, owner);
+    expect(restored).toMatchObject({ archivedAt: null, status: 'ACTIVE', version: 2 });
+    expect(await service.resolveTouch(link.code)).toMatchObject({ disabled: false, id: link.id });
+  });
+
+  it('clones a post as a new identity without inheriting its date, post URL or archive state', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post', postDate: '2026-11-03', postUrl: 'https://www.facebook.com/luwag/posts/1' }, owner);
+    await service.archiveLink(link.id, 0, owner);
+    const copy = await service.cloneLink(link.id, { name: 'Copy', postDate: '2026-11-04' }, owner);
+    expect(copy).toMatchObject({ name: 'Copy', postDate: '2026-11-04', postUrl: null, archivedAt: null, sourceType: 'FB_POST' });
+    expect(copy.code).not.toBe(link.code);
+  });
+
+  it('counts records and posts across the full filtered set before paging', async () => {
+    const { service, prisma } = setup();
+    prisma.campaignLink.groupBy
+      .mockResolvedValueOnce([{ productId: P1, _count: { _all: 3 }, _max: { createdAt: new Date('2026-11-03T01:00:00Z') } }] as never)
+      .mockResolvedValueOnce([{ productId: P1, _count: { _all: 2 }, _max: { postDate: new Date('2026-11-03T00:00:00Z') } }] as never);
+    prisma.product.findMany.mockResolvedValue([{ id: P1, name: 'Chair', productCode: 'LUW-001', images: [{ url: '/uploads/chair.jpg' }] }] as never);
+    const result = await service.listProductGroups({ archiveState: 'UNARCHIVED', page: 1, pageSize: 20 }, owner);
+    expect(result).toMatchObject({ total: 1, page: 1, pageSize: 20 });
+    expect(result.items[0]).toMatchObject({
+      recordCount: 3, postCount: 2, lastPostDate: '2026-11-03',
+      product: { id: P1, name: 'Chair', productCode: 'LUW-001', thumbnailUrl: '/uploads/chair.jpg' },
+    });
+    expect(prisma.campaignLink.groupBy).toHaveBeenCalledTimes(2);
   });
 });

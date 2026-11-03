@@ -9,8 +9,8 @@ import { copyText } from "@/lib/clipboard";
 const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permissions: ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"] }, status: "authed" }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
-vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
-const row: CampaignLinkRow = { updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listProductGroups: vi.fn(async () => ({ items: [{ product: { id: "p1", name: "Chair", productCode: "CHAIR-1", thumbnailUrl: null }, recordCount: 3, postCount: 2, lastPostDate: "2026-11-03", latestCreatedAt: "2026-11-03T01:00:00Z" }], total: 1, page: 1, pageSize: 20 })), archiveLink: vi.fn(), unarchiveLink: vi.fn(), createShortLink: vi.fn(async () => ({ path: "/s/abc", code: "abc", target: "/products/chair" })), listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
+const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
 productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
@@ -22,6 +22,47 @@ beforeEach(() => {
   vi.mocked(marketingApi.cloneLink).mockResolvedValue({ ...row, id: "link-2", code: "new-code" });
   vi.mocked(marketingApi.disableLink).mockResolvedValue({ ...row, status: "DISABLED", version: 3 });
   vi.mocked(copyText).mockResolvedValue(true);
+});
+
+describe("product post workspace", () => {
+  it("defaults to grouped products and shares filters with the drawer", async () => {
+    mount({ workspace: true });
+    await screen.findAllByText("3 条记录");
+    expect(marketingApi.listLinks).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("combobox", { name: "归档状态" }), { target: { value: "ALL" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: "查看帖子" }))[0]!);
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenCalledWith(expect.objectContaining({ productId: "p1", archiveState: "ALL", orderBy: "POST_DATE_DESC" })));
+  });
+  it("explains a new own link hidden by a foreign owner filter", async () => {
+    auth.admin.permissions = ["MARKETING_VIEW_ALL", "MARKETING_MANAGE_OWN"];
+    vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u2", aid: "OP-2", displayName: "Other", status: "ACTIVE", userStatus: "ACTIVE" }]);
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    await screen.findByRole("option", { name: /Other/ });
+    fireEvent.change(screen.getByRole("combobox", { name: "投放师" }), { target: { value: "u2" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: "新增帖子" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "保存并生成链接" })).toBeEnabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
+    expect(await screen.findByText(/不符合当前投放师筛选/)).toBeInTheDocument();
+  });
+  it("defaults each view to its own archive state without clearing business filters", async () => {
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.change(screen.getByRole("combobox", { name: "商品" }), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    await waitFor(() => expect(marketingApi.listLinks).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "ALL", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("ALL");
+    fireEvent.click(screen.getByRole("button", { name: "按商品" }));
+    await waitFor(() => expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "UNARCHIVED", productId: "p1" })));
+    expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("UNARCHIVED");
+  });
+  it("keeps the flat view and archives only against the saved version", async () => {
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    await screen.findByText("Ad A");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "归档这条记录" }));
+    await waitFor(() => expect(marketingApi.archiveLink).toHaveBeenCalledWith("link-1", 2));
+  });
 });
 
 describe("campaign link filters and thumbnails", () => {
@@ -93,7 +134,7 @@ describe("persisted campaign links", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(await within(dialog).findByText(/版本冲突/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText("内部名称")).toHaveValue("Unsaved name");
-    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", "Unsaved name", 2);
+    expect(marketingApi.updateLink).toHaveBeenCalledWith("link-1", { name: "Unsaved name", expectedVersion: 2 });
     expect(within(dialog).queryByLabelText("商品")).not.toBeInTheDocument();
   });
 

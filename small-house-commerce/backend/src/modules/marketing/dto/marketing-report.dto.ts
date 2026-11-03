@@ -3,6 +3,10 @@ import { manilaVisitDay } from '../marketing-attribution.js';
 import { marketingReportSortValues } from '../marketing-report-sort.js';
 
 const today = () => manilaVisitDay(new Date()).toISOString().slice(0, 10);
+const calendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, 'Invalid calendar date.');
 export const marketingReportQuerySchema = z.object({
   from: z.iso.date().default(() => new Date(manilaVisitDay(new Date()).getTime() - 6 * 864e5).toISOString().slice(0, 10)),
   to: z.iso.date().default(today),
@@ -16,7 +20,18 @@ export const marketingReportQuerySchema = z.object({
   ownerUserId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
   landingPageId: z.string().uuid().optional(),
+  postDateFrom: calendarDate.optional(),
+  postDateTo: calendarDate.optional(),
+  postDateMissingOnly: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-}).strict().refine(query => query.from <= query.to && query.to <= today(), { message: 'Report dates must be ordered and cannot extend beyond Manila today.' });
+}).strict().refine(query => query.from <= query.to && query.to <= today(), { message: 'Report dates must be ordered and cannot extend beyond Manila today.' })
+  .superRefine((query, ctx) => {
+    if (query.postDateMissingOnly && (query.postDateFrom || query.postDateTo)) {
+      ctx.addIssue({ code: 'custom', path: ['postDateMissingOnly'], message: 'Missing-only excludes a date range.' });
+    }
+    if (query.postDateFrom && query.postDateTo && query.postDateFrom > query.postDateTo) {
+      ctx.addIssue({ code: 'custom', path: ['postDateTo'], message: 'Post date range must be ordered.' });
+    }
+  });
 export type MarketingReportQuery = z.infer<typeof marketingReportQuerySchema>;

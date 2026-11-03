@@ -18,4 +18,11 @@ describe('campaign link write boundary', () => {
     expect(campaignLinkUpdateSchema.safeParse({ name: 'Rename', expectedVersion: 0, adId: 'new' }).success).toBe(false);
     expect(campaignLinkVersionSchema.safeParse({}).success).toBe(false);
   });
+  it('exposes product groups before the id route and archive endpoints without delete or retarget', () => {
+    const getPaths = Reflect.getMetadata(PATH_METADATA, CampaignLinksController.prototype.listProductGroups);
+    expect(getPaths).toBe('product-groups');
+    expect(CampaignLinksController.prototype).toHaveProperty('archive');
+    expect(CampaignLinksController.prototype).toHaveProperty('unarchive');
+    expect(CampaignLinksController.prototype).not.toHaveProperty('remove');
+  });
 });

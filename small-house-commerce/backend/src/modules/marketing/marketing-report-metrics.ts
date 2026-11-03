@@ -9,6 +9,7 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   ownerUserId: string | null; ownerName: string | null; aid: string | null;
   productId: string | null; productName: string | null; productCode: string | null; landingPageId: string | null;
   sourceType: string | null;
+  postDate?: Date | null; postUrl?: string | null; archivedAt?: Date | null;
   visits: bigint | null; pageTotalVisits?: bigint | null;
   /** First-party funnel counts; performance-side callers predate them. */
   addToCarts?: bigint; checkouts?: bigint;
@@ -25,6 +26,7 @@ export type MarketingReportSerializedRow = SortableReportRow & {
   orderCpaUsd: string | null; signedCpaUsd: string | null; orderRoas: string | null; signedRoas: string | null;
   conversionRate: string | null; periodBasis: 'TOUCH' | 'ORDER_CREATED';
   productCode: string | null; landingPageId: string | null; sourceType: string | null;
+  postDate: string | null; postUrl: string | null; archivedAt: string | null;
   productThumbnailUrl: string | null; pageTotalVisits: number | null;
 };
 
@@ -43,6 +45,9 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow, productT
     kind: row.kind, id: row.id, label: row.label, ownerUserId: row.ownerUserId, ownerName: row.ownerName, aid: row.aid,
     productId: row.productId, productName: row.productName, productCode: row.productCode, landingPageId: row.landingPageId,
     sourceType: row.sourceType ?? null,
+    postDate: row.postDate ? row.postDate.toISOString().slice(0, 10) : null,
+    postUrl: row.postUrl ?? null,
+    archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     addToCarts: Number(row.addToCarts ?? 0n),
     checkouts: Number(row.checkouts ?? 0n),
     productThumbnailUrl: productThumbnailUrl ?? null,

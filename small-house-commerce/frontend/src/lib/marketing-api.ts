@@ -77,8 +77,10 @@ export interface CampaignLinkInput {
   productId: string;
   variantId?: string | null;
   landingPageId?: string | null;
-  name: string;
+  name?: string;
   sourceType: MarketingSourceType;
+  postDate?: string | null;
+  postUrl?: string | null;
   campaignId?: string | null;
   adsetId?: string | null;
   adId?: string | null;
@@ -89,6 +91,10 @@ export interface CampaignLinkInput {
   utmTerm?: string | null;
 }
 export interface CampaignLinkRow extends CampaignLinkInput {
+  name: string;
+  postDate: string | null;
+  postUrl: string | null;
+  archivedAt: string | null;
   id: string;
   code: string;
   ownerUserId: string;
@@ -113,8 +119,29 @@ export interface CampaignLinkQuery {
   productId?: string;
   landingPageId?: string;
   status?: "ACTIVE" | "DISABLED";
+  sourceType?: MarketingSourceType;
+  archiveState?: "UNARCHIVED" | "ARCHIVED" | "ALL";
+  postDateFrom?: string;
+  postDateTo?: string;
+  postDateMissingOnly?: boolean;
+  orderBy?: "CREATED_AT_DESC" | "POST_DATE_DESC";
   page?: number;
   pageSize?: number;
+}
+export type CampaignLinkArchiveState = "UNARCHIVED" | "ARCHIVED" | "ALL";
+export type CampaignLinkGroupQuery = Omit<CampaignLinkQuery, "orderBy">;
+export interface CampaignLinkProductGroup {
+  product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
+  recordCount: number;
+  postCount: number;
+  lastPostDate: string | null;
+  latestCreatedAt: string;
+}
+export interface CampaignLinkUpdateInput {
+  name?: string;
+  postDate?: string | null;
+  postUrl?: string | null;
+  expectedVersion: number;
 }
 export interface MarketingLinkContext {
   products: {
@@ -135,6 +162,9 @@ export type MarketingReportSort =
   | "SUBMITTED" | "VALID" | "CONFIRMED" | "SIGNED" | "VALID_VALUE" | "SIGNED_GROSS"
   | "SPEND_USD" | "SPEND_PHP" | "ORDER_CPA" | "SIGNED_CPA" | "ORDER_ROAS" | "SIGNED_ROAS" | "CONVERSION";
 export interface MarketingReportQuery {
+  postDateFrom?: string;
+  postDateTo?: string;
+  postDateMissingOnly?: boolean;
   from?: string;
   to?: string;
   groupBy?: MarketingReportLevel;
@@ -149,6 +179,9 @@ export interface MarketingReportQuery {
   pageSize?: number;
 }
 export interface MarketingReportRow {
+  postDate: string | null;
+  postUrl: string | null;
+  archivedAt: string | null;
   kind: "REGISTERED" | "DIRECT" | "LEGACY" | "UNVERIFIED";
   id: string;
   label: string;
@@ -442,7 +475,10 @@ export const marketingApi = {
   listLinks: (query: CampaignLinkQuery = {}) => linkRequest<Paged<CampaignLinkRow>>(queryString(query)),
   linkContext: () => adminAuthedFetch<MarketingLinkContext>("/api/v1/admin/link-builder/context", { cache: "no-store", referrerPolicy: "no-referrer" }),
   createLink: (input: CampaignLinkInput) => linkRequest<CampaignLinkRow>("", { method: "POST", body: JSON.stringify(input) }),
-  updateLink: (id: string, name: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(pagePath(id), { method: "PATCH", body: JSON.stringify({ name, expectedVersion }) }),
+  listProductGroups: (query: CampaignLinkGroupQuery = {}) => linkRequest<Paged<CampaignLinkProductGroup>>(`/product-groups${queryString(query)}`),
+  updateLink: (id: string, input: CampaignLinkUpdateInput) => linkRequest<CampaignLinkRow>(pagePath(id), { method: "PATCH", body: JSON.stringify(input) }),
+  archiveLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/archive`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
+  unarchiveLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/unarchive`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   disableLink: (id: string, expectedVersion: number) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/disable`, { method: "POST", body: JSON.stringify({ expectedVersion }) }),
   cloneLink: (id: string, input: Partial<CampaignLinkInput> = {}) => linkRequest<CampaignLinkRow>(`${pagePath(id)}/clone`, { method: "POST", body: JSON.stringify(input) }),
   createShortLink: (input: { url: string }) => adminAuthedFetch<ShortLinkResult>("/api/v1/admin/short-links", { method: "POST", body: JSON.stringify(input), cache: "no-store", referrerPolicy: "no-referrer" }),

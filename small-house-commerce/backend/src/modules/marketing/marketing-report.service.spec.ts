@@ -16,6 +16,18 @@ function setup(rows = [raw]) {
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T01:00:00Z')); });
 afterEach(() => vi.useRealTimers());
 
+describe('marketing report post metadata', () => {
+  it('does not present a product aggregate as a single post even with only one link', async () => {
+    const { service } = setup([{ ...raw, postDate: new Date('2026-10-04T00:00:00Z'), postUrl: 'https://facebook.com/posts/1', archivedAt: new Date() } as typeof raw]);
+    const result = await service.report({ ...query, groupBy: 'PRODUCT' }, account);
+    expect(result.rows![0]).toMatchObject({ postDate: null, postUrl: null, archivedAt: null });
+  });
+  it('omits non-link sources when a post date is selected', async () => {
+    const { service } = setup([{ ...raw, kind: 'DIRECT' } as typeof raw]);
+    expect((await service.report({ ...query, postDateMissingOnly: true }, account)).otherSources).toEqual([]);
+  });
+});
+
 describe('marketing report monetary projection', () => {
   it('uses saved PHP expenses for ROAS and USD for CPA with Decimal rounding', async () => {
     const { service } = setup();
