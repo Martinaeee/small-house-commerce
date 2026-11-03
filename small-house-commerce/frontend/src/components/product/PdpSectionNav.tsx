@@ -25,16 +25,24 @@ export function PdpSectionNav({
   ] satisfies SectionLink[]).filter(link => link.visible), [hasDetails, hasSpecifications]);
 
   useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    // The sticky shell includes both the announcement and Header, whose height
+    // changes with the viewport, fonts and announcement text.
+    const header = nav.closest("[data-storefront-shell-mode]")?.querySelector("header")?.parentElement;
+    const previousMargins = new Map<HTMLElement, string>();
     let frame = 0;
     const update = () => {
       frame = 0;
-      const nav = navRef.current;
-      if (!nav) return;
+      if (header) nav.style.top = `${header.getBoundingClientRect().height}px`;
       const line = Math.max(128, (parseFloat(getComputedStyle(nav).top) || 0) + nav.getBoundingClientRect().height + 8);
       // The purchase block precedes Details in the document, not in the menu.
       const targets = links.flatMap(link => {
         const target = document.getElementById(link.href.slice(1));
-        return target ? [{ href: link.href, top: target.getBoundingClientRect().top }] : [];
+        if (!target) return [];
+        if (!previousMargins.has(target)) previousMargins.set(target, target.style.scrollMarginTop);
+        target.style.scrollMarginTop = `${line}px`;
+        return [{ href: link.href, top: target.getBoundingClientRect().top }];
       }).sort((a, b) => a.top - b.top);
       const passed = targets.filter(target => target.top <= line + 1);
       const current = passed.at(-1) ?? targets[0];
@@ -48,6 +56,8 @@ export function PdpSectionNav({
     window.addEventListener("hashchange", queue);
     const observer = new ResizeObserver(queue);
     observer.observe(document.documentElement);
+    if (header) observer.observe(header);
+    observer.observe(nav);
     for (const link of links) {
       const target = document.getElementById(link.href.slice(1));
       if (target) observer.observe(target);
@@ -59,6 +69,8 @@ export function PdpSectionNav({
       window.removeEventListener("scroll", queue);
       window.removeEventListener("resize", queue);
       window.removeEventListener("hashchange", queue);
+      nav.style.removeProperty("top");
+      for (const [target, margin] of previousMargins) target.style.scrollMarginTop = margin;
     };
   }, [links]);
 
