@@ -151,6 +151,18 @@ describe('persisted owner-scoped campaign links', () => {
     expect((await service.getLink(original.id, owner)).name).toBe('Ad A');
   });
 
+  it('hides foreign metadata updates before source validation', async () => {
+    const { service } = setup();
+    const link = await service.createLink(base, owner);
+    await expect(service.updateLink(link.id, { postDate: '2026-11-03', expectedVersion: 0 }, { ...owner, id: U2 })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('does not count Facebook posts outside a non-post source filter', async () => {
+    const { service, prisma } = setup();
+    await service.listProductGroups({ sourceType: 'META_AD', archiveState: 'ALL', page: 1, pageSize: 20 }, owner);
+    expect(prisma.campaignLink.groupBy.mock.calls[1]?.[0]).toMatchObject({ where: { AND: [{ ownerUserId: U1, sourceType: 'META_AD' }, { sourceType: 'FB_POST' }] } });
+  });
+
   it('creates a dated Facebook post with a server-generated name and normalized date', async () => {
     const { service } = setup();
     const link = await service.createLink({ productId: P1, sourceType: 'FB_POST', postDate: '2026-11-03', postUrl: 'https://www.facebook.com/luwag/posts/1' }, owner);

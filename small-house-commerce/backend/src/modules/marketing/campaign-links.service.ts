@@ -142,7 +142,7 @@ export class CampaignLinksService {
       this.prisma.campaignLink.groupBy({ by: ['productId'], where, _count: { _all: true }, _max: { createdAt: true } }),
       this.prisma.campaignLink.groupBy({
         by: ['productId'],
-        where: { ...where, sourceType: 'FB_POST' },
+        where: { AND: [where, { sourceType: 'FB_POST' }] },
         _count: { _all: true },
         _max: { postDate: true },
       }),
@@ -204,8 +204,11 @@ export class CampaignLinksService {
   }
 
   async updateLink(id: string, input: CampaignLinkUpdateInput, account: MarketingAccount) {
-    const current = await this.prisma.campaignLink.findUnique({ where: { id }, select: { sourceType: true } });
+    const current = await this.prisma.campaignLink.findUnique({ where: { id }, select: { sourceType: true, ownerUserId: true } });
     if (!current) throw new NotFoundException('Campaign link not found.');
+    const scope = scopeFor(account);
+    assertVisible(scope, current.ownerUserId);
+    assertManage(scope, current.ownerUserId);
     if ((input.postDate !== undefined || input.postUrl !== undefined) && current.sourceType !== 'FB_POST')
       throw new BadRequestException('Post metadata is only editable on Facebook post links.');
     const data: Prisma.CampaignLinkUpdateManyMutationInput = {};
