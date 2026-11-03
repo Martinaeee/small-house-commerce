@@ -12,7 +12,7 @@ import {
   hashCheckoutDraftToken,
   type ParsedCheckoutDraftToken,
 } from './checkout-draft-token.js';
-import type { CheckoutDraftSaveInput } from './dto/checkout-draft.dto.js';
+import type { CheckoutDraftSaveInput, CheckoutDraftQuery } from './dto/checkout-draft.dto.js';
 import {
   buildCheckoutDraftSnapshot,
   contactOf,
@@ -37,6 +37,62 @@ export class CheckoutDraftGoneError extends GoneException {
   constructor() {
     super({ statusCode: 410, message: 'This checkout draft has expired.' });
   }
+}
+
+export interface AdminCheckoutDraftSummary {
+  id: string;
+  status: 'OPEN' | 'CONVERTED';
+  hasUserInput: boolean;
+  contactName: string | null;
+  contactPhone: string | null;
+  itemCount: number;
+  firstItemName: string | null;
+  firstItemThumbnail: string | null;
+  orderId: string | null;
+  orderNumber: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
+  snapshot: CheckoutDraftSnapshot;
+  productSnapshot: CheckoutDraftProductLine[];
+}
+
+interface AdminDraftRow {
+  id: string;
+  status: 'OPEN' | 'CONVERTED';
+  hasUserInput: boolean;
+  contactName: string | null;
+  contactPhone: string | null;
+  productSnapshot: unknown;
+  orderId: string | null;
+  order: { id: string; orderNumber: string } | null;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+}
+
+function toSummary(row: AdminDraftRow): AdminCheckoutDraftSummary {
+  const products = Array.isArray(row.productSnapshot)
+    ? (row.productSnapshot as CheckoutDraftProductLine[])
+    : [];
+  return {
+    id: row.id,
+    status: row.status,
+    hasUserInput: row.hasUserInput,
+    contactName: row.contactName,
+    contactPhone: row.contactPhone,
+    itemCount: products.length,
+    firstItemName: products[0]?.productName ?? null,
+    firstItemThumbnail: products[0]?.thumbnailUrl ?? null,
+    orderId: row.order?.id ?? row.orderId ?? null,
+    orderNumber: row.order?.orderNumber ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+  };
 }
 
 @Injectable()
@@ -164,6 +220,65 @@ export class CheckoutDraftsService {
       status: 'OPEN',
       revision: draft.clientRevision,
       snapshot: draft.snapshot as unknown as CheckoutDraftSnapshot,
+    };
+  }
+
+  async list(query: CheckoutDraftQuery) {
+    const where: Prisma.CheckoutDraftWhereInput = {
+      status: query.status ?? { in: ['OPEN', 'CONVERTED'] },
+      ...(query.search
+        ? {
+            OR: [
+              { contactName: { contains: query.search, mode: 'insensitive' as const } },
+              { contactPhone: { contains: query.search } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.checkoutDraft.findMany({
+        where,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          hasUserInput: true,
+          contactName: true,
+          contactPhone: true,
+          productSnapshot: true,
+          orderId: true,
+          createdAt: true,
+          updatedAt: true,
+          expiresAt: true,
+          order: { select: { id: true, orderNumber: true } },
+        },
+      }),
+      this.prisma.checkoutDraft.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => toSummary(row as AdminDraftRow)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  async detail(id: string, now: Date = new Date()) {
+    const row = await this.prisma.checkoutDraft.findUnique({
+      where: { id },
+      include: { order: { select: { id: true, orderNumber: true } } },
+    });
+    if (!row || row.status === 'EXPIRED' || (row.status === 'OPEN' && now >= row.expiresAt)) {
+      throw new NotFoundException({ statusCode: 404, message: 'Checkout draft not found.' });
+    }
+    return {
+      ...toSummary(row as AdminDraftRow),
+      snapshot: row.snapshot as unknown as CheckoutDraftSnapshot,
+      productSnapshot: Array.isArray(row.productSnapshot)
+        ? (row.productSnapshot as unknown as CheckoutDraftProductLine[])
+        : [],
     };
   }
 
