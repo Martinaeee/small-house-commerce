@@ -7,6 +7,8 @@ import { ProductPickerInline, type ProductOption } from "@/components/admin/Prod
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { canManageMarketingPage, marketingApi, type CampaignLinkRow, type MarketingLinkContext, type MarketingSourceType } from "@/lib/marketing-api";
 
+import { manilaToday } from "@/lib/marketing-post-date";
+
 const fieldClass = "w-full min-w-0 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm disabled:bg-slate-50";
 const sources: MarketingSourceType[] = ["META_AD", "FB_POST", "ORGANIC", "DIRECT", "EMAIL", "OTHER"];
 const metadata = [
@@ -15,8 +17,8 @@ const metadata = [
   ["utmContent", "marketing_utm_content", 120], ["utmTerm", "marketing_utm_term", 120],
 ] as const satisfies readonly (readonly [string, TKey, number])[];
 
-export function CreateCampaignLinkDialog({ productId: initialProductId, landingPageId: initialPageId, copyFrom, onClose, onSaved }: {
-  productId?: string; landingPageId?: string; copyFrom?: CampaignLinkRow; onClose: () => void; onSaved: (link: CampaignLinkRow) => void;
+export function CreateCampaignLinkDialog({ productId: initialProductId, landingPageId: initialPageId, copyFrom, defaultSourceType = copyFrom?.sourceType ?? "META_AD", onClose, onSaved }: {
+  productId?: string; landingPageId?: string; copyFrom?: CampaignLinkRow; defaultSourceType?: MarketingSourceType; onClose: () => void; onSaved: (link: CampaignLinkRow) => void;
 }) {
   const { admin } = useAdminAuth();
   const { t } = useAdminI18n();
@@ -24,8 +26,10 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
   const [productId, setProductId] = useState(initialProductId ?? copyFrom?.productId ?? "");
   const [landingPageId, setLandingPageId] = useState(initialPageId ?? copyFrom?.landingPageId ?? "");
   const [variantId, setVariantId] = useState(copyFrom?.variantId ?? "");
-  const [name, setName] = useState(copyFrom ? `${copyFrom.name.slice(0, 115)} copy` : "");
-  const [sourceType, setSourceType] = useState<MarketingSourceType>(copyFrom?.sourceType ?? "META_AD");
+  const [name, setName] = useState(copyFrom && defaultSourceType !== "FB_POST" ? `${copyFrom.name.slice(0, 115)} copy` : "");
+  const [sourceType, setSourceType] = useState<MarketingSourceType>(defaultSourceType);
+  const [postDate, setPostDate] = useState(() => defaultSourceType === "FB_POST" ? manilaToday() : "");
+  const [postUrl, setPostUrl] = useState("");
   const [fields, setFields] = useState<Record<string, string>>(Object.fromEntries(metadata.map(([key]) => [key, copyFrom?.[key] ?? ""])));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,10 +58,10 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
   const unavailable = Boolean(context && (!product || (landingPageId && !page)));
 
   async function save() {
-    if (!product || (landingPageId && !page) || !name.trim() || operation.current) return;
+    if (!product || (landingPageId && !page) || (sourceType === "FB_POST" ? !postDate : !name.trim()) || operation.current) return;
     operation.current = true; setBusy(true); setError(null);
     try {
-      const input = { productId, landingPageId: landingPageId || null, variantId: variantId || null, name: name.trim(), sourceType, ...Object.fromEntries(metadata.map(([key]) => [key, fields[key]?.trim() || null])) };
+      const input = { productId, landingPageId: landingPageId || null, variantId: variantId || null, ...(name.trim() ? { name: name.trim() } : {}), sourceType, ...(sourceType === "FB_POST" ? { postDate, postUrl: postUrl.trim() || null } : {}), ...Object.fromEntries(metadata.map(([key]) => [key, fields[key]?.trim() || null])) };
       const link = copyFrom ? await marketingApi.cloneLink(copyFrom.id, input) : await marketingApi.createLink(input);
       onSaved(link);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
@@ -89,12 +93,16 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
         </select></label>
         <div className="rounded-lg bg-slate-50 p-3 text-sm sm:col-span-2"><p className="text-xs text-admin-muted">{t("link_builder_aid")}</p><p className="mt-1 font-medium">{copyFrom ? `${copyFrom.ownerName} · ${copyFrom.aid}` : page ? `${page.ownerName} · ${page.aid}` : admin?.name}</p><p className="mt-1 text-xs text-admin-muted">{t(copyFrom ? "marketing_owner_copy" : "marketing_owner_automatic")}</p></div>
         {page?.effectiveStatus === "SCHEDULED" && <p className="text-xs text-amber-800 sm:col-span-2">{t("marketing_link_scheduled")}</p>}
-        <label className="space-y-1 text-sm">{t("marketing_internal_name")}<input required maxLength={120} className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="space-y-1 text-sm">{t("marketing_source_type")}<select className={fieldClass} value={sourceType} onChange={(event) => setSourceType(event.target.value as MarketingSourceType)}>{sources.map((source) => <option key={source} value={source}>{t(`marketing_source_${source}`)}</option>)}</select></label>
+        <label className="space-y-1 text-sm">{t("marketing_internal_name")}<input required={sourceType !== "FB_POST"} maxLength={120} placeholder={sourceType === "FB_POST" ? t("marketing_post_name_auto") : ""} className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="space-y-1 text-sm">{t("marketing_source_type")}<select className={fieldClass} value={sourceType} onChange={(event) => { const next = event.target.value as MarketingSourceType; setSourceType(next); if (next === "FB_POST" && !postDate) setPostDate(manilaToday()); }}>{sources.map((source) => <option key={source} value={source}>{t(`marketing_source_${source}`)}</option>)}</select></label>
+        {sourceType === "FB_POST" && <>
+          <label className="space-y-1 text-sm">{t("marketing_post_date")}<input type="date" required className={fieldClass} value={postDate} onChange={event => setPostDate(event.target.value)} /></label>
+          <label className="space-y-1 text-sm sm:col-span-2"><span>{t("marketing_post_url")}</span><input type="url" maxLength={2048} className={fieldClass} value={postUrl} onChange={event => setPostUrl(event.target.value)} placeholder="https://www.facebook.com/..." /><span className="text-xs text-admin-muted">{t("marketing_post_url_hint")}</span></label>
+        </>}
         {metadata.map(([key, label, maxLength]) => <label key={key} className="space-y-1 text-sm">{t(label)}<input className={fieldClass} maxLength={maxLength} value={fields[key] ?? ""} onChange={(event) => setFields((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
       </fieldset>
       <p className="text-xs text-admin-muted">{t("marketing_link_immutable")}</p>
-      <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-admin-border bg-card px-6 pb-6 pt-4"><button type="button" className="rounded-lg border border-admin-border px-3 py-2 text-sm" disabled={busy} onClick={onClose}>{t("common_cancel")}</button><button type="submit" className="rounded-lg bg-cta px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={busy || !context || unavailable || !name.trim()}>{t("marketing_link_save")}</button></div>
+      <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-admin-border bg-card px-6 pb-6 pt-4"><button type="button" className="rounded-lg border border-admin-border px-3 py-2 text-sm" disabled={busy} onClick={onClose}>{t("common_cancel")}</button><button type="submit" className="rounded-lg bg-cta px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={busy || !context || unavailable || (sourceType === "FB_POST" ? !postDate : !name.trim())}>{t("marketing_link_save")}</button></div>
     </form>
   </Dialog>;
 }
