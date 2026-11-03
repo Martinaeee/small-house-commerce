@@ -5,7 +5,7 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js'
 import { CurrentMarketingAccount, MarketingGuard } from '../marketing.guard.js';
 import type { MarketingAccount } from '../marketing-access.js';
 import { CampaignLinksService } from '../campaign-links.service.js';
-import { campaignLinkCloneSchema, campaignLinkCreateSchema, campaignLinkQuerySchema, campaignLinkUpdateSchema, campaignLinkVersionSchema, type CampaignLinkCreateInput, type CampaignLinkQuery, type CampaignLinkUpdateInput } from '../dto/campaign-link.dto.js';
+import { campaignLinkCloneSchema, campaignLinkCreateSchema, campaignLinkGroupQuerySchema, campaignLinkQuerySchema, campaignLinkUpdateSchema, campaignLinkVersionSchema, type CampaignLinkCreateInput, type CampaignLinkGroupQuery, type CampaignLinkQuery, type CampaignLinkUpdateInput } from '../dto/campaign-link.dto.js';
 
 @Controller('admin/campaign-links')
 @UseGuards(JwtAuthGuard, MarketingGuard)
@@ -19,6 +19,10 @@ export class CampaignLinksController {
   @Post()
   create(@Body(new ZodValidationPipe(campaignLinkCreateSchema)) input: CampaignLinkCreateInput, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.createLink(input, account); }
 
+  @Get('product-groups')
+  @Header('Cache-Control', 'private, no-store')
+  listProductGroups(@Query(new ZodValidationPipe(campaignLinkGroupQuerySchema)) query: CampaignLinkGroupQuery, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.listProductGroups(query, account); }
+
   @Get(':id')
   @Header('Cache-Control', 'private, no-store')
   get(@Param('id', new ParseUUIDPipe()) id: string, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.getLink(id, account); }
@@ -28,6 +32,12 @@ export class CampaignLinksController {
 
   @Post(':id/disable')
   disable(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(campaignLinkVersionSchema)) input: z.infer<typeof campaignLinkVersionSchema>, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.disableLink(id, input.expectedVersion, account); }
+
+  @Post(':id/archive')
+  archive(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(campaignLinkVersionSchema)) input: z.infer<typeof campaignLinkVersionSchema>, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.archiveLink(id, input.expectedVersion, account); }
+
+  @Post(':id/unarchive')
+  unarchive(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(campaignLinkVersionSchema)) input: z.infer<typeof campaignLinkVersionSchema>, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.unarchiveLink(id, input.expectedVersion, account); }
 
   @Post(':id/clone')
   clone(@Param('id', new ParseUUIDPipe()) id: string, @Body(new ZodValidationPipe(campaignLinkCloneSchema)) input: z.infer<typeof campaignLinkCloneSchema>, @CurrentMarketingAccount() account: MarketingAccount) { return this.links.cloneLink(id, input, account); }
