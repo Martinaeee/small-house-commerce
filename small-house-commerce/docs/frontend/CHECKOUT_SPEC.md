@@ -1528,3 +1528,13 @@ Purchase tracking happens only after successful order creation.
 Historical order data must be preserved.
 
 END
+
+## Checkout autosave drafts (2026-11-03)
+
+- Entry to `/checkout` creates a token-scoped `checkout_drafts` row (`PUT /api/v1/storefront/checkout-drafts/current`).
+- Every field change is written to `luwag_checkout_autosave_v1` immediately and sent to the API after 600 ms.
+- The capability token lives in `luwag_checkout_attempt_v1`; it is per checkout selection and never sent in a URL.
+- The review page carries `checkoutDraftToken` into `POST /storefront/orders`; the order transaction marks the draft CONVERTED.
+- Drafts never reserve stock, create a Customer, push Qianyi, or emit Meta Purchase.
+- Empty drafts expire in 24 hours; drafts with input expire at most 30 days after token creation.
+- The existing `luwag_checkout_draft` sessionStorage payload is unchanged; it still carries the validated review payload.
