@@ -282,6 +282,49 @@ export class CheckoutDraftsService {
     };
   }
 
+  /**
+   * 24h 内没有任何主动输入的空草稿抹掉内容；令牌满 30 天的行整行删除。
+   * 分批执行、可重复运行；空草稿的 24h 与令牌 30h 寿命是两件事。
+   */
+  async prune(now: Date = new Date()): Promise<{ expired: number; deleted: number }> {
+    const deleted = await this.prisma.checkoutDraft.deleteMany({
+      where: {
+        tokenIssuedAt: {
+          lte: new Date(now.getTime() - CHECKOUT_DRAFT_MAX_AGE_MS),
+        },
+      },
+    });
+    const emptyCutoff = new Date(now.getTime() - EMPTY_TTL_MS);
+    const tokenFloor = new Date(now.getTime() - CHECKOUT_DRAFT_MAX_AGE_MS);
+    let expired = 0;
+    for (let batch = 0; batch < 10; batch += 1) {
+      const rows = await this.prisma.checkoutDraft.findMany({
+        where: {
+          status: 'OPEN',
+          hasUserInput: false,
+          createdAt: { lte: emptyCutoff },
+          tokenIssuedAt: { gt: tokenFloor },
+        },
+        select: { id: true, tokenIssuedAt: true },
+        take: 200,
+      });
+      if (rows.length === 0) break;
+      const tombstone = await this.prisma.checkoutDraft.updateMany({
+        where: { id: { in: rows.map((row) => row.id) }, status: 'OPEN', hasUserInput: false },
+        data: {
+          status: 'EXPIRED',
+          snapshot: {},
+          productSnapshot: [],
+          contactName: null,
+          contactPhone: null,
+        },
+      });
+      expired += tombstone.count;
+      if (rows.length < 200) break;
+    }
+    return { expired, deleted: deleted.count };
+  }
+
   private parseToken(rawToken: string, now: Date): ParsedCheckoutDraftToken {
     try {
       return hashCheckoutDraftToken(rawToken, now);
