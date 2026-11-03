@@ -72,6 +72,55 @@ export interface Paged<T> {
   pageSize: number;
 }
 
+// --- checkout drafts ---------------------------------------------------------
+
+export interface AdminCheckoutDraftSummary {
+  id: string;
+  status: "OPEN" | "CONVERTED";
+  hasUserInput: boolean;
+  contactName: string | null;
+  contactPhone: string | null;
+  itemCount: number;
+  firstItemName: string | null;
+  firstItemThumbnail: string | null;
+  orderId: string | null;
+  orderNumber: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
+  snapshot: {
+    customer: Record<
+      | "name"
+      | "phone"
+      | "province"
+      | "city"
+      | "barangay"
+      | "postalCode"
+      | "streetAddress"
+      | "landmark",
+      string
+    >;
+    items: { skuId: string; quantity: number }[];
+    preferredDeliveryDate: string | null;
+    promoCodeInput: string;
+    promoCodeApplied: string | null;
+    customerNote: string;
+  };
+  productSnapshot: {
+    skuId: string;
+    skuCode: string | null;
+    productName: string | null;
+    productSlug: string | null;
+    variantName: string | null;
+    thumbnailUrl: string | null;
+    unitPrice: string | null;
+    quantity: number;
+  }[];
+}
+
 // --- global search -----------------------------------------------------------
 
 export interface SearchGroup<T> {
@@ -1740,6 +1789,26 @@ export interface AdminTeamMember {
 }
 
 export const adminApi = {
+  listCheckoutDrafts: (p: {
+    search?: string;
+    status?: "OPEN" | "CONVERTED";
+    page?: number;
+    pageSize?: number;
+  }): Promise<Paged<AdminCheckoutDraftSummary>> =>
+    adminAuthedFetch<Paged<AdminCheckoutDraftSummary>>(
+      `/api/v1/admin/checkout-drafts${buildQuery({
+        search: p.search,
+        status: p.status,
+        page: p.page,
+        pageSize: p.pageSize,
+      })}`,
+    ),
+
+  getCheckoutDraft: (id: string): Promise<AdminCheckoutDraftDetail> =>
+    adminAuthedFetch<AdminCheckoutDraftDetail>(
+      `/api/v1/admin/checkout-drafts/${encodeURIComponent(id)}`,
+    ),
+
   searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
     adminAuthedFetch<AdminBundleSkuCandidate[]>(
       `/api/v1/admin/products/bundle/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,

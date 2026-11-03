@@ -225,6 +225,7 @@ model Order {
   handoverCompletedAt    DateTime?          @map("handover_completed_at") @db.Timestamptz(3)
 
   customer                Customer                      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  checkoutDraft           CheckoutDraft?
   items                   OrderItem[]
   shippingAddress         OrderShippingAddress?
   statusHistory           OrderStatusHistory[]

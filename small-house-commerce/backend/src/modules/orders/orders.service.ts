@@ -39,6 +39,7 @@ import {
   type OrderItemSnapshotWrite,
 } from './order-item-snapshot.js';
 import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
+import { persistConvertedDraft } from '../checkout-drafts/converted-draft.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
 import { signShipmentWithin } from './sign-shipment.js';
 import { skuThumbnailUrl } from './sku-thumbnail.js';
@@ -612,6 +613,13 @@ export class OrdersService {
           newStatus: 'NEW',
           source: 'SYSTEM',
         },
+      });
+
+      await persistConvertedDraft(tx, {
+        rawToken: input.checkoutDraftToken,
+        orderId: created.id,
+        customerName: input.customer.name,
+        customerPhone: input.customer.phone,
       });
 
       return {

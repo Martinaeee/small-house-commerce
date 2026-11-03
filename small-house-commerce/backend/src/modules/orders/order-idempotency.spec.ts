@@ -93,6 +93,14 @@ describe('checkout idempotency fingerprint', () => {
     });
     expect(idempotencyFingerprint(decorated)).toBe(base);
   });
+
+  it('ignores the checkout draft token when fingerprinting an order', () => {
+    const base = idempotencyFingerprint(checkoutInput());
+    const token = `${Date.now().toString(36)}.${'D'.repeat(43)}`;
+    const withToken = checkoutInput({ checkoutDraftToken: token });
+    expect(withToken.checkoutDraftToken).toBe(token);
+    expect(idempotencyFingerprint(withToken)).toBe(base);
+  });
 });
 
 describe('checkout idempotency key validation', () => {
@@ -115,5 +123,15 @@ describe('checkout idempotency key validation', () => {
       });
       expect(result.success).toBe(false);
     }
+  });
+
+  it('accepts an optional checkout draft token', () => {
+    const result = checkoutSchema.safeParse({
+      customer: { name: 'Jane', phone: '09171234567', province: 'Metro Manila', city: 'Manila', streetAddress: '1 Main St' },
+      items: [{ skuId: SKU_A, quantity: 1 }],
+      attribution: { sourceType: 'ORGANIC' },
+      checkoutDraftToken: `${Date.now().toString(36)}.${'D'.repeat(43)}`,
+    });
+    expect(result.success).toBe(true);
   });
 });

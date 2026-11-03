@@ -1528,3 +1528,17 @@ Purchase tracking happens only after successful order creation.
 Historical order data must be preserved.
 
 END
+
+## Checkout autosave drafts (2026-11-03)
+
+- Entry to `/checkout` creates a token-scoped `checkout_drafts` row (`PUT /api/v1/storefront/checkout-drafts/current`). Restore finishes (5-second timeout) before an untouched initial form may autosave; a shopper edit can enable saving immediately.
+- Every field change is written to `luwag_checkout_autosave_v1` immediately and sent to the API after 600 ms. Changes arriving during an in-flight save remain queued and drain when it completes.
+- Capability tokens live in `luwag_checkout_attempt_v1`; entries are scoped per checkout selection so different tabs/selections do not overwrite one another. Neither token nor contact data is put in a URL. The single-entry v1 format remains readable.
+- The review page carries `checkoutDraftToken` into `POST /storefront/orders`; the order transaction marks the draft CONVERTED. Clearing that checkout does not clear another selection's draft.
+- Drafts never reserve stock, create a Customer, push Qianyi, or emit Meta Purchase.
+- Empty drafts expire in 24 hours; drafts with input expire at most 30 days after token creation. Cleanup runs hourly.
+- Revision conflicts are not reported as a successful save: the next shopper edit advances above the known server version. Equal-version payloads are idempotent only when their saved contents match.
+- Autosave honors `Retry-After`, cancels retry timers on unmount, and retains local input without endlessly retrying permanent 4xx responses.
+- New anonymous drafts have a separate normalized-IP budget of 60/hour and 500/day; updates do not consume that budget. The existing 120/minute write and 240/minute read IP throttles remain in place. These limits are process-local in the current single-instance deployment, not phone-ownership verification.
+- The existing `luwag_checkout_draft` sessionStorage payload is unchanged; it still carries the validated review payload.
+- Verification and release gates: [2026-11-03 checkout draft verification](../releases/2026-11-03-checkout-autosave-drafts-verification.md). Deployed to production on 2026-11-03 at `08fefe66`; see [the production record](../releases/2026-11-03-checkout-autosave-drafts-production.md).

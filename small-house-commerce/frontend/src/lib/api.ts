@@ -893,6 +893,12 @@ export const api = {
     metaConsent?: boolean;
     /** Client-generated retry key; a replay returns the original order. */
     idempotencyKey?: string | null;
+    /**
+     * Capability token of the unfinished-checkout draft this order came from.
+     * The order transaction marks that draft CONVERTED; it is never used to
+     * identify the shopper or to authorize anything outside that draft.
+     */
+    checkoutDraftToken?: string | null;
   }) =>
     request<{
       orderNumber: string;
@@ -917,6 +923,7 @@ export const api = {
           fbc: input.fbc ?? null,
           metaConsent: input.metaConsent === true,
           idempotencyKey: input.idempotencyKey ?? null,
+          checkoutDraftToken: input.checkoutDraftToken ?? null,
         }),
       },
     ),

@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
 }));
 
 const navigation = vi.hoisted(() => ({ query: "" }));
+const perms = vi.hoisted(() => ({ denied: new Set<string>() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -34,7 +35,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
   useAdminAuth: () => ({
-    hasPermission: () => true,
+    hasPermission: (permission: string) => !perms.denied.has(permission),
     admin: { id: "staff-a", name: "客服 A", email: "a@b.c", status: "ACTIVE", roles: [], permissions: [] },
   }),
 }));
@@ -110,6 +111,7 @@ beforeEach(() => {
   cleanup();
   setAdminLang("en");
   navigation.query = "";
+  perms.denied.clear();
   vi.clearAllMocks();
   api.listOrders.mockResolvedValue({ items: [row()], total: 1, page: 1, pageSize: 20 });
   api.orderCounts.mockResolvedValue({
@@ -372,5 +374,22 @@ describe("the new-order dialog", () => {
       document.querySelector('img[src="/uploads/black.png"]'),
     ).toBeTruthy();
     expect(screen.getByText("3499")).toBeTruthy();
+  });
+});
+
+describe("the checkout draft entry", () => {
+  it("links the order team to the drafts page", async () => {
+    renderPage();
+    const link = await screen.findByRole("link", { name: /Checkout drafts/ });
+    expect(link.getAttribute("href")).toBe("/admin/orders/drafts");
+  });
+
+  it("stays hidden without ORDER_VIEW_ALL and keeps the new-order button", async () => {
+    perms.denied.add("ORDER_VIEW_ALL");
+    renderPage();
+    expect(screen.queryByRole("link", { name: /Checkout drafts/ })).toBeNull();
+    expect(
+      await screen.findByRole("button", { name: /New order/ }),
+    ).toBeTruthy();
   });
 });

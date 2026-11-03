@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -116,6 +117,7 @@ function OrdersPageContent() {
   const { hasPermission } = useAdminAuth();
   const { t } = useAdminI18n();
   const canConfirmPerm = hasPermission("ORDER_CONFIRM");
+  const canViewDrafts = hasPermission("ORDER_VIEW_ALL");
   const canCancelPerm = hasPermission("ORDER_CANCEL");
   const canAssignPerm = hasPermission("ORDER_ASSIGN");
   const canNotePerm = hasPermission("ORDER_NOTE_WRITE");
@@ -858,14 +860,26 @@ function OrdersPageContent() {
         count={counts?.total}
         subtitle={t("orders_subtitle")}
         actions={
-          canConfirmPerm ? (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => setShowCreate(true)}
-            >
-              {t("orders_new")}
-            </Button>
+          canConfirmPerm || canViewDrafts ? (
+            <div className="flex items-center gap-2">
+              {canViewDrafts ? (
+                <Link
+                  href="/admin/orders/drafts"
+                  className="text-sm font-medium text-cta hover:underline"
+                >
+                  {t("orders_drafts_link")}
+                </Link>
+              ) : null}
+              {canConfirmPerm ? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => setShowCreate(true)}
+                >
+                  {t("orders_new")}
+                </Button>
+              ) : null}
+            </div>
           ) : undefined
         }
       />

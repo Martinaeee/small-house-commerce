@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readAutosave, resolveCheckoutAttempt, writeAutosave, type CheckoutAutosaveSnapshot } from "@/lib/checkoutAutosave";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CheckoutForm } from "./CheckoutForm";
@@ -70,6 +71,9 @@ beforeEach(() => {
     newsletterOfferTitle: "",
   };
   sessionStorage.clear();
+  // Checkout autosave keeps its attempt in localStorage across visits; each
+  // test must start with an empty tab or a previous note is restored.
+  localStorage.clear();
   draftMock.readCheckoutDraft.mockReturnValue(null);
   validationMock.validateCheckoutForm.mockReturnValue({});
   validationMock.validatePreferredDate.mockReturnValue(null);
@@ -91,6 +95,50 @@ beforeEach(() => {
       total: 100,
     },
     total: 100,
+  });
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+const SAVED: CheckoutAutosaveSnapshot = {
+  customer: { name: "Ana", phone: "0917", province: "", city: "", barangay: "", postalCode: "", streetAddress: "", landmark: "" },
+  items: [{ skuId: "sku-1", quantity: 1 }],
+  preferredDeliveryDate: null,
+  promoCodeInput: "OLD10",
+  promoCodeApplied: null,
+  customerNote: "saved note",
+};
+
+describe("CheckoutForm autosave restore races", () => {
+  it("does not replace a saved draft with the initial blank form while restore is pending", async () => {
+    const attempt = resolveCheckoutAttempt("cart:item-1");
+    writeAutosave(attempt, 7, SAVED);
+    let finish!: (response: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<CheckoutForm itemsParam="item-1" />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 750)); });
+    expect(readAutosave(attempt)?.snapshot).toEqual(SAVED);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+    await act(async () => {
+      finish(new Response(JSON.stringify({ revision: 7, snapshot: SAVED }), { status: 200 }));
+    });
+    expect(await screen.findByDisplayValue("Ana")).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("keeps a promo code typed before the restore returns", async () => {
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    const user = userEvent.setup();
+    const view = render(<CheckoutForm itemsParam="item-1" />);
+    await user.click(screen.getByRole("button", { name: "Have a promo code?" }));
+    await user.type(screen.getByLabelText("Promo code"), "MY10");
+    await act(async () => {
+      finish(new Response(JSON.stringify({ revision: 7, snapshot: SAVED }), { status: 200 }));
+    });
+    expect(screen.getByLabelText("Promo code")).toHaveValue("MY10");
+    view.unmount();
   });
 });
 

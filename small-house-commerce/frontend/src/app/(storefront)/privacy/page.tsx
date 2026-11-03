@@ -16,7 +16,7 @@ const SECTIONS = [
   },
   {
     title: "What we collect",
-    body: "When you place an order we collect the name, mobile number, delivery address, order notes and preferred delivery date you give us, together with the items and amounts of that order. If you subscribe to our newsletter or ask to be notified when an item is back in stock, we keep the email address or mobile number you entered. We do not create customer accounts and we do not ask for payment details online: orders are paid in cash on delivery.",
+    body: "When you place an order we collect the name, mobile number, delivery address, order notes and preferred delivery date you give us, together with the items and amounts of that order. If you subscribe to our newsletter or ask to be notified when an item is back in stock, we keep the email address or mobile number you entered. We do not create customer accounts and we do not ask for payment details online: orders are paid in cash on delivery. When you start checkout, we also save the details you have typed so far — name, mobile number, delivery address, order notes, preferred delivery date, promo code and the items in that checkout — as an unfinished checkout draft, even if you leave before placing the order. This lets you pick up where you left off and lets us help with a checkout you started. A draft is not an order: it reserves no stock, creates no order number and is not sent to our courier or ERP. Drafts with no typed information are deleted within 24 hours; drafts with your input, and drafts that became orders, are kept for at most 30 days.",
   },
   {
     title: "Information collected automatically",
@@ -40,7 +40,7 @@ const SECTIONS = [
   },
   {
     title: "Retention",
-    body: "Order records are kept for as long as needed for warranty, after-sales service and legal obligations. Site analytics are kept for a limited period and are not linked to your identity. Your cookie choice stays in your browser until you change it or clear site data.",
+    body: "Order records are kept for as long as needed for warranty, after-sales service and legal obligations. Site analytics are kept for a limited period and are not linked to your identity. Your cookie choice stays in your browser until you change it or clear site data. Unfinished checkout drafts follow the periods above: 24 hours when nothing was typed, otherwise no more than 30 days.",
   },
   {
     title: "Your rights",
