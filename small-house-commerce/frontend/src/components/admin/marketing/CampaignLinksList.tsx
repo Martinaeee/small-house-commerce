@@ -29,6 +29,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
   const [loaded, setLoaded] = useState<{ key: string; items: CampaignLinkRow[]; total: number } | null>(null);
   const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copied, setCopied] = useState<{ url: string; ok: boolean } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const scopeKey = JSON.stringify([admin?.id, productId, landingPageId]);
   const [creating, setCreating] = useState<{ scopeKey: string; copyFrom?: CampaignLinkRow } | null>(null);
@@ -78,8 +79,9 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
   }
 
   async function copy(row: CampaignLinkRow) {
-    const copied = await copyText(new URL(row.path, window.location.origin).href);
-    setNotice(t(copied ? "link_builder_copied" : "common_copy_failed_manual"));
+    const url = new URL(row.path, window.location.origin).href;
+    const ok = await copyText(url);
+    setCopied({ url, ok });
   }
   const data = loaded?.key === queryKey ? loaded : null;
   const error = loadError?.key === queryKey ? loadError.message : null;
@@ -117,5 +119,12 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded }: { prod
       <label className="block space-y-1 text-sm">{t("marketing_internal_name")}<input className="w-full rounded-lg border border-admin-border px-3 py-2" required maxLength={120} disabled={busy} value={renaming.name} onChange={(event) => setRenaming((current) => current ? { ...current, name: event.target.value } : current)} /></label>
       <div className="flex justify-end gap-2"><button type="button" className={buttonClass} disabled={busy} onClick={() => setRenaming(null)}>{t("common_cancel")}</button><button type="submit" className={buttonClass} disabled={busy || !renaming.name.trim()}>{t("common_save")}</button></div>
     </form></Dialog>}
+    {copied && <Dialog open title={t(copied.ok ? "marketing_link_copy_success" : "marketing_link_copy_failed")} onClose={() => setCopied(null)} width="sm" initialFocus="first">
+      <div className="space-y-4">
+        <p role="status" className={copied.ok ? "text-sm text-emerald-700" : "text-sm text-red-700"}>{t(copied.ok ? "link_builder_copied" : "common_copy_failed_manual")}</p>
+        <label className="block space-y-1 text-sm">{t("marketing_link_url")}<input readOnly value={copied.url} onFocus={(event) => event.currentTarget.select()} className="w-full rounded-lg border border-admin-border px-3 py-2 font-mono text-xs" /></label>
+        <div className="flex justify-end"><button type="button" className={buttonClass} onClick={() => setCopied(null)}>{t("common_close")}</button></div>
+      </div>
+    </Dialog>}
   </section>;
 }

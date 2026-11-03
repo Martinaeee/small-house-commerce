@@ -655,6 +655,7 @@ export const zh = {
   // --- Common ---
   common_confirm: "确认",
   common_cancel: "取消",
+  common_close: "关闭",
   common_save: "保存",
   common_edit: "编辑",
   common_delete: "删除",
@@ -3220,6 +3221,8 @@ export const zh = {
   marketing_link_active: "可投放",
   marketing_link_url: "投放网址",
   marketing_link_copy_url: "复制网址",
+  marketing_link_copy_success: "复制成功",
+  marketing_link_copy_failed: "复制失败",
   marketing_link_clone: "复制记录",
   marketing_link_rename: "改名",
   marketing_link_disable_confirm: "停用此链接？停用后不接受新的营销触达，已有记录保留。",

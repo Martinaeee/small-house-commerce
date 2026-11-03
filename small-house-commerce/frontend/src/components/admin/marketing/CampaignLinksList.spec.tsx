@@ -103,9 +103,13 @@ describe("persisted campaign links", () => {
     expect(screen.getByRole("link", { name: "核算" })).toHaveAttribute("href", "/admin/marketing/reports?productId=p1&landingPageId=page-1&linkId=link-1");
   });
 
-  it("copies only the stored public URL", async () => {
+  it("confirms a successful copy in a dialog with the full URL", async () => {
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith(new URL(row.path, window.location.origin).href));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("复制成功")).toBeInTheDocument();
+    expect(within(dialog).getByText("已复制")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
   });
 
   it("prefills a new-link copy and sends the edited ad parameters without changing ownership", async () => {
@@ -124,8 +128,10 @@ describe("persisted campaign links", () => {
   it("retains a selectable saved URL when the clipboard is unavailable", async () => {
     vi.mocked(copyText).mockResolvedValue(false);
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
-    expect(await screen.findByText("复制失败，请手动选择并复制")).toBeInTheDocument();
-    expect(screen.getByLabelText("投放网址 · Ad A")).toHaveValue(new URL(row.path, window.location.origin).href);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("复制失败")).toBeInTheDocument();
+    expect(within(dialog).getByText("复制失败，请手动选择并复制")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
   });
 
   it("keeps finance read-only and disables an owned link against its saved version", async () => {

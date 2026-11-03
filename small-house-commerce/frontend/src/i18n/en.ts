@@ -675,6 +675,7 @@ export const en: Record<ZhKey, string> = {
 
   common_confirm: "Confirm",
   common_cancel: "Cancel",
+  common_close: "Close",
   common_save: "Save",
   common_edit: "Edit",
   common_delete: "Delete",
@@ -3300,6 +3301,8 @@ export const en: Record<ZhKey, string> = {
   marketing_link_active: "Active",
   marketing_link_url: "Campaign URL",
   marketing_link_copy_url: "Copy URL",
+  marketing_link_copy_success: "URL copied",
+  marketing_link_copy_failed: "Copy failed",
   marketing_link_clone: "Clone record",
   marketing_link_rename: "Rename",
   marketing_link_disable_confirm: "Disable this link? New marketing touches stop; historical records are retained.",
