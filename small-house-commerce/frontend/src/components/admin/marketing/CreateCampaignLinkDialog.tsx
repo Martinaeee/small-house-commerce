@@ -8,6 +8,7 @@ import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
 import { canManageMarketingPage, marketingApi, type CampaignLinkRow, type MarketingLinkContext, type MarketingSourceType } from "@/lib/marketing-api";
 
 import { manilaToday } from "@/lib/marketing-post-date";
+import { AdminApiError } from "@/lib/admin-auth";
 
 const fieldClass = "w-full min-w-0 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm disabled:bg-slate-50";
 const sources: MarketingSourceType[] = ["META_AD", "FB_POST", "ORGANIC", "DIRECT", "EMAIL", "OTHER"];
@@ -64,7 +65,7 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
       const input = { productId, landingPageId: landingPageId || null, variantId: variantId || null, ...(name.trim() ? { name: name.trim() } : {}), sourceType, ...(sourceType === "FB_POST" ? { postDate, postUrl: postUrl.trim() || null } : {}), ...Object.fromEntries(metadata.map(([key]) => [key, fields[key]?.trim() || null])) };
       const link = copyFrom ? await marketingApi.cloneLink(copyFrom.id, input) : await marketingApi.createLink(input);
       onSaved(link);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    } catch (reason) { const message = reason instanceof Error ? reason.message : String(reason); setError(reason instanceof AdminApiError && reason.status < 500 ? message : `${message} ${t("marketing_post_create_uncertain")}`); }
     finally { operation.current = false; setBusy(false); }
   }
 

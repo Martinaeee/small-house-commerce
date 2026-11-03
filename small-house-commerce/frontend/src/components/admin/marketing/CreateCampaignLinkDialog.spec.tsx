@@ -32,6 +32,13 @@ describe('post creation and dedicated links',()=>{
   expect(screen.getByLabelText(/Facebook 原帖地址/)).toHaveValue('');
   expect(screen.getByLabelText('内部名称')).toHaveValue('');
  });
+ it('warns on an unconfirmed create response without retrying automatically', async()=>{
+  vi.mocked(marketingApi.createLink).mockRejectedValue(new TypeError('Failed to fetch'));
+  wrap(<CreateCampaignLinkDialog productId="p1" defaultSourceType="FB_POST" onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');fireEvent.click(screen.getByRole('button',{name:'保存并生成链接'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('不要立即重复创建');
+  expect(marketingApi.createLink).toHaveBeenCalledTimes(1);
+ });
  it('keeps the saved long link when shortening fails and retries only shortening',async()=>{
   vi.mocked(marketingApi.createShortLink).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({path:'/s/abc123',code:'abc123',target:row.path});
   wrap(<PostLinkResultDialog link={row} onClose={vi.fn()} onContinue={vi.fn()}/>);
