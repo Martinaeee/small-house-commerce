@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -163,10 +163,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // Synchronous twin of draftTouched: the restore promise must not overwrite
   // a field the shopper has already edited in this visit.
   const draftTouchedRef = useRef(false);
-  const markDraftTouched = () => {
+  const markDraftTouched = useCallback(() => {
     draftTouchedRef.current = true;
     setDraftTouched(true);
-  };
+  }, []);
   // Display-only preview of the promo discount; the order endpoint recomputes
   // the authoritative amount when the order is created.
   const discountedTotal =

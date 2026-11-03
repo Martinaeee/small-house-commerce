@@ -18,6 +18,9 @@ export default function CheckoutDraftsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | "OPEN" | "CONVERTED">("");
   const [page, setPage] = useState(1);
+  // Mount time, so the "no update for 30 minutes" hint is a render-time
+  // comparison instead of an impure Date.now() call inside render.
+  const [now] = useState(() => Date.now());
   const [data, setData] = useState<{
     items: AdminCheckoutDraftSummary[];
     total: number;
@@ -143,7 +146,7 @@ export default function CheckoutDraftsPage() {
                     ? t("checkout_drafts_status_converted")
                     : t("checkout_drafts_status_open")}
                   {row.status === "OPEN" &&
-                  Date.now() - Date.parse(row.updatedAt) >= 30 * 60_000 ? (
+                  now - Date.parse(row.updatedAt) >= 30 * 60_000 ? (
                     <div className="text-xs text-ink-muted">
                       {t("checkout_drafts_stale")}
                     </div>

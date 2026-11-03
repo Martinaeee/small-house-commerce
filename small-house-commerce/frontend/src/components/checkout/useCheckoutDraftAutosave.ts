@@ -33,8 +33,13 @@ export function useCheckoutDraftAutosave({
   const bodyRef = useRef("");
   const snapshotRef = useRef(snapshot);
   const timerRef = useRef<number | null>(null);
+  // Late retries go through a ref: the retry timer must not close over a
+  // binding declared after it.
+  const sendRef = useRef<() => void>(() => undefined);
 
-  snapshotRef.current = snapshot;
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   useEffect(() => {
     revisionRef.current = readAutosaveRevision(attempt);
@@ -80,12 +85,16 @@ export function useCheckoutDraftAutosave({
       const delay = BACKOFF_MS[Math.min(backoffRef.current, BACKOFF_MS.length - 1)];
       backoffRef.current += 1;
       window.setTimeout(() => {
-        if (!stoppedRef.current) void send();
+        if (!stoppedRef.current) sendRef.current();
       }, delay);
     } finally {
       inFlightRef.current = false;
     }
   }, [attempt]);
+
+  useEffect(() => {
+    sendRef.current = () => void send();
+  }, [send]);
 
   useEffect(() => {
     if (!active || stoppedRef.current) return;
