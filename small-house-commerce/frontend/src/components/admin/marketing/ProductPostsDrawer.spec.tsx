@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProductPostsDrawer } from "@/components/admin/marketing/ProductPostsDrawer";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
@@ -59,6 +59,22 @@ describe("product post drawer grouping", () => {
     expect(screen.getByText(/2 条记录/)).toBeInTheDocument();
   });
 
+  it("collapses one section without touching the others", async () => {
+    mount();
+    const facebook = await screen.findByRole("region", { name: /Facebook 发帖/ });
+    const meta = screen.getByRole("region", { name: /Meta 广告/ });
+    const toggle = within(meta).getByRole("button", { name: /Meta 广告/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(meta).getAllByRole("article")).toHaveLength(2);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(meta).queryAllByRole("article")).toHaveLength(0);
+    expect(within(facebook).getAllByRole("article")).toHaveLength(2);
+    expect(within(meta).getByText("2 条")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(meta).getAllByRole("article")).toHaveLength(2);
+  });
   it("loads every record for the product instead of the first page only", async () => {
     mount();
     await screen.findByRole("region", { name: /Facebook 发帖/ });
