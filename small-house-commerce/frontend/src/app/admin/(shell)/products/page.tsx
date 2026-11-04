@@ -1203,15 +1203,7 @@ function ProductsPageContent() {
                           className="mt-1 block break-all font-mono text-xs text-ink"
                           data-testid={`product-skus-${row.id}`}
                         >
-                          {row.variants
-                            .map((variant) => variant.sku?.skuCode)
-                            .filter((code): code is string => Boolean(code))
-                            .slice(0, 3)
-                            .join(" · ")}
-                          {row.variants.filter((variant) => variant.sku?.skuCode)
-                            .length > 3
-                            ? ` +${row.variants.filter((variant) => variant.sku?.skuCode).length - 3}`
-                            : ""}
+                          {skuSummary(row.variants)}
                         </span>
                         <span className="block text-xs text-ink-muted">
                           {t("products_skus_count", {
@@ -1509,6 +1501,18 @@ function ProductsPageContent() {
       />
     </div>
   );
+}
+
+/**
+ * The list column is narrow: show the first two codes and count the rest so a
+ * product with a dozen SKUs does not stretch the row to five lines.
+ */
+function skuSummary(variants: AdminProduct["variants"]): string {
+  const codes = variants
+    .map((variant) => variant.sku?.skuCode)
+    .filter((code): code is string => Boolean(code));
+  if (codes.length <= 2) return codes.join(" · ");
+  return `${codes.slice(0, 2).join(" · ")} +${codes.length - 2}`;
 }
 
 export default function AdminProductsPage() {

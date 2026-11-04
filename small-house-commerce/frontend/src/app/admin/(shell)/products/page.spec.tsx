@@ -153,6 +153,28 @@ describe("AdminProductsPage localization", () => {
     expect(await screen.findByText(/SH-1/)).toBeInTheDocument();
   });
 
+  it("caps the SKU list at two codes and counts the rest", async () => {
+    const variant = ROW.variants[0]!;
+    const sku = variant.sku!;
+    listProducts.mockResolvedValueOnce({
+      items: [
+        {
+          ...ROW,
+          variants: [
+            { ...variant, id: "v1", sku: { ...sku, id: "s1", skuCode: "SH-1" } },
+            { ...variant, id: "v2", sku: { ...sku, id: "s2", skuCode: "SH-2" } },
+            { ...variant, id: "v3", sku: { ...sku, id: "s3", skuCode: "SH-3" } },
+          ],
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    } as never);
+    renderListPage();
+    expect(await screen.findByText("SH-1 · SH-2 +1")).toBeInTheDocument();
+  });
+
   it("renders translated status badges and filter options while the values stay wire enums", async () => {
     renderListPage();
 

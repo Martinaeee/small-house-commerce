@@ -1049,6 +1049,24 @@ describe('ProductsService admin list filters and counters', () => {
     });
   });
 
+  it('finds products by a partial variant SKU code', async () => {
+    const prisma = createPrismaMock([]);
+    const service = createService(prisma);
+
+    await service.list({ search: 'TB001', page: 1, pageSize: 20 } as AdminProductQuery);
+
+    const [call] = prisma.product.findMany.mock.calls;
+    expect(call?.[0].where.OR).toEqual(
+      expect.arrayContaining([
+        {
+          variants: {
+            some: { sku: { skuCode: { contains: 'TB001', mode: 'insensitive' } } },
+          },
+        },
+      ]),
+    );
+  });
+
   it('attaches active option names from one page-wide query', async () => {
     const prisma = createPrismaMock([{ id: 'p1' }, { id: 'p2' }]);
     vi.mocked(prisma.productOption.findMany).mockResolvedValue([

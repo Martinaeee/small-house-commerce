@@ -1783,6 +1783,13 @@ export class ProductsService {
         { slug: { contains: query.search, mode: 'insensitive' } },
         // The internal product number is searchable from the back office only.
         { productCode: { contains: query.search, mode: 'insensitive' } },
+        // Operators identify products by their variant SKU codes (TB001),
+        // which the storefront search deliberately ignores.
+        {
+          variants: {
+            some: { sku: { skuCode: { contains: query.search, mode: 'insensitive' } } },
+          },
+        },
       ];
     }
     if (query.status) where.status = query.status;

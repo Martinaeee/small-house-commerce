@@ -244,6 +244,7 @@ export function buildProductSearchQuery(terms: SearchTerms, take: number): Prism
       slug,
       product_status,
       updated_at,
+      thumbnail_url,
       matched_field,
       matched_text,
       score,

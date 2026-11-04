@@ -35,6 +35,12 @@ describe('buildProductSearchQuery', () => {
     expect(text).toContain('option_value_id IS NULL');
     expect(text).toContain('variant_id IS NULL');
   });
+  it('projects the thumbnail through the final select so rows carry it', () => {
+    const text = buildProductSearchQuery(normalizeSearchTerms('tb001'), 6).sql;
+    const ranked = text.lastIndexOf('FROM ranked');
+    const projection = text.slice(text.lastIndexOf('SELECT', ranked), ranked);
+    expect(projection).toContain('thumbnail_url');
+  });
 });
 
 describe('normalizeSearchTerms', () => {
