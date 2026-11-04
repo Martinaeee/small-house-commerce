@@ -28,6 +28,7 @@ interface ProductSearchRow {
   product_code: string | null;
   slug: string;
   product_status: ProductStatusValue;
+  thumbnail_url: string | null;
   matched_field: ProductSearchHit['matchedField'];
   matched_text: string;
   sku_id: string | null;
@@ -100,6 +101,7 @@ function mapProduct(row: ProductSearchRow): ProductSearchHit {
     productCode: row.product_code,
     slug: row.slug,
     status: row.product_status,
+    thumbnailUrl: row.thumbnail_url,
     matchedField: row.matched_field,
     matchedText: row.matched_text,
     matchedSku,

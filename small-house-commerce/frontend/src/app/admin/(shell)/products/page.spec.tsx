@@ -148,6 +148,11 @@ describe("AdminProductsPage localization", () => {
 
   afterEach(cleanup);
 
+  it("shows each variant's SKU code in the product row", async () => {
+    renderListPage();
+    expect(await screen.findByText(/SH-1/)).toBeInTheDocument();
+  });
+
   it("renders translated status badges and filter options while the values stay wire enums", async () => {
     renderListPage();
 

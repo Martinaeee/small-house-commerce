@@ -140,6 +140,9 @@ export function buildProductSearchQuery(terms: SearchTerms, take: number): Prism
         p.slug,
         p.status::text AS product_status,
         p.updated_at,
+        (SELECT i.url FROM product_images i
+          WHERE i.product_id = p.id AND i.option_value_id IS NULL AND i.variant_id IS NULL
+          ORDER BY i.sort_order ASC, i.id ASC LIMIT 1) AS thumbnail_url,
         CASE
           WHEN lower(COALESCE(p.product_code, '')) = ${terms.exact} THEN 'PRODUCT_CODE'
           WHEN lower(p.name) = ${terms.exact} THEN 'NAME'
@@ -199,6 +202,9 @@ export function buildProductSearchQuery(terms: SearchTerms, take: number): Prism
         p.slug,
         p.status::text AS product_status,
         p.updated_at,
+        (SELECT i.url FROM product_images i
+          WHERE i.product_id = p.id AND i.option_value_id IS NULL AND i.variant_id IS NULL
+          ORDER BY i.sort_order ASC, i.id ASC LIMIT 1) AS thumbnail_url,
         'SKU_CODE'::text AS matched_field,
         s.sku_code AS matched_text,
         CASE

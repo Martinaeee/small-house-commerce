@@ -106,6 +106,21 @@ function ResultContent({ hit }: { hit: AdminSearchHit }): ReactNode {
       return (
         <>
           <span className="flex min-w-0 items-center gap-2">
+            {hit.thumbnailUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- admin-only thumbnail of an already-uploaded shared asset.
+              <img
+                src={hit.thumbnailUrl}
+                alt=""
+                data-testid={`admin-search-thumb-${hit.productId}`}
+                className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="h-9 w-9 shrink-0 rounded-md border border-border bg-primary-light"
+              />
+            )}
             <span className="truncate font-semibold text-ink">{hit.name}</span>
             <span className="shrink-0 text-xs text-ink-muted">
               {hit.productCode ?? t(PRODUCT_STATUS_KEYS[hit.status])}

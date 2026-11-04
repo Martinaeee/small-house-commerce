@@ -135,6 +135,8 @@ export interface ProductSearchHit {
   productCode: string | null;
   slug: string;
   status: ProductStatus;
+  /** First shared product image, for the dropdown thumbnail. */
+  thumbnailUrl: string | null;
   matchedField: "PRODUCT_CODE" | "SKU_CODE" | "NAME" | "SLUG";
   matchedText: string;
   matchedSku: {

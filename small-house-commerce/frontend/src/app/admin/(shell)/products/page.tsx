@@ -1195,19 +1195,29 @@ function ProductsPageContent() {
                       <td className="px-3 py-3 text-ink-secondary">
                         {row.activeOptionNames &&
                         row.activeOptionNames.length > 0 ? (
-                          <>
-                            <span className="block text-ink">
-                              {row.activeOptionNames.join(" × ")}
-                            </span>
-                            <span className="block text-xs text-ink-muted">
-                              {t("products_skus_count", {
-                                count: row.variants.length,
-                              })}
-                            </span>
-                          </>
-                        ) : (
-                          t("products_skus_count", { count: row.variants.length })
-                        )}
+                          <span className="block text-ink">
+                            {row.activeOptionNames.join(" × ")}
+                          </span>
+                        ) : null}
+                        <span
+                          className="mt-1 block break-all font-mono text-xs text-ink"
+                          data-testid={`product-skus-${row.id}`}
+                        >
+                          {row.variants
+                            .map((variant) => variant.sku?.skuCode)
+                            .filter((code): code is string => Boolean(code))
+                            .slice(0, 3)
+                            .join(" · ")}
+                          {row.variants.filter((variant) => variant.sku?.skuCode)
+                            .length > 3
+                            ? ` +${row.variants.filter((variant) => variant.sku?.skuCode).length - 3}`
+                            : ""}
+                        </span>
+                        <span className="block text-xs text-ink-muted">
+                          {t("products_skus_count", {
+                            count: row.variants.length,
+                          })}
+                        </span>
                       </td>
                       <td className="px-3 py-3">
                         <Badge

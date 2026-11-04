@@ -26,6 +26,17 @@ function flatValues(sql: Prisma.Sql): unknown[] {
   return out;
 }
 
+describe('buildProductSearchQuery', () => {
+  it('selects the first shared image as the result thumbnail', () => {
+    const sql = buildProductSearchQuery(normalizeSearchTerms('tb001'), 6);
+    const text = [sql.sql, ...[]].join('');
+    expect(text).toContain('product_images');
+    expect(text).toContain('thumbnail_url');
+    expect(text).toContain('option_value_id IS NULL');
+    expect(text).toContain('variant_id IS NULL');
+  });
+});
+
 describe('normalizeSearchTerms', () => {
   it('escapes LIKE wildcards as literal characters', () => {
     expect(normalizeSearchTerms('50%_OFF\\SKU')).toMatchObject({

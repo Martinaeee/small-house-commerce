@@ -21,6 +21,7 @@ function productSkuHit(skuCode = "SKU-1"): ProductSearchHit {
     productCode: "P-000001",
     slug: "chair",
     status: "ACTIVE",
+    thumbnailUrl: null,
     matchedField: "SKU_CODE",
     matchedText: skuCode,
     matchedSku: {

@@ -28,6 +28,7 @@ function responseWithAllGroups(): AdminSearchResponse {
             productCode: "P-000001",
             slug: "rolling-cart",
             status: "ACTIVE",
+            thumbnailUrl: null,
             matchedField: "SKU_CODE",
             matchedText: "CART-L",
             matchedSku: {

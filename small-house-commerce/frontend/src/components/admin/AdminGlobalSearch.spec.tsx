@@ -33,6 +33,7 @@ function productHit(
     productCode: "P-000001",
     slug: "chair",
     status: "ACTIVE",
+    thumbnailUrl: "/uploads/chair.jpg",
     matchedField: "SKU_CODE",
     matchedText: "CHAIR-L",
     matchedSku: {
@@ -351,6 +352,21 @@ describe("AdminGlobalSearch", () => {
 
     await user.click(screen.getByRole("option", { name: /TRACK-001/ }));
     expect(navigation.push).toHaveBeenCalledWith("/admin/orders/o1#shipments");
+  });
+
+  it("shows the product thumbnail in the result row", async () => {
+    searchAdmin.mockResolvedValue(responseWithAllGroups());
+    const user = setupUser();
+    renderSearch();
+
+    await openAndType(user, "chair");
+    await advance(250);
+    await flushPromises();
+
+    expect(screen.getByTestId("admin-search-thumb-p1")).toHaveAttribute(
+      "src",
+      "/uploads/chair.jpg",
+    );
   });
 
   it("renders groups in contract order, omits absent groups, and caps dialog groups at five", async () => {

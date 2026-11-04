@@ -121,6 +121,28 @@ describe('SearchService', () => {
     expect(result.groups.products?.items[0]).not.toHaveProperty('supplierCost');
   });
 
+  it('carries the shared product image so the dropdown can show a thumbnail', async () => {
+    const { service, prisma } = harness(['PRODUCT_MANAGE']);
+    prisma.$queryRaw.mockResolvedValueOnce([
+      productRow({ thumbnail_url: '/uploads/chair.jpg' }),
+    ]);
+
+    const result = await service.search(USER_ID, { q: 'chair', limit: 5 });
+
+    expect(result.groups.products?.items[0]).toMatchObject({
+      thumbnailUrl: '/uploads/chair.jpg',
+    });
+  });
+
+  it('returns a null thumbnail when the product has no shared image', async () => {
+    const { service, prisma } = harness(['PRODUCT_MANAGE']);
+    prisma.$queryRaw.mockResolvedValueOnce([productRow({ thumbnail_url: null })]);
+
+    const result = await service.search(USER_ID, { q: 'chair', limit: 5 });
+
+    expect(result.groups.products?.items[0]).toMatchObject({ thumbnailUrl: null });
+  });
+
   it('returns no groups and performs no raw query for ORDER_VIEW_OWN only', async () => {
     const { service, prisma } = harness(['ORDER_VIEW_OWN']);
 
