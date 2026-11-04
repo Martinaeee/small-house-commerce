@@ -18,8 +18,8 @@ const metadata = [
   ["utmContent", "marketing_utm_content", 120], ["utmTerm", "marketing_utm_term", 120],
 ] as const satisfies readonly (readonly [string, TKey, number])[];
 
-export function CreateCampaignLinkDialog({ productId: initialProductId, landingPageId: initialPageId, copyFrom, defaultSourceType = copyFrom?.sourceType ?? "META_AD", onClose, onSaved }: {
-  productId?: string; landingPageId?: string; copyFrom?: CampaignLinkRow; defaultSourceType?: MarketingSourceType; onClose: () => void; onSaved: (link: CampaignLinkRow) => void;
+export function CreateCampaignLinkDialog({ productId: initialProductId, landingPageId: initialPageId, copyFrom, defaultSourceType = copyFrom?.sourceType ?? "META_AD", lockProduct = Boolean(initialProductId), onClose, onSaved }: {
+  productId?: string; landingPageId?: string; copyFrom?: CampaignLinkRow; defaultSourceType?: MarketingSourceType; /** The flow started from this product (product page, landing page or its drawer), so it cannot be swapped. */ lockProduct?: boolean; onClose: () => void; onSaved: (link: CampaignLinkRow) => void;
 }) {
   const { admin } = useAdminAuth();
   const { t } = useAdminI18n();
@@ -82,7 +82,7 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
           onChange={(next) => { setProductId(next ?? ""); setLandingPageId(""); setVariantId(""); }}
           products={productOptions}
           loading={!context}
-          disabled={Boolean(initialProductId)}
+          disabled={lockProduct}
           searchLabel={t("marketing_product_search")}
         /></div>
         <label className="space-y-1 text-sm">{t("link_builder_landing_page")}<select className={fieldClass} value={landingPageId} disabled={Boolean(initialPageId)} onChange={(event) => setLandingPageId(event.target.value)}>

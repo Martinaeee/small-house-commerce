@@ -33,6 +33,20 @@ describe('post creation and dedicated links',()=>{
   expect(screen.getByLabelText(/Facebook 原帖地址/)).toHaveValue('');
   expect(screen.getByLabelText('内部名称')).toHaveValue('');
  });
+ it('lets a page-scoped create change or clear the prefilled product', async()=>{
+  wrap(<CreateCampaignLinkDialog productId="p1" lockProduct={false} defaultSourceType="FB_POST" onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  expect(screen.getByRole('button',{name:'清除选择'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'清除选择'}));
+  expect(screen.queryByTestId('link-builder-product-current')).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'保存并生成链接'})).toBeDisabled();
+ });
+ it('keeps the product locked when a landing page or product page owns it', async()=>{
+  wrap(<CreateCampaignLinkDialog productId="p1" onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  expect(screen.getByRole('button',{name:'更换'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'清除选择'})).toBeDisabled();
+ });
  it('warns on an unconfirmed create response without retrying automatically', async()=>{
   vi.mocked(marketingApi.createLink).mockRejectedValue(new TypeError('Failed to fetch'));
   wrap(<CreateCampaignLinkDialog productId="p1" defaultSourceType="FB_POST" onClose={vi.fn()} onSaved={vi.fn()}/>);

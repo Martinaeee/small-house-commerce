@@ -70,6 +70,22 @@ describe("product post workspace", () => {
     expect(within(meta).getAllByRole("article")).toHaveLength(1);
     expect(within(other).getAllByRole("article")).toHaveLength(1);
   });
+  it("lets the workspace change the product prefilled from the page scope", async () => {
+    mount({ workspace: true, productId: "p1" });
+    await screen.findAllByText("3 条记录");
+    fireEvent.click(screen.getByRole("button", { name: "创建投放链接" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
+    expect(within(dialog).getByRole("button", { name: "清除选择" })).toBeEnabled();
+  });
+  it("keeps the product locked when the drawer adds a post to that product", async () => {
+    mount({ workspace: true });
+    await screen.findAllByText("3 条记录");
+    fireEvent.click((await screen.findAllByRole("button", { name: "新增帖子" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
+    expect(within(dialog).getByRole("button", { name: "清除选择" })).toBeDisabled();
+  });
   it("keeps the flat view and archives only against the saved version", async () => {
     mount({ workspace: true }); await screen.findAllByText("3 条记录");
     fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
