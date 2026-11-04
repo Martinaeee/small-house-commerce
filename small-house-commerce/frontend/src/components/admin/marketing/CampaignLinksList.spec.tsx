@@ -78,6 +78,24 @@ describe("product post workspace", () => {
     await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
     expect(within(dialog).getByRole("button", { name: "清除选择" })).toBeEnabled();
   });
+  it("shows the page product in the filter instead of claiming every product", async () => {
+    mount({ workspace: true, productId: "p1" });
+    await screen.findAllByText("3 条记录");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "商品" })).toHaveValue("p1"));
+    expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.objectContaining({ productId: "p1" }));
+  });
+  it("explains a link created for another product and offers to clear the product filter", async () => {
+    vi.mocked(marketingApi.createLink).mockResolvedValue({ ...row, id: "link-2", productId: "p2", productName: "Sofa", code: "new-code" });
+    mount({ workspace: true, productId: "p1" });
+    await screen.findAllByText("3 条记录");
+    fireEvent.click(screen.getByRole("button", { name: "创建投放链接" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "保存并生成链接" })).toBeEnabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
+    expect(await screen.findByText(/不在当前商品筛选/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除商品筛选" }));
+    await waitFor(() => expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.not.objectContaining({ productId: "p1" })));
+  });
   it("keeps the product locked when the drawer adds a post to that product", async () => {
     mount({ workspace: true });
     await screen.findAllByText("3 条记录");

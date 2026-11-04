@@ -3686,6 +3686,8 @@ export const en: Record<ZhKey, string> = {
   marketing_post_manage_denied: "You cannot manage this record.",
   marketing_post_saved_outside_filter: "Record created but hidden by the owner filter; it was not created for another owner.",
   marketing_post_clear_owner: "Clear owner filter",
+  marketing_post_saved_outside_product: "The record was created but is outside the current product filter; clear the filter to see it.",
+  marketing_post_clear_product: "Clear product filter",
   marketing_post_create_uncertain: "The result is unconfirmed. Close this dialog and reload the list before creating again.",
   common_done: "Done",
   orders_drafts_link: "Checkout drafts",

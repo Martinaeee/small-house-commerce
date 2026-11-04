@@ -3623,6 +3623,8 @@ export const zh = {
   marketing_post_manage_denied: "没有管理这条记录的权限。",
   marketing_post_saved_outside_filter: "记录已创建，但不符合当前投放师筛选；没有替其他人创建记录。",
   marketing_post_clear_owner: "清除投放师筛选",
+  marketing_post_saved_outside_product: "记录已创建，但不在当前商品筛选内；清除商品筛选即可看到。",
+  marketing_post_clear_product: "清除商品筛选",
   marketing_post_create_uncertain: "请求结果未确认。请先关闭并刷新列表核对，不要立即重复创建。",
   common_done: "完成",
 } as const;

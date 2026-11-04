@@ -25,7 +25,10 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState<"" | "ACTIVE" | "DISABLED">("");
-  const [productFilter, setProductFilter] = useState("");
+  // The page can arrive scoped to one product (?productId=…); show that in the
+  // filter so it is visible and clearable instead of silently hiding records.
+  const [productFilter, setProductFilter] = useState(() => (workspace ? productId ?? "" : ""));
+  const [noticeProduct, setNoticeProduct] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState("");
   const [products, setProducts] = useState<{ id: string; name: string; productCode: string | null }[]>([]);
   const [ownerOptions, setOwnerOptions] = useState<MarketingOwnerOption[]>([]);
@@ -71,7 +74,8 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
     return () => { };
   }, [admin, all]);
 
-  const filters: CampaignLinkQuery = { productId: productFilter || productId, landingPageId, search: filter || undefined, status: status || undefined, ownerUserId: (all ? ownerFilter : undefined) || undefined,
+  const scopedProductId = workspace ? (productFilter || undefined) : (productFilter || productId);
+  const filters: CampaignLinkQuery = { productId: scopedProductId, landingPageId, search: filter || undefined, status: status || undefined, ownerUserId: (all ? ownerFilter : undefined) || undefined,
     ...(workspace ? { archiveState, sourceType: sourceType || undefined, postDateFrom: postDateFrom || undefined, postDateTo: postDateTo || undefined, postDateMissingOnly: postMissingOnly || undefined } : {}) };
   const filterKey = JSON.stringify(filters);
   useEffect(() => {
@@ -94,7 +98,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
     try {
       if (action === "rename") await marketingApi.updateLink(row.id, { name: renaming!.name.trim(), expectedVersion: row.version });
       else await marketingApi.disableLink(row.id, row.version);
-      setRenaming(null); setRevision((value) => value + 1); setNotice(t("marketing_link_saved"));
+      setRenaming(null); setRevision((value) => value + 1); setNoticeProduct(false); setNotice(t("marketing_link_saved"));
     } catch (reason) {
       const message = reason instanceof AdminApiError && reason.status === 409 ? t("marketing_link_conflict") : reason instanceof Error ? reason.message : String(reason);
       if (action === "rename") setRenaming((current) => current ? { ...current, error: message } : current);
@@ -137,7 +141,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
       </>}
       <button className={buttonClass} type="submit">{t("common_search")}</button><button type="button" className={buttonClass} disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t("marketing_reload")}</button>
     </form>
-    {notice && <p role="status" className="text-sm text-emerald-700">{notice}{workspace && ownerFilter && <button type="button" className="ml-2 underline" onClick={() => { setOwnerFilter(""); setPage(1); setNotice(null); }}>{t("marketing_post_clear_owner")}</button>}</p>}
+    {notice && <p role="status" className="text-sm text-emerald-700">{notice}{workspace && ownerFilter && <button type="button" className="ml-2 underline" onClick={() => { setOwnerFilter(""); setPage(1); setNotice(null); }}>{t("marketing_post_clear_owner")}</button>}{workspace && noticeProduct && <button type="button" className="ml-2 underline" onClick={() => { setProductFilter(""); setNoticeProduct(false); setNotice(null); setPage(1); }}>{t("marketing_post_clear_product")}</button>}</p>}
     {(error || actionError) && <p role="alert" className="text-sm text-red-700">{error ?? actionError}</p>}
     {!data && !groupData && !error && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
     {groupData && <><ProductLinksTable groups={groupData.items} canCreate={canCreate} onOpen={id => setDrawerProduct({ id, name: groupData.items.find(g => g.product.id === id)?.product.name ?? id })} onCreate={id => setCreating({ scopeKey, productId: id, defaultSourceType: "FB_POST" })} />{!groupData.items.length && <p className="p-4 text-sm text-admin-muted">{t("marketing_links_empty")}</p>}<div className="flex justify-end gap-2 text-xs"><button type="button" className={buttonClass} disabled={page === 1} onClick={() => setPage(v => v - 1)}>{t("marketing_previous")}</button><span>{page}</span><button type="button" className={buttonClass} disabled={page * 20 >= groupData.total} onClick={() => setPage(v => v + 1)}>{t("marketing_next")}</button></div></>}
@@ -157,7 +161,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
       </div>
       <div className="flex items-center justify-between text-xs text-admin-muted"><span>{t("marketing_records", { count: String(data.total) })}</span>{data.total > (workspace ? 100 : 20) && <div className="flex gap-2"><button type="button" className={buttonClass} disabled={page === 1 || busy} onClick={() => setPage((value) => value - 1)}>{t("marketing_previous")}</button><span className="py-1.5">{page}</span><button type="button" className={buttonClass} disabled={page * (workspace ? 100 : 20) >= data.total || busy} onClick={() => setPage((value) => value + 1)}>{t("marketing_next")}</button></div>}</div>
     </>}
-    {canCreate && creating?.scopeKey === scopeKey && <CreateCampaignLinkDialog key={`${scopeKey}:${creating.copyFrom?.id ?? "new"}`} productId={creating.productId ?? (productId || productFilter || undefined)} landingPageId={landingPageId} copyFrom={creating.copyFrom} defaultSourceType={creating.defaultSourceType} lockProduct={Boolean(creating.productId) || !workspace} onClose={() => setCreating(null)} onSaved={link => { setCreating(null); if (workspace) setResultLink(link); setNotice(t(all && ownerFilter && ownerFilter !== link.ownerUserId ? "marketing_post_saved_outside_filter" : "marketing_link_saved")); setRevision((value) => value + 1); }} />}
+    {canCreate && creating?.scopeKey === scopeKey && <CreateCampaignLinkDialog key={`${scopeKey}:${creating.copyFrom?.id ?? "new"}`} productId={creating.productId ?? scopedProductId} landingPageId={landingPageId} copyFrom={creating.copyFrom} defaultSourceType={creating.defaultSourceType} lockProduct={Boolean(creating.productId) || !workspace} onClose={() => setCreating(null)} onSaved={link => { setCreating(null); if (workspace) setResultLink(link); const outsideProduct = Boolean(scopedProductId) && link.productId !== scopedProductId; setNoticeProduct(outsideProduct); setNotice(t(all && ownerFilter && ownerFilter !== link.ownerUserId ? "marketing_post_saved_outside_filter" : outsideProduct ? "marketing_post_saved_outside_product" : "marketing_link_saved")); setRevision((value) => value + 1); }} />}
     {drawerProduct && <ProductPostsDrawer key={drawerProduct.id + filterKey} productId={drawerProduct.id} productName={drawerProduct.name} filters={filters} onClose={() => setDrawerProduct(null)} onChanged={() => setRevision(v => v + 1)} onCreate={() => { setCreating({ scopeKey, productId: drawerProduct.id, defaultSourceType: "FB_POST" }); setDrawerProduct(null); }} onClone={row => { setCreating({ scopeKey, copyFrom: row }); setDrawerProduct(null); }} />}
     {editing && <EditPostDialog link={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setRevision(v => v + 1); }} />}
     {resultLink && <PostLinkResultDialog link={resultLink} onClose={() => setResultLink(null)} onContinue={() => { setCreating({ scopeKey, productId: resultLink.productId, defaultSourceType: resultLink.sourceType }); setResultLink(null); }} />}
