@@ -55,6 +55,21 @@ describe("product post workspace", () => {
     await waitFor(() => expect(marketingApi.listProductGroups).toHaveBeenLastCalledWith(expect.objectContaining({ archiveState: "UNARCHIVED", productId: "p1" })));
     expect(screen.getByRole("combobox", { name: "归档状态" })).toHaveValue("UNARCHIVED");
   });
+  it("groups the flat view by source in Facebook, Meta and other order", async () => {
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({ items: [
+      { ...row, id: "f1", name: "Post A", sourceType: "FB_POST", postDate: "2026-11-04" },
+      { ...row, id: "m1", name: "Meta ad A", sourceType: "META_AD", postDate: null },
+      { ...row, id: "o1", name: "Organic A", sourceType: "ORGANIC", postDate: null },
+    ], total: 3, page: 1, pageSize: 100 });
+    mount({ workspace: true }); await screen.findAllByText("3 条记录");
+    fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
+    const facebook = await screen.findByRole("region", { name: /Facebook 发帖/ });
+    const meta = screen.getByRole("region", { name: /Meta 广告/ });
+    const other = screen.getByRole("region", { name: /其他来源/ });
+    expect(within(facebook).getAllByRole("article")).toHaveLength(1);
+    expect(within(meta).getAllByRole("article")).toHaveLength(1);
+    expect(within(other).getAllByRole("article")).toHaveLength(1);
+  });
   it("keeps the flat view and archives only against the saved version", async () => {
     mount({ workspace: true }); await screen.findAllByText("3 条记录");
     fireEvent.click(screen.getByRole("button", { name: "全部链接" }));
