@@ -3746,6 +3746,8 @@ export const en: Record<ZhKey, string> = {
   checkout_drafts_followup_all: "All follow-up results",
   checkout_drafts_followup_none: "Not followed up",
   checkout_drafts_followup_due: "Due only",
+  checkout_drafts_followup_filter: "Filter by follow-up result",
+  checkout_drafts_followup_assign: "Assign owner",
   checkout_drafts_not_filled: "Not filled in",
   checkout_drafts_not_filled_yet: "Nothing filled in yet",
   checkout_drafts_stale: "Unfinished (no update for 30 minutes)",

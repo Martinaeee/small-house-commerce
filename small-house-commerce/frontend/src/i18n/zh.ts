@@ -3588,6 +3588,8 @@ export const zh = {
   checkout_drafts_followup_all: "全部跟进状态",
   checkout_drafts_followup_none: "未跟进",
   checkout_drafts_followup_due: "只看到期",
+  checkout_drafts_followup_filter: "跟进结果筛选",
+  checkout_drafts_followup_assign: "分配负责人",
   checkout_drafts_not_filled: "尚未填写",
   checkout_drafts_not_filled_yet: "尚未填写任何信息",
   checkout_drafts_stale: "未完成（30 分钟未更新）",
