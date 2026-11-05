@@ -9,6 +9,7 @@ import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { adminApi, type AdminCheckoutDraftSummary, type CheckoutDraftFollowUpStatus } from "@/lib/admin-api";
+import { FOLLOW_UP_NOTE_TEMPLATES, followUpNoteFromTemplate } from "@/lib/checkout-draft-follow-up";
 
 const PAGE_SIZE = 20;
 const FOLLOW_UP_STATUSES: CheckoutDraftFollowUpStatus[] = [
@@ -303,6 +304,7 @@ function AssignDraftDialog({
   );
   const [nextAt, setNextAt] = useState(toLocalInput(draft.nextFollowUpAt));
   const [note, setNote] = useState(draft.followUpNote ?? "");
+  const [noteTemplate, setNoteTemplate] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(false);
 
@@ -373,13 +375,36 @@ function AssignDraftDialog({
           </label>
         </div>
         <label className="grid gap-1">
+          <span className="text-xs text-ink-muted">{t("checkout_drafts_followup_template")}</span>
+          <select
+            aria-label={t("checkout_drafts_followup_template")}
+            value={noteTemplate}
+            onChange={(event) => {
+              setNoteTemplate(event.target.value);
+              const text = followUpNoteFromTemplate(event.target.value, draft.firstItemName, t);
+              if (text) setNote(text);
+            }}
+            className="h-9 rounded-lg border border-border bg-card px-2"
+          >
+            <option value="">{t("checkout_drafts_followup_template_placeholder")}</option>
+            {FOLLOW_UP_NOTE_TEMPLATES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {followUpNoteFromTemplate(item.id, draft.firstItemName, t)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1">
           <span className="text-xs text-ink-muted">{t("checkout_drafts_followup_note")}</span>
           <textarea
             aria-label={t("checkout_drafts_followup_note")}
             value={note}
             maxLength={500}
             rows={2}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              setNoteTemplate("");
+              setNote(event.target.value);
+            }}
             className="rounded-lg border border-border bg-card px-2 py-1"
           />
         </label>

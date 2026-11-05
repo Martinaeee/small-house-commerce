@@ -138,6 +138,16 @@ describe("CheckoutDraftsPage", () => {
     expect(api.listCheckoutDrafts).toHaveBeenCalledTimes(2);
   });
 
+  it("offers common follow-up notes in the inline dialog", async () => {
+    render(<AdminI18nProvider><CheckoutDraftsPage /></AdminI18nProvider>);
+    const table = await screen.findByRole("table");
+    fireEvent.click(within(table).getByRole("button", { name: "未分配" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("option", { name: "联系确认是否要购买Oak Chair" })).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("常用备注"), { target: { value: "CHECK_PURCHASE" } });
+    expect(within(dialog).getByLabelText("跟进备注")).toHaveValue("联系确认是否要购买Oak Chair");
+  });
+
   it("only offers the inline assignment on drafts with saved form data", async () => {
     api.listCheckoutDrafts.mockResolvedValue({
       items: [{

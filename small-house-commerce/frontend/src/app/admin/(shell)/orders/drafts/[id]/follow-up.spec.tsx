@@ -86,6 +86,16 @@ describe("checkout draft customer-service follow-up", () => {
     expect(api.getCheckoutDraft).toHaveBeenCalledTimes(2);
   });
 
+  it("fills the note from a common follow-up template", async () => {
+    render(<AdminI18nProvider><CheckoutDraftDetailPage /></AdminI18nProvider>);
+    await screen.findByText("客服跟进");
+    expect(screen.getByRole("option", { name: "联系确认是否要购买Oak Chair" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("常用备注"), { target: { value: "CHECK_PURCHASE" } });
+    expect(screen.getByLabelText("跟进备注")).toHaveValue("联系确认是否要购买Oak Chair");
+    fireEvent.change(screen.getByLabelText("常用备注"), { target: { value: "NO_ANSWER" } });
+    expect(screen.getByLabelText("跟进备注")).toHaveValue("电话未接，稍后再联系");
+  });
+
   it("shows the timeline of earlier attempts", async () => {
     api.getCheckoutDraft.mockResolvedValue(draft({
       followUpStatus: "NO_ANSWER",
