@@ -7,6 +7,13 @@ const shiftDay = (day: string, delta: number): string => new Date(Date.parse(`${
 const mondayOf = (day: string): string => shiftDay(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7));
 const manilaToday = (now: Date): string => new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 const daySpan = (from: string, to: string): number => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1;
+const monthStart = (day: string): string => `${day.slice(0, 7)}-01`;
+const shiftMonth = (day: string, delta: number): string => {
+  const date = new Date(`${monthStart(day)}T00:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + delta);
+  return date.toISOString().slice(0, 10);
+};
+const monthEnd = (day: string): string => shiftDay(shiftMonth(day, 1), -1);
 
 const readRange = (from: string, to: string): PerformanceReadRange => ({
   from,
@@ -20,8 +27,28 @@ export function resolvePerformanceWindow(query: MarketingPerformanceQuery, now: 
   let from: string;
   let to: string;
   switch (query.preset) {
+    case 'TODAY':
+      from = today;
+      to = today;
+      break;
+    case 'YESTERDAY':
+      from = shiftDay(today, -1);
+      to = from;
+      break;
+    case 'TODAY_AND_YESTERDAY':
+      from = shiftDay(today, -1);
+      to = today;
+      break;
     case 'LAST_7_DAYS':
       from = shiftDay(today, -6);
+      to = today;
+      break;
+    case 'LAST_14_DAYS':
+      from = shiftDay(today, -13);
+      to = today;
+      break;
+    case 'LAST_28_DAYS':
+      from = shiftDay(today, -27);
       to = today;
       break;
     case 'LAST_30_DAYS':
@@ -36,6 +63,16 @@ export function resolvePerformanceWindow(query: MarketingPerformanceQuery, now: 
       to = shiftDay(mondayOf(today), -1);
       from = shiftDay(to, -6);
       break;
+    case 'THIS_MONTH':
+      from = monthStart(today);
+      to = today;
+      break;
+    case 'LAST_MONTH': {
+      const lastMonth = shiftMonth(today, -1);
+      from = monthStart(lastMonth);
+      to = monthEnd(lastMonth);
+      break;
+    }
     case 'CUSTOM':
       from = query.from as string;
       to = query.to as string;
@@ -43,9 +80,17 @@ export function resolvePerformanceWindow(query: MarketingPerformanceQuery, now: 
   const current = readRange(from, to);
   let previous: PerformanceReadRange | null = null;
   if (query.compare) {
-    previous = query.preset === 'THIS_WEEK'
-      ? readRange(shiftDay(from, -7), shiftDay(to, -7))
-      : readRange(shiftDay(from, -daySpan(from, to)), shiftDay(from, -1));
+    // Weeks and months compare against the adjacent calendar unit: a
+    // part-way week or month would otherwise be measured against a
+    // full-length sliding window of the same size.
+    if (query.preset === 'THIS_WEEK') {
+      previous = readRange(shiftDay(from, -7), shiftDay(to, -7));
+    } else if (query.preset === 'THIS_MONTH' || query.preset === 'LAST_MONTH') {
+      const previousMonth = shiftMonth(from, -1);
+      previous = readRange(monthStart(previousMonth), monthEnd(previousMonth));
+    } else {
+      previous = readRange(shiftDay(from, -daySpan(from, to)), shiftDay(from, -1));
+    }
   }
   return { asOf: now, current, previous };
 }

@@ -3,7 +3,7 @@ import MarketingWorkbench from "@/components/admin/marketing/MarketingWorkbench"
 import type { PerformancePreset } from "@/lib/marketing-api";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
-const presets: PerformancePreset[] = ["LAST_7_DAYS", "LAST_30_DAYS", "THIS_WEEK", "LAST_WEEK", "CUSTOM"];
+const presets: PerformancePreset[] = ["TODAY", "YESTERDAY", "TODAY_AND_YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_28_DAYS", "LAST_30_DAYS", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CUSTOM"];
 
 export default async function MarketingComparePage({ searchParams }: { searchParams: Promise<{ productId?: string; owner?: string; preset?: string; from?: string; to?: string }> }) {
   const { productId, preset, from, to } = await searchParams;

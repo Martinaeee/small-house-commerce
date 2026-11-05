@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { QuickDateRange } from "./QuickDateRange";
 import { AdminApiError } from "@/lib/admin-auth";
 import { canManageMarketingPage, marketingApi, type MarketingOwnerOption, type MarketingPageListRow, type MarketingPageQuery, type MarketingPageStatus } from "@/lib/marketing-api";
 import { CreateMarketingPageDialog } from "./CreateMarketingPageDialog";
@@ -74,9 +75,15 @@ export function MarketingPagesList({ productId }: { productId?: string }) {
   const data = loaded?.key === queryKey ? loaded : null;
   const error = loadError?.key === queryKey ? loadError.message : null;
   const ownerChoices = owners?.key === scopeKey ? owners.items : [];
+  /** Shared by the form submit and the quick period shortcuts. */
+  const applyFilters = (next: typeof inputs) => {
+    setInputs(next);
+    setFilters({ search: next.search || undefined, ownerUserId: all ? next.ownerUserId || undefined : undefined, effectiveStatus: next.effectiveStatus as MarketingPageStatus || undefined, dateFrom: next.dateFrom || undefined, dateTo: next.dateTo || undefined, periodFrom: next.periodFrom, periodTo: next.periodTo });
+    setPage(1);
+  };
   return <section className="min-w-0 space-y-3" aria-label={t("marketing_pages")}>
     <div className="flex flex-wrap justify-between gap-2"><h2 className="font-semibold">{t("marketing_pages")}</h2>{canCreate && <button type="button" className="rounded-lg bg-cta px-3 py-2 text-sm font-semibold text-white" onClick={() => setCreatingFor(scopeKey)}>{t("marketing_page_create")}</button>}</div>
-    <form className="grid gap-2 md:grid-cols-3 xl:grid-cols-6" onSubmit={(event) => { event.preventDefault(); setFilters({ search: inputs.search || undefined, ownerUserId: all ? inputs.ownerUserId || undefined : undefined, effectiveStatus: inputs.effectiveStatus as MarketingPageStatus || undefined, dateFrom: inputs.dateFrom || undefined, dateTo: inputs.dateTo || undefined, periodFrom: inputs.periodFrom, periodTo: inputs.periodTo }); setPage(1); }}>
+    <form className="grid gap-2 md:grid-cols-3 xl:grid-cols-6" onSubmit={(event) => { event.preventDefault(); applyFilters(inputs); }}>
       <input className={fieldClass} aria-label={t("marketing_page_search")} placeholder={t("marketing_page_search")} value={inputs.search} onChange={(event) => setInputs((value) => ({ ...value, search: event.target.value }))} />
       {all && <label className="text-xs text-admin-muted">{t("marketing_owner")}<select className={`${fieldClass} w-full`} value={inputs.ownerUserId} onChange={(event) => setInputs((value) => ({ ...value, ownerUserId: event.target.value }))}><option value="">{t("marketing_all_owners")}</option>{ownerChoices.map((owner) => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select></label>}
       <select aria-label={t("common_status")} className={fieldClass} value={inputs.effectiveStatus} onChange={(event) => setInputs((value) => ({ ...value, effectiveStatus: event.target.value }))}><option value="">{t("marketing_all_statuses")}</option>{statuses.map((status) => <option key={status} value={status}>{t(`marketing_status_${status}`)}</option>)}</select>
@@ -84,6 +91,7 @@ export function MarketingPagesList({ productId }: { productId?: string }) {
       <label className="text-xs text-admin-muted">{t("marketing_modified_to")}<input type="date" className={`${fieldClass} w-full`} value={inputs.dateTo} onChange={(event) => setInputs((value) => ({ ...value, dateTo: event.target.value }))} /></label>
       <label className="text-xs text-admin-muted">{t("marketing_period_from")}<input required type="date" max={inputs.periodTo || undefined} className={`${fieldClass} w-full`} value={inputs.periodFrom} onChange={(event) => setInputs((value) => ({ ...value, periodFrom: event.target.value }))} /></label>
       <label className="text-xs text-admin-muted">{t("marketing_period_to")}<input required type="date" min={inputs.periodFrom || undefined} className={`${fieldClass} w-full`} value={inputs.periodTo} onChange={(event) => setInputs((value) => ({ ...value, periodTo: event.target.value }))} /></label>
+      <QuickDateRange from={inputs.periodFrom} to={inputs.periodTo} onSelect={(range) => applyFilters({ ...inputs, periodFrom: range.from, periodTo: range.to })} />
       <div className="flex items-end gap-2"><button type="submit" className={actionClass}>{t("common_search")}</button><button type="button" className={actionClass} disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t("marketing_reload")}</button></div>
     </form>
     <p className="text-xs text-admin-muted">{t("marketing_modified_hint")}</p>

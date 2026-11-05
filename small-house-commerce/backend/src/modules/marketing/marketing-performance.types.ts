@@ -1,7 +1,19 @@
 import type { MarketingReportRawRow } from './marketing-report-metrics.js';
 
 export type PerformanceView = 'PRODUCT' | 'OPTIMIZER';
-export type PerformancePreset = 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'THIS_WEEK' | 'LAST_WEEK' | 'CUSTOM';
+export type PerformancePreset =
+  | 'TODAY'
+  | 'YESTERDAY'
+  | 'TODAY_AND_YESTERDAY'
+  | 'LAST_7_DAYS'
+  | 'LAST_14_DAYS'
+  | 'LAST_28_DAYS'
+  | 'LAST_30_DAYS'
+  | 'THIS_WEEK'
+  | 'LAST_WEEK'
+  | 'THIS_MONTH'
+  | 'LAST_MONTH'
+  | 'CUSTOM';
 export type PerformanceInterval = 'DAY' | 'WEEK';
 export type PerformanceSort = 'name' | 'visits' | 'validOrders' | 'conversionRate' | 'spendUsd' | 'orderCpaUsd' | 'signedRoas';
 export type EffectivePageStatus = 'DRAFT' | 'LIVE' | 'SCHEDULED' | 'ENDED' | 'DISABLED';

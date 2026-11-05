@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportTable } from '@/components/admin/marketing/ReportTable';
 import MarketingWorkbench from '@/components/admin/marketing/MarketingWorkbench';
 import { AdminI18nProvider } from '@/lib/admin-i18n';
+import { quickDateRange } from '@/lib/quick-date-range';
 import { marketingApi, type MarketingReport, type MarketingReportRow } from '@/lib/marketing-api';
 const auth = vi.hoisted(() => ({ admin: { id: 'u1', permissions: ['MARKETING_VIEW_OWN'] } }));
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => auth }));
@@ -21,6 +22,17 @@ describe('post date report filters', () => {
     fireEvent.click(screen.getByRole('button', { name: '查询核算' }));
     await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ postDateFrom: '2026-11-01', postDateTo: '2026-11-03', from: expect.any(String), to: expect.any(String) })));
     expect(await screen.findByText('当前仅统计符合条件的已登记 Facebook 帖子链接。')).toBeInTheDocument();
+  });
+});
+
+describe('report quick date ranges', () => {
+  it('fills the reporting period from the yesterday shortcut and reloads the report', async () => {
+    mount(); await screen.findByText('Ad A');
+    const { from, to } = quickDateRange('YESTERDAY');
+    fireEvent.click(screen.getByRole('button', { name: '昨天' }));
+    expect(screen.getByLabelText('触达日期从（马尼拉）')).toHaveValue(from);
+    expect(screen.getByLabelText('触达日期到（马尼拉）') ).toHaveValue(to);
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ from, to })));
   });
 });
 

@@ -46,6 +46,45 @@ describe('performance window resolution', () => {
     expect(leap.previous).toMatchObject({ from: '2028-02-23', to: '2028-02-26' });
   });
 
+  it('resolves today, yesterday and the two-day preset around Manila today', () => {
+    const now = at('2026-10-07T04:00:00Z');
+    const today = resolvePerformanceWindow(productQuery({ preset: 'TODAY' }), now);
+    expect(today.current).toMatchObject({ from: '2026-10-07', to: '2026-10-07' });
+    expect(today.previous).toMatchObject({ from: '2026-10-06', to: '2026-10-06' });
+
+    const yesterday = resolvePerformanceWindow(productQuery({ preset: 'YESTERDAY' }), now);
+    expect(yesterday.current).toMatchObject({ from: '2026-10-06', to: '2026-10-06' });
+    expect(yesterday.previous).toMatchObject({ from: '2026-10-05', to: '2026-10-05' });
+
+    const both = resolvePerformanceWindow(productQuery({ preset: 'TODAY_AND_YESTERDAY' }), now);
+    expect(both.current).toMatchObject({ from: '2026-10-06', to: '2026-10-07' });
+    expect(both.previous).toMatchObject({ from: '2026-10-04', to: '2026-10-05' });
+  });
+
+  it('resolves 14 and 28 day ranges against the adjacent equal-length range', () => {
+    const now = at('2026-10-07T04:00:00Z');
+    const fourteen = resolvePerformanceWindow(productQuery({ preset: 'LAST_14_DAYS' }), now);
+    expect(fourteen.current).toMatchObject({ from: '2026-09-24', to: '2026-10-07' });
+    expect(fourteen.previous).toMatchObject({ from: '2026-09-10', to: '2026-09-23' });
+    const twentyEight = resolvePerformanceWindow(productQuery({ preset: 'LAST_28_DAYS' }), now);
+    expect(twentyEight.current).toMatchObject({ from: '2026-09-10', to: '2026-10-07' });
+    expect(twentyEight.previous).toMatchObject({ from: '2026-08-13', to: '2026-09-09' });
+  });
+
+  it('resolves calendar months with the adjacent calendar month as comparison', () => {
+    const october = resolvePerformanceWindow(productQuery({ preset: 'THIS_MONTH' }), at('2026-10-07T04:00:00Z'));
+    expect(october.current).toMatchObject({ from: '2026-10-01', to: '2026-10-07' });
+    expect(october.previous).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+
+    const lastMonth = resolvePerformanceWindow(productQuery({ preset: 'LAST_MONTH' }), at('2026-10-07T04:00:00Z'));
+    expect(lastMonth.current).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+    expect(lastMonth.previous).toMatchObject({ from: '2026-08-01', to: '2026-08-31' });
+
+    const january = resolvePerformanceWindow(productQuery({ preset: 'THIS_MONTH' }), at('2026-01-15T04:00:00Z'));
+    expect(january.current).toMatchObject({ from: '2026-01-01', to: '2026-01-15' });
+    expect(january.previous).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+  });
+
   it('omits the comparison when compare is disabled', () => {
     const window = resolvePerformanceWindow(productQuery({ preset: 'LAST_7_DAYS', compare: '0' }), at('2026-10-07T04:00:00Z'));
     expect(window.previous).toBeNull();

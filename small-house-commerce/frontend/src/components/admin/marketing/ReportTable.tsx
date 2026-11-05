@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { QuickDateRange } from "./QuickDateRange";
 import { marketingApi, type MarketingReport, type MarketingReportRow, type MarketingReportSort } from "@/lib/marketing-api";
 import { reportColumns, ReportMetricCells, ProductThumb } from "./ReportColumns";
 import { ReportTreeTable } from "./ReportTreeTable";
@@ -89,6 +90,13 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     setInputs(value => ({ ...value, ...partial }));
   }
 
+  /** A submitted form and a quick range both lock the same input snapshot. */
+  function applyFilters(next: typeof inputs) {
+    setInputs(next);
+    setFilters(next);
+    setPage(1);
+  }
+
   // TREE responses carry no `rows`: the flat table must never even walk them.
   const flatRows = data?.mode === "FLAT" ? data.rows ?? [] : [];
   const flatTable = data && <div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>
@@ -104,9 +112,10 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
   return <section className="min-w-0 space-y-3" aria-label={t("marketing_reports")}>
     <h2 className="font-semibold">{t("marketing_reports")}</h2>
     <p className="text-xs text-admin-muted">{t("marketing_post_report_hint")}</p>
-    <form className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); setFilters(inputs); setPage(1); }}>
+    <form className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); applyFilters(inputs); }}>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_from")}<input className={fieldClass} required type="date" value={inputs.from} max={inputs.to} onChange={(event) => changeStatusFields({ from: event.target.value })} /></label>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_to")}<input className={fieldClass} required type="date" value={inputs.to} min={inputs.from} max={dateFormat.format(new Date())} onChange={(event) => changeStatusFields({ to: event.target.value })} /></label>
+      <QuickDateRange from={inputs.from} to={inputs.to} onSelect={(range) => applyFilters({ ...inputs, ...range })} />
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_from")}<input className={fieldClass} type="date" value={inputs.postDateFrom} max={inputs.postDateTo || undefined} onChange={e => changeStatusFields({ postDateFrom: e.target.value, postDateMissingOnly: false })} /></label>
       <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_to")}<input className={fieldClass} type="date" value={inputs.postDateTo} min={inputs.postDateFrom || undefined} onChange={e => changeStatusFields({ postDateTo: e.target.value, postDateMissingOnly: false })} /></label>
       <label className="flex items-center gap-2 text-xs text-admin-muted"><input type="checkbox" checked={inputs.postDateMissingOnly} onChange={e => changeStatusFields({ postDateMissingOnly: e.target.checked, postDateFrom: "", postDateTo: "" })} />{t("marketing_post_missing_only")}</label>

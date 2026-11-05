@@ -3,10 +3,13 @@
 import { useMemo } from "react";
 import { ProductPickerField, type ProductOption } from "@/components/admin/ProductPicker";
 import { useAdminI18n } from "@/lib/admin-i18n";
+import { quickRangeButtonClass } from "@/lib/quick-date-range";
 import type { EffectivePageStatus, MarketingPerformanceOptions, MarketingPerformanceQuery, PerformancePreset, PerformanceSort } from "@/lib/marketing-api";
 
 const fieldClass = "min-w-0 max-w-full rounded-lg border border-admin-border bg-white px-3 py-2 text-sm";
-const presets: PerformancePreset[] = ["LAST_7_DAYS", "LAST_30_DAYS", "THIS_WEEK", "LAST_WEEK", "CUSTOM"];
+const presets: PerformancePreset[] = ["TODAY", "YESTERDAY", "TODAY_AND_YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_28_DAYS", "LAST_30_DAYS", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CUSTOM"];
+/** The ranges operators switch between most often; the select keeps the rest. */
+const quickPresets: PerformancePreset[] = ["TODAY", "YESTERDAY", "TODAY_AND_YESTERDAY", "LAST_7_DAYS"];
 const statuses: EffectivePageStatus[] = ["DRAFT", "LIVE", "SCHEDULED", "ENDED", "DISABLED"];
 const sorts: PerformanceSort[] = ["name", "visits", "validOrders", "conversionRate", "spendUsd", "orderCpaUsd", "signedRoas"];
 
@@ -47,6 +50,9 @@ export function PerformanceFilters({ query, onChange, options, onlyOwn, loading,
       <option value="">{t("marketing_all_statuses")}</option>
       {statuses.map(status => <option key={status} value={status}>{t(`marketing_status_${status}`)}</option>)}
     </select></label>}
+    <div role="group" aria-label={t("marketing_quick_range")} className="flex flex-wrap items-center gap-1 pb-0.5">
+      {quickPresets.map(preset => <button key={preset} type="button" aria-pressed={query.preset === preset} disabled={loading} onClick={() => set({ preset, from: undefined, to: undefined })} className={quickRangeButtonClass(query.preset === preset)}>{t(`marketing_performance_preset_${preset}`)}</button>)}
+    </div>
     <label className="space-y-1 text-xs text-admin-muted">{t("marketing_performance_preset")}<select className={fieldClass} disabled={loading} aria-label={t("marketing_performance_preset")} value={query.preset} onChange={(event) => set({ preset: event.target.value as PerformancePreset, from: undefined, to: undefined })}>
       {presets.map(preset => <option key={preset} value={preset}>{t(`marketing_performance_preset_${preset}`)}</option>)}
     </select></label>

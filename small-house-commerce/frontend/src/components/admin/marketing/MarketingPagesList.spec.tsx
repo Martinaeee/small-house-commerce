@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketingPagesList } from "@/components/admin/marketing/MarketingPagesList";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
+import { quickDateRange } from "@/lib/quick-date-range";
 import { marketingApi, type MarketingPageDetail, type MarketingPageListRow } from "@/lib/marketing-api";
 import type { LandingContent } from "@/lib/marketing-content";
 import { AdminApiError } from "@/lib/admin-auth";
@@ -16,6 +17,16 @@ const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescripti
 const row: MarketingPageDetail & MarketingPageListRow = { status: "ACTIVE", publishedAt: "2026-10-09T01:00:00Z", startAt: null, endAt: null, draftContent: content, publishedContent: content, sourceContentHash: "source", id: "page-1", productId: "p1", productName: "Chair", productCode: "CHAIR-1", productSlug: "chair", productStatus: "ACTIVE", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", name: "My launch", slug: "chair-ad", effectiveStatus: "LIVE", hasUnpublishedChanges: true, linkCount: 2, periodViews: 3, periodOrders: 1, publishedRevision: 1, version: 2, updatedAt: "2026-10-09T01:00:00Z" };
 const mount = (props = {}) => render(<AdminI18nProvider><MarketingPagesList {...props} /></AdminI18nProvider>);
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"]; vi.mocked(marketingApi.listPages).mockResolvedValue({ items: [row], total: 1, page: 1, pageSize: 20 }); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u1", aid: "OP-1", displayName: "Optimizer", status: "ACTIVE", userStatus: "ACTIVE" }]); vi.mocked(marketingApi.productOptions).mockResolvedValue({ items: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg" }], total: 1, page: 1, pageSize: 50 }); vi.mocked(marketingApi.createPage).mockResolvedValue({ ...row, id: "new-page", effectiveStatus: "DRAFT" }); });
+
+describe("period quick date ranges", () => {
+  it("applies the today-and-yesterday shortcut to the period filter", async () => {
+    mount(); await screen.findByText(row.name);
+    const { from, to } = quickDateRange("TODAY_AND_YESTERDAY");
+    fireEvent.click(screen.getByRole("button", { name: "今天和昨天" }));
+    expect(screen.getByLabelText("统计日期从（马尼拉）")).toHaveValue(from);
+    await waitFor(() => expect(marketingApi.listPages).toHaveBeenLastCalledWith(expect.objectContaining({ periodFrom: from, periodTo: to })));
+  });
+});
 
 describe("marketing page workbench", () => {
   it("shows bounded period counts rather than lifetime values", async () => {
