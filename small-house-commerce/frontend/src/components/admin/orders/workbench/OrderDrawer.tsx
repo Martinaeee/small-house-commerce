@@ -340,6 +340,8 @@ export function OrderDrawer({
                       {t("orders_filter_classification")}
                     </dt>
                     <dd className="text-ink">{row.customerClassification ?? "—"}</dd>
+                    <dt className="text-[12.5px] text-ink-muted">{t("orders_col_adid")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{row.adid ?? "—"}</dd>
                   </dl>
                 </section>
 

@@ -123,7 +123,7 @@ export function CampaignLinksList({ productId, landingPageId, onLoaded, workspac
   async function copyAdid(adid: string) {
     let ok = false;
     try { ok = await copyText(adid); } catch { /* the number stays selectable */ }
-    setNotice(ok ? "link_builder_copied" : "common_copy_failed_manual");
+    setNotice(ok ? t("link_builder_copied") : t("common_copy_failed_manual"));
   }
   const data = (!workspace || view === "flat") && loaded?.key === queryKey ? loaded : null;
   const groupData = workspace && view === "products" && groups?.key === queryKey ? groups : null;

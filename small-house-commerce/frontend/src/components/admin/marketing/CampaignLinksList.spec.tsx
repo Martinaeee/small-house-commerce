@@ -229,6 +229,14 @@ describe("persisted campaign links", () => {
     expect(screen.getByText("FB-OP-1-261103-01")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制编号" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("FB-OP-1-261103-01"));
+    expect(await screen.findByRole("status")).toHaveTextContent("已复制");
+  });
+
+  it("explains a failed number copy without showing a translation key", async () => {
+    vi.mocked(copyText).mockResolvedValue(false);
+    mount(); await screen.findByText("Ad A");
+    fireEvent.click(screen.getByRole("button", { name: "复制编号" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("复制失败，请手动选择并复制");
   });
 
   it("keeps finance read-only and disables an owned link against its saved version", async () => {

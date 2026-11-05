@@ -479,6 +479,19 @@ export class OrdersService {
     const warehouse = await this.inventory.defaultWarehouse(tx);
 
         const touch = await this.marketingTouch.resolve(input.marketingCredential);
+        let adid = touch?.legacy && touch.sourceType === 'META_AD'
+          ? touch.adId?.trim() || null
+          : null;
+        if (touch?.linkId && (touch.sourceType === 'FB_POST' || touch.sourceType === 'META_AD')) {
+          const link = await tx.campaignLink.findUnique({
+            where: { id: touch.linkId },
+            select: { adid: true, ownerUserId: true, aidSnapshot: true, sourceType: true },
+          });
+          if (link?.ownerUserId === touch.ownerUserId &&
+              link.aidSnapshot === touch.aid && link.sourceType === touch.sourceType) {
+            adid = link.adid;
+          }
+        }
         const promo = input.promoCode
           ? await this.promotions.resolveForCheckout(
               tx,
@@ -549,7 +562,7 @@ export class OrdersService {
           attribution: {
             create: {
               sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
-              adid: touch?.adid ?? null,
+              adid,
               aidSnapshot: touch?.aid ?? null,
               optimizerId: touch?.ownerUserId ?? null,
               ownerNameSnapshot: touch?.ownerName ?? null,
@@ -2344,6 +2357,7 @@ export class OrdersService {
 
     return {
       ...order,
+      adid: order.attribution?.adid ?? null,
       assignedTo: assignee,
       assignedBy: assigner,
       // The same verification progress the list shows.

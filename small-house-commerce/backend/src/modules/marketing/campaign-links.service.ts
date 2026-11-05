@@ -167,6 +167,7 @@ export class CampaignLinksService {
         { name: { contains: query.search, mode: 'insensitive' } },
         { aidSnapshot: { contains: query.search, mode: 'insensitive' } },
         { adId: { contains: query.search, mode: 'insensitive' } },
+        { adid: { contains: query.search, mode: 'insensitive' } },
         { code: { contains: query.search } },
         { postUrl: { contains: query.search, mode: 'insensitive' } },
         { product: { name: { contains: query.search, mode: 'insensitive' } } },

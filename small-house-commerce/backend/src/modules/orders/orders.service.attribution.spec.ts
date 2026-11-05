@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { createHmac, hkdfSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../../generated/prisma/client.js';
 import { CampaignLinksService } from '../marketing/campaign-links.service.js';
@@ -25,6 +26,7 @@ function setup() {
   const sku = { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, skuCode: where.id === SKU ? 'SKU-A' : 'SKU-B', status: 'ACTIVE', price: new Prisma.Decimal(where.id === SKU ? '199' : '49'), landedCost: null, isBundle: false, bundleComponents: [], variant: { id: PAGE, name: 'Standard', productId: where.id === SKU ? PRODUCT : PROFILE, product: { id: where.id === SKU ? PRODUCT : PROFILE, name: 'Bought product', status: 'ACTIVE' } } })) };
   const tx = {
     sku,
+    campaignLink: { findUnique: vi.fn(async () => ({ ...link })) },
     customer: { upsert: vi.fn(async () => ({ id: 'customer-1' })) },
     $queryRaw: vi.fn(async (query: TemplateStringsArray) => query.join('').includes("nextval('order_number_seq')") ? [{ nextval: 1n }] : []),
     order: { create: vi.fn(async ({ data }: { data: Prisma.OrderCreateInput }) => { writes.push(data); return { id: 'order-1', grandTotal: data.grandTotal }; }) },
@@ -60,7 +62,16 @@ function setup() {
     expect(result.credential).toEqual(expect.any(String));
     return result.credential!;
   };
-  return { service, touch, link, page, profile, writes, inventory, risk, input, credential, resolvedInside };
+  return { service, touch, link, page, profile, writes, inventory, risk, input, credential, resolvedInside, tx };
+}
+
+function preAdidCredential(credential: string, overrides: Record<string, unknown> = {}) {
+  const claims = JSON.parse(Buffer.from(credential.split('.')[0]!, 'base64url').toString());
+  Object.assign(claims, overrides);
+  delete claims.adid;
+  const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  const key = Buffer.from(hkdfSync('sha256', 'order-attribution-only-unit-test-secret', 'luwag.marketing', 'marketing-touch:v1', 32));
+  return `${body}.${createHmac('sha256', key).update(body).digest('base64url')}`;
 }
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(START); });
@@ -91,6 +102,37 @@ describe('immutable order marketing attribution', () => {
     await h.service.checkout(h.input(credential, { sourceType: 'META_AD', optimizerId: PROFILE, aid: 'OP-1', landingPageId: PAGE, adId: 'raw-ad' }));
     expect(h.writes[0]).toMatchObject({ optimizerId: null, optimizerAidSnapshot: null, optimizerNameSnapshot: null, attribution: { create: { sourceType: 'ORGANIC', adid: null, optimizerId: null, aidSnapshot: null, linkId: null, touchedAt: null, landingPageId: null, adId: null } } });
     expect(h.writes[0].grandTotal.toString()).toBe('199');
+  });
+
+  it('recovers the backfilled number for a verified pre-adid credential even after disabling the link', async () => {
+    const h = setup();
+    const credential = preAdidCredential(await h.credential());
+    h.link.status = 'DISABLED';
+    await h.service.checkout(h.input(credential));
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: 'ad-A', linkId: LINK } } });
+  });
+
+  it.each(['ownerUserId', 'aidSnapshot', 'sourceType'])('does not recover a number if the stored link mismatches the signed %s', async (field) => {
+    const h = setup();
+    const credential = preAdidCredential(await h.credential());
+    Object.assign(h.link, { [field]: 'different' });
+    await h.service.checkout(h.input(credential));
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: null, linkId: LINK } } });
+  });
+
+  it('does not recover a number when the signed link no longer exists', async () => {
+    const h = setup();
+    const credential = preAdidCredential(await h.credential());
+    h.tx.campaignLink.findUnique.mockResolvedValueOnce(null as never);
+    await h.service.checkout(h.input(credential));
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: null } } });
+  });
+
+  it('keeps a real Meta ID from a verified legacy credential without inventing a link', async () => {
+    const h = setup();
+    const credential = preAdidCredential(await h.credential(), { linkId: null, legacy: true, adId: '120-legacy-real' });
+    await h.service.checkout(h.input(credential));
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: '120-legacy-real', linkId: null } } });
   });
 
   it('keeps manual OTHER orders unattributed without fabricating a paid source', async () => {

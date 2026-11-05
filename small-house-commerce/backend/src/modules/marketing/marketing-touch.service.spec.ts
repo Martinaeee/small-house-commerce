@@ -60,15 +60,22 @@ describe('server-signed marketing touch', () => {
     const { service } = setup();
     const result = await service.touch({ code: 'abcdefghijklmnop', visitKey: 'tab-1', aid: 'FORGED', sourceType: 'DIRECT', adId: 'forged-ad', utmSource: 'forged' });
     expect(result.expiresAt).toBe('2026-10-17T15:59:00.000Z');
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, ownerName: 'Operator at touch', aid: 'OP-1', adid: 'AD-OP-1-261105-01', linkId: LINK, productId: PRODUCT, productName: 'Saved chair', productCode: 'LUW-001', landingPageId: PAGE, publishedRevision: 3, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmContent: 'creative', legacy: false, touchedAt: START.toISOString(), expiresAt: result.expiresAt });
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, ownerName: 'Operator at touch', aid: 'OP-1', linkId: LINK, productId: PRODUCT, productName: 'Saved chair', productCode: 'LUW-001', landingPageId: PAGE, publishedRevision: 3, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmContent: 'creative', legacy: false, touchedAt: START.toISOString(), expiresAt: result.expiresAt });
   });
 
   it('still accepts touches signed before the advertising number existed', async () => {
     const { service } = setup();
     const claims = await service.resolve(await mint(service));
     expect(claims).not.toBeNull();
-    const { adid: _adid, ...legacy } = claims!;
-    expect(marketingTouchClaimsSchema.safeParse(legacy).success).toBe(true);
+    expect(marketingTouchClaimsSchema.safeParse(claims).success).toBe(true);
+  });
+
+  it('keeps the credential wire shape readable by the rollback backend', async () => {
+    const { service } = setup();
+    const credential = await mint(service);
+    const payload = JSON.parse(Buffer.from(credential.split('.')[0]!, 'base64url').toString());
+    expect(payload).not.toHaveProperty('adid');
+    expect(payload).toMatchObject({ version: 1, linkId: LINK, sourceType: 'META_AD' });
   });
 
   it('rejects payload tampering and malformed MAC lengths without throwing', async () => {
@@ -139,7 +146,7 @@ describe('server-signed marketing touch', () => {
   it('mints DIRECT attribution only for an actually live owned page, never a paid link', async () => {
     const { service, linkVisits, pageVisits } = setup();
     const result = await service.touch({ path: '/lp/chair-ad', visitKey: 'tab-1', adId: 'ad-A', sourceType: 'META_AD' });
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, linkId: null, sourceType: 'DIRECT', legacy: false, landingPageId: PAGE, adid: null, adId: null, campaignId: null });
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, linkId: null, sourceType: 'DIRECT', legacy: false, landingPageId: PAGE, adId: null, campaignId: null });
     expect(linkVisits.size).toBe(0); expect(pageVisits.size).toBe(1);
   });
 
@@ -156,7 +163,7 @@ describe('server-signed marketing touch', () => {
   it('resolves legacy AID only through its registered User ID and never as a CampaignLink', async () => {
     const { service, linkVisits } = setup();
     const result = await service.touch({ aid: ' op-1 ', sourceType: 'FB_POST', adId: 'legacy-ad', path: '/products/chair', visitKey: 'tab-1' });
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', legacy: true, linkId: null, sourceType: 'FB_POST', productId: PRODUCT, adid: null, adId: 'legacy-ad' });
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', legacy: true, linkId: null, sourceType: 'FB_POST', productId: PRODUCT, adId: 'legacy-ad' });
     expect(linkVisits.size).toBe(0);
   });
 

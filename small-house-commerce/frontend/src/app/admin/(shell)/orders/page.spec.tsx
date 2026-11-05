@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import type { AdminOrderListRow } from "@/lib/admin-api";
@@ -205,6 +205,16 @@ describe("the order workbench list", () => {
 
     expect(await screen.findByText("FB-OP-1-261105-01")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: /^Ad ID/ })).toBeTruthy();
+  });
+
+  it.each(["FB-OP-1-261105-01", null])("shows the advertising number in the actual workbench drawer: %s", async (adid) => {
+    api.listOrders.mockResolvedValue({ items: [row({ adid })], total: 1, page: 1, pageSize: 20 });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "PH100004" }));
+    const dialog = await screen.findByRole("dialog", { name: "PH100004" });
+    const label = within(dialog).getByText("Ad ID");
+    expect(label.nextElementSibling).toHaveTextContent(adid ?? "—");
   });
 
   it("keeps the shipping cost column hidden until the operator asks for it", async () => {

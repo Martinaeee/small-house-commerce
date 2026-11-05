@@ -25,8 +25,6 @@ export const marketingTouchClaimsSchema = z.object({
   version: z.literal(1),
   ownerUserId: z.string().uuid(),
   aid: z.string().min(1).max(64),
-  /** Optional so touches signed before this field existed still resolve. */
-  adid: z.string().max(120).nullable().optional(),
   ownerName: z.string(),
   linkId: z.string().uuid().nullable(),
   productId: z.string().uuid().nullable(),
