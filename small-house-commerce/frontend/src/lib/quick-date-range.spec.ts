@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quickDateRange, quickRangePresets } from "@/lib/quick-date-range";
+import { monthGrid, presetForRange, quickDateRange, rangePresets, shiftMonth } from "@/lib/quick-date-range";
 
 const at = (iso: string) => new Date(iso);
 
@@ -30,7 +30,40 @@ describe("quick marketing date ranges", () => {
     });
   });
 
-  it("keeps the four short presets in the requested order", () => {
-    expect(quickRangePresets).toEqual(["TODAY", "YESTERDAY", "TODAY_AND_YESTERDAY", "LAST_7_DAYS"]);
+});
+
+describe("calendar presets and grids", () => {
+  it("resolves weeks and months like the performance presets", () => {
+    const now = at("2026-11-05T02:00:00Z");
+    expect(quickDateRange("THIS_WEEK", now)).toEqual({ from: "2026-11-02", to: "2026-11-05" });
+    expect(quickDateRange("LAST_WEEK", now)).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+    expect(quickDateRange("THIS_MONTH", now)).toEqual({ from: "2026-11-01", to: "2026-11-05" });
+    expect(quickDateRange("LAST_MONTH", now)).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    expect(quickDateRange("LAST_14_DAYS", now)).toEqual({ from: "2026-10-23", to: "2026-11-05" });
+    expect(quickDateRange("LAST_28_DAYS", now)).toEqual({ from: "2026-10-09", to: "2026-11-05" });
+    expect(quickDateRange("LAST_30_DAYS", now)).toEqual({ from: "2026-10-07", to: "2026-11-05" });
+  });
+
+  it("names the preset a concrete range equals", () => {
+    expect(presetForRange({ from: "2026-11-04", to: "2026-11-05" }, at("2026-11-05T02:00:00Z"))).toBe("TODAY_AND_YESTERDAY");
+    expect(presetForRange({ from: "2026-10-01", to: "2026-10-07" }, at("2026-11-05T02:00:00Z"))).toBeNull();
+  });
+
+  it("lays a month out Monday-first with empty lead cells", () => {
+    // 2026-11-01 is a Sunday: six leading blanks before it.
+    expect(monthGrid("2026-11-01")[0]).toEqual([null, null, null, null, null, null, "2026-11-01"]);
+    expect(monthGrid("2026-11-01").flat().filter(Boolean)).toHaveLength(30);
+    expect(monthGrid("2026-11-01").every(week => week.length === 7)).toBe(true);
+  });
+
+  it("steps months without drifting into the next one", () => {
+    expect(shiftMonth("2026-01-31", -1)).toBe("2025-12-01");
+    expect(shiftMonth("2026-12-01", 1)).toBe("2027-01-01");
+  });
+
+  it("lists every picker preset in order", () => {
+    expect(rangePresets).toHaveLength(11);
+    expect(rangePresets[0]).toBe("TODAY");
+    expect(rangePresets.at(-1)).toBe("LAST_MONTH");
   });
 });

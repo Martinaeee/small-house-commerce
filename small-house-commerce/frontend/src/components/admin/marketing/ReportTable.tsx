@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import { QuickDateRange } from "./QuickDateRange";
+import { DateRangePicker } from "./DateRangePicker";
 import { marketingApi, type MarketingReport, type MarketingReportRow, type MarketingReportSort } from "@/lib/marketing-api";
 import { reportColumns, ReportMetricCells, ProductThumb } from "./ReportColumns";
 import { ReportTreeTable } from "./ReportTreeTable";
@@ -109,32 +109,64 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     <ReportMetricCells row={row} />
   </tr>)}{!flatRows.length && <tr><td colSpan={reportColumns.length} className="p-6 text-center text-admin-muted">{t("marketing_report_empty")}</td></tr>}</tbody></table></div>;
 
+  const captionClass = "pt-1 text-xs font-medium text-ink sm:w-24 sm:shrink-0";
+  const rowClass = "flex flex-wrap items-end gap-3";
+  const dateLabelClass = "w-48 space-y-1 text-xs text-admin-muted";
+
   return <section className="min-w-0 space-y-3" aria-label={t("marketing_reports")}>
-    <h2 className="font-semibold">{t("marketing_reports")}</h2>
-    <p className="text-xs text-admin-muted">{t("marketing_post_report_hint")}</p>
-    <form className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); applyFilters(inputs); }}>
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_from")}<input className={fieldClass} required type="date" value={inputs.from} max={inputs.to} onChange={(event) => changeStatusFields({ from: event.target.value })} /></label>
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_to")}<input className={fieldClass} required type="date" value={inputs.to} min={inputs.from} max={dateFormat.format(new Date())} onChange={(event) => changeStatusFields({ to: event.target.value })} /></label>
-      <QuickDateRange from={inputs.from} to={inputs.to} onSelect={(range) => applyFilters({ ...inputs, ...range })} />
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_from")}<input className={fieldClass} type="date" value={inputs.postDateFrom} max={inputs.postDateTo || undefined} onChange={e => changeStatusFields({ postDateFrom: e.target.value, postDateMissingOnly: false })} /></label>
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_post_post_date_to")}<input className={fieldClass} type="date" value={inputs.postDateTo} min={inputs.postDateFrom || undefined} onChange={e => changeStatusFields({ postDateTo: e.target.value, postDateMissingOnly: false })} /></label>
-      <label className="flex items-center gap-2 text-xs text-admin-muted"><input type="checkbox" checked={inputs.postDateMissingOnly} onChange={e => changeStatusFields({ postDateMissingOnly: e.target.checked, postDateFrom: "", postDateTo: "" })} />{t("marketing_post_missing_only")}</label>
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_level")}<select className={fieldClass} value={inputs.groupBy} disabled={mode === "TREE"} aria-disabled={mode === "TREE"} onChange={(event) => changeStatusFields({ groupBy: event.target.value as typeof inputs.groupBy })}>{levels.map(level => <option key={level} value={level}>{t(`marketing_report_${level}`)}</option>)}</select></label>
-      <label className="space-y-1 text-xs text-admin-muted">{t("marketing_report_filter_product")}<select className={fieldClass} aria-label={t("marketing_report_filter_product")} value={productFilter} onChange={(event) => { setProductFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_report_all_products")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}{product.productCode ? ` · ${product.productCode}` : ""}</option>)}</select></label>
-      {all && <label className="space-y-1 text-xs text-admin-muted">{t("marketing_owner")}<select className={fieldClass} aria-label={t("marketing_owner")} value={inputs.ownerUserId} onChange={(event) => changeStatusFields({ ownerUserId: event.target.value })}><option value="">{t("marketing_all_owners")}</option>{ownerData?.items.map(owner => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select></label>}
-      <div className="flex items-end gap-2"><button type="submit" className={buttonClass}>{t("marketing_report_query")}</button><button type="button" className={buttonClass} onClick={() => setRevision(value => value + 1)}>{t("marketing_reload")}</button></div>
-    </form>
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-2 text-xs text-admin-muted"><span>{t("marketing_report_view")}</span>
-        <select className={`${fieldClass} w-auto`} aria-label={t("marketing_report_view")} value={mode} onChange={(event) => { setMode(event.target.value as Mode); setPage(1); }}>
-          <option value="TREE">{t("marketing_report_view_tree")}</option>
-          <option value="FLAT">{t("marketing_report_view_flat")}</option>
-        </select>
-      </label>
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="space-y-1">
+        <h2 className="font-semibold">{t("marketing_reports")}</h2>
+        <p className="text-xs text-admin-muted">{t("marketing_post_report_hint")}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-xs text-admin-muted"><span className="whitespace-nowrap">{t("marketing_report_view")}</span>
+          <select className={`${fieldClass} w-auto`} aria-label={t("marketing_report_view")} value={mode} onChange={(event) => { setMode(event.target.value as Mode); setPage(1); }}>
+            <option value="TREE">{t("marketing_report_view_tree")}</option>
+            <option value="FLAT">{t("marketing_report_view_flat")}</option>
+          </select>
+        </label>
+        <button type="button" className={buttonClass} onClick={() => setRevision(value => value + 1)}>{t("marketing_reload")}</button>
+      </div>
     </div>
-    <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t("marketing_report_gross_warning")}</p>
-    <p className="text-xs text-admin-muted">{t("marketing_report_visit_hint")}</p><p className="text-xs text-admin-muted">{t("marketing_report_cost_hint")}</p>
-    <p className="text-xs text-admin-muted">{t("marketing_report_sort_hint")} · {t("marketing_report_funnel_hint")}</p>
+    <form className="space-y-3 rounded-xl border border-admin-border bg-white p-4" onSubmit={(event) => { event.preventDefault(); applyFilters(inputs); }}>
+      <div className={rowClass}>
+        <label className="w-80 max-w-full space-y-1 text-xs text-admin-muted">{t("marketing_report_period_date")}
+          <DateRangePicker
+            label={t("marketing_report_period_date")}
+            value={{ from: inputs.from, to: inputs.to }}
+            max={dateFormat.format(new Date())}
+            onChange={(range) => applyFilters({ ...inputs, from: range.from ?? "", to: range.to ?? "" })}
+          />
+        </label>
+        <label className="w-80 max-w-full space-y-1 text-xs text-admin-muted">{t("marketing_report_post_date")}
+          <DateRangePicker
+            label={t("marketing_report_post_date")}
+            value={{ from: inputs.postDateFrom || undefined, to: inputs.postDateTo || undefined }}
+            allowEmpty
+            max={dateFormat.format(new Date())}
+            onChange={(range) => changeStatusFields({ postDateFrom: range.from ?? "", postDateTo: range.to ?? "", postDateMissingOnly: false })}
+          />
+        </label>
+        <label className="flex items-center gap-2 pb-2 text-xs text-admin-muted"><input type="checkbox" checked={inputs.postDateMissingOnly} onChange={e => changeStatusFields({ postDateMissingOnly: e.target.checked, postDateFrom: "", postDateTo: "" })} />{t("marketing_post_missing_only")}</label>
+        <button type="submit" className={`${buttonClass} ml-auto bg-cta px-4 text-cta-foreground`}>{t("marketing_report_query")}</button>
+      </div>
+      <div className={`${rowClass} border-t border-admin-border pt-3`}>
+        <label className="w-40 space-y-1 text-xs text-admin-muted">{t("marketing_report_level")}<select className={fieldClass} value={inputs.groupBy} disabled={mode === "TREE"} aria-disabled={mode === "TREE"} onChange={(event) => changeStatusFields({ groupBy: event.target.value as typeof inputs.groupBy })}>{levels.map(level => <option key={level} value={level}>{t(`marketing_report_${level}`)}</option>)}</select></label>
+        <label className="w-64 space-y-1 text-xs text-admin-muted">{t("marketing_report_filter_product")}<select className={fieldClass} aria-label={t("marketing_report_filter_product")} value={productFilter} onChange={(event) => { setProductFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_report_all_products")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}{product.productCode ? ` · ${product.productCode}` : ""}</option>)}</select></label>
+        {all && <label className="w-48 space-y-1 text-xs text-admin-muted">{t("marketing_owner")}<select className={fieldClass} aria-label={t("marketing_owner")} value={inputs.ownerUserId} onChange={(event) => changeStatusFields({ ownerUserId: event.target.value })}><option value="">{t("marketing_all_owners")}</option>{ownerData?.items.map(owner => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select></label>}
+      </div>
+    </form>
+    <div className="space-y-1">
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{t("marketing_report_gross_warning")}</p>
+      <details>
+        <summary className="cursor-pointer text-xs text-admin-muted">{t("marketing_report_notes")}</summary>
+        <div className="mt-1 space-y-1 text-xs text-admin-muted">
+          <p>{t("marketing_report_visit_hint")}</p><p>{t("marketing_report_cost_hint")}</p>
+          <p>{t("marketing_report_sort_hint")} · {t("marketing_report_funnel_hint")}</p>
+        </div>
+      </details>
+    </div>
     {(loadError || ownerData?.error) && <p role="alert" className="text-sm text-red-700">{loadError ?? ownerData?.error}</p>}
     {!data && !loadError && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
     {data && <>

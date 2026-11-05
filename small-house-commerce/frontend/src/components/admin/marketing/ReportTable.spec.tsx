@@ -1,24 +1,31 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportTable } from '@/components/admin/marketing/ReportTable';
 import MarketingWorkbench from '@/components/admin/marketing/MarketingWorkbench';
 import { AdminI18nProvider } from '@/lib/admin-i18n';
-import { quickDateRange } from '@/lib/quick-date-range';
 import { marketingApi, type MarketingReport, type MarketingReportRow } from '@/lib/marketing-api';
 const auth = vi.hoisted(() => ({ admin: { id: 'u1', permissions: ['MARKETING_VIEW_OWN'] } }));
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => auth }));
 vi.mock('@/lib/marketing-api', async load => ({ ...await load(), marketingApi: { report: vi.fn(), ownerOptions: vi.fn(), linkContext: vi.fn(async () => ({ products: [] })), listCosts: vi.fn(async () => ({ items: [], total: 0 })) } }));
 const row: MarketingReportRow = { postDate: null, postUrl: null, archivedAt: null, kind: 'REGISTERED', id: 'link-1', label: 'Ad A', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', productId: 'p1', productName: 'Chair', productCode: 'CHAIR-1', landingPageId: 'page-1', sourceType: 'META_AD' as const, addToCarts: 0, checkouts: 0, visits: 2, pageTotalVisits: null, submittedOrders: 3, validOrders: 2, confirmedOrders: 1, signedOrders: 1, validOrderValuePhp: '12000.00', signedGrossPhp: '10000.00', spendUsd: '50.00', spendPhp: '2865.00', orderCpaUsd: '25.00', signedCpaUsd: '50.00', orderRoas: '4.19', signedRoas: '3.49', conversionRate: '1.0000', costCoverageComplete: true, recordedCostDays: 3, expectedCostDays: 3, duplicateOrders: 1, riskOrders: 1, afterSalesOrders: 0, refundStatusOrders: 0, periodBasis: 'TOUCH' , productThumbnailUrl: null };
 const result: MarketingReport = { from: '2026-10-05', to: '2026-10-07', groupBy: 'LINK', mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', asOf: '2026-10-11T04:00:00Z', page: 1, pageSize: 20, total: 1, rows: [row], otherSources: [] };
+
+/** Opens a picker, clicks ISO-day buttons and applies the draft. */
+const pickDates = (triggerName: string, days: string[]) => {
+  fireEvent.click(screen.getByRole('button', { name: triggerName }));
+  const dialog = screen.getByRole('dialog', { name: triggerName });
+  days.forEach(day => fireEvent.click(within(dialog).getByRole('button', { name: day })));
+  fireEvent.click(within(dialog).getByRole('button', { name: '更新' }));
+};
 const mount = (props: Parameters<typeof ReportTable>[0] = {}) => render(<AdminI18nProvider><ReportTable {...props} /></AdminI18nProvider>);
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ['MARKETING_VIEW_OWN']; vi.mocked(marketingApi.report).mockResolvedValue(result); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([]); });
 
 describe('post date report filters', () => {
   it('sends post dates without replacing the metric reporting period', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-05T02:00:00Z'));
     mount(); await screen.findByText('Ad A');
-    fireEvent.change(screen.getByLabelText('发帖起始日'), { target: { value: '2026-11-01' } });
-    fireEvent.change(screen.getByLabelText('发帖结束日'), { target: { value: '2026-11-03' } });
+    pickDates('发帖日期（马尼拉）', ['2026-11-01', '2026-11-03']);
     fireEvent.click(screen.getByRole('button', { name: '查询核算' }));
     await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ postDateFrom: '2026-11-01', postDateTo: '2026-11-03', from: expect.any(String), to: expect.any(String) })));
     expect(await screen.findByText('当前仅统计符合条件的已登记 Facebook 帖子链接。')).toBeInTheDocument();
@@ -27,12 +34,14 @@ describe('post date report filters', () => {
 
 describe('report quick date ranges', () => {
   it('fills the reporting period from the yesterday shortcut and reloads the report', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-05T02:00:00Z'));
     mount(); await screen.findByText('Ad A');
-    const { from, to } = quickDateRange('YESTERDAY');
-    fireEvent.click(screen.getByRole('button', { name: '昨天' }));
-    expect(screen.getByLabelText('触达日期从（马尼拉）')).toHaveValue(from);
-    expect(screen.getByLabelText('触达日期到（马尼拉）') ).toHaveValue(to);
-    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ from, to })));
+    fireEvent.click(screen.getByRole('button', { name: '触达日期（马尼拉）' }));
+    const dialog = screen.getByRole('dialog', { name: '触达日期（马尼拉）' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '昨天' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '更新' }));
+    expect(screen.getByRole('button', { name: '触达日期（马尼拉）' })).toHaveTextContent('2026/11/04');
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ from: '2026-11-04', to: '2026-11-04' })));
   });
 });
 
@@ -67,11 +76,11 @@ describe('touch-date marketing reports', () => {
 
   it('filters the cohort by Manila dates and level while retaining product/page/link context', async () => {
     mount({ productId: 'p1', landingPageId: 'page-1', linkId: 'link-1' }); await screen.findByText('Ad A');
-    fireEvent.change(screen.getByLabelText('触达日期从（马尼拉）'), { target: { value: '2026-10-05' } });
-    fireEvent.change(screen.getByLabelText('触达日期到（马尼拉）'), { target: { value: '2026-10-07' } });
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-05T02:00:00Z'));
+    pickDates('触达日期（马尼拉）', ['2026-11-02', '2026-11-04']);
     fireEvent.change(screen.getByLabelText('统计层级'), { target: { value: 'PAGE' } });
     fireEvent.click(screen.getByRole('button', { name: '查询核算' }));
-    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ from: '2026-10-05', to: '2026-10-07', groupBy: 'PAGE', productId: 'p1', landingPageId: 'page-1', linkIds: ['link-1'] })));
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ from: '2026-11-02', to: '2026-11-04', groupBy: 'PAGE', productId: 'p1', landingPageId: 'page-1', linkIds: ['link-1'] })));
   });
 
   it('links the fourth view to the same context rather than another disconnected page', async () => {

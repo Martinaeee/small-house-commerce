@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { Dialog } from "@/components/admin/Dialog";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import { QuickDateRange } from "./QuickDateRange";
+import { DateRangePicker } from "./DateRangePicker";
 import { AdminApiError } from "@/lib/admin-auth";
 import { canManageMarketingPage, marketingApi, type MarketingOwnerOption, type MarketingPageListRow, type MarketingPageQuery, type MarketingPageStatus } from "@/lib/marketing-api";
 import { CreateMarketingPageDialog } from "./CreateMarketingPageDialog";
@@ -89,9 +89,13 @@ export function MarketingPagesList({ productId }: { productId?: string }) {
       <select aria-label={t("common_status")} className={fieldClass} value={inputs.effectiveStatus} onChange={(event) => setInputs((value) => ({ ...value, effectiveStatus: event.target.value }))}><option value="">{t("marketing_all_statuses")}</option>{statuses.map((status) => <option key={status} value={status}>{t(`marketing_status_${status}`)}</option>)}</select>
       <label className="text-xs text-admin-muted">{t("marketing_modified_from")}<input type="date" className={`${fieldClass} w-full`} value={inputs.dateFrom} onChange={(event) => setInputs((value) => ({ ...value, dateFrom: event.target.value }))} /></label>
       <label className="text-xs text-admin-muted">{t("marketing_modified_to")}<input type="date" className={`${fieldClass} w-full`} value={inputs.dateTo} onChange={(event) => setInputs((value) => ({ ...value, dateTo: event.target.value }))} /></label>
-      <label className="text-xs text-admin-muted">{t("marketing_period_from")}<input required type="date" max={inputs.periodTo || undefined} className={`${fieldClass} w-full`} value={inputs.periodFrom} onChange={(event) => setInputs((value) => ({ ...value, periodFrom: event.target.value }))} /></label>
-      <label className="text-xs text-admin-muted">{t("marketing_period_to")}<input required type="date" min={inputs.periodFrom || undefined} className={`${fieldClass} w-full`} value={inputs.periodTo} onChange={(event) => setInputs((value) => ({ ...value, periodTo: event.target.value }))} /></label>
-      <QuickDateRange from={inputs.periodFrom} to={inputs.periodTo} onSelect={(range) => applyFilters({ ...inputs, periodFrom: range.from, periodTo: range.to })} />
+      <label className="xl:col-span-2 text-xs text-admin-muted">{t("marketing_period_date")}
+        <DateRangePicker
+          label={t("marketing_period_date")}
+          value={{ from: inputs.periodFrom, to: inputs.periodTo }}
+          onChange={(range) => applyFilters({ ...inputs, periodFrom: range.from ?? "", periodTo: range.to ?? "" })}
+        />
+      </label>
       <div className="flex items-end gap-2"><button type="submit" className={actionClass}>{t("common_search")}</button><button type="button" className={actionClass} disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t("marketing_reload")}</button></div>
     </form>
     <p className="text-xs text-admin-muted">{t("marketing_modified_hint")}</p>

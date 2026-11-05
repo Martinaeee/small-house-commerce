@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketingPagesList } from "@/components/admin/marketing/MarketingPagesList";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
-import { quickDateRange } from "@/lib/quick-date-range";
 import { marketingApi, type MarketingPageDetail, type MarketingPageListRow } from "@/lib/marketing-api";
 import type { LandingContent } from "@/lib/marketing-content";
 import { AdminApiError } from "@/lib/admin-auth";
@@ -15,16 +14,27 @@ vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => aut
 vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listPages: vi.fn(), ownerOptions: vi.fn(), productOptions: vi.fn(), createPage: vi.fn(), disable: vi.fn(), assignOwner: vi.fn(), getPage: vi.fn() } }));
 const content: LandingContent = { schemaVersion: 1, seoTitle: null, seoDescription: null, startAt: null, endAt: null, blocks: [{ id: "buy", type: "buy", sourceKey: null, props: {} }] };
 const row: MarketingPageDetail & MarketingPageListRow = { status: "ACTIVE", publishedAt: "2026-10-09T01:00:00Z", startAt: null, endAt: null, draftContent: content, publishedContent: content, sourceContentHash: "source", id: "page-1", productId: "p1", productName: "Chair", productCode: "CHAIR-1", productSlug: "chair", productStatus: "ACTIVE", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", name: "My launch", slug: "chair-ad", effectiveStatus: "LIVE", hasUnpublishedChanges: true, linkCount: 2, periodViews: 3, periodOrders: 1, publishedRevision: 1, version: 2, updatedAt: "2026-10-09T01:00:00Z" };
+
+/** Opens the period picker, clicks ISO-day buttons and applies. */
+const pickPeriod = (days: string[]) => {
+  fireEvent.click(screen.getByRole("button", { name: "投放周期（马尼拉）" }));
+  const dialog = screen.getByRole("dialog", { name: "投放周期（马尼拉）" });
+  days.forEach(day => fireEvent.click(within(dialog).getByRole("button", { name: day })));
+  fireEvent.click(within(dialog).getByRole("button", { name: "更新" }));
+};
 const mount = (props = {}) => render(<AdminI18nProvider><MarketingPagesList {...props} /></AdminI18nProvider>);
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); auth.admin.permissions = ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"]; vi.mocked(marketingApi.listPages).mockResolvedValue({ items: [row], total: 1, page: 1, pageSize: 20 }); vi.mocked(marketingApi.ownerOptions).mockResolvedValue([{ userId: "u1", aid: "OP-1", displayName: "Optimizer", status: "ACTIVE", userStatus: "ACTIVE" }]); vi.mocked(marketingApi.productOptions).mockResolvedValue({ items: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", status: "ACTIVE", thumbnailUrl: "/uploads/chair.jpg" }], total: 1, page: 1, pageSize: 50 }); vi.mocked(marketingApi.createPage).mockResolvedValue({ ...row, id: "new-page", effectiveStatus: "DRAFT" }); });
 
 describe("period quick date ranges", () => {
   it("applies the today-and-yesterday shortcut to the period filter", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-05T02:00:00Z"));
     mount(); await screen.findByText(row.name);
-    const { from, to } = quickDateRange("TODAY_AND_YESTERDAY");
-    fireEvent.click(screen.getByRole("button", { name: "今天和昨天" }));
-    expect(screen.getByLabelText("统计日期从（马尼拉）")).toHaveValue(from);
-    await waitFor(() => expect(marketingApi.listPages).toHaveBeenLastCalledWith(expect.objectContaining({ periodFrom: from, periodTo: to })));
+    fireEvent.click(screen.getByRole("button", { name: "投放周期（马尼拉）" }));
+    const dialog = screen.getByRole("dialog", { name: "投放周期（马尼拉）" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "今天和昨天" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "更新" }));
+    expect(screen.getByRole("button", { name: "投放周期（马尼拉）" })).toHaveTextContent("2026/11/04 – 2026/11/05");
+    await waitFor(() => expect(marketingApi.listPages).toHaveBeenLastCalledWith(expect.objectContaining({ periodFrom: "2026-11-04", periodTo: "2026-11-05" })));
   });
 });
 
@@ -41,14 +51,13 @@ describe("marketing page workbench", () => {
   });
 
   it("supplies default period dates and keeps modification filtering separate", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-05T02:00:00Z"));
     mount(); await screen.findByText(row.name);
-    expect(screen.getByLabelText("统计日期从（马尼拉）")).not.toHaveValue("");
-    expect(screen.getByLabelText("统计日期至（马尼拉）")).not.toHaveValue("");
-    fireEvent.change(screen.getByLabelText("统计日期从（马尼拉）"), { target: { value: "2026-10-01" } });
-    fireEvent.change(screen.getByLabelText("统计日期至（马尼拉）"), { target: { value: "2026-10-03" } });
+    expect(screen.getByRole("button", { name: "投放周期（马尼拉）" })).not.toHaveTextContent("未选择");
+    pickPeriod(["2026-11-01", "2026-11-03"]);
     fireEvent.change(screen.getByLabelText("修改日期从（马尼拉）"), { target: { value: "2026-09-01" } });
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
-    await waitFor(() => expect(marketingApi.listPages).toHaveBeenLastCalledWith(expect.objectContaining({ periodFrom: "2026-10-01", periodTo: "2026-10-03", dateFrom: "2026-09-01" })));
+    await waitFor(() => expect(marketingApi.listPages).toHaveBeenLastCalledWith(expect.objectContaining({ periodFrom: "2026-11-01", periodTo: "2026-11-03", dateFrom: "2026-09-01" })));
   });
 
   it("hides all-owner rows immediately when the same account loses broad viewing", async () => {
