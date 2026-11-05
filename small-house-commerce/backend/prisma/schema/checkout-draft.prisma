@@ -4,6 +4,15 @@ enum CheckoutDraftStatus {
   EXPIRED
 }
 
+/// 客服对未完成草稿的回访结果。null = 还没人排过跟进。
+enum CheckoutDraftFollowUpStatus {
+  TO_CONTACT
+  NO_ANSWER
+  FOLLOW_UP_LATER
+  WANTS_TO_BUY
+  DECLINED
+}
+
 /// 未完成的结账草稿。与 orders 完全分离：不占库存、不建 Customer。
 model CheckoutDraft {
   id              String              @id @default(uuid(7)) @db.Uuid
@@ -20,14 +29,41 @@ model CheckoutDraft {
   snapshot        Json                @default("{}")
   productSnapshot Json                @default("[]") @map("product_snapshot")
   orderId         String?             @unique @map("order_id") @db.Uuid
+  /// 客服跟进：当前结果、负责人、下次联系时间与最近一次结论。
+  followUpStatus  CheckoutDraftFollowUpStatus? @map("follow_up_status")
+  assigneeId      String?             @map("assignee_id") @db.Uuid
+  nextFollowUpAt  DateTime?           @map("next_follow_up_at") @db.Timestamptz(3)
+  lastContactedAt DateTime?           @map("last_contacted_at") @db.Timestamptz(3)
+  followUpNote    String?             @map("follow_up_note") @db.VarChar(500)
   createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
   expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
 
-  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order    Order?                          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  assignee User?                           @relation("CheckoutDraftAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  followUpEvents CheckoutDraftFollowUpEvent[]
 
   @@index([status, updatedAt])
   @@index([expiresAt])
   @@index([contactPhone])
+  @@index([followUpStatus, nextFollowUpAt])
+  @@index([assigneeId, followUpStatus])
   @@map("checkout_drafts")
+}
+
+/// 客服每次回访的留痕；草稿行只保留当前结论。
+model CheckoutDraftFollowUpEvent {
+  id          String                     @id @default(uuid(7)) @db.Uuid
+  draftId     String                     @map("draft_id") @db.Uuid
+  operatorId  String?                    @map("operator_id") @db.Uuid
+  fromStatus  CheckoutDraftFollowUpStatus? @map("from_status")
+  toStatus    CheckoutDraftFollowUpStatus  @map("to_status")
+  note        String?                    @db.VarChar(500)
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  draft    CheckoutDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  operator User?         @relation("CheckoutDraftFollowUpOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([draftId, createdAt])
+  @@map("checkout_draft_follow_up_events")
 }

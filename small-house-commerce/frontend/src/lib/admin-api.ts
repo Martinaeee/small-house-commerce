@@ -74,6 +74,13 @@ export interface Paged<T> {
 
 // --- checkout drafts ---------------------------------------------------------
 
+export type CheckoutDraftFollowUpStatus =
+  | "TO_CONTACT"
+  | "NO_ANSWER"
+  | "FOLLOW_UP_LATER"
+  | "WANTS_TO_BUY"
+  | "DECLINED";
+
 export interface AdminCheckoutDraftSummary {
   id: string;
   status: "OPEN" | "CONVERTED";
@@ -85,6 +92,11 @@ export interface AdminCheckoutDraftSummary {
   firstItemThumbnail: string | null;
   orderId: string | null;
   orderNumber: string | null;
+  followUpStatus: CheckoutDraftFollowUpStatus | null;
+  followUpNote: string | null;
+  assignee: { id: string; name: string } | null;
+  nextFollowUpAt: string | null;
+  lastContactedAt: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
@@ -118,6 +130,14 @@ export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
     thumbnailUrl: string | null;
     unitPrice: string | null;
     quantity: number;
+  }[];
+  followUpEvents: {
+    id: string;
+    fromStatus: CheckoutDraftFollowUpStatus | null;
+    toStatus: CheckoutDraftFollowUpStatus;
+    note: string | null;
+    operatorName: string | null;
+    createdAt: string;
   }[];
 }
 
@@ -1798,6 +1818,9 @@ export const adminApi = {
   listCheckoutDrafts: (p: {
     search?: string;
     status?: "OPEN" | "CONVERTED";
+    followUpStatus?: CheckoutDraftFollowUpStatus | "UNFOLLOWED";
+    assigneeId?: string;
+    dueOnly?: boolean;
     page?: number;
     pageSize?: number;
   }): Promise<Paged<AdminCheckoutDraftSummary>> =>
@@ -1805,9 +1828,26 @@ export const adminApi = {
       `/api/v1/admin/checkout-drafts${buildQuery({
         search: p.search,
         status: p.status,
+        followUpStatus: p.followUpStatus,
+        assigneeId: p.assigneeId,
+        dueOnly: p.dueOnly ? "true" : undefined,
         page: p.page,
         pageSize: p.pageSize,
       })}`,
+    ),
+
+  followUpCheckoutDraft: (
+    id: string,
+    input: {
+      status: CheckoutDraftFollowUpStatus;
+      assigneeId?: string | null;
+      nextFollowUpAt?: string | null;
+      note?: string | null;
+    },
+  ): Promise<AdminCheckoutDraftSummary> =>
+    adminAuthedFetch<AdminCheckoutDraftSummary>(
+      `/api/v1/admin/checkout-drafts/${encodeURIComponent(id)}/follow-up`,
+      { method: "PATCH", body: JSON.stringify(input) },
     ),
 
   getCheckoutDraft: (id: string): Promise<AdminCheckoutDraftDetail> =>
@@ -2246,6 +2286,9 @@ export const adminApi = {
     };
     items: { skuId: string; quantity: number }[];
     preferredDeliveryDate?: string | null;
+    customerNote?: string | null;
+    /** The checkout draft this operator is completing; the server claims it. */
+    checkoutDraftId?: string;
   }): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(`/api/v1/admin/orders`, {
       method: "POST",

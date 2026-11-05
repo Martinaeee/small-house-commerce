@@ -38,11 +38,37 @@ export const checkoutDraftSaveSchema = z
 
 export type CheckoutDraftSaveInput = z.infer<typeof checkoutDraftSaveSchema>;
 
+export const CHECKOUT_DRAFT_FOLLOW_UP_STATUSES = [
+  'TO_CONTACT',
+  'NO_ANSWER',
+  'FOLLOW_UP_LATER',
+  'WANTS_TO_BUY',
+  'DECLINED',
+] as const;
+
 export const checkoutDraftQuerySchema = z.object({
   search: z.string().max(255).optional(),
   status: z.enum(['OPEN', 'CONVERTED']).optional(),
+  /** UNFOLLOWED = 还没分配或还没人记录过结果。 */
+  followUpStatus: z.enum(['UNFOLLOWED', ...CHECKOUT_DRAFT_FOLLOW_UP_STATUSES]).optional(),
+  assigneeId: z.string().uuid().optional(),
+  dueOnly: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export type CheckoutDraftQuery = z.infer<typeof checkoutDraftQuerySchema>;
+
+export const checkoutDraftFollowUpSchema = z
+  .object({
+    status: z.enum(CHECKOUT_DRAFT_FOLLOW_UP_STATUSES),
+    assigneeId: z.string().uuid().nullable().optional(),
+    nextFollowUpAt: z.iso.datetime().nullable().optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+
+export type CheckoutDraftFollowUpInput = z.infer<typeof checkoutDraftFollowUpSchema>;

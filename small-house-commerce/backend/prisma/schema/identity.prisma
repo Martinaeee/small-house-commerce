@@ -77,6 +77,8 @@ model User {
   roles                    UserRole[]
   refreshTokens            RefreshToken[]
   optimizerProfile         OptimizerProfile?
+  draftFollowUpAssignee    CheckoutDraft[]     @relation("CheckoutDraftAssignee")
+  draftFollowUpOperated    CheckoutDraftFollowUpEvent[] @relation("CheckoutDraftFollowUpOperator")
   marketingPages           ProductLandingPage[]
   campaignLinks            CampaignLink[]
   adCosts                  AdCostEntry[]          @relation("AdCostOwner")

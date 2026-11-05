@@ -302,6 +302,16 @@ export const logisticsEventSchema = z.object({
 });
 export type LogisticsEventInput = z.infer<typeof logisticsEventSchema>;
 
+/**
+ * Manual order entry can name the checkout draft it completes. The field is
+ * deliberately absent from the storefront schema: only an operator who has
+ * already spoken to the customer may consume that draft.
+ */
+export const adminCheckoutSchema = checkoutSchema.extend({
+  checkoutDraftId: z.string().uuid().optional(),
+});
+export type AdminCheckoutInput = z.infer<typeof adminCheckoutSchema>;
+
 /** §85 RTO acceptance: what physically came back, split good or damaged. */
 export const acceptReturnSchema = z.object({
   // The box the goods came back in. Its shipped quantity is the cap.

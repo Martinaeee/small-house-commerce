@@ -28,7 +28,7 @@ import {
   addOrderNoteSchema,
   addRiskFlagSchema,
   assignOrderSchema,
-  checkoutSchema,
+  adminCheckoutSchema,
   confirmDecisionSchema,
   editOrderSchema,
   mergeOrdersSchema,
@@ -41,7 +41,7 @@ import {
   type AddRiskFlagInput,
   type AcceptReturnInput,
   type AssignOrderInput,
-  type CheckoutInput,
+  type AdminCheckoutInput,
   type EditOrderInput,
   type LogisticsEventInput,
   type MergeOrdersInput,
@@ -106,13 +106,15 @@ export class AdminOrdersController {
   @Post()
   @Permissions('ORDER_CONFIRM')
   create(
-    @Body(new ZodValidationPipe(checkoutSchema)) body: CheckoutInput,
+    @Body(new ZodValidationPipe(adminCheckoutSchema)) body: AdminCheckoutInput,
     @CurrentUser() _user: { userId: string },
     @Req() request: Request,
   ) {
     // Admin-entered orders are recognized by `isAdminSource` and are never
     // sent to Meta as ad conversions.
-    return this.ordersService.checkout(body, checkoutRequestMeta(request));
+    return this.ordersService.checkout(body, checkoutRequestMeta(request), {
+      checkoutDraftId: body.checkoutDraftId,
+    });
   }
 
   /**

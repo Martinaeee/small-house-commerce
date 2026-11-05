@@ -7,7 +7,7 @@ import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
-import { adminApi, type AdminCheckoutDraftSummary } from "@/lib/admin-api";
+import { adminApi, type AdminCheckoutDraftSummary, type CheckoutDraftFollowUpStatus } from "@/lib/admin-api";
 
 const PAGE_SIZE = 20;
 
@@ -17,6 +17,8 @@ export default function CheckoutDraftsPage() {
   const canView = hasPermission("ORDER_VIEW_ALL");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | "OPEN" | "CONVERTED">("");
+  const [followUp, setFollowUp] = useState<"" | "UNFOLLOWED" | CheckoutDraftFollowUpStatus>("");
+  const [dueOnly, setDueOnly] = useState(false);
   const [page, setPage] = useState(1);
   // Mount time, so the "no update for 30 minutes" hint is a render-time
   // comparison instead of an impure Date.now() call inside render.
@@ -34,6 +36,8 @@ export default function CheckoutDraftsPage() {
       .listCheckoutDrafts({
         search: search.trim() || undefined,
         status: status || undefined,
+        followUpStatus: followUp || undefined,
+        dueOnly: dueOnly || undefined,
         page,
         pageSize: PAGE_SIZE,
       })
@@ -49,7 +53,7 @@ export default function CheckoutDraftsPage() {
     return () => {
       alive = false;
     };
-  }, [canView, search, status, page]);
+  }, [canView, search, status, followUp, dueOnly, page]);
 
   if (!canView) {
     return (
@@ -98,6 +102,36 @@ export default function CheckoutDraftsPage() {
           <option value="OPEN">{t("checkout_drafts_status_open")}</option>
           <option value="CONVERTED">{t("checkout_drafts_status_converted")}</option>
         </select>
+        <select
+          value={followUp}
+          aria-label={t("checkout_drafts_followup_status")}
+          onChange={(event) => {
+            setFollowUp(event.target.value as typeof followUp);
+            setPage(1);
+          }}
+          className="h-9 rounded-lg border border-border bg-card px-3 text-sm"
+        >
+          <option value="">{t("checkout_drafts_followup_all")}</option>
+          <option value="UNFOLLOWED">{t("checkout_drafts_followup_none")}</option>
+          {(["TO_CONTACT", "NO_ANSWER", "FOLLOW_UP_LATER", "WANTS_TO_BUY", "DECLINED"] as CheckoutDraftFollowUpStatus[]).map(
+            (value) => (
+              <option key={value} value={value}>
+                {t(`checkout_drafts_followup_status_${value}`)}
+              </option>
+            ),
+          )}
+        </select>
+        <label className="flex items-center gap-2 text-sm text-ink-secondary">
+          <input
+            type="checkbox"
+            checked={dueOnly}
+            onChange={(event) => {
+              setDueOnly(event.target.checked);
+              setPage(1);
+            }}
+          />
+          {t("checkout_drafts_followup_due")}
+        </label>
       </div>
       {error ? (
         <p role="alert" className="mt-4 text-sm text-sale">{t("checkout_drafts_load_error")}</p>
@@ -116,6 +150,9 @@ export default function CheckoutDraftsPage() {
               <th className="py-2 pr-3">{t("checkout_drafts_col_contact")}</th>
               <th className="py-2 pr-3">{t("checkout_drafts_col_items")}</th>
               <th className="py-2 pr-3">{t("checkout_drafts_col_status")}</th>
+              <th className="py-2 pr-3">{t("checkout_drafts_followup_status")}</th>
+              <th className="py-2 pr-3">{t("checkout_drafts_followup_assignee")}</th>
+              <th className="py-2 pr-3">{t("checkout_drafts_followup_next")}</th>
               <th className="py-2 pr-3">{t("checkout_drafts_col_updated")}</th>
               <th className="py-2">{t("checkout_drafts_col_order")}</th>
             </tr>
@@ -153,6 +190,23 @@ export default function CheckoutDraftsPage() {
                       {t("checkout_drafts_stale")}
                     </div>
                   ) : null}
+                </td>
+                <td className="py-2 pr-3">
+                  {row.followUpStatus ? (
+                    <Link href={`/admin/orders/drafts/${row.id}`} className="text-cta hover:underline">
+                      {t(`checkout_drafts_followup_status_${row.followUpStatus}`)}
+                    </Link>
+                  ) : (
+                    <Link href={`/admin/orders/drafts/${row.id}`} className="text-ink-muted hover:underline">
+                      {t("checkout_drafts_followup_none")}
+                    </Link>
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-xs text-ink-secondary">
+                  {row.assignee?.name ?? t("checkout_drafts_followup_unassigned")}
+                </td>
+                <td className="py-2 pr-3 text-xs text-ink-muted">
+                  {row.nextFollowUpAt ? new Date(row.nextFollowUpAt).toLocaleString() : "—"}
                 </td>
                 <td className="py-2 pr-3 text-xs text-ink-muted">
                   {new Date(row.updatedAt).toLocaleString()}

@@ -15,7 +15,7 @@ import {
   hashCheckoutDraftToken,
   type ParsedCheckoutDraftToken,
 } from './checkout-draft-token.js';
-import type { CheckoutDraftSaveInput, CheckoutDraftQuery } from './dto/checkout-draft.dto.js';
+import type { CheckoutDraftSaveInput, CheckoutDraftQuery, CheckoutDraftFollowUpInput } from './dto/checkout-draft.dto.js';
 import {
   buildCheckoutDraftSnapshot,
   contactOf,
@@ -63,14 +63,29 @@ export interface AdminCheckoutDraftSummary {
   firstItemThumbnail: string | null;
   orderId: string | null;
   orderNumber: string | null;
+  followUpStatus: string | null;
+  followUpNote: string | null;
+  assignee: { id: string; name: string } | null;
+  nextFollowUpAt: string | null;
+  lastContactedAt: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
 }
 
+export interface AdminCheckoutDraftFollowUpEvent {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  note: string | null;
+  operatorName: string | null;
+  createdAt: string;
+}
+
 export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
   snapshot: CheckoutDraftSnapshot;
   productSnapshot: CheckoutDraftProductLine[];
+  followUpEvents: AdminCheckoutDraftFollowUpEvent[];
 }
 
 interface AdminDraftRow {
@@ -82,9 +97,15 @@ interface AdminDraftRow {
   productSnapshot: unknown;
   orderId: string | null;
   order: { id: string; orderNumber: string } | null;
+  followUpStatus?: string | null;
+  followUpNote?: string | null;
+  assigneeId?: string | null;
+  assignee?: { id: string; name: string } | null;
+  nextFollowUpAt?: Date | null;
+  lastContactedAt?: Date | null;
+  expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
-  expiresAt: Date;
 }
 
 function toSummary(row: AdminDraftRow): AdminCheckoutDraftSummary {
@@ -102,6 +123,11 @@ function toSummary(row: AdminDraftRow): AdminCheckoutDraftSummary {
     firstItemThumbnail: products[0]?.thumbnailUrl ?? null,
     orderId: row.order?.id ?? row.orderId ?? null,
     orderNumber: row.order?.orderNumber ?? null,
+    followUpStatus: row.followUpStatus ?? null,
+    followUpNote: row.followUpNote ?? null,
+    assignee: row.assignee ?? null,
+    nextFollowUpAt: row.nextFollowUpAt?.toISOString() ?? null,
+    lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -253,9 +279,17 @@ export class CheckoutDraftsService {
     };
   }
 
-  async list(query: CheckoutDraftQuery) {
+  async list(query: CheckoutDraftQuery, now: Date = new Date()) {
+    const dueOnly = query.dueOnly === true;
     const where: Prisma.CheckoutDraftWhereInput = {
       status: query.status ?? { in: ['OPEN', 'CONVERTED'] },
+      ...(query.followUpStatus
+        ? { followUpStatus: query.followUpStatus === 'UNFOLLOWED' ? null : query.followUpStatus }
+        : dueOnly
+          ? { followUpStatus: { in: ['TO_CONTACT', 'NO_ANSWER', 'FOLLOW_UP_LATER'] } }
+          : {}),
+      ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
+      ...(dueOnly ? { nextFollowUpAt: { lte: now } } : {}),
       ...(query.search
         ? {
             OR: [
@@ -279,10 +313,15 @@ export class CheckoutDraftsService {
           contactPhone: true,
           productSnapshot: true,
           orderId: true,
+          followUpStatus: true,
+          followUpNote: true,
+          nextFollowUpAt: true,
+          lastContactedAt: true,
           createdAt: true,
           updatedAt: true,
           expiresAt: true,
           order: { select: { id: true, orderNumber: true } },
+          assignee: { select: { id: true, name: true } },
         },
       }),
       this.prisma.checkoutDraft.count({ where }),
@@ -298,18 +337,86 @@ export class CheckoutDraftsService {
   async detail(id: string, now: Date = new Date()) {
     const row = await this.prisma.checkoutDraft.findUnique({
       where: { id },
-      include: { order: { select: { id: true, orderNumber: true } } },
+      include: {
+        order: { select: { id: true, orderNumber: true } },
+        assignee: { select: { id: true, name: true } },
+        followUpEvents: {
+          orderBy: { createdAt: 'asc' },
+          include: { operator: { select: { id: true, name: true } } },
+        },
+      },
     });
     if (!row || row.status === 'EXPIRED' || (row.status === 'OPEN' && now >= row.expiresAt)) {
       throw new NotFoundException({ statusCode: 404, message: 'Checkout draft not found.' });
     }
     return {
-      ...toSummary(row as AdminDraftRow),
+      ...toSummary(row as unknown as AdminDraftRow),
       snapshot: row.snapshot as unknown as CheckoutDraftSnapshot,
       productSnapshot: Array.isArray(row.productSnapshot)
         ? (row.productSnapshot as unknown as CheckoutDraftProductLine[])
         : [],
+      followUpEvents: (row.followUpEvents ?? []).map((event) => ({
+        id: event.id,
+        fromStatus: event.fromStatus,
+        toStatus: event.toStatus,
+        note: event.note,
+        operatorName: event.operator?.name ?? null,
+        createdAt: event.createdAt.toISOString(),
+      })),
     };
+  }
+
+  /**
+   * 客服记录一次回访：既更新草稿的当前结论，也追加一条不可改写的留痕。
+   * 已转订单的草稿不再跟进；过期草稿按不存在处理。
+   */
+  async followUp(
+    id: string,
+    input: CheckoutDraftFollowUpInput,
+    operatorId: string,
+    now: Date = new Date(),
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const draft = await tx.checkoutDraft.findUnique({ where: { id } });
+      if (!draft || draft.status === 'EXPIRED' || (draft.status === 'OPEN' && now >= draft.expiresAt)) {
+        throw new NotFoundException({ statusCode: 404, message: 'Checkout draft not found.' });
+      }
+      if (draft.status === 'CONVERTED') {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'This checkout draft already became an order.',
+        });
+      }
+      const fromStatus = draft.followUpStatus;
+      const data = {
+        followUpStatus: input.status,
+        lastContactedAt: now,
+        ...(input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : {}),
+        ...(input.nextFollowUpAt !== undefined
+          ? { nextFollowUpAt: input.nextFollowUpAt ? new Date(input.nextFollowUpAt) : null }
+          : {}),
+        ...(input.note !== undefined ? { followUpNote: input.note || null } : {}),
+      };
+      const updated = await tx.checkoutDraft.update({
+        where: { id },
+        data,
+        include: {
+          order: { select: { id: true, orderNumber: true } },
+          assignee: { select: { id: true, name: true } },
+        },
+      });
+      await tx.checkoutDraftFollowUpEvent.create({
+        data: {
+          draftId: id,
+          operatorId,
+          fromStatus,
+          toStatus: input.status,
+          note: input.note ?? null,
+          createdAt: now,
+        },
+      });
+      return toSummary(updated as unknown as AdminDraftRow);
+    });
   }
 
   /**

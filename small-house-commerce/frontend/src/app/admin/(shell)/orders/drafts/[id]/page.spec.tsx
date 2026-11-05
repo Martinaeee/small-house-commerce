@@ -4,12 +4,18 @@ import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import CheckoutDraftDetailPage from "./page";
 
 const getCheckoutDraft = vi.fn();
+const listAssignees = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "draft-1" }),
 }));
 vi.mock("@/lib/admin-api", () => ({
-  adminApi: { getCheckoutDraft: (...args: unknown[]) => getCheckoutDraft(...args) },
+  adminApi: {
+    getCheckoutDraft: (...args: unknown[]) => getCheckoutDraft(...args),
+    listAssignees,
+    followUpCheckoutDraft: vi.fn(),
+    createOrder: vi.fn(),
+  },
 }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
   useAdminAuth: () => ({ hasPermission: () => true }),

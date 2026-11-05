@@ -308,7 +308,11 @@ export class OrdersService {
    * - match/create the customer by normalized phone
    * - create the order with snapshots (DB-003), then reserve stock (§30)
    */
-  async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta) {
+  async checkout(
+    input: CheckoutInput,
+    requestMeta?: CheckoutRequestMeta,
+    options?: { checkoutDraftId?: string },
+  ) {
     // A retry (timeout, lost response, double click) must return the order the
     // first attempt created instead of creating another one. The pre-check
     // also covers the common replay before touching the customer table.
@@ -326,6 +330,20 @@ export class OrdersService {
 
     const runCheckoutTransaction = () =>
       this.prisma.$transaction(async (tx) => {
+    // Claim the checkout draft first: two operators converting the same draft
+    // must not produce two orders, and a failure below rolls the claim back.
+    if (options?.checkoutDraftId) {
+      const claimed = await tx.checkoutDraft.updateMany({
+        where: { id: options.checkoutDraftId, status: 'OPEN' },
+        data: { status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY', lastContactedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'This checkout draft was already converted or expired.',
+        });
+      }
+    }
     // Resolve customer by canonical phone (§9: phone is the identity key)
     // inside the order transaction, so a failed or conflicting attempt does
     // not leave a customer record behind.
@@ -635,6 +653,13 @@ export class OrdersService {
         customerName: input.customer.name,
         customerPhone: input.customer.phone,
       });
+
+      if (options?.checkoutDraftId) {
+        await tx.checkoutDraft.update({
+          where: { id: options.checkoutDraftId },
+          data: { orderId: created.id },
+        });
+      }
 
       return {
         order: created,
