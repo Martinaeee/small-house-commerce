@@ -325,6 +325,8 @@ export interface AdminVerificationSummary {
 
 export interface AdminOrderListRow extends AdminOrderRow {
   customer: AdminOrderCustomer;
+  /** The order's advertising number; null on organic/direct orders. */
+  adid: string | null;
   items: {
     id: string;
     skuCodeSnapshot: string;
@@ -653,6 +655,8 @@ export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
   } | null;
   attribution: {
     sourceType: SourceType;
+    /** Advertising number of the order; null on organic/direct orders. */
+    adid: string | null;
     aidSnapshot: string | null;
     optimizerId: string | null;
     facebookPageId: string | null;

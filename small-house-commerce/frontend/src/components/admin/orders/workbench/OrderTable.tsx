@@ -326,6 +326,18 @@ export function OrderTable({
                           </div>
                         );
                         break;
+                      case "adid":
+                        content = row.adid ? (
+                          <span
+                            className="block truncate font-mono text-[11.5px] text-ink-secondary"
+                            title={row.adid}
+                          >
+                            {row.adid}
+                          </span>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        );
+                        break;
                       case "product":
                         content = (
                           <div className="flex items-center gap-2">

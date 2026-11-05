@@ -1282,6 +1282,10 @@ function OrderDetailPage(): ReactNode {
                       : "—",
                   },
                   {
+                    label: "Ad ID",
+                    value: textOrDash(attribution?.adid),
+                  },
+                  {
                     label: "AID",
                     value: textOrDash(attribution?.aidSnapshot),
                   },

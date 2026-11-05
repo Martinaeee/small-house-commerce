@@ -1,8 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma, type SourceType } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { effectiveStatus } from '../catalog/landing/landing-page.util.js';
+import { adidFor, calendarDayKey, manilaDayKey, type AdidKind } from './adid.js';
 import { assertManage, assertVisible, scopeFor, type MarketingAccount } from './marketing-access.js';
 import { OptimizersService } from './optimizers.service.js';
 import { autoPostName, isFacebookPostUrl, postDateFromDb, postDateToDb } from './marketing-post.js';
@@ -77,17 +78,57 @@ export class CampaignLinksService {
     if (!input.name && (!input.postDate || input.sourceType !== 'FB_POST')) throw new BadRequestException('Name is required.');
     const name = input.name ?? autoPostName(input.postDate!, product.name, code);
     const profile = await this.optimizers.ensureProfileForUser(ownerUserId);
-    const row = await this.prisma.campaignLink.create({
-      data: {
-        code, ownerUserId, aidSnapshot: profile.aid,
-        productId: input.productId, variantId: input.variantId ?? null, variantNameSnapshot: variant?.name ?? null,
-        landingPageId: input.landingPageId ?? null, name, sourceType: input.sourceType,
-        postDate, postUrl: input.postUrl || null,
-        ...Object.fromEntries(attributionFields.map((field) => [field, input[field] || null])),
-      },
-      include: details,
+    const row = await this.prisma.$transaction(async (tx) => {
+      const adid = await this.nextAdid(tx, {
+        ownerUserId,
+        aid: profile.aid,
+        sourceType: input.sourceType,
+        postDate,
+        adId: input.adId || null,
+      });
+      return tx.campaignLink.create({
+        data: {
+          code, adid, ownerUserId, aidSnapshot: profile.aid,
+          productId: input.productId, variantId: input.variantId ?? null, variantNameSnapshot: variant?.name ?? null,
+          landingPageId: input.landingPageId ?? null, name, sourceType: input.sourceType,
+          postDate, postUrl: input.postUrl || null,
+          ...Object.fromEntries(attributionFields.map((field) => [field, input[field] || null])),
+        },
+        include: details,
+      });
     });
     return this.serialize(row);
+  }
+
+  /**
+   * The advertising number of a link. A Meta ad keeps the ID the operator
+   * recorded; an FB post gets a generated number scoped to its optimizer and
+   * Manila post date, so two posts published the same day never collide. The
+   * counter upsert is atomic, which matters when links are created together.
+   */
+  private async nextAdid(
+    tx: Prisma.TransactionClient,
+    input: {
+      ownerUserId: string;
+      aid: string;
+      sourceType: SourceType;
+      postDate: Date | null;
+      adId: string | null;
+    },
+  ): Promise<string | null> {
+    if (input.sourceType === 'META_AD' && input.adId) return input.adId;
+    const kind: AdidKind | null =
+      input.sourceType === 'FB_POST' ? 'FB' : input.sourceType === 'META_AD' ? 'AD' : null;
+    if (!kind) return null;
+    const dayKey = input.postDate ? calendarDayKey(input.postDate) : manilaDayKey(new Date());
+    const [row] = await tx.$queryRaw<Array<{ last_number: number }>>`
+      INSERT INTO "adid_counters" ("owner_user_id", "day_key", "kind", "last_number")
+      VALUES (${input.ownerUserId}::uuid, ${dayKey}, ${kind}, 1)
+      ON CONFLICT ("owner_user_id", "day_key", "kind")
+      DO UPDATE SET "last_number" = "adid_counters"."last_number" + 1
+      RETURNING "last_number"
+    `;
+    return adidFor(kind, input.aid, dayKey, Number(row!.last_number));
   }
 
   async listLinks(query: CampaignLinkQuery, account: MarketingAccount) {

@@ -129,6 +129,59 @@ describe('OrdersService.list product photos', () => {
   });
 });
 
+describe('OrdersService.list advertising number', () => {
+  function listHarness(rows: unknown[]) {
+    const prisma = {
+      order: {
+        findMany: vi.fn(async () => rows),
+        count: vi.fn(async () => rows.length),
+      },
+      user: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    return new OrdersService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  function orderRow(attribution: unknown) {
+    return {
+      id: 'order-1',
+      orderNumber: 'PH100024',
+      customerId: 'cust-1',
+      assignedToId: null,
+      items: [],
+      customer: { id: 'cust-1', name: 'Marisol Reyes' },
+      riskFlags: [],
+      shippingAddress: null,
+      payments: [],
+      verificationAssignments: [],
+      attribution,
+    };
+  }
+
+  it('flattens the link advertising number onto the row', async () => {
+    const service = listHarness([orderRow({ adid: 'FB-OP-1-261105-01' })]);
+
+    const result = await service.list(orderQuerySchema.parse({}));
+
+    expect(result.items[0]!.adid).toBe('FB-OP-1-261105-01');
+    expect(result.items[0]).not.toHaveProperty('attribution');
+  });
+
+  it('leaves organic orders without a number', async () => {
+    const service = listHarness([orderRow(null)]);
+
+    const result = await service.list(orderQuerySchema.parse({}));
+    expect(result.items[0]!.adid).toBeNull();
+  });
+});
+
 describe('OrdersService.list payment status filter', () => {
   it('filters by a single payment status', async () => {
     const { service, where } = harness();

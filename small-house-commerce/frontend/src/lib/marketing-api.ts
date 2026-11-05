@@ -97,6 +97,8 @@ export interface CampaignLinkRow extends CampaignLinkInput {
   archivedAt: string | null;
   id: string;
   code: string;
+  /** Stable advertising number of this link; null for non-ad sources. */
+  adid: string | null;
   ownerUserId: string;
   ownerName: string;
   aid: string;

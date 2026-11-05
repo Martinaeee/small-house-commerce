@@ -21,7 +21,7 @@ function setup() {
   const writes: Prisma.OrderCreateInput[] = [];
   const profile = { displayName: 'Owner at touch', status: 'ACTIVE' };
   const page = { slug: 'campaign', publishedContent: { blocks: [] }, publishedRevision: 3, status: 'ACTIVE', startAt: null, endAt: null };
-  const link = { id: LINK, code: 'abcdefghijklmnop', ownerUserId: USER, aidSnapshot: 'OP-1', productId: PRODUCT, variantId: null, landingPageId: PAGE, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmMedium: 'paid', utmCampaign: 'A', utmContent: 'creative', utmTerm: 'chair', status: 'ACTIVE', product: { status: 'ACTIVE', name: 'Entry product', productCode: 'ENTRY-001', slug: 'chair' }, landingPage: page, owner: { name: 'Owner', status: 'ACTIVE', optimizerProfile: profile } };
+  const link = { id: LINK, code: 'abcdefghijklmnop', adid: 'ad-A', ownerUserId: USER, aidSnapshot: 'OP-1', productId: PRODUCT, variantId: null, landingPageId: PAGE, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmMedium: 'paid', utmCampaign: 'A', utmContent: 'creative', utmTerm: 'chair', status: 'ACTIVE', product: { status: 'ACTIVE', name: 'Entry product', productCode: 'ENTRY-001', slug: 'chair' }, landingPage: page, owner: { name: 'Owner', status: 'ACTIVE', optimizerProfile: profile } };
   const sku = { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, skuCode: where.id === SKU ? 'SKU-A' : 'SKU-B', status: 'ACTIVE', price: new Prisma.Decimal(where.id === SKU ? '199' : '49'), landedCost: null, isBundle: false, bundleComponents: [], variant: { id: PAGE, name: 'Standard', productId: where.id === SKU ? PRODUCT : PROFILE, product: { id: where.id === SKU ? PRODUCT : PROFILE, name: 'Bought product', status: 'ACTIVE' } } })) };
   const tx = {
     sku,
@@ -70,7 +70,7 @@ describe('immutable order marketing attribution', () => {
   it('ignores client owner and advertising overrides and verifies the credential inside the order transaction', async () => {
     const h = setup();
     await h.service.checkout(h.input(await h.credential(), { sourceType: 'DIRECT', optimizerId: PROFILE, aid: 'FORGED', adId: 'forged-ad', landingPageId: PROFILE }));
-    expect(h.writes[0]).toMatchObject({ optimizerId: USER, optimizerAidSnapshot: 'OP-1', optimizerNameSnapshot: 'Owner at touch', attribution: { create: { optimizerId: USER, aidSnapshot: 'OP-1', ownerNameSnapshot: 'Owner at touch', sourceType: 'META_AD', linkId: LINK, productId: PRODUCT, productNameSnapshot: 'Entry product', productCodeSnapshot: 'ENTRY-001', landingPageId: PAGE, publishedRevision: 3, adId: 'ad-A', utmContent: 'creative', utmTerm: 'chair', touchedAt: START, legacy: false } } });
+    expect(h.writes[0]).toMatchObject({ optimizerId: USER, optimizerAidSnapshot: 'OP-1', optimizerNameSnapshot: 'Owner at touch', attribution: { create: { optimizerId: USER, aidSnapshot: 'OP-1', ownerNameSnapshot: 'Owner at touch', sourceType: 'META_AD', adid: 'ad-A', linkId: LINK, productId: PRODUCT, productNameSnapshot: 'Entry product', productCodeSnapshot: 'ENTRY-001', landingPageId: PAGE, publishedRevision: 3, adId: 'ad-A', utmContent: 'creative', utmTerm: 'chair', touchedAt: START, legacy: false } } });
     expect(h.resolvedInside).toEqual([true]);
   });
 
@@ -89,7 +89,7 @@ describe('immutable order marketing attribution', () => {
     if (mode === 'tampered') credential += 'x';
     if (mode === 'expired') vi.setSystemTime(new Date(START.getTime() + 8 * 864e5));
     await h.service.checkout(h.input(credential, { sourceType: 'META_AD', optimizerId: PROFILE, aid: 'OP-1', landingPageId: PAGE, adId: 'raw-ad' }));
-    expect(h.writes[0]).toMatchObject({ optimizerId: null, optimizerAidSnapshot: null, optimizerNameSnapshot: null, attribution: { create: { sourceType: 'ORGANIC', optimizerId: null, aidSnapshot: null, linkId: null, touchedAt: null, landingPageId: null, adId: null } } });
+    expect(h.writes[0]).toMatchObject({ optimizerId: null, optimizerAidSnapshot: null, optimizerNameSnapshot: null, attribution: { create: { sourceType: 'ORGANIC', adid: null, optimizerId: null, aidSnapshot: null, linkId: null, touchedAt: null, landingPageId: null, adId: null } } });
     expect(h.writes[0].grandTotal.toString()).toBe('199');
   });
 

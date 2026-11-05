@@ -10,7 +10,7 @@ const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permission
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
 vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listProductGroups: vi.fn(async () => ({ items: [{ product: { id: "p1", name: "Chair", productCode: "CHAIR-1", thumbnailUrl: null }, recordCount: 3, postCount: 2, lastPostDate: "2026-11-03", latestCreatedAt: "2026-11-03T01:00:00Z" }], total: 1, page: 1, pageSize: 20 })), archiveLink: vi.fn(), unarchiveLink: vi.fn(), createShortLink: vi.fn(async () => ({ path: "/s/abc", code: "abc", target: "/products/chair" })), listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
-const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", adid: "FB-OP-1-261103-01", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
 productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
@@ -222,6 +222,13 @@ describe("persisted campaign links", () => {
     expect(within(dialog).getByText("复制失败")).toBeInTheDocument();
     expect(within(dialog).getByText("复制失败，请手动选择并复制")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
+  });
+
+  it("shows the advertising number of a link and copies it", async () => {
+    mount(); await screen.findByText("Ad A");
+    expect(screen.getByText("FB-OP-1-261103-01")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制编号" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("FB-OP-1-261103-01"));
   });
 
   it("keeps finance read-only and disables an owned link against its saved version", async () => {

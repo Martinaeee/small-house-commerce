@@ -1,8 +1,9 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProductPostsDrawer } from "@/components/admin/marketing/ProductPostsDrawer";
 import { AdminI18nProvider } from "@/lib/admin-i18n";
+import { copyText } from "@/lib/clipboard";
 import { marketingApi, type CampaignLinkRow, type CampaignLinkQuery } from "@/lib/marketing-api";
 
 const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permissions: ["MARKETING_VIEW_OWN", "MARKETING_MANAGE_OWN"] } }));
@@ -11,7 +12,7 @@ vi.mock("@/lib/marketing-api", async load => ({ ...await load(), marketingApi: {
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
 const base: CampaignLinkRow = {
-  id: "x", code: "c", name: "n", sourceType: "FB_POST", productId: "p1", productName: "Chair", productCode: "P-1",
+  id: "x", code: "c", adid: "FB-OP-1-261103-01", name: "n", sourceType: "FB_POST", productId: "p1", productName: "Chair", productCode: "P-1",
   productThumbnailUrl: null, variantId: null, variantNameSnapshot: null, landingPageId: null, pageName: null,
   ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", path: "/products/chair?cl=c", status: "ACTIVE", version: 1,
   createdAt: "2026-11-03T01:00:00Z", updatedAt: "2026-11-03T01:00:00Z", postDate: "2026-11-03", postUrl: null, archivedAt: null,
@@ -79,5 +80,12 @@ describe("product post drawer grouping", () => {
     mount();
     await screen.findByRole("region", { name: /Facebook 发帖/ });
     expect(marketingApi.listLinks).toHaveBeenCalledWith(expect.objectContaining({ productId: "p1", page: 1, pageSize: 100, orderBy: "POST_DATE_DESC" }));
+  });
+  it("shows the advertising number of each post and copies it", async () => {
+    mount();
+    await screen.findByText("1104 发帖");
+    expect(screen.getAllByText("FB-OP-1-261103-01").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "复制编号" })[0]!);
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("FB-OP-1-261103-01"));
   });
 });

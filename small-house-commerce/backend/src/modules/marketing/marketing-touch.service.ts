@@ -11,7 +11,7 @@ import { marketingTouchClaimsSchema, type MarketingTouchClaims, type MarketingTo
 const WINDOW_MS = 7 * 864e5;
 const emptyTouch = { credential: null, expiresAt: null };
 const metadataFields = ['facebookPostId', 'campaignId', 'adsetId', 'adId', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm'] as const;
-const emptyMetadata = { facebookPostId: null, campaignId: null, adsetId: null, adId: null, utmSource: null, utmMedium: null, utmCampaign: null, utmContent: null, utmTerm: null };
+const emptyMetadata = { adid: null, facebookPostId: null, campaignId: null, adsetId: null, adId: null, utmSource: null, utmMedium: null, utmCampaign: null, utmContent: null, utmTerm: null };
 const productFields = { id: true, name: true, productCode: true, slug: true, status: true } as const;
 
 function pathSlug(path: string | undefined, prefix: 'lp' | 'products'): string | null {
@@ -43,6 +43,7 @@ export class MarketingTouchService {
       await this.recordVisits(link.id, link.landingPageId, input.visitKey, now);
       return this.sign({
         ...emptyMetadata,
+        adid: link.adid ?? null,
         ...Object.fromEntries(metadataFields.filter((field) => field !== 'facebookPostId').map((field) => [field, link[field]])),
         ownerUserId: link.ownerUserId, aid: link.aidSnapshot,
         ownerName: link.owner.optimizerProfile!.displayName,

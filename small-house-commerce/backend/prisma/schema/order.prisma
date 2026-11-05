@@ -505,6 +505,8 @@ model OrderAttribution {
   id                       String     @id @default(uuid(7)) @db.Uuid
   orderId                  String     @unique @map("order_id") @db.Uuid
   sourceType               SourceType @map("source_type")
+  /** The order's advertising number: null for organic/direct orders. */
+  adid                     String?    @map("adid") @db.VarChar(120)
   optimizerId              String?    @map("optimizer_id") @db.Uuid
   aidSnapshot              String?    @map("aid_snapshot")
   ownerNameSnapshot        String?    @map("owner_name_snapshot")
@@ -534,6 +536,7 @@ model OrderAttribution {
   link  CampaignLink? @relation(fields: [linkId], references: [id], onDelete: Restrict)
 
   @@index([linkId, touchedAt])
+  @@index([adid])
   @@index([landingPageId, touchedAt])
   @@index([optimizerId, touchedAt])
   @@map("order_attributions")

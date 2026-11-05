@@ -12,6 +12,7 @@ export type WorkbenchColumnKey =
   | "customer"
   | "phone"
   | "status"
+  | "adid"
   | "product"
   | "sku"
   | "qty"
@@ -43,6 +44,7 @@ export const WORKBENCH_COLUMNS: WorkbenchColumn[] = [
   { key: "customer", labelKey: "orders_col_customer", width: 118, sticky: "left2" },
   { key: "phone", labelKey: "orders_col_phone", width: 142 },
   { key: "status", labelKey: "orders_col_status", width: 168 },
+  { key: "adid", labelKey: "orders_col_adid", width: 190 },
   { key: "product", labelKey: "orders_col_product", width: 230 },
   { key: "sku", labelKey: "orders_col_sku", width: 196 },
   { key: "qty", labelKey: "orders_col_qty", width: 96, align: "right" },

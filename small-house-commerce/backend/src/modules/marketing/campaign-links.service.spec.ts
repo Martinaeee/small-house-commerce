@@ -15,6 +15,7 @@ const base = { productId: P1, name: 'Ad A', sourceType: 'META_AD' as const, camp
 
 function setup() {
   const rows = new Map<string, Record<string, unknown>>();
+  const counters = new Map<string, number>();
   const product = { id: P1, slug: 'chair', name: 'Chair', status: 'ACTIVE', productCode: 'LUW-001', images: [{ url: '/uploads/chair.jpg' }] };
   const page = { id: LP, productId: P1, ownerUserId: U1, slug: 'campaign', name: 'Campaign', status: 'ACTIVE', publishedRevision: 1, publishedContent: { blocks: [] }, startAt: null, endAt: null };
   const variant = { id: V1, productId: P1, name: 'Standard', sku: { status: 'ACTIVE', price: '100' } };
@@ -25,6 +26,12 @@ function setup() {
     product: { findUnique: vi.fn(async () => product), findMany: vi.fn(async () => [product]) },
     productVariant: { findUnique: vi.fn(async () => variant) },
     productLandingPage: { findUnique: vi.fn(async () => page) },
+    $queryRaw: vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      const key = values.join('/');
+      const next = (counters.get(key) ?? 0) + 1;
+      counters.set(key, next);
+      return [{ last_number: next }];
+    }),
     campaignLink: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const row = {
@@ -220,5 +227,50 @@ describe('persisted owner-scoped campaign links', () => {
       product: { id: P1, name: 'Chair', productCode: 'LUW-001', thumbnailUrl: '/uploads/chair.jpg' },
     });
     expect(prisma.campaignLink.groupBy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('advertising numbers', () => {
+  it('numbers Facebook posts by optimizer and post date, one per post', async () => {
+    const { service } = setup();
+    const first = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post A', postDate: '2026-11-05' }, owner);
+    const second = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post B', postDate: '2026-11-05' }, owner);
+
+    expect(first.adid).toBe('FB-OP-1-261105-01');
+    expect(second.adid).toBe('FB-OP-1-261105-02');
+  });
+
+  it('starts a fresh sequence on the next post date', async () => {
+    const { service } = setup();
+    await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post A', postDate: '2026-11-05' }, owner);
+    const nextDay = await service.createLink({ productId: P1, sourceType: 'FB_POST', name: 'Post B', postDate: '2026-11-06' }, owner);
+
+    expect(nextDay.adid).toBe('FB-OP-1-261106-01');
+  });
+
+  it('keeps the real Meta ad ID when the link has one', async () => {
+    const { service } = setup();
+    const link = await service.createLink(base, owner);
+    expect(link.adid).toBe('ad');
+  });
+
+  it('generates an advertising number for an ad link without a Meta ad ID', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T02:00:00.000Z'));
+    try {
+      const { service } = setup();
+      const link = await service.createLink({ ...base, adId: null }, owner);
+      expect(link.adid).toBe('AD-OP-1-261105-01');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves organic and other non-advertising sources without a number', async () => {
+    for (const sourceType of ['ORGANIC', 'DIRECT', 'EMAIL', 'OTHER'] as const) {
+      const { service } = setup();
+      const link = await service.createLink({ ...base, sourceType, adId: null }, owner);
+      expect(link.adid).toBeNull();
+    }
   });
 });

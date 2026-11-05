@@ -53,6 +53,7 @@ function row(over: Partial<AdminOrderListRow> = {}): AdminOrderListRow {
     confirmationStatus: "UNCONFIRMED",
     paymentStatus: "COD_PENDING",
     customerClassification: "NEW",
+    adid: "FB-OP-1-261105-01",
     customerId: "cust-1",
     assignedToId: null,
     createdAt: "2026-10-21T14:22:00.000Z",
@@ -197,6 +198,13 @@ describe("the order workbench list", () => {
     ]) {
       expect(screen.getByRole("columnheader", { name: new RegExp(`^${header}`) })).toBeTruthy();
     }
+  });
+
+  it("shows the advertising number of the order", async () => {
+    renderPage();
+
+    expect(await screen.findByText("FB-OP-1-261105-01")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /^Ad ID/ })).toBeTruthy();
   });
 
   it("keeps the shipping cost column hidden until the operator asks for it", async () => {

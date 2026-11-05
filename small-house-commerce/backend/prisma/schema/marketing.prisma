@@ -37,6 +37,8 @@ enum CampaignLinkStatus {
 model CampaignLink {
   id                  String             @id @default(uuid(7)) @db.Uuid
   code                String             @unique
+  /** The stable advertising number of this link; null for non-ad sources. */
+  adid                String?            @map("adid") @db.VarChar(120)
   ownerUserId         String             @map("owner_user_id") @db.Uuid
   aidSnapshot         String             @map("aid_snapshot")
   productId           String             @map("product_id") @db.Uuid
@@ -69,6 +71,7 @@ model CampaignLink {
   adCosts           AdCostEntry[]
 
   @@index([ownerUserId, createdAt])
+  @@index([adid])
   @@index([productId])
   @@index([landingPageId])
   @@index([ownerUserId, archivedAt, productId])
@@ -140,4 +143,19 @@ enum AdCostAuditAction {
   CREATE
   UPDATE
   VOID
+}
+
+/**
+ * One counter per optimizer, Manila day and kind (FB post or Meta ad). The
+ * allocation is a single INSERT … ON CONFLICT … RETURNING, so two links minted
+ * at the same moment still receive distinct sequence numbers.
+ */
+model AdidCounter {
+  ownerUserId String @map("owner_user_id") @db.Uuid
+  dayKey      String @map("day_key") @db.VarChar(6)
+  kind        String @db.VarChar(2)
+  lastNumber  Int    @default(0) @map("last_number")
+
+  @@id([ownerUserId, dayKey, kind])
+  @@map("adid_counters")
 }

@@ -549,6 +549,7 @@ export class OrdersService {
           attribution: {
             create: {
               sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
+              adid: touch?.adid ?? null,
               aidSnapshot: touch?.aid ?? null,
               optimizerId: touch?.ownerUserId ?? null,
               ownerNameSnapshot: touch?.ownerName ?? null,
@@ -2056,6 +2057,8 @@ export class OrdersService {
           },
           riskFlags: { where: { resolved: false } },
           shippingAddress: true,
+          // The advertising number the table shows; null on organic orders.
+          attribution: { select: { adid: true } },
           // The payment method of the order (the first payment row).
           payments: {
             select: { method: true, status: true },
@@ -2094,20 +2097,26 @@ export class OrdersService {
       ? await this.prisma.user.findMany({ where: { id: { in: assignedIds } }, select: { id: true, name: true } })
       : [];
     const nameById = new Map(operators.map((u) => [u.id, u.name]));
-    const enriched = items.map((o) => ({
-      ...o,
-      // The table shows a photo per line; the nested product rows never leave
-      // the admin API, only the flat URL below does.
-      items: o.items.map((item) => {
-        const { sku: _sku, ...rest } = item;
-        return { ...rest, thumbnailUrl: guestThumbnail(item) };
-      }),
-      // The payment method (COD / online) the table filters on.
-      paymentMethod: o.payments?.[0]?.method ?? null,
-      assignedTo: o.assignedToId ? { id: o.assignedToId, name: nameById.get(o.assignedToId) ?? null } : null,
-      // The verification progress the table shows under the status.
-      verification: verificationSummary(o.verificationAssignments),
-    }));
+    const enriched = items.map((o) => {
+      const { attribution, ...rest } = o;
+      return {
+        ...rest,
+        adid: attribution?.adid ?? null,
+        // The table shows a photo per line; the nested product rows never leave
+        // the admin API, only the flat URL below does.
+        items: rest.items.map((item) => {
+          const { sku: _sku, ...line } = item;
+          return { ...line, thumbnailUrl: guestThumbnail(item) };
+        }),
+        // The payment method (COD / online) the table filters on.
+        paymentMethod: rest.payments?.[0]?.method ?? null,
+        assignedTo: rest.assignedToId
+          ? { id: rest.assignedToId, name: nameById.get(rest.assignedToId) ?? null }
+          : null,
+        // The verification progress the table shows under the status.
+        verification: verificationSummary(rest.verificationAssignments),
+      };
+    });
 
     return { items: enriched, total, page: query.page, pageSize: query.pageSize };
   }
