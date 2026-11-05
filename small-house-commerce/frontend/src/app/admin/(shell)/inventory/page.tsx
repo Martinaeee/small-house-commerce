@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  Fragment,
   Suspense,
   useCallback,
   useEffect,
@@ -9,6 +10,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
@@ -20,6 +22,8 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { Pagination } from "@/components/admin/Pagination";
 import { TableSkeleton } from "@/components/admin/Skeleton";
 import { Button } from "@/components/ui/Button";
+import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { optimizedUploadImage } from "@/lib/image-url";
 import {
   adminApi,
   formatAmount,
@@ -113,6 +117,133 @@ function isSkuQuery(term: string): boolean {
 
 function signedQty(n: number): string {
   return n > 0 ? `+${n}` : `−${Math.abs(n)}`;
+}
+
+function InventoryThumbnail({ product }: { product: AdminProduct }) {
+  const image = product.images.find((item) => item.type === "IMAGE" && !item.isScene)
+    ?? product.images.find((item) => item.type === "IMAGE");
+  const src = image ? optimizedUploadImage(image.url, 96) : null;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  return src && src !== failedSrc ? (
+    // eslint-disable-next-line @next/next/no-img-element -- admin thumbnail using the existing upload optimizer.
+    <img
+      src={src}
+      alt={product.name}
+      width={44}
+      height={44}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailedSrc(src)}
+      className="h-11 w-11 shrink-0 rounded-lg border border-border object-cover"
+    />
+  ) : (
+    <PlaceholderImage label="" className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-border" />
+  );
+}
+
+function InventorySkuRow({
+  row,
+  product,
+  stock,
+  canAdjust,
+  busy,
+  onAdjust,
+}: {
+  row: SkuRow;
+  product?: AdminProduct;
+  stock: SessionStock;
+  canAdjust: boolean;
+  busy: boolean;
+  onAdjust: (row: SkuRow) => void;
+}) {
+  const { t } = useAdminI18n();
+
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="px-4 py-3 text-ink">
+        {product ? (
+          <div className="flex items-center gap-3">
+            <InventoryThumbnail product={product} />
+            <div className="min-w-0">
+              <div className="font-semibold">{product.name}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+                <span>{row.variantName}</span>
+                <Badge value={product.status} tone={product.status === "ACTIVE" ? "green" : undefined} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="border-l-2 border-border pl-4 text-ink-secondary">{row.variantName}</div>
+        )}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">{row.skuCode}</td>
+      <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">{formatAmount(row.price)}</td>
+      <td className="px-4 py-3">
+        <Badge value={row.skuStatus} tone={row.skuStatus === "ACTIVE" ? "green" : "red"} />
+      </td>
+      <td className="whitespace-nowrap px-4 py-3">
+        <div className="flex items-baseline gap-2">
+          <strong className={`text-2xl font-semibold tabular-nums ${stock.available <= 0 ? "text-admin-error" : "text-ink"}`}>
+            {stock.available}
+          </strong>
+          <span className="text-xs text-ink-secondary">Available</span>
+        </div>
+        {stock.available <= 0 ? <div className="mt-1 text-xs font-medium text-admin-error">Out of stock</div> : null}
+        <div className="mt-1 text-xs text-ink-muted">
+          {row.isBundle ? t("inventory_bundle_derived") : <>On hand {stock.onHand} · Reserved {stock.reserved}</>}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        {canAdjust && !row.isBundle ? (
+          <button
+            type="button"
+            onClick={() => onAdjust(row)}
+            disabled={busy}
+            className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
+          >
+            Adjust
+          </button>
+        ) : <span className="text-ink-muted">—</span>}
+      </td>
+    </tr>
+  );
+}
+
+function StockAdjustmentField({
+  id,
+  label,
+  hint,
+  error,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  error?: string;
+  children: ReactNode;
+}) {
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Field label={label} htmlFor={id} error={error}>{children}</Field>
+      <button
+        type="button"
+        aria-label={`${label} help`}
+        aria-expanded={helpOpen}
+        aria-controls={`${id}-help`}
+        onClick={() => setHelpOpen((open) => !open)}
+        className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-full border border-border text-xs font-semibold text-ink-muted hover:border-cta hover:text-cta focus-visible:outline focus-visible:outline-2 focus-visible:outline-cta"
+      >
+        ?
+      </button>
+      <p id={`${id}-help`} hidden={!helpOpen} className="mt-2 whitespace-normal break-words text-xs leading-relaxed text-ink-secondary">
+        {hint}
+      </p>
+    </div>
+  );
 }
 
 function InventoryPageContent() {
@@ -249,6 +380,16 @@ function InventoryPageContent() {
     return allRows.filter((row) => row.skuCode.toLowerCase().includes(needle));
   }, [allRows, skuQuery, search]);
 
+  const groups = useMemo(() => data?.items.flatMap((product) => {
+    const productRows = rows.filter((row) => row.productId === product.id);
+    return productRows.length > 0 ? [{
+      product,
+      rows: productRows,
+      variantCount: product.variants.filter((variant) => variant.sku).length,
+    }] : [];
+  }) ?? [], [data, rows]);
+  const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
+
   // --- adjust dialog --------------------------------------------------------
 
   const [dialog, setDialog] = useState<AdjustTarget | null>(null);
@@ -382,8 +523,8 @@ function InventoryPageContent() {
             SKU 后，在下面搜索框输入商品名找到对应 SKU。
           </li>
           <li>
-            点该行的 <span className="font-semibold">Adjust</span>：入库填
-            <span className="font-semibold">正数</span>（如首批 50 件填
+            展开产品找到要补货的变体，点该行的 <span className="font-semibold">Adjust</span>：入库填
+            <span className="font-semibold">正数</span>（如补货 50 件填
             <span className="font-mono"> 50</span>）；盘亏/破损出库填
             <span className="font-semibold">负数</span>（如 <span className="font-mono">-2</span>）。
           </li>
@@ -397,7 +538,7 @@ function InventoryPageContent() {
           的款式在前台显示 Out of Stock、不能下单；补货后自动恢复。
         </p>
         <p className="mt-1 text-ink-muted">
-          注意：V1 版本库存数字只在本次会话调整过该 SKU 后显示在表格里（刷新页面后不回看历史），但下单扣减/拦截始终以真实库存为准。
+          Quantity 填本次增减数量，不是目标总库存。例如当前在库 6 件，补货 5 件填 5，调整后在库 11 件；占用不变，可用库存相应增加。
         </p>
       </div>
 
@@ -451,7 +592,7 @@ function InventoryPageContent() {
       {/* Table / states */}
       <div className="mt-4">
         {loading ? (
-          <TableSkeleton rows={6} cols={8} />
+          <TableSkeleton rows={6} cols={6} />
         ) : permissionDenied ? (
           <EmptyState
             title="You don't have access to the SKU list."
@@ -489,97 +630,74 @@ function InventoryPageContent() {
           />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[1000px] text-sm">
+            <table className="w-full min-w-[960px] text-sm">
               <caption className="sr-only">SKU inventory</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <th scope="col" className="px-4 py-3">Product / Variant</th>
                   <th scope="col" className="px-4 py-3">SKU Code</th>
-                  <th scope="col" className="px-4 py-3">Product</th>
-                  <th scope="col" className="px-4 py-3">Variant</th>
                   <th scope="col" className="px-4 py-3">Price</th>
                   <th scope="col" className="px-4 py-3">SKU Status</th>
-                  <th scope="col" className="px-4 py-3">Product Status</th>
-                  <th scope="col" className="px-4 py-3">Stock</th>
+                  <th scope="col" className="px-4 py-3">Available</th>
                   <th scope="col" className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {rows.map((row) => {
-                  // A just-adjusted row shows its fresh figure; every other row
-                  // shows the stock the products endpoint returned (SkuRow
-                  // carries the same three fields).
-                  const stock = sessionStock[row.skuId] ?? row;
-                  const rowBusy = pending && dialog?.skuId === row.skuId;
-                  return (
-                    <tr
-                      key={`${row.variantId}-${row.skuId}`}
-                      className="border-b border-border last:border-0"
-                    >
-                      <td className="whitespace-nowrap px-4 py-3 font-semibold text-ink">
-                        {row.skuCode}
-                      </td>
-                      <td className="px-4 py-3 text-ink">{row.productName}</td>
-                      <td className="px-4 py-3 text-ink-secondary">
-                        {row.variantName}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                        {formatAmount(row.price)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          value={row.skuStatus}
-                          tone={row.skuStatus === "ACTIVE" ? "green" : "red"}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          value={row.productStatus}
-                          tone={
-                            row.productStatus === "ACTIVE" ? "green" : undefined
-                          }
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {row.isBundle ? (
-                          <div className="text-xs text-ink-secondary">
-                            <div>{t("inventory_bundle_derived")}</div>
-                            <div className="font-semibold text-ink">
-                              {t("inventory_bundle_available", { count: row.available })}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-ink-secondary">
-                            <div>
-                              On hand{" "}
-                              <span className="font-semibold text-ink">
-                                {stock.onHand}
+              {groups.map((group) => {
+                const { product } = group;
+                const singleVariant = group.variantCount === 1;
+                const expansionKey = `${queryKey}|${search}|${product.id}`;
+                const expanded = expandedProducts[expansionKey] ?? Boolean(search);
+                const variantsId = `inventory-variants-${product.id}`;
+
+                return (
+                  <Fragment key={product.id}>
+                    {!singleVariant ? (
+                      <tbody>
+                        <tr className="border-b border-border bg-admin-surface-secondary/60">
+                          <td colSpan={6} className="p-0">
+                            <button
+                              type="button"
+                              aria-label={`${expanded ? "Collapse" : "Expand"} variants for ${product.name}`}
+                              aria-expanded={expanded}
+                              aria-controls={variantsId}
+                              onClick={() => setExpandedProducts((previous) => ({
+                                ...previous,
+                                [expansionKey]: !expanded,
+                              }))}
+                              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-admin-surface-secondary focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cta"
+                            >
+                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-muted ${expanded ? "rotate-90" : ""}`}>
+                                <path d="m6 3 5 5-5 5" />
+                              </svg>
+                              <InventoryThumbnail product={product} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-semibold text-ink">{product.name}</span>
+                                <span className="mt-1 block text-xs text-ink-muted">
+                                  {group.rows.length < group.variantCount ? `${group.rows.length} of ` : ""}{group.variantCount} variants
+                                </span>
                               </span>
-                            </div>
-                            <div className="text-ink-muted">
-                              Reserved {stock.reserved} · Available{" "}
-                              {stock.available}
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {canAdjust && !row.isBundle ? (
-                          <button
-                            type="button"
-                            onClick={() => openAdjust(row)}
-                            disabled={rowBusy}
-                            className="text-sm font-semibold text-cta hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
-                          >
-                            Adjust
-                          </button>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+                              <Badge value={product.status} tone={product.status === "ACTIVE" ? "green" : undefined} />
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    ) : null}
+                    <tbody id={variantsId} hidden={!singleVariant && !expanded}>
+                      {singleVariant || expanded ? group.rows.map((row) => (
+                        <InventorySkuRow
+                          key={`${row.variantId}-${row.skuId}`}
+                          row={row}
+                          product={singleVariant ? product : undefined}
+                          stock={sessionStock[row.skuId] ?? row}
+                          canAdjust={canAdjust}
+                          busy={pending && dialog?.skuId === row.skuId}
+                          onAdjust={openAdjust}
+                        />
+                      )) : null}
+                    </tbody>
+                  </Fragment>
+                );
+              })}
             </table>
           </div>
         )}
@@ -659,14 +777,15 @@ function InventoryPageContent() {
                     readOnly
                   />
                 </Field>
-                <Field
+                <StockAdjustmentField
                   label="Quantity"
-                  htmlFor="adjust-quantity"
+                  id="adjust-quantity"
                   error={qtyError ?? undefined}
-                  hint="入库填正数（如 50）；出库/盘亏填负数（如 -2）。必须是整数，不能为 0。"
+                  hint="填写本次增减数量，不是目标总库存。入库填正数（如补货 5 件填 5）；出库/盘亏填负数（如 -2）。例如在库 6、占用 3，补货 5 件后在库 11、可用 8。必须是整数，不能为 0。"
                 >
                   <TextInput
                     id="adjust-quantity"
+                    aria-describedby="adjust-quantity-help"
                     type="number"
                     step={1}
                     min={-MAX_QTY}
@@ -680,15 +799,16 @@ function InventoryPageContent() {
                       if (qtyError) setQtyError(null);
                     }}
                   />
-                </Field>
-                <Field
+                </StockAdjustmentField>
+                <StockAdjustmentField
                   label="Reason"
-                  htmlFor="adjust-reason"
+                  id="adjust-reason"
                   error={reasonError ?? undefined}
                   hint="必填，写清调整原因，如：首批入库 50 件 / 盘点破损 -2。"
                 >
                   <TextInput
                     id="adjust-reason"
+                    aria-describedby="adjust-reason-help"
                     type="text"
                     maxLength={MAX_REASON}
                     placeholder="Why is stock being adjusted?"
@@ -699,7 +819,7 @@ function InventoryPageContent() {
                       if (reasonError) setReasonError(null);
                     }}
                   />
-                </Field>
+                </StockAdjustmentField>
               </div>
 
               {confirmationReady && parsedQty !== null ? (
@@ -751,7 +871,7 @@ export default function AdminInventoryPage() {
     <Suspense
       fallback={
         <div className="w-full max-w-none px-4 py-6 md:px-8">
-          <TableSkeleton rows={6} cols={8} />
+          <TableSkeleton rows={6} cols={6} />
         </div>
       }
     >
