@@ -21,6 +21,8 @@ import { CampaignLinksService } from '../marketing/campaign-links.service.js';
 import { CampaignLinksController } from '../marketing/admin/campaign-links.controller.js';
 import { MarketingReportService } from '../marketing/marketing-report.service.js';
 import { MarketingReportController } from '../marketing/admin/marketing-report.controller.js';
+import { MarketingFunnelController } from '../marketing/admin/marketing-funnel.controller.js';
+import { MarketingFunnelService } from '../marketing/marketing-funnel.service.js';
 import { MarketingPerformanceController } from '../marketing/admin/marketing-performance.controller.js';
 import { MarketingPerformanceService } from '../marketing/marketing-performance.service.js';
 import { AdCostsService } from '../marketing/ad-costs.service.js';
@@ -63,6 +65,7 @@ import { BundlesService } from './bundles.service.js';
     CampaignLinksController,
     AdCostsController,
     MarketingReportController,
+    MarketingFunnelController,
     MarketingPerformanceController,
     StorefrontMarketingTouchController,
     AdminProductLandingPagesController,
@@ -88,6 +91,7 @@ import { BundlesService } from './bundles.service.js';
     CampaignLinksService,
     AdCostsService,
     MarketingReportService,
+    MarketingFunnelService,
     MarketingPerformanceService,
     MarketingTouchService,
     LandingSnapshotService,

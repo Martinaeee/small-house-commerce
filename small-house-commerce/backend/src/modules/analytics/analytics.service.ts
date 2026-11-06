@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { manilaVisitDay } from '../marketing/marketing-attribution.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import type { AnalyticsEventInput } from './dto/analytics-event.dto.js';
+import { checkoutMetadata } from './checkout-metadata.js';
 
 /**
  * First-party event ingest.
@@ -97,7 +98,7 @@ export class AnalyticsService {
     } catch (error) {
       // Analytics must never break the storefront. A rejected batch is logged
       // and reported as zero rather than surfacing as a 500.
-      this.logger.warn(`analytics ingest failed: ${(error as Error).message}`);
+      this.logger.warn(`analytics ingest failed (${(error as Error).name})`);
       return { accepted: 0 };
     }
   }
@@ -159,7 +160,9 @@ export class AnalyticsService {
       destination: event.destination ?? null,
       productId: event.productId ?? null,
       campaignId: event.campaignId ?? null,
-      metadata: this.boundedMetadata(event.metadata),
+      metadata: event.eventName.startsWith('CHECKOUT_SUBMIT_')
+        ? (checkoutMetadata(event.eventName, event.metadata) as Prisma.InputJsonValue | null) ?? Prisma.DbNull
+        : this.boundedMetadata(event.metadata),
       eventDay: manilaVisitDay(new Date()),
     };
   }
