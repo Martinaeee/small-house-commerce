@@ -31,7 +31,19 @@
 
 ## 验收
 
-（见下方「生产验收」小节）
+| 检查 | 结果 |
+| --- | --- |
+| 前端 `pnpm run build`（服务器 docker build） | `BUILD_EXIT=0` |
+| 单元测试 `src/components/admin/marketing` + `src/lib/quick-date-range.spec.ts` | 26 文件 / 205 测试全过（含 `DateRangePicker` 6 个：预设、双点选区间保序、取消/Esc、清除、双月与未来日禁用） |
+| `tsc --noEmit` | 无输出 |
+| 生产镜像 | `small-house-prod-frontend:latest` = `bfc70632040d`（本次构建） |
+| 容器 | backend / frontend / db healthy，caddy 正常 |
+| 宿主机内页面（容器内 fetch `127.0.0.1:3000`） | `/`、`/admin/login`、`/admin/marketing`、`/admin/marketing/reports`、`/admin/marketing/compare`、`/admin/marketing/optimizers` 全 200 |
+| 公网 HTTPS | `/`、`/admin/login`、`/admin/marketing/reports` 全 200 |
+| 新 UI 已进产物 | `.next/static/chunks/3d1h4zr6scu9x.js` 与 SSR chunk 内含「触达日期（马尼拉）」，证明线上为本次构建而非旧镜像 |
+| 核算接口 | `GET /api/v1/admin/marketing/reports?from=2026-10-30&to=2026-11-05&groupBy=PAGE` → 200，`total=5`，`asOf=2026-11-06T01:15:42Z` |
+
+注：用容器内签发的管理员令牌做接口验收时，`sub` 必须是真实用户 UUID（`users` 表主键），否则 `/api/v1` 的鉴权会先在 `prisma.user.findUnique()` 上报 UUID 语法错误（500）。
 
 ## 回滚
 
