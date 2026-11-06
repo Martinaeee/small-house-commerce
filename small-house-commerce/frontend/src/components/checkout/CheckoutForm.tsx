@@ -18,6 +18,7 @@ import {
   INITIATE_CHECKOUT_FIRED_KEY,
 } from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import { recordSubmitAttempt, recordSubmitFailure } from "@/lib/checkout-events";
 import {
   autosaveStatusLabel,
   buildCheckoutSnapshot,
@@ -454,6 +455,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
 
   function goToReview() {
     if (promoChecking) return;
+    const trackingItems = orderItems.map((item, index) => ({ ...item, variantName: lines[index]?.variant ?? null }));
+    const occurrence = recordSubmitAttempt({ step: "form", items: trackingItems, scope: attemptKey });
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(form.preferredDeliveryDate);
     if (preferredDateError) validation.preferredDeliveryDate = preferredDateError;
@@ -462,6 +465,11 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
       const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
       if (focusId) document.getElementById(focusId)?.focus();
+      recordSubmitFailure({
+        occurrence, step: "form", reason: "VALIDATION", field: firstInvalid,
+        error: new Error(firstInvalid ? validation[firstInvalid] : "Checkout form is incomplete"),
+        items: trackingItems, customer: { ...form, note: form.notes }, idempotencyKey: "",
+      });
       return;
     }
     if (orderItems.length === 0) return; // ready 门禁已挡住，双保险

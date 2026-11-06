@@ -20,7 +20,12 @@ const apiMock = vi.hoisted(() => ({
   createOrder: vi.fn(),
   previewPromoCode: vi.fn(),
 }));
-vi.mock("@/lib/api", () => ({ api: apiMock }));
+vi.mock("@/lib/api", async () => ({ ...await vi.importActual("@/lib/api"), api: apiMock }));
+const eventsMock = vi.hoisted(() => ({
+  recordSubmitAttempt: vi.fn(), recordSubmitFailure: vi.fn(),
+  checkoutFailureReason: vi.fn(() => "STOCK"), clearSubmitAttempt: vi.fn(),
+}));
+vi.mock("@/lib/checkout-events", () => eventsMock);
 
 const useCartMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/cart/CartContext", () => ({ useCart: useCartMock }));
@@ -173,6 +178,18 @@ beforeEach(() => {
 });
 
 describe("CheckoutConfirmView order notes", () => {
+  it("records a failed submit with the actual key and customer snapshot", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(eventsMock.recordSubmitFailure).toHaveBeenCalled());
+    expect(eventsMock.recordSubmitAttempt).toHaveBeenCalledTimes(1);
+    expect(eventsMock.recordSubmitFailure).toHaveBeenCalledWith(expect.objectContaining({
+      step: "confirm", reason: "STOCK", idempotencyKey: apiMock.createOrder.mock.calls[0][0].idempotencyKey,
+      customer: expect.objectContaining(validDraft.customer),
+    }));
+  });
   it("reuses one idempotency key and consent snapshot when a timed-out submission is retried", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
     apiMock.createOrder

@@ -11,6 +11,7 @@ import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
 import { readAttribution } from "@/lib/tracking";
 import { analyticsSessionId } from "@/lib/analytics";
+import { recordSubmitAttempt, recordSubmitFailure, checkoutFailureReason, clearSubmitAttempt } from "@/lib/checkout-events";
 import { purchaseEvent, storePurchasePayload } from "@/lib/commerce-events";
 import { hasAdsConsent } from "@/lib/consent";
 import { readMetaBrowserIds } from "@/lib/meta-capi";
@@ -222,15 +223,25 @@ export function CheckoutConfirmView({
     if (!draft || inFlightRef.current || promoChecking) return;
     setError(null);
     if (submitting) return;
+    const trackingItems = checkout.orderItems.map((item, index) => ({ ...item, variantName: checkout.lines[index]?.variant ?? null }));
+    const occurrence = recordSubmitAttempt({ step: "confirm", items: trackingItems, scope: attemptKey });
+    const customer = { ...draft.customer, note: draft.customerNote ?? null };
     // Selections that never resolved to real, available SKUs can never be
     // confirmed — the backend re-validates, but a known-dead end stops here.
-    if (unresolvedSelection || awaitingBuyNowResolution) return;
+    if (unresolvedSelection || awaitingBuyNowResolution) {
+      recordSubmitFailure({ occurrence, step: "confirm", reason: "STOCK", items: trackingItems, customer,
+        error: new Error("Selected items are unavailable"), idempotencyKey: idempotencyKeyRef.current?.key ?? "" });
+      return;
+    }
     if (checkout.orderItems.length === 0) {
       setError("No items to check out.");
+      recordSubmitFailure({ occurrence, step: "confirm", reason: "VALIDATION", items: trackingItems, customer,
+        error: new Error("No items to check out."), idempotencyKey: "" });
       return;
     }
     inFlightRef.current = true;
     setSubmitting(true);
+    let orderCreated = false;
     try {
       const attempt =
         idempotencyKeyRef.current?.scope === checkoutHref
@@ -269,6 +280,8 @@ export function CheckoutConfirmView({
         metaConsent: adsConsent,
       };
       const order = await api.createOrder(payload);
+      orderCreated = true;
+      clearSubmitAttempt();
       if (!checkout.isBuyNow) {
         try {
           await removeItems(checkout.cartItemIds);
@@ -317,6 +330,10 @@ export function CheckoutConfirmView({
       clearCheckoutIdempotencyKey(checkoutHref);
       router.push(`/order-success/${order.orderNumber}`);
     } catch (e) {
+      if (!orderCreated) recordSubmitFailure({
+        occurrence, step: "confirm", reason: checkoutFailureReason(e), error: e,
+        items: trackingItems, customer, idempotencyKey: idempotencyKeyRef.current?.key ?? "",
+      });
       inFlightRef.current = false;
       setError(e instanceof Error ? e.message : "Could not place your order. Please try again.");
       setSubmitting(false);

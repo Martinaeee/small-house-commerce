@@ -4,6 +4,8 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CheckoutForm } from "./CheckoutForm";
 
+const eventsMock = vi.hoisted(() => ({ recordSubmitAttempt: vi.fn(), recordSubmitFailure: vi.fn() }));
+vi.mock("@/lib/checkout-events", () => eventsMock);
 const apiMock = vi.hoisted(() => ({
   previewPromoCode: vi.fn(),
 }));
@@ -361,6 +363,16 @@ describe("CheckoutForm totals summary", () => {
 });
 
 describe("CheckoutForm mobile summary order", () => {
+  it("records an attempt even when validation fails, with the first invalid field", async () => {
+    validationMock.validateCheckoutForm.mockReturnValue({ phone: "Enter a valid mobile number" });
+    render(<CheckoutForm itemsParam="item-1" />);
+    await userEvent.setup().click(screen.getByTestId("review-order"));
+    expect(eventsMock.recordSubmitAttempt).toHaveBeenCalledTimes(1);
+    expect(eventsMock.recordSubmitFailure).toHaveBeenCalledWith(expect.objectContaining({
+      step: "form", reason: "VALIDATION", field: "phone", items: [{ skuId: "sku-1", quantity: 1, variantName: null }],
+    }));
+    expect(routerMock.push).not.toHaveBeenCalled();
+  });
   it("lifts the totals card above the name field on phones and leaves the desktop grid alone", () => {
     render(<CheckoutForm itemsParam="item-1" />);
 
