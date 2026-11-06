@@ -62,12 +62,12 @@ function truncateEntityId(value: string): string | null {
  * report can show what was added and what reached checkout; both keep
  * attributed by the touch credential, not by these ids.
  */
-function firstPartyPayload(event: CommerceEvent): { productId?: string | null; entityId?: string | null } {
+function firstPartyPayload(event: CommerceEvent): { productId?: string | null; entityId?: string | null; metadata?: Record<string, unknown> } {
   switch (event.name) {
     case "AddToCart":
       return { productId: event.productId, entityId: contentIds(event)[0] ?? null };
     case "InitiateCheckout":
-      return { productId: null, entityId: truncateEntityId(contentIds(event).join(",")) };
+      return { productId: null, entityId: truncateEntityId(contentIds(event).join(",")), metadata: { skuIds: contentIds(event) } };
     case "Purchase": {
       const orderId = event.data.order_id;
       return typeof orderId === "string" && orderId ? { entityId: orderId } : {};

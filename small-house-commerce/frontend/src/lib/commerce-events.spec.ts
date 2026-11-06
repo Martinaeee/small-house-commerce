@@ -373,6 +373,7 @@ describe("emitCommerceEvent", () => {
     expect(analytics.trackFirstParty).toHaveBeenCalledWith("BEGIN_CHECKOUT", {
       productId: null,
       entityId: "sku-1,sku-2",
+      metadata: { skuIds: ["sku-1", "sku-2"] },
     });
   });
 

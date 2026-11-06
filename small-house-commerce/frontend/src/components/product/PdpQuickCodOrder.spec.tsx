@@ -10,6 +10,8 @@ import {
 import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 
+const submitEvents = vi.hoisted(() => ({ recordSubmitAttempt: vi.fn(), recordSubmitFailure: vi.fn() }));
+vi.mock("@/lib/checkout-events", () => submitEvents);
 const api = vi.hoisted(() => ({
   createOrder: vi.fn(),
   previewPromoCode: vi.fn(),
@@ -232,6 +234,12 @@ beforeEach(() => {
 });
 
 describe("PdpQuickCodOrder", () => {
+  it("records invalid inline checkout submissions too", async () => {
+    renderQuickOrder();
+    await userEvent.setup().click(screen.getByTestId("quick-cod-submit"));
+    expect(submitEvents.recordSubmitAttempt).toHaveBeenCalledTimes(1);
+    expect(submitEvents.recordSubmitFailure).toHaveBeenCalledWith(expect.objectContaining({step:'form',reason:'VALIDATION',field:'name'}));
+  });
   it("renders nothing on mobile so the page cannot redirect shoppers into a hidden form", () => {
     installDesktopViewport(false);
     renderQuickOrder();

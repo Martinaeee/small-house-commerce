@@ -28,6 +28,7 @@ import {
   type CheckoutField,
 } from "@/lib/checkoutValidation";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import { recordSubmitAttempt, recordSubmitFailure } from "@/lib/checkout-events";
 import { lookupPostalCode } from "@/lib/postalCodes";
 import {
   fetchBarangays,
@@ -550,6 +551,7 @@ function PdpQuickCodOrderForm(): ReactNode {
 
   function goToReview(): void {
     if (inFlightRef.current || promoChecking) return;
+    const occurrence = recordSubmitAttempt({ step: "form", items, scope: `PDP_INLINE:${product.slug}:${JSON.stringify(items)}` });
     const validation = validateCheckoutForm(form);
     const preferredDateError = validatePreferredDate(
       form.preferredDeliveryDate,
@@ -566,6 +568,9 @@ function PdpQuickCodOrderForm(): ReactNode {
           : undefined);
       const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
       if (focusId) document.getElementById(focusId)?.focus();
+      recordSubmitFailure({ occurrence, step: "form", reason: "VALIDATION", field: firstInvalid,
+        error: new Error(firstInvalid ? validation[firstInvalid] : "Checkout form is incomplete"),
+        items, customer: { ...form, note: form.notes }, idempotencyKey: "" });
       return;
     }
     if (items.length === 0) return;

@@ -224,7 +224,8 @@ export function CheckoutConfirmView({
     setError(null);
     if (submitting) return;
     const trackingItems = checkout.orderItems.map((item, index) => ({ ...item, variantName: checkout.lines[index]?.variant ?? null }));
-    const occurrence = recordSubmitAttempt({ step: "confirm", items: trackingItems, scope: attemptKey });
+    const occurrence = recordSubmitAttempt({ step: "confirm", items: trackingItems,
+      scope: directSelection ? `PDP_INLINE:${directSelection.productSlug}:${JSON.stringify(directSelection.items)}` : attemptKey });
     const customer = { ...draft.customer, note: draft.customerNote ?? null };
     // Selections that never resolved to real, available SKUs can never be
     // confirmed — the backend re-validates, but a known-dead end stops here.
