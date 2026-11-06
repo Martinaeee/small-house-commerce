@@ -400,10 +400,18 @@ export class OrdersService {
       });
 
       if (!sku || sku.status !== 'ACTIVE' || sku.variant.product.status !== 'ACTIVE') {
-        throw new BadRequestException(`SKU ${item.skuId} is not available for purchase`);
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'SKU_UNAVAILABLE',
+          message: `SKU ${item.skuId} is not available for purchase`,
+        });
       }
       if (sku.price === null) {
-        throw new BadRequestException(`SKU ${sku.skuCode} is not priced`);
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'SKU_NOT_PRICED',
+          message: `SKU ${sku.skuCode} is not priced`,
+        });
       }
 
       lines.push({
@@ -446,9 +454,11 @@ export class OrdersService {
           })))
         : availableBySku.get(line.skuId) ?? 0;
       if (available < line.quantity) {
-        throw new BadRequestException(
-          `Insufficient stock for ${line.skuCode}: available ${available}, requested ${line.quantity}`,
-        );
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'INSUFFICIENT_STOCK',
+          message: `Insufficient stock for ${line.skuCode}: available ${available}, requested ${line.quantity}`,
+        });
       }
     }
 
@@ -476,9 +486,11 @@ export class OrdersService {
         const component = owner.components.find(
           (entry) => entry.componentSkuId === requirement.skuId,
         )!;
-        throw new BadRequestException(
-          `Insufficient stock for ${owner.skuCode}: this order needs ${requirement.quantity} of ${component.skuCode}, but only ${available} are available`,
-        );
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'INSUFFICIENT_STOCK',
+          message: `Insufficient stock for ${owner.skuCode}: this order needs ${requirement.quantity} of ${component.skuCode}, but only ${available} are available`,
+        });
       }
     }
 

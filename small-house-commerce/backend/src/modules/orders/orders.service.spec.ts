@@ -1419,4 +1419,24 @@ describe('OrdersService.checkout idempotency', () => {
     await harness.service.checkout(checkoutOverrides({ idempotencyKey: KEY }));
     expect(harness.tx.order.create).toHaveBeenCalledTimes(1);
   });
+
+  it('tags a stock shortage with a machine-readable code', async () => {
+    const harness = createHarness();
+    const error = await harness.service
+      .checkout(checkoutOverrides({ items: [{ skuId: SKU_ID, quantity: 6 }] }))
+      .catch((thrown: unknown) => thrown);
+    expect((error as { getResponse: () => unknown }).getResponse()).toMatchObject({
+      statusCode: 400,
+      code: 'INSUFFICIENT_STOCK',
+    });
+  });
+
+  it('tags an unavailable SKU with SKU_UNAVAILABLE', async () => {
+    const harness = createHarness({ skus: { [SKU_ID]: { ...skuRecord(), status: 'DISABLED' } } });
+    const error = await harness.service.checkout(checkoutOverrides()).catch((thrown: unknown) => thrown);
+    expect((error as { getResponse: () => unknown }).getResponse()).toMatchObject({
+      statusCode: 400,
+      code: 'SKU_UNAVAILABLE',
+    });
+  });
 });
