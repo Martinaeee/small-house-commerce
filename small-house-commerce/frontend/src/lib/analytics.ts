@@ -24,7 +24,9 @@ export type FirstPartyEventName =
   | "PURCHASE"
   | "HOMEPAGE_SECTION_IMPRESSION"
   | "HOMEPAGE_SECTION_CLICK"
-  | "SEARCH";
+  | "SEARCH"
+  | "CHECKOUT_SUBMIT_ATTEMPT"
+  | "CHECKOUT_SUBMIT_FAILED";
 
 export type DeviceType = "desktop" | "tablet" | "mobile";
 
@@ -44,6 +46,8 @@ export interface FirstPartyEvent {
   destination?: string | null;
   productId?: string | null;
   campaignId?: string | null;
+  /** Structured payload for the checkout failure events; bounded server-side. */
+  metadata?: Record<string, unknown>;
   /**
    * The signed marketing-touch credential, attached to every event so the
    * server resolves and stores the campaign link behind the action. Same
