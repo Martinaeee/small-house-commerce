@@ -90,14 +90,14 @@ export class InventoryService {
     });
 
     if (!inventory) {
-      throw new BadRequestException('SKU has no inventory record');
+      throw new BadRequestException({ statusCode: 400, code: 'SKU_UNAVAILABLE', message: 'SKU has no inventory record' });
     }
     await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${inventory.id}::uuid FOR UPDATE`;
     inventory = await tx.inventory.findUniqueOrThrow({ where: { id: inventory.id } });
 
     const available = inventory.onHand - inventory.reserved;
     if (available < quantity) {
-      throw new BadRequestException(`Insufficient stock: available ${available}, requested ${quantity}`);
+      throw new BadRequestException({ statusCode: 400, code: 'INSUFFICIENT_STOCK', message: `Insufficient stock: available ${available}, requested ${quantity}` });
     }
 
     await tx.inventory.update({
@@ -138,10 +138,10 @@ export class InventoryService {
         where: { skuId_warehouseId: { skuId, warehouseId } },
       });
       if (!inventory) {
-        throw new BadRequestException('SKU has no inventory record');
+        throw new BadRequestException({ statusCode: 400, code: 'SKU_UNAVAILABLE', message: 'SKU has no inventory record' });
       }
       const available = inventory.onHand - inventory.reserved;
-      throw new BadRequestException(`Insufficient stock: available ${available}, requested ${quantity}`);
+      throw new BadRequestException({ statusCode: 400, code: 'INSUFFICIENT_STOCK', message: `Insufficient stock: available ${available}, requested ${quantity}` });
     }
 
     await tx.inventoryReservation.create({

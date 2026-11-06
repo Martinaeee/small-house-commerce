@@ -1,17 +1,25 @@
 import { Prisma } from '../../generated/prisma/client.js';
 import { funnelWindow } from './marketing-funnel-metrics.js';
-export interface FunnelScopeQuery {from:string;to:string;traffic:'ALL'|'ADS'|'ORGANIC';productId?:string}
+export interface FunnelScopeQuery {
+  from: string;
+  to: string;
+  traffic: 'ALL' | 'ADS' | 'ORGANIC';
+  productId?: string;
+}
 
 /** Scope at the event, not at the product: two owners may promote one product. */
-export function funnelFacts(q:FunnelScopeQuery, owner:string|null):Prisma.Sql {
-  const w=funnelWindow(q.from,q.to);
+export function funnelFacts(
+  q: FunnelScopeQuery,
+  owner: string | null,
+): Prisma.Sql {
+  const w = funnelWindow(q.from, q.to);
   return Prisma.sql`
     ev AS (
       SELECT e.*, l.source_type::text AS source_type
       FROM analytics_events e LEFT JOIN campaign_links l ON l.id=e.campaign_link_id
       WHERE e.event_day BETWEEN ${q.from}::date AND ${q.to}::date
         ${owner ? Prisma.sql`AND l.owner_user_id=${owner}::uuid` : Prisma.empty}
-        ${q.traffic==='ADS' ? Prisma.sql`AND e.campaign_link_id IS NOT NULL` : q.traffic==='ORGANIC' ? Prisma.sql`AND e.campaign_link_id IS NULL` : Prisma.empty}
+        ${q.traffic === 'ADS' ? Prisma.sql`AND e.campaign_link_id IS NOT NULL` : q.traffic === 'ORGANIC' ? Prisma.sql`AND e.campaign_link_id IS NULL` : Prisma.empty}
     ), event_facts AS (
       SELECT DISTINCT e.id::text AS id, subject.product_id, e.session_id, e.event_name::text AS stage,
         e.event_day AS day, e.created_at AS at, e.device_type, e.page_path, e.campaign_link_id,
@@ -47,20 +55,36 @@ export function funnelFacts(q:FunnelScopeQuery, owner:string|null):Prisma.Sql {
       LEFT JOIN order_attributions a ON a.order_id=o.id LEFT JOIN campaign_links l ON l.id=a.link_id
       WHERE o.created_at>=${w.from} AND o.created_at<${w.end} AND oi.product_id IS NOT NULL
         ${owner ? Prisma.sql`AND l.owner_user_id=${owner}::uuid` : Prisma.empty}
-        ${q.traffic==='ADS' ? Prisma.sql`AND a.link_id IS NOT NULL` : q.traffic==='ORGANIC' ? Prisma.sql`AND a.link_id IS NULL` : Prisma.empty}
+        ${q.traffic === 'ADS' ? Prisma.sql`AND a.link_id IS NOT NULL` : q.traffic === 'ORGANIC' ? Prisma.sql`AND a.link_id IS NULL` : Prisma.empty}
         ${q.productId ? Prisma.sql`AND oi.product_id=${q.productId}::uuid` : Prisma.empty}
     ), facts AS (SELECT * FROM event_facts UNION ALL SELECT * FROM order_facts)
   `;
 }
 
 export interface FunnelCounts {
-  productId:string; day:string|null; visits:bigint; views:bigint; addToCarts:bigint; checkouts:bigint;
-  attempts:bigint; failures:bigint; orders:bigint; orderingSessions:bigint;
-  viewHits:bigint; cartHits:bigint; checkoutHits:bigint; attemptHits:bigint; failureHits:bigint; orderHits:bigint;
+  productId: string;
+  day: string | null;
+  visits: bigint;
+  views: bigint;
+  addToCarts: bigint;
+  checkouts: bigint;
+  attempts: bigint;
+  failures: bigint;
+  orders: bigint;
+  orderingSessions: bigint;
+  viewHits: bigint;
+  cartHits: bigint;
+  checkoutHits: bigint;
+  attemptHits: bigint;
+  failureHits: bigint;
+  orderHits: bigint;
 }
 /** Counts and rates use session intersections; Buy Now may skip the cart. */
-export function funnelCountsSql(q:FunnelScopeQuery,owner:string|null):Prisma.Sql {
-  return Prisma.sql`WITH ${funnelFacts(q,owner)},
+export function funnelCountsSql(
+  q: FunnelScopeQuery,
+  owner: string | null,
+): Prisma.Sql {
+  return Prisma.sql`WITH ${funnelFacts(q, owner)},
     sessions AS (
       SELECT product_id, session_id, day,
         bool_or(stage='PAGE_VIEW') AS visit, bool_or(stage='PRODUCT_VIEW') AS view,

@@ -2683,7 +2683,7 @@ export class OrdersService {
       })),
     );
     if (reason !== null) {
-      throw new BadRequestException(`Bundle ${sku.skuCode} is not available for purchase`);
+      throw new BadRequestException({ statusCode: 400, code: 'SKU_UNAVAILABLE', message: `Bundle ${sku.skuCode} is not available for purchase` });
     }
     return buildBundleSnapshot({
       skuId: sku.id,
