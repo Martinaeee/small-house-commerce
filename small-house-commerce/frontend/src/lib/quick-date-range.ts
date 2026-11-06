@@ -1,7 +1,6 @@
 /**
- * The four ranges operators switch between most often. Dates are Manila
- * calendar days, formatted with `en-CA` so they land directly in `<input
- * type="date">` values.
+ * The ranges the picker offers. Dates are Manila calendar days, formatted
+ * with `en-CA` so they land directly in `<input type="date">` values.
  */
 export type QuickRangePreset =
   | "TODAY"
