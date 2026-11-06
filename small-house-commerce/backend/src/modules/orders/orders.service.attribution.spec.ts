@@ -86,6 +86,18 @@ describe('immutable order marketing attribution', () => {
     expect(h.resolvedInside).toEqual([true]);
   });
 
+  it('snapshots each URL ad ID on orders that share one registered Meta link', async () => {
+    const h = setup();
+    Object.assign(h.link, { adId: null });
+    for (const adId of ['120200000000001', '120200000000002']) {
+      const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId });
+      await h.service.checkout(h.input(result.credential!, { adId: 'raw-override' }));
+    }
+    expect(h.writes).toHaveLength(2);
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adId: '120200000000001', linkId: LINK, sourceType: 'META_AD', optimizerId: USER } } });
+    expect(h.writes[1]).toMatchObject({ attribution: { create: { adId: '120200000000002', linkId: LINK, sourceType: 'META_AD', optimizerId: USER } } });
+  });
+
   it('writes the label and published revision at touch time even after rename, republish and disable', async () => {
     const h = setup();
     const credential = await h.credential();

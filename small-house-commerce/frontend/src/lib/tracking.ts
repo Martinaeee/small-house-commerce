@@ -79,8 +79,11 @@ export async function recordMarketingTouch(context: { path: string; search: stri
   if (!context.landingPageId && !params.has("cl") && !params.has("aid")) return;
   const sequence = ++touchSequence;
   const input: Parameters<typeof api.marketingTouch>[0] = { path: context.path, visitKey: tabVisitKey(), ...(context.landingPageId ? { landingPageId: context.landingPageId } : {}) };
-  if (params.has("cl")) input.code = params.get("cl")!;
-  else if (params.has("aid")) {
+  if (params.has("cl")) {
+    input.code = params.get("cl")!;
+    const adId = [params.get("ad_id"), params.get("adid")].find(value => value !== null && /^\d{6,20}$/.test(value));
+    if (adId) input.adId = adId;
+  } else if (params.has("aid")) {
     input.aid = params.get("aid")!;
     input.adId = params.get("ad_id") ?? params.get("adid");
     for (const [field, key] of [["campaignId", "campaign_id"], ["adsetId", "adset_id"], ["utmSource", "utm_source"], ["utmMedium", "utm_medium"], ["utmCampaign", "utm_campaign"], ["utmContent", "utm_content"], ["utmTerm", "utm_term"]] as const) input[field] = params.get(key);

@@ -189,6 +189,45 @@ describe('server-signed marketing touch', () => {
     expect(await service.touch({ aid: 'UNKNOWN', landingPageId: PAGE, visitKey: 'tab-1' })).toEqual({ credential: null, expiresAt: null });
   });
 
+  it.each(['123456', '120212345678901234', '12345678901234567890'])('uses numeric ad ID %s only when the Meta link has no saved ID', async adId => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: null });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId, aid: 'FORGED', sourceType: 'DIRECT', campaignId: 'forged-campaign' });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId, linkId: LINK, ownerUserId: USER, aid: 'OP-1', sourceType: 'META_AD', campaignId: 'campaign-A' });
+    expect(link.adId).toBeNull();
+  });
+
+  it('never overrides a saved ad ID with a valid numeric URL ID', async () => {
+    const { service, link } = setup();
+    link.adId = '120200000000001';
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId: '120200000000001' });
+  });
+
+  it.each([undefined, null, '', '{{ad.id}}', 'forged', '12345', '123456789012345678901', '120212345678901234,', '1e15'])('keeps valid link attribution when a fallback ad ID is invalid: %j', async adId => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: null });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId: null, linkId: LINK, ownerUserId: USER, sourceType: 'META_AD' });
+  });
+
+  it.each(['FB_POST', 'ORGANIC', 'DIRECT', 'EMAIL', 'OTHER'])('does not attach a URL ad ID to a %s link', async sourceType => {
+    const { service, link } = setup();
+    Object.assign(link, { sourceType, adId: null });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120212345678901234' });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId: null, sourceType });
+  });
+
+  it('keeps two ads on one link distinct without changing link identity or visit deduplication', async () => {
+    const { service, link, linkVisits } = setup();
+    Object.assign(link, { adId: null });
+    const first = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000001' });
+    const second = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    expect(await service.resolve(first.credential)).toMatchObject({ linkId: LINK, adId: '120200000000001' });
+    expect(await service.resolve(second.credential)).toMatchObject({ linkId: LINK, adId: '120200000000002' });
+    expect(linkVisits.size).toBe(1);
+  });
+
   it('keeps unassigned public page visits without manufacturing an owner', async () => {
     const { service, page, pageVisits } = setup();
     page.ownerUserId = null; page.owner = null;

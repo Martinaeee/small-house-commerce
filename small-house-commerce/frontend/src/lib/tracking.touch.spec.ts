@@ -23,6 +23,35 @@ describe("effective public marketing touches", () => {
     expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: expect.any(String) });
   });
 
+  it.each(["adid", "ad_id"])("forwards a numeric %s alongside a registered link", async (key) => {
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: `cl=abcdefghijklmnop&${key}=120212345678901234&aid=FORGED&utm_source=forged` });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: expect.any(String), adId: "120212345678901234" });
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
+  });
+
+  it.each(["", "{{ad.id}}", "forged", "12345", "123456789012345678901", "120200000000001,"])("uses valid adid when canonical ad_id is invalid: %j", async (canonical) => {
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: `cl=abcdefghijklmnop&ad_id=${encodeURIComponent(canonical)}&adid=120212345678901234` });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ code: "abcdefghijklmnop", adId: "120212345678901234" }));
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
+  });
+
+  it("prefers canonical ad_id when both numeric aliases are present", async () => {
+    await tracking.recordMarketingTouch({ path: "/lp/chair-ad", search: "cl=abcdefghijklmnop&ad_id=120200000000001&adid=120200000000002", landingPageId: "44444444-4444-4444-a444-444444444444" });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ code: "abcdefghijklmnop", adId: "120200000000001" }));
+  });
+
+  it.each(["", "{{ad.id}}", "forged", "12345", "123456789012345678901", "120212345678901234,", "1e15"])("ignores invalid cl ad IDs without dropping the visit: %j", async (adId) => {
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: `cl=abcdefghijklmnop&adid=${encodeURIComponent(adId)}` });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: expect.any(String) });
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
+  });
+
+  it("does not manufacture a marketing touch from an ad ID alone", async () => {
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: "adid=120212345678901234" });
+    expect(apiMock.marketingTouch).not.toHaveBeenCalled();
+    expect(tracking.readAttribution()).toEqual({});
+  });
+
   it("reuses the same tab-session key for separate page and product touches", async () => {
     await tracking.recordMarketingTouch({ path: "/products/chair", search: "cl=abcdefghijklmnop" });
     await tracking.recordMarketingTouch({ path: "/lp/chair-ad", search: "", landingPageId: "44444444-4444-4444-a444-444444444444" });
