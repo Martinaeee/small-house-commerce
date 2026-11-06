@@ -24,6 +24,11 @@ enum AnalyticsEventName {
   HOMEPAGE_SECTION_IMPRESSION
   HOMEPAGE_SECTION_CLICK
   SEARCH
+  /// Checkout submit controls: an attempt is recorded when the browser lets
+  /// the submit through; the failure twin records why it did not become an
+  /// order (validation, stock, network, server).
+  CHECKOUT_SUBMIT_ATTEMPT
+  CHECKOUT_SUBMIT_FAILED
 }
 
 model AnalyticsEvent {

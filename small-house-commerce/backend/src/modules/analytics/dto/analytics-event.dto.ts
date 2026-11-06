@@ -17,6 +17,8 @@ export const analyticsEventNames = [
   'HOMEPAGE_SECTION_IMPRESSION',
   'HOMEPAGE_SECTION_CLICK',
   'SEARCH',
+  'CHECKOUT_SUBMIT_ATTEMPT',
+  'CHECKOUT_SUBMIT_FAILED',
 ] as const;
 
 export const analyticsEventSchema = z
