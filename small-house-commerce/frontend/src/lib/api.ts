@@ -681,16 +681,36 @@ export interface LandingPageComposite {
 
 // --- browser client (relative paths, proxied) --------------------------------
 
+/**
+ * A failed storefront request. The checkout funnel needs to tell a stock
+ * rejection apart from a network error, so the status and the backend's
+ * machine-readable code travel with the message the shopper sees.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function assertOk(res: Response): Promise<void> {
   if (res.ok) return;
   let message = `Request failed: ${res.status}`;
+  let code: string | null = null;
   try {
-    const body = (await res.json()) as { message?: string };
-    if (body.message) message = body.message;
+    const body = (await res.json()) as { message?: string | string[]; code?: string };
+    if (typeof body.message === "string") message = body.message;
+    else if (Array.isArray(body.message)) message = body.message.join("; ");
+    if (typeof body.code === "string") code = body.code;
   } catch {
     /* keep default message */
   }
-  throw new Error(message);
+  throw new ApiError(message, res.status, code);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
