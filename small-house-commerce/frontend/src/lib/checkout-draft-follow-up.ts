@@ -1,3 +1,5 @@
+import type { TKey } from "@/lib/admin-i18n";
+
 /**
  * Common phone outcomes operators pick from when they leave a follow-up note.
  * The text stays editable after insertion, so this only saves typing.
@@ -17,7 +19,7 @@ export type FollowUpNoteTemplateId = (typeof FOLLOW_UP_NOTE_TEMPLATES)[number]["
 export function followUpNoteFromTemplate(
   id: string,
   productName: string | null | undefined,
-  t: (key: string) => string,
+  t: (key: TKey) => string,
 ): string | null {
   const template = FOLLOW_UP_NOTE_TEMPLATES.find((item) => item.id === id);
   if (!template) return null;
