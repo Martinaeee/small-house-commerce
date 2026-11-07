@@ -44,6 +44,7 @@ export class MarketingTouchService {
       return this.sign({
         ...emptyMetadata,
         ...Object.fromEntries(metadataFields.filter((field) => field !== 'facebookPostId').map((field) => [field, link[field]])),
+        adId: link.adId ?? (link.sourceType === 'META_AD' && typeof input.adId === 'string' && /^\d{6,20}$/.test(input.adId) ? input.adId : null),
         ownerUserId: link.ownerUserId, aid: link.aidSnapshot,
         ownerName: link.owner.optimizerProfile!.displayName,
         linkId: link.id, productId: link.productId, productName: link.product.name, productCode: link.product.productCode,

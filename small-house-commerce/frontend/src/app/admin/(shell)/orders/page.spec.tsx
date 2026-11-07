@@ -77,6 +77,7 @@ function row(over: Partial<AdminOrderListRow> = {}): AdminOrderListRow {
     assignedTo: null,
     riskFlags: [],
     shippingAddress: {
+      fullName: "Marisol Reyes",
       streetAddress: "24-B Kamuning St.",
       barangay: "Kamuning",
       city: "Quezon City",
@@ -198,6 +199,34 @@ describe("the order workbench list", () => {
     ]) {
       expect(screen.getByRole("columnheader", { name: new RegExp(`^${header}`) })).toBeTruthy();
     }
+  });
+
+  it("shows each order's own recipient name instead of the customer's latest profile name", async () => {
+    const base = row();
+    api.listOrders.mockResolvedValue({
+      items: [
+        row({
+          id: "order-1",
+          orderNumber: "PH100035",
+          customer: { ...base.customer, name: "zy s", normalizedPhone: "+639081656543" },
+          shippingAddress: { ...base.shippingAddress!, fullName: "test1" },
+        }),
+        row({
+          id: "order-2",
+          orderNumber: "PH100036",
+          customer: { ...base.customer, name: "zy s", normalizedPhone: "+639081656543" },
+          shippingAddress: { ...base.shippingAddress!, fullName: "test2" },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+    });
+    renderPage();
+
+    expect(await screen.findByText("test1")).toBeTruthy();
+    expect(screen.getByText("test2")).toBeTruthy();
+    expect(screen.queryByText("zy s")).toBeNull();
   });
 
   it("shows the advertising number of the order", async () => {

@@ -174,6 +174,14 @@ describe('OrdersService.list advertising number', () => {
     expect(result.items[0]).not.toHaveProperty('attribution');
   });
 
+  it('shows the real Meta ad ID in the advertising-number column when present', async () => {
+    const service = listHarness([orderRow({ adid: 'AD-OP-1-261104-01', adId: '120212345678901234' })]);
+
+    const result = await service.list(orderQuerySchema.parse({}));
+
+    expect(result.items[0]!.adid).toBe('120212345678901234');
+  });
+
   it('leaves organic orders without a number', async () => {
     const service = listHarness([orderRow(null)]);
 

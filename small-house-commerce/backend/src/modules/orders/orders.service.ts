@@ -2108,7 +2108,8 @@ export class OrdersService {
           riskFlags: { where: { resolved: false } },
           shippingAddress: true,
           // The advertising number the table shows; null on organic orders.
-          attribution: { select: { adid: true } },
+          // Prefer the real Meta ad ID, falling back to the stable link number.
+          attribution: { select: { adid: true, adId: true } },
           // The payment method of the order (the first payment row).
           payments: {
             select: { method: true, status: true },
@@ -2151,7 +2152,7 @@ export class OrdersService {
       const { attribution, ...rest } = o;
       return {
         ...rest,
-        adid: attribution?.adid ?? null,
+        adid: attribution?.adId ?? attribution?.adid ?? null,
         // The table shows a photo per line; the nested product rows never leave
         // the admin API, only the flat URL below does.
         items: rest.items.map((item) => {

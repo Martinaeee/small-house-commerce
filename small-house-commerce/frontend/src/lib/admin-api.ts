@@ -370,6 +370,8 @@ export interface AdminOrderListRow extends AdminOrderRow {
   }[];
   /** The address snapshot, so the table can show the region. */
   shippingAddress: {
+    /** The recipient name captured on this order, not the customer's current name. */
+    fullName: string | null;
     streetAddress: string;
     barangay: string | null;
     city: string;
