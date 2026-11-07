@@ -24,6 +24,13 @@ const columns = [
   "failures",
   "orders",
 ] as const;
+const failureReasons = [
+  "VALIDATION",
+  "STOCK",
+  "NETWORK",
+  "SERVER",
+  "UNKNOWN",
+] as const;
 const rateKeys = {
   visits: null,
   views: "VIEW",
@@ -322,6 +329,17 @@ export function ProductFunnel({
                           key={c}
                           className="p-3 text-right tabular-nums"
                           data-testid={`funnel-${c}-${row.productId}`}
+                          title={
+                            c === "failures"
+                              ? failureReasons
+                                  .map((reason) => {
+                                    const count =
+                                      row.failureReasons[reason] ?? 0;
+                                    return `${t(`funnel_reason_${reason}`)}: ${count} (${funnelPercent(row.failures ? count / row.failures : 0)})`;
+                                  })
+                                  .join("\n")
+                              : undefined
+                          }
                         >
                           <span>{row[c]}</span>
                           {step && (
@@ -339,6 +357,11 @@ export function ProductFunnel({
                                 >
                                   !
                                 </button>
+                              )}
+                              {step.sampleSmall && (
+                                <span className="block text-[10px]">
+                                  {t("funnel_sample")}
+                                </span>
                               )}
                             </div>
                           )}

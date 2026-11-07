@@ -71,6 +71,14 @@ describe("product funnel", () => {
       "CONVERSION",
     );
     expect(screen.getByTestId("funnel-failures-p1")).toHaveTextContent("2");
+    expect(screen.getByTestId("funnel-failures-p1")).toHaveAttribute(
+      "title",
+      expect.stringContaining("库存 / 商品不可用: 2 (100.0%)"),
+    );
+    expect(screen.getByTestId("funnel-failures-p1")).toHaveAttribute(
+      "title",
+      expect.stringContaining("网络 / 超时: 0 (0.0%)"),
+    );
     expect(screen.getByTestId("funnel-flag-p1-CHECKOUT")).toHaveTextContent(
       "!",
     );
@@ -79,6 +87,37 @@ describe("product funnel", () => {
     ).toContain("8.4%");
     fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+  });
+  it("explains missing baselines directly in the product row without an anomaly", async () => {
+    api.list.mockResolvedValue({
+      rows: [
+        {
+          ...row,
+          steps: [
+            {
+              key: "CHECKOUT",
+              rate: null,
+              baselineRate: null,
+              flagged: false,
+              base: 0,
+              hits: 0,
+              sampleSmall: true,
+            },
+          ],
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      asOf: "2026-11-06T01:00:00Z",
+    });
+    render(mount(<ProductFunnel />));
+    const cell = await screen.findByTestId("funnel-checkouts-p1");
+    expect(cell).toHaveTextContent("样本少 / 无基线");
+    expect(cell).not.toHaveTextContent("NaN");
+    expect(
+      screen.queryByTestId("funnel-flag-p1-CHECKOUT"),
+    ).not.toBeInTheDocument();
   });
   it("hides customer information until explicitly revealed and loads reason filters", async () => {
     api.detail.mockResolvedValue({
