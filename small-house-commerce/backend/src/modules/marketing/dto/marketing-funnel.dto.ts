@@ -25,7 +25,7 @@ export const marketingFunnelQuerySchema = z
     productId: z.uuid().optional(),
     q: z.string().trim().max(120).optional(),
     onlyAnomaly: z.enum(['true', 'false']).default('false'),
-    sort: funnelSort.default('ORDER_COUNT'),
+    sort: funnelSort.default('CONVERSION'),
     page: z.coerce.number().int().min(1).max(10000).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
   })

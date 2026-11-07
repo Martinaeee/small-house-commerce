@@ -67,6 +67,9 @@ describe("product funnel", () => {
     expect(
       await screen.findByRole("button", { name: "Shoe cabinet" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "点击表头排序" })).toHaveValue(
+      "CONVERSION",
+    );
     expect(screen.getByTestId("funnel-failures-p1")).toHaveTextContent("2");
     expect(screen.getByTestId("funnel-flag-p1-CHECKOUT")).toHaveTextContent(
       "!",

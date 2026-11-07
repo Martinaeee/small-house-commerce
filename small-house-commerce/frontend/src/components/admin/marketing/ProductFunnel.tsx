@@ -51,7 +51,7 @@ export function ProductFunnel({
   const [search, setSearch] = useState(""),
     [q, setQ] = useState(""),
     [onlyAnomaly, setOnlyAnomaly] = useState(false),
-    [sort, setSort] = useState("ORDER_COUNT");
+    [sort, setSort] = useState("CONVERSION");
   const [page, setPage] = useState(1),
     [revision, setRevision] = useState(0);
   const [owners, setOwners] = useState<
