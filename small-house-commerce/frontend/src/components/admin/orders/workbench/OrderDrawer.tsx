@@ -310,7 +310,7 @@ export function OrderDrawer({
                   <SectionTitle>{t("orders_drawer_overview")}</SectionTitle>
                   <dl className="grid grid-cols-[76px_1fr] gap-1.5 text-[13px]">
                     <dt className="text-[12.5px] text-ink-muted">{t("orders_customer")}</dt>
-                    <dd className="text-ink">{row.customer.name ?? "—"}</dd>
+                    <dd className="text-ink">{row.shippingAddress?.fullName ?? row.customer.name ?? "—"}</dd>
                     <dt className="text-[12.5px] text-ink-muted">{t("orders_phone")}</dt>
                     <dd>
                       <button
@@ -471,7 +471,7 @@ export function OrderDrawer({
                 <SectionTitle>{t("orders_drawer_customer")}</SectionTitle>
                 <dl className="grid grid-cols-[76px_1fr] gap-1.5 text-[13px]">
                   <dt className="text-[12.5px] text-ink-muted">{t("orders_customer")}</dt>
-                  <dd className="text-ink">{row.customer.name ?? "—"}</dd>
+                  <dd className="text-ink">{row.shippingAddress?.fullName ?? row.customer.name ?? "—"}</dd>
                   <dt className="text-[12.5px] text-ink-muted">
                     {t("orders_filter_classification")}
                   </dt>

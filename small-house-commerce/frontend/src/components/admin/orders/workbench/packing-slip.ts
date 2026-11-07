@@ -72,7 +72,7 @@ export function buildPackingSlipHtml(row: AdminOrderListRow): string {
   <h1>Packing slip · ${escapeHtml(row.orderNumber)}</h1>
   <p class="note">Internal packing slip — not a carrier shipping label.</p>
   <dl class="meta">
-    <dt>Customer</dt><dd>${escapeHtml(row.customer.name || "—")}</dd>
+    <dt>Customer</dt><dd>${escapeHtml(row.shippingAddress?.fullName || row.customer.name || "—")}</dd>
     <dt>Phone</dt><dd>${escapeHtml(row.customer.normalizedPhone)}</dd>
     <dt>Address</dt><dd>${escapeHtml(address)}</dd>
   </dl>

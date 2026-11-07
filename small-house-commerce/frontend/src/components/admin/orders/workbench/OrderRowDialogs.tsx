@@ -226,7 +226,7 @@ export function OrderRowDialogs({ kind, row, onClose, onDone }: OrderRowDialogsP
                 {t("orders_packing_slip_note")}
               </p>
               <p className="font-semibold text-ink">{row.orderNumber}</p>
-              <p className="text-ink-secondary">{row.customer.name ?? "—"}</p>
+              <p className="text-ink-secondary">{row.shippingAddress?.fullName ?? row.customer.name ?? "—"}</p>
               <p className="text-ink-secondary">{row.customer.normalizedPhone}</p>
               <p className="mt-1 text-ink-secondary">
                 {row.shippingAddress

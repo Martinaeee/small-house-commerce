@@ -709,7 +709,7 @@ function OrdersPageContent() {
     for (const row of rows) {
       const cells = [
         row.orderNumber,
-        row.customer.name ?? "",
+        row.shippingAddress?.fullName ?? row.customer.name ?? "",
         row.customer.normalizedPhone,
         row.orderStatus,
         row.items.map((item) => item.productNameSnapshot).join(" | "),

@@ -919,7 +919,7 @@ function OrderDetailPage(): ReactNode {
                 <div>
                   <dt className="text-xs text-ink-muted">Name</dt>
                   <dd className="text-sm text-ink">
-                    {textOrDash(order.customer.name)}
+                    {textOrDash(order.shippingAddress?.fullName ?? order.customer.name)}
                   </dd>
                 </div>
                 <div>

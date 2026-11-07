@@ -5,10 +5,11 @@ import { buildPackingSlipHtml } from "./packing-slip";
 const row = {
   orderNumber: "PH100027",
   customer: {
-    name: "Marisol <Reyes>",
+    name: "Latest profile name",
     normalizedPhone: "+639171224466",
   },
   shippingAddress: {
+    fullName: "Marisol <Reyes>",
     streetAddress: "24-B Kamuning St.",
     barangay: "Kamuning",
     city: "Quezon City",
@@ -36,6 +37,12 @@ describe("the local packing slip", () => {
     expect(html).toContain("Internal packing slip");
     expect(html).not.toContain("₱");
     expect(html).not.toContain("Tracking number");
+  });
+
+  it("prints the recipient captured on the order, not the customer's latest profile name", () => {
+    const html = buildPackingSlipHtml(row);
+    expect(html).toContain("Marisol &lt;Reyes&gt;");
+    expect(html).not.toContain("Latest profile name");
   });
 
   it("escapes order text instead of injecting it into the print window", () => {

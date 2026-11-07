@@ -265,8 +265,8 @@ export function OrderTable({
                       case "customer":
                         content = (
                           <div className="min-w-0">
-                            <div className="truncate text-ink" title={row.customer.name ?? ""}>
-                              {row.customer.name ?? "—"}
+                            <div className="truncate text-ink" title={row.shippingAddress?.fullName ?? row.customer.name ?? ""}>
+                              {row.shippingAddress?.fullName ?? row.customer.name ?? "—"}
                             </div>
                             <div className="truncate text-[11.5px] text-ink-muted">
                               {row.customerClassification === "NEW"
