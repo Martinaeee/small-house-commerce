@@ -1,6 +1,6 @@
 # 商品漏斗监控与结账提交失败埋点：发布记录
 
-实现与浏览器验收：2026-11-06；收口复核：2026-11-07。状态：本地验收与最终全量测试通过，**尚未部署生产**。
+实现与浏览器验收：2026-11-06；收口复核：2026-11-07。状态：本地验收与最终全量测试通过，**已全套发布生产（2026-11-07）**。
 
 - 基线：`53304bce`
 - 提交：`474f7d30`（设计）、`299af3e5`（实施计划）、`68df9e1f`、`432e98d3`、`956d808c`、`6003c193`、`59880a64`、`a74b99fe`、`9969ee80`、`8d852d6f`；最终默认排序修正 `26c255b6`、主表诊断提示补齐 `e731af83`。
@@ -77,14 +77,39 @@
 - 补齐主表提示后的默认并发全量中，`SubscribeBand.spec.tsx > opens the shared success dialog after subscribing from the band` 曾找不到瞬时 `Copied` 按钮状态。测试在等待剪贴板 mock 被调用后立刻断言 UI，未等待对应异步状态完成；本次未修改订阅功能或该测试，单独复核 6/6 通过，随后以 `pnpm test --maxWorkers=2` 重跑全部前端测试 3651/3651 通过。
 - 本次排序回归的 RED 阶段，两端测试均明确显示预期 `CONVERSION`、实际 `ORDER_COUNT`；修复后各 2/2 通过。
 
-最终测试日志在本机私有目录 `/private/tmp/luwag-post-links-tools-20261103/`：`backend-suite-final-20261107.log`、`backend-build-final-20261107.log`、`frontend-suite-limited-20261107.log`、`frontend-tsc-final-20261107.log`、`funnel-integration-20261107.log`、`funnel-table-hints-green.log`、`newsletter-recheck-20261107.log`。前端生产镜像尚未构建，本记录不代替生产发布验收。
+最终测试日志在本机私有目录 `/private/tmp/luwag-post-links-tools-20261103/`：`backend-suite-final-20261107.log`、`backend-build-final-20261107.log`、`frontend-suite-limited-20261107.log`、`frontend-tsc-final-20261107.log`、`funnel-integration-20261107.log`、`funnel-table-hints-green.log`、`newsletter-recheck-20261107.log`。改动合入服务器分支后的合并树全量复跑结果：后端 197 文件 / 2604 通过（265 跳过），前端 330 文件 / 3670 通过，前后端构建与 `tsc --noEmit` 均 exit 0。
 
-## 生产发布与回滚（待授权）
+## 生产发布（2026-11-07 已执行）
 
-1. 迁移先行：`docker compose ... exec backend pnpm prisma migrate deploy`（只加枚举值，旧代码不受影响）。
-2. 后端 → 前端依次重建镜像，`--env-file .env.deploy`。
-3. 发布前分别保存前端、后端的实际镜像 ID，再创建 `rollback-pre-checkout-funnel-<实际发布日期>` 标签；**目前尚未创建生产回滚镜像**。
-4. 如需回退，先回退前端，再回退后端；枚举新增值保留，不执行反向删值。仅回退前端会停止新诊断事件上报，也会移除该前端版本的漏斗页签，但已入库数据与新版后端接口仍保留。不要在新版前端仍运行时单独回退后端：旧版 DTO 不接受新事件名，新接口也不存在。
+- 生产提交：`b2b1d7df`（`staging/luwag-shop-domain`，含服务器原有 `6a3f95a4`、`3179702d`）；先推送 `deploy/checkout-funnel-20261107`，服务器 `merge --ff-only` 快进。
+- 迁移：`20261106120000_add_checkout_submit_events` 已应用（2026-11-07 06:10:27 UTC），`_prisma_migrations` 共 81 条；`CHECKOUT_SUBMIT_ATTEMPT`、`CHECKOUT_SUBMIT_FAILED` 枚举值已存在。
+- 镜像：后端 `small-house-prod-backend:latest` = `0901ee1040c0`；前端 `small-house-prod-frontend:latest` = `1639ad3166c0`。
+- 数据库备份：`/opt/backups/pre-checkout-funnel-20261107T060630Z/small_house.sql`（3.3 MB）。
+- 回滚标签：`small-house-prod-backend:rollback-pre-checkout-funnel-20261107` = `2f23e4618f22`；`small-house-prod-frontend:rollback-pre-checkout-funnel-20261107` = `bfc70632040d`。
+
+### 生产验收
+
+| 检查 | 结果 |
+| --- | --- |
+| 容器 | backend / frontend / db healthy，caddy 正常 |
+| 页面 | `/`、`/checkout`、`/admin/marketing/funnel`、`/api/v1/storefront/settings` 均 200 |
+| 前端镜像内容 | SSR chunk 内含「商品漏斗」文案 |
+| 漏斗接口（管理员令牌） | `GET /api/v1/admin/marketing/funnel` 200，11 个商品行 |
+| 事件接收 | 临时 `CHECKOUT_SUBMIT_FAILED` POST → `202 {"accepted":1}` |
+| 入库字段 | `reason=STOCK`、`httpStatus=400`、完整幂等键、客户姓名/电话均保留 |
+| 报表联动 | 该商品行 failures=1、STOCK=1；sessions 返回该会话与 diagnostic |
+| 清理 | 测试事件已按 session 前缀删除（remaining=0）；未创建真实订单 |
+| 日志 | 后端仅既有 pg 弃用警告；前端无 error/warn |
+
+### 发布过程事故（已处置）
+
+`docker compose run --rm backend pnpm prisma migrate deploy` 会执行镜像 entrypoint（先跑 migrate 与权限 reconcile，再启动 Nest），而不是只跑迁移。三次尝试各启动了一个临时后端容器，均已 `docker stop` / `rm -f` 清理。核对 `meta_conversion_events`、`qianyi_sync_jobs` 在 06:05 UTC 后均为 0 条，无推送副作用；迁移已由 entrypoint 应用，随后用 `--entrypoint sh` 复核得「No pending migrations」。后续部署应改用 `--entrypoint sh` 形式，或依赖 entrypoint 自带的迁移步骤。
+
+### 回滚
+
+1. 先回退前端：`docker tag small-house-prod-frontend:rollback-pre-checkout-funnel-20261107 small-house-prod-frontend:latest`，再 `up -d frontend`。
+2. 需要时再回退后端；枚举新增值保留，不执行反向删值。
+3. 不要在新版前端在线时单独回退后端：旧版 DTO 不接受新事件名，新接口也不存在。
 
 ## 收口审查与实施裁定
 
@@ -104,7 +129,7 @@
 
 - 未改 Header、Footer、站点 shell 的布局或样式；只在用户指定的投放工作台内新增页签。
 - 修改 `ApiError` 与库存异常 code 是失败分类的必需依赖，保留原有错误消息。
-- 未修改生产数据，未发送 Meta/CAPI 事件，也未执行生产迁移、推送或部署。
+- 实现期间未修改生产数据，未发送 Meta/CAPI 事件；生产变更只发生在下方「生产发布」段记录的发布窗口。
 
 ## 待后续处理的小项
 
