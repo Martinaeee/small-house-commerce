@@ -81,6 +81,17 @@ export function SharedMediaWorkspace({
       sortOrder: Number(image.sortOrder.trim() || "0") || 0,
     })),
   );
+  // The PDP phone mini player follows the first usable shared video in gallery
+  // order; moving another video here is the operator's switch.
+  const firstVideo = images
+    .map((image, index) => ({ image, index }))
+    .filter(({ image }) => image.type === "VIDEO" && image.url.trim() !== "")
+    .sort(
+      (left, right) =>
+        (Number(left.image.sortOrder.trim() || "0") || 0) -
+          (Number(right.image.sortOrder.trim() || "0") || 0) ||
+        left.index - right.index,
+    )[0] ?? null;
   const coverSortOrder =
     images.length > 0
       ? Math.min(
@@ -147,6 +158,10 @@ export function SharedMediaWorkspace({
       </div>
 
       <MediaAddRow disabled={pending} onAddMedia={onAddMedia} batchUpload={uploadTask} />
+
+      <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+        {firstVideo ? t("product_media_floating_hint") : t("product_media_floating_empty")}
+      </p>
 
       {images.length === 0 ? (
         <p className="mt-4 text-sm text-ink-muted">
@@ -269,6 +284,11 @@ export function SharedMediaWorkspace({
                         {t("product_media_scene_badge")}
                       </span>
                     ) : null}
+                    {firstVideo?.index === index ? (
+                      <span className="absolute right-1 top-7 rounded-full bg-ink/85 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {t("product_media_floating_badge")}
+                      </span>
+                    ) : null}
                   </button>
 
                   <div
@@ -369,6 +389,26 @@ export function SharedMediaWorkspace({
                 {t("product_media_remove")}
               </button>
             </div>
+            {activeImage.type === "VIDEO" && firstVideo ? (
+              firstVideo.index === editorIndex ? (
+                <p className="mt-2 text-xs font-medium text-ink-secondary" data-testid="floating-video-current">
+                  {t("product_media_floating_current")}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className="mt-2 h-8 rounded-lg border border-cta/40 px-3 text-xs font-semibold text-cta disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => {
+                    const to = firstVideo.index;
+                    setActiveIndex((current) => indexAfterMove(current, editorIndex, to));
+                    onReorder(editorIndex, to);
+                  }}
+                  disabled={pending}
+                >
+                  {t("product_media_floating_action")}
+                </button>
+              )
+            ) : null}
           </div>
           <div
             id={

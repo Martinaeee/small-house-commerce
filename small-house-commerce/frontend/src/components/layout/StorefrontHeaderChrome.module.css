@@ -1,0 +1,9 @@
+@media (max-width: 1023px) {
+  :global(body:has([data-pdp-mobile-layout])) .chrome {
+    top: calc(-1 * var(--announcement-height, 0px));
+  }
+  :global(body:has([data-pdp-mobile-layout])) .chrome :global([data-storefront-header-row]) {
+    min-height: 51px;
+    height: 51px;
+  }
+}

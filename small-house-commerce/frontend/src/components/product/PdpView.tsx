@@ -6,9 +6,11 @@ import { pdpHasDetails } from "./pdp-details-visibility";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
 import { PdpRecommendations } from "./PdpRecommendations";
+import { PdpQuickRecommendations } from "./PdpQuickRecommendations";
 import { ProductFeedback } from "./ProductFeedback";
 import { RecentlyViewed } from "@/components/home/RecentlyViewed";
 import { TrustBar } from "@/components/ui/TrustBar";
+import mobileStyles from "./PdpMobile.module.css";
 import { fetchSiteSettings } from "@/lib/site-settings";
 import type { DeliveryWindows } from "@/lib/deliveryWindow";
 import type { Product } from "@/lib/api";
@@ -45,7 +47,7 @@ export async function PdpView({
   // hidden feature bullets and the switched-off module do not count.
   const hasDetails = pdpHasDetails(product);
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-8 pb-24 sm:px-6 md:pb-8">
+    <div className="mx-auto max-w-[1200px] px-4 pb-24 pt-0 sm:px-6 md:pb-8 lg:pt-8">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -68,6 +70,8 @@ export async function PdpView({
             hideSellingPoints={settings.hideSellingPoints}
           />
 
+          <PdpQuickRecommendations currentProduct={product} fallback={related} />
+
           <PdpSectionNavGate product={product} hasDetails={hasDetails} />
 
           <section className="mt-6 flex flex-col gap-8">
@@ -78,7 +82,9 @@ export async function PdpView({
               supportEmail={settings.supportEmail}
               supportHours={settings.supportHours}
             />
-            <TrustBar />
+            <div className={mobileStyles.servicesBelowReviews}>
+              <TrustBar />
+            </div>
           </section>
         </PdpPurchaseProvider>
       </Suspense>

@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import styles from "./ProductInformation.module.css";
 import type { Product } from "@/lib/api";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
+import { useDesktopViewport } from "./useDesktopViewport";
+import { ProductDetailsModal } from "./ProductDetailsModal";
 import {
   analyzePdpSpecifications,
+  formatCentimeters,
   pdpBasisLabel,
   pdpInformationVisible,
   rowMatchesSelection,
@@ -20,12 +23,16 @@ const CELL_CLASS =
 const HEAD_CLASS =
   "border-b border-border px-2.5 py-3 text-left align-top text-sm font-semibold leading-relaxed text-ink first:pl-0";
 
-function CommonFacts({ product, model }: { product: Product; model: PdpSpecModel }) {
+function sharedFacts(product: Product, model: PdpSpecModel) {
   const nonColor = product.options.filter((option) => option.kind !== "COLOR");
-  const facts = model.common.filter((field) => !(
+  return model.common.filter((field) => !(
     field.key === "variant" && nonColor.length > 0 &&
     model.groups.some((group) => nonColor.every((option) => group.basis.includes(option.id)))
   ));
+}
+
+function CommonFacts({ product, model }: { product: Product; model: PdpSpecModel }) {
+  const facts = sharedFacts(product, model);
   return (
     <dl className={`${styles.facts} gap-x-6 gap-y-4 px-5 py-4`}>
       {facts.map((field) => {
@@ -38,6 +45,35 @@ function CommonFacts({ product, model }: { product: Product; model: PdpSpecModel
           </div>
         );
       })}
+    </dl>
+  );
+}
+
+function CompactFacts({ product, model }: { product: Product; model: PdpSpecModel }) {
+  const { primaryLine } = usePdpPurchase();
+  const matches = model.rows.filter(row => rowMatchesSelection(row, primaryLine.selectedValueIds));
+  const commonMaterial = model.common.find(field => field.key === "materials")?.cell;
+  const materialCell = commonMaterial ?? (matches.length === 1 ? matches[0].cells.materials : undefined);
+  const material = materialCell?.status === "complete" ? model.formatCell(materialCell) : null;
+  // Keep only axes that are genuinely shared by the remaining candidates.
+  const measurements = matches.flatMap(row => row.cells.dimensions.type === "dimensions" ? [row.cells.dimensions.value] : []);
+  const dimension = ["W", "D", "H"].flatMap((axis, index) => {
+    const value = measurements[0]?.[index];
+    return value != null && measurements.length === matches.length && measurements.every(values => values[index] === value)
+      ? [`${formatCentimeters(value)}${axis}`] : [];
+  }).join(" × ");
+  const components = model.common.find(field => field.key === "dimensions" && field.cell.type === "components");
+  const colors = product.options
+    .filter(option => option.kind === "COLOR")
+    .flatMap(option => [...option.values].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)).map(value => value.label.trim()))
+    .filter(Boolean);
+  const extra = sharedFacts(product, model).filter(field => !["productName", "colors", "materials", "dimensions"].includes(field.key));
+  return (
+    <dl className={styles.compactFacts}>
+      {colors.length > 0 && <div><dt>Available colors</dt><dd>{colors.join(" / ")}</dd></div>}
+      {material && <div><dt>Materials</dt><dd>{material}</dd></div>}
+      {dimension ? <div><dt>Dimensions</dt><dd>{dimension} cm</dd></div> : components && <div><dt>Dimensions</dt><dd>{model.formatCell(components.cell)}</dd></div>}
+      {extra.map(field => <div key={field.key}><dt>{field.label}</dt><dd>{model.formatCell(field.cell)}</dd></div>)}
     </dl>
   );
 }
@@ -170,28 +206,49 @@ function DifferenceTable({
 export function ProductInformation({ product }: { product: Product }): ReactNode {
   const { primaryLine, primaryDerived } = usePdpPurchase();
   const model = useMemo(() => analyzePdpSpecifications(product), [product]);
+  const desktop = useDesktopViewport();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // The long per-variant table starts folded on phones (JD style): the shared
+  // facts stay visible and the shopper opens the differences on demand.
+  const [differencesOpen, setDifferencesOpen] = useState(false);
+  // Equal partial dimensions are already shown once in the compact facts.
+  const groups = desktop ? model.groups : model.groups.map(group => ({
+    ...group,
+    fields: group.fields.filter(field => !(field.key === "dimensions" && model.rows.every(row =>
+      row.cells.dimensions.type === "dimensions" && row.cells.dimensions.signature === model.rows[0]?.cells.dimensions.signature,
+    ))),
+  })).filter(group => group.fields.length > 0);
 
   if (!pdpInformationVisible(product)) return null;
 
   return (
+    <>
     <section
       id="specifications"
       aria-labelledby="product-information-title"
-      className={`${styles.section} scroll-mt-32 overflow-hidden rounded-lg border border-border bg-card`}
+      className={`${styles.section} scroll-mt-32 ${desktop ? "overflow-hidden rounded-lg border border-border bg-card" : styles.compact}`}
     >
-      <div className="border-b border-border px-5 py-4">
-        <h2 id="product-information-title" className="text-2xl font-semibold text-ink">
-          Product information
-        </h2>
-        <p className="mt-1 text-sm text-ink-secondary">
-          Shared details shown once. Differences are listed below.
-        </p>
-      </div>
-      {model.common.length > 0 && <CommonFacts product={product} model={model} />}
-      {model.groups.map((group) => (
+      {desktop ? <>
+        <div className="border-b border-border px-5 py-4">
+          <h2 id="product-information-title" className="text-2xl font-semibold text-ink">
+            Product information
+          </h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Shared details shown once. Differences are listed below.
+          </p>
+        </div>
+        {model.common.length > 0 && <CommonFacts product={product} model={model} />}
+      </> : <>
+        <div className={styles.compactHead}>
+          <h2 id="product-information-title">Product information</h2>
+          <button type="button" onClick={() => setDetailsOpen(true)}>Size guide ›</button>
+        </div>
+        <CompactFacts product={product} model={model} />
+      </>}
+      {(desktop || differencesOpen) && groups.map((group) => (
         <div
           key={group.basis.join("|")}
-          className="border-b border-border px-5 py-4 last:border-b-0"
+          className={desktop ? "border-b border-border px-5 py-4 last:border-b-0" : styles.compactDifferences}
         >
           <DifferenceTable
             product={product}
@@ -202,6 +259,22 @@ export function ProductInformation({ product }: { product: Product }): ReactNode
           />
         </div>
       ))}
+      {!desktop && groups.length > 0 && (
+        <button
+          type="button"
+          className={styles.compactToggle}
+          aria-expanded={differencesOpen}
+          aria-label={differencesOpen ? "Hide specifications" : "Show specifications"}
+          onClick={() => setDifferencesOpen((open) => !open)}
+        >
+          {differencesOpen ? "Show less" : "Show full specifications"}
+          <span className={styles.compactChevron} data-open={differencesOpen ? "true" : "false"} aria-hidden>
+            ⌄
+          </span>
+        </button>
+      )}
     </section>
+    {detailsOpen && <ProductDetailsModal product={product} onClose={() => setDetailsOpen(false)} />}
+    </>
   );
 }

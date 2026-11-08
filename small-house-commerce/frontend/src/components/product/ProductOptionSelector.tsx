@@ -13,12 +13,13 @@ import { resolveSkuProductDimensions } from "./pdp-facts";
 import { formatCentimeters } from "./pdp-specification-display";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { optimizedUploadImage } from "@/lib/image-url";
+import mobileStyles from "./PdpMobile.module.css";
 
 function isSelectable(variant: StorefrontProductVariant): boolean {
   return variant.sku?.status === "ACTIVE" && variant.sku.price !== null;
 }
 
-function isCompatibleValue(
+export function isCompatibleValue(
   productOptions: readonly StorefrontProductOption[],
   variants: readonly StorefrontProductVariant[],
   selectedValueIds: Readonly<Record<string, string>>,
@@ -173,12 +174,15 @@ export function ProductOptionSelector({
   instanceId,
   preview = false,
   sizeCards = false,
+  imageCards = false,
 }: {
   lineId: string;
   instanceId?: string;
   preview?: boolean;
   /** PDP-only compact image cards for SIZE options with real thumbnails. */
   sizeCards?: boolean;
+  /** Compact, real option-image cards in the mobile PDP drawer. */
+  imageCards?: boolean;
 }) {
   const selectorId = useId();
   const {
@@ -211,6 +215,7 @@ export function ProductOptionSelector({
           (left, right) =>
             left.position - right.position || left.id.localeCompare(right.id),
         );
+        const asImageCards = imageCards && sortedValues.length > 0 && sortedValues.every(value => value.thumbnailUrl);
         const asSizeCards =
           sizeCards &&
           option.kind === "SIZE" &&
@@ -239,7 +244,9 @@ export function ProductOptionSelector({
               role="group"
               aria-label={option.name}
               className={
-                asSizeCards
+                asImageCards
+                  ? mobileStyles.optionCards
+                  : asSizeCards
                   ? `grid gap-2 ${
                       sortedValues.length === 1 ? "grid-cols-1" : "grid-cols-1 @min-[21rem]:grid-cols-2"
                     }`
@@ -307,7 +314,9 @@ export function ProductOptionSelector({
                           : undefined
                     }
                     className={
-                      asSizeCards
+                      asImageCards
+                        ? `flex min-w-0 flex-col overflow-hidden rounded-md border text-left disabled:opacity-40 ${selected ? "border-cta bg-primary-light/40 text-cta" : "border-border bg-card text-ink"}`
+                        : asSizeCards
                         ? `relative flex min-h-[64px] min-w-0 items-center gap-2.5 rounded-xl border-2 p-2 pr-7 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                             selected
                               ? "border-cta bg-primary-light/40"
@@ -320,7 +329,13 @@ export function ProductOptionSelector({
                           }`
                     }
                   >
-                    {asSizeCards && measurement ? (
+                    {asImageCards ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={optimizedUploadImage(value.thumbnailUrl!, 256)} alt={value.thumbnailAlt ?? value.label} className={mobileStyles.optionCardImage} />
+                        <span className="w-full px-1.5 py-1 text-center text-xs leading-snug">{value.label}{outOfStock && <span className="block text-sale">Out of stock</span>}</span>
+                      </>
+                    ) : asSizeCards && measurement ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { useCart } from "@/components/cart/CartContext";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
+import { recordSupportOrderCompleted } from "@/components/chat/mobile-support-reminder";
 import { readAttribution } from "@/lib/tracking";
 import { analyticsSessionId } from "@/lib/analytics";
 import { recordSubmitAttempt, recordSubmitFailure, checkoutFailureReason, clearSubmitAttempt } from "@/lib/checkout-events";
@@ -282,6 +283,7 @@ export function CheckoutConfirmView({
       };
       const order = await api.createOrder(payload);
       orderCreated = true;
+      recordSupportOrderCompleted();
       clearSubmitAttempt();
       if (!checkout.isBuyNow) {
         try {

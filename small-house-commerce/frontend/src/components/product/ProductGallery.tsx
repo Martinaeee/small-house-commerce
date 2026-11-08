@@ -1,7 +1,8 @@
 // src/components/product/ProductGallery.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useDesktopViewport } from "./useDesktopViewport";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
@@ -12,6 +13,7 @@ interface Props {
   active: number;
   onSelect: (index: number) => void;
   onOpenLightbox: (index: number) => void;
+  mobileOverlay?: ReactNode;
 }
 
 /** A tap that moved the track more than this is a swipe, not an open. */
@@ -67,10 +69,23 @@ function scrollTrackTo(track: HTMLDivElement, left: number) {
  * Gallery entries can be photos or short videos — only the active video is
  * mounted, with a play badge until its inline preview starts playing.
  */
-export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Props) {
+export function ProductGallery({ images, active, onSelect, onOpenLightbox, mobileOverlay }: Props) {
+  const desktop = useDesktopViewport();
   const hasRealImages = images.length > 0 && images.some((image) => image.url);
-  const directCount = images.length > 5 ? 4 : Math.min(5, images.length);
-  const extra = images.length > 5 ? images.length - 4 : 0;
+  const directCount = desktop && images.length > 5 ? 4 : images.length;
+  const extra = desktop && images.length > 5 ? images.length - 4 : 0;
+  const thumbsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const track = thumbsRef.current;
+    const thumb = track?.querySelector<HTMLElement>(`[aria-label="View media ${active + 1}"]`);
+    if (!track || !thumb) return;
+    const left = thumb.offsetLeft - track.offsetLeft;
+    if (left < track.scrollLeft) track.scrollLeft = left;
+    else if (left + thumb.offsetWidth > track.scrollLeft + track.clientWidth) {
+      track.scrollLeft = left + thumb.offsetWidth - track.clientWidth;
+    }
+  }, [active, images, desktop]);
 
   const trackRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
@@ -108,8 +123,9 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
 
   if (!hasRealImages) {
     return (
-      <div className="-mx-4 overflow-hidden sm:mx-0">
+      <div className="relative -mx-4 overflow-hidden sm:mx-0">
         <PlaceholderImage label="" className="aspect-square w-full" />
+        {mobileOverlay}
       </div>
     );
   }
@@ -146,7 +162,8 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
   };
 
   return (
-    <div className="-mx-4 flex flex-col sm:mx-0">
+    <div data-testid="product-gallery" className="-mx-4 flex flex-col sm:mx-0">
+      <div className="relative">
       <div
         ref={trackRef}
         role="group"
@@ -184,9 +201,11 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox }: Pro
           </button>
         ))}
       </div>
+      {mobileOverlay}
+      </div>
 
       {images.length > 1 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto px-4 pb-1 sm:px-0">
+        <div ref={thumbsRef} className="mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-0">
           {images.slice(0, directCount).map((image, index) => (
             <button
               key={image.id}

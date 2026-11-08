@@ -2,6 +2,31 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSiteSettings } from "@/components/site/SiteSettingsProvider";
+import { createPortal } from "react-dom";
+import { startMobileSupportReminder } from "./mobile-support-reminder";
+
+function useMobileSupportPlacement() {
+  const [placement, setPlacement] = useState<{ active: boolean; slot: HTMLElement | null }>({ active: false, slot: null });
+  useEffect(() => {
+    const update = () => {
+      const active = window.innerWidth < 1024 && document.querySelector("[data-pdp-mobile-layout]") !== null;
+      const candidate = active ? document.getElementById("pdp-support-slot") : null;
+      // Only adopt a slot React has already hydrated. A streamed segment may
+      // commit late; portalling into it before that would make the streamed
+      // parent hydrate with a foreign child and fail. Until then the floating
+      // control stays hidden by the page's phone CSS.
+      const hydrated = candidate && Object.keys(candidate).some(key => key.startsWith("__reactFiber") || key.startsWith("__reactContainer"));
+      const slot = hydrated ? candidate : null;
+      setPlacement(current => current.active === active && current.slot === slot ? current : { active, slot });
+    };
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", update);
+    return () => { observer.disconnect(); window.removeEventListener("resize", update); };
+  }, []);
+  return placement;
+}
 
 /**
  * Floating multi-channel support control (Castlery-style):
@@ -16,6 +41,10 @@ const SIZE = 56;
 const MARGIN = 12;
 const SCROLL_IDLE_DELAY_MS = 600;
 const NUDGE_DELAY_MS = 45_000;
+// An ignored nudge or an untouched channel stack retracts on its own; the
+// support entry itself always stays so the shopper can reopen it.
+const NUDGE_AUTO_HIDE_MS = 15_000;
+const STACK_AUTO_COLLAPSE_MS = 15_000;
 const DRAG_THRESHOLD_PX = 5;
 const NUDGE_DISMISS_KEY = "luwag_chat_nudge_dismissed";
 
@@ -156,7 +185,10 @@ export function MessengerChat() {
   const hasChannels = channels.length > 0;
   const multipleChannels = channels.length > 1;
   const primaryChannel = channels[0] ?? null;
+  const placement = useMobileSupportPlacement();
+  const embedded = placement.active && placement.slot !== null;
   const fabRef = useRef<HTMLElement | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [nudgeVisible, setNudgeVisible] = useState(false);
   const [openChannelKey, setOpenChannelKey] = useState<string | null>(null);
@@ -194,7 +226,7 @@ export function MessengerChat() {
   // short transition with a forced end-state commit, which also lands
   // immediately on renderers that never advance the animation clock.
   useEffect(() => {
-    if (!hasChannels) return;
+    if (!hasChannels || embedded) return;
     const el = fabRef.current;
     if (!el) return;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -227,7 +259,7 @@ export function MessengerChat() {
       clearTimeout(idleTimer);
       clearTimeout(commitTimer);
     };
-  }, [hasChannels, channelKey]);
+  }, [hasChannels, channelKey, embedded]);
 
   // Keep a dragged button on-screen after resize/rotation.
   useEffect(() => {
@@ -245,10 +277,18 @@ export function MessengerChat() {
     return () => window.removeEventListener("resize", onResize);
   }, [hasChannels, channelKey]);
 
-  // One-shot 45s inactivity nudge. Setup/cleanup are symmetric so StrictMode
-  // dev replay (mount -> cleanup -> mount) simply re-arms the same timer.
+  // Mobile PDP uses accumulated foreground browsing; other pages retain the existing inactivity policy.
   useEffect(() => {
     if (!hasChannels) return;
+    if (placement.active) return startMobileSupportReminder({
+      onShow: () => { firedRef.current = true; writeNudgeDismissed(); setNudgeVisible(true); },
+      onHide: () => setNudgeVisible(false),
+      isDismissed: () => firedRef.current || dismissedRef.current,
+      isBlocked: () => hasOpenDialog() || Array.from(document.querySelectorAll<HTMLElement>('[role="region"][aria-label="Your privacy choices"]')).some(el => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 1 && rect.height > 1;
+      }),
+    });
 
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -290,7 +330,32 @@ export function MessengerChat() {
       window.removeEventListener("scroll", onActivity, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [hasChannels, channelKey]);
+  }, [hasChannels, channelKey, placement.active]);
+
+  // Auto-retract the expanded channel stack and an ignored nudge after 15s.
+  // Pointing at or focusing anything inside the support control restarts the
+  // clock, so reading the options is never punished.
+  useEffect(() => {
+    if (!channelsOpen && !nudgeVisible) return;
+    let stackTimer: ReturnType<typeof setTimeout> | undefined;
+    let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      clearTimeout(stackTimer);
+      clearTimeout(nudgeTimer);
+      if (channelsOpen) stackTimer = setTimeout(() => setOpenChannelKey(null), STACK_AUTO_COLLAPSE_MS);
+      if (nudgeVisible) nudgeTimer = setTimeout(() => setNudgeVisible(false), NUDGE_AUTO_HIDE_MS);
+    };
+    arm();
+    const anchor = anchorRef.current;
+    anchor?.addEventListener("pointerdown", arm, { passive: true });
+    anchor?.addEventListener("focusin", arm);
+    return () => {
+      clearTimeout(stackTimer);
+      clearTimeout(nudgeTimer);
+      anchor?.removeEventListener("pointerdown", arm);
+      anchor?.removeEventListener("focusin", arm);
+    };
+  }, [channelsOpen, nudgeVisible]);
 
   // Escape explicitly collapses the channel stack or dismisses the nudge.
   useEffect(() => {
@@ -308,9 +373,10 @@ export function MessengerChat() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [channelsOpen, nudgeVisible, dismissNudge]);
 
-  if (!hasChannels || !primaryChannel) return null;
+  if (!hasChannels || !primaryChannel || (placement.active && !placement.slot)) return null;
 
   const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (embedded) return;
     const rect = event.currentTarget.getBoundingClientRect();
     dragRef.current = {
       startX: event.clientX,
@@ -350,22 +416,25 @@ export function MessengerChat() {
   };
 
   const nudgeSideClass =
-    pos && typeof window !== "undefined" && pos.x + SIZE / 2 < window.innerWidth / 2
+    embedded || (pos && typeof window !== "undefined" && pos.x + SIZE / 2 < window.innerWidth / 2)
       ? "left-0"
       : "right-0";
   const nudgeVerticalClass =
-    pos && pos.y <= NUDGE_CARD_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
+    !embedded && pos && pos.y <= NUDGE_CARD_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
   const stackVerticalClass =
-    pos && pos.y <= CHANNEL_STACK_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
+    !embedded && pos && pos.y <= CHANNEL_STACK_RESERVE_PX ? "top-full mt-3" : "bottom-full mb-3";
 
-  const fabClassName =
-    "flex h-full w-full items-center justify-center rounded-full bg-cta text-cta-foreground shadow-lg transition hover:bg-cta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2";
+  const fabClassName = embedded
+    ? "flex h-full w-full flex-col items-center justify-center gap-0.5 text-[10px] text-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+    : "flex h-full w-full items-center justify-center rounded-full bg-cta text-cta-foreground shadow-lg transition hover:bg-cta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2";
 
-  return (
+  const content = (
     <div
+      ref={anchorRef}
       data-testid="messenger-chat-anchor"
-      className="fixed z-40"
-      style={{
+      data-pdp-embedded={embedded ? "true" : undefined}
+      className={embedded ? "relative z-40" : "fixed z-40"}
+      style={embedded ? { width: "100%", height: "100%" } : {
         left: pos ? pos.x : undefined,
         top: pos ? pos.y : undefined,
         right: pos ? undefined : 16,
@@ -442,10 +511,11 @@ export function MessengerChat() {
           aria-expanded={channelsOpen}
           aria-controls="support-channel-options"
           data-testid="messenger-chat"
-          style={{ width: SIZE, height: SIZE, touchAction: "none" }}
+          style={{ width: embedded ? "100%" : SIZE, height: embedded ? "100%" : SIZE, touchAction: embedded ? "auto" : "none" }}
           className={fabClassName}
         >
-          <ChannelIcon kind="MULTI" className="h-7 w-7" />
+          <ChannelIcon kind="MULTI" className={embedded ? "h-5 w-5" : "h-7 w-7"} />
+          {embedded && <span>Chat</span>}
         </button>
       ) : (
         <a
@@ -466,10 +536,11 @@ export function MessengerChat() {
           aria-label={primaryChannel.directLabel}
           title={primaryChannel.directLabel}
           data-testid="messenger-chat"
-          style={{ width: SIZE, height: SIZE, touchAction: "none" }}
+          style={{ width: embedded ? "100%" : SIZE, height: embedded ? "100%" : SIZE, touchAction: embedded ? "auto" : "none" }}
           className={fabClassName}
         >
-          <ChannelIcon kind={primaryChannel.kind} className="h-7 w-7" />
+          <ChannelIcon kind={primaryChannel.kind} className={embedded ? "h-5 w-5" : "h-7 w-7"} />
+          {embedded && <span>Chat</span>}
         </a>
       )}
 
@@ -514,4 +585,5 @@ export function MessengerChat() {
       ) : null}
     </div>
   );
+  return embedded && placement.slot ? createPortal(content, placement.slot) : content;
 }

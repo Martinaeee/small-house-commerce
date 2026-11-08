@@ -43,6 +43,172 @@ afterEach(() => {
   document.querySelectorAll("[data-test-open-dialog]").forEach((node) => node.remove());
 });
 
+function renderMobileChat() {
+  Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 3000 });
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 0, writable: true });
+  return render(
+    <SiteSettingsProvider settings={{ ...DEFAULT_SITE_SETTINGS, messengerUrl: "https://m.me/luwag", supportEmail: "help@example.com" }}>
+      <main data-pdp-mobile-layout="true"><div id="pdp-support-slot" /></main>
+      <MessengerChat />
+    </SiteSettingsProvider>,
+  );
+}
+
+describe("mobile PDP support reminders", () => {
+  it("retracts unused support channels after 15 seconds while keeping the support button", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    const button = screen.getByRole("button", { name: "Contact support" });
+    fireEvent.click(button);
+    expect(screen.getByRole("group", { name: "Support channels" })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(14_999));
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByRole("group", { name: "Support channels" })).toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toBeInTheDocument();
+  });
+
+  it("extends channel reading time only for interaction inside the support control", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    fireEvent.click(screen.getByRole("button", { name: "Contact support" }));
+    act(() => vi.advanceTimersByTime(10_000));
+    fireEvent.pointerDown(screen.getByRole("group", { name: "Support channels" }));
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByRole("group", { name: "Support channels" })).toBeInTheDocument();
+    fireEvent.pointerDown(window);
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.queryByRole("group", { name: "Support channels" })).toBeNull();
+  });
+
+  it("also retracts an ignored floating reminder after 15 seconds without repeating it", () => {
+    vi.useFakeTimers();
+    renderChat({ messengerUrl: "https://m.me/luwag" });
+    act(() => vi.advanceTimersByTime(45_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(15_000));
+    expect(screen.queryByTestId("chat-nudge")).toBeNull();
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.queryByTestId("chat-nudge")).toBeNull();
+    expect(screen.getByTestId("messenger-chat")).toBeInTheDocument();
+  });
+
+  function visibleOverlay(role: string, label?: string) {
+    const overlay = document.createElement("div");
+    overlay.dataset.testOpenDialog = "true";
+    overlay.setAttribute("role", role);
+    if (label) overlay.setAttribute("aria-label", label);
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({ width: 300, height: 200 } as DOMRect);
+    document.body.append(overlay);
+    return overlay;
+  }
+
+  it("defers the reminder while privacy choices are visible", () => {
+    vi.useFakeTimers();
+    const privacy = visibleOverlay("region", "Your privacy choices");
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    privacy.remove();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+  });
+
+  it("retracts an existing reminder when a visible dialog opens", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+    visibleOverlay("dialog");
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+  });
+
+  it("does not mistake horizontal gallery scrolling for page-bottom intent", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, value: 667 });
+    act(() => vi.advanceTimersByTime(30_000));
+    fireEvent.scroll(document.getElementById("pdp-support-slot")!);
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+  });
+
+  it("does not repeat an automatic reminder after remounting in the same session", () => {
+    vi.useFakeTimers();
+    const view = renderMobileChat();
+    act(() => vi.advanceTimersByTime(105_000));
+    view.unmount();
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(120_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+  });
+
+  it("stops an existing reminder after a successful order and stays quiet on return", () => {
+    vi.useFakeTimers();
+    const view = renderMobileChat();
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+    sessionStorage.setItem("luwag_support_order_completed", "1");
+    act(() => window.dispatchEvent(new Event("luwag:order-completed")));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    view.unmount();
+    sessionStorage.removeItem(NUDGE_KEY);
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(120_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+  });
+
+  it("waits for 90 seconds of foreground browsing despite interaction, then retracts after 15 seconds", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(45_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    fireEvent.pointerDown(window);
+    act(() => vi.advanceTimersByTime(44_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(15_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(120_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+  });
+
+  it("can remind after 30 seconds followed by three seconds at the document bottom", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(30_000));
+    window.scrollY = 2333;
+    fireEvent.scroll(window);
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+  });
+
+  it("does not count time while the tab is hidden", () => {
+    vi.useFakeTimers();
+    renderMobileChat();
+    act(() => vi.advanceTimersByTime(40_000));
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    fireEvent(document, new Event("visibilitychange"));
+    act(() => vi.advanceTimersByTime(180_000));
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    fireEvent(document, new Event("visibilitychange"));
+    act(() => vi.advanceTimersByTime(49_000));
+    expect(screen.queryByTestId("chat-nudge")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByTestId("chat-nudge")).toBeInTheDocument();
+  });
+
+  it("uses the bottom-bar support slot instead of adding another floating bubble", () => {
+    renderMobileChat();
+    expect(document.getElementById("pdp-support-slot")).toContainElement(screen.getByTestId("messenger-chat-anchor"));
+  });
+});
+
 describe("MessengerChat channels", () => {
   it("renders nothing when every support channel is empty", () => {
     renderChat();

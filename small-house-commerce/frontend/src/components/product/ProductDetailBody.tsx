@@ -3,6 +3,7 @@ import { visibleFeatureLines } from "@/lib/feature-lines";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
 import { ViewportVideo } from "./ViewportVideo";
 import { optimizedUploadImage } from "@/lib/image-url";
+import mobileStyles from "./PdpMobile.module.css";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
 
@@ -92,6 +93,8 @@ export function ProductDetailBody({
 
   return (
     <section id="details" className="flex scroll-mt-32 flex-col gap-4">
+      {/* JD-style small section label above the detail deck (phones only). */}
+      <h2 className={`${mobileStyles.detailHeading} text-xs font-semibold text-ink-secondary lg:hidden`}>Product details</h2>
       {intro ? (
         <div className="rounded-lg border border-border bg-card p-6">
           <h2 className="mb-3 text-2xl font-semibold text-ink">Description</h2>

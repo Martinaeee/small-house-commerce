@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import type { Product, StorefrontProductVariant } from "@/lib/api";
 import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { ProductInformation } from "./ProductInformation";
@@ -122,6 +124,94 @@ function tableRows(scope: HTMLElement) {
 }
 
 describe("ProductInformation", () => {
+  beforeEach(() => { installDesktopViewport(); });
+
+  it("places the compact mobile facts and size guide at the specifications anchor", () => {
+    installDesktopViewport(false);
+    const source = product({ width: 80, depth: 40, height: null });
+    source.variants.forEach((entry) => Object.assign(entry.sku!, {
+      productWidth: 80, productDepth: 40, productHeight: null,
+    }));
+    renderInfo(source);
+
+    const region = section();
+    expect(region).toHaveAttribute("id", "specifications");
+    expect(within(region).getByRole("button", { name: /Size guide/i })).toBeInTheDocument();
+    expect(within(region).queryByText("Shared details shown once. Differences are listed below.")).toBeNull();
+    expect(within(region).queryByText("Product name")).toBeNull();
+    const facts = region.querySelector("dl")!;
+    expect(within(facts).getByText("Available colors")).toBeInTheDocument();
+    expect(facts).toHaveTextContent("Black / White");
+    expect(facts).toHaveTextContent("Solid oak");
+    expect(facts).toHaveTextContent("80W × 40D cm");
+    expect(facts).not.toHaveTextContent("H not provided");
+    expect(facts).toHaveTextContent("4 kg");
+    expect(within(region).queryByRole("table")).toBeNull();
+  });
+
+  it("opens the existing size guide from the mobile specifications header", async () => {
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    renderInfo(product());
+
+    const trigger = within(section()).getByRole("button", { name: /Size guide/i });
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Product details" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("preserves every mobile variant difference under the compact shared facts", async () => {
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    renderInfo(product(), "bt");
+
+    const region = section();
+    expect(within(region).getByRole("button", { name: /Size guide/i })).toBeInTheDocument();
+    // Differences start folded; open them before reading the variant rows.
+    await user.click(within(region).getByRole("button", { name: /specifications/i }));
+    const rows = tableRows(region);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].cells.join(" ")).toContain("94W × 93H × 43D cm");
+    expect(rows[1].cells.join(" ")).toContain("141W × 120H × 60D cm");
+    expect(rows[1].selection).toBe("selected");
+  });
+
+  it("folds and unfolds the mobile difference tables on demand", async () => {
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    renderInfo(product(), "bt");
+
+    const region = section();
+    const toggle = within(region).getByRole("button", { name: /specifications/i });
+    // Starts folded; the shared facts still carry the key parameters.
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(region).queryByRole("table")).toBeNull();
+    expect(region.querySelector("dl")).toHaveTextContent("Solid oak");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(region).getByRole("table")).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(region).queryByRole("table")).toBeNull();
+  });
+
+  it("omits missing mobile facts rather than adding empty rows", () => {
+    installDesktopViewport(false);
+    const source = product({ options: [COLOR], materials: null, width: null, depth: null, height: null });
+    source.variants = [variant("black", "Black", [["o-color", "black"]]), variant("white", "White", [["o-color", "white"]])];
+    renderInfo(source);
+
+    const region = section();
+    expect(within(region).getByRole("button", { name: /Size guide/i })).toBeInTheDocument();
+    expect(within(region).queryByText("Materials")).toBeNull();
+    expect(within(region).queryByText("Dimensions")).toBeNull();
+    expect(within(region).queryByText("Not provided")).toBeNull();
+  });
+
   it("renders nothing when no public specification field carries a value", () => {
     const empty = product({
       name: "Bare product",

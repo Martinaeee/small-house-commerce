@@ -185,6 +185,7 @@ describe("CheckoutConfirmView order notes", () => {
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
     await waitFor(() => expect(eventsMock.recordSubmitFailure).toHaveBeenCalled());
     expect(eventsMock.recordSubmitAttempt).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem("luwag_support_order_completed")).toBeNull();
     expect(eventsMock.recordSubmitFailure).toHaveBeenCalledWith(expect.objectContaining({
       step: "confirm", reason: "STOCK", idempotencyKey: apiMock.createOrder.mock.calls[0][0].idempotencyKey,
       customer: expect.objectContaining(validDraft.customer),
@@ -469,6 +470,7 @@ describe("CheckoutConfirmView", () => {
 
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
     await waitFor(() => expect(removeItems).toHaveBeenCalled());
+    expect(sessionStorage.getItem("luwag_support_order_completed")).toBe("1");
 
     // Cart cleanup reloads the now-empty cart before its promise resolves. The
     // accepted order must remain in its submitting state until navigation,
@@ -503,6 +505,7 @@ describe("CheckoutConfirmView", () => {
       expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("luwag_support_order_completed")).toBe("1");
   });
 
   it("renders the confirm UI with the resolved Buy Now selection", async () => {

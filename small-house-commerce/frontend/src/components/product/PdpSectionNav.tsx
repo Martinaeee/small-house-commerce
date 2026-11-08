@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDesktopViewport } from "./useDesktopViewport";
+import mobileStyles from "./PdpMobile.module.css";
 
 interface SectionLink {
   href: string;
@@ -16,13 +18,47 @@ export function PdpSectionNav({
   hasSpecifications: boolean;
 }): ReactNode {
   const navRef = useRef<HTMLElement>(null);
+  const desktop = useDesktopViewport();
   const [active, setActive] = useState("#pdp-purchase");
-  const links = useMemo(() => ([
-    { href: "#details", label: "Details", visible: hasDetails },
-    { href: "#specifications", label: "Specifications", visible: hasSpecifications },
-    { href: "#reviews", label: "Reviews & Q&A", visible: true },
-    { href: "#pdp-purchase", label: "Order Now", visible: true },
-  ] satisfies SectionLink[]).filter(link => link.visible), [hasDetails, hasSpecifications]);
+  // JD-style rail: it must not hover over the hero gallery. Pins below the
+  // header only after the main media has left the viewport.
+  const [galleryVisible, setGalleryVisible] = useState(true);
+  const links = useMemo(() => {
+    if (!desktop) {
+      // Phones: one compact rail, ordered like the JD product tabs. "Product"
+      // returns to the top of the product grid; the rest match the sections.
+      return [
+        { href: "#product", label: "Product", visible: true },
+        { href: "#details", label: "Details", visible: hasDetails },
+        { href: "#specifications", label: "Specifications", visible: hasSpecifications },
+        { href: "#reviews", label: "Reviews & Q&A", visible: true },
+      ].filter((link) => link.visible) satisfies SectionLink[];
+    }
+    return [
+      { href: "#details", label: "Details", visible: hasDetails },
+      { href: "#specifications", label: "Specifications", visible: hasSpecifications },
+      { href: "#reviews", label: "Reviews & Q&A", visible: true },
+      // The phone carries a single fixed purchase bar; a second "Order Now" tab
+      // here would be a competing purchase entry.
+      { href: "#pdp-purchase", label: "Order Now", visible: true },
+    ].filter((link) => link.visible) satisfies SectionLink[];
+  }, [desktop, hasDetails, hasSpecifications]);
+
+  useEffect(() => {
+    if (desktop || typeof IntersectionObserver === "undefined") return;
+    const gallery = document.querySelector("[data-pdp-gallery]");
+    if (!gallery) {
+      // No hero media to protect: keep the rail sticky as before.
+      const timer = window.setTimeout(() => setGalleryVisible(false), 0);
+      return () => window.clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setGalleryVisible(entry.isIntersecting),
+      { threshold: 0.05 },
+    );
+    observer.observe(gallery);
+    return () => observer.disconnect();
+  }, [desktop]);
 
   useEffect(() => {
     const nav = navRef.current;
@@ -34,7 +70,14 @@ export function PdpSectionNav({
     let frame = 0;
     const update = () => {
       frame = 0;
-      if (header) nav.style.top = `${header.getBoundingClientRect().height}px`;
+      if (header) {
+        // Only the part of the sticky shell still pinned to the top can cover
+        // the tabs. On phones the announcement may scroll away, so its height
+        // must not keep offsetting the rail.
+        const rect = header.getBoundingClientRect();
+        const visible = Math.max(0, rect.height + Math.min(0, rect.top));
+        nav.style.top = `${visible}px`;
+      }
       const line = Math.max(128, (parseFloat(getComputedStyle(nav).top) || 0) + nav.getBoundingClientRect().height + 8);
       // The purchase block precedes Details in the document, not in the menu.
       const targets = links.flatMap(link => {
@@ -100,7 +143,9 @@ export function PdpSectionNav({
     <nav
       ref={navRef}
       aria-label="Product sections"
-      className="sticky top-16 z-20 mt-6 flex overflow-x-auto border-b border-border bg-background/95 py-1 text-sm font-semibold backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      data-pinned={desktop || !galleryVisible ? "true" : "false"}
+      inert={!desktop && galleryVisible ? true : undefined}
+      className={`${!desktop ? mobileStyles.sectionNav : "sticky top-16 mt-6"} z-20 flex overflow-x-auto border-b border-border bg-background/95 py-1 text-sm font-semibold backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}
     >
       <div className="flex min-w-max items-center gap-6 px-1">
         {links.map(link => (

@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installDesktopViewport } from "@/test/desktop-viewport";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PdpSectionNav } from "./PdpSectionNav";
+
+let galleryCallback: IntersectionObserverCallback | null = null;
 
 function renderPage({
   hasDetails = true,
@@ -9,14 +12,16 @@ function renderPage({
   hasDetails?: boolean;
   hasSpecifications?: boolean;
 } = {}) {
-  render(
+  const result = render(
     <div data-storefront-shell-mode="live">
       <div className="sticky top-0 z-40"><div>Announcement</div><header /></div>
       <main>
+        <div data-pdp-gallery />
         <PdpSectionNav
           hasDetails={hasDetails}
           hasSpecifications={hasSpecifications}
         />
+        <section id="product" className="scroll-mt-32" />
         <section id="pdp-purchase" className="scroll-mt-32" />
         <section id="details" className="scroll-mt-32" />
         <section id="specifications" className="scroll-mt-32" />
@@ -24,7 +29,32 @@ function renderPage({
       </main>
     </div>,
   );
+  // Mobile tests assume the shopper already scrolled past the hero gallery;
+  // that is when the overlay rail is on screen.
+  if (galleryCallback) {
+    const gallery = document.querySelector("[data-pdp-gallery]")!;
+    act(() => galleryCallback!(
+      [{ target: gallery, isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ));
+  }
+  return result;
 }
+
+beforeEach(() => {
+  galleryCallback = null;
+  vi.stubGlobal("IntersectionObserver", class {
+    root = null;
+    rootMargin = "";
+    thresholds = [0];
+    constructor(callback: IntersectionObserverCallback) { galleryCallback = callback; }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+  });
+  installDesktopViewport();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -48,6 +78,56 @@ function sectionPositions(tops: Record<string, number>) {
 }
 
 describe("PdpSectionNav", () => {
+  it("uses the compact four-tab rail on phones", () => {
+    installDesktopViewport(false);
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    expect(within(nav).queryByRole("link", { name: "Order Now" })).toBeNull();
+    expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Product",
+      "Details",
+      "Specifications",
+      "Reviews & Q&A",
+    ]);
+    expect(within(nav).getByRole("link", { name: "Product" })).toHaveAttribute("href", "#product");
+  });
+
+  it("uses only the visible header height after the announcement scrolls away", async () => {
+    installDesktopViewport(false);
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    const header = screen.getByRole("banner").parentElement!;
+    vi.spyOn(header, "getBoundingClientRect").mockReturnValue({ top: -26, height: 78 } as DOMRect);
+    elementHeight(nav, 53);
+    fireEvent.scroll(window);
+    await waitFor(() => expect(nav.style.top).toBe("52px"));
+  });
+
+  it("shows the overlay rail only after the main gallery leaves the viewport", async () => {
+    installDesktopViewport(false);
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Product sections" });
+    const gallery = document.querySelector("[data-pdp-gallery]")!;
+    expect(nav).toHaveAttribute("data-pinned", "true");
+    expect(nav).not.toHaveAttribute("inert");
+
+    act(() => galleryCallback?.(
+      [{ target: gallery, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ));
+    await waitFor(() => expect(nav).toHaveAttribute("data-pinned", "false"));
+    expect(nav).toHaveAttribute("inert");
+
+    act(() => galleryCallback?.(
+      [{ target: gallery, isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ));
+    await waitFor(() => expect(nav).toHaveAttribute("data-pinned", "true"));
+    expect(nav).not.toHaveAttribute("inert");
+    // The rail is an overlay, never an in-flow row above the detail images.
+    expect(nav.className).not.toContain("relative");
+  });
+
   it.each([
     { device: "mobile", headerHeight: 113, margin: "174px" },
     { device: "desktop", headerHeight: 125, margin: "186px" },

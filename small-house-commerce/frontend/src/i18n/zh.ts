@@ -1629,6 +1629,12 @@ export const zh = {
   product_media_sort_aria: "媒体 {number} 的排序",
   product_media_add_image: "添加图片",
   product_media_add_video: "添加视频",
+  product_media_floating_hint:
+    "排序最靠前的视频会同时用于手机商品页的悬浮播放小窗；用 ← / → 调整顺序即可切换。",
+  product_media_floating_badge: "悬浮视频",
+  product_media_floating_action: "用于悬浮播放",
+  product_media_floating_current: "当前用于悬浮播放",
+  product_media_floating_empty: "添加一个视频后，手机商品页会显示悬浮播放小窗。",
   product_media_batch_upload: "上传图片／视频（可多选）",
   product_media_batch_wait: "请等待媒体上传完成…",
   product_media_batch_queue: "媒体上传队列",

@@ -13,6 +13,8 @@ interface PriceBoxProps {
   currency?: string;
   size?: "md" | "lg";
   showSavings?: boolean;
+  /** Keep the compare-at price while optionally omitting the percentage badge. */
+  showDiscountBadge?: boolean;
   /**
    * Drop the sale badge below the sm breakpoint. The sticky buy bar sets this
    * so its narrow phone layout keeps the price and strikethrough while making
@@ -31,6 +33,7 @@ export function PriceBox({
   currency = "₱",
   size = "md",
   showSavings = false,
+  showDiscountBadge = true,
   hideDiscountBadgeOnMobile = false,
 }: PriceBoxProps) {
   if (price === null) return null;
@@ -51,13 +54,13 @@ export function PriceBox({
           <span className="text-sm text-ink-muted line-through">
             {formatPrice(compareAtPrice!, currency)}
           </span>
-          <span
+          {showDiscountBadge && <span
             className={`rounded bg-sale px-1.5 py-0.5 text-xs font-semibold text-white ${
               hideDiscountBadgeOnMobile ? "hidden sm:inline" : ""
             }`}
           >
             {discountPct}% OFF
-          </span>
+          </span>}
           {showSavings && (
             <span className="whitespace-nowrap text-xs font-medium text-sale">
               Save {formatPrice(compareAtPrice! - price, currency)}

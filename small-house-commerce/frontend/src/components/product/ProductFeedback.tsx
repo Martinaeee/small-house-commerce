@@ -5,6 +5,7 @@ import { api, type Product, type ProductFaqItem } from "@/lib/api";
 import { RatingStars } from "./RatingStars";
 import { ReviewCard } from "./ReviewCard";
 import { ProductFaqAnswer } from "./ProductFaqSection";
+import mobileStyles from "./PdpMobile.module.css";
 
 type FeedbackTab = "reviews" | "qa";
 
@@ -110,7 +111,7 @@ export function ProductFeedback({
     }`;
 
   return (
-    <section id="reviews" className="scroll-mt-32 rounded-lg border border-border bg-card p-6">
+    <section id="reviews" className={`${mobileStyles.feedback} scroll-mt-32 rounded-lg border border-border bg-card p-6`}>
       <div
         role="tablist"
         aria-label="Product feedback"

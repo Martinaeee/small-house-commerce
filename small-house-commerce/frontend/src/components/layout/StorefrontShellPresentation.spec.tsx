@@ -111,6 +111,16 @@ describe("StorefrontShellPresentation", () => {
     },
   );
 
+  it("measures the announcement independently so a compact PDP header can scroll it away", () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const top = this.dataset.testid === "shell-header" ? 30 : 0;
+      return { x: 0, y: top, top, bottom: top + 52, left: 0, right: 390, width: 390, height: 52, toJSON() {} };
+    });
+    render(<StorefrontShellPresentation shell={shell} roots={[root]} collections={[]}><div /></StorefrontShellPresentation>);
+    expect(screen.getByTestId("shell-header").parentElement?.style.getPropertyValue("--announcement-height")).toBe("30px");
+    bounds.mockRestore();
+  });
+
   it("keeps the announcement bar and Header in the same sticky block", () => {
     render(
       <StorefrontShellPresentation

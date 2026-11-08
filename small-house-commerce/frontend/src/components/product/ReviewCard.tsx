@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type Review } from "@/lib/api";
 import { RatingStars } from "./RatingStars";
 import { optimizedUploadImage } from "@/lib/image-url";
+import mobileStyles from "./PdpMobile.module.css";
 
 const HELPED_STORAGE_KEY = "rv_helpful_ids";
 
@@ -43,9 +44,6 @@ function formatReviewDate(iso: string) {
 type HelpfulState = "idle" | "sending" | "voted" | "error";
 type ReportState = "idle" | "open" | "sending" | "done" | "error";
 
-/** Phones clamp every review to three lines; longer text gets a toggle. */
-const MOBILE_CLAMP_CHARS = 120;
-
 function subscribeVotes(onChange: () => void) {
   if (typeof window === "undefined") return () => {};
   window.addEventListener("storage", onChange);
@@ -61,10 +59,6 @@ export function ReviewCard({ review }: { review: Review }) {
   const [expanded, setExpanded] = useState(false);
   const [measuredOverflow, setMeasuredOverflow] = useState(false);
   const bodyRef = useRef<HTMLParagraphElement | null>(null);
-  // The character check keeps the toggle available before layout is measured
-  // (SSR / first paint); the measurement catches ragged wrapping.
-  const longComment = review.comment.trim().length > MOBILE_CLAMP_CHARS;
-  const canToggle = longComment || measuredOverflow || expanded;
   const bodyId = `review-body-${review.id}`;
 
   useEffect(() => {
@@ -124,7 +118,7 @@ export function ReviewCard({ review }: { review: Review }) {
   )}`;
 
   return (
-    <li className="border-b border-border pb-6 last:border-0 last:pb-0">
+    <li className={`${mobileStyles.reviewCard} border-b border-border pb-6 last:border-0 last:pb-0`}>
       <div className="flex items-center gap-2">
         <span
           aria-hidden
@@ -154,26 +148,29 @@ export function ReviewCard({ review }: { review: Review }) {
         </p>
       )}
 
-      <p
-        id={bodyId}
-        ref={bodyRef}
-        className={`mt-2 whitespace-pre-line text-base leading-relaxed text-ink-secondary ${
-          expanded ? "" : "line-clamp-3"
-        } sm:line-clamp-none`}
-      >
-        {review.comment}
-      </p>
-      {canToggle ? (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={bodyId}
-          onClick={() => setExpanded((current) => !current)}
-          className="mt-1 text-sm font-semibold text-cta hover:underline sm:hidden"
+      <div className="relative mt-2">
+        <p
+          id={bodyId}
+          ref={bodyRef}
+          className={`${mobileStyles.reviewBody} whitespace-pre-line text-base leading-relaxed text-ink-secondary ${
+            expanded ? "" : "line-clamp-3"
+          } sm:line-clamp-none`}
         >
-          {expanded ? "Show less" : "Read more"}
-        </button>
-      ) : null}
+          {review.comment}
+        </p>
+        {measuredOverflow && !expanded ? (
+          <button
+            type="button"
+            aria-label="Read full review"
+            aria-expanded={false}
+            aria-controls={bodyId}
+            onClick={() => setExpanded(true)}
+            className={`${mobileStyles.reviewFade} sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta`}
+          >
+            <span aria-hidden="true">…</span>
+          </button>
+        ) : null}
+      </div>
 
       {review.photos.length > 0 && (
         <div className="mt-2 flex gap-2">

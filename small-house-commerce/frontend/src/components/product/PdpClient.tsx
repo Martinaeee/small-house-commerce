@@ -49,6 +49,9 @@ import {
   pdpInformationVisible,
 } from "./pdp-specification-display";
 import { SolutionIcon } from "./pdp-solution-icons";
+import { PdpMobileInfo, PdpVariantRail } from "./PdpMobilePresentation";
+import { PdpMobileVariantDrawer } from "./PdpMobileVariantDrawer";
+import { PdpFloatingVideo } from "./PdpFloatingVideo";
 
 function RulerGlyph() {
   return (
@@ -211,6 +214,8 @@ export function PdpClient({
     index: number;
   } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const [mobilePickerIntent, setMobilePickerIntent] = useState<PurchaseIntent | null>(null);
   const [pendingIntent, setPendingIntent] = useState<PurchaseIntent | null>(null);
   const [loadedGallery, setLoadedGallery] = useState<{
     scopeKey: string;
@@ -222,6 +227,15 @@ export function PdpClient({
   const intentExecutingRef = useRef(false);
   const mediaRequestRef = useRef(0);
   const heroRef = useRef<HTMLDivElement | null>(null);
+
+  // The drawer only mounts below lg. Crossing the breakpoint while it is open
+  // must drop the flag, or returning to a phone would resurrect it. The close
+  // runs in a timer callback so the viewport change itself stays the cause.
+  useEffect(() => {
+    if (!desktop) return;
+    const timer = window.setTimeout(() => setMobilePickerOpen(false), 0);
+    return () => window.clearTimeout(timer);
+  }, [desktop]);
 
   const resolvedVariant = primaryDerived.resolvedVariant;
   const displayVariant = primaryDerived.displayVariant;
@@ -387,6 +401,14 @@ export function PdpClient({
       ? lightboxSelection.index
       : null;
   const mediaError = mediaErrorScope === requestedMediaScopeKey;
+  // The phone's floating mini player uses the gallery's first shared video;
+  // the admin Media tab decides which by ordering the shared videos.
+  const floatingVideo = useMemo(() => {
+    if (purchaseOnly || desktop) return null;
+    const media = [...product.images]
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+    return media.find((item) => item.type === "VIDEO" && item.url.trim() !== "") ?? null;
+  }, [desktop, product.images, purchaseOnly]);
 
   useEffect(() => {
     if (!requestedMediaScope || initialMediaMatches) return;
@@ -453,9 +475,23 @@ export function PdpClient({
     restoreIntentFocus();
   }, [restoreIntentFocus]);
 
+  const closeMobilePicker = useCallback(() => {
+    if (intentExecutingRef.current) return;
+    setMobilePickerOpen(false);
+    restoreIntentFocus();
+  }, [restoreIntentFocus]);
+
+  const openMobilePicker = useCallback((trigger: HTMLElement, intent: PurchaseIntent | null = null) => {
+    if (purchaseBusy) return;
+    intentTriggerRef.current = trigger;
+    setNotice(null);
+    setMobilePickerIntent(intent);
+    setMobilePickerOpen(true);
+  }, [purchaseBusy]);
+
   const executeAddToCart = useCallback(
     async (opts?: { openDrawer?: boolean; silent?: boolean }) => {
-      if (!sku || !resolvedVariant) return;
+      if (!sku || !resolvedVariant) return false;
       setBusy(true);
       setNotice(null);
       try {
@@ -490,8 +526,10 @@ export function PdpClient({
             price: sku.price,
           }),
         );
+        return true;
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "Could not add to cart");
+        return false;
       } finally {
         setBusy(false);
       }
@@ -558,20 +596,40 @@ export function PdpClient({
     sku,
   ]);
 
+  const confirmMobileIntent = useCallback(async (intent: PurchaseIntent) => {
+    if (intentExecutingRef.current || purchaseBusy || !resolvedVariant) return;
+    if (intent === "ORDER_NOW" && !primaryDerived.purchasableVariant) return;
+    intentExecutingRef.current = true;
+    confirmLine(primaryLine.clientLineId);
+    try {
+      if (intent === "ADD_TO_CART") {
+        if (await executeAddToCart({ openDrawer: true })) setMobilePickerOpen(false);
+      } else {
+        executeOrderNow();
+        setMobilePickerOpen(false);
+      }
+    } finally {
+      intentExecutingRef.current = false;
+    }
+  }, [purchaseBusy, resolvedVariant, primaryDerived.purchasableVariant, confirmLine, primaryLine.clientLineId, executeAddToCart, executeOrderNow]);
+
   const requestIntent = useCallback(
     (intent: PurchaseIntent, trigger: HTMLElement) => {
       if (purchaseBusy) return;
       intentTriggerRef.current = trigger;
+      if (!desktop) {
+        openMobilePicker(trigger, intent);
+        return;
+      }
       // Multi-variant products always route through an explicit picker, even
       // when a combination is already chosen. Both purchase actions open the
       // SAME picker (the one the PLP uses), pre-set to the current selection,
       // so the two behave identically; only the confirmation differs — ADD TO
       // CART adds the line, ORDER NOW goes straight to checkout.
-      // On phones the picker is also where quantity gets chosen, so it stays
-      // the single purchase entry there too: the inline form is gone and the
-      // sticky bar's two actions must not diverge. Desktop single-variant
-      // products have nothing to pick and keep the direct paths below.
-      if (selectableCount > 1 || !desktop) {
+      // Phones returned above into the product's own drawer, which carries the
+      // quantity stepper and shares this page's selection state; the full-width
+      // bar never opens a second, unrelated purchase window.
+      if (selectableCount > 1) {
         openPicker(product, {
           initialVariantId: resolvedVariant?.id ?? null,
           initialQuantity: primaryLine.quantity,
@@ -595,6 +653,7 @@ export function PdpClient({
       executeAddToCart,
       executeOrderNow,
       openPicker,
+      openMobilePicker,
       desktop,
       primaryDerived.purchaseConfirmed,
       primaryDerived.purchasableVariant,
@@ -646,7 +705,8 @@ export function PdpClient({
       ? `Only ${available} left`
       : null;
   const overlayOpen =
-    lightboxIndex !== null || detailsOpen || pendingIntent !== null;
+    lightboxIndex !== null || detailsOpen || pendingIntent !== null ||
+    (mobilePickerOpen && !desktop);
   const ratingRow =
     product.reviewCount > 0 && product.ratingAverage !== null ? (
       <a href="#reviews" className="inline-flex items-center gap-2 text-sm text-ink-secondary">
@@ -659,7 +719,7 @@ export function PdpClient({
 
   return (
     <>
-      {!purchaseOnly && <nav aria-label="Breadcrumb" className="mb-4 text-xs text-ink-muted">
+      {!purchaseOnly && desktop && <nav aria-label="Breadcrumb" className="mb-4 text-xs text-ink-muted">
         <Link href="/" className="hover:text-cta">Home</Link>
         {(category ?? []).map((crumb) => (
           <span key={crumb.slug}>
@@ -675,10 +735,11 @@ export function PdpClient({
 
       {!purchaseOnly && promoSlot}
 
-      <div className={purchaseOnly ? undefined : "grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8"}>
-        {!purchaseOnly && <div>
+      <div id="product" data-pdp-mobile-layout={!purchaseOnly && !preview ? "true" : undefined} className={`scroll-mt-32 ${purchaseOnly ? "" : "grid grid-cols-1 gap-1.5 lg:grid-cols-2 lg:gap-8"}`}>
+        {!purchaseOnly && <div data-pdp-gallery>
           <ProductGallery
             images={galleryImages}
+            mobileOverlay={!desktop ? <PdpVariantRail onOpen={openMobilePicker} preview={preview} /> : undefined}
             active={galleryActive}
             onSelect={(index) =>
               setGallerySelection({ scopeKey: requestedMediaScopeKey, index })
@@ -721,6 +782,8 @@ export function PdpClient({
             </p>
           )}
           <div className={framed ? "flex flex-col gap-3 p-3 lg:gap-4 lg:p-4" : "contents"}>
+          {!purchaseOnly && !desktop && <PdpMobileInfo />}
+          {(desktop || purchaseOnly) && <>
           {!purchaseOnly && <>
           <div className="flex min-w-0 flex-col gap-2">
             <h1 className="break-words text-xl font-semibold leading-snug text-ink lg:text-product-title lg:leading-snug">
@@ -878,6 +941,7 @@ export function PdpClient({
               </li>
             ))}
           </ul>
+          </>}
 
           {notice && (
             <p role="status" className="rounded-lg border border-primary bg-primary-light/40 px-3 py-2 text-sm text-cta">
@@ -902,12 +966,29 @@ export function PdpClient({
         />
       )}
       {detailsOpen && <ProductDetailsModal product={product} onClose={() => setDetailsOpen(false)} preview={preview} />}
+      {mobilePickerOpen && !desktop && (
+        <PdpMobileVariantDrawer
+          intent={mobilePickerIntent}
+          busy={purchaseBusy}
+          image={stickyCoverMedia}
+          notice={notice}
+          onIntent={intent => void confirmMobileIntent(intent)}
+          onClose={closeMobilePicker}
+          onRestockSaved={handleRestockSaved}
+        />
+      )}
       {pendingIntent && (
         <VariantPickerDialog
           lineId={primaryLine.clientLineId}
           busy={purchaseBusy}
           onConfirm={() => void confirmPendingIntent()}
           onClose={closePicker}
+        />
+      )}
+      {floatingVideo && !preview && !overlayOpen && (
+        <PdpFloatingVideo
+          videoUrl={floatingVideo.url}
+          productName={product.name}
         />
       )}
       {!preview && !overlayOpen ? (
@@ -924,6 +1005,7 @@ export function PdpClient({
           }
           onIntent={requestIntent}
           onRestockSaved={handleRestockSaved}
+          supportSlot={!purchaseOnly && !preview}
         />
       ) : null}
     </>

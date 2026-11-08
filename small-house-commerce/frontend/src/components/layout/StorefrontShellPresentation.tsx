@@ -6,6 +6,7 @@ import { AnnouncementBar } from "./AnnouncementBar";
 import type { AnnouncementDevice } from "./AnnouncementCountdown";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
+import { StorefrontHeaderChrome } from "./StorefrontHeaderChrome";
 
 type StorefrontShellPresentationProps = {
   shell: PublicStorefrontShell;
@@ -42,14 +43,14 @@ export function StorefrontShellPresentation({
   return (
     <div data-storefront-shell-mode={mode} className="contents">
       {showHeader ? (
-        <div className="sticky top-0 z-40">
+        <StorefrontHeaderChrome>
           <AnnouncementBar
             data={announcement}
             mode={mode}
             device={announcementDevice}
           />
           <Header navItems={navItems} brand={shell.brand} mode={mode} />
-        </div>
+        </StorefrontHeaderChrome>
       ) : null}
       <main id="main-content" className="flex-1">{children}</main>
       {showFooter ? (

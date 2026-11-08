@@ -111,7 +111,7 @@ export function Header({ navItems, brand, mode = "live" }: HeaderProps) {
 
   return (
     <header className="border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6 lg:min-h-[88px] lg:w-full lg:max-w-none lg:px-8 2xl:px-10">
+      <div data-storefront-header-row className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-3 px-4 max-[374px]:gap-x-0 sm:gap-x-6 sm:px-6 lg:min-h-[88px] lg:w-full lg:max-w-none lg:px-8 2xl:px-10">
         {mode === "live" ? (
           <Link
             href="/"

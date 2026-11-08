@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import type { Product, ProductMediaSet } from "@/lib/api";
 import { PdpPurchaseProvider, usePdpPurchase } from "./PdpPurchaseProvider";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
@@ -152,6 +153,8 @@ function renderGate(item: Product) {
 }
 
 describe("PdpSectionNavGate", () => {
+  beforeEach(() => { installDesktopViewport(); });
+
   it("keeps the Specifications link while the section still has real facts", async () => {
     const user = userEvent.setup();
     renderGate(product);

@@ -3,6 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { PriceBox } from "./PriceBox";
 
 describe("PriceBox PDP presentation", () => {
+  it("can hide only the percentage badge while retaining the struck-through compare-at price", () => {
+    render(<PriceBox price={1699} compareAtPrice={1999} showDiscountBadge={false} />);
+    expect(screen.getByTestId("price")).toHaveTextContent("₱1,699.00");
+    expect(screen.getByText("₱1,999.00")).toHaveClass("line-through");
+    expect(screen.queryByText(/% OFF/)).toBeNull();
+  });
   it("keeps the real price, compare-at, percentage and saving in one wrapping price group", () => {
     render(<PriceBox price={2599} compareAtPrice={2999} size="lg" showSavings />);
     const price = screen.getByTestId("price");

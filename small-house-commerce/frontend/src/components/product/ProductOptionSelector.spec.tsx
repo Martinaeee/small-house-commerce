@@ -376,6 +376,30 @@ function installStickyObserver() {
   };
 }
 
+function installGalleryObserver() {
+  const callbacks: IntersectionObserverCallback[] = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    root = null;
+    rootMargin = "";
+    thresholds = [0];
+    constructor(private callback: IntersectionObserverCallback) {}
+    observe(target: Element) {
+      if (target.hasAttribute("data-pdp-gallery")) callbacks.push(this.callback);
+    }
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+  });
+  return {
+    leave() {
+      act(() => callbacks.forEach(callback => callback(
+        [{ isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      )));
+    },
+  };
+}
+
 let popStateSync: (() => void) | null = null;
 
 beforeEach(() => {
@@ -860,16 +884,14 @@ describe("shared-state sticky buy", () => {
     observer.leave();
     const sticky = screen.getByTestId("sticky-buy");
     expect(within(sticky).getAllByText("Blue / Large")).toHaveLength(2);
-    // The phone summary and the sm+ price block both carry the live price.
-    expect(within(sticky).getByTestId("sticky-summary-price")).toHaveTextContent("₱120.00");
-    expect(within(sticky).getAllByText("₱120.00")).toHaveLength(2);
+    // The shop's live price follows the selection.
+    expect(within(sticky).getAllByText("₱120.00")).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByRole("button", { name: "Small" }));
 
     expect(within(sticky).getAllByText("Red / Small")).toHaveLength(2);
-    expect(within(sticky).getByTestId("sticky-summary-price")).toHaveTextContent("₱100.00");
-    expect(within(sticky).getAllByText("₱100.00")).toHaveLength(2);
+    expect(within(sticky).getAllByText("₱100.00")).toHaveLength(1);
 
     await user.click(
       within(sticky).getByRole("button", {
@@ -1410,7 +1432,7 @@ describe("PDP option confirmation and deep links", () => {
     expect(screen.queryByRole("dialog", { name: "Confirm your options" })).not.toBeInTheDocument();
   });
 
-  it("routes a mobile single-SKU add through the shared picker so quantity stays explicit", async () => {
+  it("routes a mobile single-SKU add through the product drawer so quantity stays explicit", async () => {
     const single = {
       ...product,
       id: "single-product",
@@ -1427,17 +1449,20 @@ describe("PDP option confirmation and deep links", () => {
     const user = userEvent.setup();
     renderPdp({ item: single });
 
-    await user.click(screen.getByTestId("add-to-cart"));
+    await user.click(screen.getByTestId("sticky-add-to-cart"));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "ADD TO CART" }));
 
-    expect(cart.openPicker).toHaveBeenCalledWith(single, {
-      initialVariantId: "red-small",
-      initialQuantity: 1,
-      intent: "ADD_TO_CART",
-    });
-    expect(cart.addItem).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(cart.addItem).toHaveBeenCalledWith(
+        { skuId: "sku-red-small", quantity: 1 },
+        expect.anything(),
+      ),
+    );
+    expect(cart.openPicker).not.toHaveBeenCalled();
   });
 
-  it("routes a mobile single-SKU Order Now through the shared picker before checkout", async () => {
+  it("routes a mobile single-SKU Order Now through the drawer before checkout", async () => {
     const single = {
       ...product,
       id: "single-product",
@@ -1454,14 +1479,14 @@ describe("PDP option confirmation and deep links", () => {
     const user = userEvent.setup();
     renderPdp({ item: single });
 
-    await user.click(screen.getByTestId("order-now"));
+    await user.click(screen.getByTestId("sticky-order-now"));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "ORDER NOW" }));
 
-    expect(cart.openPicker).toHaveBeenCalledWith(single, {
-      initialVariantId: "red-small",
-      initialQuantity: 1,
-      intent: "ORDER_NOW",
-    });
-    expect(navigation.push).not.toHaveBeenCalled();
+    expect(navigation.push).toHaveBeenCalledWith(
+      expect.stringContaining("/checkout?skuId=sku-red-small"),
+    );
+    expect(cart.openPicker).not.toHaveBeenCalled();
   });
 
   it("removes only an invalid variant param and returns to ordinary unselected state", async () => {
@@ -1941,6 +1966,238 @@ describe("browser history navigation", () => {
         source: "PDP",
       }),
     );
+  });
+});
+
+describe("mobile PDP purchase layout", () => {
+  it.each(["SHARED", "VARIANT"] as const)("uses the first shared video instead of the initial %s gallery", async (scope) => {
+    installDesktopViewport(false);
+    const gallery = installGalleryObserver();
+    const later = { id: "shared-later", url: "/shared-later.mp4", type: "VIDEO" as const, altText: null, sortOrder: 8 };
+    const first = { ...later, id: "shared-first", url: "/shared-first.mp4", sortOrder: 2 };
+    const item: Product = {
+      ...product,
+      images: [...product.images, later, first],
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+      initialMediaSet: {
+        ...sharedMedia,
+        resolvedScope: scope,
+        scopeId: scope === "VARIANT" ? "red-small" : undefined,
+        media: scope === "VARIANT" ? [{ ...first, id: "variant-video", url: "/variant-only.mp4" }] : sharedMedia.media,
+      },
+    };
+    renderPdp({ item, variantId: "red-small" });
+    gallery.leave();
+
+    const player = await screen.findByTestId("pdp-floating-video");
+    expect(player.querySelector("video")).toHaveAttribute("src", "/shared-first.mp4");
+  });
+
+  it("does not promote a variant-only video into the product-wide floating player", async () => {
+    installDesktopViewport(false);
+    const gallery = installGalleryObserver();
+    renderPdp({ item: {
+      ...product,
+      availableMediaScopes: { optionValueIds: [], variantIds: [] },
+      initialMediaSet: {
+        ...sharedMedia, resolvedScope: "VARIANT", scopeId: "red-small",
+        media: [{ id: "variant-video", url: "/variant-only.mp4", type: "VIDEO", altText: null, sortOrder: 0 }],
+      },
+    }, variantId: "red-small" });
+    gallery.leave();
+    expect(screen.queryByTestId("pdp-floating-video")).toBeNull();
+  });
+
+  it.each([
+    ["sticky-add-to-cart", "ADD TO CART", "ORDER NOW"],
+    ["sticky-order-now", "ORDER NOW", "ADD TO CART"],
+  ])("keeps only the requested action when opened through %s", async (trigger, expected, absent) => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp({ variantId: "red-small" });
+
+    await user.click(screen.getByTestId(trigger));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: expected })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: absent })).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Close options" }));
+    await user.click(screen.getByRole("button", { name: "Choose product options" }));
+    const allOptions = screen.getByRole("dialog");
+    expect(within(allOptions).getByRole("button", { name: "ADD TO CART" })).toBeInTheDocument();
+    expect(within(allOptions).getByRole("button", { name: "ORDER NOW" })).toBeInTheDocument();
+    expect(cart.addItem).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps the compare-at price and supplied sold marker but omits the mobile discount badge", async () => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    const discounted = { ...product, variants: product.variants.map(variant => ({
+      ...variant, sku: { ...variant.sku!, compareAtPrice: 200 },
+    })) };
+    renderPdp({ item: discounted, variantId: "red-small" });
+
+    const info = screen.getByTestId("pdp-mobile-info");
+    expect(within(info).getByTestId("price")).toHaveTextContent("₱100.00");
+    expect(within(info).getByText("80+ sold")).toBeInTheDocument();
+    expect(within(info).getByText("₱200.00")).toHaveClass("line-through");
+    expect(within(info).queryByText(/% OFF/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Choose product options" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByTestId("price")).toHaveTextContent("₱100.00");
+    expect(within(dialog).getByText("80+ sold")).toBeInTheDocument();
+    expect(within(dialog).getByText("₱200.00")).toHaveClass("line-through");
+    expect(within(dialog).queryByText(/% OFF/)).toBeNull();
+  });
+
+  it("leaves purchase actions only in the fixed bar instead of repeating them below the summary", () => {
+    installDesktopViewport(false);
+    renderPdp();
+    expect(screen.queryByRole("group", { name: "Quick purchase" })).toBeNull();
+    expect(screen.queryByTestId("mobile-inline-add")).toBeNull();
+    expect(screen.queryByTestId("mobile-inline-order")).toBeNull();
+    expect(screen.queryByTestId("pdp-buy-row")).toBeNull();
+    const sticky = screen.getByTestId("sticky-buy");
+    expect(within(sticky).getByRole("button", { name: "ADD TO CART" })).toBeInTheDocument();
+    expect(within(sticky).getByRole("button", { name: "ORDER NOW" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["Foldable Desk with Wood-Grain Top", "Foldable Desk with…"],
+    ["Oak Coffee Table", "Oak Coffee Table"],
+    ["Chair", "Chair"],
+  ])("uses only the first three product-name words in the drawer title for %s", async (name, visibleTitle) => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp({ item: { ...product, name } });
+    await user.click(screen.getByRole("button", { name: "Choose product options" }));
+
+    const dialog = screen.getByRole("dialog", { name });
+    const heading = within(dialog).getByRole("heading", { level: 2, name });
+    expect(heading.textContent).toBe(visibleTitle);
+    expect(within(dialog).queryByText("Choose your options")).toBeNull();
+  });
+
+  it("drops the phone drawer when the viewport becomes desktop instead of reviving it later", async () => {
+    const resize = installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp();
+
+    await user.click(screen.getByRole("button", { name: "Choose product options" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    act(() => resize(true));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    act(() => resize(false));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("opens All into a shared-state drawer and keeps the chosen variant after closing", async () => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp();
+
+    await user.click(screen.getByRole("button", { name: "Choose product options" }));
+    const dialog = screen.getByRole("dialog");
+    expect(screen.queryByTestId("sticky-buy")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Blue" }));
+    await user.click(within(dialog).getByRole("button", { name: "Large" }));
+    expect(within(dialog).getByText("Blue / Large")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Close options" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sticky-buy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Blue" })).toHaveAttribute("aria-pressed", "true");
+    expect(cart.addItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps quantity and add confirmation in the drawer without a duplicate inline row", async () => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const user = userEvent.setup();
+    renderPdp({ variantId: "red-small" });
+    expect(screen.queryByTestId("pdp-buy-row")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("sticky-add-to-cart"));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Increase quantity" }));
+    await user.click(within(dialog).getByRole("button", { name: "ADD TO CART" }));
+    await waitFor(() => expect(cart.addItem).toHaveBeenCalledWith(
+      { skuId: "sku-red-small", quantity: 2 },
+      expect.anything(),
+    ));
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("freezes the drawer options while an add is being submitted", async () => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    let finish!: () => void;
+    cart.addItem.mockImplementation(
+      () => new Promise<void>((resolve) => { finish = resolve; }),
+    );
+    const user = userEvent.setup();
+    renderPdp({ variantId: "red-small" });
+
+    await user.click(screen.getByTestId("sticky-add-to-cart"));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "ADD TO CART" }));
+
+    // The request already points at the red SKU; switching to Blue mid-flight
+    // would desync the cart line from what is on screen.
+    const blue = within(dialog).getByRole("button", { name: "Blue" });
+    expect(blue).toBeDisabled();
+    await user.click(blue);
+    expect(blue).not.toHaveAttribute("aria-pressed", "true");
+
+    finish();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("leaves no empty support-slot gap in a landing-page purchase layout", () => {
+    // The landing page keeps the floating support bubble: it has no page
+    // marker, so the bar must not reserve a slot that nothing will fill.
+    installDesktopViewport(false);
+    renderPdp({ item: product, purchaseOnly: true, path: "/lp/campaign" });
+
+    expect(document.getElementById("pdp-support-slot")).toBeNull();
+  });
+
+  it("puts the price above the title and groups both service rows with it", () => {
+    installDesktopViewport(false);
+    renderPdp();
+
+    const info = screen.getByTestId("pdp-mobile-info");
+    const heading = within(info).getByRole("heading", { level: 1 });
+    const price = within(info).getByTestId("pdp-mobile-price");
+    // Taobao-style reading order: the price leads, then the product name.
+    expect(
+      price.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const shipping = within(info).getByRole("link", { name: /Free Shipping/ });
+    const returns = within(info).getByRole("link", { name: /7-Day Free Return/ });
+    expect(heading.parentElement).toContainElement(shipping);
+    expect(heading.parentElement).toContainElement(returns);
+  });
+
+  it("leaves specifications and the size guide out of the upper mobile information block", () => {
+    installDesktopViewport(false);
+    renderPdp({
+      item: { ...product, materials: "MDF Desktop + Steel Frame", width: 80, depth: 40, height: null },
+    });
+
+    const info = screen.getByTestId("pdp-mobile-info");
+    expect(within(info).queryByRole("region", { name: "Product information" })).toBeNull();
+    expect(within(info).queryByRole("button", { name: /Size guide/i })).toBeNull();
+    expect(within(info).queryByText("Available colors")).toBeNull();
+    expect(within(info).queryByText("Materials")).toBeNull();
+    expect(within(info).queryByText("Dimensions")).toBeNull();
   });
 });
 

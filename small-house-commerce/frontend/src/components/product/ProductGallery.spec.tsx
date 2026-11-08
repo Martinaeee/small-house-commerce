@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductImage } from "@/lib/api";
 import { ProductGallery } from "./ProductGallery";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 
 const media: ProductImage[] = [
   {
@@ -119,7 +120,7 @@ describe("ProductGallery phone presentation", () => {
     render(<Harness />);
 
     const track = screen.getByRole("group", { name: "Product media" });
-    const root = track.parentElement as HTMLElement;
+    const root = screen.getByTestId("product-gallery");
     expect(root.className).toMatch(/-mx-4/);
     expect(root.className).toMatch(/sm:mx-0/);
     expect(track.className).toMatch(/snap-x/);
@@ -130,7 +131,21 @@ describe("ProductGallery phone presentation", () => {
     expect(firstSlide.classList.contains("rounded-lg")).toBe(false);
   });
 
-  it("uses the next image behind the overflow tile instead of a flat colour", () => {
+  it("renders every mobile thumbnail and lets the final media be selected without a lightbox", async () => {
+    installDesktopViewport(false);
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const open = vi.fn();
+    const many = Array.from({ length: 8 }, (_, index) => ({ ...media[0], id: `photo-${index}`, sortOrder: index }));
+    render(<ProductGallery images={many} active={0} onSelect={onSelect} onOpenLightbox={open} />);
+    await user.click(screen.getByRole("button", { name: "View media 8" }));
+    expect(onSelect).toHaveBeenCalledWith(7);
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "View all 8 photos and videos" })).not.toBeInTheDocument();
+  });
+
+  it("uses the next image behind the desktop overflow tile instead of a flat colour", () => {
+    installDesktopViewport(true);
     const many: ProductImage[] = Array.from({ length: 8 }, (_, index) => ({
       id: `image-${index}`,
       url: `/image-${index}.jpg`,

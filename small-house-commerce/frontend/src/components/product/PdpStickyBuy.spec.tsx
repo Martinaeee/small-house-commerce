@@ -9,11 +9,16 @@ import { resolveSelection } from "@/lib/product-selection";
 import { PdpStickyBuy } from "./PdpStickyBuy";
 
 const { mockSettings } = vi.hoisted(() => ({
-  mockSettings: { backInStockEnabled: true },
+  mockSettings: { backInStockEnabled: true, messengerUrl: "" },
 }));
 
 vi.mock("@/components/site/SiteSettingsProvider", () => ({
-  useSiteSettings: () => ({ backInStockEnabled: mockSettings.backInStockEnabled }),
+  useSiteSettings: () => ({
+    backInStockEnabled: mockSettings.backInStockEnabled,
+    messengerUrl: mockSettings.messengerUrl,
+    supportEmail: "",
+    supportPhone: "",
+  }),
 }));
 
 const product = {
@@ -159,6 +164,7 @@ beforeEach(() => { installDesktopViewport(); });
 afterEach(() => {
   vi.unstubAllGlobals();
   mockSettings.backInStockEnabled = true;
+  mockSettings.messengerUrl = "";
   window.localStorage.clear();
   document.body.style.paddingBottom = "";
   document.documentElement.style.removeProperty("--sticky-bar-offset");
@@ -357,10 +363,10 @@ describe("PdpStickyBuy", () => {
     expect(screen.getByTestId("sticky-add-to-cart")).toBeInTheDocument();
   });
 
-  it("keeps the summary and both actions on one row that never scrolls sideways on phones", () => {
-    // Two 120px actions plus a price block used to overflow a 375px bar, so
-    // the row scrolled and ADD TO CART sat off-screen. The phone layout now
-    // has three compact zones; only wider layouts keep the overflow escape.
+  it("keeps both phone actions on one non-scrolling row without repeating the summary", () => {
+    // The phone bar is the page's single purchase entry; the name, variant and
+    // price already sit in the information column above.
+    installDesktopViewport(false);
     const observer = installIntersectionObserver();
     render(<Harness />);
     observer.leave();
@@ -369,11 +375,9 @@ describe("PdpStickyBuy", () => {
     expect(row.className).toMatch(/\bsm:overflow-x-auto\b/);
     expect(row.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
 
-    const summary = row.firstElementChild as HTMLElement;
-    expect(summary.className).toMatch(/\bsm:hidden\b/);
-    expect(summary.className).toMatch(/\bflex-1\b/);
-    expect(summary.textContent).toContain("Folding Chair");
-    expect(summary.textContent).toContain("₱899.00");
+    const bar = screen.getByTestId("sticky-buy");
+    expect(bar.textContent).not.toContain("Folding Chair");
+    expect(bar.textContent).not.toContain("₱899.00");
 
     for (const testId of ["sticky-order-now", "sticky-add-to-cart"]) {
       const className = screen.getByTestId(testId).className;
@@ -384,40 +388,40 @@ describe("PdpStickyBuy", () => {
     }
   });
 
-  it("shortens the phone summary to the first three words of the name", () => {
+  it("reserves the support slot only when a channel is configured", () => {
+    installDesktopViewport(false);
     const observer = installIntersectionObserver();
-    const longName = {
-      ...product,
-      name: "Narrow Gap Cabinet with Adjustable Shelves & Clear Door",
-    } as Product;
-    render(<Harness value={longName} />);
+    mockSettings.messengerUrl = "https://m.me/luwag";
+    render(<Harness />);
     observer.leave();
 
-    const row = screen.getByTestId("sticky-buy").firstElementChild as HTMLElement;
-    const summary = row.firstElementChild as HTMLElement;
-    expect(summary.textContent).toContain("Narrow Gap Cabinet");
-    expect(summary.textContent).not.toContain("Adjustable");
+    const slot = document.getElementById("pdp-support-slot");
+    expect(slot).not.toBeNull();
+    expect(screen.getByTestId("sticky-buy")).toContainElement(slot);
+
+    mockSettings.messengerUrl = "";
   });
 
-  it("keeps the phone summary to one price and moves the badge to wider layouts", () => {
-    // The compare-at price and the OFF badge are the widest parts of the price
-    // block; on a phone the compact summary shows the price alone.
+  it("leaves no empty support gap when every channel is empty", () => {
+    installDesktopViewport(false);
     const observer = installIntersectionObserver();
     render(<Harness />);
     observer.leave();
 
-    const summary = screen.getByTestId("sticky-buy").firstElementChild
-      ?.firstElementChild as HTMLElement;
-    expect(summary.textContent).toContain("₱899.00");
-    expect(summary.textContent).not.toContain("₱999.00");
+    expect(document.getElementById("pdp-support-slot")).toBeNull();
+  });
+
+  it("keeps the full name, variant and compare-at price on desktop", () => {
+    const observer = installIntersectionObserver();
+    render(<Harness />);
+    observer.leave();
+
+    const bar = screen.getByTestId("sticky-buy");
+    expect(bar).toHaveTextContent("Folding Chair");
+    expect(bar).toHaveTextContent("Black");
 
     const strike = screen.getByText("₱999.00");
     expect(strike.className).toMatch(/line-through/);
-    // PriceBox root -> the responsive price block.
-    const priceBlock = strike.parentElement?.parentElement as HTMLElement;
-    expect(priceBlock.className).toMatch(/\bhidden\b/);
-    expect(priceBlock.className).toMatch(/\bsm:block\b/);
-
     const badge = screen.getByText(/OFF$/);
     expect(badge.className).toMatch(/\bhidden\b/);
     expect(badge.className).toMatch(/\bsm:inline\b/);

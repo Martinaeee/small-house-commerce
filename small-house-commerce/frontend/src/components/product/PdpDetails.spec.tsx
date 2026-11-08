@@ -7,6 +7,18 @@ import { ProductOptionSelector } from "./ProductOptionSelector";
 import { PdpDetails } from "./PdpDetails";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
 
+/**
+ * The phone specifications table starts folded; tests that inspect the
+ * difference rows open it first (desktop has no toggle).
+ */
+async function openSpecifications(
+  user: ReturnType<typeof userEvent.setup>,
+  region: HTMLElement,
+) {
+  const toggle = within(region).queryByRole("button", { name: /specifications/i });
+  if (toggle) await user.click(toggle);
+}
+
 const product: Product = {
   id: "detail-product",
   name: "Convertible Table",
@@ -183,6 +195,20 @@ function bundleComponent(productName: string, quantity: number) {
 }
 
 describe("PdpDetails", () => {
+  it("keeps a Details anchor when the section contains only media", () => {
+    const item = { ...product, description: null, highlightsVisible: false };
+    const { container } = render(<PdpPurchaseProvider product={item}>
+      <PdpSectionNavGate product={item} hasDetails />
+      <PdpDetails product={item} />
+    </PdpPurchaseProvider>);
+
+    const link = screen.getByRole("link", { name: "Details" });
+    const target = container.querySelector(link.getAttribute("href")!);
+    expect(target).not.toBeNull();
+    expect(target).toContainElement(screen.getByAltText("Featured construction detail"));
+    expect(container.querySelectorAll("#details")).toHaveLength(1);
+  });
+
   it("lists ordinary and Bundle facts together with no parent-size fallback", async () => {
     const user = userEvent.setup();
     const item = structuredClone(product);
@@ -205,6 +231,7 @@ describe("PdpDetails", () => {
     </PdpPurchaseProvider>);
 
     const section = screen.getByRole("region", { name: "Product information" });
+    await openSpecifications(user, section);
     const table = within(section).getByRole("table");
     expect(
       within(table).getAllByRole("columnheader").map((cell) => cell.textContent?.trim()),
@@ -264,6 +291,7 @@ describe("PdpDetails", () => {
     </PdpPurchaseProvider>);
 
     const section = screen.getByRole("region", { name: "Product information" });
+    await openSpecifications(user, section);
     const table = within(section).getByRole("table");
     expect(tableRows(table).map((row) => row.cells[0])).toEqual(["Black", "White"]);
     expect(tableRows(table)[0].cells[1]).toBe("120W × 75H × 60D cm");
@@ -290,6 +318,7 @@ describe("PdpDetails", () => {
     expect(screen.getByRole("link", { name: "Specifications" })).toHaveAttribute("href", "#specifications");
     const section = screen.getByRole("region", { name: "Product information" });
     expect(section).toBeVisible();
+    await openSpecifications(user, section);
     const rows = tableRows(within(section).getByRole("table"));
     expect(rows[0].cells[1]).toBe("0W cm · H, D not provided");
     expect(rows[1].cells[1]).toBe("Not provided");
@@ -308,6 +337,7 @@ describe("PdpDetails", () => {
     );
 
     expect(contentOrder(container)).toEqual([
+      "Product details",
       "Description",
       "Why You’ll Love It",
       "featured.jpg",
@@ -426,6 +456,7 @@ describe("PdpDetails", () => {
     const facts = specifications.querySelector("dl")!;
     expect(facts.textContent).toContain("Powder-coated steel");
     expect(facts.textContent).not.toContain("Weight");
+    await openSpecifications(user, specifications);
     const table = within(specifications).getByRole("table");
     expect(tableRows(table)).toEqual([
       { selection: null, cells: ["Black", "8.5 kg · Net weight"] },

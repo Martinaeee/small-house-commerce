@@ -1639,6 +1639,13 @@ export const en: Record<ZhKey, string> = {
   product_media_sort_aria: "Media {number} sort order",
   product_media_add_image: "Add photo",
   product_media_add_video: "Add video",
+  product_media_floating_hint:
+    "The first video below also plays in the PDP phone floating player; use ← / → to choose a different one.",
+  product_media_floating_badge: "PDP video",
+  product_media_floating_action: "Use in PDP floating player",
+  product_media_floating_current: "Playing in the PDP floating player",
+  product_media_floating_empty:
+    "Add a video to enable the PDP phone floating player.",
   product_media_batch_upload: "Upload images / videos (multiple)",
   product_media_batch_wait: "Wait for media uploads…",
   product_media_batch_queue: "Media upload queue",

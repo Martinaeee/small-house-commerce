@@ -285,3 +285,11 @@
   .hp-style-tablet-padding-top { padding-top: var(--hp-style-tablet-padding-top) !important; }
   .hp-style-tablet-padding-bottom { padding-bottom: var(--hp-style-tablet-padding-bottom) !important; }
 }
+
+/* Phones: the product page composes the support entry into its purchase bar,
+   so the separately floating bubble must not appear during hydration. */
+@media (max-width: 1023px) {
+  body:has([data-pdp-mobile-layout]) [data-testid="messenger-chat-anchor"]:not([data-pdp-embedded]) {
+    display: none;
+  }
+}

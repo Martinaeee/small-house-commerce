@@ -7,6 +7,7 @@ import {
   ProductDetailMedia,
 } from "./ProductDetailBody";
 import { ProductInformation } from "./ProductInformation";
+import mobileStyles from "./PdpMobile.module.css";
 import { pdpHasVisibleHighlights } from "./pdp-details-visibility";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import {
@@ -70,16 +71,28 @@ export function PdpDetails({
     primaryDerived.resolvedVariant?.id ?? null,
   );
   const { featured, remaining } = partitionDetailBlocks(scopedBlocks);
+  const mediaOnly =
+    !product.description?.trim() &&
+    !pdpHasVisibleHighlights(product) &&
+    (featured !== null || remaining.length > 0);
 
   return (
     <div className="flex flex-col gap-8">
       {/* With visible highlights the block and the detail deck are one unit:
           the bullets sit directly above the first image, no module gap. */}
       <div
+        id={mediaOnly ? "details" : undefined}
         className={
-          pdpHasVisibleHighlights(product) ? "flex flex-col" : "flex flex-col gap-8"
+          pdpHasVisibleHighlights(product)
+            ? "flex scroll-mt-32 flex-col"
+            : mediaOnly
+              ? "flex scroll-mt-32 flex-col gap-2"
+              : "flex scroll-mt-32 flex-col gap-8"
         }
       >
+        {mediaOnly ? (
+          <h2 className={`${mobileStyles.detailHeading} text-xs font-semibold text-ink-secondary lg:hidden`}>Product details</h2>
+        ) : null}
         <ProductDetailBody
           description={product.description}
           features={product.features}
