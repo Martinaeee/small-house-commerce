@@ -2176,6 +2176,11 @@ export const adminApi = {
       `/api/v1/admin/orders/assignees`,
     ),
 
+  orderOptimizers: (): Promise<{ id: string; aid: string; name: string | null }[]> =>
+    adminAuthedFetch<{ id: string; aid: string; name: string | null }[]>(
+      `/api/v1/admin/orders/optimizers`,
+    ),
+
   /** SKU search for manual order entry (sellable SKUs only). */
   skuSearch: (
     q: string,

@@ -86,6 +86,8 @@ export class CampaignLinksService {
     const attributionMode = input.attributionMode ?? (input.sourceType === 'FB_POST' ? 'CL' : 'AID');
     if (input.sourceType === 'FB_POST' && attributionMode === 'AID')
       throw new BadRequestException('Facebook post links keep the cl attribution code.');
+    if (input.adId?.includes('{{'))
+      throw new BadRequestException('Meta URL templates belong in Meta URL parameters, not the stored ad ID.');
     const profile = await this.optimizers.ensureProfileForUser(ownerUserId);
     const row = await this.prisma.$transaction(async (tx) => {
       const adid = await this.nextAdid(tx, {

@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   listOrders: vi.fn(),
   orderCounts: vi.fn(),
   listAssignees: vi.fn(),
+  orderOptimizers: vi.fn(),
   listSkus: vi.fn(),
   skuSearch: vi.fn(),
   assignOrder: vi.fn(),
@@ -146,6 +147,7 @@ beforeEach(() => {
     },
   });
   api.listAssignees.mockResolvedValue([{ id: "staff-a", name: "客服 A" }]);
+  api.orderOptimizers.mockResolvedValue([{ id: "opt-a", aid: "OP-1", name: "投手 A" }]);
   api.skuSearch.mockResolvedValue({ total: 0, items: [] });
   api.customerOrderHistory.mockResolvedValue({
     phone: "+639171224466",
@@ -344,6 +346,33 @@ describe("dashboard and notification deep links", () => {
     await user.click(screen.getByRole("button", { name: "More filters" }));
     const box = screen.getByRole("checkbox", { name: "FAILED" }) as HTMLInputElement;
     expect(box.checked).toBe(true);
+  });
+
+  it("picks the optimizer from the AIDs in the orders", async () => {
+    const user = userEvent.setup();
+    navigation.query = "aid=OP-1";
+    renderPage();
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    expect(api.listOrders.mock.calls[0][0]).toMatchObject({ aid: "OP-1" });
+    await user.click(screen.getByRole("button", { name: "More filters" }));
+    const select = await screen.findByLabelText("Optimizer AID");
+    expect((select as HTMLSelectElement).value).toBe("OP-1");
+    expect(
+      screen.getByRole("option", { name: "投手 A · OP-1" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the free-text AID box when no optimizer has an order yet", async () => {
+    api.orderOptimizers.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "More filters" }));
+    const input = screen.getByLabelText("Optimizer AID") as HTMLInputElement;
+    expect(input.tagName).toBe("INPUT");
+    expect(input.getAttribute("placeholder")).toBe("OP-…");
   });
 
   it("sends no payment status when the parameter is absent", async () => {

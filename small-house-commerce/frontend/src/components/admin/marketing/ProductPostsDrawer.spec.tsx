@@ -81,11 +81,19 @@ describe("product post drawer grouping", () => {
     await screen.findByRole("region", { name: /Facebook 发帖/ });
     expect(marketingApi.listLinks).toHaveBeenCalledWith(expect.objectContaining({ productId: "p1", page: 1, pageSize: 100, orderBy: "POST_DATE_DESC" }));
   });
-  it("shows the advertising number of each post and copies it", async () => {
+  it("copies an AID URL without shortening it and offers the Meta parameters", async () => {
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({
+      items: [row({ id: "aid-1", name: "AID ad", sourceType: "META_AD", attributionMode: "AID", path: "/products/chair?aid=OP-1", metaUrlParameters: "adid={{ad.id}}&campaign_id={{campaign.id}}" })],
+      total: 1, page: 1, pageSize: 100,
+    });
     mount();
-    await screen.findByText("1104 发帖");
-    expect(screen.getAllByText("FB-OP-1-261103-01").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getAllByRole("button", { name: "复制编号" })[0]!);
-    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("FB-OP-1-261103-01"));
+    await screen.findByText("AID ad");
+    expect(screen.queryByRole("link", { name: "核算" })).not.toBeInTheDocument();
+    expect(screen.getByText(/AID 链接按订单归因/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(expect.stringContaining("?aid=OP-1")));
+    expect(marketingApi.createShortLink).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "复制 Meta 参数" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("adid={{ad.id}}&campaign_id={{campaign.id}}"));
   });
 });

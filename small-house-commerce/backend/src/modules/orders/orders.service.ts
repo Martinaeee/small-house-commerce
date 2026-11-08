@@ -1089,6 +1089,19 @@ export class OrdersService {
     return users;
   }
 
+  /** The optimizers that actually appear on orders, for the workbench filter. */
+  async optimizerOptions() {
+    const rows = await this.prisma.order.groupBy({
+      by: ['optimizerId', 'optimizerAidSnapshot', 'optimizerNameSnapshot'],
+      where: { optimizerId: { not: null } },
+    });
+    return rows
+      .flatMap((row) => row.optimizerId && row.optimizerAidSnapshot
+        ? [{ id: row.optimizerId, aid: row.optimizerAidSnapshot, name: row.optimizerNameSnapshot }]
+        : [])
+      .sort((a, b) => (a.name ?? a.aid).localeCompare(b.name ?? b.aid));
+  }
+
   /**
    * Per-status order counts for the workbench tab bar, plus the derived
    * buckets the tabs surface: needsReview (RPT/RECHECK queue) and duplicate

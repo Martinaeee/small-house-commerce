@@ -85,10 +85,11 @@ export class MarketingTouchService {
     if (rawAid && rawAid !== link.aidSnapshot) {
       const profile = await this.optimizers.resolveByAid(rawAid);
       if (profile && profile.status === 'ACTIVE') {
+        const paid = link.sourceType === 'META_AD' || link.sourceType === 'FB_POST' || paidSignal(input);
         return this.signAid({
           profile, aid: rawAid, input, product: link.product, landingPageId: link.landingPageId,
           publishedRevision: link.landingPage?.publishedRevision ?? null,
-          sourceType: link.sourceType, paid: true, conflict: `AID ${rawAid} != link AID ${link.aidSnapshot}`, now,
+          sourceType: link.sourceType, paid, conflict: `AID ${rawAid} != link AID ${link.aidSnapshot}`, now,
         });
       }
     }
@@ -150,14 +151,24 @@ export class MarketingTouchService {
     const pageSlug = pathSlug(input.path, 'lp');
     const page = input.landingPageId || pageSlug ? await this.prisma.productLandingPage.findUnique({
       where: input.landingPageId ? { id: input.landingPageId } : { slug: pageSlug! },
-      include: { product: { select: productFields } },
+      include: {
+        product: { select: productFields },
+        owner: { select: { status: true, optimizerProfile: { select: { aid: true, displayName: true, status: true } } } },
+      },
     }) : null;
     if (input.landingPageId || pageSlug) {
       if (!page || !page.publishedContent || page.product.status !== 'ACTIVE' || effectiveStatus(page, now) !== 'LIVE' || (input.productId && input.productId !== page.productId) || (input.path && input.path.replace(/\/$/, '') !== `/lp/${encodeURIComponent(page.slug)}`)) return emptyTouch;
       await this.recordVisits(null, page.id, input.visitKey, now);
     }
-    // A page view without a paid parameter is not an attribution touch.
-    return emptyTouch;
+    const owner = page?.owner;
+    if (!page || !page.ownerUserId || owner?.status !== 'ACTIVE' || owner.optimizerProfile?.status !== 'ACTIVE') return emptyTouch;
+    return this.sign({
+      ...emptyMetadata,
+      ownerUserId: page.ownerUserId, aid: owner.optimizerProfile.aid, ownerName: owner.optimizerProfile.displayName,
+      linkId: null, productId: page.productId, productName: page.product.name, productCode: page.product.productCode,
+      landingPageId: page.id, publishedRevision: page.publishedRevision,
+      sourceType: 'DIRECT', paid: false, legacy: false,
+    }, now);
   }
 
   private signAid(input: {

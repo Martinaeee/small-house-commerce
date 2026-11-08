@@ -87,6 +87,12 @@ export class AdminOrdersController {
     return this.ordersService.assignees();
   }
 
+  @Get('optimizers')
+  @Permissions('ORDER_VIEW_ALL')
+  optimizers() {
+    return this.ordersService.optimizerOptions();
+  }
+
   @Get('counts')
   @Permissions('ORDER_VIEW_ALL')
   counts(

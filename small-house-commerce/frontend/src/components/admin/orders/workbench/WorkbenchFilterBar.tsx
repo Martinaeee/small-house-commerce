@@ -39,6 +39,7 @@ export interface WorkbenchFilterBarProps {
   onChange: (patch: Partial<WorkbenchFilterState>) => void;
   onClear: () => void;
   assignees: { id: string; name: string | null }[];
+  optimizers: { id: string; aid: string; name: string | null }[];
   statusOptions: { value: string; label: string }[];
   hiddenColumns: WorkbenchColumnKey[];
   onToggleColumn: (key: WorkbenchColumnKey) => void;
@@ -159,6 +160,7 @@ export function WorkbenchFilterBar({
   onChange,
   onClear,
   assignees,
+  optimizers,
   statusOptions,
   hiddenColumns,
   onToggleColumn,
@@ -377,12 +379,30 @@ export function WorkbenchFilterBar({
             </label>
             <label className="block text-[13px] text-ink-secondary">
               {t("orders_filter_aid")}
-              <input
-                value={filters.aid}
-                onChange={(event) => onChange({ aid: event.target.value })}
-                placeholder="OP-…"
-                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
-              />
+              {optimizers.length > 0 ? (
+                <select
+                  value={filters.aid}
+                  onChange={(event) => onChange({ aid: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[13px] text-ink"
+                >
+                  <option value="">{t("orders_filter_all_optimizers")}</option>
+                  {filters.aid && !optimizers.some((optimizer) => optimizer.aid === filters.aid) ? (
+                    <option value={filters.aid}>{filters.aid}</option>
+                  ) : null}
+                  {optimizers.map((optimizer) => (
+                    <option key={`${optimizer.id}-${optimizer.aid}`} value={optimizer.aid}>
+                      {optimizer.name ? `${optimizer.name} · ${optimizer.aid}` : optimizer.aid}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={filters.aid}
+                  onChange={(event) => onChange({ aid: event.target.value })}
+                  placeholder="OP-…"
+                  className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+                />
+              )}
             </label>
             <label className="block text-[13px] text-ink-secondary">
               {t("orders_filter_ad_id")}

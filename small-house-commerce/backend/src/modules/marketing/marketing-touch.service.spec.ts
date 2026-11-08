@@ -143,10 +143,11 @@ describe('server-signed marketing touch', () => {
     expect(linkVisits.size).toBe(0); expect(pageVisits.size).toBe(0);
   });
 
-  it('records a plain page visit without manufacturing attribution', async () => {
+  it('records a plain landing-page visit as an unpaid DIRECT touch', async () => {
     const { service, linkVisits, pageVisits } = setup();
     const result = await service.touch({ path: '/lp/chair-ad', visitKey: 'tab-1', adId: '120212345678901234', sourceType: 'META_AD' });
-    expect(result).toEqual({ credential: null, expiresAt: null, paid: false });
+    expect(result.paid).toBe(false);
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', linkId: null, sourceType: 'DIRECT', paid: false });
     expect(linkVisits.size).toBe(0); expect(pageVisits.size).toBe(1);
   });
 

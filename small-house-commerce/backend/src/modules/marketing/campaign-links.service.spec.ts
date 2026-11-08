@@ -164,6 +164,13 @@ describe('persisted owner-scoped campaign links', () => {
     for (const field of ['ownerUserId', 'aid', 'targetUrl', 'code']) expect(campaignLinkCloneSchema.safeParse({ [field]: U2 }).success).toBe(false);
   });
 
+  it('rejects template ad IDs and an AID post link at the clone service boundary', async () => {
+    const { service } = setup();
+    const original = await service.createLink(base, owner);
+    await expect(service.cloneLink(original.id, { adId: '{{ad.id}}' }, admin)).rejects.toMatchObject({ status: 400 });
+    await expect(service.cloneLink(original.id, { sourceType: 'FB_POST', attributionMode: 'AID' }, admin)).rejects.toMatchObject({ status: 400 });
+  });
+
   it('clones immutable parameters to a new code without changing the original link', async () => {
     const { service } = setup();
     const original = await service.createLink(base, owner);

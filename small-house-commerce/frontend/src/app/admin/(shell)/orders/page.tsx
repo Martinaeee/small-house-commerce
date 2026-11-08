@@ -250,6 +250,7 @@ function OrdersPageContent() {
 
   // --- assignee options for the staff filter --------------------------------
   const [assignees, setAssignees] = useState<{ id: string; name: string | null }[]>([]);
+  const [orderOptimizers, setOrderOptimizers] = useState<{ id: string; aid: string; name: string | null }[]>([]);
   useEffect(() => {
     let active = true;
     adminApi
@@ -259,6 +260,14 @@ function OrdersPageContent() {
       })
       .catch(() => {
         // Non-fatal: the staff lists stay empty.
+      });
+    adminApi
+      .orderOptimizers()
+      .then((rows) => {
+        if (active) setOrderOptimizers(rows);
+      })
+      .catch(() => {
+        // Non-fatal: the AID filter stays a plain input.
       });
     return () => {
       active = false;
@@ -966,6 +975,7 @@ function OrdersPageContent() {
           onChange={onFilterChange}
           onClear={clearFilters}
           assignees={assignees}
+          optimizers={orderOptimizers}
           statusOptions={[]}
           hiddenColumns={hiddenColumns}
           onToggleColumn={toggleColumn}

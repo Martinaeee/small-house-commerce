@@ -152,9 +152,10 @@ export async function recordMarketingTouch(context: { path: string; search: stri
   try {
     const result = validTouch(await api.marketingTouch(input));
     if (!result) return;
-    // A page visit without a paid parameter must never replace a paid touch.
-    if (result.paid === false) return;
     const previous = storedTouch();
+    // The browser copy backs analytics; a paid touch outranks a later organic
+    // page view so navigation between channels cannot erase paid attribution.
+    if (previous && previous.paid !== false && result.paid === false) return;
     if (previous && (Date.parse(previous.expiresAt) > Date.parse(result.expiresAt) || (previous.expiresAt === result.expiresAt && sequence < acceptedSequence))) return;
     memoryTouch = result; acceptedSequence = sequence;
     try { window.localStorage.setItem(MARKETING_TOUCH_STORAGE_KEY, JSON.stringify(result)); } catch {}
