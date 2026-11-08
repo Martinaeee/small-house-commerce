@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SourceType } from '../../../generated/prisma/client.js';
+import { CampaignLinkAttributionMode, SourceType } from '../../../generated/prisma/client.js';
 import { isFacebookPostUrl } from '../marketing-post.js';
 
 const adField = z.string().trim().max(64).nullable().default(null);
@@ -19,6 +19,7 @@ const campaignLinkCreateBase = z.object({
   landingPageId: z.string().uuid().nullable().optional(),
   name: z.string().trim().min(1).max(120).optional(),
   sourceType: z.nativeEnum(SourceType),
+  attributionMode: z.nativeEnum(CampaignLinkAttributionMode).optional(),
   campaignId: adField,
   adsetId: adField,
   adId: adField,
@@ -37,6 +38,12 @@ export const campaignLinkCreateSchema = campaignLinkCreateBase.superRefine((valu
   }
   if (!value.name && !(value.sourceType === 'FB_POST' && value.postDate)) {
     ctx.addIssue({ code: 'custom', path: ['name'], message: 'Name is required.' });
+  }
+  if (value.adId?.includes('{{')) {
+    ctx.addIssue({ code: 'custom', path: ['adId'], message: 'Meta URL templates belong in Meta URL parameters, not the stored ad ID.' });
+  }
+  if (value.sourceType === 'FB_POST' && value.attributionMode === 'AID') {
+    ctx.addIssue({ code: 'custom', path: ['attributionMode'], message: 'Facebook post links keep the cl attribution code.' });
   }
 });
 export type CampaignLinkCreateInput = z.input<typeof campaignLinkCreateSchema>;

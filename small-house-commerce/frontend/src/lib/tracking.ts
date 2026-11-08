@@ -24,14 +24,79 @@ declare global {
 const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
 
 export const MARKETING_TOUCH_STORAGE_KEY = "sh:marketing-touch";
-type StoredTouch = { credential: string; expiresAt: string };
+type StoredTouch = { credential: string; expiresAt: string; paid?: boolean };
 let memoryTouch: StoredTouch | null = null;
+
+const META_ID = /^\d{6,20}$/;
+const FBCLID = /^[A-Za-z0-9_-]{8,512}$/;
+
+function browserCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  try {
+    const prefix = `${name}=`;
+    const match = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
+    return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function param(params: URLSearchParams, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value !== null && value.trim() !== "") return value.trim();
+  }
+  return null;
+}
+
+function bounded(value: string | null, max: number): string | null {
+  return value !== null && value.length <= max ? value : null;
+}
+
+/**
+ * One parser for every attribution URL shape. Meta IDs stay strings; `adid`
+ * wins over the legacy `ad_id`, and a malformed dynamic id is ignored rather
+ * than stored.
+ */
+export function marketingParams(search: string): Parameters<typeof api.marketingTouch>[0] | null {
+  const params = new URLSearchParams(search);
+  const code = bounded(param(params, "cl"), 64);
+  const aid = bounded(param(params, "aid"), 64);
+  if (!code && !aid) return null;
+  const input: Parameters<typeof api.marketingTouch>[0] = {
+    path: typeof window === "undefined" ? "/" : window.location.pathname,
+    visitKey: "",
+  };
+  if (code) input.code = code;
+  if (aid) input.aid = aid;
+  const adId = [param(params, "adid"), param(params, "ad_id")].find((value) => value !== null && META_ID.test(value));
+  if (adId) input.adId = adId;
+  const campaignId = bounded(param(params, "campaign_id", "campaignId"), 64);
+  if (campaignId) input.campaignId = campaignId;
+  const adsetId = bounded(param(params, "adset_id", "ad_set_id"), 64);
+  if (adsetId) input.adsetId = adsetId;
+  const fbclid = param(params, "fbclid");
+  if (fbclid && FBCLID.test(fbclid)) input.fbclid = fbclid;
+  const fbc = bounded(param(params, "fbc") ?? browserCookie("_fbc"), 300);
+  if (fbc) input.fbc = fbc;
+  const fbp = bounded(param(params, "fbp") ?? browserCookie("_fbp"), 200);
+  if (fbp) input.fbp = fbp;
+  for (const [field, key] of [
+    ["utmSource", "utm_source"], ["utmMedium", "utm_medium"], ["utmCampaign", "utm_campaign"],
+    ["utmContent", "utm_content"], ["utmTerm", "utm_term"],
+  ] as const) {
+    const value = bounded(param(params, key), 120);
+    if (value) input[field] = value;
+  }
+  if (typeof document !== "undefined" && document.referrer) input.referrer = document.referrer.slice(0, 1024);
+  return input;
+}
 
 function validTouch(value: unknown): StoredTouch | null {
   if (!value || typeof value !== "object") return null;
   const touch = value as Partial<StoredTouch>;
   return typeof touch.credential === "string" && touch.credential.length > 0 && touch.credential.length <= 8192 && typeof touch.expiresAt === "string" && Date.parse(touch.expiresAt) > Date.now()
-    ? { credential: touch.credential, expiresAt: touch.expiresAt } : null;
+    ? { credential: touch.credential, expiresAt: touch.expiresAt, ...(typeof touch.paid === "boolean" ? { paid: touch.paid } : {}) } : null;
 }
 
 function storedTouch(): StoredTouch | null {
@@ -75,22 +140,20 @@ function tabVisitKey(): string {
 
 export async function recordMarketingTouch(context: { path: string; search: string; landingPageId?: string }): Promise<void> {
   if (typeof window === "undefined" || context.path === "/admin" || context.path.startsWith("/admin/")) return;
-  const params = new URLSearchParams(context.search);
-  if (!context.landingPageId && !params.has("cl") && !params.has("aid")) return;
+  const parsed = marketingParams(context.search);
+  if (!context.landingPageId && !parsed) return;
   const sequence = ++touchSequence;
-  const input: Parameters<typeof api.marketingTouch>[0] = { path: context.path, visitKey: tabVisitKey(), ...(context.landingPageId ? { landingPageId: context.landingPageId } : {}) };
-  if (params.has("cl")) {
-    input.code = params.get("cl")!;
-    const adId = [params.get("ad_id"), params.get("adid")].find(value => value !== null && /^\d{6,20}$/.test(value));
-    if (adId) input.adId = adId;
-  } else if (params.has("aid")) {
-    input.aid = params.get("aid")!;
-    input.adId = params.get("ad_id") ?? params.get("adid");
-    for (const [field, key] of [["campaignId", "campaign_id"], ["adsetId", "adset_id"], ["utmSource", "utm_source"], ["utmMedium", "utm_medium"], ["utmCampaign", "utm_campaign"], ["utmContent", "utm_content"], ["utmTerm", "utm_term"]] as const) input[field] = params.get(key);
-  }
+  const input: Parameters<typeof api.marketingTouch>[0] = {
+    ...(parsed ?? { path: context.path, visitKey: "" }),
+    path: context.path,
+    visitKey: tabVisitKey(),
+    ...(context.landingPageId ? { landingPageId: context.landingPageId } : {}),
+  };
   try {
     const result = validTouch(await api.marketingTouch(input));
     if (!result) return;
+    // A page visit without a paid parameter must never replace a paid touch.
+    if (result.paid === false) return;
     const previous = storedTouch();
     if (previous && (Date.parse(previous.expiresAt) > Date.parse(result.expiresAt) || (previous.expiresAt === result.expiresAt && sequence < acceptedSequence))) return;
     memoryTouch = result; acceptedSequence = sequence;

@@ -343,10 +343,45 @@ export interface AdminVerificationSummary {
   assigneeId: string | null;
 }
 
+export interface AdminAttributionTouch {
+  sourceType: SourceType;
+  aid: string | null;
+  adId: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
+  fbclid: string | null;
+  productName: string | null;
+  landingPageId: string | null;
+  touchedAt: string;
+  paid: boolean | null;
+}
+
+export interface AdminOrderAttributionSummary {
+  sourceType: SourceType;
+  /** Stable advertising number; null on organic/direct orders. */
+  adid: string | null;
+  /** The real Meta ad ID, when a registered link or paid URL carried one. */
+  adId: string | null;
+  aidSnapshot: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
+  fbclid: string | null;
+  touchedAt: string | null;
+  firstTouch: AdminAttributionTouch | null;
+  lastPaidTouch: AdminAttributionTouch | null;
+  attributionModel: "FIRST_ONLY" | "LAST_PAID" | null;
+  attributionCapturedAt: string | null;
+  attributionTouchId: string | null;
+}
+
 export interface AdminOrderListRow extends AdminOrderRow {
   customer: AdminOrderCustomer;
   /** The order's advertising number; null on organic/direct orders. */
   adid: string | null;
+  /** The real Meta ad ID, without the stable-number fallback. */
+  adId: string | null;
+  campaignId: string | null;
+  attributionDetail: AdminOrderAttributionSummary | null;
   items: {
     id: string;
     skuCodeSnapshot: string;
@@ -695,6 +730,11 @@ export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
     utmTerm: string | null;
     fbclid: string | null;
     attributedAt: string;
+    firstTouch: AdminAttributionTouch | null;
+    lastPaidTouch: AdminAttributionTouch | null;
+    attributionModel: "FIRST_ONLY" | "LAST_PAID" | null;
+    attributionCapturedAt: string | null;
+    attributionTouchId: string | null;
   } | null;
   payments: {
     id: string;
@@ -1918,6 +1958,12 @@ export const adminApi = {
     phone?: string;
     /** Product: a SKU code or part of the product name. */
     sku?: string;
+    /** Optimizer AID (stable operator code). */
+    aid?: string;
+    /** Real Meta ad ID or the stable advertising number. */
+    adId?: string;
+    campaignId?: string;
+    optimizerId?: string;
     /** The priority of the open verification assignment. */
     priority?: VerificationPriority;
     /** The state of the open verification assignment. */
@@ -1948,6 +1994,10 @@ export const adminApi = {
         search: p.search,
         phone: p.phone,
         sku: p.sku,
+        aid: p.aid,
+        adId: p.adId,
+        campaignId: p.campaignId,
+        optimizerId: p.optimizerId,
         priority: p.priority,
         verification: p.verification,
         followUp: p.followUp,
@@ -2154,6 +2204,9 @@ export const adminApi = {
       search?: string;
       phone?: string;
       sku?: string;
+      aid?: string;
+      adId?: string;
+      campaignId?: string;
       priority?: VerificationPriority;
       verification?: "none" | "pending" | "problem" | "done" | "open";
       followUp?: "overdue" | "today" | "week";
@@ -2200,6 +2253,9 @@ export const adminApi = {
         search: p?.search,
         phone: p?.phone,
         sku: p?.sku,
+        aid: p?.aid,
+        adId: p?.adId,
+        campaignId: p?.campaignId,
         priority: p?.priority,
         verification: p?.verification,
         followUp: p?.followUp,

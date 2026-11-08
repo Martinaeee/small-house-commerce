@@ -20,6 +20,9 @@ export interface WorkbenchFilterState {
   region: string;
   phone: string;
   sku: string;
+  aid: string;
+  adId: string;
+  campaignId: string;
   owner: string;
   priority: string;
   classification: string;
@@ -371,6 +374,31 @@ export function WorkbenchFilterBar({
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_aid")}
+              <input
+                value={filters.aid}
+                onChange={(event) => onChange({ aid: event.target.value })}
+                placeholder="OP-…"
+                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+              />
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_ad_id")}
+              <input
+                value={filters.adId}
+                onChange={(event) => onChange({ adId: event.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+              />
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_campaign_id")}
+              <input
+                value={filters.campaignId}
+                onChange={(event) => onChange({ campaignId: event.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+              />
             </label>
             <label className="block text-[13px] text-ink-secondary">
               {t("orders_filter_priority")}

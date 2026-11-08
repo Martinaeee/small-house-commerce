@@ -2,6 +2,11 @@ import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { checkoutRequestMeta } from '../../meta-capi/request-meta.js';
+import {
+  MARKETING_FIRST_COOKIE,
+  MARKETING_LAST_COOKIE,
+  readCookie,
+} from '../../marketing/marketing-touch-cookies.js';
 import { OrdersService } from '../orders.service.js';
 import {
   checkoutSchema,
@@ -24,7 +29,16 @@ export class StorefrontOrdersController {
     @Body(new ZodValidationPipe(checkoutSchema)) body: CheckoutInput,
     @Req() request: Request,
   ) {
-    return this.ordersService.checkout(body, checkoutRequestMeta(request));
+    const cookieLast = readCookie(request.headers.cookie, MARKETING_LAST_COOKIE);
+    const cookieFirst = readCookie(request.headers.cookie, MARKETING_FIRST_COOKIE);
+    return this.ordersService.checkout(
+      {
+        ...body,
+        marketingCredential: cookieLast ?? body.marketingCredential,
+        marketingFirstCredential: cookieFirst ?? body.marketingFirstCredential,
+      },
+      checkoutRequestMeta(request),
+    );
   }
 
   // Guest order tracking (spec §3.1): no guard — the order number OR the

@@ -199,6 +199,7 @@ export function OrderDrawer({
     ? (staff.find((person) => person.id === row.verification?.assigneeId)?.name ?? null)
     : (row.assignedTo?.name ?? null);
   const first = row.items[0];
+  const attribution = row.attributionDetail;
 
   const nextStep = (() => {
     if (displayStatus === "CANCELLED" || displayStatus === "DENIED") {
@@ -342,8 +343,41 @@ export function OrderDrawer({
                     <dd className="text-ink">{row.customerClassification ?? "—"}</dd>
                     <dt className="text-[12.5px] text-ink-muted">{t("orders_col_adid")}</dt>
                     <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{row.adid ?? "—"}</dd>
+                    <dt className="text-[12.5px] text-ink-muted">{t("orders_col_optimizer")}</dt>
+                    <dd className="text-ink">{row.optimizerNameSnapshot ?? "—"} · <span className="font-mono text-[12px]">{row.optimizerAidSnapshot ?? "—"}</span></dd>
+                    <dt className="text-[12.5px] text-ink-muted">{t("orders_filter_campaign_id")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{row.campaignId ?? "—"}</dd>
+                    {attribution ? <>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_adset")}</dt>
+                      <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{attribution.adsetId ?? "—"}</dd>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_fbclid")}</dt>
+                      <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{attribution.fbclid ?? "—"}</dd>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_model")}</dt>
+                      <dd className="text-ink">{attribution.attributionModel ?? "—"}</dd>
+                    </> : null}
                   </dl>
                 </section>
+
+                {attribution ? <section className="rounded-xl border border-border p-3">
+                  <SectionTitle>{t("orders_attribution")}</SectionTitle>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ["orders_attribution_first", attribution.firstTouch],
+                      ["orders_attribution_last_paid", attribution.lastPaidTouch],
+                    ] as const).map(([labelKey, touch]) => (
+                      <div key={labelKey} className="rounded-lg bg-background p-2 text-[12px]">
+                        <div className="font-semibold text-ink">{t(labelKey)}</div>
+                        {touch ? <>
+                          <div className="mt-1 text-ink-secondary">{fullDateTime(touch.touchedAt)}</div>
+                          <div className="text-ink-secondary">{touch.productName ?? "—"}</div>
+                          <div className="break-all font-mono text-[11px] text-ink-muted">{touch.adId ?? "—"} · {touch.campaignId ?? "—"}</div>
+                          <div className="text-[11px] text-ink-muted">{touch.aid ?? "—"} · {touch.sourceType} · {touch.paid ? t("orders_attribution_paid") : "—"}</div>
+                        </> : <div className="mt-1 text-ink-muted">{t("orders_attribution_none")}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[11px] text-ink-muted">{t("orders_attribution_captured")}: {attribution.attributionCapturedAt ? fullDateTime(attribution.attributionCapturedAt) : "—"}</div>
+                </section> : null}
 
                 <section className="rounded-xl border border-border p-3">
                   <SectionTitle>{t("orders_drawer_goods")}</SectionTitle>

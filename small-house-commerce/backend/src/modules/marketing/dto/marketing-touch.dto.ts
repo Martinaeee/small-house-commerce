@@ -5,6 +5,10 @@ const adField = z.string().trim().max(64).nullable().optional();
 const utmField = z.string().trim().max(120).nullable().optional();
 const metadata = {
   facebookPostId: adField, campaignId: adField, adsetId: adField, adId: adField,
+  fbclid: z.string().trim().max(512).nullable().optional(),
+  fbc: z.string().trim().max(300).nullable().optional(),
+  fbp: z.string().trim().max(200).nullable().optional(),
+  referrer: z.string().trim().max(1024).nullable().optional(),
   utmSource: utmField, utmMedium: utmField, utmCampaign: utmField, utmContent: utmField, utmTerm: utmField,
 };
 
@@ -22,7 +26,7 @@ export type MarketingTouchInput = z.infer<typeof marketingTouchSchema>;
 
 export const marketingTouchClaimsSchema = z.object({
   purpose: z.literal('marketing-touch'),
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   ownerUserId: z.string().uuid(),
   aid: z.string().min(1).max(64),
   ownerName: z.string(),
@@ -34,6 +38,13 @@ export const marketingTouchClaimsSchema = z.object({
   publishedRevision: z.number().int().nonnegative().nullable(),
   sourceType: z.nativeEnum(SourceType),
   facebookPostId: z.string().nullable(), campaignId: z.string().nullable(), adsetId: z.string().nullable(), adId: z.string().nullable(),
+  fbclid: z.string().nullable().optional(),
+  fbc: z.string().nullable().optional(),
+  fbp: z.string().nullable().optional(),
+  referrer: z.string().nullable().optional(),
+  paid: z.boolean().optional(),
+  attributionConflict: z.boolean().optional(),
+  conflictDetail: z.string().nullable().optional(),
   utmSource: z.string().nullable(), utmMedium: z.string().nullable(), utmCampaign: z.string().nullable(), utmContent: z.string().nullable(), utmTerm: z.string().nullable(),
   legacy: z.boolean(),
   touchedAt: z.iso.datetime(),

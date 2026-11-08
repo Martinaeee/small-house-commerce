@@ -180,6 +180,9 @@ function OrdersPageContent() {
   const dateTo = searchParams.get("dateTo") ?? "";
   const phone = searchParams.get("phone") ?? "";
   const sku = searchParams.get("sku") ?? "";
+  const aid = searchParams.get("aid") ?? "";
+  const adId = searchParams.get("adId") ?? "";
+  const campaignId = searchParams.get("campaignId") ?? "";
   const priority = oneOf(searchParams.get("priority"), ["NORMAL", "HIGH", "URGENT"]);
   const verification = oneOf(searchParams.get("verification"), [
     "none",
@@ -202,6 +205,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     owner: assignedTo,
     priority,
     classification,
@@ -286,6 +292,9 @@ function OrdersPageContent() {
     dateTo,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     priority,
     verification,
     followUp,
@@ -316,6 +325,9 @@ function OrdersPageContent() {
         dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
         phone: phone || undefined,
         sku: sku || undefined,
+        aid: aid || undefined,
+        adId: adId || undefined,
+        campaignId: campaignId || undefined,
         priority: priority || undefined,
         verification: verification || undefined,
         followUp: followUp || undefined,
@@ -402,6 +414,9 @@ function OrdersPageContent() {
         dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
         phone: phone || undefined,
         sku: sku || undefined,
+        aid: aid || undefined,
+        adId: adId || undefined,
+        campaignId: campaignId || undefined,
         priority: priority || undefined,
         verification: verification || undefined,
         followUp: followUp || undefined,
@@ -697,6 +712,10 @@ function OrdersPageContent() {
       t("orders_col_customer"),
       t("orders_col_phone"),
       t("orders_col_status"),
+      t("orders_col_optimizer"),
+      t("orders_filter_aid"),
+      t("orders_col_adid"),
+      t("orders_filter_campaign_id"),
       t("orders_col_product"),
       t("orders_col_sku"),
       t("orders_col_qty"),
@@ -712,6 +731,10 @@ function OrdersPageContent() {
         row.shippingAddress?.fullName ?? row.customer.name ?? "",
         row.customer.normalizedPhone,
         row.orderStatus,
+        row.optimizerNameSnapshot ?? "",
+        row.optimizerAidSnapshot ?? "",
+        row.adid ?? "",
+        row.campaignId ?? "",
         row.items.map((item) => item.productNameSnapshot).join(" | "),
         row.items.map((item) => item.skuCodeSnapshot).join(" | "),
         String(row.items.reduce((sum, item) => sum + item.quantity, 0)),
@@ -751,6 +774,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     assignedTo,
     priority,
     classification,
@@ -783,6 +809,9 @@ function OrdersPageContent() {
     if (region) chips.push(`${t("orders_filter_region")} ${region}`);
     if (phone) chips.push(`${t("orders_filter_phone")} ${phone}`);
     if (sku) chips.push(`${t("orders_filter_product")} ${sku}`);
+    if (aid) chips.push(`${t("orders_filter_aid")} ${aid}`);
+    if (adId) chips.push(`${t("orders_filter_ad_id")} ${adId}`);
+    if (campaignId) chips.push(`${t("orders_filter_campaign_id")} ${campaignId}`);
     if (assignedTo) {
       chips.push(
         `${t("orders_filter_assigned")} ${staffName(assignedTo) ?? "—"}`,
@@ -809,6 +838,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     assignedTo,
     staffName,
     priority,
@@ -836,6 +868,10 @@ function OrdersPageContent() {
       if (patch.region !== undefined) url.region = patch.region || null;
       if (patch.phone !== undefined) url.phone = patch.phone || null;
       if (patch.sku !== undefined) url.sku = patch.sku || null;
+      if (patch.aid !== undefined) url.aid = patch.aid || null;
+      if (patch.adId !== undefined) url.adId = patch.adId || null;
+      if (patch.campaignId !== undefined)
+        url.campaignId = patch.campaignId || null;
       if (patch.owner !== undefined) url.assignedTo = patch.owner || null;
       if (patch.priority !== undefined) url.priority = patch.priority || null;
       if (patch.classification !== undefined)

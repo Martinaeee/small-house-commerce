@@ -62,13 +62,28 @@ describe('persisted owner-scoped campaign links', () => {
   it('uses the authenticated owner and a random code while excluding raw attribution overrides', async () => {
     const { service } = setup();
     const link = await service.createLink({ ...base, aid: 'OTHER', ownerUserId: U2 } as never, owner);
-    expect(link).toMatchObject({ ownerUserId: U1, aid: 'OP-1' });
+    expect(link).toMatchObject({ ownerUserId: U1, aid: 'OP-1', attributionMode: 'AID' });
     expect(link.code).toMatch(/^[A-Za-z0-9_-]{16}$/);
     const url = new URL(link.path, 'https://example.test');
     expect(url.pathname).toBe('/products/chair');
+    expect(url.searchParams.get('aid')).toBe('OP-1');
+    expect(url.searchParams.get('cl')).toBeNull();
+    expect(link.metaUrlParameters).toBe('adid={{ad.id}}&campaign_id={{campaign.id}}&adset_id={{adset.id}}&utm_source={{site_source_name}}&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}');
+    expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
+  });
+
+  it('keeps a legacy cl link only when explicitly selected', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, attributionMode: 'CL' }, owner);
+    const url = new URL(link.path, 'https://example.test');
     expect(url.searchParams.get('cl')).toBe(link.code);
     expect(url.searchParams.get('aid')).toBeNull();
-    expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
+    expect(link.attributionMode).toBe('CL');
+  });
+
+  it('rejects a Meta template stored as a static ad ID and an AID post link', () => {
+    expect(campaignLinkCreateSchema.safeParse({ ...base, adId: '{{ad.id}}' }).success).toBe(false);
+    expect(campaignLinkCreateSchema.safeParse({ ...base, sourceType: 'FB_POST', postDate: '2026-11-07', attributionMode: 'AID' }).success).toBe(false);
   });
 
 

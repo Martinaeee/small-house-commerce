@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
 import { normalizePhilippinePhone } from '../../common/phone.util.js';
 import { manilaDayEndExclusive, manilaDayStart } from '../../common/manila-day.js';
@@ -508,7 +509,14 @@ export class OrdersService {
     const orderNumber = await this.nextOrderNumber(tx);
     const warehouse = await this.inventory.defaultWarehouse(tx);
 
-        const touch = await this.marketingTouch.resolve(input.marketingCredential);
+        const firstCredential = input.marketingFirstCredential ?? input.marketingCredential ?? null;
+        const lastCredential = input.marketingCredential ?? input.marketingFirstCredential ?? null;
+        const lastTouch = await this.marketingTouch.resolve(lastCredential);
+        const firstTouch = firstCredential === lastCredential
+          ? lastTouch
+          : await this.marketingTouch.resolve(firstCredential);
+        const lastPaidTouch = lastTouch?.paid === false ? null : lastTouch;
+        const touch = lastPaidTouch ?? firstTouch;
         let adid = touch?.legacy && touch.sourceType === 'META_AD'
           ? touch.adId?.trim() || null
           : null;
@@ -522,6 +530,42 @@ export class OrdersService {
             adid = link.adid;
           }
         }
+        const effectiveCredential = lastPaidTouch ? lastCredential : firstTouch ? firstCredential : null;
+        const attributionTouchId = touch && effectiveCredential
+          ? createHash('sha256').update(effectiveCredential).digest('hex')
+          : null;
+        const touchSnapshot = (claims: NonNullable<typeof touch>) => ({
+          ownerUserId: claims.ownerUserId,
+          aid: claims.aid,
+          ownerName: claims.ownerName,
+          linkId: claims.linkId,
+          productId: claims.productId,
+          productName: claims.productName,
+          productCode: claims.productCode,
+          landingPageId: claims.landingPageId,
+          publishedRevision: claims.publishedRevision,
+          sourceType: claims.sourceType,
+          adId: claims.adId,
+          campaignId: claims.campaignId,
+          adsetId: claims.adsetId,
+          fbclid: claims.fbclid ?? null,
+          fbc: claims.fbc ?? null,
+          fbp: claims.fbp ?? null,
+          referrer: claims.referrer ?? null,
+          utmSource: claims.utmSource,
+          utmMedium: claims.utmMedium,
+          utmCampaign: claims.utmCampaign,
+          utmContent: claims.utmContent,
+          utmTerm: claims.utmTerm,
+          touchedAt: claims.touchedAt,
+          expiresAt: claims.expiresAt,
+          paid: claims.paid ?? null,
+          attributionConflict: claims.attributionConflict ?? false,
+          conflictDetail: claims.conflictDetail ?? null,
+        });
+        const attributionModel = touch
+          ? (firstTouch && lastPaidTouch && firstCredential !== lastCredential ? 'LAST_PAID' : 'FIRST_ONLY')
+          : null;
         const promo = input.promoCode
           ? await this.promotions.resolveForCheckout(
               tx,
@@ -607,6 +651,12 @@ export class OrdersService {
               campaignId: touch?.campaignId ?? null,
               adsetId: touch?.adsetId ?? null,
               adId: touch?.adId ?? null,
+              fbclid: touch?.fbclid ?? null,
+              ...(firstTouch ? { firstTouch: touchSnapshot(firstTouch) } : {}),
+              ...(lastPaidTouch ? { lastPaidTouch: touchSnapshot(lastPaidTouch) } : {}),
+              attributionModel,
+              attributionCapturedAt: touch ? new Date(touch.touchedAt) : null,
+              attributionTouchId,
               landingPageId: touch?.landingPageId ?? null,
               utmSource: touch?.utmSource ?? null,
               utmMedium: touch?.utmMedium ?? null,
@@ -1894,6 +1944,12 @@ export class OrdersService {
     if (query.classification) where.customerClassification = query.classification;
     if (query.confirmation) where.confirmationStatus = query.confirmation;
     if (query.assignedTo) where.assignedToId = query.assignedTo;
+    if (query.optimizerId) where.optimizerId = query.optimizerId;
+    if (query.aid) where.optimizerAidSnapshot = { equals: query.aid, mode: 'insensitive' };
+    const attributionFilter: Prisma.OrderAttributionWhereInput = {};
+    if (query.adId) attributionFilter.OR = [{ adId: query.adId }, { adid: query.adId }];
+    if (query.campaignId) attributionFilter.campaignId = query.campaignId;
+    if (attributionFilter.OR || attributionFilter.campaignId) where.attribution = { is: attributionFilter };
     if (query.risk) {
       where.riskFlags = { some: { flagType: query.risk, resolved: false } };
     }
@@ -2109,7 +2165,14 @@ export class OrdersService {
           shippingAddress: true,
           // The advertising number the table shows; null on organic orders.
           // Prefer the real Meta ad ID, falling back to the stable link number.
-          attribution: { select: { adid: true, adId: true } },
+          attribution: {
+            select: {
+              adid: true, adId: true, aidSnapshot: true, campaignId: true, adsetId: true,
+              fbclid: true, sourceType: true, touchedAt: true,
+              firstTouch: true, lastPaidTouch: true,
+              attributionModel: true, attributionCapturedAt: true, attributionTouchId: true,
+            },
+          },
           // The payment method of the order (the first payment row).
           payments: {
             select: { method: true, status: true },
@@ -2153,6 +2216,9 @@ export class OrdersService {
       return {
         ...rest,
         adid: attribution?.adId ?? attribution?.adid ?? null,
+        adId: attribution?.adId ?? null,
+        campaignId: attribution?.campaignId ?? null,
+        attributionDetail: attribution,
         // The table shows a photo per line; the nested product rows never leave
         // the admin API, only the flat URL below does.
         items: rest.items.map((item) => {

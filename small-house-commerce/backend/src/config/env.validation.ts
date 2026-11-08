@@ -72,6 +72,9 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().min(1).default('1h'),
   JWT_REFRESH_TTL: z.string().min(1).default('7d'),
 
+  // First-party attribution touch lifetime. 7 days keeps the previous default.
+  MARKETING_TOUCH_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+
   // Optional signed homepage draft-preview tokens. Empty/unset disables preview;
   // an enabled HMAC secret must resist offline guessing if a token is observed.
   HOMEPAGE_PREVIEW_SECRET: z.preprocess(

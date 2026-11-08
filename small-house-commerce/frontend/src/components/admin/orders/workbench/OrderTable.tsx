@@ -338,6 +338,29 @@ export function OrderTable({
                           <span className="text-ink-muted">—</span>
                         );
                         break;
+                      case "optimizer":
+                        content = row.optimizerNameSnapshot || row.optimizerAidSnapshot ? (
+                          <div className="min-w-0">
+                            <div className="truncate text-[12.5px]" title={row.optimizerNameSnapshot ?? ""}>
+                              {row.optimizerNameSnapshot ?? "—"}
+                            </div>
+                            <div className="truncate font-mono text-[11.5px] text-ink-muted" title={row.optimizerAidSnapshot ?? ""}>
+                              {row.optimizerAidSnapshot ?? ""}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        );
+                        break;
+                      case "campaign":
+                        content = row.campaignId ? (
+                          <span className="block truncate font-mono text-[11.5px] text-ink-secondary" title={row.campaignId}>
+                            {row.campaignId}
+                          </span>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        );
+                        break;
                       case "product":
                         content = (
                           <div className="flex items-center gap-2">

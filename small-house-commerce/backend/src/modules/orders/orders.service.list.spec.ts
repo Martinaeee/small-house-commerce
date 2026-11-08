@@ -57,6 +57,43 @@ describe('OrdersService.list date filter', () => {
   });
 });
 
+describe('OrdersService.list attribution filters', () => {
+  const OPTIMIZER = '11111111-1111-4111-a111-111111111111';
+
+  it('filters by optimizer AID, real ad ID or stable number, and campaign ID', async () => {
+    const { service, where } = harness();
+
+    await service.list(orderQuerySchema.parse({
+      aid: 'op-1',
+      adId: '120212345678901234',
+      campaignId: '120200000000001',
+      optimizerId: OPTIMIZER,
+    }));
+
+    expect(where()).toMatchObject({
+      optimizerId: OPTIMIZER,
+      optimizerAidSnapshot: { equals: 'op-1', mode: 'insensitive' },
+      attribution: {
+        is: {
+          OR: [
+            { adId: '120212345678901234' },
+            { adid: '120212345678901234' },
+          ],
+          campaignId: '120200000000001',
+        },
+      },
+    });
+  });
+
+  it('leaves the attribution relation unfiltered when no advertising ID is given', async () => {
+    const { service, where } = harness();
+
+    await service.list(orderQuerySchema.parse({ aid: 'OP-1' }));
+
+    expect(where()).not.toHaveProperty('attribution');
+  });
+});
+
 describe('OrdersService.list product photos', () => {
   function listHarness(rows: unknown[]) {
     const prisma = {

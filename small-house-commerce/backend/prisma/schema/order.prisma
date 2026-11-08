@@ -530,6 +530,15 @@ model OrderAttribution {
   utmContent               String?    @map("utm_content")
   utmTerm                  String?    @map("utm_term")
   fbclid                   String?
+  /// Immutable first paid touch snapshot (JSON claims without the raw token).
+  firstTouch               Json?      @map("first_touch")
+  /// Immutable last paid touch snapshot (JSON claims without the raw token).
+  lastPaidTouch            Json?      @map("last_paid_touch")
+  /// LAST_PAID, FIRST_ONLY, or null for orders created before this release.
+  attributionModel         String?    @map("attribution_model") @db.VarChar(20)
+  attributionCapturedAt    DateTime?  @map("attribution_captured_at") @db.Timestamptz(3)
+  /// SHA-256 of the last credential, never the credential itself.
+  attributionTouchId       String?    @map("attribution_touch_id") @db.VarChar(64)
   attributedAt             DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
 
   order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)

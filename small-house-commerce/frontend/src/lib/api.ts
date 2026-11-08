@@ -830,13 +830,22 @@ export const api = {
     adId?: string | null;
     campaignId?: string | null;
     adsetId?: string | null;
+    fbclid?: string | null;
+    fbc?: string | null;
+    fbp?: string | null;
+    referrer?: string | null;
     utmSource?: string | null;
     utmMedium?: string | null;
     utmCampaign?: string | null;
     utmContent?: string | null;
     utmTerm?: string | null;
   }) =>
-    request<{ credential: string | null; expiresAt: string | null }>(
+    request<{
+      credential: string | null;
+      expiresAt: string | null;
+      /** Whether this touch is a paid-ad touch that may update last-paid. */
+      paid?: boolean;
+    }>(
       "/api/v1/storefront/marketing-touch",
       {
         method: "POST",

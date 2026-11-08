@@ -12,6 +12,7 @@ import type { CampaignLinkCloneInput, CampaignLinkCreateInput, CampaignLinkGroup
 const details = {
   product: {
     select: {
+      id: true,
       name: true, productCode: true, slug: true, status: true,
       images: {
         where: { type: 'IMAGE' as const, variantId: null, optionValueId: null },
@@ -26,6 +27,7 @@ const details = {
 } satisfies Prisma.CampaignLinkInclude;
 type LinkWithDetails = Prisma.CampaignLinkGetPayload<{ include: typeof details }>;
 const attributionFields = ['campaignId', 'adsetId', 'adId', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm'] as const;
+export const META_URL_PARAMETERS = 'adid={{ad.id}}&campaign_id={{campaign.id}}&adset_id={{adset.id}}&utm_source={{site_source_name}}&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}';
 
 export interface CampaignLinkProductGroup {
   product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
@@ -39,8 +41,12 @@ function linkPath(row: LinkWithDetails): string {
   const path = row.landingPage ? `/lp/${encodeURIComponent(row.landingPage.slug)}` : `/products/${encodeURIComponent(row.product.slug)}`;
   const params = new URLSearchParams();
   if (row.variantId) params.set('variant', row.variantId);
-  params.set('cl', row.code);
-  for (const [field, key] of [['utmSource', 'utm_source'], ['utmMedium', 'utm_medium'], ['utmCampaign', 'utm_campaign'], ['utmContent', 'utm_content'], ['utmTerm', 'utm_term']] as const) if (row[field]) params.set(key, row[field]);
+  if (row.attributionMode === 'AID') {
+    params.set('aid', row.aidSnapshot);
+  } else {
+    params.set('cl', row.code);
+    for (const [field, key] of [['utmSource', 'utm_source'], ['utmMedium', 'utm_medium'], ['utmCampaign', 'utm_campaign'], ['utmContent', 'utm_content'], ['utmTerm', 'utm_term']] as const) if (row[field]) params.set(key, row[field]);
+  }
   return `${path}?${params}`;
 }
 
@@ -77,6 +83,9 @@ export class CampaignLinksService {
     const postDate = input.postDate ? postDateToDb(input.postDate) : null;
     if (!input.name && (!input.postDate || input.sourceType !== 'FB_POST')) throw new BadRequestException('Name is required.');
     const name = input.name ?? autoPostName(input.postDate!, product.name, code);
+    const attributionMode = input.attributionMode ?? (input.sourceType === 'FB_POST' ? 'CL' : 'AID');
+    if (input.sourceType === 'FB_POST' && attributionMode === 'AID')
+      throw new BadRequestException('Facebook post links keep the cl attribution code.');
     const profile = await this.optimizers.ensureProfileForUser(ownerUserId);
     const row = await this.prisma.$transaction(async (tx) => {
       const adid = await this.nextAdid(tx, {
@@ -91,6 +100,7 @@ export class CampaignLinksService {
           code, adid, ownerUserId, aidSnapshot: profile.aid,
           productId: input.productId, variantId: input.variantId ?? null, variantNameSnapshot: variant?.name ?? null,
           landingPageId: input.landingPageId ?? null, name, sourceType: input.sourceType,
+          attributionMode,
           postDate, postUrl: input.postUrl || null,
           ...Object.fromEntries(attributionFields.map((field) => [field, input[field] || null])),
         },
@@ -313,6 +323,7 @@ export class CampaignLinksService {
       variantId: input.variantId === undefined ? row.variantId : input.variantId,
       landingPageId: input.landingPageId === undefined ? row.landingPageId : input.landingPageId,
       sourceType,
+      attributionMode: input.attributionMode ?? (sourceType === 'FB_POST' ? 'CL' : row.attributionMode),
       name: input.name ?? (postDate ? undefined : `${row.name.slice(0, 115)} copy`),
       postDate,
       postUrl,
@@ -339,6 +350,8 @@ export class CampaignLinksService {
       postUrl: row.postUrl ?? null,
       archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
       aid: row.aidSnapshot,
+      attributionMode: row.attributionMode,
+      metaUrlParameters: META_URL_PARAMETERS,
       ownerName: owner.optimizerProfile?.displayName ?? owner.name,
       productName: product.name,
       productCode: product.productCode,

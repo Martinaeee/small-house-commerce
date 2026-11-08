@@ -13,6 +13,8 @@ export type WorkbenchColumnKey =
   | "phone"
   | "status"
   | "adid"
+  | "optimizer"
+  | "campaign"
   | "product"
   | "sku"
   | "qty"
@@ -45,6 +47,8 @@ export const WORKBENCH_COLUMNS: WorkbenchColumn[] = [
   { key: "phone", labelKey: "orders_col_phone", width: 142 },
   { key: "status", labelKey: "orders_col_status", width: 168 },
   { key: "adid", labelKey: "orders_col_adid", width: 190 },
+  { key: "optimizer", labelKey: "orders_col_optimizer", width: 150 },
+  { key: "campaign", labelKey: "orders_col_campaign", width: 160, defaultHidden: true },
   { key: "product", labelKey: "orders_col_product", width: 230 },
   { key: "sku", labelKey: "orders_col_sku", width: 196 },
   { key: "qty", labelKey: "orders_col_qty", width: 96, align: "right" },

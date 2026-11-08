@@ -45,6 +45,9 @@ export function configuration() {
       accessTtl: env.JWT_ACCESS_TTL,
       refreshTtl: env.JWT_REFRESH_TTL,
     },
+    marketing: {
+      touchTtlDays: env.MARKETING_TOUCH_TTL_DAYS,
+    },
     homepagePreviewSecret: env.HOMEPAGE_PREVIEW_SECRET ?? '',
     r2: {
       accountId: env.R2_ACCOUNT_ID ?? null,

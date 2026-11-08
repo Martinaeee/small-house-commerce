@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { createHmac, hkdfSync } from 'node:crypto';
+import { createHash, createHmac, hkdfSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../../generated/prisma/client.js';
 import { CampaignLinksService } from '../marketing/campaign-links.service.js';
@@ -84,6 +84,64 @@ describe('immutable order marketing attribution', () => {
     await h.service.checkout(h.input(await h.credential(), { sourceType: 'DIRECT', optimizerId: PROFILE, aid: 'FORGED', adId: 'forged-ad', landingPageId: PROFILE }));
     expect(h.writes[0]).toMatchObject({ optimizerId: USER, optimizerAidSnapshot: 'OP-1', optimizerNameSnapshot: 'Owner at touch', attribution: { create: { optimizerId: USER, aidSnapshot: 'OP-1', ownerNameSnapshot: 'Owner at touch', sourceType: 'META_AD', adid: 'ad-A', linkId: LINK, productId: PRODUCT, productNameSnapshot: 'Entry product', productCodeSnapshot: 'ENTRY-001', landingPageId: PAGE, publishedRevision: 3, adId: 'ad-A', utmContent: 'creative', utmTerm: 'chair', touchedAt: START, legacy: false } } });
     expect(h.resolvedInside).toEqual([true]);
+  });
+
+  it('snapshots first and last paid touches independently and hashes only the last credential', async () => {
+    const h = setup();
+    const first = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '120200000000001', fbclid: 'first-click' });
+    vi.setSystemTime(new Date(START.getTime() + 3600e3));
+    const last = await h.touch.touch({ code: h.link.code, visitKey: 'tab-2', adId: '120200000000002', fbclid: 'last-click' });
+    const input = h.input(last.credential!);
+    input.marketingFirstCredential = first.credential!;
+    await h.service.checkout(input);
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: 'ad-A',
+        adId: '120200000000002',
+        fbclid: 'last-click',
+        firstTouch: { adId: '120200000000001', fbclid: 'first-click', aid: 'OP-1' },
+        lastPaidTouch: { adId: '120200000000002', fbclid: 'last-click', aid: 'OP-1' },
+        attributionModel: 'LAST_PAID',
+        attributionCapturedAt: new Date(START.getTime() + 3600e3),
+        attributionTouchId: createHash('sha256').update(last.credential!).digest('hex'),
+      } },
+    });
+  });
+
+  it('resolves one credential once and records a first-only model when first and last coincide', async () => {
+    const h = setup();
+    const credential = await h.credential();
+    const input = h.input(credential);
+    input.marketingFirstCredential = credential;
+    await h.service.checkout(input);
+    expect(vi.mocked(h.touch.resolve)).toHaveBeenCalledTimes(1);
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        firstTouch: { adId: 'ad-A' },
+        lastPaidTouch: { adId: 'ad-A' },
+        attributionModel: 'FIRST_ONLY',
+        attributionTouchId: createHash('sha256').update(credential).digest('hex'),
+      } },
+    });
+  });
+
+  it('retains an organic first touch without calling it a last paid touch', async () => {
+    const h = setup();
+    Object.assign(h.link, { sourceType: 'ORGANIC', adId: null, campaignId: null, adsetId: null, utmMedium: null });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1' });
+    expect(result.paid).toBe(false);
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      optimizerId: USER,
+      optimizerAidSnapshot: 'OP-1',
+      attribution: { create: {
+        sourceType: 'ORGANIC', adid: null, optimizerId: USER, linkId: LINK, adId: null,
+        firstTouch: { sourceType: 'ORGANIC', paid: false },
+        attributionModel: 'FIRST_ONLY',
+        attributionTouchId: createHash('sha256').update(result.credential!).digest('hex'),
+      } },
+    });
+    expect((h.writes[0].attribution as { create: Record<string, unknown> }).create).not.toHaveProperty('lastPaidTouch');
   });
 
   it('snapshots each URL ad ID on orders that share one registered Meta link', async () => {

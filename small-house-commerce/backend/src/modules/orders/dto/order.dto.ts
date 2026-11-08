@@ -22,6 +22,8 @@ export const checkoutSchema = z.object({
     )
     .min(1),
   marketingCredential: z.string().max(8192).nullable().optional(),
+  // Server-read first-touch cookie; browser JS never sees it.
+  marketingFirstCredential: z.string().max(8192).nullable().optional(),
   // The browser tab that placed the order. It links the order to the
   // first-party events, so the dashboard's conversion rate divides ordering
   // sessions by all sessions. Never a customer identity.
@@ -141,6 +143,12 @@ export const orderQuerySchema = z.object({
   search: z.string().max(255).optional(),
   // Exact customer phone (E.164). The customer history opens with it.
   phone: z.string().max(32).optional(),
+  // Attribution filters: optimizer AID (the stable operator code), the real
+  // Meta ad ID or the stable advertising number, and the Meta campaign ID.
+  aid: z.string().trim().max(64).optional(),
+  adId: z.string().trim().max(64).optional(),
+  campaignId: z.string().trim().max(64).optional(),
+  optimizerId: z.string().uuid().optional(),
   // Product: a SKU code or part of the product name.
   sku: z.string().max(64).optional(),
   // The priority of the open verification assignment.

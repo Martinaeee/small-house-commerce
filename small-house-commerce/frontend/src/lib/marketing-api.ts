@@ -65,6 +65,7 @@ export interface MarketingPageQuery {
 }
 
 export type MarketingSourceType = "FB_POST" | "META_AD" | "ORGANIC" | "DIRECT" | "EMAIL" | "OTHER";
+export type CampaignLinkAttributionMode = "CL" | "AID";
 export interface ShortLinkResult {
   code: string;
   /** Root-relative entrance, e.g. "/s/abc12345". */
@@ -79,6 +80,7 @@ export interface CampaignLinkInput {
   landingPageId?: string | null;
   name?: string;
   sourceType: MarketingSourceType;
+  attributionMode?: CampaignLinkAttributionMode;
   postDate?: string | null;
   postUrl?: string | null;
   campaignId?: string | null;
@@ -92,6 +94,8 @@ export interface CampaignLinkInput {
 }
 export interface CampaignLinkRow extends CampaignLinkInput {
   name: string;
+  attributionMode: CampaignLinkAttributionMode;
+  metaUrlParameters: string;
   postDate: string | null;
   postUrl: string | null;
   archivedAt: string | null;
