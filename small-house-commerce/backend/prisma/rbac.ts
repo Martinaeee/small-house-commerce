@@ -120,6 +120,10 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.ORDER_HANDOVER,
     description: 'Record the handover of an order to the warehouse.',
   },
+  {
+    code: PermissionCode.ORDER_DELETE,
+    description: 'Permanently delete orders from the workbench (Super Admin only).',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(

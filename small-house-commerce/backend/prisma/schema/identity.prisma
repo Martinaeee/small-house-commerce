@@ -62,6 +62,9 @@ enum PermissionCode {
   ORDER_RISK_WRITE
   ORDER_MERGE
   ORDER_HANDOVER
+  /// Permanent order deletion from the workbench. Never granted to a
+  /// non-super-admin role by RBAC_GRANTS.
+  ORDER_DELETE
 }
 
 /// DATABASE.md §5 `users`.

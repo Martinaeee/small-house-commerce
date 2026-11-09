@@ -328,6 +328,34 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     return 'none';
   }
 
+  /**
+   * Runs inside the permanent-delete transaction. A SENT sales order is closed
+   * synchronously first — its job row disappears with the order, so an
+   * enqueued CLOSE_ORDER would never be delivered. An in-flight create is
+   * blocked: the external outcome is unknown until it is reconciled.
+   */
+  async closeForDeleteWithin(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    operatorId: string,
+  ): Promise<'none' | 'closed'> {
+    if (!this.client.enabled) return 'none';
+    const job = await tx.qianyiSyncJob.findUnique({
+      where: { orderId_kind: { orderId, kind: 'PUSH_ORDER' } },
+    });
+    if (!job) return 'none';
+    if (job.status === 'SENDING') {
+      throw new Error(
+        `QIANYI_PUSH_IN_FLIGHT: reconcile this order in Qianyi before deleting it (requested by ${operatorId})`,
+      );
+    }
+    if (job.status !== 'SENT') return 'none';
+    const payload = job.requestPayload as Record<string, unknown> | null;
+    if (!payload) throw new Error('QIANYI_PUSH_PAYLOAD_MISSING: cannot close the external order');
+    await this.client.call('CLOSE_SALES_ORDER', 'salesOrder', payload);
+    return 'closed';
+  }
+
   async reconcile(now = new Date()): Promise<{ checked: number; repaired: number; unmatched: number }> {
     if (!this.client.enabled) return { checked: 0, repaired: 0, unmatched: 0 };
     await this.prisma.qianyiWebhookEvent.deleteMany({ where: { receivedAt: { lt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) }, processedAt: { not: null } } });

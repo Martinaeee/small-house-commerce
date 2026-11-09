@@ -10,6 +10,7 @@ const allowed: Record<string, string[]> = {
     PermissionCode.ORDER_RISK_WRITE,
     PermissionCode.ORDER_MERGE,
     PermissionCode.ORDER_HANDOVER,
+    PermissionCode.ORDER_DELETE,
   ],
   ADMIN: [
     PermissionCode.ORDER_ASSIGN,
@@ -77,7 +78,7 @@ describe('production order permission bootstrap', () => {
     );
   });
 
-  it('creates exactly the six order permissions in an unseeded upgrade', async () => {
+  it('creates exactly the seven order permissions in an unseeded upgrade', async () => {
     const state = fixture();
     await reconcile(state);
     expect([...state.permissions.keys()].sort()).toEqual(
@@ -88,8 +89,18 @@ describe('production order permission bootstrap', () => {
         PermissionCode.ORDER_RISK_WRITE,
         PermissionCode.ORDER_MERGE,
         PermissionCode.ORDER_HANDOVER,
+        PermissionCode.ORDER_DELETE,
       ].sort(),
     );
+  });
+
+  it('grants permanent deletion to the super admin alone', async () => {
+    const state = fixture();
+    await reconcile(state);
+    const holders = [...state.grants]
+      .filter((key) => key.endsWith(`:${PermissionCode.ORDER_DELETE}`))
+      .map((key) => key.split(':')[0]);
+    expect(holders).toEqual([RoleCode.SUPER_ADMIN]);
   });
 
   it.each(Object.values(RoleCode))('grants only the approved order scope to %s', async (code) => {

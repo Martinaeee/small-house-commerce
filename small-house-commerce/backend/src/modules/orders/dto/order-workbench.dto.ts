@@ -26,6 +26,8 @@ const ids = z
 export const bulkOrdersSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('confirm'), ids }).strict(),
   z.object({ action: z.literal('cancel'), ids }).strict(),
+  // Permanent deletion; the controller additionally requires ORDER_DELETE.
+  z.object({ action: z.literal('delete'), ids }).strict(),
   z
     .object({
       action: z.literal('assign'),

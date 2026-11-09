@@ -1034,6 +1034,7 @@ export class OrdersService {
           case 'cancel': await this.cancel(id, operatorId); break;
           case 'assign': await this.assign(id, input.assignedToId, operatorId); break;
           case 'status': await this.updateStatus(id, input.status, input.comment, operatorId); break;
+          case 'delete': await this.deleteOrder(id, operatorId); break;
         }
         results.push({ id, ok: true });
       } catch (error) {
@@ -1041,6 +1042,64 @@ export class OrdersService {
       }
     }
     return { results };
+  }
+
+  /**
+   * Permanent deletion (ORDER_DELETE, super admin). Everything the order owns
+   * goes with it; a snapshot survives in order_deletion_log. Active stock
+   * reservations are released first, and an already-sent Qianyi sales order is
+   * closed synchronously before its job row disappears.
+   */
+  async deleteOrder(orderId: string, operatorId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: {
+            select: {
+              skuCodeSnapshot: true,
+              productNameSnapshot: true,
+              variantSnapshot: true,
+              quantity: true,
+              unitPrice: true,
+              lineTotal: true,
+            },
+          },
+        },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+
+      const qianyiAction = this.qianyi
+        ? await this.qianyi.closeForDeleteWithin(tx, orderId, operatorId)
+        : 'none';
+
+      // Active reservations only: shipped stock is already consumed, so its
+      // reservation rows carry no remaining quantity to give back.
+      await this.inventory.releaseForOrder(tx, orderId);
+
+      // Restrict FKs must go before the order row; the rest cascade.
+      await tx.orderMergeRecord.deleteMany({
+        where: { OR: [{ primaryOrderId: orderId }, { mergedOrderId: orderId }] },
+      });
+      await tx.returnAcceptance.deleteMany({ where: { orderId } });
+      await tx.shipment.deleteMany({ where: { orderId } });
+      await tx.inventoryReservation.deleteMany({ where: { orderId } });
+
+      await tx.orderDeletionLog.create({
+        data: {
+          orderId,
+          orderNumber: order.orderNumber,
+          orderStatus: order.orderStatus,
+          customerId: order.customerId,
+          grandTotal: order.grandTotal,
+          qianyiAction,
+          operatorId,
+          snapshot: JSON.parse(JSON.stringify(order)) as Prisma.InputJsonValue,
+        },
+      });
+      await tx.order.delete({ where: { id: orderId } });
+    });
   }
 
   /** §22.1 confirm: only while still unconfirmed and not cancelled. */

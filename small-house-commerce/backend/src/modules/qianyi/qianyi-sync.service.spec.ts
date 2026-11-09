@@ -189,6 +189,35 @@ describe('QianyiSyncService.cancelWithin', () => {
   });
 });
 
+describe('QianyiSyncService.closeForDeleteWithin', () => {
+  it('closes a SENT sales order synchronously with the frozen payload', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const sent = job({ status: 'SENT' });
+    const { service } = serviceWith(tx, sent);
+    client.call.mockResolvedValue({ orderNumber: 'QY-1' });
+    expect(await service.closeForDeleteWithin(tx as never, 'order-1', 'user-1')).toBe('closed');
+    expect(client.call).toHaveBeenCalledWith('CLOSE_SALES_ORDER', 'salesOrder', sent.requestPayload);
+  });
+
+  it('blocks deletion while a create is in flight', async () => {
+    const tx = txFor(orderWith('YD003760CMHT'));
+    const { service } = serviceWith(tx, job({ status: 'SENDING', autoCreateAttempts: 1 }));
+    await expect(service.closeForDeleteWithin(tx as never, 'order-1', 'user-1'))
+      .rejects.toThrow('QIANYI_PUSH_IN_FLIGHT');
+    expect(client.call).not.toHaveBeenCalled();
+  });
+
+  it.each(['PENDING', 'SKIPPED', 'FAILED', 'CANCELLED'])(
+    'treats a %s push as never reaching Qianyi',
+    async (status) => {
+      const tx = txFor(orderWith('YD003760CMHT'));
+      const { service } = serviceWith(tx, job({ status }));
+      expect(await service.closeForDeleteWithin(tx as never, 'order-1', 'user-1')).toBe('none');
+      expect(client.call).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('QianyiSyncService.reconcile', () => {
   it('scopes the inquiry to our shop and prunes only finished archives', async () => {
     const tx = txFor(orderWith('YD003760CMHT'));

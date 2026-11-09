@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminI18nProvider, setAdminLang } from "@/lib/admin-i18n";
 import type { AdminOrderListRow } from "@/lib/admin-api";
@@ -51,8 +51,31 @@ describe("bulk order actions", () => {
     });
     expect(done).toHaveBeenCalledTimes(1);
   });
+  it("lists the selected order numbers and waits for the delete confirmation", async () => {
+    api.bulkOrders.mockResolvedValue({
+      results: [
+        { id: "a", ok: true },
+        { id: "b", ok: true },
+      ],
+    });
+    const done = setup();
+    await userEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    expect(api.bulkOrders).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("确认删除订单？")).toBeInTheDocument();
+    expect(within(dialog).getByText("PH100001")).toBeInTheDocument();
+    expect(within(dialog).getByText("PH100002")).toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "确认删除 2 单" }),
+    );
+    expect(api.bulkOrders).toHaveBeenCalledWith({
+      action: "delete",
+      ids: ["a", "b"],
+    });
+    expect(done).toHaveBeenCalledTimes(1);
+  });
   it("hides write actions the operator has no permission for", () => {
-    setup(["ORDER_CONFIRM", "ORDER_CANCEL", "ORDER_ASSIGN"]);
+    setup(["ORDER_CONFIRM", "ORDER_CANCEL", "ORDER_ASSIGN", "ORDER_DELETE"]);
     expect(
       screen.queryByRole("button", { name: "批量确认" }),
     ).not.toBeInTheDocument();
@@ -61,6 +84,9 @@ describe("bulk order actions", () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "批量指派" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "批量删除" }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "批量打印打包单" }),

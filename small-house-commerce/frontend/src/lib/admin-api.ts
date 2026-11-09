@@ -151,7 +151,7 @@ export interface AdminDraftRisk {
   orders: { id: string; orderNumber: string; riskFlags: { flagType: string; reason: string | null }[] }[];
 }
 export type BulkOrderAction =
-  | { action: "confirm" | "cancel"; ids: string[] }
+  | { action: "confirm" | "cancel" | "delete"; ids: string[] }
   | { action: "assign"; ids: string[]; assignedToId: string }
   | { action: "status"; ids: string[]; status: "PENDING" | "QUESTION" | "ABNORMAL" | "DENIED" | "AFTER_SALES"; comment?: string };
 export interface BulkOrderResult { id: string; ok: boolean; error?: string }

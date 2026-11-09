@@ -51,7 +51,7 @@ describe('workbench write permissions', () => {
       ),
     ).toEqual(['ORDER_VIEW_ALL', 'ORDER_CONFIRM']);
   });
-  it.each(['confirm', 'cancel', 'assign', 'status'] as const)(
+  it.each(['confirm', 'cancel', 'assign', 'status', 'delete'] as const)(
     'rejects bulk %s before any write without its permission',
     async (action) => {
       const { c, orders } = harness([]);
@@ -61,6 +61,21 @@ describe('workbench write permissions', () => {
       expect(orders.bulkOrders).not.toHaveBeenCalled();
     },
   );
+  it('does not let ordinary order permissions delete orders', async () => {
+    const { c, orders } = harness(['ORDER_VIEW_ALL', 'ORDER_CONFIRM', 'ORDER_CANCEL', 'ORDER_ASSIGN']);
+    await expect(
+      c.bulk({ action: 'delete', ids: ['order'] }, { userId: 'op' }),
+    ).rejects.toThrow('Missing permission: ORDER_DELETE');
+    expect(orders.bulkOrders).not.toHaveBeenCalled();
+  });
+  it('dispatches bulk delete for a holder of ORDER_DELETE', async () => {
+    const { c, orders } = harness(['ORDER_VIEW_ALL', 'ORDER_DELETE']);
+    await c.bulk({ action: 'delete', ids: ['order'] }, { userId: 'op' });
+    expect(orders.bulkOrders).toHaveBeenCalledWith(
+      { action: 'delete', ids: ['order'] },
+      'op',
+    );
+  });
   it('requires cancel in addition to confirm when a bulk status denies orders', async () => {
     const { c, orders } = harness(['ORDER_CONFIRM']);
     await expect(

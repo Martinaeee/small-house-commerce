@@ -269,6 +269,26 @@ model Order {
   @@map("orders")
 }
 
+/// Permanent-delete audit. Deliberately no FK to Order: the row must survive
+/// the deletion it records.
+model OrderDeletionLog {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+  orderNumber   String   @map("order_number")
+  orderStatus   String   @map("order_status")
+  customerId    String?  @map("customer_id") @db.Uuid
+  grandTotal    Decimal? @map("grand_total") @db.Decimal(10, 2)
+  /// none = never reached Qianyi; closed = external sales order closed first.
+  qianyiAction  String?  @map("qianyi_action")
+  snapshot      Json
+  operatorId    String?  @map("operator_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("order_deletion_log")
+}
+
 /// §46 order notes — internal, append-only service notes (order workbench).
 model OrderNote {
   id        String   @id @default(uuid(7)) @db.Uuid

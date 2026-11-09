@@ -49,7 +49,7 @@ describe.skipIf(!database)('order workbench on PostgreSQL', () => {
 
   beforeEach(async () => {
     // The URL guard above is mandatory: these are only our disposable fixtures.
-    await prisma.$executeRawUnsafe('TRUNCATE customers, products, categories, warehouses, users CASCADE');
+    await prisma.$executeRawUnsafe('TRUNCATE customers, products, categories, warehouses, users, order_deletion_log CASCADE');
     const category = await prisma.category.create({ data: { name: 'Workbench test', slug: 'workbench-test' } });
     categoryId = category.id;
     const product = await prisma.product.create({ data: {
@@ -150,6 +150,47 @@ describe.skipIf(!database)('order workbench on PostgreSQL', () => {
     await prisma.checkoutDraft.delete({ where: { id: row.id } });
     expect((await prisma.order.findUniqueOrThrow({ where: { id: created.id } })).draftStartedAt).toEqual(row.createdAt);
     expect((await prisma.order.findUniqueOrThrow({ where: { id: created.id } })).draftConvertedManually).toBe(true);
+  });
+
+  it('permanently deletes an order with its links and keeps the audit snapshot', async () => {
+    const { row, checkout } = await draft();
+    const created = await orders.checkout(checkout);
+    const stored = await prisma.order.findUniqueOrThrow({ where: { orderNumber: created.orderNumber } });
+    expect(await reserved()).toBe(2);
+
+    const result = await orders.bulkOrders({ action: 'delete', ids: [stored.id] }, operatorId);
+    expect(result.results).toEqual([{ id: stored.id, ok: true }]);
+
+    expect(await prisma.order.count()).toBe(0);
+    expect(await prisma.orderItem.count()).toBe(0);
+    expect(await prisma.inventoryReservation.count()).toBe(0);
+    expect(await reserved()).toBe(0);
+    expect(await prisma.qianyiSyncJob.count()).toBe(0);
+    // The draft survives the deletion; its link is cleared by SetNull.
+    expect(await prisma.checkoutDraft.findUniqueOrThrow({ where: { id: row.id } }))
+      .toMatchObject({ orderId: null, status: 'CONVERTED' });
+
+    const log = await prisma.orderDeletionLog.findFirstOrThrow();
+    expect(log).toMatchObject({
+      orderId: stored.id, orderNumber: stored.orderNumber, orderStatus: 'NEW',
+      operatorId, qianyiAction: 'none',
+    });
+    expect(log.snapshot).toMatchObject({
+      orderNumber: stored.orderNumber,
+      items: [expect.objectContaining({ quantity: 2, skuCodeSnapshot: 'WB-CHAIR' })],
+    });
+  });
+
+  it('deletes a manually converted order together with its queued ERP job', async () => {
+    const { row } = await draft();
+    const created = await orders.convertDraftToOrder(row.id, operatorId, { expectedRevision: 4 });
+    expect(await prisma.qianyiSyncJob.count({ where: { orderId: created.id, status: 'PENDING' } })).toBe(1);
+
+    const result = await orders.bulkOrders({ action: 'delete', ids: [created.id] }, operatorId);
+    expect(result.results).toEqual([{ id: created.id, ok: true }]);
+    expect(await prisma.qianyiSyncJob.count()).toBe(0);
+    expect(await reserved()).toBe(0);
+    expect((await prisma.orderDeletionLog.findFirstOrThrow()).qianyiAction).toBe('none');
   });
 
   it('returns the same order for two concurrent same-key shopper retries', async () => {

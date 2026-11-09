@@ -131,7 +131,10 @@ export class AdminOrdersController {
     @Body(new ZodValidationPipe(bulkOrdersSchema)) body: BulkOrdersInput,
     @CurrentUser() user: { userId: string },
   ) {
-    const permission = body.action === 'assign' ? 'ORDER_ASSIGN' : body.action === 'cancel' ? 'ORDER_CANCEL' : 'ORDER_CONFIRM';
+    const permission = body.action === 'assign' ? 'ORDER_ASSIGN'
+      : body.action === 'cancel' ? 'ORDER_CANCEL'
+        : body.action === 'delete' ? 'ORDER_DELETE'
+          : 'ORDER_CONFIRM';
     if (!(await this.permissions.has(user.userId, permission))) throw new ForbiddenException(`Missing permission: ${permission}`);
     if (body.action === 'status' && body.status === 'DENIED' && !(await this.permissions.has(user.userId, 'ORDER_CANCEL'))) {
       throw new ForbiddenException('Missing permission: ORDER_CANCEL');

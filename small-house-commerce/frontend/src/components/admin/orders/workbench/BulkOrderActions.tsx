@@ -125,6 +125,16 @@ export function BulkOrderActions({
               {t("orders_bulk_cancel")}
             </Button>
           ) : null}
+          {hasPermission("ORDER_DELETE") ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setAction("delete")}
+              disabled={busy}
+            >
+              {t("orders_bulk_delete")}
+            </Button>
+          ) : null}
           {hasPermission("ORDER_CONFIRM") ? (
             <Button
               size="sm"
@@ -179,13 +189,26 @@ export function BulkOrderActions({
         onClose={() => {
           if (!busy) setAction(null);
         }}
-        title={t("orders_bulk_title")}
+        title={action === "delete" ? t("orders_bulk_delete_title") : t("orders_bulk_title")}
         width="sm"
       >
         <div className="space-y-4">
           <p className="text-sm text-ink-secondary">
             {t("orders_bulk_scope", { count: rows.length })}
           </p>
+          {action === "delete" ? (
+            <div className="space-y-2 text-sm" data-testid="bulk-delete-confirm">
+              <p className="text-sale">{t("orders_bulk_delete_hint")}</p>
+              <p className="font-medium">{t("orders_bulk_delete_list")}</p>
+              <ul className="max-h-40 overflow-auto rounded-lg border border-border px-2 py-1 text-xs text-ink-secondary">
+                {rows.map((row) => (
+                  <li key={row.id} className="py-0.5">
+                    {row.orderNumber}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {action === "cancel" ? (
             <p className="text-sm text-sale">
               {t("orders_dialog_cancel_hint")}
@@ -253,7 +276,11 @@ export function BulkOrderActions({
               }
               onClick={() => void execute()}
             >
-              {busy ? "…" : t("orders_bulk_execute")}
+              {busy
+                ? "…"
+                : action === "delete"
+                  ? t("orders_bulk_delete_execute", { count: rows.length })
+                  : t("orders_bulk_execute")}
             </Button>
           </div>
         </div>
