@@ -1066,6 +1066,19 @@ export class OrdersService {
               lineTotal: true,
             },
           },
+          // Restrict-linked records disappear with the delete; keep their key
+          // facts in the audit snapshot so the removal can still be explained.
+          shipments: {
+            select: {
+              id: true, carrier: true, trackingNumber: true, status: true,
+              shippedAt: true, signedAt: true,
+            },
+          },
+          returnAcceptances: {
+            select: { id: true, shipmentId: true, reason: true, receivedAt: true },
+          },
+          mergeRecordsPrimary: { select: { id: true, mergedOrderId: true, createdAt: true } },
+          mergeRecordsMerged: { select: { id: true, primaryOrderId: true, createdAt: true } },
         },
       });
       if (!order) throw new NotFoundException('Order not found');
