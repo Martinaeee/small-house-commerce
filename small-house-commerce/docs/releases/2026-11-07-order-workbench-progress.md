@@ -2,7 +2,7 @@
 
 更新：2026-11-09。面向后续维护与发布人员。
 
-**状态：已部署生产（2026-11-09）。发布分支 `release/orders-workbench-20261109` 提交 `3255c951` 已推送到 GitHub；生产分支 `staging/luwag-shop-domain` 由 `4bf25f8b` 快进到该提交，生产数据库迁移已执行并完成只读验收。同日追加 `f2704965`，把「草稿订单转订单」徽标限定为人工转单，并执行 additive 迁移 `20261109120000`。**
+**状态：已部署生产（2026-11-09）。发布分支 `release/orders-workbench-20261109` 提交 `3255c951` 已推送到 GitHub；生产分支 `staging/luwag-shop-domain` 由 `4bf25f8b` 快进到该提交，生产数据库迁移已执行并完成只读验收。同日追加 `f2704965`（徽标只标人工转单）、`88264413`/`91322056`（超管批量删除），并执行对应 additive 迁移。**
 
 开发基线 `60178e5b`；发布时线上 HEAD 已是 `4bf25f8b`（含此前 AID 归因与草稿客服跟进），本轮是在该线上版本上整合增量后重新验证、构建与发布。生产只执行 additive 迁移与时间字段回填，没有创建或修改任何真实订单。
 
@@ -146,6 +146,18 @@ Docker daemon 不可用后，在 `/tmp/order-workbench-pg.aBZ6Xr` 下载独立 P
 - 本地验证：后端转换单测 14/14、真实 PostgreSQL 集成 10/10（含人工 `true`、shopper `false` 断言）、后端全量 201 files / 2668 passed / 265 skipped、后端 lint/build exit 0；前端 338 files / 3763 passed、tsc/build exit 0、lint 仍为 5 errors / 19 warnings（全部既有）。
 - 生产验证：备份 `/home/ubuntu/deploy-backups/orders-workbench-badge-20261109T041016Z/`；回滚标签 `rollback-pre-badge-20261109T041016Z`（backend `93123a83` / frontend `c16fa427`，即上一发布镜像）；新镜像 backend `d30f6513fb59` / frontend `f5cca350b2d8`；迁移于 `04:12:23 UTC` 应用；`orders` 17 行、有 `draft_started_at` 的 17 单全部 `draft_converted_manually=false`（true=0，符合线上此前均为顾客自行结账）；后台列表只读 API 返回该字段正确；HTTP 200；后端/前端日志 0 error；部署后新增订单 0。
 
+### 追加上线：批量删除（仅超管，2026-11-09）
+
+用户要求在批量操作中增加「批量删除」，明确选择：物理删除、任意订单状态、二次确认并列出订单号、新权限仅授予超级管理员。
+
+- 提交 `88264413`（20 files，+450/−9）与 `91322056`（删除审计快照补强，+13）。迁移 `20261109130000_add_order_delete_permission`（`PermissionCode` 新增 `ORDER_DELETE`）和 `20261109130100_add_order_deletion_log`（删除审计表，故意不设订单外键）。
+- 权限：`ORDER_DELETE` 只授予 `SUPER_ADMIN`；其余角色默认无此权限。控制器入口与批量接口都校验；入口启动时 `rbac:reconcile-order-permissions` 写入权限行与授权。
+- 二次确认：当前页勾选后点「批量删除」，弹窗标题「确认删除订单？」并逐单列出订单号，确认按钮「确认删除 N 单」；未确认前不调用接口。
+- 单笔事务：锁订单 → 已推送千易（`PUSH_ORDER` = `SENT`）先同步调用 `CLOSE_SALES_ORDER`；`SENDING` 的订单直接阻止并提示先到千易核对 → 释放 ACTIVE 库存预留并写 `RESERVATION_RELEASED` 流水 → 删除 `order_merge_records`、退货验收、物流、库存预留等 Restrict 关联 → 写 `order_deletion_log`（订单、明细、物流/退货/合并关键事实快照、操作人、千易动作）→ 删除订单（其余明细、状态历史、支付、风险、验证、ERP outbox 级联）。
+- 顾客草稿行保留（`SetNull`，状态仍 `CONVERTED`）；库存流水保留且仍引用原订单 ID，作为库存审计证据。
+- 本地验证：后端 202 files / 2685 passed / 265 skipped；新增删除单测、真实 PostgreSQL 集成（删除后订单/预留/ERP job 清除，客户保留，审计快照与草稿解链正确，SENDING 阻止与部分成功）；前端 338 files / 3764 passed；tsc/build exit 0；lint 仍 5 errors / 19 warnings（全部既有）。
+- 生产验证（2026-11-09）：备份 `/home/ubuntu/deploy-backups/orders-workbench-bulk-delete-20261109T060406Z/`；回滚标签 `rollback-pre-bulk-delete-20261109T060406Z`（backend `d30f6513` / frontend `f5cca350`）；新镜像 backend `5e330b814357` / frontend `112defbc107d`；迁移于 `06:07:31 UTC` 应用；审计表存在且 0 行；`ORDER_DELETE` 仅 `SUPER_ADMIN`（roles API 确认其他角色 0 个）；订单仍 17 行、drafts 37、无新增订单；HTTP 200；后端/前端日志 0 error。**生产未执行任何删除操作**。
+
 ## 裁决（按作出顺序）
 
 - Ruling: 订单真实 `createdAt` 不回填；列表显示时间使用 `draftStartedAt ?? createdAt` — 避免收入/漏斗被算到草稿日期 — 代价：列表展示日期与正式订单统计日期语义不同，详情明确区分。
@@ -162,6 +174,7 @@ Docker daemon 不可用后，在 `/tmp/order-workbench-pg.aBZ6Xr` 下载独立 P
 - 已按用户「部署上线吧」完成生产发布与迁移。发布前核对线上 HEAD/迁移：开发基线 `60178e5b` 不含线上 `4bf25f8b` 的 AID 归因与草稿客服跟进，本轮是在线上版本上整合增量后重新验证、构建和发布。
 - 应用回滚：以 `rollback-pre-orders-workbench-20261109T034523Z` 镜像标签重启 backend/frontend，或把 `staging/luwag-shop-domain` 退回 `4bf25f8b` 后重建镜像。
 - 追加上线（仅人工标注）的回滚镜像为 `rollback-pre-badge-20261109T041016Z`；迁移 `20261109120000` 同为 additive，回滚应用不需要删列。
+- 批量删除发布的回滚镜像为 `rollback-pre-bulk-delete-20261109T060406Z`；`ORDER_DELETE` 枚举与审计表也是 additive。已执行的删除是业务事实，不能靠回滚镜像恢复，只能从 `order_deletion_log` 快照与数据库备份人工重建。
 - 两字段与复合索引是 additive；旧应用可以在新结构上运行。**不要把删除列/索引当作自动回滚步骤**。
 - 已转换/已确认订单、库存预留、ERP outbox 与跟进记录是业务事实，不能靠回滚镜像撤销，需要单独业务处置。
 - 数据库快照是迁移前的 `db.sql.gz`；整库恢复会丢失部署后的线上新数据，只能在明确确认后执行，本轮未演练。
