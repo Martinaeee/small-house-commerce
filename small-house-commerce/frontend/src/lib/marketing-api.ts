@@ -164,7 +164,7 @@ export interface MarketingLinkContext {
 export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER";
 export type MarketingReportMode = "FLAT" | "TREE";
 export type MarketingReportSort =
-  | "NAME" | "PRODUCT" | "OWNER" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
+  | "NAME" | "PRODUCT" | "OWNER" | "LATEST_LINK" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
   | "SUBMITTED" | "VALID" | "CONFIRMED" | "SIGNED" | "VALID_VALUE" | "SIGNED_GROSS"
   | "SPEND_USD" | "SPEND_PHP" | "ORDER_CPA" | "SIGNED_CPA" | "ORDER_ROAS" | "SIGNED_ROAS" | "CONVERSION";
 export interface MarketingReportQuery {
@@ -188,6 +188,8 @@ export interface MarketingReportRow {
   postDate: string | null;
   postUrl: string | null;
   archivedAt: string | null;
+  /** Newest link created under this row (ISO); null for unregistered sources. */
+  createdAt: string | null;
   kind: "REGISTERED" | "DIRECT" | "LEGACY" | "UNVERIFIED";
   id: string;
   label: string;

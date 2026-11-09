@@ -10,6 +10,8 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   productId: string | null; productName: string | null; productCode: string | null; landingPageId: string | null;
   sourceType: string | null;
   postDate?: Date | null; postUrl?: string | null; archivedAt?: Date | null;
+  /** Newest link creation in this row's scope; absent on legacy sources. */
+  createdAt?: Date | null;
   visits: bigint | null; pageTotalVisits?: bigint | null;
   /** First-party funnel counts; performance-side callers predate them. */
   addToCarts?: bigint; checkouts?: bigint;
@@ -27,6 +29,7 @@ export type MarketingReportSerializedRow = SortableReportRow & {
   conversionRate: string | null; periodBasis: 'TOUCH' | 'ORDER_CREATED';
   productCode: string | null; landingPageId: string | null; sourceType: string | null;
   postDate: string | null; postUrl: string | null; archivedAt: string | null;
+  createdAt: string | null;
   productThumbnailUrl: string | null; pageTotalVisits: number | null;
 };
 
@@ -48,6 +51,7 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow, productT
     postDate: row.postDate ? row.postDate.toISOString().slice(0, 10) : null,
     postUrl: row.postUrl ?? null,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : null,
     addToCarts: Number(row.addToCarts ?? 0n),
     checkouts: Number(row.checkouts ?? 0n),
     productThumbnailUrl: productThumbnailUrl ?? null,

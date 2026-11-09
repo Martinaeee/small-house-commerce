@@ -56,7 +56,8 @@ export class MarketingReportService {
           CASE WHEN COUNT(DISTINCT s.source_type) = 1 THEN MIN(s.source_type::text) END AS "sourceType",
           CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.post_date) END AS "postDate",
           CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.post_url) END AS "postUrl",
-          CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.archived_at) END AS "archivedAt"
+          CASE WHEN COUNT(DISTINCT s.id) = 1 THEN MIN(s.archived_at) END AS "archivedAt",
+          MAX(s.created_at) AS "createdAt"
         FROM scoped_links s GROUP BY s.group_key
       ), visits AS (
         SELECT s.group_key, COUNT(DISTINCT (v.visit_key, v.visit_day)) AS count
@@ -95,7 +96,7 @@ export class MarketingReportService {
       )
       SELECT 'REGISTERED' AS kind, g.id, g.label, g."ownerUserId", g."ownerName", g.aid,
         g."productId", g."productName", g."productCode", g."landingPageId", g."sourceType",
-        g."postDate", g."postUrl", g."archivedAt",
+        g."postDate", g."postUrl", g."archivedAt", g."createdAt",
         COALESCE(v.count, 0) AS visits, ${query.groupBy === 'PAGE' ? Prisma.sql`pv.count` : Prisma.sql`NULL::bigint`} AS "pageTotalVisits",
         COALESCE(o."submittedOrders", 0) AS "submittedOrders", COALESCE(o."validOrders", 0) AS "validOrders", COALESCE(o."confirmedOrders", 0) AS "confirmedOrders", COALESCE(o."signedOrders", 0) AS "signedOrders",
         COALESCE(o."validOrderValuePhp", 0) AS "validOrderValuePhp", COALESCE(o."signedGrossPhp", 0) AS "signedGrossPhp",
@@ -106,7 +107,7 @@ export class MarketingReportService {
       LEFT JOIN expenses e ON e.group_key = g.id LEFT JOIN coverage c ON c.group_key = g.id
       LEFT JOIN registered_orders o ON o.group_key = g.id LEFT JOIN commerce_events ce ON ce.group_key = g.id
       UNION ALL
-      SELECT o.kind, o.kind, o.kind, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::date, NULL::text, NULL::timestamptz, NULL::bigint, NULL::bigint,
+      SELECT o.kind, o.kind, o.kind, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::date, NULL::text, NULL::timestamptz, NULL::timestamptz, NULL::bigint, NULL::bigint,
         o."submittedOrders", o."validOrders", o."confirmedOrders", o."signedOrders", o."validOrderValuePhp", o."signedGrossPhp",
         0::bigint, 0::bigint,
         0::numeric, 0::numeric, 0::bigint, 0::bigint,

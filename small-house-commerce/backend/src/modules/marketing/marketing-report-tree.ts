@@ -44,10 +44,10 @@ function add(target: Totals, row: MarketingReportRawRow): void {
   target.spendUsd = target.spendUsd.plus(row.spendUsd);
   target.spendPhp = target.spendPhp.plus(row.spendPhp);
 }
-function toRaw(totals: Totals, identity: { id: string; label: string; productId: string; productName: string; productCode: string | null; sourceType: string | null }, visits: bigint): MarketingReportRawRow {
+function toRaw(totals: Totals, identity: { id: string; label: string; productId: string; productName: string; productCode: string | null; sourceType: string | null }, visits: bigint, createdAt: Date | null): MarketingReportRawRow {
   return {
     kind: 'REGISTERED', ownerUserId: null, ownerName: null, aid: null, landingPageId: null,
-    postDate: null, postUrl: null, archivedAt: null,
+    postDate: null, postUrl: null, archivedAt: null, createdAt,
     pageTotalVisits: null, visits, ...identity, ...totals,
   };
 }
@@ -68,11 +68,23 @@ export function buildMarketingReportTree(rows: MarketingReportRawRow[], visits: 
   interface SourceNode { sourceType: string; totals: Totals; links: MarketingReportRawRow[] }
   interface ProductNode { id: string; name: string; code: string | null; totals: Totals; sources: Map<string, SourceNode> }
   const products = new Map<string, ProductNode>();
+  // Newest link per product/source, so "latest link" ordering reflects the
+  // freshest work under a product instead of whichever row happens to come
+  // first in the scope.
+  const productLatest = new Map<string, Date>();
+  const sourceLatest = new Map<string, Date>();
   for (const row of rows) {
     const productId = row.productId ?? '';
+    const sourceType = row.sourceType ?? 'OTHER';
+    if (row.createdAt) {
+      const currentProduct = productLatest.get(productId);
+      if (!currentProduct || row.createdAt > currentProduct) productLatest.set(productId, row.createdAt);
+      const sourceKey = `${productId}:${sourceType}`;
+      const currentSource = sourceLatest.get(sourceKey);
+      if (!currentSource || row.createdAt > currentSource) sourceLatest.set(sourceKey, row.createdAt);
+    }
     const node = products.get(productId) ?? { id: productId, name: row.productName ?? productId, code: row.productCode, totals: zero(), sources: new Map<string, SourceNode>() };
     add(node.totals, row);
-    const sourceType = row.sourceType ?? 'OTHER';
     const source = node.sources.get(sourceType) ?? { sourceType, totals: zero(), links: [] };
     add(source.totals, row);
     source.links.push(row);
@@ -83,11 +95,11 @@ export function buildMarketingReportTree(rows: MarketingReportRawRow[], visits: 
     .map((node): MarketingReportTreeProduct => {
       const thumbnail = thumbnails.get(node.id) ?? null;
       const sources: MarketingReportTreeSource[] = [...node.sources.values()].map(source => {
-        const sourceRaw = toRaw(source.totals, { id: `${node.id}:${source.sourceType}`, label: source.sourceType, productId: node.id, productName: node.name, productCode: node.code, sourceType: source.sourceType }, sourceVisits.get(`${node.id}:${source.sourceType}`) ?? 0n);
+        const sourceRaw = toRaw(source.totals, { id: `${node.id}:${source.sourceType}`, label: source.sourceType, productId: node.id, productName: node.name, productCode: node.code, sourceType: source.sourceType }, sourceVisits.get(`${node.id}:${source.sourceType}`) ?? 0n, sourceLatest.get(`${node.id}:${source.sourceType}`) ?? null);
         return { sourceType: source.sourceType, totals: serializeMarketingReportRow(sourceRaw, thumbnail), links: sortMarketingReportRows(source.links.map(link => serializeMarketingReportRow(link, thumbnail)), sortBy, sortDirection) };
       });
       sources.sort((a, b) => compareMarketingReportRows(a.totals, b.totals, sortBy, sortDirection) || a.sourceType.localeCompare(b.sourceType));
-      const productRaw = toRaw(node.totals, { id: node.id, label: node.name, productId: node.id, productName: node.name, productCode: node.code, sourceType: null }, productVisits.get(node.id) ?? 0n);
+      const productRaw = toRaw(node.totals, { id: node.id, label: node.name, productId: node.id, productName: node.name, productCode: node.code, sourceType: null }, productVisits.get(node.id) ?? 0n, productLatest.get(node.id) ?? null);
       return {
         product: { id: node.id, name: node.name, productCode: node.code, thumbnailUrl: thumbnail },
         totals: serializeMarketingReportRow(productRaw, thumbnail),

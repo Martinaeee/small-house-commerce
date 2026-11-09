@@ -14,6 +14,7 @@ const link = (overrides: Partial<MarketingReportRawRow> & { id: string; sourceTy
   validOrderValuePhp: new Prisma.Decimal('1000'), signedGrossPhp: new Prisma.Decimal('0'),
   spendUsd: new Prisma.Decimal('10'), spendPhp: new Prisma.Decimal('570'),
   expectedCostDays: 1n, recordedCostDays: 1n,
+  createdAt: new Date('2026-10-01T00:00:00.000Z'),
   ...overrides,
 });
 
@@ -71,6 +72,23 @@ describe('marketing report tree', () => {
   it('sorts products by the requested metric, not just alphabetically', () => {
     const sorted = buildMarketingReportTree(rows, visitRows, new Map(), 'ADD_TO_CARTS', 'DESC');
     expect(sorted.map(node => node.product.id)).toEqual([P1, P2]);
+  });
+
+  it('orders products by their newest link so a long-running product rises when it gets a new link', () => {
+    const linked = [
+      link({ id: 'chair-old', productId: P1, sourceType: 'META_AD', createdAt: new Date('2026-09-01T00:00:00.000Z') }),
+      link({ id: 'table-mid', productId: P2, sourceType: 'META_AD', createdAt: new Date('2026-10-20T00:00:00.000Z') }),
+    ];
+    const before = buildMarketingReportTree(linked, [], new Map(), 'LATEST_LINK', 'DESC');
+    expect(before.map(node => node.product.id)).toEqual([P2, P1]);
+
+    const withFreshChairLink = [...linked, link({ id: 'chair-fresh', productId: P1, sourceType: 'FB_POST', createdAt: new Date('2026-11-08T00:00:00.000Z') })];
+    const after = buildMarketingReportTree(withFreshChairLink, [], new Map(), 'LATEST_LINK', 'DESC');
+    expect(after.map(node => node.product.id)).toEqual([P1, P2]);
+    expect(after[0].totals.createdAt).toBe('2026-11-08T00:00:00.000Z');
+    expect(after[0].sources.map(source => source.sourceType)).toEqual(['FB_POST', 'META_AD']);
+    expect(after[0].sources[0].links.map(row => row.id)).toEqual(['chair-fresh']);
+    expect(after[0].sources[1].totals.createdAt).toBe('2026-09-01T00:00:00.000Z');
   });
 
   it('treats unknown source types as OTHER without throwing', () => {

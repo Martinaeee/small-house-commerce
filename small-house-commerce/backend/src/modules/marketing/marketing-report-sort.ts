@@ -4,7 +4,7 @@
  * without visits has no honest ratio), so they sort like other nulls.
  */
 export const marketingReportSortValues = [
-  'NAME', 'PRODUCT', 'OWNER',
+  'NAME', 'PRODUCT', 'OWNER', 'LATEST_LINK',
   'VISITS', 'ADD_TO_CARTS', 'CHECKOUTS', 'SUBMITTED', 'VALID', 'CONFIRMED', 'SIGNED',
   'VALID_VALUE', 'SIGNED_GROSS', 'SPEND_USD', 'SPEND_PHP',
   'ORDER_CPA', 'SIGNED_CPA', 'ORDER_ROAS', 'SIGNED_ROAS', 'CONVERSION',
@@ -19,6 +19,8 @@ export interface SortableReportRow {
   label: string;
   ownerName: string | null;
   productName: string | null;
+  /** Newest link created in this row's scope (ISO); null when unknown. */
+  createdAt: string | null;
   visits: number | null;
   addToCarts: number;
   checkouts: number;
@@ -46,6 +48,7 @@ export function marketingReportSortValue(row: SortableReportRow, sortBy: Marketi
     case 'NAME': return row.label;
     case 'PRODUCT': return row.productName;
     case 'OWNER': return row.ownerName;
+    case 'LATEST_LINK': return row.createdAt;
     case 'VISITS': return row.visits;
     case 'ADD_TO_CARTS': return row.addToCarts;
     case 'CHECKOUTS': return row.checkouts;

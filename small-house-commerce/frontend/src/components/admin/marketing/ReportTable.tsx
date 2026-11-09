@@ -29,8 +29,8 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
   const [filters, setFilters] = useState(inputs);
   const [productFilter, setProductFilter] = useState(productId ?? "");
   const [mode, setMode] = useState<Mode>("TREE");
-  const [sortBy, setSortBy] = useState<MarketingReportSort>("NAME");
-  const [sortDirection, setSortDirection] = useState<"ASC" | "DESC">("ASC");
+  const [sortBy, setSortBy] = useState<MarketingReportSort>("LATEST_LINK");
+  const [sortDirection, setSortDirection] = useState<"ASC" | "DESC">("DESC");
   const [products, setProducts] = useState<{ id: string; name: string; productCode: string | null }[]>([]);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -170,7 +170,7 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     {(loadError || ownerData?.error) && <p role="alert" className="text-sm text-red-700">{loadError ?? ownerData?.error}</p>}
     {!data && !loadError && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
     {data && <>
-      <p className="text-xs text-admin-muted">{data.from} — {data.to} · {t("marketing_report_as_of")}: {new Date(data.asOf).toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: false })}</p>
+      <p className="text-xs text-admin-muted">{data.from} — {data.to} · {t("marketing_report_as_of")}: {new Date(data.asOf).toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: false })}{sortBy === "LATEST_LINK" && ` · ${t("marketing_report_sorted_recent")}`}</p>
       {data.mode === "TREE"
         ? <>
           {data.linkCount !== undefined && data.linkCount > 500 && <p role="alert" className="text-xs text-amber-800">{t("marketing_report_tree_too_many")}</p>}

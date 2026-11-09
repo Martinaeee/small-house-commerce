@@ -3287,6 +3287,7 @@ export const zh = {
   marketing_report_all_products: "全部商品",
   marketing_report_funnel_hint: "加购 / 发起购物为事件次数，自功能上线起累计",
   marketing_report_sort_hint: "点击表头排序",
+  marketing_report_sorted_recent: "默认按最新创建链接排序",
   marketing_report_tree_total: "共 {count} 条链接",
   marketing_report_tree_too_many: "链接超过 500 条，请先按商品或投放师筛选",
   marketing_report_thumbnail_missing: "商品暂无图片",

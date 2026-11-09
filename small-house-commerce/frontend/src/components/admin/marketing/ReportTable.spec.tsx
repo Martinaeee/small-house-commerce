@@ -8,7 +8,7 @@ import { marketingApi, type MarketingReport, type MarketingReportRow } from '@/l
 const auth = vi.hoisted(() => ({ admin: { id: 'u1', permissions: ['MARKETING_VIEW_OWN'] } }));
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => auth }));
 vi.mock('@/lib/marketing-api', async load => ({ ...await load(), marketingApi: { report: vi.fn(), ownerOptions: vi.fn(), linkContext: vi.fn(async () => ({ products: [] })), listCosts: vi.fn(async () => ({ items: [], total: 0 })) } }));
-const row: MarketingReportRow = { postDate: null, postUrl: null, archivedAt: null, kind: 'REGISTERED', id: 'link-1', label: 'Ad A', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', productId: 'p1', productName: 'Chair', productCode: 'CHAIR-1', landingPageId: 'page-1', sourceType: 'META_AD' as const, addToCarts: 0, checkouts: 0, visits: 2, pageTotalVisits: null, submittedOrders: 3, validOrders: 2, confirmedOrders: 1, signedOrders: 1, validOrderValuePhp: '12000.00', signedGrossPhp: '10000.00', spendUsd: '50.00', spendPhp: '2865.00', orderCpaUsd: '25.00', signedCpaUsd: '50.00', orderRoas: '4.19', signedRoas: '3.49', conversionRate: '1.0000', costCoverageComplete: true, recordedCostDays: 3, expectedCostDays: 3, duplicateOrders: 1, riskOrders: 1, afterSalesOrders: 0, refundStatusOrders: 0, periodBasis: 'TOUCH' , productThumbnailUrl: null };
+const row: MarketingReportRow = { postDate: null, postUrl: null, archivedAt: null, createdAt: '2026-11-01T00:00:00.000Z', kind: 'REGISTERED', id: 'link-1', label: 'Ad A', ownerUserId: 'u1', ownerName: 'Optimizer', aid: 'OP-1', productId: 'p1', productName: 'Chair', productCode: 'CHAIR-1', landingPageId: 'page-1', sourceType: 'META_AD' as const, addToCarts: 0, checkouts: 0, visits: 2, pageTotalVisits: null, submittedOrders: 3, validOrders: 2, confirmedOrders: 1, signedOrders: 1, validOrderValuePhp: '12000.00', signedGrossPhp: '10000.00', spendUsd: '50.00', spendPhp: '2865.00', orderCpaUsd: '25.00', signedCpaUsd: '50.00', orderRoas: '4.19', signedRoas: '3.49', conversionRate: '1.0000', costCoverageComplete: true, recordedCostDays: 3, expectedCostDays: 3, duplicateOrders: 1, riskOrders: 1, afterSalesOrders: 0, refundStatusOrders: 0, periodBasis: 'TOUCH' , productThumbnailUrl: null };
 const result: MarketingReport = { from: '2026-10-05', to: '2026-10-07', groupBy: 'LINK', mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', asOf: '2026-10-11T04:00:00Z', page: 1, pageSize: 20, total: 1, rows: [row], otherSources: [] };
 
 /** Opens a picker, clicks ISO-day buttons and applies the draft. */
@@ -101,12 +101,13 @@ describe("workbench report filters, sorting and tree view", () => {
     vi.mocked(marketingApi.ownerOptions).mockResolvedValue(owners);
   }
 
-  it("exposes product and optimizer filters and defaults to the tree view", async () => {
+  it("exposes product and optimizer filters and defaults to newest-link tree ordering", async () => {
     mountAll();
     mount();
     expect(await screen.findByLabelText("视图")).toHaveValue("TREE");
+    expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "TREE", sortBy: "LATEST_LINK", sortDirection: "DESC" }));
     fireEvent.change(screen.getByLabelText("视图"), { target: { value: "FLAT" } });
-    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "FLAT", sortBy: "NAME", sortDirection: "ASC" })));
+    await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "FLAT", sortBy: "LATEST_LINK", sortDirection: "DESC" })));
     fireEvent.change(screen.getByLabelText("商品"), { target: { value: "p1" } });
     fireEvent.click(screen.getByRole("button", { name: "查询核算" }));
     await waitFor(() => expect(marketingApi.report).toHaveBeenLastCalledWith(expect.objectContaining({ productId: "p1", page: 1 })));
@@ -165,6 +166,9 @@ describe("workbench report filters, sorting and tree view", () => {
     vi.mocked(marketingApi.report).mockResolvedValue({ ...result, mode: "TREE", linkCount: 1, rows: undefined as unknown as MarketingReport["rows"], tree: [{ product: { id: "p1", name: "Chair", productCode: "C1", thumbnailUrl: null }, totals: row, sources: [{ sourceType: "META_AD", totals: row, links: [row] }] }] });
     mount();
     await screen.findAllByText("Chair");
+    // The tree starts folded; open the product and its source to see the link.
+    fireEvent.click(screen.getByRole("button", { name: "Chair" }));
+    fireEvent.click(screen.getByRole("button", { name: /Meta 广告/ }));
     expect(screen.getByText("Ad A")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "下一页" })).not.toBeInTheDocument();
   });

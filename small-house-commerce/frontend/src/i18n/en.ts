@@ -3358,6 +3358,7 @@ export const en: Record<ZhKey, string> = {
   marketing_report_all_products: "All products",
   marketing_report_funnel_hint: "Add to cart / checkout started are event counts, accumulated since this feature shipped",
   marketing_report_sort_hint: "Click a column header to sort",
+  marketing_report_sorted_recent: "Default: newest link first",
   marketing_report_tree_total: "{count} links in total",
   marketing_report_tree_too_many: "More than 500 links are listed — narrow by product or optimizer",
   marketing_report_thumbnail_missing: "No product image",

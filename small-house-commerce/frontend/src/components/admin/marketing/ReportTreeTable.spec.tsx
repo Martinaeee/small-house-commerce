@@ -30,14 +30,21 @@ describe("report tree table", () => {
 
   it("shows registered post metadata and safely opens the original", () => {
     const withPost = [{ ...tree[0], sources: [{ sourceType: "FB_POST", totals: row, links: [{ ...row, sourceType: "FB_POST", postDate: "2026-11-03", postUrl: "https://facebook.com/luwag/posts/1", archivedAt: "2026-11-03T02:00:00Z" }] }] }];
-    render(<AdminI18nProvider><ReportTreeTable tree={withPost} sortBy="NAME" sortDirection="ASC" onSort={vi.fn()} /></AdminI18nProvider>);
+    render(<AdminI18nProvider><ReportTreeTable tree={withPost} sortBy="LATEST_LINK" sortDirection="DESC" onSort={vi.fn()} /></AdminI18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Chair" }));
+    fireEvent.click(screen.getByRole("button", { name: /Facebook 帖子/ }));
     expect(screen.getByText(/2026-11-03/)).toBeInTheDocument();
     expect(screen.getByText(/已归档/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "打开原帖" })).toHaveAttribute("rel", "noopener noreferrer");
   });
 
-  it("renders the three levels with aligned metric columns", () => {
+  it("renders the three levels with aligned metric columns once both levels are opened", () => {
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Chair" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Meta 广告/ })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /Facebook 帖子/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Meta 广告/ })[1]!);
     // both products and both sources render; link rows keep their own labels
     expect(screen.getAllByText("Chair").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Meta 广告")).toHaveLength(2);
@@ -49,24 +56,47 @@ describe("report tree table", () => {
     expect(screen.getAllByRole("cell", { name: "PHP 12000.00" }).length).toBe(9);
   });
 
-  it("collapses a product and hides its sources while other products stay", () => {
+  it("starts with every product folded and opens one level at a time", () => {
+    mount();
+    // No source group or link is visible until the product is opened.
+    expect(screen.queryByText("Meta 广告")).not.toBeInTheDocument();
+    expect(screen.queryByText("Facebook 帖子")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ad A")).not.toBeInTheDocument();
+    expect(screen.queryByText("Table ad")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Chair" }));
+    // The product's source groups appear folded; none of its links do yet.
+    expect(screen.getAllByText("Meta 广告")).toHaveLength(1);
+    expect(screen.getByText("Facebook 帖子")).toBeInTheDocument();
+    expect(screen.queryByText("Ad A")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Meta 广告/ }));
+    expect(screen.getByText("Ad A")).toBeInTheDocument();
+    expect(screen.queryByText("Post 1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Facebook 帖子/ }));
+    expect(screen.getByText("Post 1")).toBeInTheDocument();
+  });
+
+  it("keeps other products folded when one product opens", () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Chair" }));
-    // Chair's sources and links hide; Table stays fully open
-    expect(screen.queryByText("Ad A")).not.toBeInTheDocument();
+    // Chair's sources show; Table's do not.
     expect(screen.getAllByText("Meta 广告")).toHaveLength(1);
-    expect(screen.getByText("Table ad")).toBeInTheDocument();
+    expect(screen.queryByText("Table ad")).not.toBeInTheDocument();
   });
 
   it("collapses only one source within an expanded product and keeps state across product re-expansion", () => {
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Chair" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Meta 广告/ })[0]!);
+    expect(screen.getByText("Ad A")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /Meta 广告/ })[0]!);
     expect(screen.queryByText("Ad A")).not.toBeInTheDocument();
-    expect(screen.queryByText("Post 1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Chair" }));
-    expect(screen.queryByText("Post 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Meta 广告")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Chair" }));
-    expect(screen.getAllByText("Meta 广告")).toHaveLength(2);
+    expect(screen.getAllByText("Meta 广告")).toHaveLength(1);
     expect(screen.queryByText("Ad A")).not.toBeInTheDocument();
   });
 

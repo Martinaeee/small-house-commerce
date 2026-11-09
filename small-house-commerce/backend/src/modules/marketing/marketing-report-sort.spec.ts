@@ -5,7 +5,8 @@ const row = (overrides: Partial<SortableReportRow> = {}): SortableReportRow => (
   id: 'id', label: 'A', ownerName: 'Opt', productName: 'Chair', visits: 1,
   addToCarts: 0, checkouts: 0, submittedOrders: 0, validOrders: 0, confirmedOrders: 0, signedOrders: 0,
   validOrderValuePhp: '0.00', signedGrossPhp: '0.00', spendUsd: '0.00', spendPhp: '0.00',
-  orderCpaUsd: null, signedCpaUsd: null, orderRoas: null, signedRoas: null, conversionRate: null, ...overrides,
+  orderCpaUsd: null, signedCpaUsd: null, orderRoas: null, signedRoas: null, conversionRate: null,
+  createdAt: '2026-10-01T00:00:00.000Z', ...overrides,
 });
 
 describe('marketing report sorting', () => {
@@ -35,6 +36,18 @@ describe('marketing report sorting', () => {
       expect(sortMarketingReportRows(rows, 'VALID', direction).map(r => r.id)).toEqual(['a', 'b']);
     }
     expect(compareMarketingReportRows(row({ id: 'b' }), row({ id: 'a' }), 'NAME', 'ASC')).toBeGreaterThan(0);
+  });
+
+  it('sorts by the newest link creation time and keeps undated rows last', () => {
+    const rows = [
+      row({ id: 'old', createdAt: '2026-09-01T00:00:00.000Z' }),
+      row({ id: 'new', createdAt: '2026-11-08T00:00:00.000Z' }),
+      row({ id: 'middle', createdAt: '2026-10-20T00:00:00.000Z' }),
+      row({ id: 'undated', createdAt: null }),
+    ];
+    expect(sortMarketingReportRows(rows, 'LATEST_LINK', 'DESC').map(r => r.id)).toEqual(['new', 'middle', 'old', 'undated']);
+    expect(sortMarketingReportRows(rows, 'LATEST_LINK', 'ASC').map(r => r.id)).toEqual(['old', 'middle', 'new', 'undated']);
+    expect(marketingReportSortValue(row({ createdAt: null }), 'LATEST_LINK')).toBeNull();
   });
 
   it('sorts text with the zh locale and ignores case', () => {
