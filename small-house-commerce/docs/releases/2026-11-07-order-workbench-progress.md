@@ -2,9 +2,9 @@
 
 更新：2026-11-09。面向后续维护与发布人员。
 
-**状态：本地实施、一次独立整体审查及修复验收完成；未提交、未推送、未在生产执行迁移、未部署。**
+**状态：已部署生产（2026-11-09）。发布分支 `release/orders-workbench-20261109` 提交 `3255c951` 已推送到 GitHub；生产分支 `staging/luwag-shop-domain` 由 `4bf25f8b` 快进到该提交，生产数据库迁移已执行并完成只读验收。**
 
-本轮基线 `60178e5b`，分支 `feat/checkout-draft-autosave-20261103`，延续独立工作树。此前已经发布的 Checkout 自动保存不是本轮发布结果。本轮只写入独立本地测试数据库与浏览器 fixture，没有创建或修改真实生产订单。
+开发基线 `60178e5b`；发布时线上 HEAD 已是 `4bf25f8b`（含此前 AID 归因与草稿客服跟进），本轮是在该线上版本上整合增量后重新验证、构建与发布。生产只执行 additive 迁移与时间字段回填，没有创建或修改任何真实订单。
 
 ## 已确认范围与结果
 
@@ -36,7 +36,7 @@
 - 批量普通状态仅允许 PENDING、QUESTION、ABNORMAL、DENIED、AFTER_SALES，不能借此直接改为 CONFIRMED、SHIPPING 或 SIGNED。
 - 打印复用已有内部打包单，一单一页、HTML 转义；不是承运商运单或 J&T 面单，也不产生运单购买请求。
 
-## 数据库变更（尚未在生产执行）
+## 数据库变更（2026-11-09 生产已执行）
 
 迁移：`backend/prisma/migrations/20261106120000_add_order_draft_started_at/migration.sql`。
 
@@ -52,7 +52,9 @@ FROM orders
 WHERE workbench_started_at IS DISTINCT FROM COALESCE(draft_started_at, created_at);
 ```
 
-新迁移会回填工作台时间至所有历史订单并创建索引，生产需要按实际数据量评估写锁与执行窗口；不属于仅前端发布。
+生产执行结果（2026-11-09 03:48:30 UTC）：后端容器入口 `prisma migrate deploy` 应用 `20261106120000_add_order_draft_started_at` 成功；两列与复合索引均存在；17 张历史订单全部回填，`workbench_started_at IS DISTINCT FROM COALESCE(draft_started_at, created_at)` 计数 **0**；17 张 CONVERTED 草稿对应订单的 `draft_started_at` 一并回填。执行前后 `orders` 均为 17 行、`checkout_drafts` 均为 37 行。
+
+生产数据量规模下本次迁移耗时未单独计时（入口日志未记录步进耗时）；后续更大数据量发布仍应按实际行数预留维护窗口。
 
 ## 独立审查与一次修复轮
 
@@ -71,21 +73,21 @@ WHERE workbench_started_at IS DISTINCT FROM COALESCE(draft_started_at, created_a
 
 ## 验证证据
 
-### 完整测试与构建
+### 完整测试与构建（在合并线上 `4bf25f8b` 后的发布树上重跑）
 
 | 命令/项目 | 结果 |
 | --- | --- |
-| Backend `prisma generate` | exit 0，Prisma Client 7.10.0。 |
-| Backend `pnpm build` | exit 0。 |
-| Backend `pnpm test --maxWorkers=2`，启用专属 workbench 测试库 | **191 files / 2564 tests passed；22 files / 249 tests skipped**。跳过的是未配置其各自数据库/环境的其他集成测试，未计入通过。 |
+| Backend `pnpm build`（Docker 内 `prisma generate` + `nest build`） | exit 0。 |
+| Backend `pnpm test --maxWorkers=2`，启用专属 workbench 测试库 | **201 files / 2668 tests passed；26 files / 265 tests skipped**。跳过的是未配置其各自数据库/环境的其他集成测试，未计入通过。 |
 | Backend `pnpm lint` | exit 0；原有 warnings 未顺带清理。 |
-| Backend 广义 `tsc --noEmit`（包括旧测试） | exit 2，113 个原有测试类型错误；本轮新增/修改功能文件无类型错误。不能称整个后端 tsc 通过。 |
-| Frontend `pnpm test --maxWorkers=2` | **325 files / 3581 tests passed**。 |
+| Backend 广义 `tsc --noEmit`（包括旧测试） | 不是本轮门禁；此前基线存在既有测试类型错误（113 项），本轮新增/修改功能文件无类型错误，未声称整个后端 tsc 通过。 |
+| Frontend `pnpm test --maxWorkers=2` | **338 files / 3762 tests passed**。 |
 | Frontend `tsc --noEmit` | exit 0。 |
 | Frontend `pnpm build` | exit 0，Next 16.3.4。 |
-| Frontend `pnpm lint` | exit 1，3 errors / 15 warnings。3 个原有 react-hooks/set-state-in-effect 错误：ChangePasswordDialog:40、team/ResetPasswordDialog:35、team/TeamMemberDialog:58；未借本轮修复全局组件。 |
+| Frontend `pnpm lint` | exit 1，5 errors / 19 warnings。5 个错误全部是生产基线已有的 `react-hooks/set-state-in-effect` 模式（drafts 详情页、ChangePasswordDialog、PostLinkResultDialog、ResetPasswordDialog、TeamMemberDialog）；本轮新增组件无新增 lint 错误。 |
 | 离线 Prisma schema diff | 相对基线仅新增两个字段及一个复合索引，与本轮迁移 DDL 一致；显式数据回填另由实库测试验证。 |
 | `git diff --check` | exit 0；最终打包单/列偏好定向测试 2 files / 9 tests passed。 |
+| 发布树浏览器 fixture 复验 | 真实 Next 构建产物 + fixture API：拖动/键盘排序、刷新保留、当前页全选/翻页清空、批量逐单结果、两份打包单、风险勾选门禁、转换后 CONFIRMED、两个流程时间、390px 手机无横向溢出；`pageerrors=0`。 |
 
 完整本地输出在 `/tmp/orders-workbench-{backend,frontend}-{suite,build,lint}-verified.log`、`/tmp/orders-workbench-tsc.log`，不是长期生产备份。
 
@@ -116,23 +118,43 @@ Docker daemon 不可用后，在 `/tmp/order-workbench-pg.aBZ6Xr` 下载独立 P
 
 本地脚本 `/tmp/order-workbench-browser-check.cjs`，结果 `/tmp/order-workbench-browser-result.log`；截图 `/tmp/order-workbench-{columns-desktop,draft-risk-desktop,draft-mobile}.png`。预览服务验收后停止。
 
+## 生产发布与只读验收（2026-11-09）
+
+发布提交 `3255c951`（`feat(orders): add draft conversion and bulk workbench controls`，43 files，+3119/−292），已推送 GitHub `origin/release/orders-workbench-20261109`；经 `git bundle` 传到服务器后，`staging/luwag-shop-domain` 由 `4bf25f8b` 快进到 `3255c951`。在 `/opt/small-house-commerce/small-house-commerce` 重建镜像并 `up -d --no-deps backend frontend`。
+
+| 项目 | 证据 |
+| --- | --- |
+| 发布前备份 | `/home/ubuntu/deploy-backups/orders-workbench-20261109T034523Z/`：`db.sql.gz`（574K）、`.env.deploy` 与 `docker-compose.prod.yml` 及其 sha256（env `d7f6ed6d…`，compose `e1e7973b…`）、`pre-images.txt`、`db-pre.txt`。 |
+| 回滚镜像标签 | `small-house-prod-backend:rollback-pre-orders-workbench-20261109T034523Z` → `4e564d99dc52`；`small-house-prod-frontend:rollback-pre-orders-workbench-20261109T034523Z` → `63e73cf571cb`。 |
+| 新镜像 | backend `93123a83cd54`、frontend `c16fa427fa93`；`docker compose ... build backend frontend` exit 0。 |
+| 迁移 | 入口日志 `Applying migration 20261106120000_add_order_draft_started_at` → `All migrations have been successfully applied.`；`finished_at=2026-11-09 03:48:30 UTC`。 |
+| 数据结构 | `orders.draft_started_at`、`orders.workbench_started_at` 与索引 `orders_workbench_started_at_id_idx` 均存在。 |
+| 数据核对 | 迁移前 orders 17 / drafts 37；迁移后 orders 17 / drafts 37；回填不一致 0；带 `draft_started_at` 的订单 17；CONVERTED 草稿 17。部署后新增订单 0，最新订单仍为 `PH100040`。 |
+| 容器健康 | backend、frontend、db 均 `healthy`，caddy `running`；切换后约 10 秒达到全部健康。 |
+| HTTP 只读 | `https://luwag.shop/`、`/admin`、`/collections/all-products`、`/api/v1` 均 200。 |
+| 后台只读 API | 容器内管理员令牌调 `GET /api/v1/admin/orders?sort=newest` 与 `sort=waiting`：各 200、total 17、返回项按 `workbenchStartedAt` 对应方向有序、列表含 `draftStartedAt`；`GET /api/v1/admin/checkout-drafts` 200。 |
+| 日志 | backend `error|exception|fatal` 计数 0；frontend `error|fatal` 计数 0；6 个 RBAC reconcile 与 API 启动正常。 |
+
+验证用的容器内令牌文件与脚本已删除；未执行任何写订单操作、未触发外部 ERP 投递、未重跑 seed。首次备份尝试因命令转义失败留下了一份不完整的 `orders-workbench-20261109T034509Z` 目录与同镜像 ID 的重复回滚标签；权威备份是上表的 `T034523Z`。
+
 ## 裁决（按作出顺序）
 
 - Ruling: 订单真实 `createdAt` 不回填；列表显示时间使用 `draftStartedAt ?? createdAt` — 避免收入/漏斗被算到草稿日期 — 代价：列表展示日期与正式订单统计日期语义不同，详情明确区分。
 - Ruling: 人工转换采用明确操作确认，风险客户额外勾选已联系/已审核 — 用户要求草稿中提示且可联系确认，不应把看到页面当作审核完毕 — 代价：风险单比普通单多一次确认。
 - Ruling: 批量打印复用现有打包单，不新增承运商面单接口 — 本轮没有授权新的运单购买/打印集成 — 代价：不产生 J&T 面单。
-- Ruling: 所有新增/修复均在此工作树完成，不顺带提交或发布 — 本轮用户授权继续开发；含新增字段迁移，生产执行另报门禁 — 代价：本地完工后仍需发布。
+- Ruling: 所有新增/修复均在此工作树完成，不顺带提交或发布 — 本轮用户授权继续开发；含新增字段迁移，生产执行另报门禁 — 代价：本地完工后仍需发布。（后续用户单独指示「部署上线吧」，发布已按上方流程执行。）
 - Ruling: 增加物化 `workbenchStartedAt` 和复合索引，取代 nullable 字段分堆排序或逐页前端重排 — 必须在数据库分页前正确混排，复用所有现有 Prisma 筛选 — 代价：多一个时间字段、全量历史回填及索引；将来新增明确指定历史 `createdAt` 的写入路径也须同步有效时间。
 - Final: Ruling: reviewer 暂不判断的真实数据库/浏览器项由主会话分别完成实库与 fixture 交互验证 — 环境缺失已解除，不再以 mock 冒充实库 — 代价：生产数据规模、外部投递及真实浏览器到真实后端的全栈 E2E 仍不在本轮证据内。
 - Final: Ruling: 原有单条状态接口的 SHIPPING→SIGNED 权限语义保持不动 — 这是基线行为，新增 bulk DTO 已排除 SIGNED — 代价：如需改变旧接口权限，应独立评估，不能宣称本轮已改。
 - Final: Ruling: 过期/耗尽优惠码仍按正式 checkout 规则拒绝转换，不静默删除优惠，不新增人工清除优惠入口 — 保持价格/促销规则且不擅自改变客户选择 — 代价：此类草稿需客服另行处理促销问题后转换。
 
-## 发布门禁与恢复边界
+## 恢复边界与回滚
 
-- 本轮 **未获得生产迁移授权**；前一轮「上线吧」只对应已完成的原草稿功能发布。
-- 准备发布时先 fetch 当前服务器分支并核对生产 HEAD/迁移；本地 `60178e5b` 不能覆盖更新的线上功能。只整合本轮增量，重新生成 Prisma Client、build、回归。
-- 先备份 DB/当前镜像，记录生产迁移前后的行数和有效时间不一致数，评估全量回填及索引时间；不整体重跑 seed，不用真实生产订单冒烟。
-- 两字段和索引是 additive。回滚旧应用时可保留新增列/索引；不要把删除列当作自动回滚步骤。人工已转换并确认的订单、库存和 ERP 任务是业务事实，不能仅靠回滚镜像撤销，需单独业务处置。
+- 已按用户「部署上线吧」完成生产发布与迁移。发布前核对线上 HEAD/迁移：开发基线 `60178e5b` 不含线上 `4bf25f8b` 的 AID 归因与草稿客服跟进，本轮是在线上版本上整合增量后重新验证、构建和发布。
+- 应用回滚：以 `rollback-pre-orders-workbench-20261109T034523Z` 镜像标签重启 backend/frontend，或把 `staging/luwag-shop-domain` 退回 `4bf25f8b` 后重建镜像。
+- 两字段与复合索引是 additive；旧应用可以在新结构上运行。**不要把删除列/索引当作自动回滚步骤**。
+- 已转换/已确认订单、库存预留、ERP outbox 与跟进记录是业务事实，不能靠回滚镜像撤销，需要单独业务处置。
+- 数据库快照是迁移前的 `db.sql.gz`；整库恢复会丢失部署后的线上新数据，只能在明确确认后执行，本轮未演练。
 
 ## 无关附带改动
 
