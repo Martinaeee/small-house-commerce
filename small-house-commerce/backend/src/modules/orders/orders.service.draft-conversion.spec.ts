@@ -182,6 +182,7 @@ describe('manual draft conversion', () => {
           confirmedBy: OPERATOR,
           draftStartedAt: new Date('2026-11-06T02:00:00Z'),
           workbenchStartedAt: new Date('2026-11-06T02:00:00Z'),
+          draftConvertedManually: true,
         }),
       }),
     );
@@ -313,6 +314,9 @@ describe('manual draft conversion', () => {
     ).data;
     expect(data.orderStatus).toBeUndefined();
     expect(data.confirmationStatus).toBeUndefined();
+    // The list badge is for operator conversions only; a shopper finishing
+    // from their own draft keeps the flag at its false default.
+    expect(data.draftConvertedManually).toBeUndefined();
     expect(qianyi.enqueue).not.toHaveBeenCalled();
     expect(tx.checkoutDraft.updateMany).toHaveBeenCalled();
   });

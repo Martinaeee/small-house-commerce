@@ -141,13 +141,15 @@ describe.skipIf(!database)('order workbench on PostgreSQL', () => {
       .toMatchObject({ status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY',
         followUpNote: 'Keep this note', assigneeId: operatorId, lastContactedAt: expect.any(Date) });
     expect(created).toMatchObject({ orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED',
-      confirmedBy: operatorId, draftStartedAt: row.createdAt, workbenchStartedAt: row.createdAt });
+      confirmedBy: operatorId, draftStartedAt: row.createdAt, workbenchStartedAt: row.createdAt,
+      draftConvertedManually: true });
     expect(created.createdAt.getTime()).toBeGreaterThan(row.createdAt.getTime());
     expect(await reserved()).toBe(2);
     expect(await prisma.qianyiSyncJob.count({ where: { orderId: created.id, status: 'PENDING' } })).toBe(1);
     expect(await prisma.orderStatusHistory.count({ where: { orderId: created.id, statusDomain: 'CHECKOUT_DRAFT' } })).toBe(1);
     await prisma.checkoutDraft.delete({ where: { id: row.id } });
     expect((await prisma.order.findUniqueOrThrow({ where: { id: created.id } })).draftStartedAt).toEqual(row.createdAt);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: created.id } })).draftConvertedManually).toBe(true);
   });
 
   it('returns the same order for two concurrent same-key shopper retries', async () => {
@@ -158,6 +160,7 @@ describe.skipIf(!database)('order workbench on PostgreSQL', () => {
     expect(new Set(values).size).toBe(1);
     expect(await prisma.order.count()).toBe(1);
     expect(await reserved()).toBe(2);
+    expect((await prisma.order.findFirstOrThrow()).draftConvertedManually).toBe(false);
   });
 
   it.each(['different-key', 'different-details', 'two-operators', 'shopper-operator'])('allows only one conversion for %s contenders', async (kind) => {

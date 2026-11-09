@@ -604,6 +604,7 @@ export class OrdersService {
           orderNumber,
           ...(draftStartedAt ? { draftStartedAt, workbenchStartedAt: draftStartedAt } : {}),
           ...(manualDraft ? {
+            draftConvertedManually: true,
             orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED',
             confirmedBy: manualDraft.operatorId, confirmedAt: new Date(),
             confirmationNote: 'Manual checkout draft conversion; customer risk reviewed by operator',

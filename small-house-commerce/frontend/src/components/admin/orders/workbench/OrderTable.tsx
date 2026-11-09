@@ -278,7 +278,7 @@ export function OrderTable({
                             >
                               {row.orderNumber}
                             </button>
-                            {row.draftStartedAt ? <span className="mt-1 block text-[10px] font-medium text-cta">{t("orders_from_draft")}</span> : null}
+                            {row.draftConvertedManually ? <span className="mt-1 block text-[10px] font-medium text-cta">{t("orders_from_draft")}</span> : null}
                           </div>
                         );
                         break;

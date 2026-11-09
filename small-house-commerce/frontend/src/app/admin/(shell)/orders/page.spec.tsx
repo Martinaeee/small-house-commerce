@@ -195,10 +195,18 @@ describe("current-page bulk selection", () => {
 });
 
 describe("the order workbench list", () => {
-  it("marks draft conversions and displays the draft start in the list time cell", async () => {
-    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z" })], total: 1, page: 1, pageSize: 20 });
+  it("marks an operator-converted draft and displays the draft start in the list time cell", async () => {
+    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z", draftConvertedManually: true })], total: 1, page: 1, pageSize: 20 });
     renderPage();
     expect(await screen.findByText("Converted from draft")).toBeInTheDocument();
+    const time = document.querySelector('time[datetime="2026-10-20T11:00:00Z"]');
+    expect(time).not.toBeNull();
+  });
+  it("does not mark a draft the shopper finished by checking out themselves", async () => {
+    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z" })], total: 1, page: 1, pageSize: 20 });
+    renderPage();
+    await screen.findByText("PH100004");
+    expect(screen.queryByText("Converted from draft")).not.toBeInTheDocument();
     const time = document.querySelector('time[datetime="2026-10-20T11:00:00Z"]');
     expect(time).not.toBeNull();
   });

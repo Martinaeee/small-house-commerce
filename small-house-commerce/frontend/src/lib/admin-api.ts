@@ -308,6 +308,8 @@ export interface AdminOrderRow {
   confirmationNote: string | null;
   /** Start of the checkout draft; survives draft retention cleanup. */
   draftStartedAt?: string | null;
+  /** True only when an operator converted the draft from the workbench. */
+  draftConvertedManually?: boolean;
   createdAt: string;
   updatedAt: string;
   preferredDeliveryDate: string | null;

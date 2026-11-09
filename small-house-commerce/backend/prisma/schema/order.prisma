@@ -205,6 +205,10 @@ model Order {
   /// workbench displays it without backdating actual order creation or
   /// analytics. Persisted here so it survives draft retention cleanup.
   draftStartedAt         DateTime?          @map("draft_started_at") @db.Timestamptz(3)
+  /// True only when an operator converted the draft from the workbench. A
+  /// shopper finishing their own checkout keeps this false so the list badges
+  /// only the manual conversions.
+  draftConvertedManually Boolean            @default(false) @map("draft_converted_manually")
   /// Effective queue clock: draftStartedAt for conversions, otherwise the
   /// same database timestamp as createdAt. Materialized for indexed paging.
   workbenchStartedAt     DateTime           @default(now()) @map("workbench_started_at") @db.Timestamptz(3)
