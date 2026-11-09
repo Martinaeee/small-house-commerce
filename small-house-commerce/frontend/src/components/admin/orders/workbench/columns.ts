@@ -68,13 +68,72 @@ export const DEFAULT_HIDDEN_COLUMNS: WorkbenchColumnKey[] = WORKBENCH_COLUMNS.fi
   (column) => column.defaultHidden,
 ).map((column) => column.key);
 
+/** The reading order before the operator says otherwise. */
+export const DEFAULT_COLUMN_ORDER: WorkbenchColumnKey[] = WORKBENCH_COLUMNS.map(
+  (column) => column.key,
+);
+
+const COLUMN_BY_KEY = new Map(WORKBENCH_COLUMNS.map((column) => [column.key, column]));
+
+/**
+ * Turns a saved (untrusted) order into a complete one: unknown and duplicate
+ * keys are dropped, and columns the payload never heard of keep the default
+ * reading order at the end instead of disappearing.
+ */
+export function normalizeColumnOrder(value: unknown): WorkbenchColumnKey[] {
+  const seen = new Set<WorkbenchColumnKey>();
+  const order: WorkbenchColumnKey[] = [];
+  if (Array.isArray(value)) {
+    for (const key of value) {
+      if (typeof key !== "string") continue;
+      if (!COLUMN_BY_KEY.has(key as WorkbenchColumnKey)) continue;
+      if (seen.has(key as WorkbenchColumnKey)) continue;
+      seen.add(key as WorkbenchColumnKey);
+      order.push(key as WorkbenchColumnKey);
+    }
+  }
+  for (const key of DEFAULT_COLUMN_ORDER) {
+    if (!seen.has(key)) order.push(key);
+  }
+  return order;
+}
+
 export const MIN_COLUMN_WIDTH = 72;
 
-/** The columns the operator sees, in reading order. */
+/** The columns the operator sees, in the order the operator reads them. */
 export function visibleColumns(
   hidden: readonly WorkbenchColumnKey[],
+  order: unknown = DEFAULT_COLUMN_ORDER,
 ): WorkbenchColumn[] {
-  return WORKBENCH_COLUMNS.filter((column) => !hidden.includes(column.key));
+  const keys = normalizeColumnOrder(order).filter(key => !hidden.includes(key));
+  let frozenPrefix = true;
+  return keys.map((key, index) => {
+    const column = COLUMN_BY_KEY.get(key)!;
+    const left = column.sticky === "left" || column.sticky === "left2";
+    if (!left) frozenPrefix = false;
+    // A moved column must not jump back over other columns while scrolling.
+    const sticky = left ? (frozenPrefix ? column.sticky : undefined)
+      : column.sticky === "right" && index === keys.length - 1 ? "right" : undefined;
+    return { ...column, sticky };
+  });
+}
+
+/**
+ * Moves one column from `from` to `to`. Out-of-range or no-op moves leave the
+ * order untouched, so a stray drag cannot scramble the table.
+ */
+export function moveColumnKey(
+  order: readonly WorkbenchColumnKey[],
+  from: number,
+  to: number,
+): WorkbenchColumnKey[] {
+  const next = [...order];
+  if (from < 0 || to < 0 || from >= next.length || to >= next.length || from === to) {
+    return next;
+  }
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
 }
 
 /**
@@ -88,11 +147,9 @@ export function stickyLeftOffsets(
   const offsets: Record<string, number> = {};
   let acc = 0;
   for (const column of columns) {
-    if (column.sticky === "left") {
-      offsets[column.key] = 0;
-      acc = widths[column.key] ?? column.width;
-    } else if (column.sticky === "left2") {
+    if (column.sticky === "left" || column.sticky === "left2") {
       offsets[column.key] = acc;
+      acc += widths[column.key] ?? column.width;
     }
   }
   return offsets;

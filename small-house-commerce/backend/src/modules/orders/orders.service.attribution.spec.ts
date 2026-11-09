@@ -212,23 +212,8 @@ describe('immutable order marketing attribution', () => {
     expect(h.writes[0]).toMatchObject({ attribution: { create: { sourceType: 'OTHER', optimizerId: null, linkId: null, touchedAt: null } } });
   });
 
-  it('claims the checkout draft inside the order transaction and links the order back', async () => {
-    const h = setup();
-    await h.service.checkout(h.input(undefined, {}), undefined, { checkoutDraftId: 'draft-1' });
-    expect(h.tx.checkoutDraft.updateMany).toHaveBeenCalledWith({
-      where: { id: 'draft-1', status: 'OPEN' },
-      data: { status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY', lastContactedAt: expect.any(Date) },
-    });
-    expect(h.tx.checkoutDraft.update).toHaveBeenCalledWith({ where: { id: 'draft-1' }, data: { orderId: 'order-1' } });
-  });
-
-  it('refuses a second operator converting the same draft', async () => {
-    const h = setup();
-    h.tx.checkoutDraft.updateMany.mockResolvedValueOnce({ count: 0 } as never);
-    await expect(h.service.checkout(h.input(undefined, {}), undefined, { checkoutDraftId: 'draft-1' }))
-      .rejects.toMatchObject({ status: 409 });
-    expect(h.writes).toHaveLength(0);
-  });
+  // Draft claim/conversion coverage moved to orders.service.draft-conversion.spec.ts
+  // and the PostgreSQL workbench integration, where the conversion contract lives.
 
   it('attributes a mixed-product cart once without changing totals, stock reservations or risk processing', async () => {
     const h = setup();

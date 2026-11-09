@@ -8,20 +8,27 @@ const api = vi.hoisted(() => ({
   getCheckoutDraft: vi.fn(),
   followUpCheckoutDraft: vi.fn(),
   createOrder: vi.fn(),
+  checkoutDraftRisk: vi.fn(),
+  convertCheckoutDraft: vi.fn(),
   listAssignees: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useParams: () => ({ id: "draft-1" }) }));
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: "draft-1" }),
+  useRouter: () => ({ push: vi.fn() }),
+}));
 vi.mock("@/lib/admin-api", () => ({ adminApi: api }));
 vi.mock("@/components/admin/AdminAuthProvider", () => ({
   useAdminAuth: () => ({
-    hasPermission: (permission: string) => permission === "ORDER_VERIFY" || permission === "ORDER_VIEW_ALL",
+    hasPermission: (permission: string) =>
+      permission === "ORDER_VERIFY" || permission === "ORDER_VIEW_ALL" || permission === "ORDER_CONFIRM",
   }),
 }));
 
 function draft(over: Record<string, unknown> = {}) {
   return {
     id: "draft-1",
+    clientRevision: 4,
     status: "OPEN",
     hasUserInput: true,
     contactName: "Ana",
@@ -62,7 +69,10 @@ beforeEach(() => {
   api.getCheckoutDraft.mockResolvedValue(draft());
   api.listAssignees.mockResolvedValue([{ id: "user-2", name: "客服 B" }]);
   api.followUpCheckoutDraft.mockResolvedValue({});
-  api.createOrder.mockResolvedValue({ id: "order-1", orderNumber: "PH100030" });
+  api.checkoutDraftRisk.mockResolvedValue({
+    validPhone: true, requiresReview: false, classification: "NEW", reason: "No prior orders", orders: [],
+  });
+  api.convertCheckoutDraft.mockResolvedValue({ id: "order-1", orderNumber: "PH100030" });
 });
 
 describe("checkout draft customer-service follow-up", () => {
@@ -110,32 +120,28 @@ describe("checkout draft customer-service follow-up", () => {
     expect(screen.getByText(/Assigned/)).toBeInTheDocument();
   });
 
-  it("only offers the order form after the customer agreed to buy", async () => {
-    const user = userEvent.setup();
+  it("offers the confirmed conversion panel, not the older create-order dialog", async () => {
     api.getCheckoutDraft.mockResolvedValue(draft({ followUpStatus: "WANTS_TO_BUY" }));
     render(<AdminI18nProvider><CheckoutDraftDetailPage /></AdminI18nProvider>);
-    await screen.findByRole("button", { name: "创建订单" });
-    expect(screen.queryByRole("button", { name: "创建订单" })).not.toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "创建订单" }));
-    const dialog = screen.getByRole("dialog");
-    expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByText("Oak Chair")).toBeInTheDocument();
-    expect(screen.getByLabelText("收件地址")).toHaveValue("1 Main St");
+    expect(await screen.findByRole("button", { name: "转订单并确认" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "创建订单" })).not.toBeInTheDocument();
   });
 
-  it("creates the order from the draft and marks it converted", async () => {
+  it("converts the draft through the reviewed conversion endpoint instead of an ordinary checkout", async () => {
     const user = userEvent.setup();
     api.getCheckoutDraft.mockResolvedValue(draft({ followUpStatus: "WANTS_TO_BUY" }));
     render(<AdminI18nProvider><CheckoutDraftDetailPage /></AdminI18nProvider>);
-    await user.click(await screen.findByRole("button", { name: "创建订单" }));
-    await user.click(screen.getByRole("button", { name: "确认创建订单" }));
+    await user.click(await screen.findByRole("button", { name: "转订单并确认" }));
+    const dialog = screen.getByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "转订单并确认" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
 
-    await waitFor(() => expect(api.createOrder).toHaveBeenCalledWith(expect.objectContaining({
-      checkoutDraftId: "draft-1",
-      items: [{ skuId: "sku-1", quantity: 2 }],
+    await waitFor(() => expect(api.convertCheckoutDraft).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      expectedRevision: 4,
       customer: expect.objectContaining({ name: "Ana", phone: "0917", streetAddress: "1 Main St" }),
     })));
-    expect(await screen.findByText(/PH100030/)).toBeInTheDocument();
+    expect(api.createOrder).not.toHaveBeenCalled();
   });
 
   it("hides the follow-up form once the draft already became an order", async () => {

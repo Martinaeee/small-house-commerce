@@ -11,6 +11,7 @@ import {
   type AdminVerificationState,
 } from "@/lib/admin-api";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { OrderProcessTimes } from "./OrderProcessTimes";
 import { CustomerHistoryBlock } from "../HistoryPanels";
 import {
   fullDateTime,
@@ -246,6 +247,7 @@ export function OrderDrawer({
               {t("orders_created")}: {fullDateTime(row.createdAt)}（
               {waitingAge(row.createdAt)}） · {row.paymentMethod ?? row.paymentStatus}
             </p>
+            <OrderProcessTimes order={row} />
           </div>
           <button
             type="button"

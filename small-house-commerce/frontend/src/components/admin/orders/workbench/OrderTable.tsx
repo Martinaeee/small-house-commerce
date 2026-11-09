@@ -44,6 +44,11 @@ export interface OrderTableProps {
   /** The label of the primary action of a row, chosen by the state machine. */
   primaryAction: (row: AdminOrderListRow) => { label: string; tone: "primary" | "secondary" };
   busyOrderId?: string | null;
+  selection?: {
+    ids: ReadonlySet<string>;
+    onToggle: (id: string) => void;
+    onSelectPage: () => void;
+  };
 }
 
 /** How long the order has been waiting, in the words the queue uses. */
@@ -100,6 +105,7 @@ export function OrderTable({
   onOpenMenu,
   primaryAction,
   busyOrderId,
+  selection,
 }: OrderTableProps) {
   const { t } = useAdminI18n();
   const dragRef = useRef<{ key: WorkbenchColumnKey; startX: number; startWidth: number } | null>(
@@ -128,6 +134,8 @@ export function OrderTable({
     };
   }, [onWidthChange]);
 
+  const selectionWidth = selection ? 40 : 0;
+  const selectedCount = selection ? rows.filter(row => selection.ids.has(row.id)).length : 0;
   const widthOf = (column: WorkbenchColumn): number =>
     widths[column.key] ?? column.width;
 
@@ -169,16 +177,22 @@ export function OrderTable({
     >
       <table
         className="border-separate border-spacing-0 text-[13px] table-fixed"
-        style={{ width: totalWidth, minWidth: totalWidth }}
+        style={{ width: totalWidth + selectionWidth, minWidth: totalWidth + selectionWidth }}
       >
         <caption className="sr-only">{t("orders_title")}</caption>
         <colgroup>
+          {selection ? <col style={{ width: selectionWidth }} /> : null}
           {columns.map((column) => (
             <col key={column.key} style={{ width: widthOf(column) }} />
           ))}
         </colgroup>
         <thead>
           <tr>
+            {selection ? <th scope="col" className="sticky left-0 top-0 z-40 border-b border-border bg-background px-3">
+              <input type="checkbox" aria-label={t("orders_select_page")} checked={rows.length > 0 && selectedCount === rows.length}
+                ref={node => { if (node) node.indeterminate = selectedCount > 0 && selectedCount < rows.length; }}
+                onChange={selection.onSelectPage} />
+            </th> : null}
             {columns.map((column) => {
               const sticky = column.sticky;
               const offset = sticky === "right" ? undefined : offsets[column.key];
@@ -188,7 +202,7 @@ export function OrderTable({
                   scope="col"
                   style={{
                     width: widthOf(column),
-                    ...(offset !== undefined ? { left: offset } : {}),
+                    ...(offset !== undefined ? { left: offset + selectionWidth } : {}),
                   }}
                   className={[
                     "sticky top-0 z-20 border-b border-border bg-background px-3 py-2 text-left text-[11.5px] font-semibold text-ink-muted",
@@ -237,6 +251,9 @@ export function OrderTable({
                 <tr
                   className="group border-b border-border hover:bg-primary-light/20"
                 >
+                  {selection ? <td className="sticky left-0 z-20 bg-card px-3">
+                    <input type="checkbox" aria-label={t("orders_select_one", { number: row.orderNumber })} checked={selection.ids.has(row.id)} onChange={() => selection.onToggle(row.id)} />
+                  </td> : null}
                   {columns.map((column) => {
                     const sticky = column.sticky;
                     const offset = sticky === "right" ? undefined : offsets[column.key];
@@ -253,13 +270,16 @@ export function OrderTable({
                     switch (column.key) {
                       case "no":
                         content = (
-                          <button
-                            type="button"
-                            onClick={() => onOpenDrawer(row)}
-                            className="font-semibold text-cta hover:underline"
-                          >
-                            {row.orderNumber}
-                          </button>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => onOpenDrawer(row)}
+                              className="font-semibold text-cta hover:underline"
+                            >
+                              {row.orderNumber}
+                            </button>
+                            {row.draftStartedAt ? <span className="mt-1 block text-[10px] font-medium text-cta">{t("orders_from_draft")}</span> : null}
+                          </div>
                         );
                         break;
                       case "customer":
@@ -456,20 +476,22 @@ export function OrderTable({
                           </span>
                         );
                         break;
-                      case "at":
+                      case "at": {
+                        const startedAt = row.draftStartedAt ?? row.createdAt;
                         content = (
-                          <div className="whitespace-nowrap">
-                            <div className="text-ink-secondary">
-                              {shortDateTime(row.createdAt)}
-                            </div>
+                          <div className="whitespace-nowrap" title={row.draftStartedAt ? t("orders_draft_time_hint") : undefined}>
+                            <time dateTime={startedAt} className="text-ink-secondary">
+                              {shortDateTime(startedAt)}
+                            </time>
                             <div
-                              className={`text-[11.5px] ${waitingToneClass(waitingTone(row.createdAt))}`}
+                              className={`text-[11.5px] ${waitingToneClass(waitingTone(startedAt))}`}
                             >
-                              ⏱ {waitingAge(row.createdAt)}
+                              ⏱ {waitingAge(startedAt)}
                             </div>
                           </div>
                         );
                         break;
+                      }
                       case "note":
                         content = (
                           <div
@@ -573,7 +595,7 @@ export function OrderTable({
                         key={column.key}
                         style={
                           offset !== undefined
-                            ? { left: offset }
+                            ? { left: offset + selectionWidth }
                             : undefined
                         }
                         className={cellClass}
@@ -585,7 +607,7 @@ export function OrderTable({
                 </tr>
                 {isExpanded ? (
                   <tr className="bg-background">
-                    <td colSpan={columns.length} className="px-4 py-3">
+                    <td colSpan={columns.length + (selection ? 1 : 0)} className="px-4 py-3">
                       <div
                         className="flex flex-wrap items-start gap-6"
                         style={{ paddingLeft: frozenWidth }}

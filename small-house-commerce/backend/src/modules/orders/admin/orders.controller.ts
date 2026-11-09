@@ -17,6 +17,7 @@ import { PermissionsGuard } from '../../auth/permissions.guard.js';
 import { CurrentUser } from '../../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { checkoutRequestMeta } from '../../meta-capi/request-meta.js';
+import { bulkOrdersSchema, convertCheckoutDraftSchema, type BulkOrdersInput, type ConvertCheckoutDraftInput } from '../dto/order-workbench.dto.js';
 import { OrdersService } from '../orders.service.js';
 import { OrderVerificationService } from '../verification.service.js';
 import { LogisticsEventService } from '../logistics-event.service.js';
@@ -108,19 +109,60 @@ export class AdminOrdersController {
     return this.ordersService.skuSearch(q ?? '');
   }
 
+  @Get('checkout-drafts/:id/risk')
+  @Permissions('ORDER_VIEW_ALL')
+  draftRisk(@Param('id') id: string, @Query('phone') phone?: string) {
+    return this.ordersService.checkoutDraftRisk(id, phone);
+  }
+
+  @Post('checkout-drafts/:id/convert')
+  @Permissions('ORDER_VIEW_ALL', 'ORDER_CONFIRM')
+  convertDraft(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(convertCheckoutDraftSchema)) body: ConvertCheckoutDraftInput,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.ordersService.convertDraftToOrder(id, user.userId, body);
+  }
+
+  @Post('bulk')
+  @Permissions('ORDER_VIEW_ALL')
+  async bulk(
+    @Body(new ZodValidationPipe(bulkOrdersSchema)) body: BulkOrdersInput,
+    @CurrentUser() user: { userId: string },
+  ) {
+    const permission = body.action === 'assign' ? 'ORDER_ASSIGN' : body.action === 'cancel' ? 'ORDER_CANCEL' : 'ORDER_CONFIRM';
+    if (!(await this.permissions.has(user.userId, permission))) throw new ForbiddenException(`Missing permission: ${permission}`);
+    if (body.action === 'status' && body.status === 'DENIED' && !(await this.permissions.has(user.userId, 'ORDER_CANCEL'))) {
+      throw new ForbiddenException('Missing permission: ORDER_CANCEL');
+    }
+    return this.ordersService.bulkOrders(body, user.userId);
+  }
+
   /** Manual order entry (phone orders): reuses the storefront checkout logic. */
   @Post()
   @Permissions('ORDER_CONFIRM')
-  create(
+  async create(
     @Body(new ZodValidationPipe(adminCheckoutSchema)) body: AdminCheckoutInput,
-    @CurrentUser() _user: { userId: string },
+    @CurrentUser() user: { userId: string },
     @Req() request: Request,
   ) {
+    if (body.checkoutDraftId) {
+      // A stale client can still submit the older "create from draft" shape.
+      // Route it through the workbench conversion (risk gate, CONFIRMED order),
+      // never through the ordinary unconfirmed checkout path.
+      if (!(await this.permissions.has(user.userId, 'ORDER_VIEW_ALL'))) {
+        throw new ForbiddenException('Missing permission: ORDER_VIEW_ALL');
+      }
+      return this.ordersService.convertDraftToOrder(body.checkoutDraftId, user.userId, {
+        customer: body.customer,
+        preferredDeliveryDate: body.preferredDeliveryDate,
+        customerNote: body.customerNote,
+      });
+    }
     // Admin-entered orders are recognized by `isAdminSource` and are never
     // sent to Meta as ad conversions.
-    return this.ordersService.checkout(body, checkoutRequestMeta(request), {
-      checkoutDraftId: body.checkoutDraftId,
-    });
+    return this.ordersService.checkout(body, checkoutRequestMeta(request));
   }
 
   /**

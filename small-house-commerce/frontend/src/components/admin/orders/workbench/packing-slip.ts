@@ -83,3 +83,13 @@ export function buildPackingSlipHtml(row: AdminOrderListRow): string {
 </body>
 </html>`;
 }
+
+/** Reuse the same escaped slip markup, with a page boundary per order. */
+export function buildPackingSlipsHtml(rows: readonly AdminOrderListRow[]): string {
+  if (rows.length === 0) throw new Error("Select an order to print");
+  const documents = rows.map(buildPackingSlipHtml);
+  const slips = documents.map(html => `<section class="packing-slip">${html.match(/<body>([\s\S]*?)<\/body>/)![1]}</section>`).join("\n");
+  return documents[0]!
+    .replace("</style>", ".packing-slip { break-after: page; } .packing-slip:last-child { break-after: auto; }</style>")
+    .replace(/<body>[\s\S]*?<\/body>/, () => `<body>${slips}</body>`);
+}

@@ -33,7 +33,9 @@ import {
   type Paged,
 } from "@/lib/admin-api";
 import {
+  DEFAULT_COLUMN_ORDER,
   DEFAULT_HIDDEN_COLUMNS,
+  moveColumnKey,
   visibleColumns,
   type WorkbenchColumnKey,
 } from "@/components/admin/orders/workbench/columns";
@@ -45,6 +47,7 @@ import {
   writeViews,
   type SavedView,
 } from "@/components/admin/orders/workbench/prefs";
+import { BulkOrderActions } from "@/components/admin/orders/workbench/BulkOrderActions";
 import { OrderTable } from "@/components/admin/orders/workbench/OrderTable";
 import {
   WorkbenchFilterBar,
@@ -285,6 +288,8 @@ function OrdersPageContent() {
   const [data, setData] = useState<Paged<AdminOrderListRow> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // A selection belongs to this exact result page, never to a future query.
+  const [selection, setSelection] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
 
   const queryKey = [
     statusKey,
@@ -311,6 +316,7 @@ function OrdersPageContent() {
     String(page),
     String(nonce),
   ].join("|");
+  if (selection.scope !== queryKey) setSelection({ scope: queryKey, ids: [] });
   const [fetchedKey, setFetchedKey] = useState<string | null>(null);
   const loading = fetchedKey !== queryKey;
 
@@ -467,6 +473,9 @@ function OrdersPageContent() {
   const [hiddenColumns, setHiddenColumns] = useState<WorkbenchColumnKey[]>(
     () => readColumnPrefs().hidden,
   );
+  const [columnOrder, setColumnOrder] = useState<WorkbenchColumnKey[]>(
+    () => readColumnPrefs().order,
+  );
   const [colWidths, setColWidths] = useState<Record<string, number>>(
     () => readColumnPrefs().widths,
   );
@@ -474,8 +483,12 @@ function OrdersPageContent() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const persistColumns = useCallback(
-    (hidden: WorkbenchColumnKey[], widths: Record<string, number>) => {
-      writeColumnPrefs({ hidden, widths });
+    (
+      hidden: WorkbenchColumnKey[],
+      widths: Record<string, number>,
+      order: WorkbenchColumnKey[],
+    ) => {
+      writeColumnPrefs({ hidden, widths, order });
     },
     [],
   );
@@ -484,28 +497,41 @@ function OrdersPageContent() {
     (key: WorkbenchColumnKey) => {
       setHiddenColumns((prev) => {
         const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-        persistColumns(next, colWidths);
+        persistColumns(next, colWidths, columnOrder);
         return next;
       });
     },
-    [colWidths, persistColumns],
+    [colWidths, columnOrder, persistColumns],
+  );
+
+  const moveColumn = useCallback(
+    (from: number, to: number) => {
+      setColumnOrder((prev) => {
+        const next = moveColumnKey(prev, from, to);
+        if (next.length !== prev.length) return prev;
+        persistColumns(hiddenColumns, colWidths, next);
+        return next;
+      });
+    },
+    [colWidths, hiddenColumns, persistColumns],
   );
 
   const resetColumns = useCallback(() => {
     setHiddenColumns([...DEFAULT_HIDDEN_COLUMNS]);
+    setColumnOrder([...DEFAULT_COLUMN_ORDER]);
     setColWidths({});
-    persistColumns([...DEFAULT_HIDDEN_COLUMNS], {});
+    persistColumns([...DEFAULT_HIDDEN_COLUMNS], {}, [...DEFAULT_COLUMN_ORDER]);
   }, [persistColumns]);
 
   const changeWidth = useCallback(
     (key: WorkbenchColumnKey, width: number) => {
       setColWidths((prev) => {
         const next = { ...prev, [key]: width };
-        persistColumns(hiddenColumns, next);
+        persistColumns(hiddenColumns, next, columnOrder);
         return next;
       });
     },
-    [hiddenColumns, persistColumns],
+    [columnOrder, hiddenColumns, persistColumns],
   );
 
   const resetWidth = useCallback(
@@ -513,14 +539,17 @@ function OrdersPageContent() {
       setColWidths((prev) => {
         const next = { ...prev };
         delete next[key];
-        persistColumns(hiddenColumns, next);
+        persistColumns(hiddenColumns, next, columnOrder);
         return next;
       });
     },
-    [hiddenColumns, persistColumns],
+    [columnOrder, hiddenColumns, persistColumns],
   );
 
-  const columns = useMemo(() => visibleColumns(hiddenColumns), [hiddenColumns]);
+  const columns = useMemo(
+    () => visibleColumns(hiddenColumns, columnOrder),
+    [columnOrder, hiddenColumns],
+  );
 
   const toggleExpand = useCallback((orderId: string) => {
     setExpanded((prev) => {
@@ -547,19 +576,21 @@ function OrdersPageContent() {
         filters,
         hidden: hiddenColumns,
         widths: colWidths,
+        order: columnOrder,
       };
       const next = [...views.filter((entry) => entry.name !== name), view];
       setViews(next);
       writeViews(next);
     },
-    [searchParams, hiddenColumns, colWidths, views],
+    [searchParams, columnOrder, hiddenColumns, colWidths, views],
   );
 
   const applyView = useCallback(
     (view: SavedView) => {
       setHiddenColumns(view.hidden);
+      setColumnOrder(view.order);
       setColWidths(view.widths);
-      persistColumns(view.hidden, view.widths);
+      persistColumns(view.hidden, view.widths, view.order);
       const next = new URLSearchParams();
       for (const [key, value] of Object.entries(view.filters)) next.set(key, value);
       const qs = next.toString();
@@ -897,6 +928,9 @@ function OrdersPageContent() {
   );
 
   const rows = data?.items ?? [];
+  const selectedRows = selection.scope === queryKey && !loading && !error
+    ? rows.filter(row => selection.ids.includes(row.id)) : [];
+  const selectedIds = new Set(selectedRows.map(row => row.id));
 
   return (
     <div className="w-full max-w-none px-4 py-5 md:px-8">
@@ -978,7 +1012,9 @@ function OrdersPageContent() {
           optimizers={orderOptimizers}
           statusOptions={[]}
           hiddenColumns={hiddenColumns}
+          columnOrder={columnOrder}
           onToggleColumn={toggleColumn}
+          onMoveColumn={moveColumn}
           onResetColumns={resetColumns}
           views={views}
           onApplyView={applyView}
@@ -995,6 +1031,8 @@ function OrdersPageContent() {
           ? `${t("orders_filter_summary")}：${filterChips.join(" · ")} —— ${t("orders_filter_hit")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`
           : `${t("orders_filter_total")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`}
       </p>
+
+      <BulkOrderActions key={searchParams.toString()} rows={selectedRows} assignees={assignees} hasPermission={hasPermission} onDone={reload} />
 
       {/* The table. */}
       <div className="mt-2">
@@ -1028,6 +1066,11 @@ function OrdersPageContent() {
         ) : (
           <OrderTable
             rows={rows}
+            selection={{
+              ids: selectedIds,
+              onToggle: id => setSelection({ scope: queryKey, ids: selectedIds.has(id) ? [...selectedIds].filter(key => key !== id) : [...selectedIds, id] }),
+              onSelectPage: () => setSelection({ scope: queryKey, ids: selectedRows.length === rows.length ? [] : rows.map(row => row.id) }),
+            }}
             columns={columns}
             widths={colWidths}
             onWidthChange={changeWidth}

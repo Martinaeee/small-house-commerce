@@ -39,9 +39,10 @@ export class CustomerRiskService {
   async classifyForNewOrder(
     normalizedPhone: string,
     previousOrderIds: string[] = [],
+    opts: { tx?: Prisma.TransactionClient } = {},
   ): Promise<{ classification: CustomerClassification; reason: string; previousOrderId: string | null }> {
     // Load history through the customer row (same canonical phone).
-    const customer = await this.prisma.customer.findUnique({
+    const customer = await (opts.tx ?? this.prisma).customer.findUnique({
       where: { normalizedPhone },
       include: {
         orders: {

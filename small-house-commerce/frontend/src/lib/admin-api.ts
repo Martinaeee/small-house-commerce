@@ -97,12 +97,14 @@ export interface AdminCheckoutDraftSummary {
   assignee: { id: string; name: string } | null;
   nextFollowUpAt: string | null;
   lastContactedAt: string | null;
+  convertedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
 }
 
 export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
+  clientRevision: number;
   snapshot: {
     customer: Record<
       | "name"
@@ -140,6 +142,19 @@ export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
     createdAt: string;
   }[];
 }
+
+export interface AdminDraftRisk {
+  validPhone: boolean;
+  requiresReview: boolean;
+  classification: string | null;
+  reason: string | null;
+  orders: { id: string; orderNumber: string; riskFlags: { flagType: string; reason: string | null }[] }[];
+}
+export type BulkOrderAction =
+  | { action: "confirm" | "cancel"; ids: string[] }
+  | { action: "assign"; ids: string[]; assignedToId: string }
+  | { action: "status"; ids: string[]; status: "PENDING" | "QUESTION" | "ABNORMAL" | "DENIED" | "AFTER_SALES"; comment?: string };
+export interface BulkOrderResult { id: string; ok: boolean; error?: string }
 
 // --- global search -----------------------------------------------------------
 
@@ -291,6 +306,8 @@ export interface AdminOrderRow {
   confirmedBy: string | null;
   confirmedAt: string | null;
   confirmationNote: string | null;
+  /** Start of the checkout draft; survives draft retention cleanup. */
+  draftStartedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   preferredDeliveryDate: string | null;
@@ -1897,6 +1914,21 @@ export const adminApi = {
       `/api/v1/admin/checkout-drafts/${encodeURIComponent(id)}`,
     ),
 
+  checkoutDraftRisk: (id: string, phone?: string): Promise<AdminDraftRisk> =>
+    adminAuthedFetch(`/api/v1/admin/orders/checkout-drafts/${encodeURIComponent(id)}/risk${buildQuery({ phone })}`),
+
+  convertCheckoutDraft: (id: string, input: {
+    expectedRevision: number;
+    riskReviewed: boolean;
+    customer?: AdminCheckoutDraftDetail["snapshot"]["customer"];
+    preferredDeliveryDate?: string | null;
+    customerNote?: string | null;
+  }): Promise<AdminOrderDetail> =>
+    adminAuthedFetch(`/api/v1/admin/orders/checkout-drafts/${encodeURIComponent(id)}/convert`, { method: "POST", body: JSON.stringify(input) }),
+
+  bulkOrders: (input: BulkOrderAction): Promise<{ results: BulkOrderResult[] }> =>
+    adminAuthedFetch("/api/v1/admin/orders/bulk", { method: "POST", body: JSON.stringify(input) }),
+
   searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
     adminAuthedFetch<AdminBundleSkuCandidate[]>(
       `/api/v1/admin/products/bundle/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
@@ -1954,7 +1986,7 @@ export const adminApi = {
     assignedTo?: string;
     risk?: string;
     search?: string;
-    /** Exact customer phone (E.164) - opens the customer history. */
+    /** Full phone: exact customer history; partial phone: fuzzy filtering. */
     phone?: string;
     /** Product: a SKU code or part of the product name. */
     sku?: string;
@@ -2350,7 +2382,7 @@ export const adminApi = {
     items: { skuId: string; quantity: number }[];
     preferredDeliveryDate?: string | null;
     customerNote?: string | null;
-    /** The checkout draft this operator is completing; the server claims it. */
+    /** Older draft-create callers: the server routes this through confirmed draft conversion. */
     checkoutDraftId?: string;
   }): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(`/api/v1/admin/orders`, {

@@ -141,7 +141,7 @@ export const orderQuerySchema = z.object({
   assignedTo: z.string().uuid().optional(),
   risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
   search: z.string().max(255).optional(),
-  // Exact customer phone (E.164). The customer history opens with it.
+  // Full phone: exact canonical customer history. Partial phone: fuzzy filter.
   phone: z.string().max(32).optional(),
   // Attribution filters: optimizer AID (the stable operator code), the real
   // Meta ad ID or the stable advertising number, and the Meta campaign ID.

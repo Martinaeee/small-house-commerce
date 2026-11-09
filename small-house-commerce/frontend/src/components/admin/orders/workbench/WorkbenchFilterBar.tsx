@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
-import { WORKBENCH_COLUMNS, type WorkbenchColumnKey } from "./columns";
+import { type WorkbenchColumnKey } from "./columns";
+import { ColumnOrderList } from "./ColumnOrderList";
 import type { SavedView } from "./prefs";
 
 export interface WorkbenchFilterState {
@@ -42,7 +43,9 @@ export interface WorkbenchFilterBarProps {
   optimizers: { id: string; aid: string; name: string | null }[];
   statusOptions: { value: string; label: string }[];
   hiddenColumns: WorkbenchColumnKey[];
+  columnOrder: WorkbenchColumnKey[];
   onToggleColumn: (key: WorkbenchColumnKey) => void;
+  onMoveColumn: (from: number, to: number) => void;
   onResetColumns: () => void;
   views: SavedView[];
   onApplyView: (view: SavedView) => void;
@@ -163,7 +166,9 @@ export function WorkbenchFilterBar({
   optimizers,
   statusOptions,
   hiddenColumns,
+  columnOrder,
   onToggleColumn,
+  onMoveColumn,
   onResetColumns,
   views,
   onApplyView,
@@ -536,24 +541,12 @@ export function WorkbenchFilterBar({
         <Popover label={t("orders_columns")} align="right" width="w-64">
           {() => (
             <div>
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-[.06em] text-ink-muted">
-                {t("orders_columns")}
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {WORKBENCH_COLUMNS.map((column) => (
-                  <label
-                    key={column.key}
-                    className="flex items-center gap-2 py-0.5 text-[13px] text-ink-secondary"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.includes(column.key)}
-                      onChange={() => onToggleColumn(column.key)}
-                    />
-                    {t(column.labelKey)}
-                  </label>
-                ))}
-              </div>
+              <ColumnOrderList
+                order={columnOrder}
+                hidden={hiddenColumns}
+                onToggle={onToggleColumn}
+                onMove={onMoveColumn}
+              />
               <button
                 type="button"
                 onClick={onResetColumns}

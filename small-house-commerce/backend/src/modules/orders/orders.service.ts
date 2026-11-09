@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
-import { normalizePhilippinePhone } from '../../common/phone.util.js';
+import { normalizePhilippinePhone, phoneSearchFragments } from '../../common/phone.util.js';
 import { manilaDayEndExclusive, manilaDayStart } from '../../common/manila-day.js';
 import {
   CACHE_TAGS,
@@ -27,6 +27,8 @@ import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
 import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
+import { CHECKOUT_DRAFT_MAX_AGE_MS, tryHashCheckoutDraftToken } from '../checkout-drafts/checkout-draft-token.js';
+import type { CheckoutDraftSnapshot } from '../checkout-drafts/checkout-draft-snapshot.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
@@ -39,7 +41,8 @@ import {
   type OrderBundleSnapshotV1,
   type OrderItemSnapshotWrite,
 } from './order-item-snapshot.js';
-import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
+import type { BulkOrdersInput } from './dto/order-workbench.dto.js';
+import { checkoutSchema, type CheckoutInput, type EditOrderInput, type MergeOrdersInput, type OrderQuery, type ShipOrderInput } from './dto/order.dto.js';
 import { persistConvertedDraft } from '../checkout-drafts/converted-draft.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
 import { signShipmentWithin } from './sign-shipment.js';
@@ -309,11 +312,9 @@ export class OrdersService {
    * - match/create the customer by normalized phone
    * - create the order with snapshots (DB-003), then reserve stock (§30)
    */
-  async checkout(
-    input: CheckoutInput,
-    requestMeta?: CheckoutRequestMeta,
-    options?: { checkoutDraftId?: string },
-  ) {
+  async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta, manualDraft?: {
+    id: string; tokenHash: string; revision: number; operatorId: string; riskReviewed: boolean;
+  }) {
     // A retry (timeout, lost response, double click) must return the order the
     // first attempt created instead of creating another one. The pre-check
     // also covers the common replay before touching the customer table.
@@ -327,22 +328,34 @@ export class OrdersService {
 
     // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
     // the new order from prior history; stored on the order, never recomputed.
-    const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
+    let classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
     const runCheckoutTransaction = () =>
       this.prisma.$transaction(async (tx) => {
-    // Claim the checkout draft first: two operators converting the same draft
-    // must not produce two orders, and a failure below rolls the claim back.
-    if (options?.checkoutDraftId) {
-      const claimed = await tx.checkoutDraft.updateMany({
-        where: { id: options.checkoutDraftId, status: 'OPEN' },
-        data: { status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY', lastContactedAt: new Date() },
-      });
-      if (claimed.count === 0) {
-        throw new ConflictException({
-          statusCode: 409,
-          message: 'This checkout draft was already converted or expired.',
-        });
+    const token = tryHashCheckoutDraftToken(input.checkoutDraftToken, new Date());
+    const draftHash = manualDraft?.tokenHash ?? token?.hash;
+    let draftStartedAt = token?.issuedAt ?? null;
+    if (draftHash) {
+      // One lock for both operator and shopper conversions, even before a first
+      // autosave has created the row. The row lock also serializes autosaves.
+      // executeRaw ignores the void result, which adapter-pg cannot decode.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${draftHash}, 0))`;
+      await tx.$queryRaw`SELECT id FROM checkout_drafts WHERE token_hash = ${draftHash} FOR UPDATE`;
+      const locked = await tx.checkoutDraft.findUnique({ where: { tokenHash: draftHash } });
+      if (locked?.status === 'CONVERTED') {
+        // A same-key retry may have passed the precheck before the winner
+        // committed. Replay under the lock; other shoppers/operators conflict.
+        if (!manualDraft && input.idempotencyKey && idempotencyHash) {
+          const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash, tx);
+          if (replay) return { replay } as const;
+        }
+        throw new ConflictException('DRAFT_ALREADY_CONVERTED: reload the draft to open its order');
+      }
+      draftStartedAt = locked?.createdAt ?? draftStartedAt;
+      if (manualDraft) {
+        if (!locked || locked.id !== manualDraft.id) throw new NotFoundException('Checkout draft not found');
+        if (locked.status !== 'OPEN' || locked.expiresAt <= new Date()) throw new ConflictException('This checkout draft has expired');
+        if (locked.clientRevision !== manualDraft.revision) throw new ConflictException('DRAFT_CHANGED: reload the latest draft before converting');
       }
     }
     // Resolve customer by canonical phone (§9: phone is the identity key)
@@ -577,9 +590,24 @@ export class OrdersService {
         const discount = promo ? computeDiscount(promo.rule, subtotal) : 0;
         const grandTotal = subtotal - discount + shippingTotal;
 
+        if (manualDraft) {
+          // Customer upsert above holds the customer row while this decision is
+          // made, so two operators cannot both act on an old risk preview.
+          classification = await this.customerRisk.classifyForNewOrder(normalizedPhone, [], { tx });
+          const risk = await this.draftOrderRisk(normalizedPhone, lines.map(l => l.skuId), lines.map(l => l.productId), classification, tx);
+          if (risk.requiresReview && !manualDraft.riskReviewed) {
+            throw new ConflictException('DRAFT_RISK_REVIEW_REQUIRED: contact/review this customer before confirming conversion');
+          }
+        }
         const created = await tx.order.create({
         data: {
           orderNumber,
+          ...(draftStartedAt ? { draftStartedAt, workbenchStartedAt: draftStartedAt } : {}),
+          ...(manualDraft ? {
+            orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED',
+            confirmedBy: manualDraft.operatorId, confirmedAt: new Date(),
+            confirmationNote: 'Manual checkout draft conversion; customer risk reviewed by operator',
+          } : {}),
           customerId: customer.id,
           customerClassification: classification.classification,
           optimizerId: touch?.ownerUserId ?? null,
@@ -709,18 +737,43 @@ export class OrdersService {
         },
       });
 
-      await persistConvertedDraft(tx, {
-        rawToken: input.checkoutDraftToken,
-        orderId: created.id,
-        customerName: input.customer.name,
-        customerPhone: input.customer.phone,
-      });
-
-      if (options?.checkoutDraftId) {
+      if (manualDraft) {
         await tx.checkoutDraft.update({
-          where: { id: options.checkoutDraftId },
-          data: { orderId: created.id },
+          where: { id: manualDraft.id },
+          data: {
+            status: 'CONVERTED', orderId: created.id, hasUserInput: true,
+            contactName: input.customer.name, contactPhone: input.customer.phone,
+            // Preserve the live follow-up contract: a converted draft closed
+            // as "wants to buy" and counts as contacted now. The operator's
+            // note and owner stay untouched.
+            followUpStatus: 'WANTS_TO_BUY', lastContactedAt: new Date(),
+            expiresAt: new Date(draftStartedAt!.getTime() + CHECKOUT_DRAFT_MAX_AGE_MS),
+          },
         });
+        await this.customerRisk.logRisk({ customerId: customer.id, orderId: created.id, riskType: classification.classification, previousOrderId: classification.previousOrderId, reason: classification.reason, operatorId: manualDraft.operatorId }, { tx });
+        await this.customerRisk.markDuplicates(normalizedPhone, { tx });
+        await tx.customerNote.create({ data: { customerId: customer.id, orderId: created.id, operatorId: manualDraft.operatorId, note: 'Manual checkout draft conversion: CONFIRM; risk reviewed by operator' } });
+        await tx.orderStatusHistory.create({ data: {
+          orderId: created.id, statusDomain: 'ORDER_STATUS', oldStatus: 'NEW', newStatus: 'CONFIRMED',
+          source: 'ADMIN', operatorId: manualDraft.operatorId,
+          comment: 'Converted from checkout draft; operator confirmed',
+        } });
+        await tx.orderStatusHistory.create({ data: { orderId: created.id, statusDomain: 'CONFIRMATION_STATUS', oldStatus: 'UNCONFIRMED', newStatus: 'CONFIRMED', source: 'ADMIN', operatorId: manualDraft.operatorId } });
+        await this.qianyi?.enqueue(tx, 'PUSH_ORDER', created.id);
+      } else {
+        await persistConvertedDraft(tx, {
+          rawToken: input.checkoutDraftToken,
+          orderId: created.id,
+          customerName: input.customer.name,
+          customerPhone: input.customer.phone,
+        });
+      }
+      if (draftStartedAt) {
+        await tx.orderStatusHistory.create({ data: {
+          orderId: created.id, statusDomain: 'CHECKOUT_DRAFT', oldStatus: 'OPEN', newStatus: 'CONVERTED',
+          source: manualDraft ? 'ADMIN' : 'STOREFRONT', operatorId: manualDraft?.operatorId ?? null,
+          comment: `Draft started ${draftStartedAt.toISOString()}; converted to order`,
+        } });
       }
 
       return {
@@ -753,13 +806,16 @@ export class OrdersService {
         throw error;
       },
     );
-    if ('replay' in transactionOutcome) return transactionOutcome.replay;
+    if ('replay' in transactionOutcome) return transactionOutcome.replay!;
     const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
 
     if (offerAvailabilityChanged) {
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
     }
 
+    if (manualDraft) {
+      return { orderNumber, orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED', riskType: null, requiresReview: false, grandTotal: amount };
+    }
     // Risk records (§10): the classification decision is logged. RPT/RECHECK
     // flip the confirmation status so the admin workbench review queue sees
     // them (CUSTOMER_RISK_SPEC §17 manual confirmation).
@@ -814,9 +870,121 @@ export class OrdersService {
     };
   }
 
+  private async draftOrderRisk(
+    phone: string, skuIds: string[], productIds: string[],
+    classification: { classification: CustomerClassification; reason: string; previousOrderId: string | null },
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const orders = await db.order.findMany({
+      where: { customer: { normalizedPhone: phone }, OR: [
+        { riskFlags: { some: { resolved: false } } },
+        { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) }, items: { some: { OR: [
+          { skuId: { in: skuIds } }, { productId: { in: productIds } },
+        ] } } },
+      ] },
+      select: { id: true, orderNumber: true, riskFlags: { where: { resolved: false }, select: { flagType: true, reason: true } } },
+    });
+    return { ...classification, orders, requiresReview: ['RPT', 'RECHECK'].includes(classification.classification) || orders.length > 0 };
+  }
+
+  async checkoutDraftRisk(draftId: string, editedPhone?: string) {
+    const draft = await this.prisma.checkoutDraft.findUnique({ where: { id: draftId } });
+    if (!draft) throw new NotFoundException('Checkout draft not found');
+    const snapshot = draft.snapshot as Partial<CheckoutDraftSnapshot>;
+    const phone = normalizePhilippinePhone(editedPhone ?? snapshot?.customer?.phone ?? '');
+    if (!phone) return { validPhone: false, requiresReview: false, classification: null, reason: null, orders: [] };
+    const skuIds = (snapshot.items ?? []).map(item => item.skuId);
+    const skus = await this.prisma.sku.findMany({ where: { id: { in: skuIds } }, select: { variant: { select: { productId: true } } } });
+    return { validPhone: true, ...await this.draftOrderRisk(phone, skuIds, skus.map(sku => sku.variant.productId), await this.customerRisk.classifyForNewOrder(phone)) };
+  }
+
+  /** Manual conversion reuses checkout's pricing and reservation transaction. */
+  async convertDraftToOrder(
+    draftId: string,
+    operatorId: string,
+    options: {
+      expectedRevision?: number;
+      riskReviewed?: boolean;
+      customer?: CheckoutInput['customer'];
+      preferredDeliveryDate?: string | null;
+      customerNote?: string | null;
+    } = {},
+  ) {
+    const draft = await this.prisma.checkoutDraft.findUnique({ where: { id: draftId } });
+    if (!draft) throw new NotFoundException('Checkout draft not found');
+    if (draft.status !== 'OPEN') {
+      throw new ConflictException('This checkout draft was already converted or expired');
+    }
+    if (draft.expiresAt <= new Date()) throw new ConflictException('This checkout draft has expired');
+
+    const snapshot = (draft.snapshot ?? {}) as Partial<CheckoutDraftSnapshot>;
+    const customer = options.customer ?? snapshot.customer;
+    const missing = (value: unknown) => !value || String(value).trim() === '';
+    if (
+      !customer ||
+      missing(customer.name) ||
+      missing(customer.phone) ||
+      missing(customer.province) ||
+      missing(customer.city) ||
+      missing(customer.streetAddress)
+    ) {
+      throw new BadRequestException(
+        'DRAFT_INCOMPLETE: a name, phone, province, city and street address are required',
+      );
+    }
+    const items = (snapshot.items ?? []).filter(
+      (item) => item && item.skuId && Number.isInteger(item.quantity) && item.quantity > 0,
+    );
+    if (items.length === 0) {
+      throw new BadRequestException('DRAFT_INCOMPLETE: the draft has no items to order');
+    }
+
+    // No request metadata: an operator conversion must never reach Meta as a
+    // shopper Purchase, and has no attribution of its own.
+    const raw = {
+      customer: {
+        name: customer.name,
+        phone: customer.phone,
+        province: customer.province,
+        city: customer.city,
+        barangay: customer.barangay || null,
+        postalCode: customer.postalCode || null,
+        streetAddress: customer.streetAddress,
+        landmark: customer.landmark || null,
+      },
+      items: items.map((item) => ({ skuId: item.skuId, quantity: item.quantity })),
+      attribution: { sourceType: 'OTHER' as const },
+      customerNote: options.customerNote !== undefined ? options.customerNote : snapshot.customerNote || null,
+      preferredDeliveryDate: options.preferredDeliveryDate !== undefined ? options.preferredDeliveryDate : snapshot.preferredDeliveryDate ?? null,
+      // Only a code the shopper actually applied; raw typing is not a discount.
+      promoCode: snapshot.promoCodeApplied ?? null,
+      metaConsent: false,
+    };
+    const usable = checkoutSchema.safeParse(raw);
+    if (!usable.success) {
+      throw new BadRequestException(
+        `DRAFT_INVALID: ${usable.error.issues.map((issue) => issue.path.join('.')).join(', ')}`,
+      );
+    }
+
+    const result = await this.checkout(usable.data, undefined, {
+      id: draft.id,
+      tokenHash: draft.tokenHash,
+      revision: options.expectedRevision ?? draft.clientRevision,
+      operatorId,
+      riskReviewed: options.riskReviewed === true,
+    });
+    const created = await this.prisma.order.findUnique({
+      where: { orderNumber: result.orderNumber },
+      select: { id: true },
+    });
+    if (!created) throw new NotFoundException('The order could not be read back');
+    return this.get(created.id);
+  }
+
   /** Replays a checkout retry, or rejects a key reused with other details. */
-  private async findIdempotentOrder(key: string, fingerprint: string) {
-    const existing = await this.prisma.order.findUnique({
+  private async findIdempotentOrder(key: string, fingerprint: string, db: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const existing = await db.order.findUnique({
       where: { idempotencyKey: key },
       select: {
         orderNumber: true,
@@ -854,11 +1022,32 @@ export class OrdersService {
     );
   }
 
+  /** Each row retains its own transaction and state-machine guards. */
+  async bulkOrders(input: BulkOrdersInput, operatorId: string) {
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const id of input.ids) {
+      try {
+        switch (input.action) {
+          // No review decision; also re-evaluate history at confirmation time.
+          case 'confirm': await this.confirm(id, operatorId, undefined, { checkCurrentRisk: true }); break;
+          case 'cancel': await this.cancel(id, operatorId); break;
+          case 'assign': await this.assign(id, input.assignedToId, operatorId); break;
+          case 'status': await this.updateStatus(id, input.status, input.comment, operatorId); break;
+        }
+        results.push({ id, ok: true });
+      } catch (error) {
+        results.push({ id, ok: false, error: error instanceof Error ? error.message : 'Request failed' });
+      }
+    }
+    return { results };
+  }
+
   /** §22.1 confirm: only while still unconfirmed and not cancelled. */
   async confirm(
     orderId: string,
     operatorId: string,
     decision?: { decision: 'CONFIRM' | 'CANCEL' | 'REQUEST_INFO'; note?: string },
+    options: { checkCurrentRisk?: boolean } = {},
   ) {
     const { updated, promoReleased, backInStockClaims } = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
@@ -875,6 +1064,20 @@ export class OrdersService {
       }
       if (order.orderStatus === 'SHIPPING' || order.orderStatus === 'SIGNED') {
         throw new BadRequestException('Shipped orders cannot be confirmed');
+      }
+
+      if (options.checkCurrentRisk) {
+        // Serialize bulk confirmations for one customer, so the next row sees
+        // the preceding confirmation. The stored entry classification stays.
+        await tx.$queryRaw`SELECT id FROM customers WHERE id = ${order.customerId}::uuid FOR UPDATE`;
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId }, select: { normalizedPhone: true },
+        });
+        if (!customer) throw new NotFoundException('Customer not found');
+        const live = await this.customerRisk.classifyForNewOrder(customer.normalizedPhone, [orderId], { tx });
+        if (live.classification === 'RPT' || live.classification === 'RECHECK') {
+          throw new BadRequestException(`LIVE_RISK_REVIEW_REQUIRED: ${live.classification}; ${live.reason}`);
+        }
       }
 
       // CUSTOMER_RISK_SPEC §17 gate: RPT/RECHECK orders need a manual customer
@@ -1967,11 +2170,25 @@ export class OrdersService {
       where.riskFlags = { some: { flagType: query.risk, resolved: false } };
     }
     if (query.search) {
-      where.OR = [
-        { orderNumber: { contains: query.search, mode: 'insensitive' } },
-        { customer: { name: { contains: query.search, mode: 'insensitive' } } },
-        { customer: { normalizedPhone: { contains: query.search, mode: 'insensitive' } } },
+      const search = query.search;
+      const or: Prisma.OrderWhereInput[] = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { normalizedPhone: { contains: search, mode: 'insensitive' } } },
       ];
+      // The customer table is canonical (+63…), the operator types the local
+      // form (09…): match the canonical prefix of whatever was typed, so a
+      // number the customer wrote down still finds its orders.
+      for (const fragment of phoneSearchFragments(search)) {
+        or.push({ customer: { normalizedPhone: { contains: fragment, mode: 'insensitive' } } });
+        or.push({ shippingAddress: { phone: { contains: fragment } } });
+      }
+      if (phoneSearchFragments(search).length > 0) {
+        const digits = search.replace(/\D/g, '');
+        or.push({ customer: { normalizedPhone: { contains: digits } } });
+        or.push({ shippingAddress: { phone: { contains: digits } } });
+      }
+      where.OR = or;
     }
     if (query.dateFrom || query.dateTo) {
       // From/To are Manila calendar days — the day the operator lives in — and
@@ -1983,10 +2200,19 @@ export class OrdersService {
         lt: query.dateTo ? manilaDayEndExclusive(query.dateTo) : undefined,
       };
     }
-    // The customer phone is an exact match: the customer history opens with
-    // it and a partial number would mix two customers.
+    // Full numbers still identify exactly one customer (history drill-down).
+    // Incomplete digits are a workbench search, not proof of identity.
     if (query.phone) {
-      where.customer = { normalizedPhone: query.phone };
+      const exact = normalizePhilippinePhone(query.phone);
+      if (exact) where.customer = { normalizedPhone: exact };
+      else {
+        const fragments = phoneSearchFragments(query.phone);
+        const digits = query.phone.replace(/\D/g, '');
+        where.AND = [{ OR: fragments.length ? [...new Set([...fragments, digits])].flatMap(fragment => [
+          { customer: { normalizedPhone: { contains: fragment } } },
+          { shippingAddress: { phone: { contains: fragment } } },
+        ]) : [{ id: { in: [] } }] }];
+      }
     }
     // The product filter looks at the SKU snapshot of the order lines.
     if (query.sku) {
@@ -2127,12 +2353,13 @@ export class OrdersService {
       ? { AND: [base, this.queueWhere(query.queue, currentUserId ?? query.assignedTo)] }
       : base;
 
-    const orderBy =
-      query.sort === 'newest'
-        ? { createdAt: 'desc' as const }
-        : query.sort === 'verify'
-          ? { verificationAssignments: { _count: 'asc' as const } }
-          : { createdAt: 'asc' as const };
+    // The indexed clock is draftStartedAt ?? createdAt. Sort in the database,
+    // including a deterministic tie-breaker, before applying skip/take.
+    const direction = query.sort === 'newest' ? 'desc' as const : 'asc' as const;
+    const orderBy: Prisma.OrderOrderByWithRelationInput | Prisma.OrderOrderByWithRelationInput[] =
+      query.sort === 'verify'
+        ? { verificationAssignments: { _count: 'asc' } }
+        : [{ workbenchStartedAt: direction }, { id: direction }];
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({

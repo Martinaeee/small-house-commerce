@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AdminOrderListRow } from "@/lib/admin-api";
-import { buildPackingSlipHtml } from "./packing-slip";
+import { buildPackingSlipHtml, buildPackingSlipsHtml } from "./packing-slip";
 
 const row = {
   orderNumber: "PH100027",
@@ -28,6 +28,16 @@ const row = {
 } as unknown as AdminOrderListRow;
 
 describe("the local packing slip", () => {
+  it("prints all selected orders in one document, one slip per page", () => {
+    const html = buildPackingSlipsHtml([row, { ...row, orderNumber: "PH100028" }]);
+    expect(html.match(/<!doctype html>/g)).toHaveLength(1);
+    expect(html.match(/class="packing-slip"/g)).toHaveLength(2);
+    expect(html).toContain("PH100027");
+    expect(html).toContain("PH100028");
+    expect(html).toContain("break-after: page");
+    expect(html).not.toContain("Marisol <Reyes>");
+  });
+
   it("contains the real lines and quantities, not prices or carrier fields", () => {
     const html = buildPackingSlipHtml(row);
     expect(html).toContain("PH100027");

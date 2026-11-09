@@ -8,6 +8,7 @@ const listAssignees = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "draft-1" }),
+  useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("@/lib/admin-api", () => ({
   adminApi: {

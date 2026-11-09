@@ -201,6 +201,13 @@ model Order {
   assignedAt             DateTime?          @map("assigned_at") @db.Timestamptz(3)
   createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Start of the checkout draft (shopper or operator conversion). The
+  /// workbench displays it without backdating actual order creation or
+  /// analytics. Persisted here so it survives draft retention cleanup.
+  draftStartedAt         DateTime?          @map("draft_started_at") @db.Timestamptz(3)
+  /// Effective queue clock: draftStartedAt for conversions, otherwise the
+  /// same database timestamp as createdAt. Materialized for indexed paging.
+  workbenchStartedAt     DateTime           @default(now()) @map("workbench_started_at") @db.Timestamptz(3)
   preferredDeliveryDate  DateTime?          @map("preferred_delivery_date") @db.Date
   customerNote           String?            @map("customer_note")
   promoCode              String?            @map("promo_code")
@@ -251,6 +258,7 @@ model Order {
   @@index([paymentStatus])
   @@index([assignedToId])
   @@index([createdAt])
+  @@index([workbenchStartedAt, id])
   @@index([trackingSessionId])
   @@index([nextFollowUpAt])
   @@index([orderStatus, handoverCompletedAt])

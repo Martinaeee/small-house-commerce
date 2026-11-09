@@ -6,6 +6,7 @@ import type { AdminOrderListRow } from "@/lib/admin-api";
 import AdminOrdersPage from "./page";
 
 const api = vi.hoisted(() => ({
+  bulkOrders: vi.fn(),
   listOrders: vi.fn(),
   orderCounts: vi.fn(),
   listAssignees: vi.fn(),
@@ -112,6 +113,8 @@ function renderPage() {
 
 beforeEach(() => {
   cleanup();
+  window.localStorage.removeItem("luwag_orders_columns_v1");
+  window.localStorage.removeItem("luwag_orders_views_v1");
   setAdminLang("en");
   navigation.query = "";
   perms.denied.clear();
@@ -166,7 +169,39 @@ beforeEach(() => {
   api.orderVerification.mockResolvedValue({ assignment: null, items: [], events: [] });
 });
 
+describe("current-page bulk selection", () => {
+  it("selects only visible rows and clears selection after changing page", async () => {
+    api.listOrders.mockResolvedValue({ items: [row(), row({ id: "order-2", orderNumber: "PH100005" })], total: 25, page: 1, pageSize: 20 });
+    const view = renderPage();
+    await screen.findByText("PH100004");
+    await userEvent.click(screen.getByLabelText("Select all orders on this page"));
+    expect(screen.getByText("2 selected (this page)")).toBeInTheDocument();
+    expect(api.bulkOrders).not.toHaveBeenCalled();
+    navigation.query = "page=2";
+    view.rerender(<AdminI18nProvider><AdminOrdersPage /></AdminI18nProvider>);
+    await waitFor(() => expect(screen.queryByText("2 selected (this page)")).not.toBeInTheDocument());
+  });
+
+  it("keeps a partial selection marked and clears it when filters change", async () => {
+    api.listOrders.mockResolvedValue({ items: [row(), row({ id: "order-2", orderNumber: "PH100005" })], total: 2, page: 1, pageSize: 20 });
+    const view = renderPage();
+    await screen.findByText("PH100004");
+    await userEvent.click(screen.getByLabelText("Select order PH100004"));
+    expect(screen.getByLabelText("Select all orders on this page")).toBePartiallyChecked();
+    navigation.query = "phone=0917";
+    view.rerender(<AdminI18nProvider><AdminOrdersPage /></AdminI18nProvider>);
+    await waitFor(() => expect(screen.queryByText("1 selected (this page)")).not.toBeInTheDocument());
+  });
+});
+
 describe("the order workbench list", () => {
+  it("marks draft conversions and displays the draft start in the list time cell", async () => {
+    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z" })], total: 1, page: 1, pageSize: 20 });
+    renderPage();
+    expect(await screen.findByText("Converted from draft")).toBeInTheDocument();
+    const time = document.querySelector('time[datetime="2026-10-20T11:00:00Z"]');
+    expect(time).not.toBeNull();
+  });
   it("shows the wide ERP table with the real fields", async () => {
     renderPage();
 
