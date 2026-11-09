@@ -2,7 +2,7 @@
 
 更新：2026-11-09。面向后续维护与发布人员。
 
-**状态：已部署生产（2026-11-09）。发布分支 `release/orders-workbench-20261109` 提交 `3255c951` 已推送到 GitHub；生产分支 `staging/luwag-shop-domain` 由 `4bf25f8b` 快进到该提交，生产数据库迁移已执行并完成只读验收。**
+**状态：已部署生产（2026-11-09）。发布分支 `release/orders-workbench-20261109` 提交 `3255c951` 已推送到 GitHub；生产分支 `staging/luwag-shop-domain` 由 `4bf25f8b` 快进到该提交，生产数据库迁移已执行并完成只读验收。同日追加 `f2704965`，把「草稿订单转订单」徽标限定为人工转单，并执行 additive 迁移 `20261109120000`。**
 
 开发基线 `60178e5b`；发布时线上 HEAD 已是 `4bf25f8b`（含此前 AID 归因与草稿客服跟进），本轮是在该线上版本上整合增量后重新验证、构建与发布。生产只执行 additive 迁移与时间字段回填，没有创建或修改任何真实订单。
 
@@ -137,6 +137,15 @@ Docker daemon 不可用后，在 `/tmp/order-workbench-pg.aBZ6Xr` 下载独立 P
 
 验证用的容器内令牌文件与脚本已删除；未执行任何写订单操作、未触发外部 ERP 投递、未重跑 seed。首次备份尝试因命令转义失败留下了一份不完整的 `orders-workbench-20261109T034509Z` 目录与同镜像 ID 的重复回滚标签；权威备份是上表的 `T034523Z`。
 
+### 追加上线：仅人工转单标注（2026-11-09）
+
+用户要求「草稿订单转订单」标记只用于客服手动转单；顾客自己在结账时完成的草稿不标注。
+
+- 提交 `f2704965`（8 files，+33/−4），迁移 `20261109120000_add_order_draft_manual_flag`：新增 `orders.draft_converted_manually BOOLEAN NOT NULL DEFAULT false`（additive，历史行默认 false，无需回填）。人工转换事务内写 `true`；shopper 结账路径不写该字段（保持 false）。
+- 列表徽标条件由 `draftStartedAt` 改为 `draftConvertedManually`；草稿起始时间仍按 `draftStartedAt` 展示与排序，两类转单的真实流程时间不变。
+- 本地验证：后端转换单测 14/14、真实 PostgreSQL 集成 10/10（含人工 `true`、shopper `false` 断言）、后端全量 201 files / 2668 passed / 265 skipped、后端 lint/build exit 0；前端 338 files / 3763 passed、tsc/build exit 0、lint 仍为 5 errors / 19 warnings（全部既有）。
+- 生产验证：备份 `/home/ubuntu/deploy-backups/orders-workbench-badge-20261109T041016Z/`；回滚标签 `rollback-pre-badge-20261109T041016Z`（backend `93123a83` / frontend `c16fa427`，即上一发布镜像）；新镜像 backend `d30f6513fb59` / frontend `f5cca350b2d8`；迁移于 `04:12:23 UTC` 应用；`orders` 17 行、有 `draft_started_at` 的 17 单全部 `draft_converted_manually=false`（true=0，符合线上此前均为顾客自行结账）；后台列表只读 API 返回该字段正确；HTTP 200；后端/前端日志 0 error；部署后新增订单 0。
+
 ## 裁决（按作出顺序）
 
 - Ruling: 订单真实 `createdAt` 不回填；列表显示时间使用 `draftStartedAt ?? createdAt` — 避免收入/漏斗被算到草稿日期 — 代价：列表展示日期与正式订单统计日期语义不同，详情明确区分。
@@ -152,6 +161,7 @@ Docker daemon 不可用后，在 `/tmp/order-workbench-pg.aBZ6Xr` 下载独立 P
 
 - 已按用户「部署上线吧」完成生产发布与迁移。发布前核对线上 HEAD/迁移：开发基线 `60178e5b` 不含线上 `4bf25f8b` 的 AID 归因与草稿客服跟进，本轮是在线上版本上整合增量后重新验证、构建和发布。
 - 应用回滚：以 `rollback-pre-orders-workbench-20261109T034523Z` 镜像标签重启 backend/frontend，或把 `staging/luwag-shop-domain` 退回 `4bf25f8b` 后重建镜像。
+- 追加上线（仅人工标注）的回滚镜像为 `rollback-pre-badge-20261109T041016Z`；迁移 `20261109120000` 同为 additive，回滚应用不需要删列。
 - 两字段与复合索引是 additive；旧应用可以在新结构上运行。**不要把删除列/索引当作自动回滚步骤**。
 - 已转换/已确认订单、库存预留、ERP outbox 与跟进记录是业务事实，不能靠回滚镜像撤销，需要单独业务处置。
 - 数据库快照是迁移前的 `db.sql.gz`；整库恢复会丢失部署后的线上新数据，只能在明确确认后执行，本轮未演练。
