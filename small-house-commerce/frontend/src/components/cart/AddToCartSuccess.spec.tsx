@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Product } from "@/lib/api";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import { CartProvider, useCart } from "./CartContext";
 import { CartDrawer } from "./CartDrawer";
 
@@ -146,6 +147,74 @@ beforeEach(() => {
   vi.clearAllMocks();
   apiMock.getCart.mockResolvedValue(null);
   apiMock.addToCart.mockResolvedValue(cartSummary);
+});
+
+describe("CartDrawer mobile added sheet", () => {
+  it("presents the confirmation as a bottom sheet with a drag handle on phones", async () => {
+    const restore = installDesktopViewport(false);
+    apiMock.getCollectionProducts.mockResolvedValue({ items: [buildProduct()] });
+    apiMock.getProducts.mockResolvedValue({ items: [] });
+    const user = userEvent.setup();
+    renderDrawer(<AddTrigger />);
+
+    await user.click(screen.getByRole("button", { name: "add to cart" }));
+    await screen.findByRole("heading", { name: "Added to cart" });
+
+    const sheet = screen.getByTestId("cart-added-sheet");
+    expect(within(sheet).getByRole("heading", { name: "Added to cart" })).toBeVisible();
+    const grabber = within(sheet).getByTestId("cart-added-grabber");
+    expect(grabber).toHaveAttribute("aria-expanded", "false");
+
+    // Dragging the handle upward lets the shopper pull the sheet to fill the
+    // page (to read the recommendations); dragging down puts it back.
+    fireEvent.pointerDown(grabber, { pointerId: 1, clientX: 30, clientY: 100 });
+    fireEvent.pointerMove(grabber, { pointerId: 1, clientX: 30, clientY: 20 });
+    fireEvent.pointerUp(grabber, { pointerId: 1, clientX: 30, clientY: 20 });
+    expect(grabber).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Added to cart" })).not.toBeInTheDocument());
+    restore(false);
+  });
+
+  it("keeps the drag at rest and closes from the corner button", async () => {
+    const restore = installDesktopViewport(false);
+    apiMock.getCollectionProducts.mockResolvedValue({ items: [buildProduct()] });
+    apiMock.getProducts.mockResolvedValue({ items: [] });
+    const user = userEvent.setup();
+    renderDrawer(<AddTrigger />);
+
+    await user.click(screen.getByRole("button", { name: "add to cart" }));
+    await screen.findByRole("heading", { name: "Added to cart" });
+    const grabber = screen.getByTestId("cart-added-grabber");
+
+    // Small drags under the snap threshold never expand the sheet.
+    fireEvent.pointerDown(grabber, { pointerId: 1, clientX: 30, clientY: 100 });
+    fireEvent.pointerMove(grabber, { pointerId: 1, clientX: 30, clientY: 80 });
+    fireEvent.pointerUp(grabber, { pointerId: 1, clientX: 30, clientY: 80 });
+    expect(grabber).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(within(screen.getByTestId("cart-added-sheet")).getByRole("button", { name: "Close cart" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Added to cart" })).not.toBeInTheDocument());
+    restore(false);
+  });
+
+  it("keeps the right-hand desktop panel without a grabber", async () => {
+    const restore = installDesktopViewport(true);
+    apiMock.getCollectionProducts.mockResolvedValue({ items: [buildProduct()] });
+    apiMock.getProducts.mockResolvedValue({ items: [] });
+    const user = userEvent.setup();
+    renderDrawer(<AddTrigger />);
+
+    await user.click(screen.getByRole("button", { name: "add to cart" }));
+    await screen.findByRole("heading", { name: "Added to cart" });
+
+    expect(screen.queryByTestId("cart-added-sheet")).toBeNull();
+    expect(screen.queryByTestId("cart-added-grabber")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Continue shopping" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Added to cart" })).not.toBeInTheDocument());
+    restore(false);
+  });
 });
 
 describe("CartDrawer added view", () => {

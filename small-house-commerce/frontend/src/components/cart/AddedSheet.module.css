@@ -1,0 +1,48 @@
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90dvh;
+  overflow: hidden;
+  border-radius: 19px 19px 0 0;
+  background: var(--color-card);
+  box-shadow: 0 8px 30px #0002;
+  transition: max-height 260ms cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+.sheet[data-expanded="true"] {
+  max-height: 100dvh;
+  height: 100dvh;
+}
+
+.grabber {
+  position: relative;
+  display: flex;
+  height: 34px;
+  width: 100%;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.handle {
+  height: 5px;
+  width: 40px;
+  border-radius: 9999px;
+  background: var(--color-ink-muted);
+  opacity: 0.45;
+}
+
+.grabber:focus-visible {
+  outline: 2px solid var(--color-cta);
+  outline-offset: -4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    transition: none;
+  }
+}
