@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CartItem, Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
+import { ApiTimeoutError } from "@/lib/api";
+import {
+  ATTEMPT_POLL_INTERVAL_MS,
+  PLACE_ORDER_RECOVERY_WINDOW_MS,
+} from "@/lib/checkout-submission";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
 import { DEFAULT_SITE_SETTINGS } from "@/lib/site-settings";
 
@@ -18,6 +23,7 @@ import { DEFAULT_SITE_SETTINGS } from "@/lib/site-settings";
 const apiMock = vi.hoisted(() => ({
   getProductBySlug: vi.fn(),
   createOrder: vi.fn(),
+  checkoutAttemptStatus: vi.fn(),
   previewPromoCode: vi.fn(),
 }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual("@/lib/api"), api: apiMock }));
@@ -36,6 +42,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
 const draftMock = vi.hoisted(() => ({
   readCheckoutDraft: vi.fn(),
   clearCheckoutDraft: vi.fn(),
+  checkoutDraftStorageBlocked: vi.fn(() => false),
 }));
 vi.mock("@/lib/checkoutDraft", () => draftMock);
 
@@ -173,6 +180,7 @@ beforeEach(() => {
     removeItems: vi.fn().mockResolvedValue(undefined),
   });
   draftMock.readCheckoutDraft.mockReturnValue(validDraft);
+  apiMock.checkoutAttemptStatus.mockResolvedValue({ state: "PENDING" });
   sessionStorage.clear();
   localStorage.clear();
 });
@@ -180,7 +188,15 @@ beforeEach(() => {
 describe("CheckoutConfirmView order notes", () => {
   it("records a failed submit with the actual key and customer snapshot", async () => {
     apiMock.getProductBySlug.mockResolvedValue(product);
-    apiMock.createOrder.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    // A 4xx answer proves the backend created nothing for this attempt; only
+    // that outcome is reported as a failure (a timeout or offline error now
+    // stays unknown and goes through result recovery instead).
+    apiMock.createOrder.mockRejectedValueOnce(
+      Object.assign(new Error("Insufficient stock"), {
+        status: 422,
+        code: "INSUFFICIENT_STOCK",
+      }),
+    );
     render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
     await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
     await waitFor(() => expect(eventsMock.recordSubmitFailure).toHaveBeenCalled());
@@ -454,7 +470,7 @@ describe("CheckoutConfirmView", () => {
     expect(screen.queryByTestId("confirm-place-order")).toBeNull();
   });
 
-  it("keeps the submitting view while successful cart cleanup empties the selection", async () => {
+  it("navigates to success while the cart cleanup is still pending", async () => {
     let finishCleanup!: () => void;
     const cleanupPending = new Promise<void>((resolve) => {
       finishCleanup = resolve;
@@ -472,9 +488,9 @@ describe("CheckoutConfirmView", () => {
     await waitFor(() => expect(removeItems).toHaveBeenCalled());
     expect(sessionStorage.getItem("luwag_support_order_completed")).toBe("1");
 
-    // Cart cleanup reloads the now-empty cart before its promise resolves. The
-    // accepted order must remain in its submitting state until navigation,
-    // rather than briefly turning into the unavailable-selection error page.
+    // F02: the order exists; the success page must not wait on a slow or hung
+    // cart cleanup. Cleanup may then empty the selection in the background.
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
     useCartMock.mockReturnValue({
       cart: { items: [] },
       loading: false,
@@ -482,12 +498,73 @@ describe("CheckoutConfirmView", () => {
     });
     view.rerender(<CheckoutConfirmView itemsParam="item-1" />);
 
-    expect(screen.getByText("Confirm your order")).toBeInTheDocument();
-    expect(screen.queryByText("We couldn't confirm this order.")).not.toBeInTheDocument();
-    expect(screen.getByTestId("confirm-place-order")).toHaveTextContent("Placing order…");
-
     finishCleanup();
+  });
+
+  it("retries a failed cart cleanup without creating a second order", async () => {
+    const removeItems = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Cart cleanup failed"))
+      .mockResolvedValue(undefined);
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems,
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
     await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    await waitFor(() => expect(removeItems).toHaveBeenCalledTimes(2));
+    expect(apiMock.createOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying after a bounded number of attempts and keeps the order", async () => {
+    const removeItems = vi.fn().mockRejectedValue(new Error("Cart cleanup failed"));
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems,
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    await waitFor(() => expect(removeItems).toHaveBeenCalledTimes(3));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(apiMock.createOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-opens the placed order instead of submitting again when the shopper returns to the same confirmation", async () => {
+    // Cleanup keeps failing, so the cart still holds the item and the shopper
+    // can navigate back to the same confirmation URL. That must never create
+    // a second order: the completed-attempt marker redirects to the receipt.
+    const removeItems = vi.fn().mockRejectedValue(new Error("Cart cleanup failed"));
+    useCartMock.mockReturnValue({
+      cart: { items: [item()] },
+      loading: false,
+      removeItems,
+    });
+    apiMock.createOrder.mockResolvedValue({ orderNumber: "PH2001", grandTotal: 100 });
+    const first = render(<CheckoutConfirmView itemsParam="item-1" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH2001"));
+    // Cleanup exhausts its retries and leaves the cart intact: the marker
+    // stays, because this URL still describes a resubmittable purchase.
+    await waitFor(() => expect(removeItems).toHaveBeenCalledTimes(3));
+    first.unmount();
+
+    render(<CheckoutConfirmView itemsParam="item-1" />);
+    await userEvent.setup().click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(routerMock.replace).toHaveBeenCalledWith("/order-success/PH2001"),
+    );
+    expect(apiMock.createOrder).toHaveBeenCalledTimes(1);
   });
 
   it("navigates to success when cart cleanup fails after order creation", async () => {
@@ -739,5 +816,147 @@ describe("CheckoutConfirmView summary details", () => {
     expect(screen.getByTestId("newsletter-offer-prompt")).toHaveTextContent(
       "₱99",
     );
+  });
+});
+
+/**
+ * F04: a lost or late order response must never be reported as "order
+ * failed". The page keeps one durable attempt (key + payload) and asks the
+ * backend whether that attempt produced an order before it lets the shopper
+ * do anything else.
+ */
+describe("CheckoutConfirmView result recovery", () => {
+  const SCOPE = "/checkout?skuId=sku-red-small&slug=chair";
+  const KEY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+  function seedSubmission(overrides: Record<string, unknown> = {}) {
+    sessionStorage.setItem(
+      "luwag_checkout_submission:" + SCOPE,
+      JSON.stringify({
+        scope: SCOPE,
+        idempotencyKey: KEY,
+        metaConsent: false,
+        attemptId: "attempt-1",
+        startedAt: Date.now(),
+        payload: {
+          customer: validDraft.customer,
+          items: [{ skuId: "sku-red-small", quantity: 1 }],
+          idempotencyKey: KEY,
+          metaConsent: false,
+        },
+        status: "SUBMITTED",
+        ...overrides,
+      }),
+    );
+  }
+
+  it("does not report a network failure as an order failure", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+    fireEvent.click(await screen.findByTestId("confirm-place-order"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("confirm-checking")).toBeInTheDocument(),
+    );
+    expect(eventsMock.recordSubmitFailure).not.toHaveBeenCalled();
+    // The local diagnostic carries only the transport kind and status.
+    const diagnostic = warn.mock.calls.find(
+      ([message]) => message === "[checkout] order outcome unknown",
+    )?.[1];
+    expect(diagnostic).toEqual({ kind: "NETWORK", httpStatus: null });
+    expect(JSON.stringify(diagnostic)).not.toContain(validDraft.customer.phone);
+    expect(JSON.stringify(diagnostic)).not.toContain(KEY);
+    expect(screen.getByTestId("confirm-place-order")).toBeDisabled();
+    warn.mockRestore();
+  });
+
+  it("re-opens the order when the attempt already succeeded, without a second submission", async () => {
+    apiMock.checkoutAttemptStatus.mockResolvedValue({
+      state: "ORDERED",
+      orderNumber: "PH3001",
+      orderStatus: "NEW",
+      grandTotal: 100,
+      placedAt: "2026-11-09T06:00:00.000Z",
+      items: [{ skuId: "sku-red-small", quantity: 1 }],
+    });
+    seedSubmission();
+
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    await waitFor(() =>
+      expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH3001"),
+    );
+    expect(apiMock.createOrder).not.toHaveBeenCalled();
+    expect(apiMock.checkoutAttemptStatus).toHaveBeenCalledWith(KEY);
+    expect(eventsMock.recordSubmitFailure).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirming for the recovery window, then offers a retry that replays the same attempt", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      apiMock.getProductBySlug.mockResolvedValue(product);
+      apiMock.createOrder.mockRejectedValueOnce(new ApiTimeoutError());
+
+      render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+      fireEvent.click(await screen.findByTestId("confirm-place-order"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("confirm-checking")).toBeInTheDocument(),
+      );
+      // The same key is polled, not a new key minted.
+      expect(apiMock.checkoutAttemptStatus).toHaveBeenCalledWith(
+        apiMock.createOrder.mock.calls[0]![0].idempotencyKey,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PLACE_ORDER_RECOVERY_WINDOW_MS + ATTEMPT_POLL_INTERVAL_MS);
+      });
+
+      expect(screen.getByTestId("confirm-unknown")).toBeInTheDocument();
+      expect(screen.getByTestId("confirm-place-order")).toHaveTextContent(
+        "TRY AGAIN",
+      );
+      // A timeout is never recorded as a failure.
+      expect(eventsMock.recordSubmitFailure).not.toHaveBeenCalled();
+
+      apiMock.createOrder.mockResolvedValueOnce({
+        orderNumber: "PH3002",
+        orderStatus: "NEW",
+        confirmationStatus: "UNCONFIRMED",
+        grandTotal: 100,
+      });
+      fireEvent.click(screen.getByTestId("confirm-place-order"));
+
+      await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(2));
+      expect(apiMock.createOrder.mock.calls[1]![0].idempotencyKey).toBe(
+        apiMock.createOrder.mock.calls[0]![0].idempotencyKey,
+      );
+      expect(apiMock.createOrder.mock.calls[1]![0]).toEqual(
+        apiMock.createOrder.mock.calls[0]![0],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/** F05: a blocked browser store must not silently bounce the shopper. */
+describe("CheckoutConfirmView storage fallback", () => {
+  it("explains the blocked storage instead of redirecting to an empty form", async () => {
+    draftMock.readCheckoutDraft.mockReturnValue(null);
+    draftMock.checkoutDraftStorageBlocked.mockReturnValue(true);
+
+    render(<CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" />);
+
+    expect(
+      await screen.findByTestId("confirm-storage-blocked"),
+    ).toBeInTheDocument();
+    expect(routerMock.replace).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("link", { name: "Back to checkout" }),
+    ).toHaveAttribute("href", "/checkout?skuId=sku-red-small&slug=chair");
   });
 });

@@ -45,6 +45,14 @@ export function configuration() {
       accessTtl: env.JWT_ACCESS_TTL,
       refreshTtl: env.JWT_REFRESH_TTL,
     },
+    // Success-page receipt capability. Denied order numbers are operator QA
+    // orders: they never receive a receipt and can never render a success page.
+    orders: {
+      receiptDenyNumbers: (env.ORDER_RECEIPT_DENY_NUMBERS ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    },
     marketing: {
       touchTtlDays: env.MARKETING_TOUCH_TTL_DAYS,
     },

@@ -70,6 +70,19 @@ const MANILA_CITY_NORM = 'manila';
 const MANILA_CODE_PREFIX = '1339';
 const DISTRICT_FILED = Symbol('district-filed');
 
+/**
+ * Isabela City is a PSGC independent city (Region IX, code prefix 0997)
+ * inside Basilan's landmass but outside Basilan province. The static snapshot
+ * lists it as a province-level row with no municipality rows, so the generic
+ * resolver can never reach its 45 barangays. Its own name normalizes to
+ * "isabela" exactly like the Region II province, which is why it gets a
+ * dedicated, non-colliding key instead of going through normalizeName().
+ */
+const ISABELA_CITY_PROVINCE = 'isabela city';
+const ISABELA_CITY_CITY_NORM = 'isabela';
+const ISABELA_CITY_CITYMUN = 'City Of Isabela';
+const ISABELA_CITY_PREFIX = '0997';
+
 interface Resolution {
   /** Normalized province name -> its PSGC code prefixes (4-digit). */
   provincePrefixes: Map<string, Set<string>>;
@@ -166,6 +179,10 @@ function linkProvincePrefixes(
     if (np === MANILA_PROVINCE_NORM) linked.add(MANILA_CODE_PREFIX);
     result.set(np, linked);
   }
+  // Isabela City owns its own prefix (as a province-level choice), and Basilan
+  // owns it too so "Basilan → Isabela City" resolves to the same barangays.
+  result.set(ISABELA_CITY_PROVINCE, new Set([ISABELA_CITY_PREFIX]));
+  result.get(normalizeName('Basilan'))?.add(ISABELA_CITY_PREFIX);
   return result;
 }
 
@@ -236,6 +253,17 @@ function buildResolution(
     if (best) citymunByKey.set(key, best);
   }
 
+  // The independent city has no municipality row to iterate, so bind both
+  // address forms to its barangays-side citymun string explicitly.
+  citymunByKey.set(
+    `${ISABELA_CITY_PROVINCE}|${ISABELA_CITY_CITY_NORM}`,
+    ISABELA_CITY_CITYMUN,
+  );
+  citymunByKey.set(
+    `${normalizeName('Basilan')}|${ISABELA_CITY_CITY_NORM}`,
+    ISABELA_CITY_CITYMUN,
+  );
+
   return { provincePrefixes, citymunByKey };
 }
 
@@ -273,7 +301,13 @@ export class PsgcService {
     }
 
     const trimmedCity = city.trim();
-    const np = normalizeName(province.trim());
+    const rawProvince = province.trim();
+    // Keep Isabela City distinct from the Region II province "Isabela": the
+    // generic normalizer strips a trailing "city" and would merge both.
+    const np =
+      rawProvince.toLowerCase() === ISABELA_CITY_PROVINCE
+        ? ISABELA_CITY_PROVINCE
+        : normalizeName(rawProvince);
     const nc = normalizeName(trimmedCity);
     const resolved = resolution.citymunByKey.get(`${np}|${nc}`);
 

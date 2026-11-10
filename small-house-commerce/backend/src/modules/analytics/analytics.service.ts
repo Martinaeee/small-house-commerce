@@ -87,6 +87,36 @@ export class AnalyticsService {
 
     await this.resolveProductIds(rows);
 
+    // A refreshed or re-opened success page must not add a second PURCHASE
+    // row for the same order. The database unique index is the durable fix
+    // (pending its data-cleanup approval); this check already makes the
+    // common repeat-visit path idempotent.
+    const purchaseOrderIds = [
+      ...new Set(
+        rows
+          .filter((row) => row.eventName === 'PURCHASE' && typeof row.entityId === 'string')
+          .map((row) => row.entityId as string),
+      ),
+    ];
+    if (purchaseOrderIds.length > 0) {
+      const existing = await this.prisma.analyticsEvent.findMany({
+        where: { eventName: 'PURCHASE', entityId: { in: purchaseOrderIds } },
+        select: { entityId: true },
+      });
+      const alreadyRecorded = new Set(existing.map((row) => row.entityId));
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (
+          row?.eventName === 'PURCHASE' &&
+          typeof row.entityId === 'string' &&
+          alreadyRecorded.has(row.entityId)
+        ) {
+          rows.splice(index, 1);
+        }
+      }
+    }
+    if (rows.length === 0) return { accepted: 0 };
+
     try {
       // `skipDuplicates` becomes ON CONFLICT DO NOTHING, which is what makes
       // repeated impressions inside one batch harmless.

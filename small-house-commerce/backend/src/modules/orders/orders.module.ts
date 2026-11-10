@@ -5,6 +5,7 @@ import { MetaCapiModule } from '../meta-capi/meta-capi.module.js';
 import { QianyiModule } from '../qianyi/qianyi.module.js';
 import { NewsletterModule } from '../newsletter/newsletter.module.js';
 import { OrdersService } from './orders.service.js';
+import { OrderReceiptService } from './order-receipt.service.js';
 import { CustomerRiskService } from './customer-risk.service.js';
 import { StorefrontOrdersController } from './storefront/orders.controller.js';
 import { AdminOrdersController, AdminCustomersController } from './admin/orders.controller.js';
@@ -30,6 +31,7 @@ import { ReturnAcceptanceService } from './return-acceptance.service.js';
   ],
   providers: [
     OrdersService,
+    OrderReceiptService,
     CustomerRiskService,
     OrderVerificationService,
     OrderHandoverService,

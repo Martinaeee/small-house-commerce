@@ -97,6 +97,25 @@ const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
   streetAddress: "checkout-address",
 };
 
+/**
+ * The checkout page mounts its real form only after the cart/product request
+ * resolves. Reserving the viewport's height while it loads keeps the footer
+ * below the fold, so mounting the form does not push already-painted content
+ * down (the 0.6 CLS the page used to show). Content loads above this minimum
+ * on every viewport, so the reservation collapses without a second shift.
+ */
+function CheckoutLoading({ label }: { label: string }) {
+  return (
+    <div
+      className="flex min-h-[calc(100dvh-120px)] items-start justify-center px-4 py-16"
+      role="status"
+      aria-live="polite"
+    >
+      <p className="text-center text-ink-secondary">{label}</p>
+    </div>
+  );
+}
+
 export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps) {
   const router = useRouter();
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
@@ -488,7 +507,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   }
 
   if (!isBuyNow && cartLoading) {
-    return <p className="py-16 text-center text-ink-secondary">Loading checkout…</p>;
+    return <CheckoutLoading label="Loading checkout…" />;
   }
 
   if (cartBlocked) {
@@ -510,7 +529,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   }
 
   if (isBuyNow && product === null && !productError) {
-    return <p className="py-16 text-center text-ink-secondary">Loading item…</p>;
+    return <CheckoutLoading label="Loading item…" />;
   }
 
   if (isBuyNow && (productError || (product !== null && !buyNowMatchedSku))) {

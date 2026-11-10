@@ -56,6 +56,23 @@ describe("first-party analytics", () => {
     expect(body.events[0].sessionId).toBe(analyticsSessionId());
   });
 
+  it("keeps the caller metadata when adding the network class (W02)", () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchSpy);
+    Object.defineProperty(navigator, "connection", {
+      value: { effectiveType: "4g" },
+      configurable: true,
+    });
+    window.history.replaceState({}, "", "/cart");
+
+    trackFirstParty("PAGE_VIEW", { metadata: { cartLines: 1 } });
+    flushAnalytics();
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.events[0].metadata).toEqual({ networkType: "4g", cartLines: 1 });
+    delete (navigator as { connection?: unknown }).connection;
+  });
+
   it("reports a device class for the session", () => {
     const matchMedia = vi.fn().mockReturnValue({ matches: false });
     vi.stubGlobal("matchMedia", matchMedia);

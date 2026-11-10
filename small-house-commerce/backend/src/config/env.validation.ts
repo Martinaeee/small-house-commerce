@@ -74,6 +74,11 @@ export const envSchema = z.object({
 
   // First-party attribution touch lifetime. 7 days keeps the previous default.
   MARKETING_TOUCH_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+  /**
+   * Comma-separated order numbers that must never receive a success-page
+   * receipt (operator QA orders). Empty by default.
+   */
+  ORDER_RECEIPT_DENY_NUMBERS: z.preprocess(blankAsUndefined, z.string().max(2000).optional()),
 
   // Optional signed homepage draft-preview tokens. Empty/unset disables preview;
   // an enabled HMAC secret must resist offline guessing if a token is observed.

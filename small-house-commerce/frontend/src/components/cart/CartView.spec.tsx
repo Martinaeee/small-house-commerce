@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CartItem, CartSummary, Product } from "@/lib/api";
 import { CartProvider } from "./CartContext";
@@ -488,5 +488,40 @@ describe("CartView summary", () => {
     expect(screen.getByText("Shipping").nextElementSibling).toHaveTextContent(
       "Free",
     );
+  });
+});
+
+/**
+ * F01: a failed cart read must never be presented as an empty cart, and a
+ * failed refresh must not discard the lines the shopper can still act on.
+ */
+describe("CartView read failures", () => {
+  it("shows a retry instead of an empty cart when the first read fails", async () => {
+    apiMock.getCart.mockRejectedValueOnce(
+      Object.assign(new Error("Bad gateway"), { status: 502 }),
+    );
+    renderCart();
+
+    expect(await screen.findByTestId("cart-load-error")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByText("Your cart is empty.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the loaded lines and shows a retry when a refresh answers 502", async () => {
+    renderCart();
+    await screen.findByText("Chair");
+
+    apiMock.getCart.mockRejectedValueOnce(
+      Object.assign(new Error("Bad gateway"), { status: 502 }),
+    );
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "cartId" }));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("cart-load-error")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Chair")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

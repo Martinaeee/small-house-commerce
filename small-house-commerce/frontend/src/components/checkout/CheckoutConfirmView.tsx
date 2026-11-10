@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, ApiError, ApiTimeoutError } from "@/lib/api";
 import { deliveryWindowFor } from "@/lib/deliveryWindow";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
@@ -20,8 +20,21 @@ import { validateCheckoutForm } from "@/lib/checkoutValidation";
 import {
   checkoutIdempotencyAttempt,
   clearCheckoutIdempotencyKey,
+  clearCompletedCheckout,
+  findCompletedCheckout,
+  recordCompletedCheckout,
 } from "@/lib/checkout-idempotency";
 import {
+  ATTEMPT_POLL_INTERVAL_MS,
+  beginCheckoutSubmission,
+  clearCheckoutSubmission,
+  markCheckoutSubmissionOrdered,
+  PLACE_ORDER_RECOVERY_WINDOW_MS,
+  readCheckoutSubmission,
+  type CheckoutSubmission,
+} from "@/lib/checkout-submission";
+import {
+  checkoutDraftStorageBlocked,
   readCheckoutDraft,
   clearCheckoutDraft,
   type CheckoutDraft,
@@ -58,6 +71,36 @@ import { checkoutQueryString } from "./checkoutItems";
  * convention is UTC midnight (spec §3.2, ruling D-1), so formatting with the
  * Manila zone renders the same calendar day the buyer picked.
  */
+const CART_CLEANUP_ATTEMPTS = 3;
+const CART_CLEANUP_DELAY_MS = [200, 400];
+
+/**
+ * F02: cart cleanup after a confirmed order is best effort. Each attempt
+ * removes the remaining lines (a 404 counts as already removed inside
+ * CartContext), and a short backoff covers a blip without ever blocking the
+ * success page. After the last attempt the stale cart is left as-is.
+ */
+async function cleanupCartInBackground(
+  remove: (itemIds: readonly string[]) => Promise<unknown>,
+  itemIds: readonly string[],
+  onCleaned?: () => void,
+): Promise<void> {
+  for (let attempt = 0; attempt < CART_CLEANUP_ATTEMPTS; attempt += 1) {
+    try {
+      await remove(itemIds);
+      // The cart is empty, so this confirmation URL is spent; a later
+      // purchase needs a new scope, not the completed-order redirect.
+      onCleaned?.();
+      return;
+    } catch {
+      if (attempt < CART_CLEANUP_ATTEMPTS - 1) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, CART_CLEANUP_DELAY_MS[attempt] ?? 400),
+        );
+      }
+    }
+  }
+}
 function formatPreferredDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Manila",
@@ -72,6 +115,58 @@ interface CheckoutConfirmViewProps {
   qty?: string;
   itemsParam?: string;
   slug?: string;
+}
+
+type CheckoutPayload = Parameters<typeof api.createOrder>[0];
+
+/**
+ * F04 submission states. SUBMITTING is "we sent it and are waiting"; after
+ * the response budget it becomes CONFIRMING while the page polls the attempt;
+ * UNKNOWN means the recovery window also passed and only the shopper can ask
+ * again. A timeout is never a failure: no state here claims the order did not
+ * happen, and the same key/payload is kept for every retry.
+ */
+type SubmissionPhase = "IDLE" | "SUBMITTING" | "CONFIRMING" | "UNKNOWN";
+
+/**
+ * Which failures leave the outcome genuinely unknown (the request may have
+ * created an order even though the browser saw an error). Only a 4xx answer
+ * from our own backend proves no order was created for this attempt.
+ */
+function outcomeIsUnknown(error: unknown): boolean {
+  if (error instanceof ApiTimeoutError) return true;
+  // Offline, DNS or a dropped connection: the request may or may not have
+  // arrived.
+  if (error instanceof TypeError) return true;
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof ApiError) {
+    // Server/proxy errors can happen after the transaction committed.
+    return error.status >= 500 || error.status === 409;
+  }
+  return false;
+}
+
+/**
+ * Redacted local diagnostic for an unknown outcome: no address, phone,
+ * cookie or recovery key — just why the result could not be read. A server
+ * analytics event would need a new persisted event name (Prisma enum migration,
+ * separately approved), so this stays in the browser console for now.
+ */
+function logUnknownOutcome(error: unknown): void {
+  try {
+    const kind =
+      error instanceof ApiTimeoutError
+        ? "TIMEOUT"
+        : error instanceof TypeError
+          ? "NETWORK"
+          : error instanceof ApiError && error.status >= 500
+            ? "SERVER"
+            : "UNKNOWN";
+    const httpStatus = error instanceof ApiError ? error.status : null;
+    console.warn("[checkout] order outcome unknown", { kind, httpStatus });
+  } catch {
+    /* logging never breaks checkout */
+  }
 }
 
 function editHrefForDraft(draft: CheckoutDraft | null, checkoutHref: string): string {
@@ -92,6 +187,7 @@ export function CheckoutConfirmView({
 }: CheckoutConfirmViewProps) {
   const router = useRouter();
   const [draft, setDraft] = useState<CheckoutDraft | null>(null);
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
   const directSelection =
     draft?.selection?.kind === "PDP_INLINE" ? draft.selection : undefined;
   const checkout = useCheckoutLines({
@@ -106,8 +202,11 @@ export function CheckoutConfirmView({
   const { messengerUrl, supportEmail, supportHours } = useSiteSettings();
   // Checkout lines carry their own enriched thumbnails (cart summary data /
   // Buy Now product cover) — no product-by-slug image recovery here either.
-  const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<SubmissionPhase>("IDLE");
   const inFlightRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoveryDeadlineRef = useRef<number>(0);
+  const aliveRef = useRef(true);
   // Stable across retries of this checkout; the backend replays the original
   // order instead of creating a second one. The consent snapshot belongs to
   // that same attempt: a retry cannot acquire a newer consent choice than the
@@ -191,11 +290,34 @@ export function CheckoutConfirmView({
         }
       }
       if (!d || invalid) {
+        // F05: with sessionStorage denied, a missing draft is a device
+        // limitation, not a stale URL. Never bounce the shopper back to an
+        // empty form silently; explain and keep them on this step.
+        if (!d && checkoutDraftStorageBlocked()) {
+          setDraftUnavailable(true);
+          return;
+        }
         router.replace(editHrefForDraft(d, checkoutHref));
         return;
       }
       setPromoChecking(Boolean(d.promoCode));
       setDraft(d);
+      // F04: a reload after a lost response or a timeout resumes the durable
+      // attempt. An already-confirmed attempt re-opens its receipt; an
+      // unresolved one is polled, never resubmitted with a fresh key.
+      const submission = readCheckoutSubmission<CheckoutPayload>(checkoutHref);
+      if (submission?.status === "ORDERED" && submission.orderNumber) {
+        router.replace(`/order-success/${submission.orderNumber}`);
+        return;
+      }
+      if (submission?.status === "SUBMITTED") {
+        idempotencyKeyRef.current = {
+          scope: checkoutHref,
+          key: submission.idempotencyKey,
+          metaConsent: submission.metaConsent,
+        };
+        startRecovery(submission);
+      }
     })();
     return () => {
       alive = false;
@@ -219,11 +341,128 @@ export function CheckoutConfirmView({
   // would show no line at all (error/mismatch are the dead end above).
   const awaitingBuyNowResolution =
     checkout.isBuyNow && checkout.product === null && !checkout.productError;
+  // While the order request or its recovery is in flight the page must not
+  // accept another submission or swap to the unavailable-selection screen.
+  const busy = phase === "SUBMITTING" || phase === "CONFIRMING";
+
+  function stopPolling() {
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
+
+  /**
+   * One place that ends a confirmed order, whether the answer arrived on the
+   * original request or through attempt recovery after a lost response.
+   * Buy Now has no cleanup step and keeps meaning "buy this again", so its
+   * durable attempt is dropped at once; the cart path keeps the completed
+   * markers until the background cleanup actually empties the cart.
+   */
+  function finishOrder(
+    orderNumber: string,
+    grandTotal: number,
+    items: readonly { skuId: string; quantity: number }[],
+    metaConsent: boolean,
+  ): void {
+    stopPolling();
+    inFlightRef.current = false;
+    setPhase("IDLE");
+    if (!checkout.isBuyNow) recordCompletedCheckout(checkoutHref, orderNumber);
+    recordSupportOrderCompleted();
+    clearSubmitAttempt();
+    markCheckoutSubmissionOrdered(checkoutHref, orderNumber);
+    if (checkout.isBuyNow) clearCheckoutSubmission(checkoutHref);
+    try {
+      // value is the server's authoritative total. Consent rides along so the
+      // browser event stays with the choice in force at submit.
+      storePurchasePayload(
+        purchaseEvent({ orderId: orderNumber, items, value: grandTotal }),
+        metaConsent,
+      );
+      const current = readCheckoutDraft();
+      sessionStorage.setItem(
+        "lastPreferredDate",
+        current?.preferredDeliveryDate ?? "",
+      );
+      if (current?.customer.phone) {
+        sessionStorage.setItem("lastOrderPhone", current.customer.phone);
+      }
+      sessionStorage.removeItem("luwag_ic_fired");
+    } catch {
+      // Storage unavailable: skip the success-page stashes; the order stands.
+    }
+    clearCheckoutDraft();
+    clearAutosave(checkoutAttempt);
+    clearStoredNewsletterCode();
+    clearCheckoutIdempotencyKey(checkoutHref);
+    if (!checkout.isBuyNow) {
+      // F02: cleanup is not part of the success path.
+      void cleanupCartInBackground(removeItems, checkout.cartItemIds, () => {
+        clearCompletedCheckout(checkoutHref);
+        clearCheckoutSubmission(checkoutHref);
+      });
+    }
+    router.push(`/order-success/${orderNumber}`);
+  }
+
+  /**
+   * F04: the request's outcome is unknown (timeout, offline, dropped
+   * response, 5xx). Never report failure and never mint a new key: poll the
+   * read-only attempt status under the same capability until the order shows
+   * up or the recovery window ends.
+   */
+  function startRecovery(submission: CheckoutSubmission<CheckoutPayload>) {
+    stopPolling();
+    setPhase("CONFIRMING");
+    inFlightRef.current = true;
+    recoveryDeadlineRef.current = Date.now() + PLACE_ORDER_RECOVERY_WINDOW_MS;
+    const poll = async () => {
+      if (!aliveRef.current) return;
+      if (Date.now() >= recoveryDeadlineRef.current) {
+        inFlightRef.current = false;
+        setPhase("UNKNOWN");
+        return;
+      }
+      let ordered: Extract<
+        Awaited<ReturnType<typeof api.checkoutAttemptStatus>>,
+        { state: "ORDERED" }
+      > | null = null;
+      try {
+        const status = await api.checkoutAttemptStatus(submission.idempotencyKey);
+        if (status.state === "ORDERED") ordered = status;
+      } catch {
+        // Still offline: keep polling until the window ends.
+      }
+      if (!aliveRef.current) return;
+      if (ordered) {
+        finishOrder(
+          ordered.orderNumber,
+          ordered.grandTotal,
+          ordered.items,
+          submission.metaConsent,
+        );
+        return;
+      }
+      pollTimerRef.current = setTimeout(() => {
+        void poll();
+      }, ATTEMPT_POLL_INTERVAL_MS);
+    };
+    void poll();
+  }
 
   async function placeOrder() {
     if (!draft || inFlightRef.current || promoChecking) return;
+    if (phase === "SUBMITTING" || phase === "CONFIRMING") return;
+    // F02: this exact checkout already produced an order in this tab (cleanup
+    // may have failed, leaving the cart and this URL intact). Re-open the
+    // receipt instead of submitting with a fresh key and creating a duplicate.
+    const completed = findCompletedCheckout(checkoutHref);
+    if (completed) {
+      router.replace(`/order-success/${completed.orderNumber}`);
+      return;
+    }
     setError(null);
-    if (submitting) return;
     const trackingItems = checkout.orderItems.map((item, index) => ({ ...item, variantName: checkout.lines[index]?.variant ?? null }));
     const occurrence = recordSubmitAttempt({ step: "confirm", items: trackingItems,
       scope: directSelection ? `PDP_INLINE:${directSelection.productSlug}:${JSON.stringify(directSelection.items)}` : attemptKey });
@@ -241,10 +480,24 @@ export function CheckoutConfirmView({
         error: new Error("No items to check out."), idempotencyKey: "" });
       return;
     }
-    inFlightRef.current = true;
-    setSubmitting(true);
-    let orderCreated = false;
-    try {
+
+    // F04: one durable attempt per checkout scope. A stored attempt wins over
+    // a freshly built payload, so a retry, a reload or the recovery loop all
+    // replay the exact request that may already have created the order.
+    const stored = readCheckoutSubmission<CheckoutPayload>(checkoutHref);
+    if (stored?.status === "ORDERED" && stored.orderNumber) {
+      router.replace(`/order-success/${stored.orderNumber}`);
+      return;
+    }
+    let submission: CheckoutSubmission<CheckoutPayload>;
+    if (stored) {
+      submission = stored;
+      idempotencyKeyRef.current = {
+        scope: checkoutHref,
+        key: stored.idempotencyKey,
+        metaConsent: stored.metaConsent,
+      };
+    } else {
       const attempt =
         idempotencyKeyRef.current?.scope === checkoutHref
           ? idempotencyKeyRef.current
@@ -253,12 +506,7 @@ export function CheckoutConfirmView({
               ...checkoutIdempotencyAttempt(checkoutHref, hasAdsConsent()),
             };
       idempotencyKeyRef.current = attempt;
-      const idempotencyKey = attempt.key;
-      // One attempt snapshot for both channels: every retry sends the same
-      // metaConsent the first request used, and the success page receives it
-      // too, so a replay can never change the Browser/CAPI consent pairing.
-      const adsConsent = attempt.metaConsent;
-      const payload = {
+      const payload: CheckoutPayload = {
         customer: {
           ...draft.customer,
           barangay: draft.customer.barangay || null,
@@ -273,74 +521,89 @@ export function CheckoutConfirmView({
         customerNote: draft.customerNote ?? null,
         // Analytics-only: links this order to the visit that produced it.
         trackingSessionId: analyticsSessionId(),
-        idempotencyKey,
+        idempotencyKey: attempt.key,
         // Links the order to the unfinished-checkout draft it came from.
         checkoutDraftToken: readCheckoutAttemptToken(attemptKey),
         // Meta matching data, only meaningful (and only accepted by the
         // backend) when the shopper accepted optional cookies.
         ...readMetaBrowserIds(),
-        metaConsent: adsConsent,
+        metaConsent: attempt.metaConsent,
       };
-      const order = await api.createOrder(payload);
-      orderCreated = true;
-      recordSupportOrderCompleted();
-      clearSubmitAttempt();
-      if (!checkout.isBuyNow) {
-        try {
-          await removeItems(checkout.cartItemIds);
-        } catch {
-          // The order already exists. A stale cart is recoverable; reporting
-          // this as an order failure would invite an unnecessary retry.
-        }
-      }
-      try {
-        // The success page only receives the order number, so the full
-        // Purchase event (final SKU list + value) is stashed tab-scoped
-        // BEFORE navigation; PurchaseTracking consumes it exactly once.
-        // value is the server's authoritative order total, not the checkout
-        // preview: the preview can go stale or use a different promo result.
-        // The consent snapshot rides along so the success page holds the
-        // browser event to the choice in force at submit.
-        storePurchasePayload(
-          purchaseEvent({
-            orderId: order.orderNumber,
-            items: checkout.orderItems,
-            value: order.grandTotal,
-          }),
-          adsConsent,
-        );
-        sessionStorage.setItem("lastPreferredDate", draft.preferredDeliveryDate ?? "");
-        // Carried to /track-order so the shopper does not retype the number they
-        // just entered. Tab-scoped, cleared when the tab closes, never logged
-        // and never placed in a URL (the track page still requires it to match
-        // the order, so this only saves typing for this same shopper).
-        sessionStorage.setItem("lastOrderPhone", draft.customer.phone);
-        // Same literal key as CheckoutForm's IC_FIRED_KEY: clear the
-        // once-per-checkout-session guard so the NEXT order in this tab fires
-        // InitiateCheckout again.
-        sessionStorage.removeItem("luwag_ic_fired");
-      } catch {
-        // Storage unavailable: skip the success-page stashes; the order stands.
-      }
-      clearCheckoutDraft();
-      clearAutosave(checkoutAttempt);
-      // The revealed code is spent with this order — a later order in the same
-      // browser must not inherit it.
-      clearStoredNewsletterCode();
-      // The server has created (or replayed) the order and the draft is gone:
-      // a later purchase from the same Buy Now / Quick COD scope must get a
-      // fresh key. The ref above still protects a retry on this mounted page.
-      clearCheckoutIdempotencyKey(checkoutHref);
-      router.push(`/order-success/${order.orderNumber}`);
+      submission = beginCheckoutSubmission<CheckoutPayload>({
+        scope: checkoutHref,
+        idempotencyKey: attempt.key,
+        metaConsent: attempt.metaConsent,
+        attemptId: occurrence?.attemptId ?? null,
+        startedAt: Date.now(),
+        payload,
+      });
+    }
+
+    inFlightRef.current = true;
+    setPhase("SUBMITTING");
+    try {
+      const order = await api.createOrder(submission.payload);
+      finishOrder(
+        order.orderNumber,
+        order.grandTotal,
+        submission.payload.items,
+        submission.metaConsent,
+      );
     } catch (e) {
-      if (!orderCreated) recordSubmitFailure({
+      if (outcomeIsUnknown(e)) {
+        // A timeout is not a failure: the order may exist. Keep the attempt
+        // and let the read-only status decide. Log only the diagnostic
+        // (kind + status), never a customer snapshot or the key.
+        logUnknownOutcome(e);
+        startRecovery(submission);
+        return;
+      }
+      // The backend answered 4xx: no order was created for this attempt, so
+      // the shopper can correct the input and submit again (same key, no
+      // stale payload).
+      clearCheckoutSubmission(checkoutHref);
+      recordSubmitFailure({
         occurrence, step: "confirm", reason: checkoutFailureReason(e), error: e,
-        items: trackingItems, customer, idempotencyKey: idempotencyKeyRef.current?.key ?? "",
+        items: trackingItems, customer, idempotencyKey: submission.idempotencyKey,
       });
       inFlightRef.current = false;
+      setPhase("IDLE");
       setError(e instanceof Error ? e.message : "Could not place your order. Please try again.");
-      setSubmitting(false);
     }
+  }
+
+  // Timers must not outlive the page; a poll that resolves after unmount is
+  // ignored by the aliveRef guard above.
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (pollTimerRef.current !== null) clearTimeout(pollTimerRef.current);
+    };
+  }, []);
+
+  if (draftUnavailable) {
+    return (
+      <div
+        data-testid="confirm-storage-blocked"
+        className="mx-auto flex max-w-[600px] flex-col items-center gap-4 px-4 py-16 text-center"
+      >
+        <h1 className="text-2xl font-semibold text-ink">
+          We couldn&apos;t open your saved details
+        </h1>
+        <p className="text-ink-secondary">
+          This browser is blocking the storage used to carry your delivery
+          details to this step. Please go back to checkout and review them —
+          nothing has been ordered yet.
+        </p>
+        <Link
+          href={editHref}
+          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
+        >
+          Back to checkout
+        </Link>
+      </div>
+    );
   }
 
   if (draft === null) {
@@ -357,7 +620,7 @@ export function CheckoutConfirmView({
   // Once submission starts, cart cleanup can make this selection disappear
   // before navigation commits. Keep the accepted order in its submitting UI
   // instead of flashing the unavailable-selection error page.
-  if (unresolvedSelection && !submitting) {
+  if (unresolvedSelection && !busy) {
     return (
       <div className="mx-auto max-w-[600px] px-4 py-16 text-center">
         <h1 className="mb-3 text-2xl font-semibold text-ink">
@@ -552,6 +815,29 @@ export function CheckoutConfirmView({
               </p>
             )}
 
+            {phase === "CONFIRMING" && (
+              <p
+                role="status"
+                data-testid="confirm-checking"
+                className="mb-3 rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink-secondary"
+              >
+                We&apos;re confirming your order. Please keep this page open and
+                don&apos;t submit again — this can take a few seconds.
+              </p>
+            )}
+
+            {phase === "UNKNOWN" && (
+              <p
+                role="status"
+                data-testid="confirm-unknown"
+                className="mb-3 rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink-secondary"
+              >
+                We couldn&apos;t confirm your order yet, but it may already have
+                gone through. Tap Try again to check the same attempt — you
+                won&apos;t be charged twice.
+              </p>
+            )}
+
             <p
               data-testid="checkout-autosave-status"
               aria-live="polite"
@@ -562,11 +848,17 @@ export function CheckoutConfirmView({
 
             <Button
               onClick={placeOrder}
-              disabled={submitting || awaitingBuyNowResolution || promoChecking}
+              disabled={busy || awaitingBuyNowResolution || promoChecking}
               className="w-full"
               data-testid="confirm-place-order"
             >
-              {submitting ? "Placing order…" : "PLACE COD ORDER"}
+              {phase === "SUBMITTING"
+                ? "Placing order…"
+                : phase === "CONFIRMING"
+                  ? "Confirming your order…"
+                  : phase === "UNKNOWN"
+                    ? "TRY AGAIN"
+                    : "PLACE COD ORDER"}
             </Button>
             <p className="mt-2 text-center text-xs text-ink-muted">
               Cash on Delivery

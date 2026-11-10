@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -289,8 +290,21 @@ function guestThumbnail(item: {
   return shared?.url ?? null;
 }
 
+/**
+ * Redacted per-request checkout timings. The caller keeps the object, fills it
+ * during the call and logs the numbers; no customer data ever enters it.
+ */
+export type CheckoutTrace = {
+  /** Milliseconds per stage: precheck | transaction | postCommit | metaEnqueue | total. */
+  phaseMs: Record<string, number>;
+  /** The request matched an existing order and created nothing. */
+  replayed: boolean;
+};
+
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
@@ -306,6 +320,33 @@ export class OrdersService {
   ) {}
 
   /**
+   * Best-effort post-commit step. The order already exists, so a failure here
+   * must never surface as a checkout error; three attempts cover a transient
+   * store outage, then the failure is logged with the order number only (no
+   * customer data) so the operator can reconcile against the order itself.
+   */
+  private async afterCommit(
+    orderNumber: string,
+    step: string,
+    run: () => Promise<unknown>,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await run();
+        return;
+      } catch (error) {
+        if (attempt === 3) {
+          this.logger.error(
+            `post-commit step "${step}" failed for ${orderNumber}: ${(error as Error).message}`,
+          );
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 50 : 150));
+      }
+    }
+  }
+
+  /**
    * COD checkout (API_SPEC §18, decided rules):
    * - re-validate every SKU (exists, active, priced) and stock availability;
    *   any shortfall rejects the WHOLE order (no partial checkout)
@@ -314,14 +355,22 @@ export class OrdersService {
    */
   async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta, manualDraft?: {
     id: string; tokenHash: string; revision: number; operatorId: string; riskReviewed: boolean;
-  }) {
+  }, trace?: CheckoutTrace) {
+    const traceStart = Date.now();
     // A retry (timeout, lost response, double click) must return the order the
     // first attempt created instead of creating another one. The pre-check
     // also covers the common replay before touching the customer table.
     const idempotencyHash = input.idempotencyKey ? idempotencyFingerprint(input) : null;
     if (input.idempotencyKey && idempotencyHash) {
       const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash);
-      if (replay) return replay;
+      if (replay) {
+        if (trace) {
+          trace.replayed = true;
+          trace.phaseMs.precheck = Date.now() - traceStart;
+          trace.phaseMs.total = Date.now() - traceStart;
+        }
+        return replay;
+      }
     }
 
     const normalizedPhone = this.normalizePhone(input.customer.phone);
@@ -330,6 +379,7 @@ export class OrdersService {
     // the new order from prior history; stored on the order, never recomputed.
     let classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
+    const transactionStart = Date.now();
     const runCheckoutTransaction = () =>
       this.prisma.$transaction(async (tx) => {
     const token = tryHashCheckoutDraftToken(input.checkoutDraftToken, new Date());
@@ -530,18 +580,62 @@ export class OrdersService {
           : await this.marketingTouch.resolve(firstCredential);
         const lastPaidTouch = lastTouch?.paid === false ? null : lastTouch;
         const touch = lastPaidTouch ?? firstTouch;
-        let adid = touch?.legacy && touch.sourceType === 'META_AD'
-          ? touch.adId?.trim() || null
-          : null;
-        if (touch?.linkId && (touch.sourceType === 'FB_POST' || touch.sourceType === 'META_AD')) {
+        // The dynamic AID + AdID model: one AID link is reused by several
+        // Meta ads and the click carries {{ad.id}}, so a real ad ID never
+        // needs to pre-exist on a CampaignLink row. Precedence is explicit and
+        // the reason for a missing number is frozen next to the order instead
+        // of inventing one.
+        const dynamicAdId = touch?.adId?.trim() || null;
+        let adid: string | null = null;
+        let adidSource: 'LINK' | 'META_DYNAMIC' | 'META_DYNAMIC_FALLBACK' | 'LEGACY' | 'NONE' = 'NONE';
+        let adidMissingReason:
+          | 'MISSING_META_AD_ID'
+          | 'LINK_MISMATCH'
+          | 'MISSING_LINK'
+          | 'NO_TOUCH'
+          | 'TOKEN_INVALID'
+          | 'ORGANIC_TOUCH'
+          | null = null;
+        if (!touch) {
+          adidMissingReason = input.marketingCredential || input.marketingFirstCredential
+            ? 'TOKEN_INVALID'
+            : 'NO_TOUCH';
+        } else if (touch.legacy && touch.sourceType === 'META_AD') {
+          if (dynamicAdId) {
+            adid = dynamicAdId;
+            adidSource = 'LEGACY';
+          } else {
+            adidMissingReason = 'MISSING_META_AD_ID';
+          }
+        } else if (touch.linkId && (touch.sourceType === 'FB_POST' || touch.sourceType === 'META_AD')) {
           const link = await tx.campaignLink.findUnique({
             where: { id: touch.linkId },
             select: { adid: true, ownerUserId: true, aidSnapshot: true, sourceType: true },
           });
           if (link?.ownerUserId === touch.ownerUserId &&
               link.aidSnapshot === touch.aid && link.sourceType === touch.sourceType) {
-            adid = link.adid;
+            if (link.adid) {
+              adid = link.adid;
+              adidSource = 'LINK';
+            } else if (dynamicAdId) {
+              adid = dynamicAdId;
+              adidSource = 'META_DYNAMIC_FALLBACK';
+            } else {
+              adidMissingReason = 'MISSING_META_AD_ID';
+            }
+          } else {
+            adidMissingReason = link ? 'LINK_MISMATCH' : 'MISSING_LINK';
           }
+        } else if (dynamicAdId) {
+          adid = dynamicAdId;
+          adidSource = 'META_DYNAMIC';
+        } else {
+          // A page touch is DIRECT; an organic campaign-link touch keeps its
+          // link. Anything else with no ad ID is an AID click Meta failed to
+          // tag, which must be reported as a missing ad ID, not as organic.
+          const certifiedOrganic = touch.sourceType === 'DIRECT'
+            || (touch.sourceType === 'ORGANIC' && touch.linkId !== null);
+          adidMissingReason = certifiedOrganic ? 'ORGANIC_TOUCH' : 'MISSING_META_AD_ID';
         }
         const effectiveCredential = lastPaidTouch ? lastCredential : firstTouch ? firstCredential : null;
         const attributionTouchId = touch && effectiveCredential
@@ -666,6 +760,8 @@ export class OrdersService {
             create: {
               sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
               adid,
+              adidSource,
+              adidMissingReason,
               aidSnapshot: touch?.aid ?? null,
               optimizerId: touch?.ownerUserId ?? null,
               ownerNameSnapshot: touch?.ownerName ?? null,
@@ -793,6 +889,10 @@ export class OrdersService {
         // response and the Meta Purchase outbox, so a rounded DB value can
         // never diverge between the browser and server events.
         amount: Number(created.grandTotal),
+        // Click ids frozen in the signed touch at ad-click time. The checkout
+        // form may not resend them after a reload or a second tab.
+        touchFbp: touch?.fbp ?? null,
+        touchFbc: touch?.fbc ?? null,
       };
       });
 
@@ -807,38 +907,63 @@ export class OrdersService {
         throw error;
       },
     );
-    if ('replay' in transactionOutcome) return transactionOutcome.replay!;
-    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
+    if ('replay' in transactionOutcome) {
+      if (trace) {
+        trace.replayed = true;
+        trace.phaseMs.transaction = Date.now() - transactionStart;
+        trace.phaseMs.total = Date.now() - traceStart;
+      }
+      return transactionOutcome.replay!;
+    }
+    if (trace) trace.phaseMs.transaction = Date.now() - transactionStart;
+    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount, touchFbp, touchFbc } = transactionOutcome;
 
+    const postCommitStart = Date.now();
     if (offerAvailabilityChanged) {
-      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      await this.afterCommit(orderNumber, 'revalidate-storefront', () =>
+        revalidateCache([CACHE_TAGS.STOREFRONT]),
+      );
     }
 
     if (manualDraft) {
+      if (trace) {
+        trace.phaseMs.postCommit = Date.now() - postCommitStart;
+        trace.phaseMs.total = Date.now() - traceStart;
+      }
       return { orderNumber, orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED', riskType: null, requiresReview: false, grandTotal: amount };
     }
     // Risk records (§10): the classification decision is logged. RPT/RECHECK
     // flip the confirmation status so the admin workbench review queue sees
-    // them (CUSTOMER_RISK_SPEC §17 manual confirmation).
-    await this.customerRisk.logRisk({
-      customerId: customer.id,
-      orderId: order.id,
-      riskType: classification.classification,
-      previousOrderId: classification.previousOrderId,
-      reason: classification.reason,
-    });
+    // them (CUSTOMER_RISK_SPEC §17 manual confirmation). The order is already
+    // committed, so each of these runs best effort: one failing step never
+    // turns a real order into "checkout failed", and never skips the others.
+    await this.afterCommit(orderNumber, 'risk-log', () =>
+      this.customerRisk.logRisk({
+        customerId: customer.id,
+        orderId: order.id,
+        riskType: classification.classification,
+        previousOrderId: classification.previousOrderId,
+        reason: classification.reason,
+      }),
+    );
     if (classification.classification === 'RPT' || classification.classification === 'RECHECK') {
-      await this.prisma.order.update({
-        where: { id: order.id },
-        data: { confirmationStatus: 'NEEDS_REVIEW' },
-      });
+      await this.afterCommit(orderNumber, 'review-flag', () =>
+        this.prisma.order.update({
+          where: { id: order.id },
+          data: { confirmationStatus: 'NEEDS_REVIEW' },
+        }),
+      );
     }
 
     // Duplicate detection (§14): mark, never delete.
-    await this.customerRisk.markDuplicates(normalizedPhone);
+    await this.afterCommit(orderNumber, 'duplicate-mark', () =>
+      this.customerRisk.markDuplicates(normalizedPhone),
+    );
+    if (trace) trace.phaseMs.postCommit = Date.now() - postCommitStart;
 
     // Meta Purchase through the durable outbox. The order is already
     // committed; a measurement hiccup must never surface as a checkout error.
+    const metaStart = Date.now();
     if (requestMeta?.eventSourceUrl) {
       try {
         await this.metaCapi?.enqueuePurchase({
@@ -847,8 +972,11 @@ export class OrdersService {
           value: amount,
           phone: normalizedPhone,
           consent: input.metaConsent === true,
-          fbp: input.fbp ?? null,
-          fbc: input.fbc ?? null,
+          // The browser normally sends its own cookies; a form submitted in
+          // another tab or after a reload may not, so the signed touch
+          // (captured at the ad click) is the fallback. Request wins.
+          fbp: input.fbp ?? touchFbp,
+          fbc: input.fbc ?? touchFbc,
           clientIp: requestMeta.clientIp,
           clientUserAgent: requestMeta.clientUserAgent,
           eventSourceUrl: requestMeta.eventSourceUrl,
@@ -856,6 +984,11 @@ export class OrdersService {
       } catch {
         // Best effort; the row (when written) is retried by the worker.
       }
+    }
+
+    if (trace) {
+      trace.phaseMs.metaEnqueue = Date.now() - metaStart;
+      trace.phaseMs.total = Date.now() - traceStart;
     }
 
     const requiresReview = classification.classification === 'RPT' || classification.classification === 'RECHECK';
@@ -2832,6 +2965,50 @@ export class OrdersService {
    * Every failure path resolves to one uniform 404 so the response can never
    * reveal whether an order exists.
    */
+  /**
+   * Minimal, non-PII facts the success page may show once the receipt
+   * capability proves the caller placed this order. A cancelled order is
+   * treated as invalid so the page never celebrates a dead order.
+   */
+  async receiptStatus(orderNumber: string): Promise<{ ok: true; placedAt: string } | null> {
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber: orderNumber.trim().toUpperCase() },
+      select: { orderStatus: true, createdAt: true },
+    });
+    if (!order || order.orderStatus === 'CANCELLED') return null;
+    return { ok: true, placedAt: order.createdAt.toISOString() };
+  }
+
+  /**
+   * F04: read-only recovery for a checkout attempt whose response never
+   * reached the browser. The client holds the idempotency key, so possession
+   * of that key is the capability; the response is limited to what the
+   * success page and Purchase event need (number, state, total, items), never
+   * customer or payment data. A missing or cancelled order reads as null so
+   * the caller keeps polling and, at worst, asks the shopper to retry the same
+   * attempt with the same key.
+   */
+  async attemptStatus(idempotencyKey: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { idempotencyKey },
+      select: {
+        orderNumber: true,
+        orderStatus: true,
+        grandTotal: true,
+        createdAt: true,
+        items: { select: { skuId: true, quantity: true } },
+      },
+    });
+    if (!order || order.orderStatus === 'CANCELLED') return null;
+    return {
+      orderNumber: order.orderNumber,
+      orderStatus: order.orderStatus,
+      grandTotal: Number(order.grandTotal),
+      placedAt: order.createdAt.toISOString(),
+      items: order.items,
+    };
+  }
+
   async lookup(orderNumber?: string | null, phone?: string | null) {
     const notFound = () =>
       new NotFoundException(

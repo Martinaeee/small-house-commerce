@@ -109,12 +109,23 @@ function utmParams(): { utmSource: string | null; utmMedium: string | null; utmC
   };
 }
 
+/** Phone-network class for the funnel report; null when the browser hides it. */
+function networkType(): string | null {
+  if (typeof navigator === "undefined") return null;
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string };
+  }).connection;
+  const value = connection?.effectiveType;
+  return typeof value === "string" ? value.slice(0, 16) : null;
+}
+
 function baseEvent(eventName: FirstPartyEventName): FirstPartyEvent | null {
   if (typeof window === "undefined") return null;
   const path = window.location.pathname;
   // Admin and preview traffic is not storefront traffic.
   if (path.startsWith("/admin") || path.startsWith("/preview")) return null;
   const credential = currentMarketingCredential();
+  const network = networkType();
   return {
     eventName,
     sessionId: analyticsSessionId(),
@@ -123,6 +134,8 @@ function baseEvent(eventName: FirstPartyEventName): FirstPartyEvent | null {
     deviceType: detectDeviceType(),
     referrer: document.referrer ? document.referrer.slice(0, 1024) : null,
     ...utmParams(),
+    // Diagnostics stay in metadata (bounded server-side); no new event names.
+    ...(network ? { metadata: { networkType: network } } : {}),
     ...(credential ? { marketingCredential: credential } : {}),
   };
 }
@@ -134,7 +147,11 @@ export function trackFirstParty(
 ): void {
   const base = baseEvent(eventName);
   if (!base) return;
-  queue.push({ ...base, ...payload });
+  const metadata =
+    base.metadata || payload.metadata
+      ? { ...(base.metadata ?? {}), ...(payload.metadata ?? {}) }
+      : undefined;
+  queue.push({ ...base, ...payload, ...(metadata ? { metadata } : {}) });
   if (queue.length >= MAX_BATCH) {
     flushAnalytics();
     return;

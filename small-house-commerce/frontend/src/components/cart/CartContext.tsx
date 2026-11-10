@@ -18,6 +18,7 @@ import {
   type CartSummary,
   type Product,
 } from "@/lib/api";
+import { removeCartLines } from "@/lib/cart-cleanup";
 
 /**
  * Single source of truth for the guest cart on the client (Shopee/Taobao
@@ -38,6 +39,12 @@ export type PickerIntent = "ADD_TO_CART" | "ORDER_NOW";
 interface CartContextValue {
   cart: CartSummary | null;
   loading: boolean;
+  /**
+   * F01: the last cart read failed. The last valid cart (when there was one)
+   * stays in `cart`; the UI must show a retry instead of pretending the cart
+   * is empty. Null means the current cart state is trustworthy.
+   */
+  error: string | null;
   isOpen: boolean;
   view: DrawerView;
   pickerProduct: Product | null;
@@ -103,6 +110,7 @@ const CartContext = createContext<CartContextValue | null>(null);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<DrawerView>("cart");
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
@@ -188,6 +196,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const id = cartStorage.get();
     if (!id) {
       setCart(null);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -195,10 +204,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     try {
       const summary = await api.getCart(id);
       setCart(summary);
+      setError(null);
       // An empty summary means a stale cart id.
       if (summary.items.length === 0) cartStorage.set("");
     } catch {
-      setCart(null);
+      // F01: a failed read (network, 502, timeout) must not wipe the cart the
+      // shopper already has. Keep the last valid summary and surface a retry.
+      setError("We couldn't load your cart. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -216,14 +228,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         if (summary) {
           setCart(summary);
+          setError(null);
           // An empty summary means a stale cart id.
           if (summary.items.length === 0) cartStorage.set("");
         } else {
           setCart(null);
+          setError(null);
         }
       } catch {
         if (!alive) return;
-        setCart(null);
+        // Keep whatever cart we already had; never present a failed read as
+        // "Your cart is empty".
+        setError("We couldn't load your cart. Please check your connection and try again.");
         setLoading(false);
       }
     })();
@@ -319,10 +335,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     async (itemIds: readonly string[]) => {
       const id = cartStorage.get();
       if (!id || itemIds.length === 0) return;
-      for (const itemId of itemIds) {
-        await api.removeCartItem(id, itemId);
-      }
+      // Remove line by line so one bad line cannot keep the rest in the cart.
+      // A 404 means the line is already gone (the caller is retrying after a
+      // partial failure), which counts as success.
+      const failed = await removeCartLines((itemId) => api.removeCartItem(id, itemId), itemIds);
       await reload();
+      if (failed.length > 0) {
+        throw new Error(`${failed.length} cart item(s) could not be removed`);
+      }
     },
     [reload],
   );
@@ -335,6 +355,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const value: CartContextValue = {
     cart,
     loading,
+    error,
     isOpen,
     view,
     pickerProduct,
@@ -366,7 +387,7 @@ function rejectPreviewAction(): never {
 }
 
 const previewCart: CartContextValue = {
-  cart: null, loading: false, isOpen: false, view: "cart",
+  cart: null, loading: false, error: null, isOpen: false, view: "cart",
   pickerProduct: null, pickerInitialVariantId: null, pickerInitialQuantity: null,
   pickerIntent: "ADD_TO_CART",
   changeTarget: null, itemKindCount: 0,

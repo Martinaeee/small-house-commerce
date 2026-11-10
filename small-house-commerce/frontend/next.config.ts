@@ -42,6 +42,16 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
         ],
       },
+      {
+        // The receipt cookie already keeps the capability out of the URL; the
+        // header is defence in depth so no outbound navigation can leak the
+        // page (and its order number) through Referer.
+        source: "/order-success/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
     ];
   },
 

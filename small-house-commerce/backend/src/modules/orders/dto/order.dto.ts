@@ -203,6 +203,22 @@ export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type OrderQuery = z.infer<typeof orderQuerySchema>;
 export type LookupInput = z.infer<typeof lookupSchema>;
 
+/**
+ * F04 result recovery: the shopper's browser presents the same key it used
+ * for the checkout request (body, never the URL) and asks whether that
+ * attempt already produced an order. Same charset/length contract as the
+ * checkout idempotency key.
+ */
+export const attemptStatusSchema = z.object({
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(16)
+    .max(120)
+    .regex(/^[A-Za-z0-9_-]+$/),
+});
+export type AttemptStatusInput = z.infer<typeof attemptStatusSchema>;
+
 // --- Order workbench DTOs (2026-09-18 spec) ---
 
 export const assignOrderSchema = z.object({

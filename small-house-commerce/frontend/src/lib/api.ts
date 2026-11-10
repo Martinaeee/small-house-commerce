@@ -13,6 +13,7 @@ import type {
   Schedule,
 } from "./homepage-document";
 import type { Attribution } from "./tracking";
+import { PLACE_ORDER_RESPONSE_BUDGET_MS } from "./checkout-submission";
 import type { LandingContent } from "./marketing-content";
 import { STOREFRONT_TAGS } from "./cache-tags";
 
@@ -698,6 +699,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * F04: a fetch that ran out of its own response budget. `status: 0` keeps it
+ * out of the HTTP error space: callers must treat it as "outcome unknown",
+ * never as an order failure, because the server may still be committing.
+ */
+export class ApiTimeoutError extends Error {
+  readonly status = 0;
+  readonly code = "REQUEST_TIMEOUT";
+
+  constructor() {
+    super("The request timed out.");
+    this.name = "TimeoutError";
+  }
+}
+
 async function assertOk(res: Response): Promise<void> {
   if (res.ok) return;
   let message = `Request failed: ${res.status}`;
@@ -713,13 +729,44 @@ async function assertOk(res: Response): Promise<void> {
   throw new ApiError(message, res.status, code);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+type RequestOptions = RequestInit & {
+  /** Abort and report an ApiTimeoutError after this many milliseconds. */
+  timeoutMs?: number;
+};
+
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const { timeoutMs, signal, ...init_ } = init ?? {};
+  const run = async (requestSignal?: AbortSignal): Promise<T> => {
+    const res = await fetch(path, {
+      ...init_,
+      signal: requestSignal,
+      headers: { "Content-Type": "application/json", ...init_?.headers },
+    });
+    await assertOk(res);
+    return res.json() as Promise<T>;
+  };
+  if (!timeoutMs || timeoutMs <= 0) return run(signal ?? undefined);
+
+  // The deadline covers the whole exchange (connect, server work and body),
+  // not just the first byte. Abort releases the socket; the race guarantees
+  // the caller sees a timeout even if fetch ignores the signal.
+  const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ApiTimeoutError());
+    }, timeoutMs);
   });
-  await assertOk(res);
-  return res.json() as Promise<T>;
+  try {
+    return await Promise.race([run(controller.signal), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // View beacons return 204 No Content.
@@ -954,8 +1001,36 @@ export const api = {
           idempotencyKey: input.idempotencyKey ?? null,
           checkoutDraftToken: input.checkoutDraftToken ?? null,
         }),
+        // F04: the order request has its own deadline. A timeout is an
+        // unknown outcome, recovered through checkoutAttemptStatus below.
+        timeoutMs: PLACE_ORDER_RESPONSE_BUDGET_MS,
       },
     ),
+
+  /**
+   * F04 result recovery: has the attempt behind this idempotency key produced
+   * an order? The key travels in the body (never the URL) and is the only
+   * capability. ORDERED carries just the number/state/total/items; PENDING
+   * means no order is visible yet.
+   */
+  checkoutAttemptStatus: (
+    idempotencyKey: string,
+  ): Promise<
+    | { state: "PENDING" }
+    | {
+        state: "ORDERED";
+        orderNumber: string;
+        orderStatus: string;
+        grandTotal: number;
+        placedAt: string;
+        items: { skuId: string; quantity: number }[];
+      }
+  > =>
+    request("/api/v1/storefront/orders/attempt-status", {
+      method: "POST",
+      body: JSON.stringify({ idempotencyKey }),
+      timeoutMs: 10_000,
+    }),
 
   /** Display-only; checkout recomputes the authoritative discount. */
   previewPromoCode: (

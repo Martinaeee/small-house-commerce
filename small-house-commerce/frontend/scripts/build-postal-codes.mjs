@@ -158,6 +158,13 @@ for (const m of munis) {
   matched++;
 }
 
+// Isabela City (Basilan, ZIP 7300) is an independent city that the upstream
+// postal dataset (and the PSGC municipality snapshot) files under neither
+// "Basilan|Isabela City" nor a province of its own. Add both address forms
+// explicitly so a complete Basilan → Isabela City → 7300 address resolves.
+cities["Isabela City|Isabela City"] = [["", "", "7300"]];
+cities["Basilan|Isabela City"] = [["", "", "7300"]];
+
 const out = {
   source:
     "use-postal-ph (https://github.com/blckclov3r/use-postal-ph) — MIT, Copyright (c) 2024 blckclov3r",

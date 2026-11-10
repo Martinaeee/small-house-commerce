@@ -10,6 +10,49 @@ export const dynamic = "force-dynamic";
 
 const SITE_ORIGIN = "https://luwag.shop";
 
+/**
+ * Meta appends its click parameters to whatever URL the ad points at. A short
+ * link sits in between, so its redirect must carry those parameters through —
+ * otherwise the landing page never sees `fbclid` (no `_fbc`, no CAPI match)
+ * and the UTM columns stay empty. Only these names are forwarded; the saved
+ * target always wins for every parameter it already defines, and `cl` can
+ * never be injected or replaced from outside.
+ */
+const FORWARDED_PARAMS: ReadonlyArray<[key: string, pattern: RegExp]> = [
+  ["aid", /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/],
+  ["adid", /^[A-Za-z0-9._-]{1,64}$/],
+  ["ad_id", /^[A-Za-z0-9._-]{1,64}$/],
+  ["fbclid", /^[A-Za-z0-9_-]{8,512}$/],
+  ["utm_source", /^[\x20-\x7E]{1,120}$/],
+  ["utm_medium", /^[\x20-\x7E]{1,120}$/],
+  ["utm_campaign", /^[\x20-\x7E]{1,120}$/],
+  ["utm_content", /^[\x20-\x7E]{1,120}$/],
+  ["utm_term", /^[\x20-\x7E]{1,120}$/],
+  ["utm_id", /^[A-Za-z0-9._-]{1,64}$/],
+  ["campaign_id", /^[A-Za-z0-9._-]{1,64}$/],
+  ["adset_id", /^[A-Za-z0-9._-]{1,64}$/],
+];
+
+/** Excludes `<`/`>` and control bytes while allowing names with spaces. */
+function acceptableUtm(value: string): boolean {
+  return /^[\x20-\x7E]{1,120}$/.test(value) && !value.includes("<") && !value.includes(">");
+}
+
+function mergeClickParams(request: NextRequest, target: string): string {
+  const saved = new URL(target, SITE_ORIGIN);
+  for (const [key, pattern] of FORWARDED_PARAMS) {
+    if (saved.searchParams.has(key)) continue;
+    for (const value of request.nextUrl.searchParams.getAll(key)) {
+      const valid = key.startsWith("utm_") ? acceptableUtm(value) : pattern.test(value);
+      if (valid) {
+        saved.searchParams.set(key, value);
+        break;
+      }
+    }
+  }
+  return `${saved.pathname}${saved.search}`;
+}
+
 function localTarget(value: unknown): string | null {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
     return null;
@@ -78,5 +121,5 @@ export async function GET(
   const target = localTarget((body as { target?: unknown } | null)?.target);
   if (!target) return notFound();
 
-  return NextResponse.redirect(new URL(target, publicOrigin(request)), 302);
+  return NextResponse.redirect(new URL(mergeClickParams(request, target), publicOrigin(request)), 302);
 }

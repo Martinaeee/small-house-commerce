@@ -539,6 +539,17 @@ model OrderAttribution {
   sourceType               SourceType @map("source_type")
   /** The order's advertising number: null for organic/direct orders. */
   adid                     String?    @map("adid") @db.VarChar(120)
+  /**
+   * Where the advertising number came from: LINK (a verified CampaignLink),
+   * META_DYNAMIC (the ad ID the click carried), META_DYNAMIC_FALLBACK,
+   * LEGACY, or NONE.
+   */
+  adidSource               String?    @map("adid_source") @db.VarChar(24)
+  /**
+   * Why no advertising number was frozen. Never fabricate a value: a real
+   * order without an ad ID stays attributable by AID and records the reason.
+   */
+  adidMissingReason        String?    @map("adid_missing_reason") @db.VarChar(48)
   optimizerId              String?    @map("optimizer_id") @db.Uuid
   aidSnapshot              String?    @map("aid_snapshot")
   ownerNameSnapshot        String?    @map("owner_name_snapshot")
