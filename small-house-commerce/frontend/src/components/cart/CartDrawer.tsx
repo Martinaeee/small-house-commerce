@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "./CartContext";
 import { QuickAddView } from "./QuickAddView";
+import { AddToCartSuccess } from "./AddToCartSuccess";
 import {
   CartLineThumbnail,
   CartOptionPicker,
@@ -42,6 +44,7 @@ const SERVICE_LINES = [
 ];
 
 export function CartDrawer() {
+  const router = useRouter();
   const {
     cart,
     isOpen,
@@ -60,6 +63,7 @@ export function CartDrawer() {
     openChangeOptions,
     openPicker,
     goToCartView,
+    showAddedView,
   } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -130,12 +134,20 @@ export function CartDrawer() {
     };
   }, [isOpen, handleClose, takeDrawerOpener]);
 
-  // Swapping the body to the Change Options picker unmounts the line trigger
-  // that opened it, dropping focus to <body>; pull focus into the panel's
-  // chrome. Fresh opens are covered by the effect above.
+  // Swapping the body to the Change Options picker or the added confirmation
+  // unmounts the trigger that opened it, dropping focus to <body>; pull focus
+  // into the panel's chrome. Fresh opens are covered by the effect above.
   useEffect(() => {
-    if (isOpen && view === "change") closeButtonRef.current?.focus();
+    if (isOpen && (view === "change" || view === "added")) {
+      closeButtonRef.current?.focus();
+    }
   }, [isOpen, view]);
+
+  /** "Go to cart" leaves the drawer for the cart/checkout path. */
+  const handleCheckout = useCallback(() => {
+    handleClose();
+    router.push("/cart");
+  }, [handleClose, router]);
 
   async function changeQty(item: CartItem, quantity: number) {
     if (busyId) return;
@@ -209,7 +221,9 @@ export function CartDrawer() {
             : "Add to cart"
           : view === "change"
             ? "Change options"
-            : "Your cart"
+            : view === "added"
+              ? "Added to cart"
+              : "Your cart"
       }
     >
       <button
@@ -223,6 +237,7 @@ export function CartDrawer() {
         className="absolute right-0 top-0 flex h-full w-full max-w-[400px] flex-col bg-card shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        {view === "added" ? null : (
           <h2 className="text-base font-bold uppercase tracking-wide text-ink">
             {view === "picker"
               ? pickerIsOrderNow
@@ -232,6 +247,7 @@ export function CartDrawer() {
                 ? "Change Options"
                 : `Your Cart (${unitCount})`}
           </h2>
+        )}
           <button
             ref={closeButtonRef}
             type="button"
@@ -253,12 +269,16 @@ export function CartDrawer() {
             intent={pickerIntent}
             onClose={handleClose}
             onAdded={() => {
-              goToCartView();
+              // A successful add ends on the same confirmation as a direct
+              // add — never on the cart list.
+              showAddedView();
               // The close button is chrome that survives the view swap;
               // move focus before the Confirm button unmounts.
               closeButtonRef.current?.focus();
             }}
           />
+        ) : view === "added" ? (
+          <AddToCartSuccess onContinue={handleClose} onCheckout={handleCheckout} />
         ) : view === "change" && changeTarget ? (
           <CartOptionPicker
             item={changeTarget}

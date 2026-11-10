@@ -27,7 +27,7 @@ import { removeCartLines } from "@/lib/cart-cleanup";
  * with the summary the API returns, so the badge and pages never refetch.
  * Cross-tab changes to the cartId key trigger a reload.
  */
-export type DrawerView = "cart" | "picker" | "change";
+export type DrawerView = "cart" | "picker" | "change" | "added";
 
 /**
  * What the picker view does once the shopper confirms a combination. ADD TO
@@ -76,6 +76,8 @@ interface CartContextValue {
   openChangeOptions: (item: CartItem) => void;
   /** Switch an open drawer back to the cart view (after a picker resolves). */
   goToCartView: () => void;
+  /** Show the "Added to cart" confirmation in the same drawer. */
+  showAddedView: () => void;
   openCart: () => void;
   closeCart: () => void;
   /** Consume (and clear) the element focused when the drawer was requested. */
@@ -177,6 +179,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const goToCartView = useCallback(() => {
     setChangeTarget(null);
     setView("cart");
+  }, []);
+  const showAddedView = useCallback(() => {
+    setChangeTarget(null);
+    setView("added");
   }, []);
   const closeCart = useCallback(() => {
     setIsOpen(false);
@@ -281,6 +287,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
         cartStorage.set(summary.cartId);
         setCart(summary);
         if (willOpen) setIsOpen(true);
+        if (willOpen) {
+          // The confirmation, not the cart list, is what an add opens. The
+          // footer of that view offers "Go to cart" for the checkout path.
+          setChangeTarget(null);
+          setView("added");
+        }
         return summary;
       } catch (err) {
         if (willOpen) drawerOpenerRef.current = null;
@@ -366,6 +378,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     openPicker,
     openChangeOptions,
     goToCartView,
+    showAddedView,
     openCart,
     closeCart,
     takeDrawerOpener,
@@ -392,7 +405,8 @@ const previewCart: CartContextValue = {
   pickerIntent: "ADD_TO_CART",
   changeTarget: null, itemKindCount: 0,
   openPicker: rejectPreviewAction, openChangeOptions: rejectPreviewAction,
-  goToCartView: rejectPreviewAction, openCart: rejectPreviewAction, closeCart: rejectPreviewAction,
+  goToCartView: rejectPreviewAction, showAddedView: rejectPreviewAction,
+  openCart: rejectPreviewAction, closeCart: rejectPreviewAction,
   takeDrawerOpener: () => null, applySummary: rejectPreviewAction,
   reload: rejectPreviewAction, addItem: rejectPreviewAction, updateItem: rejectPreviewAction,
   replaceItem: rejectPreviewAction, removeItem: rejectPreviewAction, removeItems: rejectPreviewAction,
