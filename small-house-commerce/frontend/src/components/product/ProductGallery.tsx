@@ -6,7 +6,7 @@ import { useDesktopViewport } from "./useDesktopViewport";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 
 interface Props {
   images: ProductImage[];
@@ -193,6 +193,8 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox, mobil
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={optimizedUploadImage(image.url, 1280)}
+                srcSet={optimizedUploadImageSrcSet(image.url, COLUMN_IMAGE_WIDTHS)}
+                sizes="(min-width: 1024px) 50vw, 100vw"
                 alt={image.altText ?? "Product image"}
                 loading={index === 0 ? "eager" : "lazy"}
                 className="aspect-square w-full object-cover"

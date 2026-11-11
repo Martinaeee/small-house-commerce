@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { visibleFeatureLines } from "@/lib/feature-lines";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 import mobileStyles from "./PdpMobile.module.css";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
@@ -34,6 +34,8 @@ function DetailMedia({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={optimizedUploadImage(block.url, 1280)}
+      srcSet={optimizedUploadImageSrcSet(block.url, COLUMN_IMAGE_WIDTHS)}
+      sizes="(min-width: 768px) 720px, 100vw"
       alt={block.altText ?? ""}
       loading="lazy"
       className={`${frame} block`}

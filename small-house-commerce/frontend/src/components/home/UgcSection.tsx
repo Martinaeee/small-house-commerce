@@ -89,7 +89,7 @@ function UgcCollage({ rows, featured, presentation, section, previewDevice, inte
     viewport.current?.scrollTo({ left, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   };
   const photo = (entry: CollageEntry) => <>
-    {entry.imageUrl ? <HomepageContentImage src={entry.imageUrl} className={styles.photo} style={focalStyle(entry)} /> : <PlaceholderImage label="" className={styles.photo} />}
+    {entry.imageUrl ? <HomepageContentImage src={entry.imageUrl} className={styles.photo} style={focalStyle(entry)} sizes="(max-width: 767px) 55vw, 30vw" /> : <PlaceholderImage label="" className={styles.photo} />}
     {entry.product?.slug ? <Link
       href={`/products/${encodeURIComponent(entry.product.slug)}`}
       aria-label={`View ${entry.product.name} from ${str(entry.name).trim() || "this home photo"}`}

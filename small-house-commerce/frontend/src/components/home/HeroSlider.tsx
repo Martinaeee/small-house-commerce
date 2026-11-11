@@ -36,7 +36,10 @@ import type { HeroPayload, HomepageDevice } from "@/lib/homepage-document";
 import { useHeroReadableLayout } from "./useHeroReadableLayout";
 import { HeroSlideCountdown } from "./HeroSlideCountdown";
 import { sectionStylePresentation } from "./sectionShell";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet } from "@/lib/image-url";
+
+const MOBILE_WIDTHS = [384, 640, 750, 1080] as const;
+const DESKTOP_WIDTHS = [750, 1080, 1440] as const;
 
 /**
  * Storefront hero slider for the homepage document (spec §6.1 / plan Task 19).
@@ -695,7 +698,9 @@ function HeroSlideMedia({
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- hero media from the homepage document; arbitrary host, not on the next/image domain allowlist. */}
           <img
-            src={optimizedUploadImage(mobile.image.url, 1440)}
+            src={optimizedUploadImage(mobile.image.url, 750)}
+            srcSet={optimizedUploadImageSrcSet(mobile.image.url, MOBILE_WIDTHS)}
+            sizes="100vw"
             alt={mobile.image.alt || ""}
             loading={eager ? undefined : "lazy"}
             fetchPriority={eager ? "high" : undefined}
@@ -756,6 +761,8 @@ function renderBaseMedia(
       // eslint-disable-next-line @next/next/no-img-element -- hero media from the homepage document; arbitrary host, not on the next/image domain allowlist.
       <img
         src={optimizedUploadImage(media.image.url, 1440)}
+        srcSet={optimizedUploadImageSrcSet(media.image.url, DESKTOP_WIDTHS)}
+        sizes="100vw"
         alt={media.image.alt || ""}
         loading={eager ? undefined : "lazy"}
         fetchPriority={eager ? "high" : undefined}
