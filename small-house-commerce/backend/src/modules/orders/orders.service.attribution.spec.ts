@@ -74,6 +74,9 @@ function preAdidCredential(credential: string, overrides: Record<string, unknown
   const claims = JSON.parse(Buffer.from(credential.split('.')[0]!, 'base64url').toString());
   Object.assign(claims, overrides);
   delete claims.adid;
+  delete claims.adIdSource;
+  delete claims.adIdMissingReason;
+  delete claims.linkResolution;
   const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
   const key = Buffer.from(hkdfSync('sha256', 'order-attribution-only-unit-test-secret', 'luwag.marketing', 'marketing-touch:v1', 32));
   return `${body}.${createHmac('sha256', key).update(body).digest('base64url')}`;
@@ -100,7 +103,8 @@ describe('immutable order marketing attribution', () => {
     await h.service.checkout(input);
     expect(h.writes[0]).toMatchObject({
       attribution: { create: {
-        adid: 'ad-A',
+        adid: '120200000000002',
+        adidSource: 'META_DYNAMIC',
         adId: '120200000000002',
         fbclid: 'last-click',
         firstTouch: { adId: '120200000000001', fbclid: 'first-click', aid: 'OP-1' },
@@ -239,8 +243,52 @@ describe('immutable order marketing attribution', () => {
     });
   });
 
-  it('attributes two orders from the same AID link to their own dynamic ad IDs', async () => {
+  it('uses the dynamic Meta ad ID as the order advertising number when it differs from the link number', async () => {
     const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: null });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: '120200000000002', adidSource: 'META_DYNAMIC',
+        adId: '120200000000002', linkId: LINK,
+      } },
+    });
+  });
+
+  it('keeps the link number when the dynamic ad ID is missing', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: null });
+    await h.service.checkout(h.input(await h.credential()));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: { adid: 'AD-OP-1-261111-01', adidSource: 'LINK' } },
+    });
+  });
+
+  it('does not treat the link static ad ID as a dynamic Meta ID', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: '120200000000001' });
+    await h.service.checkout(h.input(await h.credential()));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: 'AD-OP-1-261111-01', adidSource: 'LINK', adId: '120200000000001',
+      } },
+    });
+  });
+
+  it('keeps legacy AID-only dynamic ad IDs attributable on orders', async () => {
+    const h = setup();
+    const result = await h.touch.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adId: '120200000000002', adid: '120200000000002', adidSource: 'META_DYNAMIC',
+        linkId: null, optimizerId: USER, aidSnapshot: 'OP-1',
+      } },
+    });
+  });
+
+  it('attributes two orders from the same AID link to their own dynamic ad IDs', async () => {    const h = setup();
     for (const adId of ['120250687133730075', '120250687133740075']) {
       const result = await h.touch.touch({
         aid: 'OP-1',

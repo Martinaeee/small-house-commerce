@@ -25,6 +25,7 @@ import {
 } from '../inventory/bundle-inventory.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import type { AdIdMissingReason, AdidSource } from '../marketing/marketing-attribution.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
 import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
@@ -585,16 +586,18 @@ export class OrdersService {
         // needs to pre-exist on a CampaignLink row. Precedence is explicit and
         // the reason for a missing number is frozen next to the order instead
         // of inventing one.
-        const dynamicAdId = touch?.adId?.trim() || null;
+        const touchAdId = touch?.adId?.trim() || null;
+        // A link-static AdID is a fallback, not a dynamic Meta ID. Old
+        // credentials have no adIdSource and keep the v2 behaviour.
+        const dynamicAdId = touchAdId && touch?.adIdSource !== 'LINK' ? touchAdId : null;
         let adid: string | null = null;
-        let adidSource: 'LINK' | 'META_DYNAMIC' | 'META_DYNAMIC_FALLBACK' | 'LEGACY' | 'NONE' = 'NONE';
+        let adidSource: AdidSource = 'NONE';
         let adidMissingReason:
-          | 'MISSING_META_AD_ID'
+          | AdIdMissingReason
           | 'LINK_MISMATCH'
           | 'MISSING_LINK'
           | 'NO_TOUCH'
           | 'TOKEN_INVALID'
-          | 'ORGANIC_TOUCH'
           | null = null;
         if (!touch) {
           adidMissingReason = input.marketingCredential || input.marketingFirstCredential
@@ -614,12 +617,18 @@ export class OrdersService {
           });
           if (link?.ownerUserId === touch.ownerUserId &&
               link.aidSnapshot === touch.aid && link.sourceType === touch.sourceType) {
-            if (link.adid) {
+            if (link.adid && (!dynamicAdId || link.adid === dynamicAdId)) {
+              // The link's own number already is the real Meta ID (or there is
+              // no dynamic ID to prefer).
               adid = link.adid;
               adidSource = 'LINK';
             } else if (dynamicAdId) {
+              // A generated link number must never override the real Meta ad ID.
               adid = dynamicAdId;
-              adidSource = 'META_DYNAMIC_FALLBACK';
+              adidSource = link.adid ? 'META_DYNAMIC' : 'META_DYNAMIC_FALLBACK';
+            } else if (link.adid) {
+              adid = link.adid;
+              adidSource = 'LINK';
             } else {
               adidMissingReason = 'MISSING_META_AD_ID';
             }
