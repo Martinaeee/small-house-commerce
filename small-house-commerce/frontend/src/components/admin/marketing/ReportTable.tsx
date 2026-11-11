@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import { useAdminAuth } from "@/components/admin/AdminAuthProvider";
 import { useAdminI18n } from "@/lib/admin-i18n";
 import { DateRangePicker } from "./DateRangePicker";
-import { marketingApi, type MarketingReport, type MarketingReportRow, type MarketingReportSort } from "@/lib/marketing-api";
+import { marketingApi, type MarketingReport, type MarketingReportLevel, type MarketingReportRow, type MarketingReportSort } from "@/lib/marketing-api";
 import { reportColumns, ReportMetricCells, ProductThumb } from "./ReportColumns";
 import { ReportTreeTable } from "./ReportTreeTable";
+import { ReportAttributionTable } from "./ReportAttributionTable";
 
 const fieldClass = "w-full min-w-0 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm";
 const buttonClass = "rounded-lg border border-admin-border px-3 py-2 text-xs disabled:opacity-40";
 const dateFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" });
-const levels = ["LINK", "PAGE", "PRODUCT", "OWNER"] as const;
+const levels = ["LINK", "PAGE", "PRODUCT", "OWNER", "ADID", "AID"] as const;
 type Mode = "TREE" | "FLAT";
 
 function identity(row: MarketingReportRow, t: ReturnType<typeof useAdminI18n>["t"], showPost = false) {
@@ -25,7 +26,7 @@ function identity(row: MarketingReportRow, t: ReturnType<typeof useAdminI18n>["t
 export function ReportTable({ productId, landingPageId, linkId }: { productId?: string; landingPageId?: string; linkId?: string }) {
   const { admin } = useAdminAuth();
   const { t } = useAdminI18n();
-  const [inputs, setInputs] = useState(() => ({ from: dateFormat.format(new Date(Date.now() - 6 * 864e5)), to: dateFormat.format(new Date()), groupBy: "LINK" as const, ownerUserId: "", postDateFrom: "", postDateTo: "", postDateMissingOnly: false }));
+  const [inputs, setInputs] = useState(() => ({ from: dateFormat.format(new Date(Date.now() - 6 * 864e5)), to: dateFormat.format(new Date()), groupBy: "LINK" as MarketingReportLevel, ownerUserId: "", postDateFrom: "", postDateTo: "", postDateMissingOnly: false }));
   const [filters, setFilters] = useState(inputs);
   const [productFilter, setProductFilter] = useState(productId ?? "");
   const [mode, setMode] = useState<Mode>("TREE");
@@ -152,7 +153,7 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
         <button type="submit" className={`${buttonClass} ml-auto bg-cta px-4 text-cta-foreground`}>{t("marketing_report_query")}</button>
       </div>
       <div className={`${rowClass} border-t border-admin-border pt-3`}>
-        <label className="w-40 space-y-1 text-xs text-admin-muted">{t("marketing_report_level")}<select className={fieldClass} value={inputs.groupBy} disabled={mode === "TREE"} aria-disabled={mode === "TREE"} onChange={(event) => changeStatusFields({ groupBy: event.target.value as typeof inputs.groupBy })}>{levels.map(level => <option key={level} value={level}>{t(`marketing_report_${level}`)}</option>)}</select></label>
+        <label className="w-40 space-y-1 text-xs text-admin-muted">{t("marketing_report_level")}<select className={fieldClass} value={inputs.groupBy} disabled={mode === "TREE"} aria-disabled={mode === "TREE"} onChange={(event) => { const next = event.target.value as typeof inputs.groupBy; if (next === "ADID" || next === "AID") setMode("FLAT"); changeStatusFields({ groupBy: next }); }}>{levels.map(level => <option key={level} value={level}>{t(`marketing_report_${level}`)}</option>)}</select></label>
         <label className="w-64 space-y-1 text-xs text-admin-muted">{t("marketing_report_filter_product")}<select className={fieldClass} aria-label={t("marketing_report_filter_product")} value={productFilter} onChange={(event) => { setProductFilter(event.target.value); setPage(1); }}><option value="">{t("marketing_report_all_products")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}{product.productCode ? ` · ${product.productCode}` : ""}</option>)}</select></label>
         {all && <label className="w-48 space-y-1 text-xs text-admin-muted">{t("marketing_owner")}<select className={fieldClass} aria-label={t("marketing_owner")} value={inputs.ownerUserId} onChange={(event) => changeStatusFields({ ownerUserId: event.target.value })}><option value="">{t("marketing_all_owners")}</option>{ownerData?.items.map(owner => <option key={owner.userId} value={owner.userId}>{owner.displayName} · {owner.aid}</option>)}</select></label>}
       </div>
@@ -171,14 +172,16 @@ export function ReportTable({ productId, landingPageId, linkId }: { productId?: 
     {!data && !loadError && <p className="text-sm text-admin-muted">{t("common_loading")}</p>}
     {data && <>
       <p className="text-xs text-admin-muted">{data.from} — {data.to} · {t("marketing_report_as_of")}: {new Date(data.asOf).toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: false })}{sortBy === "LATEST_LINK" && ` · ${t("marketing_report_sorted_recent")}`}</p>
-      {data.mode === "TREE"
+      {(data.groupBy === "ADID" || data.groupBy === "AID")
+        ? <ReportAttributionTable rows={data.rows} dimension={data.groupBy} />
+        : data.mode === "TREE"
         ? <>
           {data.linkCount !== undefined && data.linkCount > 500 && <p role="alert" className="text-xs text-amber-800">{t("marketing_report_tree_too_many")}</p>}
           <ReportTreeTable tree={data.tree ?? []} sortBy={data.sortBy} sortDirection={data.sortDirection} onSort={toggleSort} />
           <p className="text-xs text-admin-muted">{t("marketing_report_tree_total", { count: String(data.linkCount ?? 0) })}</p>
         </>
         : flatTable}
-      {data.mode === "FLAT" && <div className="flex items-center justify-between text-xs text-admin-muted"><span>{t("marketing_records", { count: String(data.total) })}</span><div className="flex gap-2"><button type="button" className={buttonClass} disabled={page === 1} onClick={() => setPage(value => value - 1)}>{t("marketing_previous")}</button><span className="py-2">{page}</span><button type="button" className={buttonClass} disabled={page * 20 >= data.total} onClick={() => setPage(value => value + 1)}>{t("marketing_next")}</button></div></div>}
+      {(data.mode === "FLAT" || data.groupBy === "ADID" || data.groupBy === "AID") && <div className="flex items-center justify-between text-xs text-admin-muted"><span>{t("marketing_records", { count: String(data.total) })}</span><div className="flex gap-2"><button type="button" className={buttonClass} disabled={page === 1} onClick={() => setPage(value => value - 1)}>{t("marketing_previous")}</button><span className="py-2">{page}</span><button type="button" className={buttonClass} disabled={page * 20 >= data.total} onClick={() => setPage(value => value + 1)}>{t("marketing_next")}</button></div></div>}
       {(filters.postDateFrom || filters.postDateTo || filters.postDateMissingOnly) && <p className="text-xs text-admin-muted">{t("marketing_post_other_sources_hidden")}</p>}
       {!(filters.postDateFrom || filters.postDateTo || filters.postDateMissingOnly) && data.otherSources.length > 0 && <div className="space-y-2"><h3 className="font-medium">{t("marketing_report_other")}</h3><p className="text-xs text-admin-muted">{t("marketing_report_other_hint")}</p><div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-admin-muted"><tr>{(["marketing_source_type", "marketing_report_submitted", "marketing_report_valid", "marketing_report_confirmed", "marketing_report_signed", "marketing_report_valid_value", "marketing_report_signed_gross"] as const).map(key => <th className="whitespace-nowrap px-3 py-2" key={key}>{t(key)}</th>)}</tr></thead><tbody className="divide-y divide-admin-border">{data.otherSources.map(row => <tr key={row.id}><td className="min-w-64 px-3 py-3">{identity(row, t)}</td>{[row.submittedOrders, row.validOrders, row.confirmedOrders, row.signedOrders].map((count, index) => <td className="px-3 py-3" key={index}>{count}</td>)}<td className="whitespace-nowrap px-3 py-3">PHP {row.validOrderValuePhp}</td><td className="whitespace-nowrap px-3 py-3">PHP {row.signedGrossPhp}</td></tr>)}</tbody></table></div></div>}
     </>}

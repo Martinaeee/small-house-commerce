@@ -96,9 +96,9 @@ export interface CampaignLinkRow extends CampaignLinkInput {
   name: string;
   attributionMode: CampaignLinkAttributionMode;
   /** META_AD only: clean landing URL with no tracking params. */
-  cleanPath: string | null;
+  cleanPath?: string | null;
   /** The link's CL code, exposed separately from the URL. */
-  cl: string;
+  cl?: string;
   /** META_AD only: `cl=...&aid=...&adid={{ad.id}}`; null for FB_POST. */
   metaUrlParameters: string | null;
   postDate: string | null;
@@ -166,7 +166,7 @@ export interface MarketingLinkContext {
   }[];
 }
 
-export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER";
+export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER" | "ADID" | "AID";
 export type MarketingReportMode = "FLAT" | "TREE";
 export type MarketingReportSort =
   | "NAME" | "PRODUCT" | "OWNER" | "LATEST_LINK" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
@@ -232,6 +232,15 @@ export interface MarketingReportRow {
   costCoverageComplete: boolean;
   periodBasis: "TOUCH" | "ORDER_CREATED";
   productThumbnailUrl: string | null;
+  /** ADID/AID attribution views only. */
+  adId?: string | null;
+  adIdSource?: string | null;
+  adIdMissingReason?: string | null;
+  adVisits?: number;
+  productViews?: number;
+  linkCount?: number | null;
+  adCount?: number | null;
+  linkName?: string | null;
 }
 /** One product → its source-type breakdown → the links inside each source. */
 export interface MarketingReportTreeProduct {
