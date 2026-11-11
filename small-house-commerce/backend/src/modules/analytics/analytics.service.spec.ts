@@ -168,4 +168,38 @@ describe('campaign link attribution from the touch credential', () => {
     const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
     expect(data[0].campaignLinkId ?? null).toBeNull();
   });
+
+  it('copies verified attribution and ignores a forged campaign id', async () => {
+    const resolve = vi.fn(async () => ({
+      linkId: '55555555-5555-4555-a555-555555555555',
+      ownerUserId: '11111111-1111-4111-a111-111111111111',
+      aid: 'OP-1',
+      adId: '120200000000002',
+      adIdSource: 'META_DYNAMIC',
+      adIdMissingReason: null,
+      campaignId: 'campaign-A',
+      adsetId: 'set-A',
+      paid: true,
+      linkResolution: 'CL',
+      attributionConflict: true,
+      conflictDetail: 'AID OP-2 != link AID OP-1',
+    }));
+    const { prisma, service } = makeService({ resolve });
+    await service.ingest([event({ campaignId: 'forged', marketingCredential: 'cred' })], 'client');
+    const row = prisma.analyticsEvent.createMany.mock.calls[0][0].data[0];
+    expect(row).toMatchObject({
+      campaignLinkId: '55555555-5555-4555-a555-555555555555',
+      optimizerId: '11111111-1111-4111-a111-111111111111',
+      aidSnapshot: 'OP-1',
+      adId: '120200000000002',
+      adIdSource: 'META_DYNAMIC',
+      adIdMissingReason: null,
+      campaignId: 'campaign-A',
+      adsetId: 'set-A',
+      attributionPaid: true,
+      linkResolution: 'CL',
+      attributionConflict: true,
+      conflictDetail: 'AID OP-2 != link AID OP-1',
+    });
+  });
 });
