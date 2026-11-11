@@ -1,5 +1,11 @@
 -- Verified attribution landed on first-party analytics events.
 -- Every column is nullable: historical rows keep NULL and older readers ignore it.
+--
+-- Prisma 7.10.0 does not wrap a migration in a transaction on its own (verified
+-- with a failing probe migration: the CREATE TABLE persisted). Keep the
+-- explicit transaction so a failed ALTER/CREATE INDEX leaves no partial DDL.
+BEGIN;
+
 ALTER TABLE "analytics_events"
   ADD COLUMN "optimizer_id" UUID,
   ADD COLUMN "aid_snapshot" VARCHAR(64),
@@ -23,3 +29,5 @@ CREATE INDEX "order_attributions_link_id_ad_id_idx"
   ON "order_attributions"("link_id", "ad_id");
 CREATE INDEX "order_attributions_ad_id_attributed_at_idx"
   ON "order_attributions"("ad_id", "attributed_at");
+
+COMMIT;
