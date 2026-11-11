@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { effectiveStatus } from '../catalog/landing/landing-page.util.js';
 import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
-import { manilaVisitDay, normaliseAid } from './marketing-attribution.js';
+import { adIdProvenance, manilaVisitDay, normaliseAid, type LinkResolution } from './marketing-attribution.js';
 import { marketingTouchClaimsSchema, type MarketingTouchClaims, type MarketingTouchInput } from './dto/marketing-touch.dto.js';
 
 const DAY_MS = 864e5;
@@ -29,6 +29,8 @@ function pathSlug(path: string | undefined, prefix: 'lp' | 'products'): string |
 function metaAdId(value: string | null | undefined): string | null {
   return typeof value === 'string' && META_ID.test(value) ? value : null;
 }
+
+type TouchProvenance = ReturnType<typeof adIdProvenance>;
 
 function paidSignal(input: MarketingTouchInput): boolean {
   return Boolean(metaAdId(input.adId) || input.campaignId || input.adsetId || input.fbclid || /paid/i.test(input.utmMedium ?? ''));
@@ -80,28 +82,38 @@ export class MarketingTouchService {
     if ((input.productId && input.productId !== link.productId) || (input.landingPageId && input.landingPageId !== link.landingPageId) || (input.path && input.path.replace(/\/$/, '') !== path)) return emptyTouch;
     await this.recordVisits(link.id, link.landingPageId, input.visitKey, now);
 
+    const paid = link.sourceType === 'META_AD' || link.sourceType === 'FB_POST' || paidSignal(input);
+    // META_AD links get explicit provenance; other source types keep the
+    // existing behaviour (a URL ad ID wins, then the link's saved ad ID).
+    const provenance: TouchProvenance | null = link.sourceType === 'META_AD'
+      ? adIdProvenance(input.adId, link.adId, paid)
+      : null;
+    const adId = provenance?.adId ?? metaAdId(input.adId) ?? metaAdId(link.adId);
+
     // AID wins over a conflicting legacy link, but the conflict is recorded.
     const rawAid = input.aid ? normaliseAid(input.aid) : null;
     if (rawAid && rawAid !== link.aidSnapshot) {
       const profile = await this.optimizers.resolveByAid(rawAid);
       if (profile && profile.status === 'ACTIVE') {
-        const paid = link.sourceType === 'META_AD' || link.sourceType === 'FB_POST' || paidSignal(input);
         return this.signAid({
           profile, aid: rawAid, input, product: link.product, landingPageId: link.landingPageId,
           publishedRevision: link.landingPage?.publishedRevision ?? null,
-          sourceType: link.sourceType, paid, conflict: `AID ${rawAid} != link AID ${link.aidSnapshot}`, now,
+          sourceType: link.sourceType, paid, provenance,
+          linkResolution: 'CL',
+          conflict: `AID ${rawAid} != link AID ${link.aidSnapshot}`, now,
         });
       }
     }
 
-    const dynamicAdId = metaAdId(input.adId);
-    const paid = link.sourceType === 'META_AD' || link.sourceType === 'FB_POST' || paidSignal(input);
     return this.sign({
       ...emptyMetadata,
       facebookPostId: null,
       campaignId: input.campaignId ?? link.campaignId,
       adsetId: input.adsetId ?? link.adsetId,
-      adId: dynamicAdId ?? link.adId,
+      adId,
+      adIdSource: provenance?.adIdSource,
+      adIdMissingReason: provenance?.adIdMissingReason ?? null,
+      linkResolution: 'CL',
       fbclid: input.fbclid ?? null,
       fbc: input.fbc ?? null,
       fbp: input.fbp ?? null,
@@ -140,10 +152,14 @@ export class MarketingTouchService {
         ? await this.prisma.product.findFirst({ where: { slug: productSlug, status: 'ACTIVE' }, select: productFields })
         : null);
     if ((input.productId || productSlug) && (!product || product.status !== 'ACTIVE')) return emptyTouch;
+    const paid = paidSignal(input);
     return this.signAid({
       profile, aid: input.aid!, input, product, landingPageId: page?.id ?? null,
       publishedRevision: page?.publishedRevision ?? null,
-      sourceType: 'META_AD', paid: paidSignal(input), now,
+      sourceType: 'META_AD', paid,
+      provenance: adIdProvenance(input.adId, null, paid),
+      linkResolution: 'AID',
+      now,
     });
   }
 
@@ -167,7 +183,7 @@ export class MarketingTouchService {
       ownerUserId: page.ownerUserId, aid: owner.optimizerProfile.aid, ownerName: owner.optimizerProfile.displayName,
       linkId: null, productId: page.productId, productName: page.product.name, productCode: page.product.productCode,
       landingPageId: page.id, publishedRevision: page.publishedRevision,
-      sourceType: 'DIRECT', paid: false, legacy: false,
+      sourceType: 'DIRECT', paid: false, legacy: false, linkResolution: 'PAGE',
     }, now);
   }
 
@@ -180,12 +196,17 @@ export class MarketingTouchService {
     publishedRevision: number | null;
     sourceType: MarketingTouchClaims['sourceType'];
     paid: boolean;
+    provenance: TouchProvenance | null;
+    linkResolution: LinkResolution;
     conflict?: string;
     now: Date;
   }): TouchResult {
     return this.sign({
       ...emptyMetadata,
-      adId: metaAdId(input.input.adId),
+      adId: input.provenance?.adId ?? null,
+      adIdSource: input.provenance?.adIdSource,
+      adIdMissingReason: input.provenance?.adIdMissingReason ?? null,
+      linkResolution: input.linkResolution,
       campaignId: input.input.campaignId ?? null,
       adsetId: input.input.adsetId ?? null,
       fbclid: input.input.fbclid ?? null,

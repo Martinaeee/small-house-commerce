@@ -229,6 +229,42 @@ describe('server-signed marketing touch', () => {
     expect(linkVisits.size).toBe(1);
   });
 
+  it('records the dynamic Meta ad ID provenance', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000002', adIdSource: 'META_DYNAMIC', adIdMissingReason: null,
+    });
+  });
+
+  it('falls back to the link ad ID and marks it static', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000001', adIdSource: 'LINK', adIdMissingReason: null,
+    });
+  });
+
+  it('records an invalid Meta template instead of treating it as an ad ID', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: null });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '{{ad.id}}' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: null, adIdSource: 'NONE', adIdMissingReason: 'INVALID_META_AD_ID',
+    });
+  });
+
+  it('keeps the legacy AID-only link compatible with a dynamic ad ID', async () => {
+    const { service } = setup();
+    const result = await service.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: null, ownerUserId: USER, aid: 'OP-1',
+      adId: '120200000000002', adIdSource: 'META_DYNAMIC', linkResolution: 'AID',
+    });
+  });
+
   it('keeps unassigned public page visits without manufacturing an owner', async () => {
     const { service, page, pageVisits } = setup();
     page.ownerUserId = null; page.owner = null;

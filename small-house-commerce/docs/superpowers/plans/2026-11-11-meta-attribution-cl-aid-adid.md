@@ -392,7 +392,7 @@ export function adIdProvenance(
   if (raw && META_AD_ID.test(raw)) {
     return { adId: raw, adIdSource: 'META_DYNAMIC', adIdMissingReason: null };
   }
-  const fallback = typeof staticAdId === 'string' && META_AD_ID.test(staticAdId) ? staticAdId : null;
+  const fallback = typeof staticAdId === 'string' ? staticAdId.trim() : '';
   if (fallback) return { adId: fallback, adIdSource: 'LINK', adIdMissingReason: null };
   return {
     adId: null,
