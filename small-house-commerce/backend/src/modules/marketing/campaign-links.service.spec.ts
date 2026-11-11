@@ -68,7 +68,9 @@ describe('persisted owner-scoped campaign links', () => {
     expect(url.pathname).toBe('/products/chair');
     expect(url.searchParams.get('aid')).toBe('OP-1');
     expect(url.searchParams.get('cl')).toBeNull();
-    expect(link.metaUrlParameters).toBe('adid={{ad.id}}&campaign_id={{campaign.id}}&adset_id={{adset.id}}&utm_source={{site_source_name}}&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}');
+    expect(link.metaUrlParameters).toBe(`cl=${link.code}&aid=OP-1&adid={{ad.id}}`);
+    expect(link.cleanPath).toBe('/products/chair');
+    expect(link.cl).toBe(link.code);
     expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
   });
 
@@ -79,6 +81,22 @@ describe('persisted owner-scoped campaign links', () => {
     expect(url.searchParams.get('cl')).toBe(link.code);
     expect(url.searchParams.get('aid')).toBeNull();
     expect(link.attributionMode).toBe('CL');
+  });
+
+  it('keeps the variant on the clean URL but drops tracking parameters', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, variantId: V1, attributionMode: 'CL' }, owner);
+    expect(link.cleanPath).toBe(`/products/chair?variant=${V1}`);
+    expect(link.metaUrlParameters).toBe(`cl=${link.code}&aid=OP-1&adid={{ad.id}}`);
+  });
+
+  it('keeps FB_POST on the legacy tracking path with no clean URL or Meta parameters', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, sourceType: 'FB_POST' }, owner);
+    expect(link.cleanPath).toBeNull();
+    expect(link.metaUrlParameters).toBeNull();
+    expect(link.cl).toBe(link.code);
+    expect(link.path).toContain(`cl=${link.code}`);
   });
 
   it('rejects a Meta template stored as a static ad ID and an AID post link', () => {

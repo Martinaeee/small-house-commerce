@@ -27,7 +27,6 @@ const details = {
 } satisfies Prisma.CampaignLinkInclude;
 type LinkWithDetails = Prisma.CampaignLinkGetPayload<{ include: typeof details }>;
 const attributionFields = ['campaignId', 'adsetId', 'adId', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm'] as const;
-export const META_URL_PARAMETERS = 'adid={{ad.id}}&campaign_id={{campaign.id}}&adset_id={{adset.id}}&utm_source={{site_source_name}}&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}';
 
 export interface CampaignLinkProductGroup {
   product: { id: string; name: string; productCode: string | null; thumbnailUrl: string | null };
@@ -48,6 +47,22 @@ function linkPath(row: LinkWithDetails): string {
     for (const [field, key] of [['utmSource', 'utm_source'], ['utmMedium', 'utm_medium'], ['utmCampaign', 'utm_campaign'], ['utmContent', 'utm_content'], ['utmTerm', 'utm_term']] as const) if (row[field]) params.set(key, row[field]);
   }
   return `${path}?${params}`;
+}
+
+/** Clean landing URL for Meta ads: no tracking params, only the variant. */
+function cleanPath(row: LinkWithDetails): string | null {
+  if (row.sourceType !== 'META_AD') return null;
+  const path = row.landingPage ? `/lp/${encodeURIComponent(row.landingPage.slug)}` : `/products/${encodeURIComponent(row.product.slug)}`;
+  return row.variantId ? `${path}?variant=${row.variantId}` : path;
+}
+
+/**
+ * Per-link Meta URL parameters. The AID is the snapshot taken when the link
+ * was created, never the caller's AID. FB posts keep their legacy path.
+ */
+function metaUrlParameters(row: LinkWithDetails): string | null {
+  if (row.sourceType !== 'META_AD') return null;
+  return `cl=${row.code}&aid=${row.aidSnapshot}&adid={{ad.id}}`;
 }
 
 @Injectable()
@@ -353,7 +368,9 @@ export class CampaignLinksService {
       archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
       aid: row.aidSnapshot,
       attributionMode: row.attributionMode,
-      metaUrlParameters: META_URL_PARAMETERS,
+      cleanPath: cleanPath(row),
+      cl: row.code,
+      metaUrlParameters: metaUrlParameters(row),
       ownerName: owner.optimizerProfile?.displayName ?? owner.name,
       productName: product.name,
       productCode: product.productCode,
