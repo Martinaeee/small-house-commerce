@@ -766,7 +766,9 @@ export function PdpClient({
           data-framed={framed ? "true" : undefined}
           className={`flex min-w-0 scroll-mt-32 flex-col ${
             framed
-              ? "self-start overflow-hidden rounded-xl border border-border bg-card"
+              // Below the desktop breakpoint the campaign card bleeds past the
+              // page gutter so its banner strip spans the full phone width.
+              ? "self-start overflow-hidden rounded-xl border border-border bg-card max-lg:-mx-4 sm:max-lg:-mx-6 max-lg:rounded-none"
               : "gap-3 lg:gap-4"
           }`}
         >
@@ -775,7 +777,7 @@ export function PdpClient({
             // per product and fall back to the sale red / readable text.
             <p
               data-testid="pdp-banner"
-              className="px-3 py-2 text-center text-sm font-semibold leading-snug"
+              className="px-3 py-2 text-center text-base font-semibold leading-snug"
               style={{ backgroundColor: banner.background, color: banner.textColor }}
             >
               {banner.text}
@@ -819,7 +821,7 @@ export function PdpClient({
 
           {purchaseOnly ? (
             <PriceBox price={price} compareAtPrice={compareAt} />
-          ) : <PriceBox price={price} compareAtPrice={compareAt} size="lg" />}
+          ) : <PriceBox price={price} compareAtPrice={compareAt} size="lg" saleHighlight={framed} />}
 
           {stockLabel && (
             <p className="text-sm font-semibold text-sale" data-testid="stock-state">{stockLabel}</p>

@@ -550,6 +550,8 @@ describe("PDP conversion hero", () => {
     expect(banner).toHaveTextContent("<b>Weekend offer</b>");
     expect(banner.querySelector("b")).toBeNull();
     expect(banner).toHaveStyle({ backgroundColor: "#123456", color: "#ffffff" });
+    expect(banner).toHaveClass("text-base");
+    expect(banner).not.toHaveClass("text-sm");
     expect(banner.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -563,13 +565,22 @@ describe("PDP conversion hero", () => {
     expect(hero).toHaveAttribute("data-framed", "true");
     expect(hero.className).toMatch(/\brounded-xl\b/);
     expect(hero.className).toMatch(/\bborder\b/);
+    // Below the desktop breakpoint the campaign card bleeds to the screen
+    // edges so the banner strip spans the full phone width.
+    expect(hero.className).toMatch(/\bmax-lg:-mx-4\b/);
+    expect(hero.className).toMatch(/\bsm:max-lg:-mx-6\b/);
+    expect(hero.className).toMatch(/\bmax-lg:rounded-none\b/);
+    // A live campaign prices the discounted SKU in the sale red.
+    expect(within(hero).getByTestId("price")).toHaveClass("text-sale");
     // The banner is the card's first child, the buy content the padded body.
     expect(hero.firstElementChild).toBe(screen.getByTestId("pdp-banner"));
     expect(within(hero).getByRole("button", { name: /ADD TO CART/i })).toBeVisible();
     unmount();
 
     renderPdp({ variantId: "red-small" });
-    expect(screen.getByTestId("pdp-purchase")).not.toHaveAttribute("data-framed");
+    const plainHero = screen.getByTestId("pdp-purchase");
+    expect(plainHero).not.toHaveAttribute("data-framed");
+    expect(within(plainHero).getByTestId("price")).not.toHaveClass("text-sale");
   });
 
   it("falls back to the campaign red when the banner has no colour", () => {
@@ -2050,6 +2061,26 @@ describe("mobile PDP purchase layout", () => {
     expect(within(dialog).getByText("80+ sold")).toBeInTheDocument();
     expect(within(dialog).getByText("₱200.00")).toHaveClass("line-through");
     expect(within(dialog).queryByText(/% OFF/)).toBeNull();
+  });
+
+  it("marks the discounted price and sold count red only inside a live campaign card", async () => {
+    installDesktopViewport(false);
+    installMediaFetch();
+    const discounted = { ...product, variants: product.variants.map(variant => ({
+      ...variant, sku: { ...variant.sku!, compareAtPrice: 200 },
+    })) };
+    const campaign = renderPdp({ item: { ...discounted, pdpBannerEnabled: true, pdpBannerText: "11.11 LIMITED-TIME SALE" }, variantId: "red-small" });
+    const info = screen.getByTestId("pdp-mobile-info");
+    expect(within(info).getByTestId("price")).toHaveClass("text-sale");
+    expect(within(info).getByText("80+ sold")).toHaveAttribute("data-sale", "true");
+    campaign.unmount();
+
+    // Without a campaign banner the mobile price row keeps its plain look.
+    renderPdp({ item: discounted, variantId: "red-small" });
+    const plain = screen.getByTestId("pdp-mobile-info");
+    expect(within(plain).getByTestId("price")).toHaveClass("text-ink");
+    expect(within(plain).getByTestId("price")).not.toHaveClass("text-sale");
+    expect(within(plain).getByText("80+ sold")).not.toHaveAttribute("data-sale");
   });
 
   it("leaves purchase actions only in the fixed bar instead of repeating them below the summary", () => {
