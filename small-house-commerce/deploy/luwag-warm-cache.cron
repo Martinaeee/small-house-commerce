@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Re-warm the Next image optimizer cache after a frontend container rebuild
+# resets .next/cache/images. The wrapper no-ops while the cache is warm.
+*/15 * * * * root /usr/local/sbin/luwag-warm-cache-if-cold.sh
