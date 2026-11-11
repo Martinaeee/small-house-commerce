@@ -23,6 +23,7 @@ const mount = () => render(<AdminI18nProvider><ProductPostsDrawer productId="p1"
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(marketingApi.createShortLink).mockResolvedValue({ path: "/s/abc123", code: "abc123", target: "/products/chair?cl=c" });
   vi.mocked(marketingApi.listLinks).mockResolvedValue({
     items: [
       row({ id: "f2", name: "1104 视频发帖", postDate: "2026-11-04" }),
@@ -81,9 +82,32 @@ describe("product post drawer grouping", () => {
     await screen.findByRole("region", { name: /Facebook 发帖/ });
     expect(marketingApi.listLinks).toHaveBeenCalledWith(expect.objectContaining({ productId: "p1", page: 1, pageSize: 100, orderBy: "POST_DATE_DESC" }));
   });
-  it("copies an AID URL without shortening it and offers the Meta parameters", async () => {
+  it("shows each post's creation time", async () => {
+    mount();
+    await screen.findByText("CH002 广告");
+    expect(screen.getAllByText(/创建时间: 2026-11-03/).length).toBeGreaterThan(0);
+  });
+  it("opens the copy dialog with the link name and every copyable value", async () => {
     vi.mocked(marketingApi.listLinks).mockResolvedValue({
-      items: [row({ id: "aid-1", name: "AID ad", sourceType: "META_AD", attributionMode: "AID", path: "/products/chair?aid=OP-1", metaUrlParameters: "adid={{ad.id}}&campaign_id={{campaign.id}}" })],
+      items: [row({ id: "cl-1", name: "1111-test-aid", sourceType: "META_AD", attributionMode: "CL", path: "/products/chair?cl=cl-code", cl: "cl-code", cleanPath: "/products/chair", metaUrlParameters: "cl=cl-code&aid=OP-1&adid={{ad.id}}" })],
+      total: 1, page: 1, pageSize: 100,
+    });
+    mount();
+    await screen.findByText("1111-test-aid");
+    fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
+    const dialog = await screen.findByRole("dialog", { name: "1111-test-aid" });
+    expect(within(dialog).getByDisplayValue(new URL("/products/chair", window.location.origin).href)).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("cl-code")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("OP-1")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("cl=cl-code&aid=OP-1&adid={{ad.id}}")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue(new URL("/products/chair?cl=cl-code", window.location.origin).href)).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByDisplayValue(new URL("/s/abc123", window.location.origin).href)).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole("button", { name: "复制落地页 URL" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(new URL("/products/chair", window.location.origin).href));
+  });
+  it("opens the copy dialog for an AID link with every copyable value", async () => {
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({
+      items: [row({ id: "aid-1", name: "AID ad", sourceType: "META_AD", attributionMode: "AID", path: "/products/chair?aid=OP-1", cl: "aid-code", cleanPath: "/products/chair", metaUrlParameters: "cl=aid-code&aid=OP-1&adid={{ad.id}}" })],
       total: 1, page: 1, pageSize: 100,
     });
     mount();
@@ -91,9 +115,16 @@ describe("product post drawer grouping", () => {
     expect(screen.queryByRole("link", { name: "核算" })).not.toBeInTheDocument();
     expect(screen.getByText(/AID 链接按订单归因/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
-    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(expect.stringContaining("?aid=OP-1")));
-    expect(marketingApi.createShortLink).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "复制 Meta 参数" }));
-    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("adid={{ad.id}}&campaign_id={{campaign.id}}"));
+    const dialog = await screen.findByRole("dialog", { name: "AID ad" });
+    await waitFor(() => expect(within(dialog).getByDisplayValue("OP-1")).toBeInTheDocument());
+    expect(within(dialog).getByText("AID ad")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("aid-code")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("cl=aid-code&aid=OP-1&adid={{ad.id}}")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue(new URL("/products/chair?aid=OP-1", window.location.origin).href)).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByDisplayValue(new URL("/s/abc123", window.location.origin).href)).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole("button", { name: "复制 AID" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("OP-1"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "复制 Meta 参数" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith("cl=aid-code&aid=OP-1&adid={{ad.id}}"));
   });
 });
