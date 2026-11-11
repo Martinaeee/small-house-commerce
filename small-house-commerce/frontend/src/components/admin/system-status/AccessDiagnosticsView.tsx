@@ -1,13 +1,20 @@
 "use client";
 
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import type { AdminAccessReport } from "@/lib/admin-api";
 import type { TKey } from "@/lib/admin-i18n";
+import {
+  errorClasses,
+  overallStatus,
+  parseRequest,
+  type ErrorVerdict,
+  type RequestKind,
+} from "@/lib/access-diagnostics";
 
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
 type Tone = "healthy" | "warning" | "critical" | "unknown";
 
-/** 0% is the only healthy 5xx rate; 0.5% is where it stops being noise. */
 function tone5xx(rate: number | null): Tone {
   if (rate === null) return "unknown";
   if (rate === 0) return "healthy";
@@ -15,7 +22,6 @@ function tone5xx(rate: number | null): Tone {
   return "critical";
 }
 
-/** Below 5% 4xx is normal traffic noise (bots, stale links). */
 function tone4xx(rate: number | null): Tone {
   if (rate === null) return "unknown";
   if (rate < 2) return "healthy";
@@ -23,7 +29,6 @@ function tone4xx(rate: number | null): Tone {
   return "critical";
 }
 
-/** A warm optimizer cache should serve nearly everything from disk. */
 function toneHitRate(rate: number | null): Tone {
   if (rate === null) return "unknown";
   if (rate >= 90) return "healthy";
@@ -40,26 +45,26 @@ function toneDuration(ms: number): Tone {
 function toneText(tone: Tone): string {
   switch (tone) {
     case "healthy":
-      return "text-emerald-700";
+      return "text-emerald-600";
     case "warning":
-      return "text-amber-700";
+      return "text-amber-600";
     case "critical":
-      return "text-rose-700";
+      return "text-rose-600";
     default:
       return "text-ink";
   }
 }
 
-function toneRow(tone: Tone): string {
+function toneDot(tone: Tone): string {
   switch (tone) {
     case "healthy":
-      return "bg-emerald-50/60";
+      return "bg-emerald-500";
     case "warning":
-      return "bg-amber-50/60";
+      return "bg-amber-500";
     case "critical":
-      return "bg-rose-50/60";
+      return "bg-rose-500";
     default:
-      return "";
+      return "bg-ink-muted";
   }
 }
 
@@ -67,26 +72,163 @@ function percent(value: number | null): string {
   return value === null ? "—" : `${value}%`;
 }
 
-function Stat({
+function formatNumber(value: number | undefined | null): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString()
+    : "—";
+}
+
+const KIND_ORDER: RequestKind[] = ["image", "api", "page", "static"];
+
+function kindLabel(kind: RequestKind, t: Translate): string {
+  switch (kind) {
+    case "image":
+      return t("access_diagnostics_kind_image");
+    case "api":
+      return t("access_diagnostics_kind_api");
+    case "page":
+      return t("access_diagnostics_kind_page");
+    case "static":
+      return t("access_diagnostics_kind_static");
+    default:
+      return t("access_diagnostics_kind_other");
+  }
+}
+
+function verdictLabel(verdict: ErrorVerdict, t: Translate): string {
+  switch (verdict) {
+    case "server":
+      return t("access_diagnostics_verdict_server");
+    case "client":
+      return t("access_diagnostics_verdict_client");
+    default:
+      return t("access_diagnostics_verdict_neutral");
+  }
+}
+
+function verdictTone(verdict: ErrorVerdict): Tone {
+  if (verdict === "server") return "critical";
+  if (verdict === "client") return "warning";
+  return "healthy";
+}
+
+function StatusBanner({
+  verdict,
+  title,
+  reasons,
+}: {
+  verdict: "ok" | "attention" | "critical";
+  title: string;
+  reasons: string[];
+}) {
+  const tone: Tone =
+    verdict === "critical" ? "critical" : verdict === "attention" ? "warning" : "healthy";
+  const border =
+    verdict === "critical"
+      ? "border-rose-200 bg-rose-50"
+      : verdict === "attention"
+        ? "border-amber-200 bg-amber-50"
+        : "border-emerald-200 bg-emerald-50";
+  return (
+    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${border}`}>
+      <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${toneDot(tone)}`} />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        {reasons.length > 0 ? (
+          <p className="mt-0.5 text-xs leading-5 text-ink-secondary">
+            {reasons.join(" · ")}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Kpi({
   label,
   value,
   suffix,
+  hint,
   tone,
 }: {
   label: string;
   value: string;
   suffix?: string;
+  hint: string;
   tone: Tone;
 }) {
   return (
-    <div>
-      <dt className="text-xs text-ink-muted">{label}</dt>
-      <dd className={`mt-1 text-2xl font-semibold tabular-nums ${toneText(tone)}`}>
+    <div className="rounded-xl border border-border bg-card px-4 py-3.5">
+      <p className="text-xs font-medium text-ink-muted">{label}</p>
+      <p className={`mt-1.5 text-2xl font-semibold leading-none tabular-nums ${toneText(tone)}`}>
         {value}
         {suffix ? (
           <span className="ml-1 text-sm font-normal text-ink-muted">{suffix}</span>
         ) : null}
-      </dd>
+      </p>
+      <p className="mt-2 text-xs leading-5 text-ink-muted">{hint}</p>
+    </div>
+  );
+}
+
+function Donut({
+  hit,
+  miss,
+  label,
+  tone,
+}: {
+  hit: number;
+  miss: number;
+  label: string;
+  tone: Tone;
+}) {
+  const total = hit + miss;
+  const rate = total > 0 ? hit / total : 0;
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const stroke =
+    tone === "healthy" ? "#059669" : tone === "warning" ? "#d97706" : "#e11d48";
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <svg width="132" height="132" viewBox="0 0 100 100" role="img" aria-label={label}>
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke="var(--color-border, #e5e7eb)"
+          strokeWidth="10"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={`${circumference * rate} ${circumference}`}
+          transform="rotate(-90 50 50)"
+        />
+        <text
+          x="50"
+          y="48"
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-ink text-[18px] font-semibold"
+        >
+          {total > 0 ? `${Math.round(rate * 100)}%` : "—"}
+        </text>
+        <text
+          x="50"
+          y="63"
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-ink-muted text-[8px]"
+        >
+          {label}
+        </text>
+      </svg>
     </div>
   );
 }
@@ -104,9 +246,21 @@ export function AccessDiagnosticsView({
   onRefresh: () => void;
   t: Translate;
 }) {
+  const [kindFilter, setKindFilter] = useState<RequestKind | "all">("all");
+  const [detailIndex, setDetailIndex] = useState<number | null>(null);
+
+  const slow = useMemo(
+    () =>
+      (data?.slowest ?? []).map((entry) => ({
+        ...entry,
+        parsed: parseRequest(entry.uri),
+      })),
+    [data],
+  );
+
   if (error) {
     return (
-      <div className="mt-5 text-sm text-ink-muted">
+      <div className="mt-5 rounded-xl border border-border bg-card px-4 py-6 text-sm text-ink-muted">
         {error === "unavailable"
           ? t("access_diagnostics_unavailable")
           : error}
@@ -116,25 +270,69 @@ export function AccessDiagnosticsView({
 
   if (!data) {
     return (
-      <div className="mt-5 text-sm text-ink-muted">
+      <div className="mt-5 rounded-xl border border-border bg-card px-4 py-6 text-sm text-ink-muted">
         {loading ? "…" : t("access_diagnostics_unavailable")}
       </div>
     );
   }
 
-  const total = data.requests || 0;
-  const rate4xx = total ? Math.round((data.status4xx / total) * 10000) / 100 : null;
+  const status = overallStatus(data);
+  const statusTitle =
+    status.verdict === "critical"
+      ? t("access_diagnostics_status_critical")
+      : status.verdict === "attention"
+        ? t("access_diagnostics_status_attention")
+        : t("access_diagnostics_status_ok");
+
+  const statusReasons = status.reasons.map((reason) => {
+    if (reason === "server_errors") {
+      return t("access_diagnostics_reason_server_errors", { count: data.status5xx });
+    }
+    if (reason === "hit_rate_low") {
+      return t("access_diagnostics_reason_hit_rate_low", {
+        rate: data.images.hitRate ?? 0,
+      });
+    }
+    if (reason === "hit_rate_warming") {
+      return t("access_diagnostics_reason_hit_rate_warming", {
+        rate: data.images.hitRate ?? 0,
+      });
+    }
+    const rate =
+      data.requests > 0
+        ? Math.round((data.status4xx / data.requests) * 1000) / 10
+        : 0;
+    return t("access_diagnostics_reason_4xx_high", { rate });
+  });
+
+  const rate4xx =
+    data.requests > 0
+      ? Math.round((data.status4xx / data.requests) * 1000) / 10
+      : null;
+
+  const errors = errorClasses(data.statusCounts, data.requests);
+  const filteredSlow =
+    kindFilter === "all"
+      ? slow
+      : slow.filter((entry) => entry.parsed.kind === kindFilter);
 
   return (
-    <div className="mt-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-        <p className="text-xs text-ink-muted">
-          {t("access_diagnostics_window", { count: data.windowLines })}
+    <div className="mt-5 space-y-6">
+      {/* 1. Overall status */}
+      <StatusBanner
+        verdict={status.verdict}
+        title={statusTitle}
+        reasons={statusReasons}
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
+        <span>
+          {t("access_diagnostics_window", { count: formatNumber(data.windowLines) })}
           {" · "}
           {t("access_diagnostics_generated_at", {
             time: new Date(data.generatedAt).toLocaleString(),
           })}
-        </p>
+        </span>
         <Button
           variant="secondary"
           size="sm"
@@ -146,163 +344,381 @@ export function AccessDiagnosticsView({
       </div>
 
       {data.stale ? (
-        <p className="mt-3 text-xs font-medium text-amber-700">
+        <p className="-mt-3 text-xs font-medium text-amber-600">
           {t("access_diagnostics_stale")}
         </p>
       ) : null}
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-        <Stat
+      {/* 2. KPI grid */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi
           label={t("access_diagnostics_requests")}
-          value={total.toLocaleString()}
+          value={formatNumber(data.requests)}
+          hint={t("access_diagnostics_kpi_hint_requests")}
           tone="unknown"
         />
-        <Stat
+        <Kpi
           label={t("access_diagnostics_5xx")}
-          value={data.status5xx.toLocaleString()}
+          value={formatNumber(data.status5xx)}
           suffix={`(${percent(data.errorRate5xx)})`}
+          hint={t("access_diagnostics_kpi_hint_5xx")}
           tone={tone5xx(data.errorRate5xx)}
         />
-        <Stat
+        <Kpi
           label={t("access_diagnostics_4xx")}
-          value={data.status4xx.toLocaleString()}
+          value={formatNumber(data.status4xx)}
           suffix={`(${percent(rate4xx)})`}
+          hint={t("access_diagnostics_kpi_hint_4xx")}
           tone={tone4xx(rate4xx)}
         />
-        <Stat
+        <Kpi
           label={t("access_diagnostics_image_hit")}
           value={percent(data.images.hitRate)}
+          hint={t("access_diagnostics_kpi_hint_hit")}
           tone={toneHitRate(data.images.hitRate)}
         />
-      </dl>
+      </div>
 
-      <section className="mt-7">
-        <h3 className="text-sm font-semibold">
-          {t("access_diagnostics_5xx_paths")}
-        </h3>
-        {data.top5xxPaths.length === 0 ? (
-          <p className="mt-2 text-sm text-emerald-700">
-            {t("access_diagnostics_no_5xx")}
+      {/* 3. Image performance */}
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5 sm:py-5">
+        <header>
+          <h3 className="text-sm font-semibold text-ink">
+            {t("access_diagnostics_image_title")}
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            {t("access_diagnostics_image_subtitle")}
           </p>
-        ) : (
-          <table className="mt-2 w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-ink-muted">
-                <th className="py-1.5 pr-3 font-medium">
-                  {t("access_diagnostics_path")}
-                </th>
-                <th className="w-20 py-1.5 text-right font-medium">
-                  {t("access_diagnostics_count")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.top5xxPaths.map(([path, count]) => (
-                <tr key={path} className={`border-b border-border/60 ${toneRow("critical")}`}>
-                  <td className="break-all py-1.5 pr-3 font-mono text-xs">{path}</td>
-                  <td className="py-1.5 text-right tabular-nums">{count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <p className="mt-2 text-xs text-ink-muted">
-          {t("access_diagnostics_5xx_hint")}
-        </p>
-      </section>
-
-      <section className="mt-7">
-        <h3 className="text-sm font-semibold">
-          {t("access_diagnostics_slowest")}
-        </h3>
-        {data.slowest.length === 0 ? (
-          <p className="mt-2 text-sm text-ink-muted">
-            {t("access_diagnostics_no_slowest")}
-          </p>
-        ) : (
-          <table className="mt-2 w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-ink-muted">
-                <th className="w-24 py-1.5 pr-3 font-medium">
-                  {t("access_diagnostics_duration")}
-                </th>
-                <th className="w-16 py-1.5 pr-3 font-medium">
-                  {t("access_diagnostics_status")}
-                </th>
-                <th className="py-1.5 font-medium">
-                  {t("access_diagnostics_path")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.slowest.map((entry, index) => (
-                <tr
-                  key={`${entry.uri}-${index}`}
-                  className={`border-b border-border/60 ${toneRow(toneDuration(entry.ms))}`}
-                >
-                  <td className={`py-1.5 pr-3 tabular-nums ${toneText(toneDuration(entry.ms))}`}>
-                    {entry.ms}ms
-                  </td>
-                  <td className="py-1.5 pr-3 tabular-nums">{entry.status}</td>
-                  <td className="break-all py-1.5 font-mono text-xs">{entry.uri}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <p className="mt-2 text-xs text-ink-muted">
-          {t("access_diagnostics_slow_hint")}
-        </p>
-      </section>
-
-      <section className="mt-7">
-        <h3 className="text-sm font-semibold">
-          {t("access_diagnostics_image_cache")}
-        </h3>
-        <table className="mt-2 w-full border-collapse text-sm">
-          <tbody>
-            <tr className="border-b border-border/60">
-              <td className="py-1.5 pr-3 text-ink-muted">
+        </header>
+        <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-8">
+          <Donut
+            hit={data.images.hit}
+            miss={data.images.miss}
+            label={t("access_diagnostics_image_chart_hit")}
+            tone={toneHitRate(data.images.hitRate)}
+          />
+          <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-ink-muted">
                 {t("access_diagnostics_image_requests")}
-              </td>
-              <td className="py-1.5 text-right tabular-nums">
-                {data.images.requests.toLocaleString()}
-              </td>
-            </tr>
-            <tr className="border-b border-border/60">
-              <td className="py-1.5 pr-3 text-ink-muted">
-                {t("access_diagnostics_hit")}
-              </td>
-              <td className="py-1.5 text-right tabular-nums text-emerald-700">
-                {data.images.hit.toLocaleString()}
-              </td>
-            </tr>
-            <tr className="border-b border-border/60">
-              <td className="py-1.5 pr-3 text-ink-muted">
-                {t("access_diagnostics_miss")}
-              </td>
-              <td className="py-1.5 text-right tabular-nums text-amber-700">
-                {data.images.miss.toLocaleString()}
-              </td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-3 text-ink-muted">
+              </dt>
+              <dd className="mt-0.5 font-semibold tabular-nums">
+                {formatNumber(data.images.requests)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
+                {t("access_diagnostics_image_chart_hit")}
+              </dt>
+              <dd className="mt-0.5 font-semibold tabular-nums text-emerald-600">
+                {formatNumber(data.images.hit)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
+                {t("access_diagnostics_image_chart_miss")}
+              </dt>
+              <dd className="mt-0.5 font-semibold tabular-nums text-amber-600">
+                {formatNumber(data.images.miss)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
                 {t("access_diagnostics_hit_rate")}
-              </td>
-              <td
-                className={`py-1.5 text-right tabular-nums font-semibold ${toneText(
+              </dt>
+              <dd
+                className={`mt-0.5 font-semibold tabular-nums ${toneText(
                   toneHitRate(data.images.hitRate),
                 )}`}
               >
                 {percent(data.images.hitRate)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p className="mt-2 text-xs text-ink-muted">
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
+                {t("access_diagnostics_image_coverage")}
+              </dt>
+              <dd className="mt-0.5 text-ink-muted">
+                {t("access_diagnostics_not_wired")}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
+                {t("access_diagnostics_image_last_warm")}
+              </dt>
+              <dd className="mt-0.5 text-ink-muted">
+                {t("access_diagnostics_not_wired")}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-muted">
+                {t("access_diagnostics_image_warm_failed")}
+              </dt>
+              <dd className="mt-0.5 text-ink-muted">
+                {t("access_diagnostics_not_wired")}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-ink-muted">
           {t("access_diagnostics_hit_hint")}
         </p>
       </section>
+
+      {/* 4. Error breakdown */}
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5 sm:py-5">
+        <header>
+          <h3 className="text-sm font-semibold text-ink">
+            {t("access_diagnostics_errors_title")}
+          </h3>
+          <p className="mt-0.5 text-xs leading-5 text-ink-muted">
+            {t("access_diagnostics_errors_note")}
+          </p>
+        </header>
+        {errors.length === 0 ? (
+          <p className="mt-3 text-sm text-emerald-600">
+            {t("access_diagnostics_errors_none")}
+          </p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-ink-muted">
+                  <th className="w-20 py-2 pr-3 font-medium">
+                    {t("access_diagnostics_error_code")}
+                  </th>
+                  <th className="w-20 py-2 pr-3 text-right font-medium">
+                    {t("access_diagnostics_error_count")}
+                  </th>
+                  <th className="w-20 py-2 pr-3 text-right font-medium">
+                    {t("access_diagnostics_error_share")}
+                  </th>
+                  <th className="py-2 font-medium">
+                    {t("access_diagnostics_error_verdict")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {errors.map((entry) => (
+                  <tr key={entry.code} className="border-b border-border/60 last:border-0">
+                    <td className="py-2 pr-3 font-mono text-xs">{entry.code}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {formatNumber(entry.count)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {entry.share}%
+                    </td>
+                    <td className={`py-2 font-medium ${toneText(verdictTone(entry.verdict))}`}>
+                      {verdictLabel(entry.verdict, t)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 5. Slowest requests */}
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5 sm:py-5">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              {t("access_diagnostics_slow_title")}
+            </h3>
+            <p className="mt-0.5 text-xs leading-5 text-ink-muted">
+              {t("access_diagnostics_slow_note")}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            <FilterChip
+              active={kindFilter === "all"}
+              onClick={() => {
+                setKindFilter("all");
+                setDetailIndex(null);
+              }}
+            >
+              {t("access_diagnostics_filter_all")}
+            </FilterChip>
+            {KIND_ORDER.map((kind) => (
+              <FilterChip
+                key={kind}
+                active={kindFilter === kind}
+                onClick={() => {
+                  setKindFilter(kind);
+                  setDetailIndex(null);
+                }}
+              >
+                {kindLabel(kind, t)}
+              </FilterChip>
+            ))}
+          </div>
+        </header>
+
+        {filteredSlow.length === 0 ? (
+          <p className="mt-3 text-sm text-ink-muted">
+            {t("access_diagnostics_no_slow")}
+          </p>
+        ) : (
+          <>
+            {/* Desktop: compact table */}
+            <div className="mt-3 hidden overflow-x-auto sm:block">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-ink-muted">
+                    <th className="w-full py-2 pr-3 font-medium">
+                      {t("access_diagnostics_col_resource")}
+                    </th>
+                    <th className="whitespace-nowrap py-2 pr-4 font-medium">
+                      {t("access_diagnostics_col_kind")}
+                    </th>
+                    <th className="whitespace-nowrap py-2 pr-4 text-right font-medium">
+                      {t("access_diagnostics_col_duration")}
+                    </th>
+                    <th className="whitespace-nowrap py-2 pr-4 text-right font-medium">
+                      {t("access_diagnostics_col_status")}
+                    </th>
+                    <th className="whitespace-nowrap py-2 font-medium">
+                      {t("access_diagnostics_col_cache")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSlow.map((entry, index) => {
+                    const tone = toneDuration(entry.ms);
+                    const open = detailIndex === index;
+                    return (
+                      <Fragment key={`${entry.uri}-${index}`}>
+                        <tr
+                          onClick={() => setDetailIndex(open ? null : index)}
+                          className="cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-primary-light/40"
+                        >
+                          <td className="max-w-[22rem] truncate py-2 pr-3" title={entry.parsed.name}>
+                            {entry.parsed.name}
+                          </td>
+                          <td className="whitespace-nowrap py-2 pr-4 text-xs text-ink-muted">
+                            {kindLabel(entry.parsed.kind, t)}
+                          </td>
+                          <td className={`whitespace-nowrap py-2 pr-4 text-right tabular-nums ${toneText(tone)}`}>
+                            {entry.ms}ms
+                          </td>
+                          <td className="whitespace-nowrap py-2 pr-4 text-right tabular-nums">
+                            {entry.status}
+                          </td>
+                          <td className="whitespace-nowrap py-2 text-xs text-ink-muted">
+                            {t("access_diagnostics_unknown")}
+                          </td>
+                        </tr>
+                        {open ? (
+                          <tr className="border-b border-border/60 bg-primary-light/20 last:border-0">
+                            <td colSpan={5} className="px-3 py-3">
+                              <RequestDetail entry={entry} t={t} />
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile: stacked cards so duration and status stay visible */}
+            <ul className="mt-3 space-y-2 sm:hidden">
+              {filteredSlow.map((entry, index) => {
+                const tone = toneDuration(entry.ms);
+                const open = detailIndex === index;
+                return (
+                  <li
+                    key={`${entry.uri}-${index}`}
+                    className="rounded-lg border border-border/70 px-3 py-2.5"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setDetailIndex(open ? null : index)}
+                      className="flex w-full items-start justify-between gap-3 text-left"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                        {entry.parsed.name}
+                      </span>
+                      <span className={`shrink-0 text-sm font-medium tabular-nums ${toneText(tone)}`}>
+                        {entry.ms}ms
+                      </span>
+                    </button>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-muted">
+                      <span>{kindLabel(entry.parsed.kind, t)}</span>
+                      <span aria-hidden>·</span>
+                      <span className="tabular-nums">{entry.status}</span>
+                      <span aria-hidden>·</span>
+                      <span>
+                        {t("access_diagnostics_col_cache")}：
+                        {t("access_diagnostics_unknown")}
+                      </span>
+                    </p>
+                    {open ? (
+                      <div className="mt-2 border-t border-border/60 pt-2">
+                        <RequestDetail entry={entry} t={t} />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
     </div>
+  );
+}
+
+function RequestDetail({
+  entry,
+  t,
+}: {
+  entry: { uri: string; parsed: { imageWidth: number | null } };
+  t: Translate;
+}) {
+  return (
+    <dl className="space-y-1.5 text-xs">
+      <div>
+        <dt className="font-medium text-ink-muted">
+          {t("access_diagnostics_detail_url")}
+        </dt>
+        <dd className="mt-0.5 break-all font-mono text-[11px] leading-5">
+          {entry.uri}
+        </dd>
+      </div>
+      {entry.parsed.imageWidth !== null ? (
+        <div>
+          <dt className="font-medium text-ink-muted">
+            {t("access_diagnostics_detail_width")}
+          </dt>
+          <dd className="mt-0.5 tabular-nums">{entry.parsed.imageWidth}px</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+        active
+          ? "border-cta bg-cta text-cta-foreground"
+          : "border-border bg-card text-ink-secondary hover:border-primary"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
