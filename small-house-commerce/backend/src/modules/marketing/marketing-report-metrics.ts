@@ -18,6 +18,7 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   /** ADID/AID attribution views only. */
   adId?: string | null; adIdSource?: string | null; adIdMissingReason?: string | null;
   adVisits?: bigint; productViews?: bigint; linkCount?: bigint; adCount?: bigint;
+  linkName?: string | null;
   validOrderValuePhp: Prisma.Decimal; signedGrossPhp: Prisma.Decimal; spendUsd: Prisma.Decimal; spendPhp: Prisma.Decimal;
   expectedCostDays: bigint; recordedCostDays: bigint;
 };
@@ -36,6 +37,7 @@ export type MarketingReportSerializedRow = SortableReportRow & {
   productThumbnailUrl: string | null; pageTotalVisits: number | null;
   adId: string | null; adIdSource: string | null; adIdMissingReason: string | null;
   adVisits: number; productViews: number; linkCount: number | null; adCount: number | null;
+  linkName: string | null;
 };
 
 export function serializeMarketingReportRow(row: MarketingReportRawRow, productThumbnailUrl: string | null = null): MarketingReportSerializedRow {
@@ -66,6 +68,7 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow, productT
     productViews: Number(row.productViews ?? 0n),
     linkCount: row.linkCount == null ? null : Number(row.linkCount),
     adCount: row.adCount == null ? null : Number(row.adCount),
+    linkName: row.linkName ?? null,
     productThumbnailUrl: productThumbnailUrl ?? null,
     ...counts, visits, pageTotalVisits: row.pageTotalVisits == null ? null : Number(row.pageTotalVisits),
     validOrderValuePhp: new Prisma.Decimal(row.validOrderValuePhp).toFixed(2), signedGrossPhp: new Prisma.Decimal(row.signedGrossPhp).toFixed(2),
