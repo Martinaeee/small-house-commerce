@@ -9,6 +9,7 @@ Usage (on the server):
     luwag-access-report.sh                 # last 20000 lines
     luwag-access-report.sh --lines 50000
     luwag-access-report.sh --json          # machine-readable, for the status page
+    luwag-access-report.sh --json --out /var/lib/luwag/access.json
 
 Environment:
     ACCESS_LOG   path to access.log (default: the prod Caddy data volume)
@@ -19,7 +20,9 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_LOG = "/var/lib/docker/volumes/small-house-prod_prod_caddy_data/_data/access.log"
@@ -57,6 +60,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lines", type=int, default=20000)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--out", default=None, help="write the JSON report here (atomic)")
     parser.add_argument("--log", default=os.environ.get("ACCESS_LOG", DEFAULT_LOG))
     args = parser.parse_args()
 
@@ -102,6 +106,7 @@ def main() -> int:
 
     slow.sort(reverse=True)
     report = {
+        "generatedAt": datetime.now(timezone.utc).astimezone().isoformat(),
         "log": str(path),
         "linesRead": len(lines),
         "requests": total,
@@ -121,6 +126,26 @@ def main() -> int:
         ],
         "statusCounts": dict(status_counts.most_common(10)),
     }
+
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(
+            dir=str(out_path.parent), prefix=".access-", suffix=".json"
+        )
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(report, handle, indent=2)
+            # The backend reads this through a read-only mount as a non-root
+            # user, so the file has to be world-readable before it lands.
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, out_path)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        if args.json:
+            print(json.dumps(report, indent=2))
+        return 0
 
     if args.json:
         print(json.dumps(report, indent=2))

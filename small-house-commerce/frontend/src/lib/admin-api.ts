@@ -1845,6 +1845,25 @@ export interface AdminSystemStatus {
   };
 }
 
+export interface AdminAccessReport {
+  generatedAt: string;
+  stale: boolean;
+  windowLines: number;
+  requests: number;
+  status5xx: number;
+  status4xx: number;
+  errorRate5xx: number | null;
+  images: {
+    requests: number;
+    hit: number;
+    miss: number;
+    hitRate: number | null;
+  };
+  top5xxPaths: [string, number][];
+  slowest: { ms: number; uri: string; status: number }[];
+  statusCounts: Record<string, number>;
+}
+
 // --- team members (admin RBAC) -----------------------------------------------
 
 export type AdminRoleCode =
@@ -3001,6 +3020,10 @@ export const adminApi = {
   /** Host/system snapshot for the admin status page (read-only). */
   systemStatus: (): Promise<AdminSystemStatus> =>
     adminAuthedFetch<AdminSystemStatus>("/api/v1/admin/system-status"),
+
+  /** 5xx rate, image-cache hit ratio and slowest paths (read-only). */
+  systemAccess: (): Promise<AdminAccessReport> =>
+    adminAuthedFetch<AdminAccessReport>("/api/v1/admin/system-status/access"),
 
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>

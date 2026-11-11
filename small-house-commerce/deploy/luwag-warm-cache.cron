@@ -3,3 +3,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Re-warm the Next image optimizer cache after a frontend container rebuild
 # resets .next/cache/images. The wrapper no-ops while the cache is warm.
 */15 * * * * root /usr/local/sbin/luwag-warm-cache-if-cold.sh
+# Refresh the access report the admin "access diagnostics" page reads. The
+# script writes atomically and the backend mounts /var/lib/luwag read-only.
+*/5 * * * * root /usr/local/sbin/luwag-access-report.sh --json --out /var/lib/luwag/access.json >/dev/null 2>&1

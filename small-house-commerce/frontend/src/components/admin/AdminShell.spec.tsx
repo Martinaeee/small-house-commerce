@@ -363,6 +363,7 @@ describe("AdminShell website navigation group", () => {
       "nav_settings",
       "nav_qianyi",
       "nav_system_status",
+      "nav_access_diagnostics",
       "nav_team",
       "marketing_title",
       "nav_newsletter",

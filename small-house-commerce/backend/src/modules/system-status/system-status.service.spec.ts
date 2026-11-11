@@ -66,3 +66,101 @@ describe('SystemStatusService', () => {
     expect(() => service.getStatus()).toThrow(ServiceUnavailableException);
   });
 });
+
+describe('SystemStatusService access report', () => {
+  let dir: string;
+  let accessFile: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'luwag-access-'));
+    accessFile = join(dir, 'access.json');
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const report = {
+    generatedAt: '2026-11-11T09:00:00Z',
+    windowLines: 20000,
+    requests: 1000,
+    status5xx: 2,
+    status4xx: 12,
+    errorRate5xx: 0.2,
+    images: { requests: 400, hit: 380, miss: 20, hitRate: 95 },
+    top5xxPaths: [['/api/v1/storefront/cart', 2]],
+    slowest: [{ ms: 1200, uri: '/_next/image?url=x&w=1440&q=75', status: 200 }],
+    statusCounts: { '200': 986, '404': 12, '500': 2 },
+  };
+
+  it('parses a complete report and marks it fresh', () => {
+    writeFileSync(accessFile, JSON.stringify(report));
+    const service = new SystemStatusService({
+      accessFilePath: accessFile,
+      now: () => Date.parse('2026-11-11T09:01:00Z'),
+    });
+
+    expect(service.getAccessReport()).toMatchObject({
+      generatedAt: report.generatedAt,
+      stale: false,
+      requests: 1000,
+      status5xx: 2,
+      errorRate5xx: 0.2,
+      images: { requests: 400, hit: 380, miss: 20, hitRate: 95 },
+      top5xxPaths: [['/api/v1/storefront/cart', 2]],
+    });
+  });
+
+  it('marks a report older than 15 minutes as stale', () => {
+    writeFileSync(accessFile, JSON.stringify(report));
+    const service = new SystemStatusService({
+      accessFilePath: accessFile,
+      now: () => Date.parse('2026-11-11T09:16:00Z'),
+    });
+
+    expect(service.getAccessReport().stale).toBe(true);
+  });
+
+  it('fails closed with 503 when the report is missing', () => {
+    const service = new SystemStatusService({ accessFilePath: accessFile });
+
+    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+  });
+
+  it('fails closed with 503 when the report is not valid JSON', () => {
+    writeFileSync(accessFile, 'not json');
+    const service = new SystemStatusService({ accessFilePath: accessFile });
+
+    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+  });
+
+  it('fails closed with 503 when generatedAt is missing', () => {
+    writeFileSync(accessFile, JSON.stringify({ requests: 10 }));
+    const service = new SystemStatusService({ accessFilePath: accessFile });
+
+    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+  });
+
+  it('degrades unknown fields instead of throwing', () => {
+    writeFileSync(
+      accessFile,
+      JSON.stringify({
+        generatedAt: '2026-11-11T09:00:00Z',
+        images: 'nope',
+        top5xxPaths: ['bad', ['/x', 'y']],
+        slowest: [{ ms: 'slow' }],
+        statusCounts: { '200': 'many' },
+      }),
+    );
+    const service = new SystemStatusService({ accessFilePath: accessFile });
+
+    expect(service.getAccessReport()).toMatchObject({
+      requests: 0,
+      errorRate5xx: null,
+      images: { requests: 0, hit: 0, miss: 0, hitRate: null },
+      top5xxPaths: [],
+      slowest: [],
+      statusCounts: {},
+    });
+  });
+});

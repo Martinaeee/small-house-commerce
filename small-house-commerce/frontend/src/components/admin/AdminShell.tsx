@@ -154,6 +154,15 @@ const NAV_ITEMS: NavEntry[] = [
         href: "/admin/status",
         labelKey: "nav_system_status",
         permission: "SYSTEM_SETTINGS_EDIT",
+        // `/admin/status/access` is its own nav entry; a prefix match here
+        // would light up both rows at once.
+        exact: true,
+      },
+      {
+        kind: "item",
+        href: "/admin/status/access",
+        labelKey: "nav_access_diagnostics",
+        permission: "SYSTEM_SETTINGS_EDIT",
       },
     ],
   },
