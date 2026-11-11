@@ -32,7 +32,7 @@
 }
 ```
 
-## 12 项结果
+## 验收结果（11 项通过 + 第 12 项 N/A）
 
 | # | 项目 | 结果 | 证据 |
 |---|---|---|---|
@@ -62,3 +62,56 @@
   `attribution: { sourceType: "ORGANIC" }` 后成功。服务端仍以验签 claims 为准，
   客户端 `sourceType` 未影响归因。
 - 未执行 Task 15（生产发布）与 Task 16（历史回填）。
+
+---
+
+## 审核补充（第二轮）
+
+### 代码版本
+
+- Staging 实际运行源码 = **`0aae52d3`**（部署时 worktree 的最后一个运行时提交）。
+- 验证：`git archive 0aae52d3` 后执行
+  `rsync -a --checksum --delete --dry-run -i -e ssh`（排除
+  `node_modules/.next/.git/dist/*.tsbuildinfo/backend/uploads/backend/src/generated/frontend/next-env.d.ts`）
+  → **0 行差异**。
+- 当前 worktree 与 Staging source 的差异 = 6 行：3 个测试文件、
+  `marketing-report.service.ts`（仅类型标注）、2 个文档；运行时行为未变。
+- `4ecf81d6` 是审核报告提交（父 `f34b9e68`）；`f34b9e68` 是 Staging 证据提交。
+  两个提交都不包含运行时逻辑变更。
+
+### 验收口径修正
+
+- Staging：**11 项实测通过**；第 12 项 Pixel/CAPI 为 **N/A**（compose 显式
+  `NEXT_PUBLIC_META_PIXEL_ID=""`，不发送真实 Pixel 事件）。
+- Pixel/CAPI 由单元测试另行覆盖：
+  - 后端 `src/modules/meta-capi`：5 文件 / 34 测试通过。
+  - 前端 `PurchaseTracking.spec.tsx` + `tracking.touch.spec.ts`：2 文件 /
+    34 测试通过。
+- 关键测试：`sends one deduplicated event with hashed user data`、
+  `queues one row per event id, even when the browser retries the same POST`、
+  `fires the stashed payload Purchase once with the server value`、
+  `a refresh after the payload load never re-fires the Purchase`。
+
+### rsync --delete dry-run
+
+实际部署：
+
+```bash
+rsync -a --delete -e ssh \
+  --exclude node_modules --exclude .next --exclude .git \
+  <worktree>/small-house-commerce/ \
+  luwag-new:/opt/luwag-staging/source/small-house-commerce/
+```
+
+审计 dry-run（`0aae52d3` ↔ Staging source，排除构建/运行产物）：
+
+```bash
+rsync -a --checksum --delete --dry-run -i -e ssh \
+  --exclude node_modules --exclude .next --exclude .git \
+  --exclude dist --exclude '*.tsbuildinfo' \
+  --exclude backend/uploads --exclude backend/src/generated \
+  --exclude frontend/next-env.d.ts \
+  /tmp/meta-attr-0aae52d3/small-house-commerce/ \
+  luwag-new:/opt/luwag-staging/source/small-house-commerce/
+# 0 行
+```

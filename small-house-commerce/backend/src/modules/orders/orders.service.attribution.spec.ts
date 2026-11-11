@@ -276,6 +276,19 @@ describe('immutable order marketing attribution', () => {
     });
   });
 
+  it('falls back to the link static ad ID when the dynamic value is invalid', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: '120200000000001' });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '{{ad.id}}' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: 'AD-OP-1-261111-01', adidSource: 'LINK',
+        adId: '120200000000001', linkId: LINK,
+      } },
+    });
+  });
+
   it('keeps legacy AID-only dynamic ad IDs attributable on orders', async () => {
     const h = setup();
     const result = await h.touch.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });

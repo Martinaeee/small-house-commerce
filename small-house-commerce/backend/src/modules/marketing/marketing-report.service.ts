@@ -4,10 +4,28 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { assertVisible, scopeFor, type MarketingAccount } from './marketing-access.js';
 import type { MarketingReportQuery } from './dto/marketing-report.dto.js';
 import { marketingOrderFactsSql, marketingOrderTotalsSql, verifiedAttributionSql } from './marketing-report-facts.js';
-import { serializeMarketingReportRow, type MarketingReportRawRow } from './marketing-report-metrics.js';
+import { serializeMarketingReportRow, type MarketingReportRawRow, type MarketingReportSerializedRow } from './marketing-report-metrics.js';
 import { sortMarketingReportRows } from './marketing-report-sort.js';
 import { buildMarketingReportTree, type MarketingReportVisitRow } from './marketing-report-tree.js';
 import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
+
+/** One response shape for FLAT, TREE and the attribution views. */
+export type MarketingReportResult = {
+  from: string;
+  to: string;
+  groupBy: MarketingReportQuery['groupBy'];
+  mode: MarketingReportQuery['mode'];
+  sortBy: MarketingReportQuery['sortBy'];
+  sortDirection: MarketingReportQuery['sortDirection'];
+  asOf: string;
+  linkCount?: number;
+  tree?: ReturnType<typeof buildMarketingReportTree>;
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  rows?: MarketingReportSerializedRow[];
+  otherSources: MarketingReportSerializedRow[];
+};
 
 @Injectable()
 export class MarketingReportService {
@@ -16,7 +34,7 @@ export class MarketingReportService {
     private readonly attributionReport: MarketingAttributionReportService,
   ) {}
 
-  async report(query: MarketingReportQuery, account: MarketingAccount) {
+  async report(query: MarketingReportQuery, account: MarketingAccount): Promise<MarketingReportResult> {
     if (query.groupBy === 'ADID' || query.groupBy === 'AID') {
       return this.attributionReport.report(query, account);
     }

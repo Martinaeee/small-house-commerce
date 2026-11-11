@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import type { OrderStatus, PaymentStatus } from '../../generated/prisma/client.js';
 import { MarketingReportService } from './marketing-report.service.js';
 import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
+import type { MarketingReportQuery } from './dto/marketing-report.dto.js';
 import { AdCostsService } from './ad-costs.service.js';
 import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
@@ -24,7 +25,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
   const tag = randomUUID();
   const own = () => ({ id: ownerId, permissions: ['MARKETING_VIEW_OWN'] });
   const writer = () => ({ id: ownerId, permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OWN'] });
-  const query = (extra = {}) => ({ from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, page: 1, pageSize: 20, ...extra });
+  const query = (extra: Partial<MarketingReportQuery> = {}): MarketingReportQuery => ({ from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK', mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', page: 1, pageSize: 20, ...extra });
 
   beforeAll(async () => {
     prisma = createMarketingTestPrisma(database!); await prisma.$connect();
@@ -144,7 +145,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     expect(links.rows.map(row => row.visits)).toEqual([1, 1]);
     const pages = await report.report(query({ ...selected, groupBy: 'PAGE' }), own());
     expect(pages.rows).toHaveLength(1); expect(pages.rows[0]).toMatchObject({ visits: 1, pageTotalVisits: 2 });
-    for (const groupBy of ['PRODUCT', 'OWNER']) expect((await report.report(query({ ...selected, groupBy }), own())).rows[0]).toMatchObject({ visits: 1 });
+    for (const groupBy of ['PRODUCT', 'OWNER'] as const) expect((await report.report(query({ ...selected, groupBy }), own())).rows![0]).toMatchObject({ visits: 1 });
   });
 
   it('attributes first-party funnel events to their registered links and ignores unattributed ones', async () => {
@@ -230,11 +231,11 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     ] });
     await order(t, { adId: '120200000000001', adid: '120200000000001', adidSource: 'META_DYNAMIC' });
     const result = await report.report(query({ groupBy: 'ADID', linkIds: [t.link.id] }), own());
-    expect(result.rows).toHaveLength(2);
-    expect(result.rows.map((row) => row.adId).sort()).toEqual(['120200000000001', '120200000000002']);
-    expect(result.rows.every((row) => row.visits === null)).toBe(true);
-    expect(result.rows.map((row) => row.adVisits)).toEqual([1, 1]);
-    expect(result.rows[0]).toMatchObject({ ownerName: 'Report owner', aid: 'REPORT-OWNER' });
+    expect(result.rows!).toHaveLength(2);
+    expect(result.rows!.map((row) => row.adId).sort()).toEqual(['120200000000001', '120200000000002']);
+    expect(result.rows!.every((row) => row.visits === null)).toBe(true);
+    expect(result.rows!.map((row) => row.adVisits)).toEqual([1, 1]);
+    expect(result.rows![0]).toMatchObject({ ownerName: 'Report owner', aid: 'REPORT-OWNER' });
   });
 
   it('takes the AdID row owner from verified claims, not the link owner', async () => {
@@ -243,7 +244,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
       data: { eventName: 'PAGE_VIEW', sessionId: 'claimed-owner', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000009', optimizerId: otherId, aidSnapshot: 'OTHER-OWNER', attributionPaid: true, productId },
     });
     const result = await report.report(query({ groupBy: 'ADID', linkIds: [t.link.id] }), own());
-    expect(result.rows[0]).toMatchObject({ ownerName: 'Report other', aid: 'OTHER-OWNER' });
+    expect(result.rows![0]).toMatchObject({ ownerName: 'Report other', aid: 'OTHER-OWNER' });
   });
 
   it('counts distinct links and ad IDs for the AID view without double counting', async () => {
@@ -263,7 +264,27 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     await order(first, { adId: '120200000000001', adid: '120200000000001', adidSource: 'META_DYNAMIC' });
     await order(second, { adId: '120200000000003', adid: '120200000000003', adidSource: 'META_DYNAMIC' });
     const result = await report.report(query({ groupBy: 'AID', linkIds: [first.link.id, second.link.id] }), own());
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({ aid: 'REPORT-OWNER', linkCount: 2, adCount: 3, adVisits: 3 });
+    expect(result.rows!).toHaveLength(1);
+    expect(result.rows![0]).toMatchObject({ aid: 'REPORT-OWNER', linkCount: 2, adCount: 3, adVisits: 3 });
+  });
+
+  it('does not multiply order amounts by event rows in ADID or AID views', async () => {
+    const t = await target();
+    await prisma.analyticsEvent.createMany({ data: [
+      { eventName: 'PAGE_VIEW', sessionId: 'no-double-1', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000010', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+      { eventName: 'PRODUCT_VIEW', sessionId: 'no-double-1', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000010', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+    ] });
+    await order(t, { adId: '120200000000010', adid: '120200000000010', adidSource: 'META_DYNAMIC', value: '1000.00' });
+    const selected = { linkIds: [t.link.id] };
+    const adid = await report.report(query({ ...selected, groupBy: 'ADID' }), own());
+    expect(adid.rows![0]).toMatchObject({
+      adVisits: 1, productViews: 1, submittedOrders: 1, validOrders: 1,
+      validOrderValuePhp: '1000.00', signedGrossPhp: '0.00',
+    });
+    const aid = await report.report(query({ ...selected, groupBy: 'AID' }), own());
+    expect(aid.rows![0]).toMatchObject({
+      linkCount: 1, adCount: 1, adVisits: 1, productViews: 1,
+      submittedOrders: 1, validOrderValuePhp: '1000.00',
+    });
   });
 });

@@ -260,6 +260,15 @@ describe('server-signed marketing touch', () => {
     });
   });
 
+  it.each(['{{ad.id}}', 'forged', '12345'])('falls back to a static link ad ID when the dynamic value is invalid: %j', async adId => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000001', adIdSource: 'LINK', adIdMissingReason: null,
+    });
+  });
+
   it('keeps the legacy AID-only link compatible with a dynamic ad ID', async () => {
     const { service } = setup();
     const result = await service.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });

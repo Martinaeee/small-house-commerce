@@ -8,6 +8,7 @@ import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
 import { MarketingPerformanceService } from './marketing-performance.service.js';
 import { MarketingReportService } from './marketing-report.service.js';
+import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
 import { marketingPerformanceQuerySchema } from './dto/marketing-performance.dto.js';
 
 const database = marketingTestDatabase();
@@ -41,7 +42,7 @@ describe.skipIf(!database)('marketing performance PostgreSQL aggregates', () => 
   beforeAll(async () => {
     prisma = createMarketingTestPrisma(database!); await prisma.$connect();
     performance = new MarketingPerformanceService(prisma);
-    report = new MarketingReportService(prisma);
+    report = new MarketingReportService(prisma, new MarketingAttributionReportService(prisma));
     optimizers = new OptimizersService(prisma);
     costs = new AdCostsService(prisma, new CampaignLinksService(prisma, optimizers));
     const suffix = tag.slice(0, 8).toUpperCase();
