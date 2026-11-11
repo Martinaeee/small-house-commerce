@@ -34,13 +34,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.environ.get("BASE", "https://luwag.shop").rstrip("/")
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "6"))
-CONCURRENCY = int(os.environ.get("CONCURRENCY", "2"))
+CONCURRENCY = int(os.environ.get("CONCURRENCY", "3"))
 MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "400"))
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 
-# Skip the tiny thumbnails: they are cheap to transform and would triple the
-# request count without meaningfully improving first-paint.
-SKIP_WIDTHS = {"16", "32", "48", "64", "96", "128", "256", "384"}
+# Skip the tiny thumbnails and the 2x phone rendition: they are cheap to
+# transform and would add a third of the request count without meaningfully
+# improving first-paint. Phones on DPR 3 pick 1080, desktops pick 1440.
+SKIP_WIDTHS = {"16", "32", "48", "64", "96", "128", "256", "384", "750"}
 
 IMAGE_RE = re.compile(r'/_next/image\?[^"\'<>\s]+')
 PRODUCT_RE = re.compile(r'href="(/products/[^"?#]+)')
@@ -58,9 +59,18 @@ def http_get(path: str, accept: str = "text/html") -> tuple[int, bytes, dict]:
         return 0, str(exc).encode(), {}
 
 
+def http_get_with_retry(path: str, accept: str = "text/html") -> tuple[int, bytes, dict]:
+    result = http_get(path, accept)
+    if result[0] == 0:
+        time.sleep(1)
+        result = http_get(path, accept)
+    return result
+
+
+
 def collect_pages() -> list[str]:
     pages = ["/", "/collections/all-products"]
-    status, body, _ = http_get("/api/v1/storefront/products?pageSize=%d" % PRODUCT_LIMIT)
+    status, body, _ = http_get_with_retry("/api/v1/storefront/products?pageSize=%d" % PRODUCT_LIMIT)
     if status == 200:
         try:
             data = json.loads(body)
@@ -77,11 +87,14 @@ def collect_image_urls(pages: list[str]) -> tuple[set[str], list[str]]:
     urls: set[str] = set()
     failed_pages: list[str] = []
     for page in pages:
-        status, body, _ = http_get(page)
+        status, body, _ = http_get_with_retry(page)
         if status != 200:
             failed_pages.append(f"{page} -> {status or 'error'}")
             continue
-        html = body.decode("utf-8", "replace").replace("&amp;", "&")
+        html = body.decode("utf-8", "replace")
+        # `&amp;` comes from HTML attributes, `&` from the RSC payload
+        # embedded in the same document.
+        html = html.replace("&amp;", "&").replace("\\u0026", "&")
         for match in IMAGE_RE.finditer(html):
             url = match.group(0)
             width = re.search(r"[?&]w=(\d+)", url)
@@ -93,7 +106,7 @@ def collect_image_urls(pages: list[str]) -> tuple[set[str], list[str]]:
 
 def warm(url: str) -> tuple[str, str, int, int]:
     started = time.time()
-    status, body, headers = http_get(url, accept="image/*")
+    status, body, headers = http_get_with_retry(url, accept="image/*")
     elapsed = int((time.time() - started) * 1000)
     cache = headers.get("x-nextjs-cache") or headers.get("X-Nextjs-Cache") or "-"
     return url, cache, status, elapsed if status == 200 else elapsed
