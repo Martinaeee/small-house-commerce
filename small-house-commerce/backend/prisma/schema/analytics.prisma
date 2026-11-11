@@ -57,6 +57,18 @@ model AnalyticsEvent {
   /// signed marketing-touch credential the batch carries; null for organic or
   /// invalid touches. Never a copy of client-supplied ids.
   campaignLinkId String?            @map("campaign_link_id") @db.Uuid
+  /// Verified attribution copied from the signed marketing-touch credential.
+  /// Never from the public event body; null means no verified touch.
+  optimizerId        String?  @map("optimizer_id") @db.Uuid
+  aidSnapshot        String?  @map("aid_snapshot") @db.VarChar(64)
+  adId               String?  @map("ad_id") @db.VarChar(64)
+  adIdSource         String?  @map("ad_id_source") @db.VarChar(24)
+  adIdMissingReason  String?  @map("ad_id_missing_reason") @db.VarChar(48)
+  adsetId            String?  @map("adset_id") @db.VarChar(64)
+  attributionPaid    Boolean? @map("attribution_paid")
+  linkResolution     String?  @map("link_resolution") @db.VarChar(16)
+  attributionConflict Boolean? @map("attribution_conflict")
+  conflictDetail     String?  @map("conflict_detail") @db.VarChar(240)
   metadata       Json?
   /// Asia/Manila calendar day. Indexed and used for impression dedupe.
   eventDay       DateTime           @map("event_day") @db.Date
@@ -68,6 +80,9 @@ model AnalyticsEvent {
   @@index([sectionId, eventName, eventDay])
   @@index([productId, eventName, eventDay])
   @@index([campaignLinkId, eventName, eventDay])
+  @@index([adId, eventName, eventDay])
+  @@index([optimizerId, eventName, eventDay])
+  @@index([campaignLinkId, adId, eventDay])
   @@index([createdAt])
   @@map("analytics_events")
 }
