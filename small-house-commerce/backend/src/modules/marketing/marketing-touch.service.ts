@@ -20,6 +20,22 @@ const emptyMetadata = {
 const productFields = { id: true, name: true, productCode: true, slug: true, status: true } as const;
 type ProductForTouch = { id: string; name: string; productCode: string | null };
 
+type LinkForTouch = {
+  id: string;
+  product: ProductForTouch | null;
+  landingPageId: string | null;
+  publishedRevision: number | null;
+  sourceType: MarketingTouchClaims['sourceType'];
+  adId: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+};
+
 function pathSlug(path: string | undefined, prefix: 'lp' | 'products'): string | null {
   const match = path?.match(new RegExp(`^/${prefix}/([^/]+)/?$`));
   if (!match) return null;
@@ -54,8 +70,17 @@ export class MarketingTouchService {
 
   async touch(input: MarketingTouchInput): Promise<TouchResult> {
     const now = new Date();
-    if (input.code !== undefined) return this.touchLink(input, now);
-    if (input.aid !== undefined) return this.touchAid(input, now);
+    if (input.code !== undefined) {
+      const result = await this.touchLink(input, now);
+      if (result.credential || !input.aid) return result;
+      return this.touchAid(
+        input,
+        now,
+        'AID_FALLBACK',
+        `CL ${input.code} did not resolve; used AID ${input.aid}`,
+      );
+    }
+    if (input.aid !== undefined) return this.touchAid(input, now, 'AID');
     return this.touchPage(input, now);
   }
 
@@ -92,6 +117,7 @@ export class MarketingTouchService {
 
     // AID wins over a conflicting legacy link, but the conflict is recorded.
     const rawAid = input.aid ? normaliseAid(input.aid) : null;
+    let conflict: string | undefined;
     if (rawAid && rawAid !== link.aidSnapshot) {
       const profile = await this.optimizers.resolveByAid(rawAid);
       if (profile && profile.status === 'ACTIVE') {
@@ -100,9 +126,18 @@ export class MarketingTouchService {
           publishedRevision: link.landingPage?.publishedRevision ?? null,
           sourceType: link.sourceType, paid, provenance,
           linkResolution: 'CL',
+          link: {
+            id: link.id, product: link.product, landingPageId: link.landingPageId,
+            publishedRevision: link.landingPage?.publishedRevision ?? null,
+            sourceType: link.sourceType, adId: link.adId,
+            campaignId: link.campaignId, adsetId: link.adsetId,
+            utmSource: link.utmSource, utmMedium: link.utmMedium, utmCampaign: link.utmCampaign,
+            utmContent: link.utmContent, utmTerm: link.utmTerm,
+          },
           conflict: `AID ${rawAid} != link AID ${link.aidSnapshot}`, now,
         });
       }
+      conflict = `AID ${rawAid} is not an active optimizer; kept link AID ${link.aidSnapshot}`;
     }
 
     return this.sign({
@@ -128,10 +163,16 @@ export class MarketingTouchService {
       linkId: link.id, productId: link.productId, productName: link.product.name, productCode: link.product.productCode,
       landingPageId: link.landingPageId, publishedRevision: link.landingPage?.publishedRevision ?? null,
       sourceType: link.sourceType, legacy: false, paid,
+      ...(conflict ? { attributionConflict: true, conflictDetail: conflict } : {}),
     }, now);
   }
 
-  private async touchAid(input: MarketingTouchInput, now: Date): Promise<TouchResult> {
+  private async touchAid(
+    input: MarketingTouchInput,
+    now: Date,
+    resolution: 'AID' | 'AID_FALLBACK' = 'AID',
+    conflict?: string,
+  ): Promise<TouchResult> {
     const profile = await this.optimizers.resolveByAid(input.aid!);
     if (!profile || profile.status !== 'ACTIVE') return emptyTouch;
     const user = await this.prisma.user.findUnique({ where: { id: profile.userId }, select: { status: true } });
@@ -158,7 +199,8 @@ export class MarketingTouchService {
       publishedRevision: page?.publishedRevision ?? null,
       sourceType: 'META_AD', paid,
       provenance: adIdProvenance(input.adId, null, paid),
-      linkResolution: 'AID',
+      linkResolution: resolution,
+      conflict,
       now,
     });
   }
@@ -198,30 +240,37 @@ export class MarketingTouchService {
     paid: boolean;
     provenance: TouchProvenance | null;
     linkResolution: LinkResolution;
+    link?: LinkForTouch;
     conflict?: string;
     now: Date;
   }): TouchResult {
+    const link = input.link;
     return this.sign({
       ...emptyMetadata,
       adId: input.provenance?.adId ?? null,
       adIdSource: input.provenance?.adIdSource,
       adIdMissingReason: input.provenance?.adIdMissingReason ?? null,
       linkResolution: input.linkResolution,
-      campaignId: input.input.campaignId ?? null,
-      adsetId: input.input.adsetId ?? null,
+      campaignId: input.input.campaignId ?? link?.campaignId ?? null,
+      adsetId: input.input.adsetId ?? link?.adsetId ?? null,
       fbclid: input.input.fbclid ?? null,
       fbc: input.input.fbc ?? null,
       fbp: input.input.fbp ?? null,
       referrer: input.input.referrer ?? null,
-      utmSource: input.input.utmSource ?? null,
-      utmMedium: input.input.utmMedium ?? null,
-      utmCampaign: input.input.utmCampaign ?? null,
-      utmContent: input.input.utmContent ?? null,
-      utmTerm: input.input.utmTerm ?? null,
+      utmSource: input.input.utmSource ?? link?.utmSource ?? null,
+      utmMedium: input.input.utmMedium ?? link?.utmMedium ?? null,
+      utmCampaign: input.input.utmCampaign ?? link?.utmCampaign ?? null,
+      utmContent: input.input.utmContent ?? link?.utmContent ?? null,
+      utmTerm: input.input.utmTerm ?? link?.utmTerm ?? null,
       ownerUserId: input.profile.userId, aid: normaliseAid(input.aid)!, ownerName: input.profile.displayName,
-      linkId: null, productId: input.product?.id ?? null, productName: input.product?.name ?? null, productCode: input.product?.productCode ?? null,
-      landingPageId: input.landingPageId, publishedRevision: input.publishedRevision,
-      sourceType: input.paid ? input.sourceType : 'ORGANIC', legacy: false, paid: input.paid,
+      linkId: link?.id ?? null,
+      productId: link ? link.product?.id ?? null : input.product?.id ?? null,
+      productName: link ? link.product?.name ?? null : input.product?.name ?? null,
+      productCode: link ? link.product?.productCode ?? null : input.product?.productCode ?? null,
+      landingPageId: link?.landingPageId ?? input.landingPageId,
+      publishedRevision: link?.publishedRevision ?? input.publishedRevision,
+      sourceType: link?.sourceType ?? (input.paid ? input.sourceType : 'ORGANIC'),
+      legacy: false, paid: input.paid,
       ...(input.conflict ? { attributionConflict: true, conflictDetail: input.conflict } : {}),
     }, input.now);
   }

@@ -8,6 +8,8 @@ import { OptimizersService } from './optimizers.service.js';
 
 const USER = '11111111-1111-4111-a111-111111111111';
 const PROFILE = '22222222-2222-4222-a222-222222222222';
+const USER_TWO = '88888888-8888-4888-a888-888888888888';
+const PROFILE_TWO = '99999999-9999-4999-a999-999999999999';
 const PRODUCT = '33333333-3333-4333-a333-333333333333';
 const PAGE = '44444444-4444-4444-a444-444444444444';
 const LINK = '55555555-5555-4555-a555-555555555555';
@@ -22,14 +24,16 @@ function setup() {
   const pageVisits = new Map<string, VisitData>();
   const profile = { id: PROFILE, userId: USER, aid: 'OP-1', displayName: 'Operator at touch', status: 'ACTIVE' };
   const user = { name: 'Operator', status: 'ACTIVE', optimizerProfile: profile };
+  const profile2 = { id: PROFILE_TWO, userId: USER_TWO, aid: 'OP-2', displayName: 'Operator Two', status: 'ACTIVE' };
+  const user2 = { name: 'Operator Two', status: 'ACTIVE', optimizerProfile: profile2 };
   const product = { id: PRODUCT, slug: 'chair', name: 'Saved chair', productCode: 'LUW-001', status: 'ACTIVE' };
   const page = { id: PAGE, slug: 'chair-ad', name: 'Ad page', productId: PRODUCT, ownerUserId: USER as string | null, publishedRevision: 3, publishedContent: { blocks: [] }, status: 'ACTIVE', startAt: null as Date | null, endAt: null as Date | null, product, owner: user as typeof user | null };
   const link = { id: LINK, code: 'abcdefghijklmnop', adid: 'AD-OP-1-261105-01', ownerUserId: USER, aidSnapshot: 'OP-1', productId: PRODUCT, product, landingPageId: PAGE, landingPage: page, variantId: null, owner: user, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmMedium: 'paid', utmCampaign: 'campaign', utmContent: 'creative', utmTerm: null, status: 'ACTIVE' };
   const second = { ...link, id: SECOND_LINK, code: 'qrstuvwxyzABCDEF', adId: 'ad-B' };
   const prisma = {
     campaignLink: { findUnique: vi.fn(async ({ where }: { where: { code: string } }) => where.code === link.code ? link : where.code === second.code ? second : null) },
-    optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid: string } }) => where.aid === profile.aid ? profile : null) },
-    user: { findUnique: vi.fn(async () => user) },
+    optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid: string } }) => where.aid === profile.aid ? profile : where.aid === profile2.aid ? profile2 : null) },
+    user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => where.id === USER_TWO ? user2 : user) },
     product: {
       findUnique: vi.fn(async () => product),
       findFirst: vi.fn(async ({ where }: { where: { id?: string; slug?: string; status: string } }) =>
@@ -262,6 +266,31 @@ describe('server-signed marketing touch', () => {
     expect(await service.resolve(result.credential)).toMatchObject({
       linkId: null, ownerUserId: USER, aid: 'OP-1',
       adId: '120200000000002', adIdSource: 'META_DYNAMIC', linkResolution: 'AID',
+    });
+  });
+
+  it('falls back to AID when the CL code is unknown', async () => {
+    const { service } = setup();
+    const result = await service.touch({ code: 'missing-code', aid: 'OP-1', visitKey: 'tab-1', path: '/products/chair' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: null, ownerUserId: USER, aid: 'OP-1', linkResolution: 'AID_FALLBACK',
+      attributionConflict: true,
+    });
+  });
+
+  it('keeps the link identity when a different valid AID wins the owner', async () => {
+    const { service, link } = setup();
+    const result = await service.touch({ code: link.code, aid: 'OP-2', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: LINK, ownerUserId: USER_TWO, aid: 'OP-2', attributionConflict: true,
+    });
+  });
+
+  it('records a conflict when the supplied AID is not an active optimizer', async () => {
+    const { service, link } = setup();
+    const result = await service.touch({ code: link.code, aid: 'NOPE', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: LINK, ownerUserId: USER, aid: 'OP-1', attributionConflict: true,
     });
   });
 
