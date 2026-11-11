@@ -17,6 +17,7 @@ export const marketingOrderTotalsSql = Prisma.sql`
 export function marketingOrderFactsSql(where: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`
     SELECT o.id, o.grand_total, a.link_id, a.optimizer_id, a.aid_snapshot, a.owner_name_snapshot,
+      a.ad_id, a.adid, a.adid_source, a.adid_missing_reason,
       COALESCE(a.product_id, p.product_id) AS product_id, a.product_name_snapshot, a.product_code_snapshot, a.landing_page_id,
       CASE WHEN ${verifiedAttributionSql} THEN CASE WHEN a.link_id IS NOT NULL AND a.legacy = false THEN 'REGISTERED' WHEN a.legacy THEN 'LEGACY' ELSE 'DIRECT' END ELSE 'UNVERIFIED' END AS kind,
       (CASE WHEN ${verifiedAttributionSql} THEN (a.touched_at AT TIME ZONE 'Asia/Manila')::date ELSE (o.created_at AT TIME ZONE 'Asia/Manila')::date END) AS "cohortDay",

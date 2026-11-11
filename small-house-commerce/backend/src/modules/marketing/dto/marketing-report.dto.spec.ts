@@ -20,6 +20,11 @@ describe('marketing report query schema', () => {
     }
   });
 
+  it('accepts the AdID and AID grouping levels', () => {
+    expect(marketingReportQuerySchema.safeParse({ groupBy: 'ADID' }).success).toBe(true);
+    expect(marketingReportQuerySchema.safeParse({ groupBy: 'AID' }).success).toBe(true);
+  });
+
   it('parses post date filters and rejects conflicts', () => {
     expect(marketingReportQuerySchema.parse({ postDateFrom: '2026-11-03' })).toMatchObject({ postDateFrom: '2026-11-03' });
     expect(marketingReportQuerySchema.safeParse({ postDateMissingOnly: 'true', postDateFrom: '2026-11-01' }).success).toBe(false);

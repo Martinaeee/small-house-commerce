@@ -7,12 +7,19 @@ import { marketingOrderFactsSql, marketingOrderTotalsSql, verifiedAttributionSql
 import { serializeMarketingReportRow, type MarketingReportRawRow } from './marketing-report-metrics.js';
 import { sortMarketingReportRows } from './marketing-report-sort.js';
 import { buildMarketingReportTree, type MarketingReportVisitRow } from './marketing-report-tree.js';
+import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
 
 @Injectable()
 export class MarketingReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly attributionReport: MarketingAttributionReportService,
+  ) {}
 
   async report(query: MarketingReportQuery, account: MarketingAccount) {
+    if (query.groupBy === 'ADID' || query.groupBy === 'AID') {
+      return this.attributionReport.report(query, account);
+    }
     const scope = scopeFor(account);
     if (query.ownerUserId) assertVisible(scope, query.ownerUserId);
     if (query.linkIds) {
