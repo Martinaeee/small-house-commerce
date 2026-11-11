@@ -1701,6 +1701,9 @@ git commit -m "chore(marketing): regression fixes for CL/AID/AdID attribution"
 
 ### Task 14: Staging 部署与 12 项验收（仅 Staging，不部署生产）
 
+> 实际验收结果：**11 项通过 + 第 12 项 Pixel/CAPI N/A**（Staging 显式关闭，
+> 单元测试另行覆盖）。见审计报告第 10.2 节与 Staging 证据文档。
+
 > ⚠️ 只在 `/opt/luwag-staging` 执行；不得触碰 `small-house-prod-*` 容器、生产数据库或生产 compose。
 
 **Files:** 无（部署/验收）

@@ -397,3 +397,18 @@ pnpm --dir small-house-commerce/frontend run lint
   - `signs version 2 claims with the paid fields and no stable ad number`
   - 命令：`pnpm --dir small-house-commerce/backend exec vitest run src/modules/marketing/marketing-touch.service.spec.ts -t "still accepts touches signed before|signs version 2 claims"`
   - 结果：2 passed / 45 skipped。
+
+**Staging 实测补充**：新建带静态 AdID 的测试链接
+`-b4K-RQEbB_03rET`（`adid=120200000000123`），用 `adId="{{ad.id}}"`
+触达后 claims 为 `adId=120200000000123`、`adIdSource=LINK`、
+`adIdMissingReason=null`、`linkId` 保留；与单元测试一致。
+
+## 11. 生产发布操作方案
+
+已单独成文：`docs/superpowers/plans/2026-11-11-meta-attribution-production-release-plan.md`。
+
+覆盖：Claims v2 部署/兼容/回滚、数据库备份与恢复、迁移安全/可重复性/
+回滚影响、Backend→Frontend 顺序与健康检查、非下单冒烟、停止条件、回滚方案、
+风险清单和 Go/No-Go 清单。
+
+本阶段仍未修改生产代码/数据库、未重启生产容器、未执行迁移、未推送/部署。

@@ -115,3 +115,30 @@ rsync -a --checksum --delete --dry-run -i -e ssh \
   luwag-new:/opt/luwag-staging/source/small-house-commerce/
 # 0 行
 ```
+
+### 无效动态 AdID + 有效静态 AdID（Staging 实测）
+
+新建的测试链接（有静态 AdID）：
+
+```json
+{
+  "code": "-b4K-RQEbB_03rET",
+  "adid": "120200000000123",
+  "cleanPath": "/products/e2e-legacy-style"
+}
+```
+
+用 `adId="{{ad.id}}"` 触达后解码 claims：
+
+```json
+{
+  "linkId": "01a1c946-d161-70bf-b6e9-38e8dec819ea",
+  "adId": "120200000000123",
+  "adIdSource": "LINK",
+  "adIdMissingReason": null,
+  "ownerUserId": "01a1bf78-c89a-764b-ad1e-65a10cc7a069"
+}
+```
+
+结论：无效动态值被丢弃；静态链接 AdID 作为回退，`adIdSource=LINK`，
+`adIdMissingReason=null`；链接身份和优化师保留。
