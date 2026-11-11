@@ -82,7 +82,7 @@ describe('SystemStatusService access report', () => {
 
   const report = {
     generatedAt: '2026-11-11T09:00:00Z',
-    windowLines: 20000,
+    linesRead: 20000,
     requests: 1000,
     status5xx: 2,
     status4xx: 12,
@@ -103,6 +103,8 @@ describe('SystemStatusService access report', () => {
     expect(service.getAccessReport()).toMatchObject({
       generatedAt: report.generatedAt,
       stale: false,
+      // `linesRead` in the collector output maps to `windowLines` in the API.
+      windowLines: 20000,
       requests: 1000,
       status5xx: 2,
       errorRate5xx: 0.2,

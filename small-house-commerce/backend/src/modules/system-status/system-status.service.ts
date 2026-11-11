@@ -166,7 +166,8 @@ export class SystemStatusService {
     return {
       generatedAt: generatedAt as string,
       stale: now() - generatedMs > maxAgeMs,
-      windowLines: asNumber(report.windowLines),
+      // The collector writes `linesRead`; the admin UI calls it the window.
+      windowLines: asNumber(report.linesRead),
       requests: asNumber(report.requests),
       status5xx: asNumber(report.status5xx),
       status4xx: asNumber(report.status4xx),
