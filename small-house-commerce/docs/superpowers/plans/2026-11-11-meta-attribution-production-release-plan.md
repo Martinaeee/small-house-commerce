@@ -414,6 +414,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://luwag.shop/products/2-tier-ga
 
 ## 10. 关联证据
 
+- 生产发布记录：`docs/superpowers/plans/2026-11-11-meta-attribution-production-release-record.md`
 - Staging 验收：`docs/superpowers/plans/2026-11-11-meta-attribution-staging-evidence.md`
 - 审核报告（含第二轮补充）：`docs/superpowers/plans/2026-11-11-meta-attribution-audit-report.md`
 - 迁移：`backend/prisma/migrations/20261111120000_add_analytics_attribution/migration.sql`
