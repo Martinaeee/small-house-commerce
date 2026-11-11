@@ -73,8 +73,13 @@ f34b9e68 docs(marketing): staging acceptance evidence for CL/AID/AdID attributio
   `(campaign_link_id,ad_id,event_day)`、`order_attributions(link_id,ad_id)`、
   `order_attributions(ad_id,attributed_at)`。
 - 无数据回填、无列删除、无 NOT NULL；旧代码可继续运行。
+- 迁移 SQL 现已显式 `BEGIN; ... COMMIT;`：Prisma 7.10.0 实测**不会**自动包事务
+  （失败探针留下 `tx_probe` 表）；加显式事务后，同一探针失败时 0 个新列/
+  0 个新索引残留。生产将应用带事务的版本。
 
-Staging 已应用（`2026-11-11 04:31:49+00`）；生产未应用。
+Staging 已应用（`2026-11-11 04:31:49+00`，当时文件尚未加显式 `BEGIN/COMMIT`，
+DDL 完全相同）；生产未应用，将应用显式事务版本。`migrate status` 在 Staging
+仍显示 up to date，无 checksum 报错。
 
 ## 5. 验证结果
 

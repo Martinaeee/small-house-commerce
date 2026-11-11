@@ -10,6 +10,9 @@
 - `rsync` 同步 source；`docker compose --env-file .env build backend frontend` 成功。
 - 迁移 `20261111120000_add_analytics_attribution` 已应用：
   `_prisma_migrations.finished_at = 2026-11-11 04:31:49+00`。
+  初次应用时文件尚无显式 `BEGIN/COMMIT`；后续审核阶段已补显式事务
+  （DDL 完全相同），Staging `migrate status` 仍为 up to date。生产将应用
+  带事务的版本。
 - `analytics_events` 新列存在：`optimizer_id`、`ad_id`、`ad_id_source`、
   `ad_id_missing_reason`、`aid_snapshot`、`adset_id`、`attribution_paid`、
   `link_resolution`、`attribution_conflict`、`conflict_detail`。

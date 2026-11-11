@@ -255,6 +255,9 @@ Expected: 提交成功。
 `backend/prisma/migrations/20261111120000_add_analytics_attribution/migration.sql`：
 
 ```sql
+-- Prisma 7.10.0 does not wrap migrations in a transaction by itself.
+BEGIN;
+
 ALTER TABLE "analytics_events"
   ADD COLUMN "optimizer_id" UUID,
   ADD COLUMN "aid_snapshot" VARCHAR(64),
@@ -278,6 +281,8 @@ CREATE INDEX "order_attributions_link_id_ad_id_idx"
   ON "order_attributions"("link_id", "ad_id");
 CREATE INDEX "order_attributions_ad_id_attributed_at_idx"
   ON "order_attributions"("ad_id", "attributed_at");
+
+COMMIT;
 ```
 
 - [ ] **Step 3: 在 staging 空库/副本上验证迁移**
