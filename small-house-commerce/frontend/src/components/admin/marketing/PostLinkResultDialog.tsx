@@ -12,13 +12,13 @@ export function PostLinkResultDialog({ link, onClose, onContinue }: { link: Camp
   const [failed, setFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [busy, setBusy] = useState(true);
+  const [busy, setBusy] = useState(() => link.sourceType === "FB_POST" && link.attributionMode === "CL");
   const [origin] = useState(() => typeof window === "undefined" ? "" : window.location.origin);
   const isMetaAd = link.sourceType === "META_AD";
   useEffect(() => {
     // Only Facebook-post links keep the short-link entrance; Meta ads use the
     // clean URL + CL/AID parameters.
-    if (link.sourceType !== "FB_POST" || link.attributionMode !== "CL") { setBusy(false); return; }
+    if (link.sourceType !== "FB_POST" || link.attributionMode !== "CL") return;
     let alive = true;
     marketingApi.createShortLink({ url: link.path }).then(result => { if (alive) setShortPath(result.path); }).catch(() => { if (alive) setFailed(true); }).finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
