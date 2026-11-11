@@ -95,7 +95,12 @@ export interface CampaignLinkInput {
 export interface CampaignLinkRow extends CampaignLinkInput {
   name: string;
   attributionMode: CampaignLinkAttributionMode;
-  metaUrlParameters: string;
+  /** META_AD only: clean landing URL with no tracking params. */
+  cleanPath: string | null;
+  /** The link's CL code, exposed separately from the URL. */
+  cl: string;
+  /** META_AD only: `cl=...&aid=...&adid={{ad.id}}`; null for FB_POST. */
+  metaUrlParameters: string | null;
   postDate: string | null;
   postUrl: string | null;
   archivedAt: string | null;
