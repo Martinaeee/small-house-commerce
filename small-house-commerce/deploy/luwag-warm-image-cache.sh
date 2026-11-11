@@ -43,7 +43,7 @@ TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 # improving first-paint. Phones on DPR 3 pick 1080, desktops pick 1440.
 SKIP_WIDTHS = {"16", "32", "48", "64", "96", "128", "256", "384", "750"}
 
-IMAGE_RE = re.compile(r'/_next/image\?[^"\'<>\s]+')
+IMAGE_RE = re.compile(r'/_next/image\?[^"\'<>\s\\]+')
 PRODUCT_RE = re.compile(r'href="(/products/[^"?#]+)')
 
 
