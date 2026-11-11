@@ -15,10 +15,12 @@ const SITE_ORIGIN = "https://luwag.shop";
  * link sits in between, so its redirect must carry those parameters through —
  * otherwise the landing page never sees `fbclid` (no `_fbc`, no CAPI match)
  * and the UTM columns stay empty. Only these names are forwarded; the saved
- * target always wins for every parameter it already defines, and `cl` can
- * never be injected or replaced from outside.
+ * target always wins for every parameter it already defines. `cl` is forwarded
+ * only when the saved target has none, so a clean short link can carry the
+ * optimizer's CL without ever replacing a stored one.
  */
 const FORWARDED_PARAMS: ReadonlyArray<[key: string, pattern: RegExp]> = [
+  ["cl", /^[A-Za-z0-9_-]{1,64}$/],
   ["aid", /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/],
   ["adid", /^[A-Za-z0-9._-]{1,64}$/],
   ["ad_id", /^[A-Za-z0-9._-]{1,64}$/],

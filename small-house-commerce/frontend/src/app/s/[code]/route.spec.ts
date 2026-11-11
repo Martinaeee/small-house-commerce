@@ -125,6 +125,21 @@ describe("GET /s/[code]", () => {
     expect(params.get("adset_id")).toBe("a1");
   });
 
+  it("forwards cl when the saved target has none", async () => {
+    stubBackend({ target: "/products/chair" });
+
+    const response = await GET(
+      new NextRequest("http://localhost/s/abc12345?cl=code1&aid=OP-1&adid=120200000000002&fbclid=IwAR1234567890"),
+      context("abc12345"),
+    );
+
+    const params = new URL(response.headers.get("location") ?? "").searchParams;
+    expect(params.get("cl")).toBe("code1");
+    expect(params.get("aid")).toBe("OP-1");
+    expect(params.get("adid")).toBe("120200000000002");
+    expect(params.get("fbclid")).toBe("IwAR1234567890");
+  });
+
   it("never lets incoming parameters override the saved target", async () => {
     stubBackend({ target: "/products/chair?cl=code&utm_source=fbpost&aid=SAVED" });
 
