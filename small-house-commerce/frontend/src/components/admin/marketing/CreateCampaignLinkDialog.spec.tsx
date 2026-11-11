@@ -54,6 +54,31 @@ describe('post creation and dedicated links',()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('不要立即重复创建');
   expect(marketingApi.createLink).toHaveBeenCalledTimes(1);
  });
+ it('creates META_AD links as CL with no manual ad fields', async () => {
+  wrap(<CreateCampaignLinkDialog productId="p1" onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  fireEvent.change(screen.getByLabelText('内部名称'), { target: { value: 'TB004' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存并生成链接' }));
+  await waitFor(() => expect(marketingApi.createLink).toHaveBeenCalled());
+  const input = vi.mocked(marketingApi.createLink).mock.calls[0][0];
+  expect(input).toMatchObject({ sourceType: 'META_AD', attributionMode: 'CL', name: 'TB004' });
+  expect(input).not.toHaveProperty('adId');
+  expect(input).not.toHaveProperty('campaignId');
+  expect(input).not.toHaveProperty('adsetId');
+ });
+ it('keeps FB_POST metadata in the payload', async () => {
+  wrap(<CreateCampaignLinkDialog productId="p1" defaultSourceType="FB_POST" copyFrom={{ ...row, sourceType: 'FB_POST', campaignId: 'campaign-A', adsetId: 'set-A', adId: '120200000000001', utmSource: 'facebook' }} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  fireEvent.change(screen.getByLabelText('发帖日期'), { target: { value: '2026-11-03' } });
+  expect(screen.getByLabelText('发帖日期')).toHaveValue('2026-11-03');
+  expect(screen.getByRole('button', { name: '保存并生成链接' })).toBeEnabled();
+  fireEvent.submit(screen.getByLabelText('发帖日期').closest('form')!);
+  await waitFor(() => expect(marketingApi.cloneLink).toHaveBeenCalled());
+  expect(vi.mocked(marketingApi.cloneLink).mock.calls[0][1]).toMatchObject({
+    sourceType: 'FB_POST', attributionMode: 'CL',
+    campaignId: 'campaign-A', adsetId: 'set-A', adId: '120200000000001', utmSource: 'facebook',
+  });
+ });
  it('keeps the saved long link when shortening fails and retries only shortening',async()=>{
   vi.mocked(marketingApi.createShortLink).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({path:'/s/abc123',code:'abc123',target:row.path});
   wrap(<PostLinkResultDialog link={row} onClose={vi.fn()} onContinue={vi.fn()}/>);
