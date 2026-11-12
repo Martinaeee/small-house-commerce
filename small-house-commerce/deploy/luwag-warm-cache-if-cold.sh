@@ -18,9 +18,9 @@ exec >>"$LOG" 2>&1
 # The cache now lives on a named volume. Docker seeds a fresh volume with the
 # image's `.next/cache/images`, which is root-owned, while the server runs as
 # node — Next then silently skips writing and every request stays a MISS.
-if ! docker exec "$CONTAINER" sh -c 'test -w /app/.next/cache/images' 2>/dev/null; then
+if ! docker exec "$CONTAINER" sh -c 'test -w /app/.next/cache && test -w /app/.next/cache/images' 2>/dev/null; then
   echo "=== $(date -Is) cache dir not writable, fixing ownership ==="
-  docker exec -u 0 "$CONTAINER" chown -R 1000:1000 /app/.next/cache/images 2>/dev/null || true
+  docker exec -u 0 "$CONTAINER" chown -R 1000:1000 /app/.next/cache 2>/dev/null || true
 fi
 
 count=$(docker exec "$CONTAINER" sh -c \
