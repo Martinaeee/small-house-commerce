@@ -268,7 +268,7 @@ const STOREFRONT_PDP_SELECT = {
   features: true,
   highlightsVisible: true,
   detailBlocks: {
-    select: { id: true, type: true, url: true, altText: true, sortOrder: true, optionValueId: true, variantId: true },
+    select: { id: true, type: true, url: true, altText: true, sortOrder: true, optionValueId: true, variantId: true, groupKey: true },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
   faq: {

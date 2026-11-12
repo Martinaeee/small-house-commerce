@@ -136,6 +136,7 @@ export interface ProductFormValue {
     sortOrder: string;
     optionValueId?: string;
     variantId?: string;
+    groupKey?: string;
   }[];
   faq?: AdminProductFaq;
   variants: {
@@ -1402,6 +1403,7 @@ export function ProductForm({
   const addDetailMedia = (
     media: { url: string; type: "IMAGE" | "VIDEO" },
     scope: DetailMediaScope = { optionValueId: "", variantId: "" },
+    opts?: { groupKey?: string },
   ): void => {
     setValue((prev) => ({
       ...prev,
@@ -1411,6 +1413,7 @@ export function ProductForm({
         sortOrder: nextImageSortOrder(prev.detailBlocks),
         ...(scope.optionValueId ? { optionValueId: scope.optionValueId } : {}),
         ...(scope.variantId ? { variantId: scope.variantId } : {}),
+        ...(opts?.groupKey ? { groupKey: opts.groupKey } : {}),
       }],
     }));
     clearValidation();

@@ -897,6 +897,7 @@ export interface AdminDetailBlock {
   sortOrder: number;
   optionValueId?: string | null;
   variantId?: string | null;
+  groupKey?: string;
 }
 
 export type AdminFaqMode = "SHARED" | "EXTEND" | "CUSTOM";
@@ -1579,6 +1580,7 @@ export interface CreateProductInput {
     sortOrder?: number;
     optionValueId?: string;
     variantId?: string;
+    groupKey?: string;
   }[];
   variants: {
     name: string;

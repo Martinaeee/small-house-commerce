@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  groupDetailModules,
   partitionDetailBlocks,
   resolveDetailBlocksForSelection,
   type DetailBlockLike,
@@ -124,5 +125,46 @@ describe("resolveDetailBlocksForSelection", () => {
     expect(urls(resolveDetailBlocksForSelection(legacy, options, {}, null))).toEqual([
       "/legacy.jpg",
     ]);
+  });
+});
+
+describe("groupDetailModules", () => {
+  const keyed = (url: string, groupKey: string): DetailBlockLike => ({
+    url,
+    type: "IMAGE",
+    altText: url,
+    groupKey,
+  });
+  const plain = (url: string): DetailBlockLike => ({ url, type: "IMAGE", altText: url });
+
+  it("bundles consecutive blocks that share a group key into one carousel", () => {
+    const modules = groupDetailModules([
+      keyed("a.jpg", "set-1"),
+      keyed("b.jpg", "set-1"),
+      plain("c.jpg"),
+    ]);
+    expect(modules).toHaveLength(2);
+    expect(modules[0]).toEqual({
+      kind: "carousel",
+      groupKey: "set-1",
+      blocks: [keyed("a.jpg", "set-1"), keyed("b.jpg", "set-1")],
+    });
+    expect(modules[1]).toEqual({ kind: "single", block: plain("c.jpg") });
+  });
+
+  it("does not merge same-key blocks separated by an unkeyed row", () => {
+    const modules = groupDetailModules([
+      keyed("a.jpg", "set-1"),
+      plain("b.jpg"),
+      keyed("c.jpg", "set-1"),
+    ]);
+    expect(modules.map((m) => m.kind)).toEqual(["carousel", "single", "carousel"]);
+    if (modules[0].kind === "carousel") expect(modules[0].blocks).toHaveLength(1);
+  });
+
+  it("keeps unkeyed blocks single and preserves order", () => {
+    const modules = groupDetailModules([plain("a.jpg"), plain("b.mp4")]);
+    expect(modules).toHaveLength(2);
+    for (const m of modules) expect(m.kind).toBe("single");
   });
 });

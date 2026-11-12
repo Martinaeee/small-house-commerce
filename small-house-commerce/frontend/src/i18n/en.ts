@@ -1868,6 +1868,8 @@ export const en: Record<ZhKey, string> = {
   product_detail_hint:
     "Shown in the details area below the gallery; the row order is the storefront order. Use the arrows to reorder.",
   product_detail_empty: "No detail content yet. Add the first block below.",
+  product_detail_carousel_mode: "Add as one swipeable carousel group",
+  product_detail_carousel_chip: "Carousel {index}",
   product_detail_type_label: "Type",
   product_detail_type_image: "Image",
   product_detail_type_video: "Video",

@@ -82,6 +82,8 @@ const detailBlockSchema = z.object({
   sortOrder: z.number().int().default(0),
   optionValueId: persistedUuidSchema.nullable().optional(),
   variantId: persistedUuidSchema.nullable().optional(),
+  /** Consecutive rows sharing this key render as one swipeable module. */
+  groupKey: z.string().max(64).optional(),
 });
 
 /**

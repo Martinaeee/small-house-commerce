@@ -2072,3 +2072,31 @@ describe("Why You’ll Love It visibility controls", () => {
     expect(screen.getByRole("button", { name: "隐藏功能点 2" })).toBeVisible();
   });
 });
+
+describe("detail block carousel group serialization", () => {
+  it("keeps the group key on the submitted detail blocks", async () => {
+    setAdminLang("en");
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const graph = baseValue().graph!;
+    renderForm(
+      baseValue({
+        detailBlocks: [
+          { type: "IMAGE", url: "/uploads/group-1.jpg", altText: "One", sortOrder: "0", groupKey: "launch-set" },
+          { type: "IMAGE", url: "/uploads/group-2.jpg", altText: "Two", sortOrder: "1", groupKey: "launch-set" },
+          { type: "IMAGE", url: "/uploads/single.jpg", altText: "Solo", sortOrder: "2" },
+        ],
+        graph: { ...graph, media: [] },
+      }),
+      onSubmit,
+    );
+    await user.click(screen.getByRole("tab", { name: "Media" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const submitted = onSubmit.mock.calls[0]?.[0] as ProductFormValue;
+    expect(submitted.detailBlocks[0].groupKey).toBe("launch-set");
+    expect(submitted.detailBlocks[1].groupKey).toBe("launch-set");
+    expect(submitted.detailBlocks[2].groupKey).toBeUndefined();
+  });
+});

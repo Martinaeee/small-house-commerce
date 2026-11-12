@@ -233,6 +233,8 @@ model ProductDetailBlock {
   // Null on both columns = shared across every variant.
   optionValueId String? @map("option_value_id") @db.Uuid
   variantId     String? @map("variant_id") @db.Uuid
+  // Non-null on consecutive rows = one swipeable carousel module on the PDP.
+  groupKey     String? @map("group_key")
 
   product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   optionValue ProductOptionValue? @relation(fields: [optionValueId, productId], references: [id, productId], onDelete: Cascade)

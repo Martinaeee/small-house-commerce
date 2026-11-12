@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { HIDDEN_FEATURE_PREFIX } from "@/lib/feature-lines";
 import { ProductDetailBody, ProductDetailMedia } from "./ProductDetailBody";
@@ -128,5 +128,41 @@ describe("ProductDetailMedia", () => {
     expect(image.className).not.toContain("-mx-4");
     expect(image.className).not.toContain("border");
     expect(image.className).not.toContain("rounded");
+  });
+});
+
+describe("ProductDetailMedia carousel groups", () => {
+  it("renders consecutive grouped blocks as one swipeable carousel module", () => {
+    const { container } = render(
+      <ProductDetailMedia
+        blocks={[
+          { type: "IMAGE", url: "a.jpg", altText: "A", groupKey: "set" },
+          { type: "IMAGE", url: "b.jpg", altText: "B", groupKey: "set" },
+        ]}
+        fullBleed
+      />,
+    );
+
+    const carousel = container.querySelector('[data-testid="detail-carousel"]') as HTMLElement;
+    expect(carousel).not.toBeNull();
+    expect(within(carousel).getAllByRole("button", { name: /Go to detail image \d/ })).toHaveLength(2);
+    expect(carousel.querySelectorAll("[data-carousel-slide]")).toHaveLength(2);
+    expect(carousel.className).toContain("-mx-4");
+  });
+
+  it("keeps ungrouped neighbours as plain media beside the carousel", () => {
+    const { container } = render(
+      <ProductDetailMedia
+        blocks={[
+          { type: "IMAGE", url: "a.jpg", altText: "A" },
+          { type: "IMAGE", url: "b.jpg", altText: "B", groupKey: "set" },
+          { type: "IMAGE", url: "c.jpg", altText: "C", groupKey: "set" },
+        ]}
+      />,
+    );
+
+    expect(container.querySelectorAll('[data-testid="detail-carousel"]')).toHaveLength(1);
+    expect(container.querySelectorAll("img[data-detail-index]")).toHaveLength(1);
+    expect(screen.getByAltText("A")).toBeInTheDocument();
   });
 });

@@ -1848,6 +1848,8 @@ export const zh = {
   product_detail_blocks_aria: "PDP 详情媒体块",
   product_detail_hint: "显示在图集下方的详情区；顺序即前台展示顺序，用 ↑ ↓ 调整。",
   product_detail_empty: "还没有详情内容，点下方按钮添加第一块。",
+  product_detail_carousel_mode: "合并为轮播图组（本次添加的图在商品页左右滑动）",
+  product_detail_carousel_chip: "轮播 {index}",
   product_detail_type_label: "类型",
   product_detail_type_image: "图片",
   product_detail_type_video: "视频",

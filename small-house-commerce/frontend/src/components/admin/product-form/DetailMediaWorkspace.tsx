@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import type { DetailBlockFormValue } from "@/components/admin/ProductForm";
+import { newId } from "@/lib/admin-id";
 import { AdminHelpTip } from "@/components/admin/AdminHelpTip";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
 import { MediaGallery } from "@/components/admin/product-form/MediaGallery";
@@ -23,7 +24,7 @@ export interface DetailMediaWorkspaceProps {
   batchUpload?: MediaBatchUpload;
   /** Shared / option-value / exact-variant choices for the batch and per-row scope selects. */
   scopeOptions: readonly { value: string; label: string }[];
-  onAddMedia(media: UploadedMedia, scope: DetailMediaScope): void;
+  onAddMedia(media: UploadedMedia, scope: DetailMediaScope, opts?: { groupKey?: string }): void;
   onPatch(index: number, patch: Partial<DetailBlockFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onReorder?(from: number, to: number): void;
@@ -35,6 +36,19 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
   const localBatch = useMediaBatchUpload({ disabled: pending });
   const uploadTask = batchUpload ?? localBatch;
   const [batchScope, setBatchScope] = useState("");
+  // While the carousel switch is on, everything added joins one swipeable
+  // group; toggling it off and on again starts a fresh group.
+  const [carouselMode, setCarouselMode] = useState(false);
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
+  const handleAddMedia = (media: UploadedMedia, scope: DetailMediaScope): void => {
+    if (!carouselMode) {
+      onAddMedia(media, scope);
+      return;
+    }
+    const groupKey = activeGroupKey ?? newId();
+    if (!activeGroupKey) setActiveGroupKey(groupKey);
+    onAddMedia(media, scope, { groupKey });
+  };
   const summary = summarizeAdminMedia(blocks.map((block) => ({ ...block, sortOrder: Number(block.sortOrder.trim() || "0") || 0 })));
   const highlightedKey = highlightKey?.match(/^detailBlocks\.\d+(?=\.|$)/)?.[0] ?? null;
   const setScope = (index: number, value: string): void => {
@@ -65,10 +79,22 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           <span className="rounded-full bg-background px-2.5 py-1">{t("product_media_summary_alt", { complete: summary.altCompleteCount, total: summary.rowCount })}</span>
         </div>
       </div>
+      <label className="mb-2 flex items-center gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          checked={carouselMode}
+          onChange={(event) => {
+            setCarouselMode(event.target.checked);
+            if (!event.target.checked) setActiveGroupKey(null);
+          }}
+          className="h-4 w-4 accent-[color:var(--color-cta)]"
+        />
+        {t("product_detail_carousel_mode")}
+      </label>
       <MediaAddRow
         targetKey="detail"
         disabled={pending}
-        onAddMedia={(media) => onAddMedia(media, detailScopeFromValue(batchScope))}
+        onAddMedia={(media) => handleAddMedia(media, detailScopeFromValue(batchScope))}
         batchUpload={uploadTask}
         scopeOptions={scopeOptions}
         scopeValue={batchScope}
@@ -81,12 +107,22 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           listLabel={t("product_detail_blocks_aria")}
           items={blocks.map((block, index) => {
             const scopeValue = detailScopeValue(block);
+            const groupKey = block.groupKey?.trim() || null;
+            const groupNumber = groupKey
+              ? new Map(
+                  [...new Set(blocks.map((row) => row.groupKey?.trim() || null))]
+                    .filter(Boolean)
+                    .map((key, position) => [key, position + 1]),
+                ).get(groupKey) ?? 0
+              : 0;
             return {
               ...block,
               key: `detailBlocks.${index}`,
               domId: `product-detail-block-${index}`,
               scopeValue,
-              scopeLabel: detailScopeLabel(scopeValue, scopeOptions),
+              scopeLabel: groupNumber
+                ? `${detailScopeLabel(scopeValue, scopeOptions)} · ${t("product_detail_carousel_chip", { index: groupNumber })}`
+                : detailScopeLabel(scopeValue, scopeOptions),
             };
           })}
           scopeOptions={scopeOptions}

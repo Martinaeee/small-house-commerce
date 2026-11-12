@@ -139,3 +139,61 @@ describe("DetailMediaWorkspace drag affordance", () => {
     expect(document.querySelector("[data-media-drag-handle]")).toBeNull();
   });
 });
+
+describe("DetailMediaWorkspace carousel groups", () => {
+  it("merges every media added while the mode is on into one swipeable group", async () => {
+    const user = userEvent.setup();
+    const { onAddMedia } = renderWorkspace();
+
+    await user.click(screen.getByRole("checkbox", { name: /合并为轮播图组/ }));
+    await user.type(
+      screen.getByLabelText("要添加的媒体 URL"),
+      "https://example.com/one.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.type(
+      screen.getByLabelText("要添加的媒体 URL"),
+      "https://example.com/two.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    expect(onAddMedia).toHaveBeenCalledTimes(2);
+    const [, , firstOpts] = onAddMedia.mock.calls[0]!;
+    const [, , secondOpts] = onAddMedia.mock.calls[1]!;
+    expect(firstOpts?.groupKey).toEqual(expect.any(String));
+    expect(secondOpts?.groupKey).toBe(firstOpts?.groupKey);
+  });
+
+  it("starts a fresh group each time the mode is toggled off and on", async () => {
+    const user = userEvent.setup();
+    const { onAddMedia } = renderWorkspace();
+    const toggle = screen.getByRole("checkbox", { name: /合并为轮播图组/ });
+
+    await user.click(toggle);
+    await user.type(screen.getByLabelText("要添加的媒体 URL"), "https://example.com/a.jpg");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.click(toggle);
+    await user.click(toggle);
+    await user.type(screen.getByLabelText("要添加的媒体 URL"), "https://example.com/b.jpg");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    const firstGroup = onAddMedia.mock.calls[0]?.[2]?.groupKey;
+    const secondGroup = onAddMedia.mock.calls[1]?.[2]?.groupKey;
+    expect(secondGroup).toEqual(expect.any(String));
+    expect(secondGroup).not.toBe(firstGroup);
+  });
+
+  it("labels grouped rows with a carousel chip", () => {
+    renderWorkspace({
+      blocks: [
+        { type: "IMAGE", url: "/uploads/a.jpg", altText: "A", sortOrder: "0", groupKey: "set-1" },
+        { type: "IMAGE", url: "/uploads/b.jpg", altText: "B", sortOrder: "1", groupKey: "set-1" },
+        { type: "IMAGE", url: "/uploads/c.jpg", altText: "C", sortOrder: "2" },
+      ],
+    });
+
+    const chips = screen.getAllByText(/轮播 1/);
+    expect(chips).toHaveLength(2);
+    expect(screen.queryByText(/轮播 2/)).not.toBeInTheDocument();
+  });
+});

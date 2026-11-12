@@ -171,6 +171,8 @@ export interface ProductDetailBlock {
   sortOrder: number;
   optionValueId?: string | null;
   variantId?: string | null;
+  /** Consecutive rows sharing this key render as one swipeable module. */
+  groupKey?: string | null;
 }
 
 export type ProductFaqAnswerBlock =
