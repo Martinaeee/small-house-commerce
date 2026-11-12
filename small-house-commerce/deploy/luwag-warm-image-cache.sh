@@ -16,9 +16,9 @@ Usage (on the server, after `up -d frontend` is healthy):
 
 Environment:
     BASE              storefront origin (default https://luwag.shop)
-    PRODUCT_LIMIT     how many product pages to warm (default 6)
+    PRODUCT_LIMIT     how many product pages to warm (default 24 = every active product)
     CONCURRENCY       parallel image requests (default 2, keep the box calm)
-    MAX_IMAGES        safety cap on distinct image URLs (default 1200)
+    MAX_IMAGES        safety cap on distinct image URLs (default 3000)
     TIMEOUT           per-request timeout in seconds (default 60)
 """
 from __future__ import annotations
@@ -33,9 +33,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.environ.get("BASE", "https://luwag.shop").rstrip("/")
-PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "6"))
+PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "24"))
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "3"))
-MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "1200"))
+MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "3000"))
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 
 # The optimizer caches one entry per output format, so a warm request must
