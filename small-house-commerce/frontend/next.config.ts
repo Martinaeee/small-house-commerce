@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
   images: {
     localPatterns: [{ pathname: "/uploads/**", search: "" }, { pathname: "/about/**", search: "" }],
     formats: ["image/webp"],
+    // Uploaded files are immutable (UUID filenames), so a long TTL is safe and
+    // stops returning visitors from re-downloading galleries after four hours.
+    // Replacing an image uploads a new file under a new URL.
+    minimumCacheTTL: 2592000,
     // The optimizer rejects any width outside these allowlists; storefront
     // components request 96 (thumbnails), 640 (cards), 1280 (gallery) and
     // 1440 (heroes/content). 96 is already in the default imageSizes.

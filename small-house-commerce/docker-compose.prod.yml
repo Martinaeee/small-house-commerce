@@ -105,6 +105,11 @@ services:
       # Runtime-only (no NEXT_PUBLIC prefix): authenticates the backend's
       # on-demand revalidation calls to /api/internal/revalidate.
       REVALIDATE_SECRET: ${REVALIDATE_SECRET}
+    volumes:
+      # Keep the optimizer cache across `up -d --force-recreate`: without this
+      # every deploy rewrites the directory inside a fresh container and the
+      # next visitors all pay a sharp transform per rendition.
+      - next_image_cache:/app/.next/cache/images
 
   caddy:
     image: caddy:2-alpine
@@ -129,3 +134,4 @@ volumes:
   prod_caddy_data:
   prod_caddy_config:
   uploads_data:
+  next_image_cache:

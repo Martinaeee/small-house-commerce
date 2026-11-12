@@ -18,7 +18,7 @@ Environment:
     BASE              storefront origin (default https://luwag.shop)
     PRODUCT_LIMIT     how many product pages to warm (default 6)
     CONCURRENCY       parallel image requests (default 2, keep the box calm)
-    MAX_IMAGES        safety cap on distinct image URLs (default 400)
+    MAX_IMAGES        safety cap on distinct image URLs (default 1200)
     TIMEOUT           per-request timeout in seconds (default 60)
 """
 from __future__ import annotations
@@ -35,13 +35,18 @@ from concurrent.futures import ThreadPoolExecutor
 BASE = os.environ.get("BASE", "https://luwag.shop").rstrip("/")
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "6"))
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "3"))
-MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "400"))
+MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "1200"))
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 
-# Skip the tiny thumbnails and the 2x phone rendition: they are cheap to
-# transform and would add a third of the request count without meaningfully
-# improving first-paint. Phones on DPR 3 pick 1080, desktops pick 1440.
-SKIP_WIDTHS = {"16", "32", "48", "64", "96", "128", "256", "384", "750"}
+# The optimizer caches one entry per output format, so a warm request must
+# advertise WebP exactly like a browser does. `Accept: image/*` falls back to
+# PNG and fills the cache with entries real visitors never read.
+BROWSER_IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+
+# Warm every width the storefront emits. 96px thumbnails are the single most
+# requested rendition and 750px is what DPR-2 phones pick, so leaving them out
+# meant the busiest variants still missed for the first visitor after a deploy.
+SKIP_WIDTHS = {"16", "32", "48", "64", "128"}
 
 IMAGE_RE = re.compile(r'/_next/image\?[^"\'<>\s\\]+')
 PRODUCT_RE = re.compile(r'href="(/products/[^"?#]+)')
@@ -106,7 +111,7 @@ def collect_image_urls(pages: list[str]) -> tuple[set[str], list[str]]:
 
 def warm(url: str) -> tuple[str, str, int, int]:
     started = time.time()
-    status, body, headers = http_get_with_retry(url, accept="image/*")
+    status, body, headers = http_get_with_retry(url, accept=BROWSER_IMAGE_ACCEPT)
     elapsed = int((time.time() - started) * 1000)
     cache = headers.get("x-nextjs-cache") or headers.get("X-Nextjs-Cache") or "-"
     return url, cache, status, elapsed if status == 200 else elapsed
