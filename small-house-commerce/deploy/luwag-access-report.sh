@@ -57,19 +57,28 @@ SCANNER_PATH_MARKERS = (
     "/wordpress",
     "/xmlrpc",
     "/.git",
+    "/.svn",
+    "/.hg",
     "/.env",
     "/.aws",
     "/aws/",
     "/phpmyadmin",
     "/vendor/",
-    "/config",
     "/admin.php",
     "/shell",
+)
+
+# Whole-path matches only: `/image` must not catch `/_next/image`.
+SCANNER_EXACT_PATHS = (
+    "/image",
+    "/config",
 )
 
 
 def is_scanner_path(path: str) -> bool:
     lowered = path.lower()
+    if lowered in SCANNER_EXACT_PATHS:
+        return True
     return any(marker in lowered for marker in SCANNER_PATH_MARKERS)
 
 
