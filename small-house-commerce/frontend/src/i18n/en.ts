@@ -321,12 +321,38 @@ export const en: Record<ZhKey, string> = {
   access_diagnostics_status_attention: "Needs attention",
   access_diagnostics_status_critical: "Server errors detected",
   access_diagnostics_reason_server_errors: "{count} server errors in this window",
-  access_diagnostics_reason_hit_rate_low:
-    "Image cache hit rate is {rate}% — usually a fresh deploy still warming",
-  access_diagnostics_reason_hit_rate_warming:
-    "Image cache hit rate is {rate}%, still warming up",
+  access_diagnostics_reason_cache_warming:
+    "Image cache hit rate is {rate}% — a warm-up is running",
+  access_diagnostics_reason_cache_below:
+    "Image cache hit rate is {rate}%, below the 90% target",
+  access_diagnostics_reason_cache_failed:
+    "Image cache hit rate is {rate}% with no warm-up running — the warm-up may have failed",
   access_diagnostics_reason_4xx_high:
     "4xx rate is {rate}% — check for stale links or bots",
+  access_diagnostics_window_range: "Range {from}–{to}",
+  access_diagnostics_cache_normal: "Cache healthy",
+  access_diagnostics_cache_warming: "Cache warming",
+  access_diagnostics_cache_below: "Below target",
+  access_diagnostics_cache_failed: "Warm-up may have failed",
+  access_diagnostics_cache_unknown: "Cache state unknown",
+  access_diagnostics_error_detail: "Detail",
+  access_diagnostics_error_first: "First seen",
+  access_diagnostics_error_last: "Last seen",
+  access_diagnostics_error_bot: "Crawler",
+  access_diagnostics_error_human: "Real visitor",
+  access_diagnostics_error_repeat: "Repeated {count} times",
+  access_diagnostics_error_referer: "From page",
+  access_diagnostics_error_ua: "User-Agent",
+  access_diagnostics_kind_main: "Product image",
+  access_diagnostics_kind_option: "Option image",
+  access_diagnostics_kind_variant: "Variant image",
+  access_diagnostics_kind_scene: "Scene image",
+  access_diagnostics_kind_detail: "Detail image",
+  access_diagnostics_image_unmatched: "No matching product",
+  access_diagnostics_traffic_human: "Visitor",
+  access_diagnostics_traffic_bot: "Crawler",
+  access_diagnostics_traffic_warmup: "Warm-up",
+  access_diagnostics_from_page: "From",
   access_diagnostics_kpi_hint_requests: "Every request Caddy served in the window",
   access_diagnostics_kpi_hint_5xx:
     "Server-side failures; any 5xx needs investigation",

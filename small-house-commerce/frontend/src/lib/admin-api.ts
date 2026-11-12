@@ -1845,11 +1845,43 @@ export interface AdminSystemStatus {
   };
 }
 
+export interface AdminAccessErrorRow {
+  code: number;
+  path: string;
+  count: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  bot: boolean;
+  sampleUa: string;
+  sampleReferer: string;
+}
+
+export interface AdminAccessImageInfo {
+  file: string;
+  width: number | null;
+  productName: string | null;
+  productSlug: string | null;
+  kind: string | null;
+}
+
+export interface AdminAccessSlowRequest {
+  ms: number;
+  uri: string;
+  status: number;
+  cache: string;
+  referer: string;
+  traffic: "human" | "bot" | "warmup";
+  image: AdminAccessImageInfo | null;
+}
+
 export interface AdminAccessReport {
   generatedAt: string;
   stale: boolean;
   windowLines: number;
+  windowFirstAt: string | null;
+  windowLastAt: string | null;
   requests: number;
+  traffic: { human: number; bot: number; warmup: number };
   status5xx: number;
   status4xx: number;
   errorRate5xx: number | null;
@@ -1858,9 +1890,12 @@ export interface AdminAccessReport {
     hit: number;
     miss: number;
     hitRate: number | null;
+    realHitRate: number | null;
+    warmupRequests: number;
   };
   top5xxPaths: [string, number][];
-  slowest: { ms: number; uri: string; status: number }[];
+  errors: AdminAccessErrorRow[];
+  slowest: AdminAccessSlowRequest[];
   statusCounts: Record<string, number>;
 }
 

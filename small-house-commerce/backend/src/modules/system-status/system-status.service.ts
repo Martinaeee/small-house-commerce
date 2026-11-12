@@ -1,5 +1,6 @@
 import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 const DEFAULT_STATUS_FILE = '/app/status/status.json';
 const DEFAULT_ACCESS_FILE = '/app/status/access.json';
@@ -23,25 +24,56 @@ export interface AccessImageStats {
   hit: number;
   miss: number;
   hitRate: number | null;
+  /** Same ratio with the warm-up script's own requests removed. */
+  realHitRate: number | null;
+  /** Requests sent by our own cache warm-up (Python-urllib). */
+  warmupRequests: number;
 }
 
 export interface AccessSlowRequest {
   ms: number;
   uri: string;
   status: number;
+  cache: string;
+  referer: string;
+  traffic: "human" | "bot" | "warmup";
+}
+
+export interface AccessErrorRow {
+  code: number;
+  path: string;
+  count: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  bot: boolean;
+  sampleUa: string;
+  sampleReferer: string;
+}
+
+export interface AccessImageInfo {
+  file: string;
+  width: number | null;
+  productName: string | null;
+  productSlug: string | null;
+  /** main | option | variant | scene | detail */
+  kind: string | null;
 }
 
 export interface AccessReport {
   generatedAt: string;
   stale: boolean;
   windowLines: number;
+  windowFirstAt: string | null;
+  windowLastAt: string | null;
   requests: number;
+  traffic: { human: number; bot: number; warmup: number };
   status5xx: number;
   status4xx: number;
   errorRate5xx: number | null;
   images: AccessImageStats;
   top5xxPaths: [string, number][];
-  slowest: AccessSlowRequest[];
+  errors: AccessErrorRow[];
+  slowest: (AccessSlowRequest & { image: AccessImageInfo | null })[];
   statusCounts: Record<string, number>;
 }
 
@@ -54,7 +86,13 @@ export interface AccessReport {
  */
 @Injectable()
 export class SystemStatusService {
-  constructor(@Optional() private readonly options: SystemStatusOptions = {}) {}
+  private imageIndex: Map<string, ImageInfo> | null = null;
+  private imageIndexAt = 0;
+
+  constructor(
+    @Optional() private readonly options: SystemStatusOptions = {},
+    @Optional() private readonly prisma?: PrismaService,
+  ) {}
 
   getStatus(): SystemStatusSnapshot {
     const filePath =
@@ -115,7 +153,7 @@ export class SystemStatusService {
    * slowest paths). Same contract as the status snapshot: the host writes it,
    * the backend only reads, and a missing file fails closed.
    */
-  getAccessReport(): AccessReport {
+  async getAccessReport(): Promise<AccessReport> {
     const filePath =
       this.options.accessFilePath ??
       process.env.SYSTEM_ACCESS_FILE ??
@@ -162,13 +200,24 @@ export class SystemStatusService {
     const now = this.options.now ?? Date.now;
     const maxAgeMs = this.options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     const images = asRecord(report.images);
+    const window = asRecord(report.window);
+    const traffic = asRecord(report.traffic);
+    const slowest = asSlowRequests(report.slowest);
+    const index = await this.getImageIndex();
 
     return {
       generatedAt: generatedAt as string,
       stale: now() - generatedMs > maxAgeMs,
       // The collector writes `linesRead`; the admin UI calls it the window.
       windowLines: asNumber(report.linesRead),
+      windowFirstAt: asStringOrNull(window.firstAt),
+      windowLastAt: asStringOrNull(window.lastAt),
       requests: asNumber(report.requests),
+      traffic: {
+        human: asNumber(traffic.human),
+        bot: asNumber(traffic.bot),
+        warmup: asNumber(traffic.warmup),
+      },
       status5xx: asNumber(report.status5xx),
       status4xx: asNumber(report.status4xx),
       errorRate5xx: asNumberOrNull(report.errorRate5xx),
@@ -177,12 +226,105 @@ export class SystemStatusService {
         hit: asNumber(images.hit),
         miss: asNumber(images.miss),
         hitRate: asNumberOrNull(images.hitRate),
+        realHitRate: asNumberOrNull(images.realHitRate),
+        warmupRequests: asNumber(images.warmupRequests),
       },
       top5xxPaths: asPairs(report.top5xxPaths),
-      slowest: asSlowRequests(report.slowest),
+      errors: asErrors(report.errors),
+      slowest: slowest.map((entry) => ({
+        ...entry,
+        image: this.describeImage(entry.uri, index),
+      })),
       statusCounts: asStringNumberMap(report.statusCounts),
     };
   }
+
+  /** Pulls the optimizer URL apart and joins it against the catalog. */
+  private describeImage(uri: string, index: Map<string, ImageInfo>): AccessImageInfo | null {
+    const queryStart = uri.indexOf('?');
+    if (queryStart < 0) return null;
+    const params = new URLSearchParams(uri.slice(queryStart + 1));
+    const source = params.get('url');
+    if (!source) return null;
+    const file = source.split('/').pop() || '';
+    if (!file) return null;
+    const width = Number(params.get('w'));
+    const hit = index.get(file);
+    return {
+      file,
+      width: Number.isFinite(width) ? width : null,
+      productName: hit?.productName ?? null,
+      productSlug: hit?.productSlug ?? null,
+      kind: hit?.kind ?? null,
+    };
+  }
+
+  /**
+   * Filename -> catalog entry for every uploaded product image. Cached for
+   * five minutes: the catalog changes far slower than the access log does,
+   * and the admin page polls once a minute.
+   */
+  private async getImageIndex(): Promise<Map<string, ImageInfo>> {
+    const now = Date.now();
+    if (this.imageIndex && now - this.imageIndexAt < 5 * 60_000) {
+      return this.imageIndex;
+    }
+    if (!this.prisma) return new Map();
+
+    const [images, blocks] = await Promise.all([
+      this.prisma.productImage.findMany({
+        select: {
+          url: true,
+          isScene: true,
+          optionValueId: true,
+          variantId: true,
+          product: { select: { name: true, slug: true } },
+        },
+      }),
+      this.prisma.productDetailBlock.findMany({
+        select: {
+          url: true,
+          product: { select: { name: true, slug: true } },
+        },
+      }),
+    ]);
+
+    const index = new Map<string, ImageInfo>();
+    for (const image of images) {
+      const file = image.url.split('/').pop();
+      if (!file) continue;
+      index.set(file, {
+        productName: image.product.name,
+        productSlug: image.product.slug,
+        kind: image.isScene
+          ? 'scene'
+          : image.optionValueId
+            ? 'option'
+            : image.variantId
+              ? 'variant'
+              : 'main',
+      });
+    }
+    for (const block of blocks) {
+      const file = block.url.split('/').pop();
+      if (!file || index.has(file)) continue;
+      index.set(file, {
+        productName: block.product.name,
+        productSlug: block.product.slug,
+        kind: 'detail',
+      });
+    }
+
+    this.imageIndex = index;
+    this.imageIndexAt = now;
+    return index;
+  }
+}
+
+interface ImageInfo {
+  productName: string;
+  productSlug: string;
+  kind: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -197,6 +339,31 @@ function asNumber(value: unknown): number {
 
 function asNumberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function asErrors(value: unknown): AccessErrorRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        entry !== null && typeof entry === 'object',
+    )
+    .map((entry) => ({
+      code: asNumber(entry.code),
+      path: typeof entry.path === 'string' ? entry.path : '',
+      count: asNumber(entry.count),
+      firstAt: asStringOrNull(entry.firstAt),
+      lastAt: asStringOrNull(entry.lastAt),
+      bot: entry.bot === true,
+      sampleUa: typeof entry.sampleUa === 'string' ? entry.sampleUa : '',
+      sampleReferer:
+        typeof entry.sampleReferer === 'string' ? entry.sampleReferer : '',
+    }))
+    .filter((entry) => entry.code >= 400 && entry.path.length > 0);
 }
 
 function asPairs(value: unknown): [string, number][] {
@@ -215,14 +382,24 @@ function asSlowRequests(value: unknown): AccessSlowRequest[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(
-      (entry): entry is AccessSlowRequest =>
+      (entry): entry is Record<string, unknown> =>
         entry !== null &&
         typeof entry === 'object' &&
         typeof (entry as Record<string, unknown>).ms === 'number' &&
         typeof (entry as Record<string, unknown>).uri === 'string' &&
         typeof (entry as Record<string, unknown>).status === 'number',
     )
-    .map((entry) => ({ ms: entry.ms, uri: entry.uri, status: entry.status }));
+    .map((entry) => ({
+      ms: entry.ms as number,
+      uri: entry.uri as string,
+      status: entry.status as number,
+      cache: typeof entry.cache === 'string' ? entry.cache : 'UNKNOWN',
+      referer: typeof entry.referer === 'string' ? entry.referer : '',
+      traffic:
+        entry.traffic === 'bot' || entry.traffic === 'warmup'
+          ? entry.traffic
+          : 'human',
+    }));
 }
 
 function asStringNumberMap(value: unknown): Record<string, number> {

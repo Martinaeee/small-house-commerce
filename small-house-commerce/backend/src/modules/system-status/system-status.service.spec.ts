@@ -59,7 +59,7 @@ describe('SystemStatusService', () => {
     expect(() => service.getStatus()).toThrow(ServiceUnavailableException);
   });
 
-  it('fails closed with 503 when generatedAt is missing', () => {
+  it('fails closed with 503 when generatedAt is missing', async () => {
     writeFileSync(file, JSON.stringify({ services: [] }));
     const service = new SystemStatusService({ filePath: file });
 
@@ -93,14 +93,14 @@ describe('SystemStatusService access report', () => {
     statusCounts: { '200': 986, '404': 12, '500': 2 },
   };
 
-  it('parses a complete report and marks it fresh', () => {
+  it('parses a complete report and marks it fresh', async () => {
     writeFileSync(accessFile, JSON.stringify(report));
     const service = new SystemStatusService({
       accessFilePath: accessFile,
       now: () => Date.parse('2026-11-11T09:01:00Z'),
     });
 
-    expect(service.getAccessReport()).toMatchObject({
+    await expect(service.getAccessReport()).resolves.toMatchObject({
       generatedAt: report.generatedAt,
       stale: false,
       // `linesRead` in the collector output maps to `windowLines` in the API.
@@ -113,37 +113,37 @@ describe('SystemStatusService access report', () => {
     });
   });
 
-  it('marks a report older than 15 minutes as stale', () => {
+  it('marks a report older than 15 minutes as stale', async () => {
     writeFileSync(accessFile, JSON.stringify(report));
     const service = new SystemStatusService({
       accessFilePath: accessFile,
       now: () => Date.parse('2026-11-11T09:16:00Z'),
     });
 
-    expect(service.getAccessReport().stale).toBe(true);
+    expect((await service.getAccessReport()).stale).toBe(true);
   });
 
-  it('fails closed with 503 when the report is missing', () => {
+  it('fails closed with 503 when the report is missing', async () => {
     const service = new SystemStatusService({ accessFilePath: accessFile });
 
-    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+    await expect(service.getAccessReport()).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('fails closed with 503 when the report is not valid JSON', () => {
+  it('fails closed with 503 when the report is not valid JSON', async () => {
     writeFileSync(accessFile, 'not json');
     const service = new SystemStatusService({ accessFilePath: accessFile });
 
-    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+    await expect(service.getAccessReport()).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('fails closed with 503 when generatedAt is missing', () => {
+  it('fails closed with 503 when generatedAt is missing', async () => {
     writeFileSync(accessFile, JSON.stringify({ requests: 10 }));
     const service = new SystemStatusService({ accessFilePath: accessFile });
 
-    expect(() => service.getAccessReport()).toThrow(ServiceUnavailableException);
+    await expect(service.getAccessReport()).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('degrades unknown fields instead of throwing', () => {
+  it('degrades unknown fields instead of throwing', async () => {
     writeFileSync(
       accessFile,
       JSON.stringify({
@@ -156,7 +156,7 @@ describe('SystemStatusService access report', () => {
     );
     const service = new SystemStatusService({ accessFilePath: accessFile });
 
-    expect(service.getAccessReport()).toMatchObject({
+    await expect(service.getAccessReport()).resolves.toMatchObject({
       requests: 0,
       errorRate5xx: null,
       images: { requests: 0, hit: 0, miss: 0, hitRate: null },

@@ -122,7 +122,27 @@ export type OverallVerdict = "ok" | "attention" | "critical";
 export interface OverallStatus {
   verdict: OverallVerdict;
   /** Concrete reasons behind the verdict, already translated by the caller. */
-  reasons: ("server_errors" | "hit_rate_low" | "hit_rate_warming" | "4xx_high")[];
+  reasons: ("server_errors" | "cache_state" | "4xx_high")[];
+}
+
+/**
+ * A low hit rate on its own proves nothing: a deploy just reset the cache, a
+ * warm-up may be running, or the warm-up may have died. Separate those cases
+ * so the banner can say which one it is instead of guessing "warming".
+ */
+export type CacheState = "normal" | "warming" | "below_target" | "failed" | "unknown";
+
+export function cacheState(report: AdminAccessReport): CacheState {
+  // Prefer the rate with our own warm-up traffic removed; falling back to the
+  // raw rate keeps old reports readable.
+  const rate = report.images.realHitRate ?? report.images.hitRate;
+  if (rate === null) return "unknown";
+  if (rate >= 90) return "normal";
+  // Warm-up requests inside the window mean the cache is actively rebuilding.
+  if (report.images.warmupRequests > 0) return "warming";
+  // Very low with no warm-up activity: the warm-up did not run or failed.
+  if (rate < 50) return "failed";
+  return "below_target";
 }
 
 /** The three questions the page exists to answer, in one call. */
@@ -130,11 +150,8 @@ export function overallStatus(report: AdminAccessReport): OverallStatus {
   const reasons: OverallStatus["reasons"] = [];
   if (report.status5xx > 0) reasons.push("server_errors");
 
-  const hitRate = report.images.hitRate;
-  if (hitRate !== null) {
-    if (hitRate < 50) reasons.push("hit_rate_low");
-    else if (hitRate < 90) reasons.push("hit_rate_warming");
-  }
+  const cache = cacheState(report);
+  if (cache !== "normal" && cache !== "unknown") reasons.push("cache_state");
 
   const rate4xx =
     report.requests > 0
@@ -147,7 +164,28 @@ export function overallStatus(report: AdminAccessReport): OverallStatus {
   return { verdict: "ok", reasons };
 }
 
-/** Cache state is only known when the collector records it per request. */
-export function cacheStateLabel(known: boolean): "hit" | "miss" | "unknown" {
-  return known ? "hit" : "unknown";
+/** Path of the page that asked for a resource, from the Referer header. */
+export function refererPath(referer: string): string | null {
+  if (!referer) return null;
+  try {
+    const url = new URL(referer);
+    return url.pathname === "/" ? "/" : url.pathname;
+  } catch {
+    return null;
+  }
+}
+
+export type ImageKind = "main" | "option" | "variant" | "scene" | "detail";
+
+export function imageKind(kind: string | null): ImageKind | null {
+  if (
+    kind === "main" ||
+    kind === "option" ||
+    kind === "variant" ||
+    kind === "scene" ||
+    kind === "detail"
+  ) {
+    return kind;
+  }
+  return null;
 }

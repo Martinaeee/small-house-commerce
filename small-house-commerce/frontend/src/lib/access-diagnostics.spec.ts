@@ -61,12 +61,23 @@ const base: AdminAccessReport = {
   generatedAt: "2026-11-11T09:00:00.000Z",
   stale: false,
   windowLines: 1000,
+  windowFirstAt: "2026-11-11T08:00:00.000Z",
+  windowLastAt: "2026-11-11T09:00:00.000Z",
   requests: 1000,
+  traffic: { human: 900, bot: 100, warmup: 0 },
   status5xx: 0,
   status4xx: 10,
   errorRate5xx: 0,
-  images: { requests: 400, hit: 380, miss: 20, hitRate: 95 },
+  images: {
+    requests: 400,
+    hit: 380,
+    miss: 20,
+    hitRate: 95,
+    realHitRate: 95,
+    warmupRequests: 0,
+  },
   top5xxPaths: [],
+  errors: [],
   slowest: [],
   statusCounts: { "200": 990, "404": 10 },
 };
@@ -85,10 +96,17 @@ describe("overallStatus", () => {
   it("is attention while the cache is still warming", () => {
     const status = overallStatus({
       ...base,
-      images: { requests: 400, hit: 160, miss: 240, hitRate: 40 },
+      images: {
+        requests: 400,
+        hit: 160,
+        miss: 240,
+        hitRate: 40,
+        realHitRate: 40,
+        warmupRequests: 0,
+      },
     });
     expect(status.verdict).toBe("attention");
-    expect(status.reasons).toContain("hit_rate_low");
+    expect(status.reasons).toContain("cache_state");
   });
 
   it("flags a high 4xx rate without calling it a failure", () => {
