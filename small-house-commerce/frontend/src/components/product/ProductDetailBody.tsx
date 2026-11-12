@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { visibleFeatureLines } from "@/lib/feature-lines";
 import type { DetailBlockLike } from "./pdp-detail-blocks";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
+import { DetailMediaImage } from "./DetailMediaImage";
 import mobileStyles from "./PdpMobile.module.css";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
@@ -16,31 +16,21 @@ function DetailMedia({
   index: number;
   fullBleed: boolean;
 }): ReactNode {
-  const frame = fullBleed
-    ? "-mx-4 w-[calc(100%+2rem)] max-w-none sm:mx-0 sm:w-full"
-    : "w-full";
   if (block.type === "VIDEO") {
     return (
       <ViewportVideo
         src={block.url}
         mode="CONTENT"
         ariaLabel={block.altText ?? "Product detail video"}
-        className={`${frame} bg-black`}
+        className={`${fullBleed
+          ? "-mx-4 w-[calc(100%+2rem)] max-w-none sm:mx-0 sm:w-full"
+          : "w-full"} bg-black`}
       />
     );
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={optimizedUploadImage(block.url, 1280)}
-      srcSet={optimizedUploadImageSrcSet(block.url, COLUMN_IMAGE_WIDTHS)}
-      sizes="(min-width: 768px) 720px, 100vw"
-      alt={block.altText ?? ""}
-      loading="lazy"
-      className={`${frame} block`}
-      data-detail-index={index}
-    />
+    <DetailMediaImage url={block.url} alt={block.altText ?? ""} index={index} fullBleed={fullBleed} />
   );
 }
 

@@ -1,12 +1,20 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { HIDDEN_FEATURE_PREFIX } from "@/lib/feature-lines";
+import { installDesktopViewport } from "@/test/desktop-viewport";
 import { ProductDetailBody, ProductDetailMedia } from "./ProductDetailBody";
 
 const blocks = [
   { type: "IMAGE" as const, url: "/a.jpg", altText: "A" },
   { type: "IMAGE" as const, url: "/b.jpg", altText: "B" },
 ];
+
+function stubNaturalSize(img: HTMLImageElement, w: number, h: number) {
+  vi.spyOn(img, "naturalWidth", "get").mockReturnValue(w);
+  vi.spyOn(img, "naturalHeight", "get").mockReturnValue(h);
+  fireEvent.load(img);
+}
+
 
 describe("ProductDetailBody", () => {
   it("renders the Why You’ll Love It highlights by default", () => {
@@ -128,5 +136,51 @@ describe("ProductDetailMedia", () => {
     expect(image.className).not.toContain("-mx-4");
     expect(image.className).not.toContain("border");
     expect(image.className).not.toContain("rounded");
+  });
+});
+
+describe("ProductDetailMedia phone strip viewer", () => {
+  const wideStrip = [{ type: "IMAGE" as const, url: "/strip.jpg", altText: "Strip" }];
+
+  it("turns a wide strip into a swipe viewer at a comfortable height on phones", () => {
+    const restore = installDesktopViewport(false);
+    const { container } = render(<ProductDetailMedia blocks={wideStrip} fullBleed />);
+
+    stubNaturalSize(screen.getByAltText("Strip"), 1200, 500);
+
+    const viewer = container.querySelector('[data-testid="detail-swipe"]') as HTMLElement;
+    expect(viewer).not.toBeNull();
+    expect(viewer.className).toContain("overflow-x-auto");
+    expect(viewer.className).toContain("h-[75vw]");
+    // Edge-to-edge framing moves onto the viewer; nothing is cropped.
+    expect(viewer.className).toContain("-mx-4");
+    const img = viewer.querySelector("img")!;
+    expect(img.className).toContain("h-full");
+    expect(img.className).toContain("w-auto");
+    expect(img.className).toContain("max-w-none");
+    expect(screen.queryByAltText("Strip")).not.toBeNull();
+    restore(false);
+  });
+
+  it("keeps a roughly square detail image at its natural width", () => {
+    const restore = installDesktopViewport(false);
+    const { container } = render(<ProductDetailMedia blocks={wideStrip} fullBleed />);
+
+    stubNaturalSize(screen.getByAltText("Strip"), 900, 800);
+
+    expect(container.querySelector('[data-testid="detail-swipe"]')).toBeNull();
+    const img = container.querySelector("img")!;
+    expect(img.className).toContain("w-full");
+    restore(false);
+  });
+
+  it("does not build a viewer on desktop", () => {
+    const restore = installDesktopViewport(true);
+    const { container } = render(<ProductDetailMedia blocks={wideStrip} fullBleed />);
+
+    stubNaturalSize(screen.getByAltText("Strip"), 1200, 500);
+
+    expect(container.querySelector('[data-testid="detail-swipe"]')).toBeNull();
+    restore(false);
   });
 });
