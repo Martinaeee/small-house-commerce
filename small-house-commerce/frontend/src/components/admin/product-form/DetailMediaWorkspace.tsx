@@ -53,7 +53,7 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
     .map((_, index) => index)
     .filter((index) => selection.has(`detailBlocks.${index}`));
   const contiguous =
-    selectedIndex.length > 0 &&
+    selectedIndex.length >= 2 &&
     selectedIndex.every((value, position) =>
       position === 0 ? true : value === selectedIndex[position - 1]! + 1,
     );

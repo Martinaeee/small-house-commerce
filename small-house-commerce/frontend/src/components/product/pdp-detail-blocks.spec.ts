@@ -152,14 +152,16 @@ describe("groupDetailModules", () => {
     expect(modules[1]).toEqual({ kind: "single", block: plain("c.jpg") });
   });
 
-  it("does not merge same-key blocks separated by an unkeyed row", () => {
+  it("treats a lone keyed row as a plain single block", () => {
     const modules = groupDetailModules([
       keyed("a.jpg", "set-1"),
       plain("b.jpg"),
       keyed("c.jpg", "set-1"),
     ]);
-    expect(modules.map((m) => m.kind)).toEqual(["carousel", "single", "carousel"]);
-    if (modules[0].kind === "carousel") expect(modules[0].blocks).toHaveLength(1);
+    expect(modules.map((m) => m.kind)).toEqual(["single", "single", "single"]);
+
+    const loneFirst = groupDetailModules([keyed("solo.jpg", "set-9"), plain("x.jpg")]);
+    expect(loneFirst.map((m) => m.kind)).toEqual(["single", "single"]);
   });
 
   it("keeps unkeyed blocks single and preserves order", () => {

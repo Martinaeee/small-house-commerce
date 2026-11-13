@@ -171,6 +171,15 @@ describe("DetailMediaWorkspace carousel selection", () => {
     expect(patches[0]![1].groupKey).toBe(patches[1]![1].groupKey);
   });
 
+  it("needs at least two rows before a carousel can be created", async () => {
+    const user = userEvent.setup();
+    const { onPatch } = renderWorkspace({ blocks: rows() });
+
+    await user.click(screen.getByRole("checkbox", { name: /选择第 1 块/ }));
+    expect(screen.getByRole("button", { name: "设为轮播组" })).toBeDisabled();
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
   it("refuses a non-consecutive selection until the rows are adjacent", async () => {
     const user = userEvent.setup();
     const { onPatch } = renderWorkspace({ blocks: rows() });

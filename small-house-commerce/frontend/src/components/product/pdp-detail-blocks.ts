@@ -89,5 +89,12 @@ export function groupDetailModules<T extends DetailBlockLike>(
         : { kind: "single", block },
     );
   }
-  return modules;
+  // A carousel of one is not a carousel: a leftover lone key (e.g. rows that
+  // were ungrouped or split by a reorder) renders as a plain image instead of
+  // disabled arrows and a single dot.
+  return modules.map((module) =>
+    module.kind === "carousel" && module.blocks.length === 1
+      ? { kind: "single" as const, block: module.blocks[0]! }
+      : module,
+  );
 }
