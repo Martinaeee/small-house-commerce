@@ -48,9 +48,10 @@ interface MediaGalleryLabels {
   next(number: number): string;
   remove: string;
   scope?(number: number): string;
+  select?(number: number): string;
 }
 
-export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, scopeOptions, scopeLabel, onScopeChange, onUpload, onPatch, onMove, onReorder, onRemove }: {
+export function MediaGallery({ items, scope, pending, labels, listLabel, highlightedKey = null, highlightNonce = 0, problemKey = null, errors = {}, indexed = false, scopeOptions, scopeLabel, onScopeChange, onUpload, onPatch, onMove, onReorder, onRemove, selection, onToggleSelect }: {
   items: readonly MediaGalleryItem[];
   scope: string;
   pending: boolean;
@@ -69,6 +70,9 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
   onMove(key: string, delta: -1 | 1): void;
   onReorder?(from: number, to: number): void;
   onRemove(key: string): void;
+  /** Detail carousel marking: rows the operator ticked for a group action. */
+  selection?: ReadonlySet<string>;
+  onToggleSelect?(key: string): void;
 }): ReactNode {
   const { t } = useAdminI18n();
   const editorId = useId();
@@ -160,10 +164,21 @@ export function MediaGallery({ items, scope, pending, labels, listLabel, highlig
                         <img src={item.url} alt={item.altText} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
                       : <span className="flex h-full items-center justify-center px-2 text-xs text-ink-muted">{t(item.type === "VIDEO" ? "product_media_empty_video" : "product_media_empty_image")}</span>}
                     <span className="absolute left-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink-secondary">{index + 1}</span>
-                    {item.type === "VIDEO" ? <span className="absolute right-1 top-1 rounded bg-white/90 px-1 text-[10px] text-ink">{t("product_media_type_video")}</span> : null}
+                    {item.type === "VIDEO" ? <span className={`absolute rounded bg-white/90 px-1 text-[10px] text-ink ${onToggleSelect ? "right-1 top-7" : "right-1 top-1"}`}>{t("product_media_type_video")}</span> : null}
                     {item.isScene ? <span className="absolute left-1 top-7 rounded bg-cta px-1 text-[10px] font-semibold text-white">{t("product_media_scene_badge")}</span> : null}
                     {item.scopeLabel ? <span className="absolute left-1 top-7 max-w-[calc(100%-0.5rem)] truncate rounded bg-white/90 px-1 text-[10px] font-semibold text-cta">{item.scopeLabel}</span> : null}
                   </button>
+                  {onToggleSelect ? (
+                    <label data-media-select onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} className="absolute right-1 top-1 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-white/90">
+                      <input
+                        type="checkbox"
+                        checked={selection?.has(item.key) ?? false}
+                        onChange={() => onToggleSelect(item.key)}
+                        aria-label={labels.select?.(index + 1) ?? `${index + 1}`}
+                        className="h-3.5 w-3.5 accent-[color:var(--color-cta)]"
+                      />
+                    </label>
+                  ) : null}
                   <div data-media-actions onPointerDown={(event) => event.stopPropagation()} className={`absolute inset-x-0 bottom-0 flex gap-px bg-gradient-to-t from-black/45 px-px pb-1 pt-5 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 ${expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}>
                     <button type="button" className={actionClass} aria-label={labels.previous(index + 1)} disabled={pending || index === 0} onClick={() => move(index, -1)}>↑</button>
                     <button type="button" className={actionClass} aria-label={labels.next(index + 1)} disabled={pending || index === items.length - 1} onClick={() => move(index, 1)}>↓</button>

@@ -36,18 +36,38 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
   const localBatch = useMediaBatchUpload({ disabled: pending });
   const uploadTask = batchUpload ?? localBatch;
   const [batchScope, setBatchScope] = useState("");
-  // While the carousel switch is on, everything added joins one swipeable
-  // group; toggling it off and on again starts a fresh group.
-  const [carouselMode, setCarouselMode] = useState(false);
-  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
-  const handleAddMedia = (media: UploadedMedia, scope: DetailMediaScope): void => {
-    if (!carouselMode) {
-      onAddMedia(media, scope);
-      return;
-    }
-    const groupKey = activeGroupKey ?? newId();
-    if (!activeGroupKey) setActiveGroupKey(groupKey);
-    onAddMedia(media, scope, { groupKey });
+  // Rows ticked for a carousel action; pruned to live keys every render so a
+  // removed row can never keep a stale tick.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const liveKeys = new Set(blocks.map((block, index) => `detailBlocks.${index}`));
+  const selection = new Set([...ticked].filter((key) => liveKeys.has(key)));
+  const toggleSelect = (key: string): void => {
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const selectedIndex = blocks
+    .map((_, index) => index)
+    .filter((index) => selection.has(`detailBlocks.${index}`));
+  const contiguous =
+    selectedIndex.length > 0 &&
+    selectedIndex.every((value, position) =>
+      position === 0 ? true : value === selectedIndex[position - 1]! + 1,
+    );
+  const allGrouped =
+    selectedIndex.length > 0 &&
+    selectedIndex.every((index) => Boolean(blocks[index]?.groupKey?.trim()));
+  const markCarousel = (): void => {
+    const groupKey = newId();
+    for (const index of selectedIndex) onPatch(index, { groupKey });
+    setTicked(new Set());
+  };
+  const unmarkCarousel = (): void => {
+    for (const index of selectedIndex) onPatch(index, { groupKey: undefined });
+    setTicked(new Set());
   };
   const summary = summarizeAdminMedia(blocks.map((block) => ({ ...block, sortOrder: Number(block.sortOrder.trim() || "0") || 0 })));
   const highlightedKey = highlightKey?.match(/^detailBlocks\.\d+(?=\.|$)/)?.[0] ?? null;
@@ -79,28 +99,46 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           <span className="rounded-full bg-background px-2.5 py-1">{t("product_media_summary_alt", { complete: summary.altCompleteCount, total: summary.rowCount })}</span>
         </div>
       </div>
-      <label className="mb-2 flex items-center gap-2 text-sm text-ink">
-        <input
-          type="checkbox"
-          checked={carouselMode}
-          onChange={(event) => {
-            setCarouselMode(event.target.checked);
-            if (!event.target.checked) setActiveGroupKey(null);
-          }}
-          className="h-4 w-4 accent-[color:var(--color-cta)]"
-        />
-        {t("product_detail_carousel_mode")}
-      </label>
       <MediaAddRow
         targetKey="detail"
         disabled={pending}
-        onAddMedia={(media) => handleAddMedia(media, detailScopeFromValue(batchScope))}
+        onAddMedia={(media) => onAddMedia(media, detailScopeFromValue(batchScope))}
         batchUpload={uploadTask}
         scopeOptions={scopeOptions}
         scopeValue={batchScope}
         onScopeChange={setBatchScope}
         scopeLabel={t("product_detail_upload_scope")}
       />
+      {selection.size > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-background px-3 py-2">
+          <span className="text-sm text-ink-secondary">{t("product_detail_selected_count", { count: selection.size })}</span>
+          <button
+            type="button"
+            onClick={markCarousel}
+            disabled={!contiguous}
+            title={contiguous ? undefined : t("product_detail_selection_not_contiguous")}
+            className="inline-flex h-8 items-center justify-center rounded-lg bg-cta px-3 text-xs font-semibold text-cta-foreground transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("product_detail_set_carousel")}
+          </button>
+          <button
+            type="button"
+            onClick={unmarkCarousel}
+            disabled={!allGrouped}
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-border px-3 text-xs font-semibold text-cta transition-colors hover:border-cta disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("product_detail_unset_carousel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTicked(new Set())}
+            className="text-xs text-ink-secondary hover:text-ink"
+          >
+            {t("product_detail_clear_selection")}
+          </button>
+          {!contiguous ? <span className="text-xs text-sale">{t("product_detail_selection_not_contiguous")}</span> : null}
+        </div>
+      ) : null}
       {blocks.length === 0 ? <p className="mt-3 text-sm text-ink-muted">{t("product_detail_empty")}</p> : null}
       <MediaGallery
           scope={t("product_detail_title")}
@@ -141,6 +179,7 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
             next: (number) => t("product_detail_move_down", { number }),
             remove: t("product_detail_remove"),
             scope: (number) => t("product_detail_scope_aria", { number }),
+            select: (number) => t("product_detail_select_row", { number }),
           }}
           onUpload={(key, file) => {
             const index = Number(key.split(".")[1]);
@@ -150,6 +189,8 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           onMove={(key, delta) => onMove(Number(key.split(".")[1]), delta)}
           onReorder={onReorder}
           onRemove={(key) => onRemove(Number(key.split(".")[1]))}
+          selection={selection}
+          onToggleSelect={toggleSelect}
         />
     </section>
   );
