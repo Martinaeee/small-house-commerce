@@ -2100,3 +2100,20 @@ describe("detail block carousel group serialization", () => {
     expect(submitted.detailBlocks[2].groupKey).toBeUndefined();
   });
 });
+
+it("keeps the carousel group key through the PATCH serializer", () => {
+  const value = baseValue({
+    detailBlocks: [
+      { type: "IMAGE", url: "/uploads/group-1.jpg", altText: "One", sortOrder: "0", groupKey: "launch-set" },
+      { type: "IMAGE", url: "/uploads/group-2.jpg", altText: "Two", sortOrder: "1", groupKey: "launch-set" },
+      { type: "IMAGE", url: "/uploads/single.jpg", altText: "Solo", sortOrder: "2" },
+    ],
+  });
+  const result = serializeFormValue(value, (key) => String(key));
+  if (!result.ok) throw new Error(result.error);
+  expect(result.value.detailBlocks?.map((block) => block.groupKey)).toEqual([
+    "launch-set",
+    "launch-set",
+    undefined,
+  ]);
+});

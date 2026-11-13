@@ -753,6 +753,7 @@ export function serializeFormValue(
         : block.optionValueId
           ? { optionValueId: block.optionValueId }
           : {}),
+      ...(block.groupKey ? { groupKey: block.groupKey } : {}),
     });
   });
 
