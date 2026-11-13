@@ -108,7 +108,7 @@ export function DetailCarousel({
         aria-label="Previous detail image"
         disabled={active === 0}
         onClick={() => scrollToSlide(active - 1)}
-        className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-ink shadow-sm transition-colors hover:text-cta disabled:opacity-40 lg:flex"
+        className="absolute left-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-ink shadow-sm transition-colors hover:text-cta disabled:opacity-40 lg:left-2 lg:h-9 lg:w-9"
       >
         <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
           <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -119,7 +119,7 @@ export function DetailCarousel({
         aria-label="Next detail image"
         disabled={active === blocks.length - 1}
         onClick={() => scrollToSlide(active + 1)}
-        className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-ink shadow-sm transition-colors hover:text-cta disabled:opacity-40 lg:flex"
+        className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-ink shadow-sm transition-colors hover:text-cta disabled:opacity-40 lg:right-2 lg:h-9 lg:w-9"
       >
         <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
           <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

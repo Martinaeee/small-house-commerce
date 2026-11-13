@@ -579,7 +579,7 @@ describe("detail carousel groups", () => {
     expect(screen.getByAltText("Single 5")).toBeInTheDocument();
   });
 
-  it("gives the carousel swipe dots and desktop-only arrows", () => {
+  it("gives the carousel swipe dots and arrows on every breakpoint", () => {
     const item = productWithModules();
     render(
       <PdpPurchaseProvider product={item}>
@@ -594,10 +594,12 @@ describe("detail carousel groups", () => {
     expect(dots[0]).toHaveAttribute("aria-current", "true");
     expect(dots[1]).toHaveAttribute("aria-current", "false");
 
+    // Amazon-style side arrows stay on phones too, not just desktop.
     for (const label of ["Previous detail image", "Next detail image"]) {
       const arrow = screen.getByRole("button", { name: label });
-      expect(arrow.className).toContain("hidden");
-      expect(arrow.className).toContain("lg:flex");
+      expect(arrow).toBeVisible();
+      expect(arrow.className).toContain("flex");
+      expect(arrow.className).not.toContain("hidden");
     }
   });
 });
