@@ -23,6 +23,15 @@ function setup() {
         }
         return null;
       }),
+      findFirst: vi.fn(
+        async ({ where }: { where: { code: { equals: string; mode: string } } }) => {
+          const wanted = where.code.equals.toLowerCase();
+          for (const row of rows.values()) {
+            if (row.code.toLowerCase() === wanted) return row;
+          }
+          return null;
+        },
+      ),
       create: vi.fn(async ({ data }: { data: { code: string; target: string; targetHash: string } }) => {
         for (const row of rows.values()) {
           if (row.code === data.code || row.targetHash === data.targetHash) {
@@ -139,5 +148,19 @@ describe('ShortLinksService', () => {
     await expect(service.resolve('unknown1')).resolves.toBeNull();
     await expect(service.resolve('../../etc/passwd')).resolves.toBeNull();
     expect(prisma.shortLink.findUnique).toHaveBeenCalledTimes(3);
+  });
+
+  it('resolves a code regardless of letter case', async () => {
+    const { service, rows } = setup();
+    rows.set('CvGVR4jx', {
+      id: 'fixed',
+      code: 'CvGVR4jx',
+      target: '/products/chair',
+      targetHash: 'hash',
+      createdAt: new Date(),
+    });
+
+    await expect(service.resolve('cvgvr4jx')).resolves.toEqual({ target: '/products/chair' });
+    await expect(service.resolve('CVGVR4JX')).resolves.toEqual({ target: '/products/chair' });
   });
 });
