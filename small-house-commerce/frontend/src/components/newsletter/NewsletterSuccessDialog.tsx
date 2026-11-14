@@ -76,7 +76,7 @@ export function NewsletterSuccessDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="newsletter-success-title"
-        className="relative max-h-[calc(100dvh-2rem)] w-[min(94vw,30rem)] overflow-x-hidden overflow-y-auto border border-newsletter-border border-t-[7px] border-t-cta bg-newsletter-surface-alt px-5 pb-5 pt-7 text-center shadow-[0_28px_80px_rgba(45,29,22,0.35)] sm:px-7 sm:pb-6 sm:pt-8"
+        className="relative max-h-[min(58dvh,28rem)] w-[min(86vw,22rem)] overflow-x-hidden overflow-y-auto border border-newsletter-border border-t-[7px] border-t-cta bg-newsletter-surface-alt px-4 pb-4 pt-6 text-center shadow-[0_28px_80px_rgba(45,29,22,0.35)] sm:max-h-[calc(100dvh-2rem)] sm:w-[min(94vw,30rem)] sm:px-7 sm:pb-6 sm:pt-8"
       >
         <button
           type="button"
@@ -97,18 +97,18 @@ export function NewsletterSuccessDialog({
           </span>
           <h2
             id="newsletter-success-title"
-            className="font-serif text-3xl leading-none tracking-[-0.03em] text-newsletter-text sm:text-[2.5rem]"
+            className="font-serif text-2xl leading-none tracking-[-0.03em] text-newsletter-text sm:text-[2.5rem]"
           >
             Thank You!
           </h2>
         </div>
 
-        <p className="mt-4 text-sm leading-6 text-newsletter-secondary sm:text-base">
+        <p className="mt-3 text-[13px] leading-5 text-newsletter-secondary sm:mt-4 sm:text-base sm:leading-6">
           You have successfully subscribed to the newsletter.
         </p>
 
         {promoCode ? (
-          <div className="relative mx-auto mt-5 max-w-md overflow-hidden rounded-2xl border border-newsletter-border bg-white px-4 py-3 shadow-[0_10px_28px_rgba(91,55,38,0.08)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-newsletter-surface-alt after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-newsletter-surface-alt">
+          <div className="relative mx-auto mt-4 max-w-md overflow-hidden rounded-2xl border border-newsletter-border bg-white px-4 py-3 shadow sm:mt-5-[0_10px_28px_rgba(91,55,38,0.08)] before:absolute before:-left-3 before:top-1/2 before:h-6 before:w-6 before:-translate-y-1/2 before:rounded-full before:bg-newsletter-surface-alt after:absolute after:-right-3 after:top-1/2 after:h-6 after:w-6 after:-translate-y-1/2 after:rounded-full after:bg-newsletter-surface-alt">
             <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-newsletter-accent">
               Your checkout code
             </p>
@@ -132,7 +132,7 @@ export function NewsletterSuccessDialog({
           type="button"
           data-autofocus
           onClick={onClose}
-          className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-newsletter-accent px-6 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-newsletter-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-newsletter-accent focus-visible:ring-offset-2"
+          className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl bg-newsletter-accent sm:mt-5 px-6 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-newsletter-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-newsletter-accent focus-visible:ring-offset-2"
         >
           Close
         </button>
