@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { useCart } from "./CartContext";
 import {
-  directAddSku,
+  defaultAddSku,
   useCartRecommendations,
 } from "@/lib/useCartRecommendations";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -34,7 +34,7 @@ export function AddToCartSuccess({
   const [addedSlug, setAddedSlug] = useState<string | null>(null);
 
   async function quickAdd(product: Product) {
-    const sku = directAddSku(product);
+    const sku = defaultAddSku(product);
     if (!sku || busySlug !== null) return;
     setBusySlug(product.slug);
     try {
@@ -69,13 +69,14 @@ export function AddToCartSuccess({
             <h3 className="mb-2 text-sm font-semibold text-ink">More picks for you</h3>
             <ul className="flex flex-col gap-3" aria-label="Recommended products">
               {recommendations.map((product) => {
+                const sku = defaultAddSku(product);
                 const derived = resolveSelection(
                   product,
-                  createInitialSelection(product, null),
+                  createInitialSelection(product, product.defaultDisplayVariantId),
                 );
                 const price = cardPricePresentation(derived);
                 const image = product.effectiveCoverMedia;
-                const direct = directAddSku(product) !== null;
+                const direct = sku !== null;
                 return (
                   <li key={product.id} className="flex items-center gap-3">
                     <Link

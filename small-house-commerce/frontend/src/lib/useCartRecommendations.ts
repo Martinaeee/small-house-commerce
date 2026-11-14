@@ -44,6 +44,31 @@ export function directAddSku(product: Product): Sku | null {
 }
 
 /**
+ * The one-click add SKU the merchant pinned in the admin: the product's
+ * default display variant, when it is sellable. Falls back to the single
+ * sellable SKU for one-variant products. Returns null when neither exists —
+ * the combination genuinely needs the picker.
+ */
+export function defaultAddSku(product: Product): Sku | null {
+  if (product.defaultDisplayVariantId) {
+    const { resolvedVariant } = resolveSelection(
+      product,
+      createInitialSelection(product, product.defaultDisplayVariantId),
+    );
+    const sku = resolvedVariant?.sku ?? null;
+    if (
+      sku &&
+      sku.status === "ACTIVE" &&
+      sku.price !== null &&
+      sku.availableInventory > 0
+    ) {
+      return sku;
+    }
+  }
+  return directAddSku(product);
+}
+
+/**
  * Recommendable product: at least one sellable (ACTIVE, priced) SKU with
  * inventory, regardless of its position in the payload.
  */

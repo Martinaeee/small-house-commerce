@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { useCart } from "@/components/cart/CartContext";
-import { useCartRecommendations, directAddSku, quickAddEligible, discountPct } from "@/lib/useCartRecommendations";
+import { useCartRecommendations, defaultAddSku, quickAddEligible, discountPct } from "@/lib/useCartRecommendations";
 import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
@@ -58,7 +58,7 @@ export function PdpQuickRecommendations({ currentProduct, fallback }: {
 
   async function quickAdd(product: Product) {
     if (busySlug !== null) return;
-    const sku = directAddSku(product);
+    const sku = defaultAddSku(product);
     if (!sku) {
       // Several sellable combinations have no honest one-click SKU; the shared
       // picker asks the shopper instead of adding an arbitrary variant.
@@ -98,7 +98,7 @@ export function PdpQuickRecommendations({ currentProduct, fallback }: {
       </div>
       <ul className={styles.quickRailTrack}>
         {list.map(product => {
-          const direct = directAddSku(product);
+          const direct = defaultAddSku(product);
           const price = direct?.price ?? lowestPrice(product);
           const off = direct ? discountPct(direct) : 0;
           const busy = busySlug === product.slug;
