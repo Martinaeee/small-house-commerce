@@ -89,6 +89,7 @@ vi.mock("next/navigation", () => ({
     new URLSearchParams(
       navigationState.tab === null ? "" : `tab=${navigationState.tab}`,
     ),
+  usePathname: () => "/admin/storefront-shell/preview",
 }));
 
 vi.mock("@/lib/admin-i18n", () => ({

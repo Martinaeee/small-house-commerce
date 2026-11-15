@@ -158,6 +158,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [initialPromoCode, setInitialPromoCode] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
+  // The summary block can be collapsed so the shopper reaches the form first.
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   const {
     isBuyNow,
@@ -172,6 +174,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     totals,
     total,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
+
+  const summaryUnits = lines.reduce((count, line) => count + line.quantity, 0);
 
   const attemptKey = useMemo(
     () => checkoutAttemptKey({ skuId, qty, itemsParam, slug }),
@@ -575,9 +579,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6">
+    <div data-checkout-page className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <h1 className="text-3xl font-semibold text-ink">Checkout</h1>
+        <h1 className="text-[2rem] font-bold tracking-[-0.02em] text-ink sm:text-[2.25rem]">Checkout</h1>
         <p
           data-testid="checkout-need-help"
           className="text-xs leading-relaxed text-ink-secondary sm:max-w-[420px] sm:text-right"
@@ -605,17 +609,114 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
-        {/* 1. Order preview (mobile first; desktop left column, row 1) */}
+        {/* 1. Order summary — one block with the item list, the money rows and
+            a collapse toggle, so the shopper reads it like a receipt summary
+            instead of two separate cards. */}
         <div className="order-1 lg:order-none lg:col-start-1 lg:col-span-2 lg:row-start-1">
-          <div className="rounded-lg border border-border bg-card p-5">
-            <h2 className="mb-1 text-lg font-semibold text-ink">Your Order</h2>
-            {isBuyNow && product === null && !productError ? (
-              <p className="py-2 text-sm text-ink-muted">Loading item…</p>
-            ) : lines.length === 0 ? (
-              <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
-            ) : (
-              <OrderPreview lines={lines} />
-            )}
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+              <h2 className="text-lg font-semibold text-ink">
+                Order Summary
+                <span className="ml-2 text-sm font-normal text-ink-muted">
+                  ({summaryUnits} {summaryUnits === 1 ? "Item" : "Items"})
+                </span>
+              </h2>
+              <button
+                type="button"
+                data-testid="checkout-summary-toggle"
+                aria-expanded={summaryOpen}
+                onClick={() => setSummaryOpen((open) => !open)}
+                className="inline-flex items-center gap-1 text-sm font-medium text-ink-secondary transition hover:text-cta"
+              >
+                {summaryOpen ? "Hide" : "Show"}
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`h-4 w-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+
+            {summaryOpen ? (
+              <>
+                <div className="px-4 py-1 sm:px-5">
+                  {isBuyNow && product === null && !productError ? (
+                    <p className="py-2 text-sm text-ink-muted">Loading item…</p>
+                  ) : lines.length === 0 ? (
+                    <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
+                  ) : (
+                    <OrderPreview lines={lines} />
+                  )}
+                </div>
+
+                <div
+                  data-testid="checkout-totals"
+                  className="border-t border-border px-4 py-4 sm:px-5"
+                >
+                  <dl className="flex flex-col gap-2.5 text-sm">
+                    <div className="flex justify-between">
+                      <dt className="text-ink-secondary">Item Subtotal</dt>
+                      <dd className="font-medium text-ink">
+                        {isBuyNow && total === null ? (
+                          "Calculated at checkout"
+                        ) : totals.savings > 0 ? (
+                          <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
+                            {formatPrice(totals.compareAtTotal)}
+                          </span>
+                        ) : (
+                          formatPrice(totals.subtotal)
+                        )}
+                      </dd>
+                    </div>
+                    {totals.savings > 0 && !(isBuyNow && total === null) && (
+                      <div className="flex justify-between">
+                        <dt className="text-ink-secondary">You save</dt>
+                        <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
+                      </div>
+                    )}
+                    {totals.discount > 0 && (
+                      <div className="flex justify-between">
+                        <dt className="text-ink-secondary">Discount</dt>
+                        <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
+                      </div>
+                    )}
+                    {appliedPromo && appliedPromo.discountAmount > 0 && (
+                      <div className="flex justify-between" data-testid="checkout-promo-discount">
+                        <dt className="text-ink-secondary">Promo discount</dt>
+                        <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <dt className="text-ink-secondary">Shipping</dt>
+                      <dd className="font-semibold text-ink">Free</dd>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-3 text-base">
+                      <dt className="font-semibold text-ink">Total (COD)</dt>
+                      <dd className="font-bold text-ink">
+                        {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <PromoCodeField
+                    subtotal={totals.subtotal}
+                    initialCode={initialPromoCode}
+                    onApplied={setAppliedPromo}
+                    onCheckingChange={setPromoChecking}
+                    onInputChange={(value, edited) => {
+                      if (edited) markDraftTouched();
+                      setPromoInput(value);
+                    }}
+                  />
+                  <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -849,73 +950,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           </section>
         </div>
 
-        {/* 4. Totals + COD assurance (desktop left column, row 2). On phones
-            the wrapper is display:contents and the children use order, so the
-            totals card sits under Your Order and above the name field while
-            the desktop grid stays exactly as it was. */}
-        <div className="contents lg:flex lg:flex-col lg:gap-4 lg:col-start-1 lg:col-span-2 lg:row-start-2">
-          <div
-            data-testid="checkout-totals"
-            className="order-2 rounded-lg border border-border bg-card p-5 lg:order-none"
-          >
-            <dl className="flex flex-col gap-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Subtotal</dt>
-                <dd className="font-medium text-ink">
-                  {isBuyNow && total === null ? (
-                    "Calculated at checkout"
-                  ) : totals.savings > 0 ? (
-                    <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
-                      {formatPrice(totals.compareAtTotal)}
-                    </span>
-                  ) : (
-                    formatPrice(totals.subtotal)
-                  )}
-                </dd>
-              </div>
-              {totals.savings > 0 && !(isBuyNow && total === null) && (
-                <div className="flex justify-between">
-                  <dt className="text-ink-secondary">You save</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
-                </div>
-              )}
-              {totals.discount > 0 && (
-                <div className="flex justify-between">
-                  <dt className="text-ink-secondary">Discount</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
-                </div>
-              )}
-              {appliedPromo && appliedPromo.discountAmount > 0 && (
-                <div className="flex justify-between" data-testid="checkout-promo-discount">
-                  <dt className="text-ink-secondary">Promo discount</dt>
-                  <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-ink-secondary">Shipping</dt>
-                <dd className="font-semibold text-ink">Free</dd>
-              </div>
-              <div className="flex justify-between border-t border-border pt-3 text-base">
-                <dt className="font-semibold text-ink">Total (COD)</dt>
-                <dd className="font-bold text-ink">
-                  {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
-                </dd>
-              </div>
-            </dl>
-
-            <PromoCodeField
-              subtotal={totals.subtotal}
-              initialCode={initialPromoCode}
-              onApplied={setAppliedPromo}
-              onCheckingChange={setPromoChecking}
-              onInputChange={(value, edited) => {
-                if (edited) markDraftTouched();
-                setPromoInput(value);
-              }}
-            />
-            <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
-          </div>
-
           <div className="order-4 lg:order-none">
             <CheckoutTrustStrip
               deliveryRange={
@@ -925,7 +959,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               }
             />
           </div>
-        </div>
 
         {/* 5. Review CTA (mobile bottom; desktop right column, row 3) */}
         <div className="order-6 lg:order-none lg:col-start-3 lg:col-span-3 lg:row-start-3">

@@ -293,3 +293,53 @@
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------
+   Checkout chrome: a Lowe's-style quiet header and neutral checkout type.
+   Scoped to the checkout routes only; every other page is untouched.
+   ------------------------------------------------------------------ */
+[data-checkout-header] {
+  background-color: #1f2a24;
+}
+[data-checkout-header] header {
+  background-color: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+[data-checkout-header] a,
+[data-checkout-header] button,
+[data-checkout-header] svg {
+  color: #f6f1e8;
+}
+/* The wordmark paints with theme variables; flip them inside the checkout
+   header only, so the mark stays legible on the dark bar. */
+[data-checkout-header] .header-wordmark {
+  --color-cta: #f2ede4;
+  --color-primary: #1f2a24;
+  --color-background: #f2ede4;
+}
+[data-checkout-header] a:hover,
+[data-checkout-header] button:hover {
+  color: #bcd6c4;
+}
+[data-checkout-header] input,
+[data-checkout-header] input::placeholder {
+  color: #f6f1e8;
+}
+[data-checkout-header] input::placeholder {
+  color: rgba(246, 241, 232, 0.65);
+}
+[data-checkout-page] {
+  font-family: "Helvetica Neue", Helvetica, Arial, "Segoe UI", system-ui,
+    sans-serif;
+}
+[data-checkout-page] input,
+[data-checkout-page] select,
+[data-checkout-page] textarea,
+[data-checkout-page] button {
+  font-family: inherit;
+}
+/* Storefront headings carry their own direct font-family rule; restore the
+   neutral checkout stack for them so the whole page reads as one face. */
+[data-checkout-page] :where(h1, h2, h3, h4, h5, h6) {
+  font-family: inherit;
+}

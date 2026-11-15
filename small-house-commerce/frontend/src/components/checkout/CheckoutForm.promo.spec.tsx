@@ -281,7 +281,7 @@ describe("CheckoutForm totals summary", () => {
     });
     render(<CheckoutForm itemsParam="item-1" />);
 
-    const subtotal = screen.getByText("Subtotal").nextElementSibling;
+    const subtotal = screen.getByText("Item Subtotal").nextElementSibling;
     expect(subtotal).toHaveTextContent("₱130.00");
     expect(subtotal).not.toHaveTextContent("₱100.00");
     expect(screen.getByTestId("checkout-subtotal-compare")).not.toHaveClass(
@@ -373,19 +373,23 @@ describe("CheckoutForm mobile summary order", () => {
     }));
     expect(routerMock.push).not.toHaveBeenCalled();
   });
-  it("lifts the totals card above the name field on phones and leaves the desktop grid alone", () => {
+  it("keeps the totals above the name field on phones and leaves the desktop grid alone", () => {
     render(<CheckoutForm itemsParam="item-1" />);
 
     const totals = screen.getByTestId("checkout-totals");
     const delivery = document
       .getElementById("checkout-name")!
       .closest("section")!.parentElement!;
-    const summaryRow = totals.parentElement!;
+    // The summary card now carries the items and the totals in one block.
+    const summaryWrapper = totals.closest("div.order-1") as HTMLElement;
 
-    expect(totals).toHaveClass("order-2", "lg:order-none");
+    expect(summaryWrapper).toHaveClass("order-1", "lg:order-none");
     expect(delivery).toHaveClass("order-3", "lg:order-none");
-    expect(summaryRow).toHaveClass("contents", "lg:flex");
-    expect(summaryRow).toHaveClass("lg:row-start-2");
+    // On phones the totals are painted before the name field.
+    expect(
+      totals.compareDocumentPosition(delivery) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByTestId("review-order").parentElement).toHaveClass(
       "order-6",
       "lg:order-none",
