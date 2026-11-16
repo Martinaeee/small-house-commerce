@@ -409,6 +409,49 @@ export function CheckoutAddressDialog({
               ) : null}
             </div>
 
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+              Street Name, Building, House No. *
+              <input
+                id="checkout-address"
+                value={values.streetAddress}
+                onChange={(event) => {
+                  setTouchedAny(true);
+                  setStreetQuery(event.target.value);
+                  onChange("streetAddress", event.target.value);
+                }}
+                aria-invalid={Boolean(errors.streetAddress)}
+                placeholder="Street Name, Building, House No."
+                className={`h-10 w-full rounded-md border px-3 text-sm text-ink placeholder:text-sm placeholder:text-ink-muted focus:border-cta focus:outline-none ${
+                  errors.streetAddress ? "border-sale" : "border-border"
+                }`}
+              />
+              {suggestions.length > 0 ? (
+                <ul
+                  data-testid="checkout-street-suggestions"
+                  className="mt-1 max-h-44 overflow-y-auto rounded-md border border-border bg-card"
+                >
+                  {suggestions.map((suggestion) => (
+                    <li key={suggestion.displayName}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void applySuggestion(suggestion);
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm leading-5 text-ink hover:bg-primary-light/40"
+                      >
+                        {suggestion.displayName}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {errors.streetAddress ? (
+                <span id="checkout-address-error" role="alert" className="text-xs text-sale">
+                  {errors.streetAddress}
+                </span>
+              ) : null}
+            </label>
+
             <div className="flex flex-col gap-1 text-[13px] font-medium text-ink">
               <label htmlFor="checkout-postal-code">
                 Postal Code (Optional)
@@ -448,49 +491,6 @@ export function CheckoutAddressDialog({
                 </span>
               ) : null}
             </div>
-
-            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-              Street Name, Building, House No. *
-              <input
-                id="checkout-address"
-                value={values.streetAddress}
-                onChange={(event) => {
-                  setTouchedAny(true);
-                  setStreetQuery(event.target.value);
-                  onChange("streetAddress", event.target.value);
-                }}
-                aria-invalid={Boolean(errors.streetAddress)}
-                placeholder="Street Name, Building, House No."
-                className={`${CONTROL_CLS} ${
-                  errors.streetAddress ? "border-sale" : "border-border"
-                }`}
-              />
-              {suggestions.length > 0 ? (
-                <ul
-                  data-testid="checkout-street-suggestions"
-                  className="mt-1 max-h-44 overflow-y-auto rounded-md border border-border bg-card"
-                >
-                  {suggestions.map((suggestion) => (
-                    <li key={suggestion.displayName}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void applySuggestion(suggestion);
-                        }}
-                        className="block w-full px-3 py-2 text-left text-sm leading-5 text-ink hover:bg-primary-light/40"
-                      >
-                        {suggestion.displayName}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {errors.streetAddress ? (
-                <span id="checkout-address-error" role="alert" className="text-xs text-sale">
-                  {errors.streetAddress}
-                </span>
-              ) : null}
-            </label>
 
             <div className="flex items-end gap-3">
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-[13px] font-medium text-ink">

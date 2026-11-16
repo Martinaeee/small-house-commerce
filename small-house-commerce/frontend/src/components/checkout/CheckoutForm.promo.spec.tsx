@@ -407,6 +407,23 @@ describe("CheckoutForm mobile summary order", () => {
     expect(address).toHaveTextContent(/No delivery address yet/);
   });
 
+  it("orders street → postal code → landmark and keeps street copy compact", async () => {
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await screen.findByRole("dialog");
+    const street = document.getElementById("checkout-address")!;
+    const postal = document.getElementById("checkout-postal-code")!;
+    const landmark = document.getElementById("checkout-landmark")!;
+
+    expect(
+      street.compareDocumentPosition(postal) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      postal.compareDocumentPosition(landmark) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(street).toHaveClass("h-10", "text-sm", "placeholder:text-sm");
+  });
+
   it("opens the address dialog when PLACE ORDER fails validation", async () => {
     validationMock.validateCheckoutForm.mockReturnValue({ name: "Full name is required" });
     render(<CheckoutForm itemsParam="item-1" />);
