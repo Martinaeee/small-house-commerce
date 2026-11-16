@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { HeroBanner } from "@/components/product/HeroBanner";
 import { ProductCard } from "@/components/product/ProductCard";
 import { serverApiUrl, type Collection, type Paged, type Product } from "@/lib/api";
@@ -98,19 +97,6 @@ export default async function CollectionPage({
           {collection.description}
         </p>
       ) : null}
-
-      {/* §12 Filters */}
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
-        <CollectionFilters
-          basePath={`/collections/${slug}`}
-          active={{
-            room: sp.room,
-            solution: sp.solution,
-            minPrice: sp.minPrice,
-            maxPrice: sp.maxPrice,
-          }}
-        />
-      </div>
 
       {/* §10 Product Grid: 2 cols mobile, 3-4 desktop */}
       <section id="products" className="mt-8 scroll-mt-20">

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { ProductCard } from "@/components/product/ProductCard";
 import { serverApiUrl, type Category, type Paged, type Product } from "@/lib/api";
 import { STOREFRONT_TAGS } from "@/lib/cache-tags";
@@ -103,14 +102,6 @@ export default async function SearchPage({
               <span className="ml-2 text-base font-normal text-ink-muted">({products.total})</span>
             )}
           </h1>
-
-          <div className="mt-6 rounded-lg border border-border bg-card p-4">
-            <CollectionFilters
-              basePath="/search"
-              preserve={{ q }}
-              active={{ room: sp.room, solution: sp.solution, minPrice: sp.minPrice, maxPrice: sp.maxPrice }}
-            />
-          </div>
 
           {items.length === 0 ? (
             <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
