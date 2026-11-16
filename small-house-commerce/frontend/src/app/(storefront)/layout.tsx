@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { MarketingTouchObserver } from "@/components/tracking/MarketingTouchObserver";
 import { BackToTop } from "@/components/layout/BackToTop";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { StorefrontShellPresentation } from "@/components/layout/StorefrontShellPresentation";
 import { MetaPixelInit } from "@/components/tracking/MetaPixelInit";
 import { PageViewTracker } from "@/components/tracking/PageViewTracker";
@@ -112,6 +113,7 @@ export default async function StorefrontLayout({
         <CartDrawer />
         <NewsletterPopup />
         <MessengerChat />
+        <MobileTabBar />
         <BackToTop />
         <CookieConsentBar />
       </div>

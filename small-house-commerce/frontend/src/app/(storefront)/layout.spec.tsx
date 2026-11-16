@@ -213,13 +213,6 @@ describe("StorefrontLayout data loading", () => {
     expect(document.querySelector(".storefront-app")).not.toBeNull();
   });
 
-  it("does not mount the mobile bottom navigation on storefront pages", async () => {
-    await renderLayout();
-
-    expect(document.querySelector("[data-homepage-bottom-chrome]")).toBeNull();
-    expect(document.querySelector("[data-homepage-bottom-clearance]")).toBeNull();
-  });
-
   it("uses current legacy navigation, Footer and theme when shell loading fails", async () => {
     stubFetch({
       shell: () => {
