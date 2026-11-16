@@ -413,7 +413,9 @@ export function CheckoutAddressDialog({
             </div>
 
             <div className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-              <label htmlFor="checkout-postal-code">Postal Code</label>
+              <label htmlFor="checkout-postal-code">
+                Postal Code (Optional)
+              </label>
               <div className="flex gap-2">
                 <input
                   id="checkout-postal-code"
