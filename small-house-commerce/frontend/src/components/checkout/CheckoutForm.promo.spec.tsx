@@ -261,7 +261,7 @@ describe("CheckoutForm totals summary", () => {
     );
   });
 
-  it("shows the selling subtotal with a struck-through original price", () => {
+  it("shows the pre-discount total as the subtotal and the saving below it", () => {
     checkoutLinesMock.mockReturnValue({
       isBuyNow: false,
       cartLoading: false,
@@ -283,15 +283,14 @@ describe("CheckoutForm totals summary", () => {
     });
     render(<CheckoutForm itemsParam="item-1" />);
 
-    // The money rows read: what they pay, the crossed-out original, the save.
-    const subtotal = screen.getByText("Item Subtotal").nextElementSibling;
-    expect(subtotal).toHaveTextContent("₱100.00");
-    const compare = screen.getByTestId("checkout-subtotal-compare");
-    expect(compare).toHaveTextContent("₱130.00");
-    expect(compare).toHaveClass("line-through");
+    // The money rows read: the pre-discount total, then what it saves.
+    const subtotal = screen.getByTestId("checkout-subtotal-compare");
+    expect(subtotal).toHaveTextContent("₱130.00");
+    expect(subtotal).not.toHaveClass("line-through");
     expect(screen.getByText("You save").nextElementSibling).toHaveTextContent(
       "−₱30.00",
     );
+    expect(screen.queryByText("Original price")).toBeNull();
   });
 
   it("shows the promo discount in the summary and lowers the total", async () => {

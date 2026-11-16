@@ -414,37 +414,39 @@ export function CheckoutAddressDialog({
 
             <div className="flex flex-col gap-1 text-[13px] font-medium text-ink">
               <label htmlFor="checkout-postal-code">Postal Code</label>
-              <input
-                id="checkout-postal-code"
-                data-testid="checkout-postal-code"
-                value={values.postalCode}
-                onChange={field("postalCode")}
-                placeholder="Postal Code"
-                inputMode="numeric"
-                className={`${CONTROL_CLS} border-border`}
-              />
+              <div className="flex gap-2">
+                <input
+                  id="checkout-postal-code"
+                  data-testid="checkout-postal-code"
+                  value={values.postalCode}
+                  onChange={field("postalCode")}
+                  placeholder="Postal Code"
+                  inputMode="numeric"
+                  className={`${CONTROL_CLS} min-w-0 flex-1 border-border`}
+                />
+                {postalOptions.length > 0 ? (
+                  <select
+                    data-testid="checkout-postal-options"
+                    aria-label="Suggested postal codes"
+                    value={suggestedPostalValue}
+                    onChange={(event) => {
+                      if (event.target.value) onChange("postalCode", event.target.value);
+                    }}
+                    className="h-11 w-[46%] shrink-0 rounded-md border border-border bg-card px-2 text-[13px] text-ink focus:border-cta focus:outline-none"
+                  >
+                    <option value="">Pick a suggested ZIP</option>
+                    {postalOptions.map((option) => (
+                      <option key={option.zip} value={option.zip}>
+                        {`${option.label} — ${option.zip}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
               {postalAuto && values.postalCode === postalAuto ? (
                 <span data-testid="checkout-postal-code-hint" className="text-xs font-normal text-ink-muted">
                   Filled in from your address — you can change it.
                 </span>
-              ) : null}
-              {postalOptions.length > 0 ? (
-                <select
-                  data-testid="checkout-postal-options"
-                  aria-label="Suggested postal codes"
-                  value={suggestedPostalValue}
-                  onChange={(event) => {
-                    if (event.target.value) onChange("postalCode", event.target.value);
-                  }}
-                  className="mt-1 h-11 w-full rounded-md border border-border bg-card px-3 text-sm text-ink focus:border-cta focus:outline-none"
-                >
-                  <option value="">Suggested ZIPs for this city — pick one</option>
-                  {postalOptions.map((option) => (
-                    <option key={option.zip} value={option.zip}>
-                      {`${option.label} — ${option.zip}`}
-                    </option>
-                  ))}
-                </select>
               ) : null}
             </div>
 

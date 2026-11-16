@@ -18,7 +18,6 @@ import {
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
 import { recordSubmitAttempt, recordSubmitFailure } from "@/lib/checkout-events";
 import {
-  autosaveStatusLabel,
   buildCheckoutSnapshot,
   checkoutAttemptKey,
   resolveCheckoutAttempt,
@@ -258,7 +257,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       }),
     [form, orderItems, promoInput, appliedPromo],
   );
-  const { status: autosaveStatus, flush: flushAutosave } =
+  const { flush: flushAutosave } =
     useCheckoutDraftAutosave({
       attempt,
       snapshot: autosaveSnapshot,
@@ -585,9 +584,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         {/* 1. Delivery address — a compact card; the address itself is edited
             in the New Address dialog (Shopee layout). */}
         <section className="overflow-hidden rounded-lg border border-border bg-card" aria-label="Delivery address">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-ink">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cta" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
+            <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
+              <svg viewBox="0 0 24 24" className="h-4 w-4 text-cta" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
                 <path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z" strokeLinejoin="round" />
                 <circle cx="12" cy="10" r="2.5" />
               </svg>
@@ -597,19 +596,19 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               type="button"
               data-testid="checkout-open-address"
               onClick={() => setAddressOpen(true)}
-              className="text-sm font-medium text-cta hover:underline"
+              className="text-[13px] font-medium text-cta hover:underline"
             >
               {addressReady ? "Change" : "Add address"}
             </button>
           </div>
-          <div className="px-4 py-4 sm:px-5">
+          <div className="px-3 py-2.5 sm:px-4">
             {addressReady ? (
               <>
-                <p className="text-sm font-semibold text-ink">
+                <p className="text-[13px] font-semibold text-ink">
                   {form.name}
                   <span className="font-normal text-ink-secondary"> · {form.phone}</span>
                 </p>
-                <p className="mt-1 text-sm leading-6 text-ink-secondary">
+                <p className="mt-0.5 text-[13px] leading-5 text-ink-secondary">
                   {[form.streetAddress, form.barangay, form.city, form.province, form.postalCode]
                     .filter(Boolean)
                     .join(", ")}
@@ -619,17 +618,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 ) : null}
               </>
             ) : (
-              <p className="text-sm text-ink-secondary">
+              <p className="text-[13px] text-ink-secondary">
                 No delivery address yet — add one to continue.
               </p>
             )}
-            <p
-              data-testid="checkout-autosave-status"
-              aria-live="polite"
-              className="mt-3 text-xs text-ink-muted"
-            >
-              {autosaveStatusLabel(autosaveStatus)}
-            </p>
           </div>
         </section>
 
@@ -683,28 +675,19 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 <dl className="flex flex-col gap-2.5 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-ink-secondary">Item Subtotal</dt>
-                    <dd className="font-medium text-ink">
+                    <dd data-testid="checkout-subtotal-compare" className="font-medium text-ink">
                       {isBuyNow && total === null
                         ? "Calculated at checkout"
-                        : formatPrice(totals.subtotal)}
+                        : totals.savings > 0
+                          ? formatPrice(totals.compareAtTotal)
+                          : formatPrice(totals.subtotal)}
                     </dd>
                   </div>
                   {totals.savings > 0 && !(isBuyNow && total === null) && (
-                    <>
-                      <div className="flex justify-between">
-                        <dt className="text-ink-secondary">Original price</dt>
-                        <dd
-                          data-testid="checkout-subtotal-compare"
-                          className="font-medium text-ink-muted line-through"
-                        >
-                          {formatPrice(totals.compareAtTotal)}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-ink-secondary">You save</dt>
-                        <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
-                      </div>
-                    </>
+                    <div className="flex justify-between">
+                      <dt className="text-ink-secondary">You save</dt>
+                      <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
+                    </div>
                   )}
                   {totals.discount > 0 && (
                     <div className="flex justify-between">
