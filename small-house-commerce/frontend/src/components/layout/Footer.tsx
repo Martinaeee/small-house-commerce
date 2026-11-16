@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { CookieSettingsButton } from "@/components/consent/CookieSettingsButton";
 import { SubscribeBand } from "@/components/newsletter/SubscribeBand";
@@ -280,13 +281,14 @@ export function Footer({
 }: FooterProps) {
   const footer =
     shell?.footer ?? legacyFooter(collections, supportEmail, supportHours);
+  const onCheckout = usePathname()?.startsWith("/checkout") ?? false;
   const gridClass =
     GRID_BY_COLUMN_COUNT[footer.columns.length] ?? GRID_BY_COLUMN_COUNT[5];
   const [openColumn, setOpenColumn] = useState<string | null>(null);
 
   return (
     <footer className="mt-16 bg-footer-background text-footer-foreground">
-      {mode === "live" ? <SubscribeBand /> : null}
+      {mode === "live" && !onCheckout ? <SubscribeBand /> : null}
 
       <div className="mx-auto w-full max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
         <div
