@@ -170,6 +170,74 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
   };
 }
 
+/** One type-ahead row for the New Address street field (Nominatim search). */
+export interface NominatimSuggestion {
+  displayName: string;
+  /** "house_number road" when available, else the caller falls back to the
+   *  first display-name segment. */
+  street?: string;
+  province?: string;
+  city?: string;
+  barangay?: string;
+  postalCode?: string;
+}
+
+/**
+ * Nominatim forward search (client-side, no key) for the street type-ahead.
+ * Restricted to the Philippines and capped at five rows. Returns [] on any
+ * failure — suggestions are a convenience; the shopper can always type the
+ * address by hand. Nominatim usage policy: callers only search after a short
+ * debounce (≥500 ms) and ≥5 typed characters (see CheckoutAddressDialog).
+ */
+export async function searchAddressSuggestions(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NominatimSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 5) return [];
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=ph&limit=5&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, {
+    headers: { "Accept-Language": "en" },
+    signal: signal ?? AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as Array<{
+    display_name?: string;
+    address?: {
+      house_number?: string;
+      road?: string;
+      pedestrian?: string;
+      province?: string;
+      state?: string;
+      region?: string;
+      city?: string;
+      municipality?: string;
+      town?: string;
+      suburb?: string;
+      neighbourhood?: string;
+      quarter?: string;
+      village?: string;
+      postcode?: string;
+    };
+  }>;
+  return data
+    .map((item) => {
+      const a = item.address ?? {};
+      const street = [a.house_number, a.road ?? a.pedestrian]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        displayName: item.display_name ?? "",
+        street: street || undefined,
+        province: a.province ?? a.state ?? a.region,
+        city: a.city ?? a.municipality ?? a.town,
+        barangay: a.suburb ?? a.neighbourhood ?? a.quarter ?? a.village,
+        postalCode: a.postcode,
+      };
+    })
+    .filter((suggestion) => suggestion.displayName !== "");
+}
+
 /**
  * PSGC-name matcher: trim/lowercase/collapse-spaces, accent-stripped (NFD) so
  * Nominatim's "Las Piñas" / "Las Pinas" agree with the snapshot.

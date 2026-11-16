@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   defaultPreferredDeliveryDate,
   deliveryWindowFor,
-  manilaWallDate,
-  toDateInputValue,
 } from "@/lib/deliveryWindow";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/components/ui/PriceBox";
@@ -48,7 +46,6 @@ import {
 import {
   CHECKOUT_FIELD_ORDER,
   validateCheckoutForm,
-  validatePreferredDate,
   type CheckoutField,
 } from "@/lib/checkoutValidation";
 
@@ -70,23 +67,6 @@ interface CheckoutFormProps {
   qty?: string;
   itemsParam?: string;
   slug?: string;
-}
-
-function FieldError({
-  id,
-  message,
-  testId,
-}: {
-  id: string;
-  message?: string;
-  testId?: string;
-}) {
-  if (!message) return null;
-  return (
-    <p id={`${id}-error`} data-testid={testId} role="alert" className="mt-1 text-xs text-sale">
-      {message}
-    </p>
-  );
 }
 
 const FIELD_ELEMENT_ID: Partial<Record<CheckoutField, string>> = {
@@ -132,20 +112,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     landmark: "",
     preferredDeliveryDate: defaultPreferredDeliveryDate(),
     notes: "",
-  });
-
-  // Spec §3.3 / §5.3: min/max are computed once at mount against the Manila
-  // wall clock (min = +7 calendar days, max = +30 calendar days). A form left
-  // open across midnight can drift ≤1 day — accepted, same trade-off as B batch.
-  const [dateBounds] = useState(() => {
-    const { year, month, day } = manilaWallDate(new Date());
-    const manilaToday = new Date(Date.UTC(year, month - 1, day));
-    return {
-      min: toDateInputValue(
-        new Date(manilaToday.getTime() + 7 * 24 * 60 * 60 * 1000),
-      ),
-      max: toDateInputValue(new Date(manilaToday.getTime() + 30 * 24 * 60 * 60 * 1000)),
-    };
   });
 
   // Use-my-location (spec §3.4): geolocation is requested only on button click
@@ -316,49 +282,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuyNow, orderItems.length, buyNowMatchedSku]);
 
-  const set =
-    (field: CheckoutField) => (e: ChangeEvent<HTMLInputElement>) => {
-      markDraftTouched();
-      setForm((f) => ({ ...f, [field]: e.target.value }));      setErrors((current) => {
-        if (!current[field]) return current;
-        const next = { ...current };
-        delete next[field];
-        return next;
-      });
-    };
-
-  // Re-validate one field on blur so a corrected-but-still-bad value gets
-  // flagged before submit.
-  const revalidate = (field: CheckoutField) => () =>
-    setErrors((current) => {
-      const fresh = validateCheckoutForm(form);
-      const next = { ...current };
-      if (fresh[field]) next[field] = fresh[field];
-      else delete next[field];
-      return next;
-    });
-
-  // Spec §3.3 Sunday guard: a Sunday picked from the date picker is rejected
-  // immediately — clear the value and show the inline warning (UTC-midnight
-  // convention; also covers an invalid typed value in text-input fallback).
-  const onPreferredDateChange = (e: ChangeEvent<HTMLInputElement>) => {
-    markDraftTouched();
-    const value = e.target.value;
-    const dateError = validatePreferredDate(value);
-    if (dateError) {
-      setForm((f) => ({ ...f, preferredDeliveryDate: "" }));
-      setErrors((current) => ({ ...current, preferredDeliveryDate: dateError }));
-      return;
-    }
-    setForm((f) => ({ ...f, preferredDeliveryDate: value }));
-    setErrors((current) => {
-      if (!current.preferredDeliveryDate) return current;
-      const next = { ...current };
-      delete next.preferredDeliveryDate;
-      return next;
-    });
-  };
-
   // Postal code follows the address (province → city → barangay → ZIP).
   // `postalAutoRef` remembers the last value WE filled, so an address change
   // can drop a now-stale auto value while leaving the shopper's own edit alone.
@@ -524,8 +447,6 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     const trackingItems = orderItems.map((item, index) => ({ ...item, variantName: lines[index]?.variant ?? null }));
     const occurrence = recordSubmitAttempt({ step: "form", items: trackingItems, scope: attemptKey });
     const validation = validateCheckoutForm(form);
-    const preferredDateError = validatePreferredDate(form.preferredDeliveryDate);
-    if (preferredDateError) validation.preferredDeliveryDate = preferredDateError;
     setErrors(validation);
     if (Object.keys(validation).length > 0) {
       const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
@@ -554,7 +475,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
+    }, null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
     flushAutosave();
     const query = checkoutQueryString({ skuId, qty, itemsParam, slug });
     // The shopper already reviewed the address and the summary here: the
@@ -763,22 +684,27 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   <div className="flex justify-between">
                     <dt className="text-ink-secondary">Item Subtotal</dt>
                     <dd className="font-medium text-ink">
-                      {isBuyNow && total === null ? (
-                        "Calculated at checkout"
-                      ) : totals.savings > 0 ? (
-                        <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
-                          {formatPrice(totals.compareAtTotal)}
-                        </span>
-                      ) : (
-                        formatPrice(totals.subtotal)
-                      )}
+                      {isBuyNow && total === null
+                        ? "Calculated at checkout"
+                        : formatPrice(totals.subtotal)}
                     </dd>
                   </div>
                   {totals.savings > 0 && !(isBuyNow && total === null) && (
-                    <div className="flex justify-between">
-                      <dt className="text-ink-secondary">You save</dt>
-                      <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
-                    </div>
+                    <>
+                      <div className="flex justify-between">
+                        <dt className="text-ink-secondary">Original price</dt>
+                        <dd
+                          data-testid="checkout-subtotal-compare"
+                          className="font-medium text-ink-muted line-through"
+                        >
+                          {formatPrice(totals.compareAtTotal)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-ink-secondary">You save</dt>
+                        <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
+                      </div>
+                    </>
                   )}
                   {totals.discount > 0 && (
                     <div className="flex justify-between">
@@ -815,71 +741,30 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   }}
                 />
                 <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
+                <div className="mt-3 border-t border-border pt-3">
+                  <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+                    Order Notes (Optional)
+                    <textarea
+                      id="checkout-notes"
+                      data-testid="checkout-notes"
+                      className={`${inputCls} resize-none text-sm`}
+                      rows={2}
+                      maxLength={200}
+                      value={form.notes}
+                      onChange={(e) => {
+                        markDraftTouched();
+                        setForm((f) => ({ ...f, notes: e.target.value }));
+                      }}
+                      placeholder="Any special delivery instructions?"
+                    />
+                  </label>
+                </div>
               </div>
             </>
           ) : null}
         </section>
 
-        {/* 3. Order notes — the delivery date and the shopper's note. */}
-        <section className="rounded-lg border border-border bg-card p-4 sm:p-5" aria-label="Order notes">
-          <h2 className="mb-3 text-lg font-semibold text-ink">Order Notes</h2>
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-              Preferred delivery date (optional)
-              <input
-                id="checkout-preferred-date"
-                type="date"
-                data-testid="checkout-preferred-date"
-                className={`${inputCls}${errors.preferredDeliveryDate ? " border-sale" : ""}`}
-                min={dateBounds.min}
-                max={dateBounds.max}
-                value={form.preferredDeliveryDate}
-                onChange={onPreferredDateChange}
-                aria-invalid={Boolean(errors.preferredDeliveryDate)}
-                aria-describedby={
-                  errors.preferredDeliveryDate ? "checkout-preferred-date-error" : undefined
-                }
-              />
-              <FieldError
-                id="checkout-preferred-date"
-                testId="checkout-preferred-date-error"
-                message={errors.preferredDeliveryDate}
-              />
-            </label>
-            <p
-              data-testid="checkout-preferred-date-hint"
-              className="-mt-1 text-xs text-ink-muted"
-            >
-              {form.province.trim()
-                ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
-                : "Choose a preferred date (optional)."}
-            </p>
-            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-              Order Notes (Optional)
-              <textarea
-                id="checkout-notes"
-                data-testid="checkout-notes"
-                className={`${inputCls} resize-y`}
-                rows={2}
-                maxLength={200}
-                value={form.notes}
-                onChange={(e) => {
-                  markDraftTouched();
-                  setForm((f) => ({ ...f, notes: e.target.value }));
-                }}
-                placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
-              />
-              <span className="text-xs font-normal text-ink-muted">
-                We&apos;ll do our best to accommodate your request.
-              </span>
-            </label>
-            <p data-testid="checkout-privacy-note" className="text-xs text-ink-secondary">
-              Your information is used only to process and deliver your order.
-            </p>
-          </div>
-        </section>
-
-        {/* 4. Submit — the address and summary were just reviewed, so the
+        {/* 3. Submit — the address and summary were just reviewed, so the
             confirmation step places the order itself. */}
         <div>
           <Button
@@ -916,6 +801,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         }}
         errors={errors}
         postalAuto={postalLookup.auto}
+        postalOptions={postalLookup.options}
         locating={locating}
         locationError={locationError}
         locationNotice={locationNotice}

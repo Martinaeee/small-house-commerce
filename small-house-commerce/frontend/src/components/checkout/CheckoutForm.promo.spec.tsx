@@ -162,9 +162,11 @@ describe("CheckoutForm promo code", () => {
     );
 
     await user.click(screen.getByTestId("review-order"));
+    // The preferred-date picker is hidden for now, so the draft carries no
+    // date (a stale restored value would otherwise reach the backend).
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       "SAVE10",
       null,
@@ -219,7 +221,7 @@ describe("CheckoutForm order notes", () => {
 
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       null,
       "Please call before delivery",
@@ -234,7 +236,7 @@ describe("CheckoutForm order notes", () => {
 
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       null,
       null,
@@ -259,7 +261,7 @@ describe("CheckoutForm totals summary", () => {
     );
   });
 
-  it("shows the original price as the subtotal so the savings rows add up", () => {
+  it("shows the selling subtotal with a struck-through original price", () => {
     checkoutLinesMock.mockReturnValue({
       isBuyNow: false,
       cartLoading: false,
@@ -281,11 +283,14 @@ describe("CheckoutForm totals summary", () => {
     });
     render(<CheckoutForm itemsParam="item-1" />);
 
+    // The money rows read: what they pay, the crossed-out original, the save.
     const subtotal = screen.getByText("Item Subtotal").nextElementSibling;
-    expect(subtotal).toHaveTextContent("₱130.00");
-    expect(subtotal).not.toHaveTextContent("₱100.00");
-    expect(screen.getByTestId("checkout-subtotal-compare")).not.toHaveClass(
-      "line-through",
+    expect(subtotal).toHaveTextContent("₱100.00");
+    const compare = screen.getByTestId("checkout-subtotal-compare");
+    expect(compare).toHaveTextContent("₱130.00");
+    expect(compare).toHaveClass("line-through");
+    expect(screen.getByText("You save").nextElementSibling).toHaveTextContent(
+      "−₱30.00",
     );
   });
 
@@ -373,31 +378,32 @@ describe("CheckoutForm mobile summary order", () => {
     }));
     expect(routerMock.push).not.toHaveBeenCalled();
   });
-  it("lays the page out address → summary → notes → submit", () => {
+  it("lays the page out address → summary (with notes) → submit", () => {
     render(<CheckoutForm itemsParam="item-1" />);
 
     const totals = screen.getByTestId("checkout-totals");
     const summarySection = totals.closest("section")!;
     const address = screen.getByLabelText("Delivery address");
-    const notes = screen.getByLabelText("Order notes");
+    const notes = screen.getByTestId("checkout-notes");
     const submit = screen.getByTestId("review-order");
 
-    // One card carries the items and the totals together.
+    // One card carries the items, the totals and the order note together.
     expect(summarySection).toHaveAttribute("aria-label", "Order summary");
     expect(summarySection.contains(totals)).toBe(true);
-    // Shopee/JD checkout order: title, address, items, notes, submit.
+    expect(summarySection.contains(notes)).toBe(true);
+    // Shopee/JD checkout order: title, address, items, (hidden date), submit.
     expect(
       address.compareDocumentPosition(summarySection) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      summarySection.compareDocumentPosition(notes) &
+      summarySection.compareDocumentPosition(submit) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      notes.compareDocumentPosition(submit) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // The preferred-date picker and the small print are hidden for now.
+    expect(screen.queryByTestId("checkout-preferred-date")).toBeNull();
+    expect(screen.queryByTestId("checkout-preferred-date-hint")).toBeNull();
+    expect(screen.queryByTestId("checkout-privacy-note")).toBeNull();
     // With no saved address the card invites adding one instead of shouting.
     expect(address).toHaveTextContent(/No delivery address yet/);
   });
